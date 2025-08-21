@@ -355,7 +355,6 @@ def apply_monkey_patch(
             Glm4vTextAttention.forward = ulysses_flash_attn_forward
             print("Monkey patch FlashAttention2.forward in GLM-4.1V")
         if ulysses_sp_size > 1:
-            print("Monkey patch FlashAttention2.forward in GLM-4.1V with ulysses_sp_size > 1")
             from transformers.models.glm4v.modeling_glm4v import Glm4vTextModel
 
             patch_vlm_for_ulysses_input_slicing(Glm4vTextModel)
