@@ -272,7 +272,10 @@ def main(config):
     # Ensure async training config exists
     if not hasattr(config, "async_training"):
         raise RuntimeError("must set async_training config")
+    from time import time
+    start_time = time()
     run_ppo(config, task_runner_class=FullyAsyncTaskRunner)
+    print(f"total time: {time() - start_time:.2f} seconds")
 
 
 if __name__ == "__main__":

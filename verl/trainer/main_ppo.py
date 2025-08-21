@@ -37,7 +37,10 @@ def main(config):
     Args:
         config_dict: Hydra configuration dictionary containing training parameters.
     """
+    from time import time
+    start_time = time()
     run_ppo(config)
+    print(f"total time: {time() - start_time:.2f} seconds")
 
 
 # Define a function to run the PPO-like training process
