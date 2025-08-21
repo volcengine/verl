@@ -30,7 +30,7 @@ class BaseEngine:
     Engine implementations must subclass BaseEngine and provide concrete behavior for all methods.
     """
 
-    def __init__(self, config):
+    def __init__(self):
         """
         Initialize the BaseEngine.
 
@@ -189,7 +189,7 @@ class EngineRegistry:
     _engines = {}
 
     @classmethod
-    def register(cls, key):
+    def register(cls, key : list[str] | str):
         """
         A class method decorator that registers an engine class with a given key.
 

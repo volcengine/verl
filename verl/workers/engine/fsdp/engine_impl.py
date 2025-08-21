@@ -16,7 +16,6 @@ The concrete Engine implementation using PyTorch FullyShardedDataParallel (FSDP)
 """
 
 import gc
-import itertools
 import logging
 import os
 import warnings
@@ -24,13 +23,11 @@ from typing import Callable
 
 import torch
 import torch.distributed
-from omegaconf import OmegaConf
 from peft import LoraConfig, TaskType, get_peft_model
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 from verl import DataProto
 from verl.models.transformers.monkey_patch import apply_monkey_patch
-from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.activation_offload import enable_activation_offloading
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.utils.debug import log_gpu_memory_usage
@@ -42,7 +39,6 @@ from verl.utils.device import (
     is_npu_available,
 )
 from verl.utils.flops_counter import FlopsCounter
-from verl.utils.fs import copy_to_local
 from verl.utils.fsdp_utils import (
     CPUOffloadPolicy,
     FSDPModule,
@@ -58,14 +54,14 @@ from verl.utils.fsdp_utils import (
     offload_fsdp_model_to_cpu,
     offload_fsdp_optimizer,
 )
-from verl.utils.import_utils import import_external_libs
-from verl.utils.py_functional import append_to_dict, convert_to_regular_types
-from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
-from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad_and_slice_inputs
-from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 from verl.utils.fsdp_utils import (
     fsdp_version,
 )
+from verl.utils.import_utils import import_external_libs
+from verl.utils.py_functional import append_to_dict, convert_to_regular_types
+from verl.utils.seqlen_balancing import rearrange_micro_batches
+from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad_and_slice_inputs
+from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 if is_cuda_available:
     from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
@@ -79,12 +75,11 @@ from .utils import create_device_mesh, get_sharding_strategy
 from verl.workers.config import FSDPEngineConfig, HFModelConfig
 from verl.utils.seqlen_balancing import prepare_dynamic_batch, restore_dynamic_batch
 
-
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
-
 device_name = get_device_name()
+
 
 @EngineRegistry.register(["fsdp", "fsdp2"])
 class FSDPEngine(BaseEngine):
@@ -93,6 +88,7 @@ class FSDPEngine(BaseEngine):
 
     Supports model sharding, activation/optimizer offloading, LoRA, and sequence parallelism.
     """
+
     def __init__(self, model_config: HFModelConfig, fsdp_config: FSDPEngineConfig):
         """
         Initialize the FSDPEngine.
@@ -102,6 +98,8 @@ class FSDPEngine(BaseEngine):
         Args:
             config: Configuration object with FSDP and model settings.
         """
+        super().__init__()
+
         self.model_config = model_config
         self.fsdp_config = fsdp_config
 
@@ -147,7 +145,6 @@ class FSDPEngine(BaseEngine):
         self._is_offload_optimizer = self.fsdp_config.optimizer_offload
         self._is_lora = self.model_config.lora_rank > 0
 
-
     def initialize(self):
         """
         Build the model, optimizer, and learning rate scheduler under FSDP.
@@ -177,40 +174,45 @@ class FSDPEngine(BaseEngine):
         )
 
     def _build_module(self):
-        from verl.utils.model import load_torch_module
+        from verl.utils.model import get_hf_auto_model_class
         from verl.utils.torch_dtypes import PrecisionType
-        torch_dtype = self.model_config.model_dtype
+        torch_dtype = self.fsdp_config.model_dtype
+
+        if torch_dtype is None:
+            # if it is training, we force torch_dtype to fp32
+            torch_dtype = torch.float32 if not self.fsdp_config.forward_only else torch.bfloat16
+
         torch_dtype = PrecisionType.to_dtype(torch_dtype)
 
         init_context = get_init_weight_context_manager(
-            use_meta_tensor=not model_config.tie_word_embeddings, mesh=self.device_mesh
+            use_meta_tensor=not self.model_config.hf_config.tie_word_embeddings, mesh=self.device_mesh
         )
-
 
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
 
-            module = load_torch_module(
-                self.config.model.module_type,
-                local_path,
-                torch_dtype,
-                model_config,
-                self.config.model.trust_remote_code,
+            auto_class = get_hf_auto_model_class(hf_config=self.model_config.hf_config)
+
+            module = auto_class.from_pretrained(
+                pretrained_model_name_or_path=self.model_config.local_path,
+                torch_dtype=torch_dtype,
+                config=self.model_config.hf_config,
+                trust_remote_code=self.model_config.trust_remote_code,
             )
 
-            use_liger=self.config.model.use_liger
+            use_liger = self.model_config.use_liger
             # Apply Liger kernel to the model if use_liger is set to True
             if use_liger:
                 from liger_kernel.transformers.monkey_patch import _apply_liger_kernel_to_instance
 
                 _apply_liger_kernel_to_instance(model=module)
 
-            fused_kernel_options = self.config.model.fused_kernel_options
+            fused_kernel_options = self.model_config.fused_kernel_options
             fused_kernels_backend = (
                 fused_kernel_options.get("impl_backend", None) if fused_kernel_options is not None else None
             )
 
-            use_fused_kernels = self.config.model.use_fused_kernels
+            use_fused_kernels = self.model_config.use_fused_kernels
             apply_monkey_patch(
                 model=module,
                 use_remove_padding=self.use_remove_padding,
@@ -222,34 +224,30 @@ class FSDPEngine(BaseEngine):
             # some parameters may not in torch_dtype
             module.to(torch_dtype)
 
-            if self.config.system.enable_gradient_checkpointing:
+            if self.model_config.enable_gradient_checkpointing:
                 module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
         return module
-
 
     def _build_lora_module(self, module):
         module.enable_input_require_grads()
         # Convert config to regular Python types before creating PEFT model
         lora_config = {
             "task_type": TaskType.CAUSAL_LM,
-            "r": self.config.model.lora_rank,
-            "lora_alpha": self.config.model.lora_alpha,
-            "target_modules": convert_to_regular_types(self.config.model.target_modules),
-            "exclude_modules": convert_to_regular_types(self.config.model.exclude_modules),
+            "r": self.model_config.lora_rank,
+            "lora_alpha": self.model_config.lora_alpha,
+            "target_modules": convert_to_regular_types(self.model_config.target_modules),
+            "exclude_modules": convert_to_regular_types(self.model_config.exclude_modules),
             "bias": "none",
         }
         module = get_peft_model(module, LoraConfig(**lora_config))
         return module
-
 
     def _build_fsdp_module(self, module):
         # TODO(ziheng): need to improve
         from verl.utils.torch_dtypes import PrecisionType
         from torch.distributed.fsdp import CPUOffload, MixedPrecision
 
-
-        fsdp_config = self.config.system
-        mixed_precision_config = fsdp_config.mixed_precision
+        mixed_precision_config = self.fsdp_config.mixed_precision
         if mixed_precision_config is not None:
             param_dtype = PrecisionType.to_dtype(mixed_precision_config.get("param_dtype", "bf16"))
             reduce_dtype = PrecisionType.to_dtype(mixed_precision_config.get("reduce_dtype", "fp32"))
@@ -263,15 +261,16 @@ class FSDPEngine(BaseEngine):
 
         auto_wrap_policy = get_fsdp_wrap_policy(
             module=module,
-            config=self.config.system.wrap_policy,
-            is_lora=self.config.model.lora_rank > 0,
+            config=self.fsdp_config.wrap_policy,
+            is_lora=self.model_config.lora_rank > 0,
         )
 
         fsdp_mesh = self.device_mesh
         sharding_strategy = get_sharding_strategy(fsdp_mesh)
 
+
         # Note: We force turn off CPUOffload because it causes incorrect results when using grad accumulation
-        if self.config.strategy == "fsdp":
+        if self.fsdp_config.strategy == "fsdp":
             # cpu_offload:
             # - actor: None
             # - critic: None
@@ -280,9 +279,11 @@ class FSDPEngine(BaseEngine):
             # We force reference policy to use CPUOffload to save memory.
             # We force turn off CPUOffload for actor because it causes incorrect results when using grad accumulation
             cpu_offload = None
-            if self.config.system.offload_policy:
+            if self.fsdp_config.forward_only:
                 cpu_offload = CPUOffload(offload_params=True)
-            
+                self._is_offload_param = False
+                self._is_offload_optimizer = False
+
             module = FSDP(
                 module,
                 param_init_fn=init_fn,
@@ -292,11 +293,11 @@ class FSDPEngine(BaseEngine):
                 mixed_precision=mixed_precision,
                 sync_module_states=True,
                 device_mesh=self.device_mesh,
-                forward_prefetch=self.config.system.forward_prefetch,
-                use_orig_params=self.config.system.use_orig_params,
+                forward_prefetch=self.fsdp_config.forward_prefetch,
+                use_orig_params=self.fsdp_config.use_orig_params,
                 cpu_offload=cpu_offload,
             )
-        elif self.config.strategy == "fsdp2":
+        elif self.fsdp_config.strategy == "fsdp2":
             # - actor: offload_policy
             # - critic: offload_policy
             # - ref: CPUOffloadPolicy(pin_memory=True)
@@ -305,7 +306,7 @@ class FSDPEngine(BaseEngine):
                 param_dtype=param_dtype, reduce_dtype=reduce_dtype, cast_forward_inputs=True
             )
             offload_policy = None
-            if fsdp_config.offload_policy:
+            if self.fsdp_config.offload_policy or self.fsdp_config.forward_only:
                 self._is_offload_param = False
                 self._is_offload_optimizer = False
                 offload_policy = CPUOffloadPolicy(pin_memory=True)
@@ -314,19 +315,18 @@ class FSDPEngine(BaseEngine):
                 "mesh": fsdp_mesh,
                 "mp_policy": mp_policy,
                 "offload_policy": offload_policy,
-                "reshard_after_forward": fsdp_config.reshard_after_forward,
+                "reshard_after_forward": self.fsdp_config.reshard_after_forward,
             }
             full_state = module.state_dict()
-            apply_fsdp2(module, fsdp_kwargs, fsdp_config)
+            apply_fsdp2(module, fsdp_kwargs, self.fsdp_config)
             fsdp2_load_full_state_dict(module, full_state, fsdp_mesh, offload_policy)
         else:
-            raise NotImplementedError(f"Unknown strategy {self.config.strategy}")
+            raise NotImplementedError(f"Unknown strategy {self.fsdp_config.strategy}")
 
-        if self.config.system.enable_activation_offload:
-            enable_gradient_checkpointing = self.config.model.enable_gradient_checkpointing
-            enable_activation_offloading(module, self.config.strategy, enable_gradient_checkpointing)
+        if self.model_config.enable_activation_offload:
+            enable_gradient_checkpointing = self.model_config.enable_gradient_checkpointing
+            enable_activation_offloading(module, self.fsdp_config.strategy, enable_gradient_checkpointing)
         return module
-
 
     def _build_optimizer(self, module):
         from torch import optim
@@ -337,7 +337,6 @@ class FSDPEngine(BaseEngine):
             weight_decay=self.config.optim.weight_decay,
         )
         return optimizer
-
 
     def _build_lr_scheduler(self, optimizer):
         total_steps = self.config.total_training_steps
@@ -370,11 +369,10 @@ class FSDPEngine(BaseEngine):
             raise NotImplementedError(f"Warmup style {warmup_style} is not supported")
         return lr_scheduler
 
-
-    def _build_model_optimizer(self, config):
+    def _build_model_optimizer(self):
         from verl.utils.model import print_model_size
         # Load base model with specified configuration and dtype
-        module = self._build_module(local_path, self.model_config)
+        module = self._build_module()
         # Apply LoRA adapters if low-rank adaptation is enabled
         if self._is_lora:
             module = self._build_lora_module(module)
@@ -387,9 +385,10 @@ class FSDPEngine(BaseEngine):
 
         # Wrap model with FSDP for distributed training (sharding, mixed precision, etc.)
         log_gpu_memory_usage("Before FSDP", logger=None)
-        module = self._build_fsdp_module(module)
+        fsdp_module = self._build_fsdp_module(module)
         log_gpu_memory_usage("After FSDP", logger=None)
 
+        if seklf,=
         # Initialize optimizer with model parameters and config settings
         optimizer = self._build_optimizer(module)
         # Create learning rate scheduler with warmup and decay settings
@@ -470,15 +469,12 @@ class FSDPEngine(BaseEngine):
         """
         return self.ulysses_sharding_manager.postprocess_data(data)
 
-
     def get_data_parallel_size(self):
         return torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
-
 
     def estimate_flops(self, global_num_tokens, delta_time):
         estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
         return estimated_flops, promised_flops
-
 
     def _forward_micro_batch(self, micro_batch):
         # input_ids: [bsz, seqlen]
@@ -571,9 +567,9 @@ class FSDPEngine(BaseEngine):
             return preds
 
     def forward_step(
-        self,
-        data: DataProto,
-        post_fn: Callable[[DataProto, torch.Tensor], tuple[list[torch.Tensor], dict[str, torch.Tensor]]],
+            self,
+            data: DataProto,
+            post_fn: Callable[[DataProto, torch.Tensor], tuple[list[torch.Tensor], dict[str, torch.Tensor]]],
     ) -> dict[str, torch.Tensor]:
         """
         Perform inference on a mini batch of data.
@@ -602,7 +598,7 @@ class FSDPEngine(BaseEngine):
             micro_batches, batch_idx_list = prepare_dynamic_batch(batch, max_token_len=max_token_len)
         else:
             micro_batches = batch.split(micro_batch_size)
-    
+
         preds_list = {}
         for micro_batch in micro_batches:
             assert isinstance(micro_batch, DataProto)
@@ -629,9 +625,9 @@ class FSDPEngine(BaseEngine):
         return mini_batch_preds
 
     def train_step(
-        self,
-        data: DataProto,
-        loss_fn: Callable[[DataProto, torch.Tensor], tuple[torch.Tensor, dict[str, torch.Tensor]]],
+            self,
+            data: DataProto,
+            loss_fn: Callable[[DataProto, torch.Tensor], tuple[torch.Tensor, dict[str, torch.Tensor]]],
     ) -> dict[str, torch.Tensor]:
         """
         Perform a training step on a mini-batch of data.
@@ -676,7 +672,7 @@ class FSDPEngine(BaseEngine):
             else:
                 gradient_accumulation = self.mini_bsz // self.config.train_micro_batch_size_per_gpu
                 loss = vf_loss / gradient_accumulation
-                
+
             loss.backward()
         grad_norm = self.optimizer_step()
         mini_batch_metrics["grad_norm"] = grad_norm.detach().item()
