@@ -46,15 +46,16 @@ class SingleTurnAgentLoop(AgentLoopBase):
         )
 
         with simple_timer("generate_sequences", metrics):
-            response_ids = await self.server_manager.generate(
+            output = await self.server_manager.generate(
                 request_id=request_id, prompt_ids=prompt_ids, sampling_params=sampling_params
             )
-        response_mask = [1] * len(response_ids)
+        response_mask = [1] * len(output.token_ids)
 
         output = AgentLoopOutput(
             prompt_ids=prompt_ids,
-            response_ids=response_ids[: self.response_length],
+            response_ids=output.token_ids[: self.response_length],
             response_mask=response_mask[: self.response_length],
+            response_logprobs=output.log_probs[: self.response_length] if output.log_probs else None,
             multi_modal_data={},
             num_turns=2,
             metrics=metrics,

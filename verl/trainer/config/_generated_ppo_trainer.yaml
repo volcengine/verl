@@ -67,10 +67,15 @@ actor_rollout_ref:
           contents: []
           level: level1
           analysis: true
+          discrete: false
         torch:
           _target_: verl.utils.profiler.config.TorchProfilerToolConfig
           step_start: 0
           step_end: null
+        torch_memory:
+          _target_: verl.utils.profiler.config.TorchMemoryToolConfig
+          trace_alloc_max_entries: ${oc.select:global_profiler.global_tool_config.torch_memory.trace_alloc_max_entries,100000}
+          stack_depth: ${oc.select:global_profiler.global_tool_config.torch_memory.stack_depth,32}
     grad_clip: 1.0
     ulysses_sequence_parallel_size: 1
     entropy_from_logits_with_chunking: false
@@ -96,11 +101,28 @@ actor_rollout_ref:
     profiler:
       _target_: verl.utils.profiler.ProfilerConfig
       tool: ${oc.select:global_profiler.tool,null}
-      enable: ${oc.select:actor_rollout_ref.actor.profiler.enable,false}
-      all_ranks: ${oc.select:actor_rollout_ref.actor.profiler.all_ranks,false}
-      ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
+      enable: false
+      all_ranks: false
+      ranks: []
       save_path: ${oc.select:global_profiler.save_path,null}
-      tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}
+      tool_config:
+        nsys:
+          _target_: verl.utils.profiler.config.NsightToolConfig
+          discrete: ${oc.select:global_profiler.global_tool_config.nsys.discrete}
+        npu:
+          _target_: verl.utils.profiler.config.NPUToolConfig
+          contents: []
+          level: level1
+          analysis: true
+          discrete: false
+        torch:
+          _target_: verl.utils.profiler.config.TorchProfilerToolConfig
+          step_start: 0
+          step_end: null
+        torch_memory:
+          _target_: verl.utils.profiler.config.TorchMemoryToolConfig
+          trace_alloc_max_entries: ${oc.select:global_profiler.global_tool_config.torch_memory.trace_alloc_max_entries,100000}
+          stack_depth: ${oc.select:global_profiler.global_tool_config.torch_memory.stack_depth,32}
     model: null
     fsdp_config:
       _target_: verl.workers.config.FSDPEngineConfig
@@ -307,7 +329,24 @@ critic:
     all_ranks: false
     ranks: []
     save_path: ${oc.select:global_profiler.save_path,null}
-    tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}
+    tool_config:
+      nsys:
+        _target_: verl.utils.profiler.config.NsightToolConfig
+        discrete: ${oc.select:global_profiler.global_tool_config.nsys.discrete}
+      npu:
+        _target_: verl.utils.profiler.config.NPUToolConfig
+        contents: []
+        level: level1
+        analysis: true
+        discrete: false
+      torch:
+        _target_: verl.utils.profiler.config.TorchProfilerToolConfig
+        step_start: 0
+        step_end: null
+      torch_memory:
+        _target_: verl.utils.profiler.config.TorchMemoryToolConfig
+        trace_alloc_max_entries: ${oc.select:global_profiler.global_tool_config.torch_memory.trace_alloc_max_entries,100000}
+        stack_depth: ${oc.select:global_profiler.global_tool_config.torch_memory.stack_depth,32}
   forward_micro_batch_size: ${oc.select:.ppo_micro_batch_size,null}
   forward_micro_batch_size_per_gpu: ${oc.select:.ppo_micro_batch_size_per_gpu,null}
   ulysses_sequence_parallel_size: 1
@@ -423,6 +462,12 @@ global_profiler:
         capture-range: cudaProfilerApi
         capture-range-end: null
         kill: none
+    torch_memory:
+      trace_alloc_max_entries: 100000
+      stack_depth: 32
+      context: all
+      stacks: all
+      kw_args: {}
 ray_kwargs:
   ray_init:
     num_cpus: null
