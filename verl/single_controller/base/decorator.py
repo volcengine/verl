@@ -70,15 +70,16 @@ init_predefined_execute_mode()
 
 def _split_args_kwargs_data_proto(chunks, *args, **kwargs):
     from verl.protocol import DataProto, DataProtoFuture
+    from verl.protocol_dist import DistDataProto
 
     splitted_args = []
     for arg in args:
-        assert isinstance(arg, DataProto | DataProtoFuture)
+        assert isinstance(arg, DataProto | DataProtoFuture | DistDataProto)
         splitted_args.append(arg.chunk(chunks=chunks))
 
     splitted_kwargs = {}
     for key, val in kwargs.items():
-        assert isinstance(val, DataProto | DataProtoFuture)
+        assert isinstance(val, DataProto | DataProtoFuture | DistDataProto)
         splitted_kwargs[key] = val.chunk(chunks=chunks)
 
     return splitted_args, splitted_kwargs
@@ -86,14 +87,15 @@ def _split_args_kwargs_data_proto(chunks, *args, **kwargs):
 
 def _split_args_kwargs_data_proto_with_auto_padding(chunks, *args, **kwargs):
     from verl.protocol import DataProto, DataProtoFuture
+    from verl.protocol_dist import DistDataProto
 
     data_proto_len = None
     padding_size = None
 
     def _padding_and_split_data(obj, chunks):
         nonlocal data_proto_len, padding_size
-        assert isinstance(obj, DataProto | DataProtoFuture)
-        if isinstance(obj, DataProto) and obj.is_padding_enabled():
+        assert isinstance(obj, DataProto | DataProtoFuture | DistDataProto)
+        if (isinstance(obj, DataProto) or isinstance(obj, DistDataProto)) and obj.is_padding_enabled():
             # for padding, we only support DataProto with same length
             if data_proto_len is None:
                 data_proto_len = len(obj)
@@ -135,6 +137,7 @@ def _concat_data_proto_or_future(output: list):
     import ray
 
     from verl.protocol import DataProto, DataProtoFuture
+    from verl.protocol_dist import DistDataProto
 
     # make sure all the elements in output has the same type
     for o in output:
@@ -144,6 +147,8 @@ def _concat_data_proto_or_future(output: list):
 
     if isinstance(o, DataProto):
         return DataProto.concat(output)
+    elif isinstance(o, DistDataProto):
+        return DistDataProto.concat(output)
     elif isinstance(o, ray.ObjectRef):
         return DataProtoFuture.concat(output)
     else:
@@ -260,9 +265,10 @@ def collect_nd_compute_dataproto(collect_mask: list[bool], worker_group, output)
     import ray
 
     from verl.protocol import DataProto
+    from verl.protocol_dist import DistDataProto
 
     for o in output:
-        assert isinstance(o, DataProto | ray.ObjectRef), f"expecting {o} to be DataProto, but got {type(o)}"
+        assert isinstance(o, DataProto | ray.ObjectRef | DistDataProto), f"expecting {o} to be DataProto or DistDataProto, but got {type(o)}"
     return _concat_data_proto_or_future(output)
 
 

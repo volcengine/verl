@@ -1,0 +1,132 @@
+# defaults specify the default config from each component
+defaults:
+
+  # dp actor config, inheriting from trainer/config/critic/critic.yaml
+  - critic
+
+  # load the reference default config, then apply the fields in the current yaml
+  - _self_
+
+# Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+_target_: verl.workers.config.McoreCriticConfig
+
+strategy: megatron
+
+# seconds, default is 10 minutes for torch, you can set it to a larger value if you have long-running operations like 32B or 72B model using megatron
+nccl_timeout: 600
+
+# optimizer configs
+optim:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.workers.config.McoreOptimizerConfig
+
+  # select optimizer, default is Adam
+  optimizer: adam
+
+  # Clip gradients norm
+  clip_grad: 1.0
+
+  # initial learning rate for warmup, default to 0.0
+  lr_warmup_init: 0.0
+
+  lr_decay_steps: null
+
+  # select from constant/linear/cosine/inverse_square_root
+  lr_decay_style: linear
+
+  # minimum learning rate, default to 0.0
+  min_lr: 0.0
+
+  # select from constant/linear/cosine
+  weight_decay_incr_style: constant
+
+  # select from constant/exponential/cosine
+  lr_wsd_decay_style: exponential
+
+  # number of steps for weight std decay
+  lr_wsd_decay_steps: null
+
+  # use checkpoint optimizer parameter scheduler
+  use_checkpoint_opt_param_scheduler: False
+
+  # override optimizer config, e.g. enable cpu adam
+  override_optimizer_config: {}
+
+# model config for the critic
+model:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.trainer.config.BaseModelConfig
+
+  # override default empty mapping
+  override_config:
+
+    model_config: {}
+
+    moe_config:
+
+      freeze_moe_router: False
+
+# megatron-specific parallelism settings
+megatron:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.workers.config.McoreEngineConfig
+
+  # Whether to offload model parameters to CPU
+  param_offload: False
+
+  # Whether to offload gradients to CPU
+  grad_offload: False
+
+  # Whether to offload optimizer state to CPU
+  optimizer_offload: False
+
+  # size of tensor model parallel group
+  tensor_model_parallel_size: 1
+
+  # size of expert model parallel group
+  expert_model_parallel_size: 1
+
+  # size of expert tensor parallel group
+  expert_tensor_parallel_size: null
+
+  # size of pipeline model parallel group
+  pipeline_model_parallel_size: 1
+
+  # size of virtual pipeline model parallel group
+  virtual_pipeline_model_parallel_size: null
+
+  # size of context parallel group
+  context_parallel_size: 1
+
+  # Whether to use sequence parallelism
+  sequence_parallel: True
+
+  # Whether to use distributed optimizer
+  use_distributed_optimizer: True
+
+  # Whether to use distributed checkpointing
+  use_dist_checkpointing: False
+
+  # Path for distributed checkpointing
+  dist_checkpointing_path: null
+
+  # Random seed for Megatron
+  seed: ${oc.select:actor_rollout_ref.actor.megatron.seed,42}
+
+  # Allow to override Distributed Data Parallel (DDP) config
+  override_ddp_config: ${oc.select:actor_rollout_ref.actor.megatron.override_ddp_config,{}}
+
+  # Transformer config overrides for Megatron
+  override_transformer_config: ${oc.select:actor_rollout_ref.actor.megatron.override_transformer_config,{}}
+
+  # Whether to use mBridge communications
+  use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
+
+# Whether to load initial weights
+load_weight: True
+
+# seed for data loader
+data_loader_seed: ${oc.select:actor_rollout_ref.actor.data_loader_seed,null}
