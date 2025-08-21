@@ -220,6 +220,7 @@ def forward_with_torch_backend(
     **loss_kwargs,
 ) -> tuple | Glm4vCausalLMOutputForPPO:
     from verl.utils.experimental.torch_functional import FusedLinearForPPO
+
     outputs = forward_base_model(
         self,
         input_ids=input_ids,
@@ -294,6 +295,7 @@ def forward_with_triton_backend(
     **loss_kwargs,
 ) -> tuple | Glm4vCausalLMOutputForPPO:
     from verl.utils.kernel.linear_cross_entropy import linear_cross_entropy
+
     outputs = forward_base_model(
         self,
         input_ids=input_ids,
