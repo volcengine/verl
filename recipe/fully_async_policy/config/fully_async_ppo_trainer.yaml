@@ -11,7 +11,8 @@ defaults:
 async_training:
   # 新鲜度控制 (Freshness Control)
   staleness_threshold: 3              # 样本新鲜度阈值
-  trigger_parameter_sync_step: 32      # >=1 train 每次训练一个batch, 迭代多少次后触发更新
+  trigger_parameter_sync_step: 1      # >=1 train 每次训练一个batch, 迭代多少次后触发更新
+  partial_rollout: True              # 同步参数时，是否中断 rollout
 
 # Rollout配置
 rollout:

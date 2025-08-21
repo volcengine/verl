@@ -18,7 +18,7 @@ import os
 import random
 import time
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Optional
 
 import hydra
 import numpy as np
@@ -104,6 +104,15 @@ class AsyncLLMServerManager:
         )
         return output
 
+    async def generate_for_partial(self, request_id, prompt_ids, sampling_params):
+        server = self._choose_server(request_id)
+        output = await server.generate_for_partial.remote(
+            request_id=request_id,
+            prompt_ids=prompt_ids,
+            sampling_params=sampling_params,
+        )
+        return output
+
 
 class AgentLoopMetrics(BaseModel):
     """Agent loop performance metrics."""
@@ -125,6 +134,8 @@ class AgentLoopOutput(BaseModel):
     """Number of chat turns, including user, assistant, tool."""
     metrics: AgentLoopMetrics
     """Auxiliary performance metrics"""
+    is_cancel: bool = False
+    """Indicates whether the request was interrupted"""
 
 
 # make hydra.utils.instantiate happy
@@ -169,12 +180,15 @@ class AgentLoopBase(ABC):
         cls._class_initialized = True
 
     @abstractmethod
-    async def run(self, messages: list[dict[str, Any]], sampling_params: dict[str, Any]) -> AgentLoopOutput:
+    async def run(
+        self, messages: list[dict[str, Any]], sampling_params: dict[str, Any], partial_output: Optional[AgentLoopOutput]
+    ) -> AgentLoopOutput:
         """Run agent loop to interact with LLM server and environment.
 
         Args:
             messages (List[Dict[str, Any]]): Input messages.
             sampling_params (Dict[str, Any]): LLM sampling params.
+            partial_output: Optional[AgentLoopOutput]: already rollout result.
 
         Returns:
             AgentLoopOutput: Agent loop output.
@@ -368,11 +382,14 @@ class AgentLoopWorker:
         output = postprocess_agent_loop_outputs(outputs, self.tokenizer, self.config)
         return output
 
-    async def generate_sequences_no_post(self, batch: DataProto) -> list[AgentLoopOutput]:
+    async def generate_sequences_no_post(
+        self, batch: DataProto, partial_output: Optional[AgentLoopOutput]
+    ) -> list[AgentLoopOutput]:
         """Generate sequences from agent loop.
 
         Args:
             batch (DataProto): Input batch.
+            partial_output: Optional[AgentLoopOutput]: already rollout result.
 
         Returns:
             list[AgentLoopOutput]: List of agent loop outputs, one per sample in the batch.
@@ -413,7 +430,9 @@ class AgentLoopWorker:
 
         for agent_name, messages, trajectory in zip(agent_names, raw_prompts, trajectory_info, strict=True):
             tasks.append(
-                asyncio.create_task(self._run_agent_loop(agent_name, messages.tolist(), sampling_params, trajectory))
+                asyncio.create_task(
+                    self._run_agent_loop(agent_name, messages.tolist(), sampling_params, trajectory, partial_output)
+                )
             )
         outputs = await asyncio.gather(*tasks)
 
@@ -425,6 +444,7 @@ class AgentLoopWorker:
         messages: list[dict[str, Any]],
         sampling_params: dict[str, Any],
         trajectory: dict[str, Any],
+        partial_output: Optional[AgentLoopOutput],
     ) -> AgentLoopOutput:
         with rollout_trace_attr(
             step=trajectory["step"],
@@ -444,7 +464,7 @@ class AgentLoopWorker:
                 server_manager=self.server_manager,
                 tokenizer=self.tokenizer,
             )
-            output = await agent_loop.run(messages, sampling_params)
+            output = await agent_loop.run(messages, sampling_params, partial_output)
             return output
 
 
@@ -582,13 +602,15 @@ class AgentLoopManager:
         output.meta_info = {"timing": timing}
         return output
 
-    async def generate_single_sample_async(self, sample: DataProto, sample_id: str) -> tuple[AgentLoopOutput, float]:
+    async def generate_single_sample_async(
+        self, sample: DataProto, partial_output: Optional[AgentLoopOutput]
+    ) -> tuple[AgentLoopOutput, float]:
         """
         异步处理单个样本 - 用于流式推理的核心方法
 
         Args:
             sample: 单个样本数据
-            sample_id: 样本ID
+            partial_output: Optional[AgentLoopOutput]: already rollout result.
 
         Returns:
             tuple[AgentLoopOutput, float]: 处理结果和处理时间
@@ -599,7 +621,7 @@ class AgentLoopManager:
         worker = self._select_best_worker()
 
         # 异步处理单个样本 - 使用无后处理版本获取原始AgentLoopOutput
-        output_future = worker.generate_sequences_no_post.remote(sample)
+        output_future = worker.generate_sequences_no_post.remote(sample, partial_output)
         outputs = await asyncio.wrap_future(output_future.future())
 
         processing_time = time.time() - start_time
@@ -651,3 +673,8 @@ class AgentLoopManager:
     def sleep(self):
         """Sleep all rollout server instances."""
         ray.get([server.sleep.remote() for server in self.async_llm_servers])
+
+    async def cancel_async(self):
+        """Cancel all rollout tasks asynchronously."""
+        futures = [server.cancel.remote() for server in self.async_llm_servers]
+        await asyncio.gather(*[asyncio.wrap_future(future.future()) for future in futures], return_exceptions=True)
