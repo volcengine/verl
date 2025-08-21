@@ -110,10 +110,9 @@ class BaseEngine:
             current_lr (float or list[float]): Updated learning rate(s).
         """
         raise NotImplementedError
-    
+
     def get_data_parallel_size(self):
         raise NotImplementedError
-
 
     def estimate_flops(self, global_num_tokens, delta_time):
         raise NotImplementedError
@@ -189,7 +188,7 @@ class EngineRegistry:
     _engines = {}
 
     @classmethod
-    def register(cls, key : list[str] | str):
+    def register(cls, key: list[str] | str):
         """
         A class method decorator that registers an engine class with a given key.
 

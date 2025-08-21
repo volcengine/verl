@@ -37,7 +37,7 @@ class HFModelConfig(BaseConfig):
         "tokenizer",
         "processor",
         "local_path",
-        "architectures"
+        "architectures",
     }
 
     path: str = MISSING

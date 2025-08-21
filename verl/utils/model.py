@@ -659,7 +659,6 @@ def load_valuehead_model(local_path, torch_dtype, model_config, trust_remote_cod
 
 
 def load_torch_module(module_type, local_path, torch_dtype, model_config, trust_remote_code):
-
     _MODULE_TYPE_DICT = {
         "causal_lm": AutoModelForCausalLM,
         "token_classification": AutoModelForTokenClassification,
@@ -678,16 +677,17 @@ def load_torch_module(module_type, local_path, torch_dtype, model_config, trust_
 
 
 def get_hf_auto_model_class(hf_config):
-    from transformers import (AutoConfig, AutoModel, AutoModelForCausalLM, AutoModelForVision2Seq,
-                              AutoModelForTokenClassification)
+    from transformers import (
+        AutoModel,
+        AutoModelForCausalLM,
+        AutoModelForVision2Seq,
+    )
 
     has_remote_code = hasattr(hf_config, "auto_map") and any(
         hf_config.architectures[0] in val for val in hf_config.auto_map.values()
     )
     if has_remote_code:
-        auto_class = next(
-            k for k, v in hf_config.auto_map.items() if hf_config.architectures[0] in v
-        )
+        auto_class = next(k for k, v in hf_config.auto_map.items() if hf_config.architectures[0] in v)
         match auto_class:
             case "AutoModelForVision2Seq":
                 actor_module_class = AutoModelForVision2Seq
