@@ -447,8 +447,6 @@ class SGLangRollout(BaseRollout):
         is_server_mode = self.config.sglang_rollout_mode == "server"
         effective_first = first_rank_in_node or is_server_mode
 
-        print(self.config)
-
         if effective_first:
             rank = dist.get_rank()
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"

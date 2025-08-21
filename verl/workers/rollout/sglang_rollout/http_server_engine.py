@@ -136,7 +136,7 @@ def launch_server_process(
     """
     p = multiprocessing.Process(target=launch_server, args=(server_args,))
     if server_args.node_rank != 0 or not first_rank_in_node:
-        print(f"Server process started with PID {p.pid} for node rank {server_args.node_rank}", flush=True)
+        logger.info(f"Server process started with PID {p.pid} for node rank {server_args.node_rank}", flush=True)
         return p
 
     p.start()
@@ -652,8 +652,6 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
             return {}
 
         url = f"http://{self.server_args.host}:{self.server_args.port}/{endpoint}"
-
-        # print(f"Making async request to {url} with method {method} and payload {payload}", flush=True)
 
         for attempt in range(self.max_attempts):
             try:
