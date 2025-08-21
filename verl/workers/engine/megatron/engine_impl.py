@@ -136,27 +136,25 @@ class MegatronEngine(BaseEngine):
             override_ddp_config=self.engine_config.override_ddp_config,
         )
         print(f"actor_module: {len(module)}")
-        if self.config.actor.load_weight:
-            if self.engine_config.use_dist_checkpointing:
-                load_mcore_dist_weights(
-                    module, self.engine_config.dist_checkpointing_path, is_value_model=is_value_model
-                )
-            else:
-                if self.bridge is not None:
-                    self.bridge.load_weights(module, self.model_config.local_path)
-                else:
-                    # (vermouth1992) this is a workaround to be compatible with the old API
-                    tmp_config = OmegaConf.create(
-                        {"model": {"path": self.model_config.local_path, "use_shm": self.model_config.use_shm}}
-                    )
 
-                    load_megatron_gptmodel_weights(
-                        tmp_config,
-                        self.model_config.hf_config,
-                        module,
-                        params_dtype=self.dtype,
-                        is_value_model=is_value_model,
-                    )
+        if self.engine_config.use_dist_checkpointing:
+            load_mcore_dist_weights(module, self.engine_config.dist_checkpointing_path, is_value_model=is_value_model)
+        else:
+            if self.bridge is not None:
+                self.bridge.load_weights(module, self.model_config.local_path)
+            else:
+                # (vermouth1992) this is a workaround to be compatible with the old API
+                tmp_config = OmegaConf.create(
+                    {"model": {"path": self.model_config.local_path, "use_shm": self.model_config.use_shm}}
+                )
+
+                load_megatron_gptmodel_weights(
+                    tmp_config,
+                    self.model_config.hf_config,
+                    module,
+                    params_dtype=self.dtype,
+                    is_value_model=is_value_model,
+                )
 
         if torch.distributed.get_rank() == 0:
             print_model_size(module[0])
