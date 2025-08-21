@@ -1,6 +1,6 @@
 set -x
 ENGINE=${1:-vllm}
-
+export RAY_DEBUG=legacy
 export USE_OPTIMIZED_MODEL=0
 
 python3 -m verl.trainer.main_ppo \
