@@ -21,15 +21,9 @@ import asyncio
 import logging
 import os
 
-import torch.distributed as dist
 from omegaconf import DictConfig
 from sglang.srt.entrypoints.engine import Engine
-from sglang.srt.model_executor.model_runner import LocalSerializedTensor
-
-try:
-    from sglang.srt.utils import TorchPatchMultiprocessingSerializer as MultiprocessingSerializer
-except ImportError:
-    from sglang.srt.utils import MultiprocessingSerializer
+from sglang.srt.weight_sync.utils import update_weights as sgl_update_weights
 from torch import nn
 from torch.distributed.device_mesh import DeviceMesh
 
@@ -40,6 +34,7 @@ from verl.utils.megatron_utils import (
     offload_megatron_model_to_cpu,
     per_tensor_generator,
 )
+from verl.utils.memory_utils import aggressive_empty_cache
 from verl.utils.profiler import GPUMemoryLogger, log_gpu_memory_usage, simple_timer
 from verl.workers.rollout.sglang_rollout.utils import get_named_tensor_buckets
 
@@ -107,7 +102,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         self.offload_param = offload_param
 
         if self.device_mesh is not None:
-            self.infer_tp_size = self.device_mesh["tp"].mesh.size()[0]
+            self.infer_tp_size = self.device_mesh["infer_tp"].mesh.size()[0]
         else:
             self.infer_tp_size = self.inference_engine._tp_size
 
@@ -147,73 +142,32 @@ class MegatronSGLangShardingManager(BaseShardingManager):
             - Main logic: https://github.com/THUDM/slime/blob/fb7605cc5fb09af0f9369d37f7192f12bddee577/slime/ray/ppo_actor.py#L452
             - runtime envs: https://github.com/THUDM/slime/blob/fb7605cc5fb09af0f9369d37f7192f12bddee577/slime/ray/ppo_actor.py#L39
         """
-        if self.device_mesh["tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
+        if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
             await self.inference_engine.resume_memory_occupation()
         named_tensors = params
-        load_format = None
 
         update_weights_bucket_bytes = int(self.rollout_config.update_weights_bucket_megabytes) << 20
-        for batch in get_named_tensor_buckets(named_tensors, update_weights_bucket_bytes):
-            # On each rank, serialize a batch of (name, tensor) tuples.
-            # named_tensors_batch will be a list like:
-            # [(name0, serialized_tensor0_tp0), (name1, serialized_tensor1_tp0), ...]
-            named_tensors_batch = [
-                (name, MultiprocessingSerializer.serialize(tensor.detach())) for name, tensor in batch
-            ]
-
-            if self.device_mesh["tp"].get_local_rank() == 0:
-                # On rank 0, prepare a list to hold the gathered batches from all ranks.
-                gathered_serialized_batches = [None for _ in range(self.device_mesh["tp"].mesh.size()[0])]
-            else:
-                gathered_serialized_batches = None
-
-            # Gather the named_tensors_batch from all ranks to rank 0.
-            # After this, on rank 0, gathered_serialized_batches will be a list of lists:
-            # [ [ (name0, s_t0_tp0), (name1, s_t1_tp0), ... ],  # batch from TP rank 0
-            #   [ (name0, s_t0_tp1), (name1, s_t1_tp1), ... ],  # batch from TP rank 1
-            #   ... ]
-            # On other ranks, gathered_serialized_batches will be None.
-            dist.gather_object(
-                obj=named_tensors_batch,
-                object_gather_list=gathered_serialized_batches,
-                dst=self.device_mesh["tp"].mesh.tolist()[0],
-                group=self.device_mesh["tp"].get_group(),
+        for params_batch in get_named_tensor_buckets(named_tensors, update_weights_bucket_bytes):
+            await sgl_update_weights(
+                engine=self.inference_engine,
+                params_batch=params_batch,
+                device_mesh_key="infer_tp",
+                device_mesh=self.device_mesh,
             )
 
-            if self.device_mesh["tp"].get_local_rank() == 0:
-                # Use zip(*) to "transpose" the data structure.
-                # This groups the serialized parts for each individual tensor across all TP ranks.
-                # Example: from [[(n0, t0_tp0), (n1, t1_tp0)], [(n0, t0_tp1), (n1, t1_tp1)]]
-                # to [ ( (n0, t0_tp0), (n0, t0_tp1) ), ( (n1, t1_tp0), (n1, t1_tp1) ) ]
-                logical_tensors = zip(*gathered_serialized_batches, strict=False)
-                await self.inference_engine.update_weights_from_tensor(
-                    named_tensors=[
-                        # 'tensor_group' represents a single logical tensor's data from all ranks.
-                        (
-                            tensor_group[0][0],  # Get the name from the first rank's data.
-                            LocalSerializedTensor(
-                                # 'rank_part' is the (name, serialized_tensor) tuple from one specific rank.
-                                values=[rank_part[1] for rank_part in tensor_group]
-                            ),
-                        )
-                        for tensor_group in logical_tensors
-                        # each tensor_group is like ( (n0, t0_tp0), (n0, t0_tp1) )
-                    ],
-                    load_format=load_format,
-                    flush_cache=False,
-                )
-
-        if self.device_mesh["tp"].get_local_rank() == 0:
+        if self.device_mesh["infer_tp"].get_local_rank() == 0:
             await self.inference_engine.flush_cache()
 
     async def release_memory(self):
-        if self.device_mesh["tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
+        if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
             await self.inference_engine.release_memory_occupation()
 
     @GPUMemoryLogger(role="MegatronSGLangShardingManager enter", logger=logger)
     async def wake_up(self):
+        aggressive_empty_cache(force_sync=True)
+
         if self.offload_param:
-            load_megatron_model_to_gpu(self.actor_module)
+            load_megatron_model_to_gpu(self.actor_module, load_grad=False)
         if self.bridge is not None:
             per_tensor_param = self.bridge.export_weights(self.actor_module)
         else:
@@ -227,7 +181,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         await self.update_weights(per_tensor_param)
         if self.offload_param:
             offload_megatron_model_to_cpu(self.actor_module)
-        get_torch_device().empty_cache()
+        aggressive_empty_cache(force_sync=True)
         # important: need to manually set the random states of each tp to be identical.
         if self.device_mesh is not None:
             self.torch_random_states = get_torch_device().get_rng_state()
@@ -243,7 +197,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         for model in self.actor_module:
             model.train()
         # add empty cache after each compute
-        get_torch_device().empty_cache()
+        aggressive_empty_cache(force_sync=True)
 
         # restore random states
         if self.device_mesh is not None:
@@ -255,7 +209,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         # DP_COMPUTE_PROTO: all training ranks are dp, the same as fsdp
         if self.infer_tp_size == 1:
             return data
-        all_gather_data_proto(data, self.device_mesh["tp"].get_group())
+        all_gather_data_proto(data, self.device_mesh["infer_tp"].get_group())
         return data
 
     @GPUMemoryLogger(role="megatron sglang sharding_manager", logger=logger)
@@ -263,4 +217,4 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         # DP_COMPUTE_PROTO: all training ranks are dp, the same as fsdp
         if self.infer_tp_size == 1:
             return data
-        return data.chunk(chunks=self.infer_tp_size)[self.device_mesh["tp"].get_local_rank()]
+        return data.chunk(chunks=self.infer_tp_size)[self.device_mesh["infer_tp"].get_local_rank()]

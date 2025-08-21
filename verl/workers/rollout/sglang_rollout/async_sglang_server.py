@@ -14,14 +14,14 @@
 # limitations under the License.
 import asyncio
 import logging
-from typing import Any
+from typing import Any, Optional
 
 import ray
 from omegaconf import DictConfig
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from verl.workers.rollout.async_server import AsyncServerBase
+from verl.workers.rollout.async_server import AsyncServerBase, TokenOutput
 
 logger = logging.getLogger(__file__)
 
@@ -75,8 +75,14 @@ class AsyncSGLangServer(AsyncServerBase):
         [outputs] = await asyncio.gather(output_future)
         return JSONResponse(outputs)
 
-    async def generate(self, prompt_ids: list[int], sampling_params: dict[str, Any], request_id: str) -> list[int]:
-        return await self.master_worker.generate.remote(prompt_ids, sampling_params, request_id)
+    async def generate(
+        self,
+        prompt_ids: list[int],
+        sampling_params: dict[str, Any],
+        request_id: str,
+        image_data: Optional[list[Any]] = None,
+    ) -> TokenOutput:
+        return await self.master_worker.generate.remote(prompt_ids, sampling_params, request_id, image_data=image_data)
 
     async def wake_up(self):
         if not self.config.rollout.free_cache_engine:

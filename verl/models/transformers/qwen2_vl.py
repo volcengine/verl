@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import inspect
+import logging
 import os
 from dataclasses import dataclass
 from typing import Optional
@@ -25,6 +26,10 @@ from transformers.models.qwen2_vl.modeling_qwen2_vl import (
 )
 from transformers.utils import is_flash_attn_greater_or_equal
 
+from verl.models.transformers.monkey_patch import is_transformers_version_in_range
+
+# Import compatibility wrapper for flash_attn_supports_top_left_mask
+from verl.utils.transformers_compat import flash_attn_supports_top_left_mask
 from verl.utils.ulysses import (
     gather_heads_scatter_seq,
     gather_seq_scatter_heads,
@@ -32,12 +37,25 @@ from verl.utils.ulysses import (
     validate_ulysses_config,
 )
 
+logger = logging.getLogger(__file__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
+
 try:
     from transformers.modeling_flash_attention_utils import flash_attn_func, flash_attn_varlen_func
 
     _flash_supports_window_size = "window_size" in list(inspect.signature(flash_attn_func).parameters)
 except ImportError:
-    flash_attn_varlen_func = None
+    # Fallback: try to import from flash_attn package directly
+    flash_attn_func = None
+    _flash_supports_window_size = None
+    try:
+        from flash_attn import flash_attn_varlen_func
+    except ImportError:
+        # If flash_attn is not available, set it to None
+        flash_attn_varlen_func = None
+        logger.warning(
+            "flash_attn_varlen_func not available. Variable length attention will fall back to standard attention."
+        )
 
 
 def get_rope_index(
@@ -187,7 +205,12 @@ def flash_attention_forward(
             deterministic = os.environ.get("FLASH_ATTENTION_DETERMINISTIC", "0") == "1"
         flash_kwargs["deterministic"] = deterministic
 
-    if position_ids is not None and query_length != 1 and not (torch.diff(position_ids[0], dim=-1) >= 0).all():
+    if (
+        flash_attn_varlen_func is not None
+        and position_ids is not None
+        and query_length != 1
+        and not (torch.diff(position_ids[0], dim=-1) >= 0).all()
+    ):
         batch_size = query_states.size(0)
         query_states, key_states, value_states, _, cu_seq_lens, max_seq_lens = prepare_fa2_from_position_ids(
             query_states, key_states, value_states, position_ids[0]
@@ -209,6 +232,16 @@ def flash_attention_forward(
         )
         attn_output = attn_output.view(batch_size, -1, attn_output.size(-2), attn_output.size(-1))
     else:
+        if (
+            flash_attn_varlen_func is None
+            and position_ids is not None
+            and query_length != 1
+            and not (torch.diff(position_ids[0], dim=-1) >= 0).all()
+        ):
+            logger.warning_once(
+                "flash_attn_varlen_func is not available; falling back to _flash_attention_forward."
+                "This may be suboptimal for non-monotonic position_ids in VLM mRoPE."
+            )
         attn_output = _flash_attention_forward(
             query_states,
             key_states,
@@ -217,10 +250,10 @@ def flash_attention_forward(
             query_length,
             is_causal=is_causal,
             sliding_window=sliding_window,
-            use_top_left_mask=use_top_left_mask,
+            use_top_left_mask=flash_attn_supports_top_left_mask(),
             deterministic=deterministic,
             **kwargs,
-        )  # do not pass position_ids to old flash_attention_forward
+        )
 
     return attn_output
 
@@ -293,7 +326,7 @@ def ulysses_flash_attn_forward(
         dropout=dropout_rate,
         sliding_window=sliding_window,
         is_causal=self.is_causal,
-        use_top_left_mask=self._flash_attn_uses_top_left_mask,
+        use_top_left_mask=flash_attn_supports_top_left_mask(),
         position_ids=position_ids,  # important: pass position ids
     )  # (batch_size, seq_length, num_head / sp_size, head_size)
     if ulysses_sp_size > 1:
@@ -301,7 +334,10 @@ def ulysses_flash_attn_forward(
 
     attn_output = attn_output.reshape(bsz, q_len, self.hidden_size).contiguous()
     attn_output = self.o_proj(attn_output)
-    return attn_output, None, None
+    if is_transformers_version_in_range(min_version="4.53.0"):
+        return attn_output, None
+    else:
+        return attn_output, None, None
 
 
 @dataclass

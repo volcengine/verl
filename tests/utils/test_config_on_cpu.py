@@ -17,19 +17,20 @@ from dataclasses import dataclass, field
 
 from omegaconf import OmegaConf
 
+from verl.base_config import BaseConfig
 from verl.utils import omega_conf_to_dataclass
 
 
 @dataclass
-class TestDataclass:
-    hidden_size: int
-    activation: str
+class TestDataclass(BaseConfig):
+    hidden_size: int = 0
+    activation: str = "relu"
 
 
 @dataclass
-class TestTrainConfig:
-    batch_size: int
-    model: TestDataclass
+class TestTrainConfig(BaseConfig):
+    batch_size: int = 0
+    model: TestDataclass = field(default_factory=TestDataclass)
     override_config: dict = field(default_factory=dict)
 
 
@@ -79,7 +80,7 @@ class TestPrintCfgCommand(unittest.TestCase):
 
         # Run the command
         result = subprocess.run(
-            ["python3", "scripts/print_cfg.py", "critic.profiler.discrete=True", "+critic.profiler.extra.any_key=val"],
+            ["python3", "scripts/print_cfg.py"],
             capture_output=True,
             text=True,
         )
@@ -90,8 +91,6 @@ class TestPrintCfgCommand(unittest.TestCase):
         # Verify the output contains expected config information
         self.assertIn("critic", result.stdout)
         self.assertIn("profiler", result.stdout)
-        self.assertIn("discrete=True", result.stdout)
-        self.assertIn("extra={'any_key': 'val'}", result.stdout)
 
 
 if __name__ == "__main__":

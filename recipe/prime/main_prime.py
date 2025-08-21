@@ -31,6 +31,7 @@ Note that we don't combine the main with ray_trainer as ray_trainer is used by o
 
 import hydra
 import ray
+from omegaconf import OmegaConf
 
 from .prime_ray_trainer import RayPRIMETrainer
 
@@ -42,11 +43,14 @@ def main(config):
 
 def run_prime(config, compute_score=None):
     if not ray.is_initialized():
+        default_runtime_env = {"env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN"}}
+        ray_init_kwargs = config.ray_kwargs.get("ray_init", {})
+        runtime_env_kwargs = ray_init_kwargs.get("runtime_env", {})
+        runtime_env = OmegaConf.merge(default_runtime_env, runtime_env_kwargs)
+        ray_init_kwargs = OmegaConf.create({**ray_init_kwargs, "runtime_env": runtime_env})
+        print(f"ray init kwargs: {ray_init_kwargs}")
         # this is for local ray cluster
-        ray.init(
-            runtime_env={"env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN"}},
-            num_cpus=config.ray_init.num_cpus,
-        )
+        ray.init(**OmegaConf.to_container(ray_init_kwargs))
 
     ray.get(main_task.remote(config, compute_score))
 
@@ -81,10 +85,10 @@ def main_task(config, compute_score=None):
 
     elif config.actor_rollout_ref.actor.strategy == "megatron":
         assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
-        from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
+        from verl.single_controller.ray import RayWorkerGroup
         from verl.workers.megatron_workers import ActorRolloutRefWorker
 
-        ray_worker_group_cls = NVMegatronRayWorkerGroup
+        ray_worker_group_cls = RayWorkerGroup
 
     else:
         raise NotImplementedError
