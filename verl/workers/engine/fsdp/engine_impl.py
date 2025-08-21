@@ -88,11 +88,11 @@ class FSDPEngine(BaseEngine):
     """
 
     def __init__(
-            self,
-            model_config: HFModelConfig,
-            engine_config: FSDPEngineConfig,
-            optimizer_config: FSDPOptimizerConfig,
-            checkpoint_config: CheckpointConfig,
+        self,
+        model_config: HFModelConfig,
+        engine_config: FSDPEngineConfig,
+        optimizer_config: FSDPOptimizerConfig,
+        checkpoint_config: CheckpointConfig,
     ):
         """
         Initialize the FSDPEngine.
@@ -571,9 +571,9 @@ class FSDPEngine(BaseEngine):
             return preds
 
     def forward_step(
-            self,
-            data: DataProto,
-            post_fn: Callable[[DataProto, torch.Tensor], tuple[list[torch.Tensor], dict[str, torch.Tensor]]],
+        self,
+        data: DataProto,
+        post_fn: Callable[[DataProto, torch.Tensor], tuple[list[torch.Tensor], dict[str, torch.Tensor]]],
     ) -> dict[str, torch.Tensor]:
         """
         Perform inference on a mini batch of data.
@@ -629,9 +629,9 @@ class FSDPEngine(BaseEngine):
         return mini_batch_preds
 
     def train_step(
-            self,
-            data: DataProto,
-            loss_fn: Callable[[DataProto, torch.Tensor], tuple[torch.Tensor, dict[str, torch.Tensor]]],
+        self,
+        data: DataProto,
+        loss_fn: Callable[[DataProto, torch.Tensor], tuple[torch.Tensor, dict[str, torch.Tensor]]],
     ) -> dict[str, torch.Tensor]:
         """
         Perform a training step on a mini-batch of data.

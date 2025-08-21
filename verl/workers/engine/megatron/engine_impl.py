@@ -11,69 +11,26 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import logging
+import os
 from typing import Callable
 
 import torch
-
-import copy
-import datetime
-import logging
-import os
-import time
-from typing import Any, Optional
-
-import psutil
-import torch
 import torch.distributed
-from codetiming import Timer
-from omegaconf import DictConfig, OmegaConf, open_dict
-
-from verl import DataProto
-
-from ..base import BaseEngine, EngineRegistry
-
 from megatron.core import parallel_state as mpu
 
 from verl import DataProto
-from verl.single_controller.base import Worker
-from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
-from verl.utils import hf_tokenizer
-from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpointManager
-from verl.utils.config import omega_conf_to_dataclass
-from verl.utils.device import get_device_id, get_device_name, get_nccl_backend, get_torch_device
-from verl.utils.flops_counter import FlopsCounter
-from verl.utils.fs import copy_to_local
-from verl.utils.megatron_utils import (
-    load_megatron_model_to_gpu,
-    load_megatron_optimizer,
-    offload_megatron_model_to_cpu,
-    offload_megatron_optimizer,
-)
-from verl.utils.memory_utils import aggressive_empty_cache
-from verl.utils.model import get_hf_model_path, load_mcore_dist_weights, load_megatron_gptmodel_weights
-from verl.utils.profiler import (
-    DistProfiler,
-    DistProfilerExtension,
-    GPUMemoryLogger,
-    ProfilerConfig,
-    log_gpu_memory_usage,
-    simple_timer,
-)
-from verl.utils.profiler.performance import reduce_timing, topk_reduce_ratio_min_max
-from verl.workers.actor.megatron_actor import MegatronPPOActor
-from verl.workers.config import HFModelConfig, McoreCriticConfig, RolloutConfig
-from verl.workers.critic.megatron_critic import MegatronPPOCritic
-from verl.workers.reward_model.megatron.reward_model import MegatronRewardModel
-from verl.workers.rollout.rollout_worker import RolloutWorker
-
 from verl.trainer.config import CheckpointConfig
-from verl.utils.seqlen_balancing import prepare_dynamic_batch, restore_dynamic_batch
-from verl.workers.config import McoreEngineConfig, McoreOptimizerConfig, HFModelConfig
+from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpointManager
+from verl.utils.device import get_torch_device
+from verl.utils.flops_counter import FlopsCounter
+from verl.utils.model import load_mcore_dist_weights, load_megatron_gptmodel_weights
+from verl.workers.config import HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
+
+from ..base import BaseEngine, EngineRegistry
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
-
-
 
 
 def set_random_seed(seed):
@@ -95,14 +52,15 @@ def set_random_seed(seed):
     # os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
 
 
-
 @EngineRegistry.register("megatron")
 class MegatronEngine(BaseEngine):
-    def __init__(self,
-                 model_config: HFModelConfig,
-                 engine_config: McoreEngineConfig,
-                 optimizer_config: McoreOptimizerConfig,
-                 checkpoint_config: CheckpointConfig):
+    def __init__(
+        self,
+        model_config: HFModelConfig,
+        engine_config: McoreEngineConfig,
+        optimizer_config: McoreOptimizerConfig,
+        checkpoint_config: CheckpointConfig,
+    ):
         super().__init__()
 
         self.model_config = model_config
@@ -133,8 +91,9 @@ class MegatronEngine(BaseEngine):
 
         self.param_dtype = torch.bfloat16
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
-        tf_config = hf_to_mcore_config(self.model_config.hf_config, self.dtype,
-                                       **self.engine_config.override_transformer_config)
+        tf_config = hf_to_mcore_config(
+            self.model_config.hf_config, self.dtype, **self.engine_config.override_transformer_config
+        )
 
         use_mbridge = self.engine_config.use_mbridge
         if use_mbridge:
@@ -151,8 +110,8 @@ class MegatronEngine(BaseEngine):
         self.tf_config = tf_config
 
     def _build_megatron_module(self):
-        from verl.utils.model import print_model_size
         from verl.utils.megatron_utils import McoreModuleWrapperConfig, make_megatron_module
+        from verl.utils.model import print_model_size
 
         is_value_model = False
 
@@ -186,8 +145,11 @@ class MegatronEngine(BaseEngine):
                     self.bridge.load_weights(module, self.model_config.local_path)
                 else:
                     load_megatron_gptmodel_weights(
-                        self.config, self.model_config.hf_config, module,
-                        params_dtype=self.dtype, is_value_model=is_value_model
+                        self.config,
+                        self.model_config.hf_config,
+                        module,
+                        params_dtype=self.dtype,
+                        is_value_model=is_value_model,
                     )
 
         if torch.distributed.get_rank() == 0:
@@ -209,6 +171,7 @@ class MegatronEngine(BaseEngine):
         from verl.utils.megatron.optimizer import (
             get_megatron_optimizer_param_scheduler,
         )
+
         optimizer_scheduler = get_megatron_optimizer_param_scheduler(
             optimizer=self.optimizer, config=self.optimizer_config
         )
@@ -245,7 +208,6 @@ class MegatronEngine(BaseEngine):
             use_dist_checkpointing=self.engine_config.use_dist_checkpointing,
         )
 
-
     def train_mode(self):
         """
         Context manager entry for switching the engine and model into training mode.
@@ -267,9 +229,9 @@ class MegatronEngine(BaseEngine):
         raise NotImplementedError
 
     def forward_step(
-            self,
-            data: DataProto,
-            post_fn: Callable[[DataProto, torch.Tensor], tuple[list[torch.Tensor], dict[str, torch.Tensor]]],
+        self,
+        data: DataProto,
+        post_fn: Callable[[DataProto, torch.Tensor], tuple[list[torch.Tensor], dict[str, torch.Tensor]]],
     ) -> dict[str, torch.Tensor]:
         """
         Perform inference on a mini batch of data.
@@ -285,9 +247,9 @@ class MegatronEngine(BaseEngine):
         raise NotImplementedError
 
     def train_step(
-            self,
-            data: DataProto,
-            loss_fn: Callable[[DataProto, torch.Tensor], tuple[torch.Tensor, dict[str, torch.Tensor]]],
+        self,
+        data: DataProto,
+        loss_fn: Callable[[DataProto, torch.Tensor], tuple[torch.Tensor, dict[str, torch.Tensor]]],
     ) -> dict[str, torch.Tensor]:
         """
         Perform a training step on a mini-batch of data.
