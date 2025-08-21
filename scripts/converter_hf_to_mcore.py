@@ -491,10 +491,10 @@ def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False
     from transformers import AutoModelForCausalLM, AutoModelForImageTextToText
 
     # init hf model
-    if any(arch in hf_config.architectures for arch in [
-        "Qwen2_5_VLForConditionalGeneration",
-        "Glm4vForConditionalGeneration"
-    ]):
+    if any(
+        arch in hf_config.architectures
+        for arch in ["Qwen2_5_VLForConditionalGeneration", "Glm4vForConditionalGeneration"]
+    ):
         hf_model = AutoModelForImageTextToText.from_pretrained(
             hf_model_path, torch_dtype=torch.bfloat16, trust_remote_code=trust_remote_code
         )

@@ -1,5 +1,7 @@
-from typing import Optional, Tuple
+from typing import Optional
+
 import torch
+
 
 def flash_attention_forward(
     self,
@@ -11,7 +13,7 @@ def flash_attention_forward(
     sliding_window: Optional[int] = None,
     position_ids: Optional[torch.Tensor] = None,
     **kwargs,
-) -> Tuple[torch.Tensor, None]:
+) -> tuple[torch.Tensor, None]:
     # Use the integration entry which we monkey-patch in monkey_patch.apply_monkey_patch
     from transformers.integrations import flash_attention as hf_flash_attention
 

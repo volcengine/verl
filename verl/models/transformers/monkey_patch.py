@@ -346,18 +346,19 @@ def apply_monkey_patch(
 
                 patch_vlm_for_ulysses_input_slicing(Qwen2VLModel)
 
-    elif model.config.model_type == "glm4v":
-        # Patch attention forward to our GLM4V rotary+FA path, and enable input slicing for Ulysses SP
-        from transformers.models.glm4v.modeling_glm4v import Glm4vTextAttention, Glm4vTextModel
-        from verl.models.transformers.glm4v import glm4_vl_attn_forward
+    if model.config.model_type == "glm4v":
+        from transformers.models.glm4v.modeling_glm4v import Glm4vTextAttention
 
         if use_remove_padding or ulysses_sp_size > 1:
-            Glm4vTextAttention.forward = glm4_vl_attn_forward
-            print("Monkey patch FlashAttention2.forward in GLM4V")
+            from verl.models.transformers.qwen2_vl import ulysses_flash_attn_forward
 
+            Glm4vTextAttention.forward = ulysses_flash_attn_forward
+            print("Monkey patch FlashAttention2.forward in GLM-4.1V")
         if ulysses_sp_size > 1:
+            print("Monkey patch FlashAttention2.forward in GLM-4.1V with ulysses_sp_size > 1")
+            from transformers.models.glm4v.modeling_glm4v import Glm4vTextModel
+
             patch_vlm_for_ulysses_input_slicing(Glm4vTextModel)
-            print("Monkey patch Glm4vTextModel.forward for Ulysses SP input slicing.")
 
     elif model.config.model_type == "kimi_vl":
         if use_remove_padding or ulysses_sp_size > 1:
