@@ -67,7 +67,9 @@ class McoreEngineConfig(BaseConfig):
     seed: int = 42
     override_ddp_config: dict[str, Any] = field(default_factory=dict)
     override_transformer_config: dict[str, Any] = field(default_factory=dict)
+    override_mcore_model_config: dict[str, Any] = field(default_factory=dict)
     use_mbridge: bool = False
+    forward_only: bool = False
 
     def __post_init__(self) -> None:
         """config validation logics go here"""
