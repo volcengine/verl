@@ -444,7 +444,7 @@ class SGLangRollout(BaseRollout):
         # attention backend will be changed to fa3 if not specified
         attention_backend = engine_kwargs.pop("attention_backend", None)
 
-        is_server_mode = self.config.sglang_engine_mode == "server"
+        is_server_mode = self.config.sglang_rollout_mode == "server"
         effective_first = first_rank_in_node or is_server_mode
 
         print(self.config)

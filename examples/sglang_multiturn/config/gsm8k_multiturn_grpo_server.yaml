@@ -19,7 +19,7 @@ actor_rollout_ref:
     multi_turn:
       enable: True
       max_assistant_turns: 5
-    sglang_engine_mode: server
+    sglang_rollout_mode: server
     server:
       timeout: 60
       max_attempts: 3
