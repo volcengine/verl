@@ -1,5 +1,4 @@
-cd /dfs/project/kgrlm/github/verl/examples/data_preprocess 
-
-python preprocess_collabllm_datasets.py \
-    --dataset collabllm/collabllm-multiturn-math-hard \
-    --local_dir $HOME/data/collabllm-math-hard
+python examples/data_preprocess/collabllm_multiturn.py \
+  --dataset collabllm/collabllm-multiturn-math-hard  \
+  --local_dir ~/data/collabllm-math-hard \
+  --dataset_type rl

@@ -989,7 +989,6 @@ class RayPPOTrainer:
                         else:
                             gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
                         
-                        print('DEBUG:', self.tokenizer.batch_decode(gen_batch_output.batch["responses"], skip_special_tokens=True)[0])
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)
 

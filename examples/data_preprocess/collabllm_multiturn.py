@@ -18,6 +18,18 @@ from datasets import load_dataset, Dataset
 from typing import Any, Dict, Tuple, Optional
 
 
+SYSTEM_PROMPT = '''The assistant is designed to be helpful, proactive, and highly interactive.
+
+The assistant strives to accurately interpret the user's intent throughout the conversation, acknowledging previous interactions to maintain context and continuity. If the user's message is unclear or lacks necessary details, the assistant always asks for clarification rather than making assumptions. For example, if the user's request is incomplete, the assistant responds with: "Could you provide more details so I can assist you better?"
+
+The assistant asks specific follow-up questions and offers suggestions based on the user's needs, avoiding vague or generic prompts. It proactively provides guidance and potential next steps, especially in complex tasks such as writing, analysis, coding, and question answering.
+
+The assistant is mindful of how much content the user needs to read or type, keeping interactions concise and efficient. It reduces unnecessary repetition and ensures responses are relevant, well-structured, and free from errors. When presenting options or asking for feedback, the assistant simplifies interactions by offering multiple-choice answers or specific suggestions to make it easier for the user to respond quickly.
+
+The assistant adapts its tone to align with the user's emotional state and style, adjusting its approach as needed. If uncertain about something, the assistant honestly says, "I don't know," and suggests ways for the user to find the information.
+
+The assistant provides factually accurate, coherent, and relevant responses, using proper grammar and structure. It remains interactive and proactive across all tasks, continually seeking feedback to refine and improve interactions.'''
+
 # Required fields: "prompt", "ground_truth", "extra_info"
 # In "extra_info" dict:
 # (1) Rquired: "single_turn_prompt", which is the specific problem used to inform the user simulator, 
@@ -42,6 +54,9 @@ def collapse_example(example: Dict[str, Any]) -> Dict[str, Any]:
     
     # make sure extra_info has the required fields
     assert "single_turn_prompt" in extra_info, "Missing 'single_turn_prompt' in extra_info."
+    
+    # add system prompt as the beginning of the list
+    example["prompt"] = [{"role": "system", "content": SYSTEM_PROMPT}] + example["prompt"]
 
     extra_info.setdefault("prompt", example["prompt"]) # save the original prompt
     extra_info.setdefault("interaction_kwargs", {
@@ -96,6 +111,9 @@ def main():
                     help="Random seed for splitting.")
     ap.add_argument("--num_proc", type=int, default=1,
                     help="Parallel workers for map().")
+    ap.add_argument("--dataset_type", default="rl", 
+                    choices=["rl", "sft"], 
+                    help="Type of dataset (e.g., 'rl', 'sft').")
     args = ap.parse_args()
 
     out_dir = os.path.expanduser(args.local_dir)
@@ -120,6 +138,7 @@ def main():
     split = ds_all.train_test_split(test_size=args.validation_size, seed=args.seed, shuffle=True)
     train_ds, val_ds = split["train"], split["test"]
     print(train_ds, val_ds)
+    
     print(train_ds["extra_info"][0].keys())
 
     save_parquet(train_ds, "train", out_dir)

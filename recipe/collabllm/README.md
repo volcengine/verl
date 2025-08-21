@@ -4,14 +4,19 @@ cd /dfs/project/kgrlm/github/verl/examples/data_preprocess
 
 To run CollabLLM
 
-1) Generate data for training and validation
+1) Generate data for training and validation specifiy mode (one of 'rl' or 'sft') inside of the scripts.
 ```bash
-python preprocess_collabllm_datasets.py   --dataset collabllm/collabllm-multiturn-math-hard   --local_dir ~/data/collabllm-math-hard 
+sh recipe/collabllm/process_dataset.sh
 ```
 
 2) Run training with
 ```bash
- sh recipe/collabllm/train_collabllm.sh  
+sh recipe/collabllm/train_sft_collabllm.sh 
+```
+
+2) Run training with
+```bash
+sh recipe/collabllm/train_rl_collabllm.sh 
 ```
 
 Structure:
