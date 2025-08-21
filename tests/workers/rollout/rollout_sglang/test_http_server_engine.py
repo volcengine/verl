@@ -59,7 +59,180 @@ from verl.workers.rollout.sglang_rollout.http_server_engine import (
 )
 
 
-@pytest.mark.real_sglang
+@pytest.fixture(scope="session")
+def event_loop():
+    """Create an event loop for the entire test session."""
+    loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()
+
+
+@pytest.fixture
+def basic_adapter_kwargs():
+    """Provide basic kwargs for creating HTTP server adapters."""
+    return {
+        "host": "localhost",
+        "port": 8000,
+        "node_rank": 0,
+        "model_path": "/tmp/test_model",
+    }
+
+
+@pytest.fixture
+def router_adapter_kwargs():
+    """Provide kwargs for creating adapters with router configuration."""
+    return {
+        "router_ip": "192.168.1.1",
+        "router_port": 8080,
+        "host": "localhost",
+        "port": 8000,
+        "node_rank": 0,
+        "model_path": "/tmp/test_model",
+    }
+
+
+@pytest.fixture
+def non_master_adapter_kwargs():
+    """Provide kwargs for creating non-master node adapters."""
+    return {
+        "host": "localhost",
+        "port": 8000,
+        "node_rank": 1,  # Non-master
+        "model_path": "/tmp/test_model",
+    }
+
+
+@pytest.fixture
+def mock_launch_server_process():
+    """Mock the launch_server_process function for testing without actual server startup."""
+    from unittest.mock import patch
+
+    with patch("verl.workers.rollout.sglang_rollout.http_server_engine.launch_server_process") as mock_launch:
+        mock_process = Mock()
+        mock_process.is_alive.return_value = True
+        mock_process.pid = 12345
+        mock_launch.return_value = mock_process
+        yield mock_launch
+
+
+@pytest.fixture
+def mock_multiprocessing_process():
+    """Create mock multiprocessing.Process for testing without actual process creation."""
+    from unittest.mock import patch
+
+    with patch("verl.workers.rollout.sglang_rollout.http_server_engine.multiprocessing.Process") as mock_process_class:
+        mock_process = Mock()
+        mock_process.is_alive.return_value = True
+        mock_process.pid = 12345
+        mock_process_class.return_value = mock_process
+        yield mock_process
+
+
+@pytest.fixture
+def mock_requests_session():
+    """Create mock requests.Session for testing HTTP interactions."""
+    from unittest.mock import patch
+
+    with patch("verl.workers.rollout.sglang_rollout.http_server_engine.requests.Session") as mock_session_class:
+        mock_session = Mock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"status": "success"}
+        mock_session.get.return_value = mock_response
+        mock_session.post.return_value = mock_response
+        mock_session_class.return_value.__enter__.return_value = mock_session
+        yield mock_session
+
+
+@pytest.fixture
+def mock_requests_post():
+    """Mock requests.post for testing HTTP POST requests."""
+    from unittest.mock import patch
+
+    with patch("verl.workers.rollout.sglang_rollout.http_server_engine.requests.post") as mock_post:
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"status": "success"}
+        mock_post.return_value = mock_response
+        yield mock_post
+
+
+@pytest.fixture
+def mock_requests_get():
+    """Mock requests.get for testing HTTP GET requests."""
+    from unittest.mock import patch
+
+    with patch("verl.workers.rollout.sglang_rollout.http_server_engine.requests.get") as mock_get:
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"status": "success"}
+        mock_get.return_value = mock_response
+        yield mock_get
+
+
+@pytest.fixture
+def mock_aiohttp_session():
+    """Create mock aiohttp.ClientSession for testing async HTTP interactions."""
+    mock_session = AsyncMock()
+    mock_session.closed = False
+
+    # Mock response
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json = AsyncMock(return_value={"status": "success"})
+    mock_response.raise_for_status = Mock()
+
+    # Mock context managers
+    mock_session.get.return_value.__aenter__.return_value = mock_response
+    mock_session.post.return_value.__aenter__.return_value = mock_response
+
+    return mock_session
+
+
+@pytest.fixture
+def mock_kill_process_tree():
+    """Mock kill_process_tree function for testing cleanup without actual process termination."""
+    from unittest.mock import patch
+
+    with patch("verl.workers.rollout.sglang_rollout.http_server_engine.kill_process_tree") as mock_kill:
+        yield mock_kill
+
+
+# Test environment fixtures for real SGLang testing
+@pytest.fixture(scope="session")
+def sglang_test_model_path():
+    """Provide a test model path for SGLang tests.
+
+    This can be overridden by environment variable SGLANG_TEST_MODEL_PATH
+    for tests that need a real model.
+    """
+    import os
+
+    return os.getenv("SGLANG_TEST_MODEL_PATH", "/tmp/test_model")
+
+
+@pytest.fixture
+def real_adapter_kwargs(sglang_test_model_path):
+    """Provide kwargs for creating adapters with real SGLang integration."""
+    return {
+        "host": "localhost",
+        "port": 8000,
+        "node_rank": 0,
+        "model_path": sglang_test_model_path,
+    }
+
+
+@pytest.fixture(autouse=True)
+def mock_server_args_post_init():
+    """Mock ServerArgs.__post_init__ to skip model path validation."""
+    from unittest.mock import patch
+
+    with patch(
+        "verl.workers.rollout.sglang_rollout.http_server_engine.ServerArgs.__post_init__", return_value=None
+    ) as mock_post_init:
+        yield mock_post_init
+
+
 class TestLaunchServerProcess:
     """Test cases for launch_server_process function."""
 
@@ -146,15 +319,6 @@ class TestLaunchServerProcess:
                 launch_server_process(server_args, first_rank_in_node=True)
 
 
-@pytest.fixture
-def event_loop():
-    """Create an event loop for async tests."""
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
-
-
-@pytest.mark.real_sglang
 class TestHttpServerEngineAdapter:
     """Test cases for HttpServerEngineAdapter class."""
 
@@ -186,7 +350,6 @@ class TestHttpServerEngineAdapter:
             assert adapter.router_ip == "192.168.1.1"
             mock_post.assert_called_once()
 
-    @pytest.mark.mock_only
     def test_make_request_success(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test successful HTTP request."""
         adapter = HttpServerAdapter(**basic_adapter_kwargs)
@@ -206,7 +369,6 @@ class TestHttpServerEngineAdapter:
                 timeout=adapter.timeout,
             )
 
-    @pytest.mark.mock_only
     def test_make_request_get_method(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test HTTP GET request."""
         adapter = HttpServerAdapter(**basic_adapter_kwargs)
@@ -230,7 +392,6 @@ class TestHttpServerEngineAdapter:
 
         assert result == {}
 
-    @pytest.mark.mock_only
     def test_make_request_retry_logic(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test retry logic for failed requests."""
         adapter = HttpServerAdapter(max_attempts=3, **basic_adapter_kwargs)
@@ -250,7 +411,6 @@ class TestHttpServerEngineAdapter:
                 assert mock_post.call_count == 3
                 assert mock_sleep.call_count == 2
 
-    @pytest.mark.mock_only
     def test_make_request_http_error(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test HTTP error handling."""
         adapter = HttpServerAdapter(**basic_adapter_kwargs)
@@ -263,7 +423,6 @@ class TestHttpServerEngineAdapter:
             with pytest.raises(requests.exceptions.HTTPError):
                 adapter._make_request("test_endpoint")
 
-    @pytest.mark.mock_only
     def test_make_request_max_attempts_exceeded(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test max retries exceeded."""
         adapter = HttpServerAdapter(max_attempts=1, **basic_adapter_kwargs)
@@ -277,7 +436,6 @@ class TestHttpServerEngineAdapter:
 
                 assert mock_post.call_count == 1  # Initial retry
 
-    @pytest.mark.mock_only
     def test_update_weights_from_tensor_strict(self, mock_launch_server_process, basic_adapter_kwargs):
         import base64
 
@@ -291,7 +449,6 @@ class TestHttpServerEngineAdapter:
         with patch.object(adapter, "_make_request") as mock_request:
             mock_request.return_value = {"status": "updated"}
 
-            # 测试带有序列化张量的情况
             req = UpdateWeightsFromTensorReqInput(
                 serialized_named_tensors=[b"tensor1", b"tensor2"],
                 load_format="safetensors",
@@ -313,7 +470,6 @@ class TestHttpServerEngineAdapter:
                 },
             )
 
-    @pytest.mark.mock_only
     def test_update_weights_from_tensor_empty(self, mock_launch_server_process, basic_adapter_kwargs):
         from sglang.srt.managers.tokenizer_manager import UpdateWeightsFromTensorReqInput
 
@@ -325,7 +481,6 @@ class TestHttpServerEngineAdapter:
         with patch.object(adapter, "_make_request") as mock_request:
             mock_request.return_value = {"status": "updated"}
 
-            # 测试空张量列表的情况
             req = UpdateWeightsFromTensorReqInput(
                 serialized_named_tensors=[],
                 load_format="safetensors",
@@ -344,7 +499,6 @@ class TestHttpServerEngineAdapter:
                 },
             )
 
-    @pytest.mark.mock_only
     def test_update_weights_from_tensor_none(self, mock_launch_server_process, basic_adapter_kwargs):
         from sglang.srt.managers.tokenizer_manager import UpdateWeightsFromTensorReqInput
 
@@ -356,7 +510,6 @@ class TestHttpServerEngineAdapter:
         with patch.object(adapter, "_make_request") as mock_request:
             mock_request.return_value = {"status": "updated"}
 
-            # 测试None张量列表的情况
             req = UpdateWeightsFromTensorReqInput(
                 serialized_named_tensors=None,
                 load_format="safetensors",
@@ -375,7 +528,6 @@ class TestHttpServerEngineAdapter:
                 },
             )
 
-    @pytest.mark.mock_only
     def test_generate(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test generate method."""
         adapter = HttpServerAdapter(**basic_adapter_kwargs)
@@ -400,7 +552,6 @@ class TestHttpServerEngineAdapter:
                 only_master=False,
             )
 
-    @pytest.mark.mock_only
     def test_flush_cache(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test flush_cache method."""
         adapter = HttpServerAdapter(**basic_adapter_kwargs)
@@ -428,7 +579,6 @@ class TestHttpServerEngineAdapter:
 
         assert result == {}
 
-    @pytest.mark.mock_only
     def test_memory_management_methods(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test memory release and resume methods."""
         adapter = HttpServerAdapter(**basic_adapter_kwargs)
@@ -446,7 +596,6 @@ class TestHttpServerEngineAdapter:
             assert result == {"status": "success"}
             mock_request.assert_called_with("resume_memory_occupation", {"tags": ["weights"]})
 
-    @pytest.mark.mock_only
     def test_generation_control_methods(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test generation control methods."""
         adapter = HttpServerAdapter(**basic_adapter_kwargs)
@@ -454,7 +603,6 @@ class TestHttpServerEngineAdapter:
         with patch.object(adapter, "_make_request") as mock_request:
             mock_request.return_value = {"status": "success"}
 
-    @pytest.mark.mock_only
     def test_shutdown(self, mock_launch_server_process, mock_kill_process_tree, router_adapter_kwargs):
         """Test shutdown method."""
         with patch("verl.workers.rollout.sglang_rollout.http_server_engine.requests.post") as mock_post:
@@ -580,7 +728,6 @@ class TestAsyncHttpServerEngineAdapter:
         assert adapter.max_connections == 50
         assert adapter._need_reload is True
 
-    @pytest.mark.asyncio
     async def test_make_async_request_success(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test successful async HTTP request."""
 
@@ -613,7 +760,6 @@ class TestAsyncHttpServerEngineAdapter:
                 "http://localhost:8000/test_endpoint", json={"param": "value"}, timeout=adapter.timeout
             )
 
-    @pytest.mark.asyncio
     async def test_make_async_request_get_method(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test async GET request using aiohttp and proper context mocking."""
 
@@ -642,7 +788,6 @@ class TestAsyncHttpServerEngineAdapter:
             assert result == {"data": "test"}
             mock_session.get.assert_called_once_with("http://localhost:8000/test_endpoint", timeout=adapter.timeout)
 
-    @pytest.mark.asyncio
     async def test_make_async_request_non_master(self, mock_launch_server_process):
         """Test async request from non-master node."""
         kwargs = {"host": "localhost", "port": 8000, "node_rank": 1, "model_path": "/tmp/test_model"}
@@ -651,7 +796,6 @@ class TestAsyncHttpServerEngineAdapter:
 
         assert result == {}
 
-    @pytest.mark.asyncio
     async def test_async_generate(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test async generate method."""
         adapter = AsyncHttpServerAdapter(**basic_adapter_kwargs)
@@ -668,7 +812,6 @@ class TestAsyncHttpServerEngineAdapter:
             assert result == {"text": "Generated text"}
             mock_request.assert_called_once()
 
-    @pytest.mark.asyncio
     async def test_async_memory_management(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test async memory management methods."""
         adapter = AsyncHttpServerAdapter(**basic_adapter_kwargs)
