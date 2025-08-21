@@ -871,8 +871,8 @@ class RayPPOTrainer:
 
         dataworkers = []
         for bundle_idx, (node_id, available_cpu) in enumerate(alive_nodes):
-            # for _ in range(len(alive_nodes)):
-            for _ in range(2):  #HACK(caiyunke.astra): For single node debug
+            for _ in range(len(alive_nodes)):
+            # for _ in range(2):  #HACK(caiyunke.astra): For single node debug
                 worker = DataWorker.options(
                     scheduling_strategy=ray.util.scheduling_strategies.PlacementGroupSchedulingStrategy(
                         placement_group=pg,
@@ -1175,7 +1175,7 @@ class RayPPOTrainer:
                     metadata = gen_batch_output.get_metadata()
                     gen_batch_output.meta_info["global_token_num"] = [metadata[row_id]["token_num"] for row_id in gen_batch_output.row_ids]
                     print(self.reward_fn)
-                    breakpoint()
+                    # breakpoint()
                     with marked_timer("reward", timing_raw, color="yellow"):
                         # compute reward model score
                         if self.use_rm:
