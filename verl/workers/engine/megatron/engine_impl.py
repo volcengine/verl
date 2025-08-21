@@ -18,6 +18,7 @@ from typing import Callable
 import torch
 import torch.distributed
 from megatron.core import parallel_state as mpu
+from omegaconf import OmegaConf
 
 from verl import DataProto
 from verl.trainer.config import CheckpointConfig
@@ -144,8 +145,13 @@ class MegatronEngine(BaseEngine):
                 if self.bridge is not None:
                     self.bridge.load_weights(module, self.model_config.local_path)
                 else:
+                    # (vermouth1992) this is a workaround to be compatible with the old API
+                    tmp_config = OmegaConf.create(
+                        {"model": {"path": self.model_config.local_path, "use_shm": self.model_config.use_shm}}
+                    )
+
                     load_megatron_gptmodel_weights(
-                        self.config,
+                        tmp_config,
                         self.model_config.hf_config,
                         module,
                         params_dtype=self.dtype,
@@ -188,8 +194,11 @@ class MegatronEngine(BaseEngine):
             self.lr_scheduler = None
 
         self.flops_counter = FlopsCounter(self.model_config.hf_config)
+
+        tmp_config = OmegaConf.create({"model": {"path": self.model_config.local_path}})
+
         self.checkpoint_mananager = MegatronCheckpointManager(
-            config=self.config,
+            config=tmp_config,
             checkpoint_config=self.checkpoint_config,
             model_config=self.model_config.hf_config,
             transformer_config=self.tf_config,
