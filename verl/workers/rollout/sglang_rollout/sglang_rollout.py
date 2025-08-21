@@ -60,6 +60,7 @@ from verl.utils.net_utils import is_ipv6
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
 from verl.workers.config import RolloutConfig
+from verl.workers.rollout.async_server import TokenOutput
 from verl.workers.rollout.base import BaseRollout
 from verl.workers.rollout.schemas import (
     AsyncRolloutRequest,
@@ -443,6 +444,7 @@ class SGLangRollout(BaseRollout):
 
         # attention backend will be changed to fa3 if not specified
         attention_backend = engine_kwargs.pop("attention_backend", None)
+        max_running_requests = self.config.get("max_num_seqs", None)
 
         is_server_mode = self.config.sglang_rollout_mode == "server"
         effective_first = first_rank_in_node or is_server_mode
@@ -450,10 +452,6 @@ class SGLangRollout(BaseRollout):
         if effective_first:
             rank = dist.get_rank()
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
-            print(
-                f"Initializing SGLang server on rank {rank} with node rank {node_rank} with tp_rank {self._tp_rank}, "
-            )
-
             args = {
                 "model_path": actor_module,
                 "dtype": self.config.dtype,
@@ -467,6 +465,7 @@ class SGLangRollout(BaseRollout):
                 "dist_init_addr": dist_init_addr,
                 "nnodes": nnodes,
                 "trust_remote_code": trust_remote_code,
+                "max_running_requests": max_running_requests,
                 # NOTE(linjunrong): add rank to prevent SGLang generate same port inside PortArgs.init_new
                 # when random.seed is being set during training
                 "port": 30000 + rank,
@@ -1052,11 +1051,12 @@ class SGLangRollout(BaseRollout):
         kwargs = sampling_params.copy()
         kwargs["max_new_tokens"] = max_new_tokens
         kwargs["n"] = 1  # group size is supported in preprocess
+        return_logprob = kwargs.pop("logprobs", False)
 
         output = await self._engine.async_generate(
             input_ids=generation_prompt_ids,
             sampling_params=kwargs,
-            return_logprob=False,
+            return_logprob=return_logprob,
             image_data=image_data,
         )
         return output
@@ -1116,7 +1116,7 @@ class SGLangRollout(BaseRollout):
             else:
                 # add progress monitoring and abort function
                 total_requests = len(req_list)
-                target_completion = int(total_requests * (1 - self.config.over_sample_rate))
+                target_completion = int(total_requests * (1 - self.config.get("over_sample_rate", 0.0)))
                 # abort when target_completion of requests are completed
 
                 completed_count = 0
@@ -1588,12 +1588,20 @@ class SGLangRollout(BaseRollout):
         sampling_params: dict[str, Any],
         request_id: str,
         image_data: Optional[list[Any]] = None,
-    ) -> torch.Tensor:
+    ) -> TokenOutput:
         """Generate sequence with token-in-token-out."""
         request_sampling_params = self.sampling_params.copy()
         request_sampling_params.update(sampling_params)
         output = await self._handle_engine_generate(prompt_ids, request_sampling_params, image_data=image_data)
-        return output["output_ids"]
+        if sampling_params.get("logprobs", False):
+            output_token_logprobs = output["meta_info"]["output_token_logprobs"]
+            log_probs, token_ids = zip(
+                *[(log_prob, token_ids) for log_prob, token_ids, _ in output_token_logprobs], strict=True
+            )
+        else:
+            token_ids = output["output_ids"]
+            log_probs = None
+        return TokenOutput(token_ids=token_ids, log_probs=log_probs)
 
     async def wake_up(self):
         """Load model weights and build kv cache."""

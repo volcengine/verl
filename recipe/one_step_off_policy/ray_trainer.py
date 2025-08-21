@@ -569,23 +569,23 @@ class OneStepOffRayTrainer(RayPPOTrainer):
                             dump_path=rollout_data_dir,
                         )
 
-                # validate
-                if (
-                    self.val_reward_fn is not None
-                    and self.config.trainer.test_freq > 0
-                    and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
-                ):
-                    with marked_timer("testing", timing_raw, color="green"):
-                        val_metrics: dict = self._validate()
-                        if is_last_step:
-                            last_val_metrics = val_metrics
-                    metrics.update(val_metrics)
+            # validate
+            if (
+                self.val_reward_fn is not None
+                and self.config.trainer.test_freq > 0
+                and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
+            ):
+                with marked_timer("testing", timing_raw, color="green"):
+                    val_metrics: dict = self._validate()
+                    if is_last_step:
+                        last_val_metrics = val_metrics
+                metrics.update(val_metrics)
 
-                if self.config.trainer.save_freq > 0 and (
-                    is_last_step or self.global_steps % self.config.trainer.save_freq == 0
-                ):
-                    with marked_timer("save_checkpoint", timing_raw, color="green"):
-                        self._save_checkpoint()
+            if self.config.trainer.save_freq > 0 and (
+                is_last_step or self.global_steps % self.config.trainer.save_freq == 0
+            ):
+                with marked_timer("save_checkpoint", timing_raw, color="green"):
+                    self._save_checkpoint()
 
             # training metrics
             metrics.update(

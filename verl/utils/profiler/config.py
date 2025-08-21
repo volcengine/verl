@@ -51,6 +51,30 @@ class TorchProfilerToolConfig(BaseConfig):
 
 
 @dataclass
+class TorchMemoryToolConfig(BaseConfig):
+    """Torch memory profiler tool config.
+
+    Args:
+        trace_alloc_max_entries (int): Maximum number of memory allocation entries to track.
+        stack_depth (int): Stack trace depth for memory allocations.
+    """
+
+    trace_alloc_max_entries: int = 100_000
+    stack_depth: int = 32
+
+    def __post_init__(self) -> None:
+        """config validation logics go here"""
+        assert isinstance(self.trace_alloc_max_entries, int), (
+            f"trace_alloc_max_entries must be int, got {type(self.trace_alloc_max_entries)}"
+        )
+        assert isinstance(self.stack_depth, int), f"stack_depth must be int, got {type(self.stack_depth)}"
+        assert self.trace_alloc_max_entries > 0, (
+            f"trace_alloc_max_entries must be positive, got {self.trace_alloc_max_entries}"
+        )
+        assert self.stack_depth > 0, f"stack_depth must be positive, got {self.stack_depth}"
+
+
+@dataclass
 class NPUToolConfig(NsightToolConfig):
     """NPU profiler too; config."""
 
@@ -88,6 +112,7 @@ class ProfilerConfig(BaseConfig):
           share one database.
         all_ranks (bool): Whether to profile all ranks.
         ranks (list[int]): The ranks that will be profiled. Defaults to [].
+        global_tool_config (Any): Global tool configuration for all profiling tools.
     """
 
     tool: Optional[str] = MISSING
@@ -96,6 +121,7 @@ class ProfilerConfig(BaseConfig):
     ranks: list[int] = field(default_factory=list)
     save_path: Optional[str] = MISSING
     tool_config: Any = MISSING  # Just a placeholder, will use configs above directly
+    global_tool_config: Optional[Any] = None  # Global tool configuration for all profiling tools
 
     def union(self, other: "ProfilerConfig") -> "ProfilerConfig":
         assert self.tool == other.tool, f"Cannot union ProfilerConfig with different tools: {self.tool} vs {other.tool}"
@@ -104,7 +130,9 @@ class ProfilerConfig(BaseConfig):
             enable=self.enable or other.enable,
             all_ranks=self.all_ranks or other.all_ranks,
             ranks=list(set(self.ranks or []) | set(other.ranks or [])),
+            save_path=self.save_path,
             tool_config=self.tool_config,
+            global_tool_config=self.global_tool_config or other.global_tool_config,
         )
 
     def intersect(self, other: "ProfilerConfig") -> "ProfilerConfig":
@@ -116,7 +144,9 @@ class ProfilerConfig(BaseConfig):
             enable=self.enable and other.enable,
             all_ranks=self.all_ranks and other.all_ranks,
             ranks=list(set(self.ranks or []) & set(other.ranks or [])),
+            save_path=self.save_path,
             tool_config=self.tool_config,
+            global_tool_config=self.global_tool_config if self.global_tool_config else other.global_tool_config,
         )
 
     def __post_init__(self) -> None:
