@@ -106,7 +106,6 @@ class TaskRunner:
             assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
             from verl.single_controller.ray import RayWorkerGroup
 
-            from verl.workers.roles import ActorWorker as NewActorWorker
             from .fsdp_workers import (
                 ActorRolloutRefWorker,
                 AsyncActorRolloutRefWorker,
@@ -114,14 +113,11 @@ class TaskRunner:
                 RolloutWorker,
             )
 
-            if not config.trainer.use_legacy_worker_impl:
-                actor_rollout_cls = NewActorWorker
-            else:
-                actor_rollout_cls = (
-                    AsyncActorRolloutRefWorker
-                    if config.actor_rollout_ref.rollout.mode == "async"
-                    else ActorRolloutRefWorker
-                )
+            actor_rollout_cls = (
+                AsyncActorRolloutRefWorker
+                if config.actor_rollout_ref.rollout.mode == "async"
+                else ActorRolloutRefWorker
+            )
             ray_worker_group_cls = RayWorkerGroup
 
         elif config.actor_rollout_ref.actor.strategy == "megatron":
