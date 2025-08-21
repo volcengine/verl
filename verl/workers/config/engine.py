@@ -105,3 +105,4 @@ class FSDPEngineConfig(BaseConfig):
     model_dtype: str = "fp32"
     use_orig_params: bool = False
     mixed_precision: Optional[dict[str, Any]] = None
+    ulysses_sequence_parallel_size: int = 1

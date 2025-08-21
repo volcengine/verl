@@ -73,8 +73,10 @@ elif is_npu_available:
     from transformers.integrations.npu_flash_attention import index_first_axis, pad_input, rearrange, unpad_input
 
 from ..base import BaseEngine, EngineRegistry
-from ..config import EngineConfig
+
 from .utils import create_device_mesh, get_sharding_strategy
+
+from verl.workers.config import FSDPEngineConfig, HFModelConfig
 from verl.utils.seqlen_balancing import prepare_dynamic_batch, restore_dynamic_batch
 
 
@@ -91,7 +93,7 @@ class FSDPEngine(BaseEngine):
 
     Supports model sharding, activation/optimizer offloading, LoRA, and sequence parallelism.
     """
-    def __init__(self, config: EngineConfig):
+    def __init__(self, model_config: HFModelConfig, fsdp_config: FSDPEngineConfig):
         """
         Initialize the FSDPEngine.
 
@@ -100,22 +102,24 @@ class FSDPEngine(BaseEngine):
         Args:
             config: Configuration object with FSDP and model settings.
         """
-        self.config = config
+        self.model_config = model_config
+        self.fsdp_config = fsdp_config
+
         self.rank = torch.distributed.get_rank()
         # build device mesh for Ulysses Sequence Parallel
         world_size = torch.distributed.get_world_size()
         from torch.distributed.device_mesh import init_device_mesh
 
-        fsdp_size = self.config.system.fsdp_size
+        fsdp_size = self.fsdp_config.fsdp_size
         self.device_mesh = create_device_mesh(world_size=world_size, fsdp_size=fsdp_size)
-        self.use_remove_padding = config.system.use_remove_padding
+        self.use_remove_padding = self.model_config.use_remove_padding
 
         self.ulysses_device_mesh = None
-        self.ulysses_sequence_parallel_size = self.config.system.ulysses_sequence_parallel_size
-        dp = self.get_data_parallel_size()
+        self.ulysses_sequence_parallel_size = self.fsdp_config.ulysses_sequence_parallel_size
+        dp_size = self.get_data_parallel_size()
         if self.ulysses_sequence_parallel_size > 1:
             self.ulysses_device_mesh = init_device_mesh(
-                device_name, mesh_shape=(dp, self.ulysses_sequence_parallel_size), mesh_dim_names=["dp", "sp"]
+                device_name, mesh_shape=(dp_size, self.ulysses_sequence_parallel_size), mesh_dim_names=["dp", "sp"]
             )
 
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
@@ -139,9 +143,9 @@ class FSDPEngine(BaseEngine):
             )
 
         # set FSDP offload params
-        self._is_offload_param = self.config.system.param_offload
-        self._is_offload_optimizer = self.config.system.optimizer_offload
-        self._is_lora = self.config.model.lora_rank > 0
+        self._is_offload_param = self.fsdp_config.param_offload
+        self._is_offload_optimizer = self.fsdp_config.optimizer_offload
+        self._is_lora = self.model_config.lora_rank > 0
 
 
     def initialize(self):
@@ -152,9 +156,9 @@ class FSDPEngine(BaseEngine):
         Sets up checkpoint manager and FLOPs counter.
         """
         # This is used to import external_lib into the huggingface systems
-        import_external_libs(self.config.model.external_lib)
+        import_external_libs(self.model_config.external_lib)
 
-        self.module, self.optimizer, self.lr_scheduler = self._build_model_optimizer(self.config)
+        self._build_model_optimizer()
 
         if self._is_offload_param:
             offload_fsdp_model_to_cpu(self.module)
@@ -172,56 +176,10 @@ class FSDPEngine(BaseEngine):
             checkpoint_contents=self.config.checkpoint,
         )
 
-    def _build_tokenizer(self, local_path):
-        use_shm = self.config.model.use_shm
-        # note that the tokenizer between actor and critic may be different. So override tokenizer info with actor info
-        # using random initialized model from any architecture. May not be the same as Actor.
-        if self.config.model.tokenizer_path is not None:
-            tokenizer_path = copy_to_local(self.config.model.tokenizer_path, use_shm=use_shm)
-        else:
-            tokenizer_path = local_path
-        tokenizer = hf_tokenizer(tokenizer_path, trust_remote_code=self.config.model.trust_remote_code)
-        processor = hf_processor(tokenizer_path, trust_remote_code=self.config.model.trust_remote_code)
-
-        if self.config.model.custom_chat_template is not None:
-            if processor is not None:
-                processor.chat_template = self.config.model.custom_chat_template
-            else:
-                tokenizer.chat_template = self.config.model.custom_chat_template
-        return tokenizer, processor
-
-
-    def _build_model_config(self, local_path):
-        from transformers import AutoConfig
-        from verl.utils.model import update_model_config
-        model_config = AutoConfig.from_pretrained(
-            local_path,
-            attn_implementation="flash_attention_2",
-            trust_remote_code=self.config.model.trust_remote_code,
-        )
-        # TODO: behavior difference between actor and critic
-        # model_config.num_labels = 1
-        # patch for kimi-vl
-        if getattr(model_config, "model_type", None) == "kimi_vl":
-            model_config.text_config.topk_method = "greedy"
-
-        override_config = OmegaConf.to_container(OmegaConf.create(self.config.model.override_config))
-        override_config_kwargs = {
-            "bos_token_id": self.tokenizer.bos_token_id,
-            "eos_token_id": self.tokenizer.eos_token_id,
-            "pad_token_id": self.tokenizer.pad_token_id,
-        }
-        override_config_kwargs.update(override_config)
-        if self.rank == 0:
-            print(f"Engine overriding config {override_config_kwargs}")
-        update_model_config(model_config, override_config_kwargs=override_config_kwargs)
-        return model_config
-
-
-    def _build_module(self, local_path, model_config):
+    def _build_module(self):
         from verl.utils.model import load_torch_module
         from verl.utils.torch_dtypes import PrecisionType
-        torch_dtype = self.config.system.model_dtype
+        torch_dtype = self.model_config.model_dtype
         torch_dtype = PrecisionType.to_dtype(torch_dtype)
 
         init_context = get_init_weight_context_manager(
@@ -415,15 +373,6 @@ class FSDPEngine(BaseEngine):
 
     def _build_model_optimizer(self, config):
         from verl.utils.model import print_model_size
-
-        # Copy model files to local storage (with shared memory option for efficiency)
-        local_path = copy_to_local(config.model.path, use_shm=self.config.model.use_shm)
-
-        # Initialize tokenizer and processor from the local model path
-        self.tokenizer, self.processor = self._build_tokenizer(local_path)
-        
-        # Create and configure model architecture settings
-        self.model_config = self._build_model_config(local_path)
         # Load base model with specified configuration and dtype
         module = self._build_module(local_path, self.model_config)
         # Apply LoRA adapters if low-rank adaptation is enabled
@@ -856,7 +805,7 @@ class EngineEvalModeCtx:
 
 
 class EngineTrainModeCtx:
-    def __init__(self, engine):
+    def __init__(self, engine: FSDPEngine):
         self.engine = engine
 
     def __enter__(self):
