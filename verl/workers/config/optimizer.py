@@ -11,9 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import warnings
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Optional
 
 from omegaconf import MISSING
 
@@ -39,10 +39,16 @@ class OptimizerConfig(BaseConfig):
     total_training_steps: int = -1
     weight_decay: float = 0.01
     lr_warmup_steps: Optional[int] = -1
-    betas: Tuple[float, float] = (0.9, 0.999)
+    betas: tuple[float, float] = (0.9, 0.999)
+    clip_grad: float = None
+    # deprecate grad_clip
+    grad_clip: float = 1.0
 
     def __post_init__(self):
         assert self.lr != MISSING
+        if self.clip_grad is not None:
+            warnings.warn("grad_clip is deprecated, use clip_grad instead", stacklevel=2)
+            self.clip_grad = self.grad_clip
 
 
 @dataclass
