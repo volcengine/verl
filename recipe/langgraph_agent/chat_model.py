@@ -138,11 +138,11 @@ class ChatModel(BaseChatModel):
         if "sampling_params" in kwargs:
             sampling_params.update(kwargs["sampling_params"])
 
-        response_ids = await self.client.generate(
+        output = await self.client.generate(
             request_id=request_id, prompt_ids=prompt_ids, sampling_params=sampling_params
         )
 
-        message = await self._postprocess(request_id, prompt_ids, response_mask, response_ids, **kwargs)
+        message = await self._postprocess(request_id, prompt_ids, response_mask, output.token_ids, **kwargs)
         generation = ChatGeneration(message=message)
         return ChatResult(generations=[generation])
 

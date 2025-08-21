@@ -838,13 +838,15 @@ class RayPPOTrainer:
             wg_kwargs["ray_wait_register_center_timeout"] = self.config.trainer.ray_wait_register_center_timeout
         if OmegaConf.select(self.config.global_profiler, "steps") is not None:
             wg_kwargs["profile_steps"] = OmegaConf.select(self.config.global_profiler, "steps")
-            assert (
-                OmegaConf.select(self.config.global_profiler.global_tool_config.nsys, "worker_nsight_options")
-                is not None
-            ), "worker_nsight_options must be set when profile_steps is set"
-            wg_kwargs["worker_nsight_options"] = OmegaConf.to_container(
-                OmegaConf.select(self.config.global_profiler.global_tool_config.nsys, "worker_nsight_options")
-            )
+            # Only require nsight worker options when tool is nsys
+            if OmegaConf.select(self.config.global_profiler, "tool") == "nsys":
+                assert (
+                    OmegaConf.select(self.config.global_profiler.global_tool_config.nsys, "worker_nsight_options")
+                    is not None
+                ), "worker_nsight_options must be set when using nsys with profile_steps"
+                wg_kwargs["worker_nsight_options"] = OmegaConf.to_container(
+                    OmegaConf.select(self.config.global_profiler.global_tool_config.nsys, "worker_nsight_options")
+                )
         wg_kwargs["device_name"] = self.device_name
 
         for resource_pool, class_dict in self.resource_pool_to_cls.items():
@@ -1004,11 +1006,11 @@ class RayPPOTrainer:
         if do_profile:
             self.actor_rollout_wg.start_profile(role="e2e", profile_step=self.global_steps)
             if self.use_reference_policy:
-                self.ref_policy_wg.start_profile()
+                self.ref_policy_wg.start_profile(profile_step=self.global_steps)
             if self.use_critic:
-                self.critic_wg.start_profile()
+                self.critic_wg.start_profile(profile_step=self.global_steps)
             if self.use_rm:
-                self.rm_wg.start_profile()
+                self.rm_wg.start_profile(profile_step=self.global_steps)
 
     def _stop_profiling(self, do_profile: bool) -> None:
         """Stop profiling for all worker groups if profiling is enabled."""
@@ -1288,39 +1290,37 @@ class RayPPOTrainer:
                                 dump_path=rollout_data_dir,
                             )
 
-                    # validate
-                    if (
-                        self.val_reward_fn is not None
-                        and self.config.trainer.test_freq > 0
-                        and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
-                    ):
-                        with marked_timer("testing", timing_raw, color="green"):
-                            val_metrics: dict = self._validate()
-                            if is_last_step:
-                                last_val_metrics = val_metrics
-                        metrics.update(val_metrics)
+                # validate
+                if (
+                    self.val_reward_fn is not None
+                    and self.config.trainer.test_freq > 0
+                    and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
+                ):
+                    with marked_timer("testing", timing_raw, color="green"):
+                        val_metrics: dict = self._validate()
+                        if is_last_step:
+                            last_val_metrics = val_metrics
+                    metrics.update(val_metrics)
 
-                    # Check if the ESI (Elastic Server Instance)/training plan is close to expiration.
-                    esi_close_to_expiration = should_save_ckpt_esi(
-                        max_steps_duration=self.max_steps_duration,
-                        redundant_time=self.config.trainer.esi_redundant_time,
-                    )
-                    # Check if the conditions for saving a checkpoint are met.
-                    # The conditions include a mandatory condition (1) and
-                    # one of the following optional conditions (2/3/4):
-                    # 1. The save frequency is set to a positive value.
-                    # 2. It's the last training step.
-                    # 3. The current step number is a multiple of the save frequency.
-                    # 4. The ESI(Elastic Server Instance)/training plan is close to expiration.
-                    if self.config.trainer.save_freq > 0 and (
-                        is_last_step
-                        or self.global_steps % self.config.trainer.save_freq == 0
-                        or esi_close_to_expiration
-                    ):
-                        if esi_close_to_expiration:
-                            print("Force saving checkpoint: ESI instance expiration approaching.")
-                        with marked_timer("save_checkpoint", timing_raw, color="green"):
-                            self._save_checkpoint()
+                # Check if the ESI (Elastic Server Instance)/training plan is close to expiration.
+                esi_close_to_expiration = should_save_ckpt_esi(
+                    max_steps_duration=self.max_steps_duration,
+                    redundant_time=self.config.trainer.esi_redundant_time,
+                )
+                # Check if the conditions for saving a checkpoint are met.
+                # The conditions include a mandatory condition (1) and
+                # one of the following optional conditions (2/3/4):
+                # 1. The save frequency is set to a positive value.
+                # 2. It's the last training step.
+                # 3. The current step number is a multiple of the save frequency.
+                # 4. The ESI(Elastic Server Instance)/training plan is close to expiration.
+                if self.config.trainer.save_freq > 0 and (
+                    is_last_step or self.global_steps % self.config.trainer.save_freq == 0 or esi_close_to_expiration
+                ):
+                    if esi_close_to_expiration:
+                        print("Force saving checkpoint: ESI instance expiration approaching.")
+                    with marked_timer("save_checkpoint", timing_raw, color="green"):
+                        self._save_checkpoint()
 
                 with marked_timer("stop_profile", timing_raw):
                     next_step_profile = (
@@ -1362,6 +1362,14 @@ class RayPPOTrainer:
 
                 progress_bar.update(1)
                 self.global_steps += 1
+
+                if (
+                    hasattr(self.config.actor_rollout_ref.actor, "profiler")
+                    and self.config.actor_rollout_ref.actor.profiler.tool == "torch_memory"
+                ):
+                    self.actor_rollout_wg.dump_memory_snapshot(
+                        tag=f"post_update_step{self.global_steps}", sub_dir=f"step{self.global_steps}"
+                    )
 
                 if is_last_step:
                     pprint(f"Final validation metrics: {last_val_metrics}")

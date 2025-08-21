@@ -186,10 +186,13 @@ class MegatronPPOActor(BasePPOActor):
         use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", False)
         micro_batch_size = data.meta_info.get("micro_batch_size", None)
         max_token_len = data.meta_info.get("max_token_len", None)
-        assert micro_batch_size is not None, "micro batch size is needed for forward compute"
         if use_dynamic_bsz:
             assert max_token_len is not None, "max_token_len must be set when use_dynamic_bsz is True"
             max_token_len = max_token_len * self.config.megatron.context_parallel_size
+        else:
+            assert micro_batch_size is not None, (
+                "micro batch size is needed for forward compute when use_dynamic_bsz is False"
+            )
 
         def compute_logprobs_fn(output, data, use_dynamic_bsz=False, indices=None):
             response = data["responses"]
@@ -367,6 +370,7 @@ class MegatronPPOActor(BasePPOActor):
             ]  # mcore patch recompute qwen2vl's pos ids during forward
 
         indices = None
+        temperature = data.meta_info["temperature"]
         if use_dynamic_bsz:
             assert max_token_len is not None, "max_token_len must be set when use_dynamic_bsz is True"
             vpp_size = mpu.get_virtual_pipeline_model_parallel_world_size()
@@ -515,6 +519,7 @@ class MegatronPPOActor(BasePPOActor):
                     multi_modal_inputs=multi_modal_inputs,
                     labels=label,
                     labels_mask=label_mask,
+                    temperature=temperature,
                 )
             else:
                 forward_fn = get_mcore_forward_fn(self.hf_config)
@@ -522,6 +527,7 @@ class MegatronPPOActor(BasePPOActor):
                 def logits_processor(logits, label, label_mask):
                     assert logits.shape[:2] == label.shape[:2]
                     assert label.shape == label_mask.shape
+                    logits.div_(temperature)
                     ret = {}
                     if calculate_entropy:
                         logits_bak = logits.clone()

@@ -98,6 +98,8 @@ def test_single_turn(init_config):
     assert result.batch["attention_mask"].size(1) == seq_len
     assert result.batch["position_ids"].size(1) == seq_len
     assert result.batch["rm_scores"].size(1) == result.batch["responses"].size(1)
+    if init_config.actor_rollout_ref.rollout.calculate_log_probs:
+        assert result.batch["rollout_log_probs"].size(1) == result.batch["responses"].size(1)
 
     # check turns
     num_turns = result.non_tensor_batch["__num_turns__"]
@@ -203,6 +205,7 @@ def test_tool_agent(init_config):
     init_config.actor_rollout_ref.rollout.n = n
     init_config.actor_rollout_ref.rollout.multi_turn.tool_config_path = tool_config_path
     init_config.actor_rollout_ref.rollout.multi_turn.max_parallel_calls = 2
+    init_config.actor_rollout_ref.rollout.calculate_log_probs = True
     agent_loop_manager = init_agent_loop_manager(init_config)
 
     # =========================== 2. Generate sequences  ===========================
@@ -255,8 +258,9 @@ def test_tool_agent(init_config):
     attention_mask = result.batch["attention_mask"]
     assert result.batch["rm_scores"].size(1) == responses.size(1)
     assert responses.size() == response_mask.size(), f"{responses.size()} != {response_mask.size()}"
-    response_length = response_mask.size(1)
+    assert result.batch["rollout_log_probs"].size(1) == result.batch["responses"].size(1)
 
+    response_length = response_mask.size(1)
     for i in range(len(responses)):
         # response with tool response
         valid_tokens = responses[i][attention_mask[i][-response_length:].bool()]

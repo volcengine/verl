@@ -88,7 +88,7 @@ class ToolAgentLoop(AgentLoopBase):
 
         # Initialize other variables
         prompt_ids = []
-        response_mask = []
+        response_mask, response_logprobs = [], []
         turn_scores = []
         tools_kwargs = kwargs.get("tools_kwargs", {})
         user_turns, assistant_turns = 0, 0
@@ -117,8 +117,16 @@ class ToolAgentLoop(AgentLoopBase):
                     messages, image_data, sampling_params, request_id, prompt_ids, response_mask, metrics
                 )
             elif state == AgentState.GENERATING:
-                state, response_ids, tool_calls = await self._handle_generating_state(
-                    messages, image_data, sampling_params, request_id, prompt_ids, response_mask, metrics, add_messages
+                state, response_ids, tool_calls, response_logprobs = await self._handle_generating_state(
+                    messages,
+                    image_data,
+                    sampling_params,
+                    request_id,
+                    prompt_ids,
+                    response_mask,
+                    response_logprobs,
+                    metrics,
+                    add_messages,
                 )
                 # Update turns count after generation
                 assistant_turns += 1
@@ -133,6 +141,7 @@ class ToolAgentLoop(AgentLoopBase):
                     interaction,
                     prompt_ids,
                     response_mask,
+                    response_logprobs,
                 )
             elif state == AgentState.INTERACTING:
                 state, responses, reward = await self._handle_interacting_state(
@@ -156,6 +165,7 @@ class ToolAgentLoop(AgentLoopBase):
             response_ids=response_ids[: self.response_length],
             response_mask=response_mask[: self.response_length],
             multi_modal_data=multi_modal_data,
+            response_logprobs=response_logprobs[: self.response_length] if response_logprobs else None,
             num_turns=user_turns + assistant_turns + 1,
             metrics=metrics,
             extra_fields={"turn_scores": turn_scores},
@@ -193,19 +203,31 @@ class ToolAgentLoop(AgentLoopBase):
         return AgentState.GENERATING
 
     async def _handle_generating_state(
-        self, messages, image_data, sampling_params, request_id, prompt_ids, response_mask, metrics, add_messages
+        self,
+        messages,
+        image_data,
+        sampling_params,
+        request_id,
+        prompt_ids,
+        response_mask,
+        response_logprobs,
+        metrics,
+        add_messages,
     ):
         """Handle the generating state: generate model response and check for tool calls."""
         with simple_timer("generate_sequences", metrics):
-            response_ids = await self.server_manager.generate(
+            output = await self.server_manager.generate(
                 request_id=request_id, prompt_ids=prompt_ids, sampling_params=sampling_params, image_data=image_data
             )
+        response_ids = output.token_ids
         prompt_ids += response_ids
         response_mask += [1] * len(response_ids)
+        if output.log_probs:
+            response_logprobs += output.log_probs
 
         # Check termination conditions
         if len(response_mask) >= self.response_length:
-            return AgentState.TERMINATED, response_ids, []
+            return AgentState.TERMINATED, response_ids, [], response_logprobs
 
         # Extract tool calls
         _, tool_calls = await self.tool_parser.extract_tool_calls(response_ids)
@@ -217,11 +239,11 @@ class ToolAgentLoop(AgentLoopBase):
 
         # Determine next state
         if tool_calls:
-            return AgentState.PROCESSING_TOOLS, response_ids, tool_calls
+            return AgentState.PROCESSING_TOOLS, response_ids, tool_calls, response_logprobs
         elif self.interaction_config_file:
-            return AgentState.INTERACTING, response_ids, []
+            return AgentState.INTERACTING, response_ids, [], response_logprobs
         else:
-            return AgentState.TERMINATED, response_ids, []
+            return AgentState.TERMINATED, response_ids, [], response_logprobs
 
     async def _handle_processing_tools_state(
         self,
@@ -234,6 +256,7 @@ class ToolAgentLoop(AgentLoopBase):
         interaction,
         prompt_ids,
         response_mask,
+        response_logprobs,
     ):
         """Handle the processing tools state: execute tool calls and prepare tool responses."""
         tasks = []
@@ -321,6 +344,8 @@ class ToolAgentLoop(AgentLoopBase):
             # Update prompt_ids and response_mask
             prompt_ids += response_ids
             response_mask += [0] * len(response_ids)
+            if response_logprobs:
+                response_logprobs += [0.0] * len(response_ids)
 
         return AgentState.GENERATING, responses
 

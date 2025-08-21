@@ -232,7 +232,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         # omega_profiler_config is DictConfig
         # profiler_config is a ProfilerConfig dataclass
         profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
-        if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch"]:
+        if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch", "torch_memory"]:
             tool_config = omega_conf_to_dataclass(
                 omega_profiler_config.get("tool_config", {}).get(omega_profiler_config.get("tool"))
             )
@@ -807,7 +807,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
 
         omega_profiler_config = config.get("profiler", {})
         profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
-        if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch"]:
+        if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch", "torch_memory"]:
             tool_config = omega_conf_to_dataclass(
                 omega_profiler_config.get("tool_config", {}).get(omega_profiler_config.get("tool"))
             )
@@ -1087,7 +1087,7 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
         profiler_config = omega_conf_to_dataclass(config.get("profiler", {}), dataclass_type=ProfilerConfig)
         omega_profiler_config = config.get("profiler", {})
         profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
-        if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch"]:
+        if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch", "torch_memory"]:
             tool_config = omega_conf_to_dataclass(
                 omega_profiler_config.get("tool_config", {}).get(omega_profiler_config.get("tool"))
             )
