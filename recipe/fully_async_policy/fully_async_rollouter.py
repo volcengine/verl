@@ -62,6 +62,8 @@ class FullyAsyncRollouter(RayPPOTrainer):
         assert not self.hybrid_engine
         assert self.config.data.train_batch_size == 0, "train_batch_size must be zero"
         assert self.config.data.gen_batch_size == 1, "gen_batch_size must be one"
+        assert self.config.async_training.staleness_threshold >= 0, "staleness_threshold must larger than 0"
+        assert self.config.async_training.trigger_parameter_sync_step >= 1, "trigger_parameter_sync_step must larger than 1"
 
         self.role_worker_mapping = role_worker_mapping
         self.resource_pool_manager = resource_pool_manager
@@ -304,33 +306,46 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 rollout_sample = await self.pending_queue.get()
                 self.staleness_samples += 1
 
-            async with self.lock:
-                if await self._should_pause_generation():
-                    if self.active_tasks:
-                        await asyncio.gather(*self.active_tasks, return_exceptions=True)
-                        self.active_tasks.clear()
+            # 判断是否需要暂停
+            # self.paused 由 pause() 和 self._should_pause_generation() 负责修改
+            if self.paused or await self._should_pause_generation():
+                print("[FullyAsyncRollouter][Processor] 收到暂停信号，等待剩余任务完成...")
+                while self.active_tasks:
+                    async with self.lock:
+                        # 获取锁后，active_tasks 数量会发生变化，需要再次校验
+                        if self.active_tasks:
+                            done_tasks, self.active_tasks = await asyncio.wait(
+                                self.active_tasks, return_when=asyncio.FIRST_COMPLETED
+                            )
+                        for task in done_tasks:
+                            await task
+                async with self.lock:
                     self.paused = True
-                while self.paused:
-                    await self.condition.wait()
+
+                async with self.lock:
+                    while self.paused:
+                        await self.condition.wait()
 
             # 获取待处理的部分 RolloutSample
-            async with self.lock:
-                if rollout_sample == "DONE":
-                    print("[FullyAsyncRollouter][Processor] 收到结束信号，等待剩余任务完成...")
-                    # 等待所有活动任务完成
-                    if self.active_tasks:
-                        await asyncio.gather(*self.active_tasks, return_exceptions=True)
-                        self.active_tasks.clear()
-                    break
+            if rollout_sample == "DONE":
+                print("[FullyAsyncRollouter][Processor] 收到结束信号，等待剩余任务完成...")
+                while self.active_tasks:
+                    async with self.lock:
+                        if self.active_tasks:
+                            done_tasks, self.active_tasks = await asyncio.wait(
+                                self.active_tasks, return_when=asyncio.FIRST_COMPLETED
+                            )
+                        for task in done_tasks:
+                            await task
+                break
 
             # 检查并发数是否超限
-            async with self.lock:
-                while len(self.active_tasks) >= self.max_concurrent_samples:
-                    # 等待至少一个任务完成
-                    done_tasks, self.active_tasks = await asyncio.wait(
-                        self.active_tasks, return_when=asyncio.FIRST_COMPLETED
-                    )
-                    # 清理已完成的任务
+            while len(self.active_tasks) >= self.max_concurrent_samples:
+                async with self.lock:
+                    if self.active_tasks:
+                        done_tasks, self.active_tasks = await asyncio.wait(
+                            self.active_tasks, return_when=asyncio.FIRST_COMPLETED
+                        )
                     for task in done_tasks:
                         await task
 
@@ -353,7 +368,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
     async def _process_single_sample_streaming(self, rollout_sample: RolloutSample):
         """流式处理单个样本"""
-
         # 调用异步生成方法
         agent_loop_output, processing_time = await self.async_rollout_manager.generate_single_sample_async(
             rollout_sample.full_batch, rollout_sample.agent_loop_output
@@ -366,7 +380,9 @@ class FullyAsyncRollouter(RayPPOTrainer):
         # print(
         #     f"[FullyAsyncRollouter] rollout {rollout_sample.sample_id} "
         #     f"cost {processing_time:.2f}s  "
-        #     f"response_len: {len(rollout_sample.agent_loop_output.response_ids)}")
+        #     f"len: {len(rollout_sample.agent_loop_output.response_ids)} "
+        #     f"cancel: {agent_loop_output.is_cancel} "
+        # )
 
         if agent_loop_output.is_cancel:
             # 放入 cancel 队列中，等待恢复生成
@@ -538,17 +554,14 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 pprint(stats)
                 last_stats_time = current_time
 
-            # pause 和 resume 直接，不进行恢复操作
-            if self.monitor_loop_trigger and self.paused:
+            # pause 和 resume 之间，不进行恢复操作
+            if self.monitor_loop_trigger:
                 if not await self._should_pause_generation():
                     async with self.lock:
-                        print("[FullyAsyncRollouter][MonitorLoop][Resume]")
                         self.paused = False
                         self.condition.notify_all()
 
     async def _should_pause_generation(self) -> bool:
-        if self.paused:
-            return True
         """Determine whether the build should be paused"""
         queue_stats = self.message_queue_client.get_statistics_sync()
         queue_size = queue_stats["queue_size"]
@@ -594,15 +607,18 @@ class FullyAsyncRollouter(RayPPOTrainer):
             if self.active_tasks:
                 await asyncio.gather(*self.active_tasks, return_exceptions=True)
                 self.active_tasks.clear()
-            print("[FullyAsyncRollouter][Public][Pause] All active tasks completed")
-        self.monitor_loop_trigger = False
+                print("[FullyAsyncRollouter][Public][Pause] All active tasks completed")
+            self.monitor_loop_trigger = False
 
     async def resume(self):
         print("[FullyAsyncRollouter][Public][Resume]")
         async with self.lock:
             self.paused = False
+            self.monitor_loop_trigger = True
             self.condition.notify_all()
-        self.monitor_loop_trigger = True
+
+            if self.config.async_training.partial_rollout:
+                await self.async_rollout_manager.resume_async()
 
     async def get_statistics(self) -> dict:
         queue_stats = self.message_queue_client.get_statistics_sync()

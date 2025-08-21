@@ -76,9 +76,10 @@ train_prompt_bsz=0
 gen_prompt_bsz=1
 n_resp_per_prompt=16
 train_prompt_mini_bsz=32
-staleness_threshold=10
+staleness_threshold=1
 total_rollout_steps=$(((512*16*100)))
-trigger_parameter_sync_step=32
+trigger_parameter_sync_step=4
+partial_rollout=True
 
 /home/hadoop-djst-algoplat/miniconda3/bin/python -m recipe.fully_async_policy.fully_async_main \
     data.train_files="${TRAIN_FILE}" \
@@ -159,4 +160,5 @@ trigger_parameter_sync_step=32
     rollout.total_rollout_steps="${total_rollout_steps}" \
     rollout.total_epochs=10 \
     async_training.staleness_threshold="${staleness_threshold}" \
-    async_training.trigger_parameter_sync_step="${trigger_parameter_sync_step}"
+    async_training.trigger_parameter_sync_step="${trigger_parameter_sync_step}" \
+    async_training.partial_rollout="${partial_rollout}"

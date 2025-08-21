@@ -209,6 +209,7 @@ class AsyncvLLMServer(AsyncServerBase):
         self.engine: AsyncLLM = None
         # for cancel
 
+        self.paused = False
         self.lock = asyncio.Lock()
         self.cancel_event: dict[str, asyncio.Event] = {}
         self.req_output: dict[str, Optional[RequestOutput]] = {}
@@ -351,10 +352,13 @@ class AsyncvLLMServer(AsyncServerBase):
     ) -> tuple[Sequence[int], bool] | tuple[str, bool]:
         # 设置中断标志
         async with self.lock:
+            if self.paused:
+                # cancel 后， 所有任务直接返回，等待下次提交
+                return [], True
             self.cancel_event[request_id] = asyncio.Event()
             cancel_handle = asyncio.create_task(self.cancel_event[request_id].wait())
+            generation_handle = asyncio.create_task(self._generate_step(prompt_ids, sampling_params, request_id))
 
-        generation_handle = asyncio.create_task(self._generate_step(prompt_ids, sampling_params, request_id))
         done, pend = await asyncio.wait([generation_handle, cancel_handle], return_when=asyncio.FIRST_COMPLETED)
 
         for task in done:
@@ -372,8 +376,13 @@ class AsyncvLLMServer(AsyncServerBase):
 
     async def cancel(self):
         async with self.lock:
+            self.paused = True
             for request_id in self.cancel_event:
                 self.cancel_event[request_id].set()
+
+    async def resume(self):
+        async with self.lock:
+            self.paused = False
 
     async def wake_up(self):
         if self.config.rollout.free_cache_engine:

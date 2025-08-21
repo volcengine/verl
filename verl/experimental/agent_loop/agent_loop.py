@@ -678,3 +678,8 @@ class AgentLoopManager:
         """Cancel all rollout tasks asynchronously."""
         futures = [server.cancel.remote() for server in self.async_llm_servers]
         await asyncio.gather(*[asyncio.wrap_future(future.future()) for future in futures], return_exceptions=True)
+
+    async def resume_async(self):
+        """Cancel all rollout tasks asynchronously."""
+        futures = [server.resume.remote() for server in self.async_llm_servers]
+        await asyncio.gather(*[asyncio.wrap_future(future.future()) for future in futures], return_exceptions=True)
