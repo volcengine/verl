@@ -149,7 +149,7 @@ class Glm4vCausalLMOutputForPPO(Glm4vCausalLMOutputWithPast):
     entropy: Optional[torch.FloatTensor] = None
 
 
-def forward_base_model_new_api(
+def forward_base_model(
     self: Glm4vForConditionalGeneration,
     input_ids: torch.LongTensor = None,
     attention_mask: Optional[torch.Tensor] = None,
@@ -174,7 +174,8 @@ def forward_base_model_new_api(
         output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
     )
     return_dict = return_dict if return_dict is not None else self.config.use_return_dict
-
+    print("======")
+    print(self.model)
     outputs = self.model(
         input_ids=input_ids,
         pixel_values=pixel_values,
@@ -219,8 +220,6 @@ def forward_with_torch_backend(
     **loss_kwargs,
 ) -> tuple | Glm4vCausalLMOutputForPPO:
     from verl.utils.experimental.torch_functional import FusedLinearForPPO
-
-    forward_base_model = forward_base_model_new_api
     outputs = forward_base_model(
         self,
         input_ids=input_ids,
@@ -295,8 +294,6 @@ def forward_with_triton_backend(
     **loss_kwargs,
 ) -> tuple | Glm4vCausalLMOutputForPPO:
     from verl.utils.kernel.linear_cross_entropy import linear_cross_entropy
-
-    forward_base_model = forward_base_model_new_api
     outputs = forward_base_model(
         self,
         input_ids=input_ids,
