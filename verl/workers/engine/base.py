@@ -117,30 +117,6 @@ class BaseEngine:
     def estimate_flops(self, global_num_tokens, delta_time):
         raise NotImplementedError
 
-    def shard_data(self, data):
-        """
-        Shard or partition data for distributed training or parallel execution.
-
-        Args:
-            data: Data structure to be sharded across devices/workers.
-
-        Returns:
-            Sharded data in the same format as input.
-        """
-        raise NotImplementedError
-
-    def unshard_data(self, data):
-        """
-        Reconstruct or gather sharded data back to a unified format.
-
-        Args:
-            data: Sharded data structure to reconstruct.
-
-        Returns:
-            Unsharded, combined data.
-        """
-        raise NotImplementedError
-
     def to(self, device: str, model: bool = True, optimizer: bool = True):
         """
         Move model parameters, optimizer states, or both to the specified device.

@@ -72,7 +72,8 @@ from ..base import BaseEngine, EngineRegistry
 
 from .utils import create_device_mesh, get_sharding_strategy
 
-from verl.workers.config import FSDPEngineConfig, HFModelConfig
+from verl.workers.config import FSDPEngineConfig, HFModelConfig, FSDPOptimizerConfig
+from verl.trainer.config import CheckpointConfig
 from verl.utils.seqlen_balancing import prepare_dynamic_batch, restore_dynamic_batch
 
 logger = logging.getLogger(__file__)
@@ -89,7 +90,8 @@ class FSDPEngine(BaseEngine):
     Supports model sharding, activation/optimizer offloading, LoRA, and sequence parallelism.
     """
 
-    def __init__(self, model_config: HFModelConfig, fsdp_config: FSDPEngineConfig):
+    def __init__(self, model_config: HFModelConfig, fsdp_config: FSDPEngineConfig,
+                 optimizer_config: FSDPOptimizerConfig, checkpoint_config: CheckpointConfig,):
         """
         Initialize the FSDPEngine.
 
@@ -102,6 +104,10 @@ class FSDPEngine(BaseEngine):
 
         self.model_config = model_config
         self.fsdp_config = fsdp_config
+        self.optimizer_config = optimizer_config
+        self.checkpoint_config = checkpoint_config
+
+        self.mode = None
 
         self.rank = torch.distributed.get_rank()
         # build device mesh for Ulysses Sequence Parallel
@@ -164,13 +170,13 @@ class FSDPEngine(BaseEngine):
             offload_fsdp_optimizer(optimizer=self.optimizer)
             log_gpu_memory_usage("After offload optimizer during init", logger=logger)
 
-        self.flops_counter = FlopsCounter(self.model_config)
+        self.flops_counter = FlopsCounter(self.model_config.hf_config)
         self.checkpoint_manager = FSDPCheckpointManager(
             model=self.module,
             optimizer=self.optimizer,
             lr_scheduler=self.lr_scheduler,
-            processing_class=self.processor if self.processor is not None else self.tokenizer,
-            checkpoint_contents=self.config.checkpoint,
+            processing_class=self.model_config.get_processor(),
+            checkpoint_contents=self.checkpoint_config,
         )
 
     def _build_module(self):
@@ -268,7 +274,6 @@ class FSDPEngine(BaseEngine):
         fsdp_mesh = self.device_mesh
         sharding_strategy = get_sharding_strategy(fsdp_mesh)
 
-
         # Note: We force turn off CPUOffload because it causes incorrect results when using grad accumulation
         if self.fsdp_config.strategy == "fsdp":
             # cpu_offload:
@@ -332,38 +337,39 @@ class FSDPEngine(BaseEngine):
         from torch import optim
         optimizer = optim.AdamW(
             module.parameters(),
-            lr=self.config.optim.lr,
-            betas=self.config.optim.betas,
-            weight_decay=self.config.optim.weight_decay,
+            lr=self.optimizer_config.lr,
+            betas=self.optimizer_config.betas,
+            weight_decay=self.optimizer_config.weight_decay,
         )
         return optimizer
 
     def _build_lr_scheduler(self, optimizer):
-        total_steps = self.config.total_training_steps
-        num_warmup_steps = int(self.config.optim.lr_warmup_steps)
-        warmup_style = self.config.optim.lr_scheduler_style
+        from verl.utils.torch_functional import get_constant_schedule_with_warmup, get_cosine_schedule_with_warmup
+        optim_config = self.optimizer_config
+
+        total_steps = optim_config.get("total_training_steps", 0)
+        num_warmup_steps = int(optim_config.get("lr_warmup_steps", -1))
+        warmup_style = optim_config.get("warmup_style", "constant")
+        min_lr_ratio = optim_config.get("min_lr_ratio", 0.0)
+        num_cycles = optim_config.get("num_cycles", 0.5)
         if num_warmup_steps < 0:
-            num_warmup_steps_ratio = self.config.optim.lr_warmup_steps_ratio
+            num_warmup_steps_ratio = optim_config.get("lr_warmup_steps_ratio", 0.0)
             num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
 
         if self.rank == 0:
             print(f"Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}")
 
-        from verl.utils.torch_functional import get_constant_schedule_with_warmup, get_cosine_schedule_with_warmup
-
         if warmup_style == "constant":
-            lr_scheduler = get_constant_schedule_with_warmup(optimizer=optimizer, num_warmup_steps=num_warmup_steps)
+            lr_scheduler = get_constant_schedule_with_warmup(
+                optimizer=optimizer, num_warmup_steps=num_warmup_steps
+            )
         elif warmup_style == "cosine":
-            assert "min_lr_ratio" in self.config.optim.lr_scheduler_args, "min_lr_ratio must be specified in lr_scheduler_args"
-            assert "num_cycles" in self.config.optim.lr_scheduler_args, "num_cycles must be specified in lr_scheduler_args"
-            min_lr_ratio = self.config.optim.lr_scheduler_args["min_lr_ratio"]
-            num_cycles = self.config.optim.lr_scheduler_args["num_cycles"]
             lr_scheduler = get_cosine_schedule_with_warmup(
                 optimizer=optimizer,
                 num_warmup_steps=num_warmup_steps,
                 num_training_steps=total_steps,
                 min_lr_ratio=min_lr_ratio,
-                num_cycles=num_cycles
+                num_cycles=num_cycles,
             )
         else:
             raise NotImplementedError(f"Warmup style {warmup_style} is not supported")
@@ -388,13 +394,19 @@ class FSDPEngine(BaseEngine):
         fsdp_module = self._build_fsdp_module(module)
         log_gpu_memory_usage("After FSDP", logger=None)
 
-        if seklf,=
-        # Initialize optimizer with model parameters and config settings
-        optimizer = self._build_optimizer(module)
-        # Create learning rate scheduler with warmup and decay settings
-        lr_scheduler = self._build_lr_scheduler(optimizer)
+        if not self.fsdp_config.forward_only:
+            # Initialize optimizer with model parameters and config settings
+            optimizer = self._build_optimizer(module)
+            # Create learning rate scheduler with warmup and decay settings
+            lr_scheduler = self._build_lr_scheduler(optimizer)
+        else:
+            optimizer = None
+            lr_scheduler = None
 
-        return module, optimizer, lr_scheduler
+        self.fsdp_module = fsdp_module
+        self.module = module
+        self.optimizer = optimizer
+        self.lr_scheduler = lr_scheduler
 
     def _get_params(self):
         params = self.module.state_dict()
@@ -405,7 +417,6 @@ class FSDPEngine(BaseEngine):
         )
         return params
 
-    # TODO: temporary
     def send_params(self):
         assert hasattr(self, "_weights_info") and self._weights_info is not None
 
@@ -456,18 +467,6 @@ class FSDPEngine(BaseEngine):
         Includes activation offload entry/exit.
         """
         return EngineEvalModeCtx(self)
-
-    def shard_data(self, data):
-        """
-        Preprocess data into sharded format via UlyssesShardingManager.
-        """
-        return self.ulysses_sharding_manager.preprocess_data(data)
-
-    def unshard_data(self, data):
-        """
-        Postprocess data from sharded format back to full format.
-        """
-        return self.ulysses_sharding_manager.postprocess_data(data)
 
     def get_data_parallel_size(self):
         return torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
