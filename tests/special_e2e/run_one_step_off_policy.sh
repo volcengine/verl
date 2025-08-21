@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -xeuo pipefail
-ray stop --force
 
 # Test script for one_step_off_policy E2E regression testing
 # This script runs one_step_off_policy with both FSDP2 and Megatron backends
@@ -106,7 +105,6 @@ common_params=(
     trainer.total_epochs=2
     trainer.total_training_steps=2
     trainer.resume_mode=disable
-    trainer.use_legacy_worker_impl=False
     trainer.nnodes=1
     trainer.n_gpus_per_node=${n_gpus_training}
     rollout.nnodes=1
