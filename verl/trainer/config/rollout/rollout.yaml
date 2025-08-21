@@ -16,6 +16,10 @@ top_k: -1
 # Top-p sampling parameter. Default 1.0.
 top_p: 1
 
+# for vllm rollout
+# Limit the number of images in VLLM configuration for multimodal scenarios when a single case contains multiple images
+limit_images: 1
+
 # typically the same as data max prompt length
 # same as data.max_prompt_length if it exists
 prompt_length: ${oc.select:data.max_prompt_length,512}
