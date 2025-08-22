@@ -12,7 +12,6 @@ function now() {
     date '+%d-%H-%M'
 }
 
-export CUDA_VISIBLE_DEVICES=0,1,2,3
 EXPERIMENT_NAME="qwen2.5-3b_baseline_$(now)"
 
 python3 -m verl.trainer.main_ppo \
@@ -55,7 +54,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.logger='["console","wandb"]' \
     trainer.project_name='multi-turn-grpo-qwen2.5-3b-sglang' \
     trainer.experiment_name=$EXPERIMENT_NAME \
-    trainer.n_gpus_per_node=4 \
+    trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
     trainer.test_freq=20 \
