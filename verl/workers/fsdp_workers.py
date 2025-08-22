@@ -163,6 +163,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         self._is_actor = self.role in ["actor", "actor_rollout", "actor_rollout_ref"]
         self._is_rollout = self.role in ["rollout", "actor_rollout", "actor_rollout_ref"]
         self._is_ref = self.role in ["ref", "actor_rollout_ref"]
+        self.use_orig_params = False
 
         # TODO(haibin.lin):
         # As of now the type of config is DictConfig, if we assign config.profiler with ProfilerConfig,
@@ -378,6 +379,23 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                     "bias": "none",
                 }
                 actor_module = get_peft_model(actor_module, LoraConfig(**lora_config))
+
+        self.use_orig_params = fsdp_config.get("use_orig_params", False)
+        if self.config.actor.get("freeze_vision_tower", False):
+            if hasattr(actor_module, "model") and hasattr(actor_module.model, "visual"):  # transformers >= 4.52.0
+                actor_module.model.visual.requires_grad_(False)
+                self.use_orig_params = True
+                if self.rank == 0:
+                    print("Vision tower is set to not trainable.")
+            elif hasattr(actor_module, "visual"):  # transformers < 4.52.0
+                actor_module.visual.requires_grad_(False)
+                self.use_orig_params = True
+                if self.rank == 0:
+                    print("Vision tower is set to not trainable.")
+            else:
+                if self.rank == 0:
+                    print("No vision tower found.")
+
         torch.distributed.barrier()
 
         if self.rank == 0:
@@ -430,7 +448,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 mixed_precision=mixed_precision,
                 sync_module_states=True,
                 device_mesh=self.device_mesh,
-                use_orig_params=fsdp_config.get("use_orig_params", False),
+                use_orig_params=self.use_orig_params,
                 forward_prefetch=fsdp_config.get("forward_prefetch", False),
             )
         elif fsdp_strategy == "fsdp2":
