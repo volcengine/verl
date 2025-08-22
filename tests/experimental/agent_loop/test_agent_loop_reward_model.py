@@ -23,6 +23,7 @@ from verl.protocol import DataProto
 from verl.trainer.main_ppo import create_rl_sampler
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
 
+
 def test_agent_loop_compute_score_with_model():
     ray.init(
         runtime_env={
@@ -90,4 +91,5 @@ def test_agent_loop_compute_score_with_model():
 
     rm_scores = gen_batch.batch["rm_scores"]
     sample_scores = rm_scores.sum(dim=1)
+    print(sample_scores)
     ray.shutdown()
