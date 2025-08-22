@@ -64,6 +64,7 @@ class AgentData:
 
         # State variables
         self.prompt_ids: list[int] = []
+        self.response_ids: list[int] = []
         self.response_mask: list[int] = []
         self.response_logprobs: list[float] = []
         self.turn_scores: list[float] = []
@@ -72,8 +73,6 @@ class AgentData:
 
         # Temporary state for tool calls
         self.tool_calls: list[FunctionCall] = []
-        self.response_ids: list[int] = []
-        self.new_images_this_turn: list[Any] = []
 
 
 @register("tool_agent")
@@ -241,6 +240,7 @@ class ToolAgentLoop(AgentLoopBase):
                 None, lambda: self.tokenizer.decode(agent_data.response_ids)
             )
             add_messages.append({"role": "assistant", "content": assistant_message})
+            agent_data.messages.extend(add_messages)
 
         # Determine next state
         if agent_data.tool_calls:
@@ -253,6 +253,7 @@ class ToolAgentLoop(AgentLoopBase):
     async def _handle_processing_tools_state(self, agent_data: AgentData) -> AgentState:
         """Handle the processing tools state: execute tool calls and prepare tool responses."""
         add_messages: list[dict[str, Any]] = []
+        new_images_this_turn: list[Any] = []  # Local variable instead of agent_data attribute
 
         tasks = []
         for tool_call in agent_data.tool_calls[: self.max_parallel_calls]:
@@ -268,7 +269,7 @@ class ToolAgentLoop(AgentLoopBase):
                     agent_data.messages.append({"role": "tool", "content": response.text})
 
         # Process tool responses and update multi_modal_data
-        agent_data.new_images_this_turn = []
+        # Removed: agent_data.new_images_this_turn = []
         for tool_response in responses:
             # Create message from tool response
             if tool_response.image or tool_response.video:
@@ -286,6 +287,7 @@ class ToolAgentLoop(AgentLoopBase):
                 message = {"role": "tool", "content": tool_response.text or ""}
 
             add_messages.append(message)
+            agent_data.messages.extend(add_messages)
 
             # Handle image data
             if tool_response.image:
@@ -300,12 +302,12 @@ class ToolAgentLoop(AgentLoopBase):
                     for img in tool_response.image:
                         if img is not None:  # Add a check to ensure the image is not None
                             agent_data.image_data.append(img)
-                            agent_data.new_images_this_turn.append(img)
+                            new_images_this_turn.append(img)  # Using local variable
                 else:
                     # Ensure the image is not None
                     if tool_response.image is not None:
                         agent_data.image_data.append(tool_response.image)
-                        agent_data.new_images_this_turn.append(tool_response.image)
+                        new_images_this_turn.append(tool_response.image)  # Using local variable
 
             # Handle video data
             if tool_response.video:
@@ -327,7 +329,7 @@ class ToolAgentLoop(AgentLoopBase):
                 ),
             )
             # Use only the new images from this turn for processing tool responses
-            current_images = agent_data.new_images_this_turn if agent_data.new_images_this_turn else None
+            current_images = new_images_this_turn if new_images_this_turn else None  # Using local variable
             model_inputs = self.processor(text=[raw_tool_response], images=current_images, return_tensors="pt")
             response_ids = model_inputs.pop("input_ids").squeeze(0).tolist()
         else:
