@@ -69,7 +69,6 @@ class AgentData:
         self.turn_scores: list[float] = []
         self.user_turns = 0
         self.assistant_turns = 0
-        self.add_messages: list[dict[str, Any]] = []
 
         # Temporary state for tool calls
         self.tool_calls: list[FunctionCall] = []
@@ -213,8 +212,7 @@ class ToolAgentLoop(AgentLoopBase):
 
     async def _handle_generating_state(self, agent_data: AgentData, sampling_params: dict[str, Any]) -> AgentState:
         """Handle the generating state: generate model response and check for tool calls."""
-        # Clear add_messages to ensure it only contains messages from this turn
-        agent_data.add_messages.clear()
+        add_messages: list[dict[str, Any]] = []
 
         with simple_timer("generate_sequences", agent_data.metrics):
             output = await self.server_manager.generate(
@@ -242,7 +240,7 @@ class ToolAgentLoop(AgentLoopBase):
             assistant_message = await self.loop.run_in_executor(
                 None, lambda: self.tokenizer.decode(agent_data.response_ids)
             )
-            agent_data.add_messages.append({"role": "assistant", "content": assistant_message})
+            add_messages.append({"role": "assistant", "content": assistant_message})
 
         # Determine next state
         if agent_data.tool_calls:
@@ -254,8 +252,7 @@ class ToolAgentLoop(AgentLoopBase):
 
     async def _handle_processing_tools_state(self, agent_data: AgentData) -> AgentState:
         """Handle the processing tools state: execute tool calls and prepare tool responses."""
-        # Clear add_messages to ensure it only contains messages from this turn
-        agent_data.add_messages.clear()
+        add_messages: list[dict[str, Any]] = []
 
         tasks = []
         for tool_call in agent_data.tool_calls[: self.max_parallel_calls]:
@@ -288,7 +285,7 @@ class ToolAgentLoop(AgentLoopBase):
                 # Text-only content
                 message = {"role": "tool", "content": tool_response.text or ""}
 
-            agent_data.add_messages.append(message)
+            add_messages.append(message)
 
             # Handle image data
             if tool_response.image:
@@ -323,7 +320,7 @@ class ToolAgentLoop(AgentLoopBase):
             raw_tool_response = await self.loop.run_in_executor(
                 None,
                 lambda: self.processor.apply_chat_template(
-                    agent_data.add_messages,
+                    add_messages,
                     add_generation_prompt=True,
                     tokenize=False,
                     **self.apply_chat_template_kwargs,
@@ -336,9 +333,7 @@ class ToolAgentLoop(AgentLoopBase):
         else:
             response_ids = await self.loop.run_in_executor(
                 None,
-                lambda: self.tokenizer.apply_chat_template(
-                    agent_data.add_messages, add_generation_prompt=True, tokenize=True
-                ),
+                lambda: self.tokenizer.apply_chat_template(add_messages, add_generation_prompt=True, tokenize=True),
             )
         response_ids = response_ids[len(self.system_prompt) :]
 
@@ -361,8 +356,7 @@ class ToolAgentLoop(AgentLoopBase):
             agent_data.request_id, agent_data.messages, **agent_data.interaction_kwargs
         )
 
-        responses = [{"role": "user", "content": interaction_responses}]
-        agent_data.add_messages.extend(responses)
+        add_messages: list[dict[str, Any]] = [{"role": "user", "content": interaction_responses}]
 
         if reward is not None:
             agent_data.turn_scores.append(reward)
@@ -372,7 +366,7 @@ class ToolAgentLoop(AgentLoopBase):
             raw_user_response = await self.loop.run_in_executor(
                 None,
                 lambda: self.processor.apply_chat_template(
-                    agent_data.add_messages,
+                    add_messages,
                     add_generation_prompt=True,
                     tokenize=False,
                     **self.apply_chat_template_kwargs,
@@ -383,9 +377,7 @@ class ToolAgentLoop(AgentLoopBase):
         else:
             response_ids = await self.loop.run_in_executor(
                 None,
-                lambda: self.tokenizer.apply_chat_template(
-                    agent_data.add_messages, add_generation_prompt=True, tokenize=True
-                ),
+                lambda: self.tokenizer.apply_chat_template(add_messages, add_generation_prompt=True, tokenize=True),
             )
         response_ids = response_ids[len(self.system_prompt) :]
 
