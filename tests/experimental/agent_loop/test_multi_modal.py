@@ -191,8 +191,8 @@ def test_multimodal_tool_agent(init_config):
             # First prompt: "How are you?" - should have 2 turns [user, assistant]
             assert num_turns[i] == 2, f"Expected 2 turns but got {num_turns[i]} for sample {i}"
         else:
-            # Tool-calling prompts should have 3 turns [user, assistant + tool, assistant]
-            assert num_turns[i] == 3, f"Expected 3 turns but got {num_turns[i]} for sample {i}"
+            # Tool-calling prompts should have 4 turns [user, assistant, tool, assistant]
+            assert num_turns[i] == 4, f"Expected 4 turns but got {num_turns[i]} for sample {i}"
 
     # Check that images were properly returned in the tool responses
     tokenizer = hf_tokenizer(init_config.actor_rollout_ref.model.path)

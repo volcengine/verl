@@ -347,7 +347,7 @@ class ToolAgentLoop(AgentLoopBase):
         agent_data.response_mask += [0] * len(response_ids)
         if agent_data.response_logprobs:
             agent_data.response_logprobs += [0.0] * len(response_ids)
-
+        agent_data.user_turns += 1
         return AgentState.GENERATING
 
     async def _handle_interacting_state(self, agent_data: AgentData) -> AgentState:

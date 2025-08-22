@@ -248,8 +248,8 @@ def test_tool_agent(init_config):
             # [user, assistant]
             assert num_turns[i] == 2
         else:
-            # [user, assistant+tool, assistant]
-            assert num_turns[i] == 3
+            # [user, assistant, tool, assistant]
+            assert num_turns[i] == 4
 
     # Check response_mask
     tokenizer = hf_tokenizer(init_config.actor_rollout_ref.model.path)
@@ -378,8 +378,8 @@ def test_tool_agent_with_interaction(init_config):
             # [user, assistant, user]
             assert num_turns[i] == 3
         else:
-            # [user, assistant+tool, assistant, user]
-            assert num_turns[i] == 4
+            # [user, assistant, tool, assistant, user]
+            assert num_turns[i] == 5
 
     # Check turn_scores
     assert "turn_scores" in result.non_tensor_batch, "turn_scores should be present in non_tensor_batch"
