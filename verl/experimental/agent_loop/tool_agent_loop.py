@@ -270,7 +270,6 @@ class ToolAgentLoop(AgentLoopBase):
             for response in responses:
                 if response.text:
                     messages.append({"role": "tool", "content": response.text})
-                    print(f"messages: {messages}")
 
         # Process tool responses and update multi_modal_data
         new_images_this_turn = []
@@ -320,32 +319,32 @@ class ToolAgentLoop(AgentLoopBase):
                     "Multimedia type 'video' is not currently supported. Only 'image' is supported."
                 )
 
-            # Update prompt with tool responses
-            if self.processor is not None:
-                raw_tool_response = await self.loop.run_in_executor(
-                    None,
-                    lambda messages=add_messages: self.processor.apply_chat_template(
-                        messages, add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
-                    ),
-                )
-                # Use only the new images from this turn for processing tool responses
-                current_images = new_images_this_turn if new_images_this_turn else None
-                model_inputs = self.processor(text=[raw_tool_response], images=current_images, return_tensors="pt")
-                response_ids = model_inputs.pop("input_ids").squeeze(0).tolist()
-            else:
-                response_ids = await self.loop.run_in_executor(
-                    None,
-                    lambda messages=add_messages: self.tokenizer.apply_chat_template(
-                        messages, add_generation_prompt=True, tokenize=True
-                    ),
-                )
-            response_ids = response_ids[len(self.system_prompt) :]
+        # Update prompt with tool responses
+        if self.processor is not None:
+            raw_tool_response = await self.loop.run_in_executor(
+                None,
+                lambda messages=add_messages: self.processor.apply_chat_template(
+                    messages, add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
+                ),
+            )
+            # Use only the new images from this turn for processing tool responses
+            current_images = new_images_this_turn if new_images_this_turn else None
+            model_inputs = self.processor(text=[raw_tool_response], images=current_images, return_tensors="pt")
+            response_ids = model_inputs.pop("input_ids").squeeze(0).tolist()
+        else:
+            response_ids = await self.loop.run_in_executor(
+                None,
+                lambda messages=add_messages: self.tokenizer.apply_chat_template(
+                    messages, add_generation_prompt=True, tokenize=True
+                ),
+            )
+        response_ids = response_ids[len(self.system_prompt) :]
 
-            # Update prompt_ids and response_mask
-            prompt_ids += response_ids
-            response_mask += [0] * len(response_ids)
-            if response_logprobs:
-                response_logprobs += [0.0] * len(response_ids)
+        # Update prompt_ids and response_mask
+        prompt_ids += response_ids
+        response_mask += [0] * len(response_ids)
+        if response_logprobs:
+            response_logprobs += [0.0] * len(response_ids)
 
         return AgentState.GENERATING, responses
 

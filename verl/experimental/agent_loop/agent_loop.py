@@ -588,8 +588,9 @@ class AgentLoopWorker:
         metrics = [input.metrics.model_dump() for input in inputs]
         # Collect extra fields from all inputs and convert them to np.ndarray
         extra_fields = {}
-        for key in inputs[0].extra_fields.keys():
-            extra_fields[key] = np.array([input.extra_fields[key] for input in inputs], dtype=object)
+        all_keys = set(key for input_item in inputs for key in input_item.extra_fields)
+        for key in all_keys:
+            extra_fields[key] = np.array([input.extra_fields.get(key) for input in inputs], dtype=object)
 
         non_tensor_batch.update(extra_fields)
         return DataProto(batch=batch, non_tensor_batch=non_tensor_batch, meta_info={"metrics": metrics})
