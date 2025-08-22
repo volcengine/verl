@@ -328,7 +328,8 @@ class RewardManagerWorker:
             reward_tensor = self.rm_wg.compute_rm_score(data)
             data = data.union(reward_tensor)
             data.batch["attention_mask"] = torch.ones(
-                (1, data.batch["prompts"].shape[1] + data.batch["responses"].shape[1]), dtype=torch.long)
+                (1, data.batch["prompts"].shape[1] + data.batch["responses"].shape[1]), dtype=torch.long
+            )
         return self.reward_manager(data,return_dict)
 
 
