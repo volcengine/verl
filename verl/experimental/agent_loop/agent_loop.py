@@ -281,7 +281,8 @@ class RewardManagerWorker:
         """
         prompts = torch.tensor(output.prompt_ids, dtype=torch.long).unsqueeze(0)
         responses = torch.tensor(output.response_ids, dtype=torch.long).unsqueeze(0)
-
+        if self.rm_wg is None:
+            attention_mask = torch.ones((1, prompts.shape[1] + responses.shape[1]), dtype=torch.long)
         batch = TensorDict(
             {
                 "prompts": prompts,  # [1, prompt_length]
@@ -326,6 +327,8 @@ class RewardManagerWorker:
         if self.rm_wg is not None:
             reward_tensor = self.rm_wg.compute_rm_score(data)
             data = data.union(reward_tensor)
+            data.batch["attention_mask"] = torch.ones(
+                (1, data.batch["prompts"].shape[1] + data.batch["responses"].shape[1]), dtype=torch.long)
         return self.reward_manager(data,return_dict)
 
 
