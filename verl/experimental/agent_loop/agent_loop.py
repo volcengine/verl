@@ -284,12 +284,6 @@ class RewardManagerWorker:
             **{k: np.array([v]) for k, v in kwargs.items()},
             "__num_turns__": np.array([output.num_turns]),
         }
-
-        print("*" * 100)
-        print(f"Tool Rewards: {output.tool_rewards}")
-        print(f"Tool Metrics: {output.tool_metrics}")
-        print("*" * 100)
-        
         # add tool rewards and tool metrics into extra_info within non_tensor_batch
         if output.tool_rewards is not None or output.tool_metrics is not None:
             # Get existing extra_info or create empty dict
@@ -298,13 +292,13 @@ class RewardManagerWorker:
                 extra_info = extra_info.item() if extra_info.size == 1 else {}
             elif not isinstance(extra_info, dict):
                 extra_info = {}
-            
+
             # Add tool rewards and metrics to extra_info
             if output.tool_rewards is not None:
                 extra_info["tool_rewards"] = output.tool_rewards
             if output.tool_metrics is not None:
                 extra_info["tool_metrics"] = output.tool_metrics
-            
+
             # Store the updated extra_info back in non_tensor_batch
             non_tensor_batch["extra_info"] = np.array([extra_info], dtype=object)
 
@@ -604,7 +598,6 @@ class AgentLoopWorker:
         non_tensor_batch = {
             "__num_turns__": np.array([input.num_turns for input in inputs], dtype=np.int32),
         }
-
 
         # Add multi_modal_inputs to non_tensor_batch if any samples have them
         multi_modal_inputs_list = [input.multi_modal_inputs for input in inputs]

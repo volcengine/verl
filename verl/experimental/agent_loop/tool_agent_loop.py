@@ -217,7 +217,6 @@ class ToolAgentLoop(AgentLoopBase):
 
         multi_modal_data = {"image": image_data} if image_data is not None else {}
 
-
         output = AgentLoopOutput(
             prompt_ids=prompt_ids,
             response_ids=response_ids[: self.response_length],
