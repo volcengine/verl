@@ -243,10 +243,10 @@ class ToolAgentLoop(AgentLoopBase):
             tool_execution_response, tool_reward_score, tool_metrics = await tool.execute(instance_id, tool_args)
             # Accumulate aggregate tool reward
             try:
-                self.tool_rewards += float(tool_reward_score)
-            except Exception:
-                # Fallback to no-op if conversion fails
-                pass
+                if tool_reward_score is not None:
+                    self.tool_rewards += float(tool_reward_score)
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Could not convert tool reward score to float: {e}")
             # Record per-call metrics and include the per-call reward for downstream consumers
             self.tool_metrics.append(tool_metrics)
         except Exception as e:
