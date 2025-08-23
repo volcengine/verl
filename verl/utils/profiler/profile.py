@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import functools
 import os
 from typing import Callable, Optional
 
@@ -226,8 +227,9 @@ class DistProfiler:
     def stop(self):
         return getattr(self._impl, "stop", lambda: None)()
 
-    @staticmethod
+    @classmethod
     def annotate(
+        cls,
         message: Optional[str] = None,
         color: Optional[str] = None,
         domain: Optional[str] = None,
@@ -235,7 +237,29 @@ class DistProfiler:
         **kwargs,
     ) -> Callable:
         def decorator(func):
-            return func
+            @functools.wraps(func)
+            def wrapper(self_instance, *args, **kwargs_inner):
+                profiler = getattr(self_instance, "profiler", None)
+                if not profiler:
+                    return func(self_instance, *args, **kwargs_inner)
+
+                impl = profiler._impl
+                if hasattr(impl, "annotate"):
+                    try:
+                        actual_decorator = impl.annotate(
+                            message=message,
+                            color=color,
+                            domain=domain,
+                            category=category,
+                            **kwargs
+                        )
+
+                        return actual_decorator(func)(self_instance, *args, **kwargs_inner)
+                    except Exception as e:
+                        return func(self_instance, *args, **kwargs_inner)
+                return func(self_instance, *args, **kwargs_inner)
+
+            return wrapper
 
         return decorator
 

@@ -214,8 +214,7 @@ class NPUProfiler(DistProfiler):
                 self.profile_npu.stop()
                 NPUProfiler._define_count -= 1
 
-    @staticmethod
-    def annotate(message: Optional[str] = None, role: Optional[str] = None, **kwargs) -> Callable:
+    def annotate(self, message: Optional[str] = None, role: Optional[str] = None, **kwargs) -> Callable:
         """Decorate a Worker member function to profile the current rank in the current training step.
 
         Requires the target function to be a member function of a Worker,
@@ -230,32 +229,32 @@ class NPUProfiler(DistProfiler):
 
         def decorator(func):
             @functools.wraps(func)
-            def wrapper(self, *args, **kwargs):
-                if not self.profiler.enable:
-                    return func(self, *args, **kwargs)
+            def wrapper(*args, **kwargs_inner):
+                if not self.enable:
+                    return func(*args, **kwargs_inner)
 
                 profile_name = message or func.__name__
-                discrete_mode = self.profiler.discrete
-                profile_enable = self.profiler.this_step and self.profiler.enable
+                discrete_mode = self.discrete
+                profile_enable = self.this_step and self.enable
 
                 if not profile_enable:
-                    return func(self, *args, **kwargs)
+                    return func(*args, **kwargs_inner)
 
                 if profile_enable:
                     if not discrete_mode:
                         mark_range = mark_start_range(message=profile_name)
                     else:
                         profile_npu = get_npu_profiler(
-                            contents=self.profiler.profile_contents,
-                            profile_level=self.profiler.profile_level,
-                            profile_save_path=self.profiler.profile_save_path,
-                            analysis=self.profiler.analysis,
+                            contents=self.profile_contents,
+                            profile_level=self.profile_level,
+                            profile_save_path=self.profile_save_path,
+                            analysis=self.analysis,
                             role=role,
                         )
                         profile_npu.start()
                         mark_range = mark_start_range(message=profile_name)
 
-                result = func(self, *args, **kwargs)
+                result = func(*args, **kwargs_inner)
 
                 if profile_enable:
                     if not discrete_mode:

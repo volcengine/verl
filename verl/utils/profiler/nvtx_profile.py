@@ -149,8 +149,8 @@ class NsightSystemsProfiler(DistProfiler):
             if not self.discrete:
                 torch.cuda.profiler.stop()
 
-    @staticmethod
     def annotate(
+        self,
         message: Optional[str] = None,
         color: Optional[str] = None,
         domain: Optional[str] = None,
@@ -175,22 +175,22 @@ class NsightSystemsProfiler(DistProfiler):
 
         def decorator(func):
             @functools.wraps(func)
-            def wrapper(self, *args, **kwargs):
-                if not self.profiler.enable:
-                    return func(self, *args, **kwargs)
+            def wrapper(*args, **kwargs_inner):
+                if not self.enable:
+                    return func(*args, **kwargs_inner)
 
                 profile_name = message or func.__name__
 
-                if self.profiler.this_step:
-                    if self.profiler.discrete:
+                if self.this_step:
+                    if self.discrete:
                         torch.cuda.profiler.start()
                     mark_range = mark_start_range(message=profile_name, color=color, domain=domain, category=category)
 
-                result = func(self, *args, **kwargs)
+                result = func(*args, **kwargs_inner)
 
-                if self.profiler.this_step:
+                if self.this_step:
                     mark_end_range(mark_range)
-                    if self.profiler.discrete:
+                    if self.discrete:
                         torch.cuda.profiler.stop()
 
                 return result
