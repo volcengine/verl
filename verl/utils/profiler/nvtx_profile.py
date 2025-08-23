@@ -155,7 +155,7 @@ class NsightSystemsProfiler(DistProfiler):
         color: Optional[str] = None,
         domain: Optional[str] = None,
         category: Optional[str] = None,
-        **kwargs,
+        **kwargs_outer,
     ) -> Callable:
         """Decorate a Worker member function to profile the current rank in the current training step.
 

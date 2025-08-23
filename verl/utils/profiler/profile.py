@@ -234,7 +234,7 @@ class DistProfiler:
         color: Optional[str] = None,
         domain: Optional[str] = None,
         category: Optional[str] = None,
-        **kwargs,
+        **kwargs_outer,
     ) -> Callable:
         def decorator(func):
             @functools.wraps(func)
@@ -247,15 +247,11 @@ class DistProfiler:
                 if hasattr(impl, "annotate"):
                     try:
                         actual_decorator = impl.annotate(
-                            message=message,
-                            color=color,
-                            domain=domain,
-                            category=category,
-                            **kwargs
+                            message=message, color=color, domain=domain, category=category, **kwargs_outer
                         )
 
                         return actual_decorator(func)(self_instance, *args, **kwargs_inner)
-                    except Exception as e:
+                    except Exception:
                         return func(self_instance, *args, **kwargs_inner)
                 return func(self_instance, *args, **kwargs_inner)
 
