@@ -221,12 +221,6 @@ class TaskRunner:
         pprint(OmegaConf.to_container(config, resolve=True))
         OmegaConf.resolve(config)
 
-        # Download the checkpoint from HDFS to the local machine.
-        # `use_shm` determines whether to use shared memory, which could lead to faster model loading if turned on
-        local_path = copy_to_local(
-            config.actor_rollout_ref.model.path, use_shm=config.actor_rollout_ref.model.get("use_shm", False)
-        )
-
         actor_rollout_cls, ray_worker_group_cls = self.add_actor_rollout_worker(config)
         self.add_critic_worker(config)
 
@@ -246,6 +240,12 @@ class TaskRunner:
             config=config,
             use_reference_policy=need_reference_policy(self.role_worker_mapping),
             use_critic=need_critic(config),
+        )
+
+        # Download the checkpoint from HDFS to the local machine.
+        # `use_shm` determines whether to use shared memory, which could lead to faster model loading if turned on
+        local_path = copy_to_local(
+            config.actor_rollout_ref.model.path, use_shm=config.actor_rollout_ref.model.get("use_shm", False)
         )
 
         # Instantiate the tokenizer and processor.
