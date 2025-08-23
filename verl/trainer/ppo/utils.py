@@ -52,7 +52,7 @@ def need_reward_model(
 
 
 def need_critic(config: DictConfig) -> bool:
-    """Given a config, do we need ref policy."""
+    """Given a config, do we need critic."""
     if config.critic.enable is not None:
         return bool(config.critic.enable)
     elif config.algorithm.adv_estimator == AdvantageEstimator.GAE:
