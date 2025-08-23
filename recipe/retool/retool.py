@@ -112,7 +112,7 @@ def compute_score(data_source, solution_str, ground_truth, extra_info):
     num_turns = extra_info["num_turns"]
     if result["score"] < 0:
         tool_call_reward = (num_turns - 2) / 2 * 0.1
-        result["score"] = min(0, result["score"] + tool_call_reward)
+        result["score"] = min(-0.6, result["score"] + tool_call_reward)
 
     if result["pred"] is None:
         result["pred"] = ""
