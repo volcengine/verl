@@ -110,6 +110,32 @@ def _ulysses_flash_attention_forward(
     return attn_output
 
 
+def _ulysses_flash_attention_forward_new_api(
+    query_states: torch.Tensor,
+    key_states: torch.Tensor,
+    value_states: torch.Tensor,
+    query_length: torch.Tensor,
+    *args,
+    position_ids: Optional[torch.Tensor] = None,
+    **kwargs,
+):
+    """For transformers>=4.55, the flash attention api has changed,
+    we need to pass the query_length after doing ulysses alltoall.
+
+    See https://github.com/huggingface/transformers/issues/40399
+    """
+    query_length = query_states.size(1)
+    return _ulysses_flash_attention_forward(
+        query_states,
+        key_states,
+        value_states,
+        query_length,
+        *args,
+        position_ids=position_ids,
+        **kwargs,
+    )
+
+
 def patch_vlm_for_ulysses_input_slicing(model_class: type):
     """
     Applies a monkey patch to the forward method of a given model class
@@ -304,12 +330,15 @@ def apply_monkey_patch(
             module._flash_attention_forward = _ulysses_flash_attention_forward
             print(f"Monkey patch _flash_attention_forward in {model.__module__}")
         else:
-            # transformers>=4.48.0
-            # From transformers>=4.53, Vision attention
-            from transformers.integrations import flash_attention
+            if is_transformers_version_in_range(min_version="4.55.0"):
+                module._flash_attention_forward = _ulysses_flash_attention_forward_new_api
+                print(f"Monkey patch _flash_attention_forward in {model.__module__} for new api")
+            else:
+                # 4.48.0 <= transformers <= 4.54.1, Vision attention
+                from transformers.integrations import flash_attention
 
-            flash_attention._flash_attention_forward = _ulysses_flash_attention_forward
-            print(f"Monkey patch _flash_attention_forward in {flash_attention.__name__}")
+                flash_attention._flash_attention_forward = _ulysses_flash_attention_forward
+                print(f"Monkey patch _flash_attention_forward in {flash_attention.__name__}")
 
     patch_forward_with_backends(model, use_fused_kernels=use_fused_kernels, fused_kernels_backend=fused_kernels_backend)
 
