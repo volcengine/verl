@@ -76,11 +76,10 @@ def validate_config(
     use_reference_policy: bool,
     use_critic: bool,
 ) -> None:
-    """
-    Validate an OmegaConf DictConfig
+    """Validate an OmegaConf DictConfig.
 
     Args:
-        config: The OmegaConf DictConfig to validate.
+        config (DictConfig): The OmegaConf DictConfig to validate.
         use_reference_policy (bool): is ref policy needed
         use_critic (bool): is critic needed
     """
