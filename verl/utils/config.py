@@ -17,8 +17,6 @@ from typing import Any, Optional
 
 from omegaconf import DictConfig, ListConfig, OmegaConf
 
-from verl.trainer.ppo.utils import Role, WorkerType, need_critic, need_reference_policy
-
 __all__ = ["omega_conf_to_dataclass", "validate_config"]
 
 
@@ -75,16 +73,16 @@ def update_dict_with_config(dictionary: dict, config: DictConfig):
 
 def validate_config(
     config: DictConfig,
-    role_worker_mapping: dict[Role, WorkerType],
+    use_reference_policy: bool,
+    use_critic: bool,
 ) -> None:
     """
     Validate an OmegaConf DictConfig
 
     Args:
         config: The OmegaConf DictConfig to validate.
-
-    Returns:
-        None
+        use_reference_policy (bool): is ref policy needed
+        use_critic (bool): is critic needed
     """
     # number of GPUs total
     n_gpus = config.trainer.n_gpus_per_node * config.trainer.nnodes
@@ -155,7 +153,7 @@ def validate_config(
     actor_config.validate(n_gpus, config.data.train_batch_size, config.actor_rollout_ref.model)
 
     if not config.actor_rollout_ref.actor.use_dynamic_bsz:
-        if need_reference_policy(role_worker_mapping):
+        if use_reference_policy:
             # reference: log_prob_micro_batch_size vs. log_prob_micro_batch_size_per_gpu
             check_mutually_exclusive(
                 config.actor_rollout_ref.ref.log_prob_micro_batch_size,
@@ -180,7 +178,7 @@ def validate_config(
         print("NOTICE: You have both enabled in-reward kl and kl loss.")
 
     # critic
-    if need_critic(config):
+    if use_critic:
         critic_config = omega_conf_to_dataclass(config.critic)
         critic_config.validate(n_gpus, config.data.train_batch_size)
 
