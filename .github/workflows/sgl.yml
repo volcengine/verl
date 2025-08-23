@@ -90,7 +90,11 @@ jobs:
       NCCL_SHM_DISABLE: "1"
       NCCL_P2P_DISABLE: "1"
     container:
+<<<<<<< HEAD
       image: verlai/verl:app-verl0.5-transformers4.55.4-sglang0.4.9.post6-mcore0.13.0-te2.2
+=======
+      image: popsodazhp/verl:app-verl0.5-sglang0.4.10.post2-mcore0.12.2-te2.2
+>>>>>>> 0134c016 (Use personal version)
       options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
