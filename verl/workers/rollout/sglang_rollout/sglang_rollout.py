@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import logging
 import multiprocessing as mp
 import os
@@ -586,6 +587,8 @@ class SGLangRollout(BaseRollout):
             responses:     |<- LLM generation ->|<- tool_calls ->|<- LLM generation ->|<- padding ->|
             response_mask: | 1, 1, 1, ..., 1, 1 | 0, 0, .., 0, 0 | 1, 1, 1, ..., 1, 1 | 0, 0, ..., 0|
         """
+        gc.collect()
+        torch.cuda.empty_cache()
         if self.config.multi_turn.enable:
             return self._req_level_generate_sequences(prompts, **kwargs)
         return self._batch_level_generate_sequences(prompts, **kwargs)
