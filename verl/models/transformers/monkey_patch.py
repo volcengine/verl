@@ -158,7 +158,7 @@ def _ulysses_flash_attention_forward_transformers_4_55(
     # (bsz, seq_len, n_head/n, head_dim)
     query_length = query_states.size(1)
     attn_output = _flash_attention_forward(
-        query_states, key_states, value_states, attention_mask, query_length * args, position_ids=position_ids, **kwargs
+        query_states, key_states, value_states, attention_mask, query_length, *args, position_ids=position_ids, **kwargs
     )
 
     ########## AlltoAll for Ulysses ##########
