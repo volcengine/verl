@@ -860,7 +860,7 @@ class SGLangRollout(BaseRollout):
                             self._tool_map[tool_call.function.name].execute(
                                 _req.request_id,
                                 tool_call.function.arguments,
-                                **_req.tools_kwargs[tool_call.function.name].get("execute_kwargs", {}),
+                                **_req.tools_kwargs.get(tool_call.function.name, {}).get("execute_kwargs", {}),
                             )
                             for tool_call in parsed_tool_calls
                         ]
