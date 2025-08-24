@@ -213,14 +213,12 @@ class TestRolloutWithBenchmaxTools:
         ]
         input_ids, attention_mask, position_ids = prepare_inputs(qwen_tokenizer, prompts, 1000)
         tools_kwargs = np.array(
-            [{
-                "search_wikipedia": {
-                    "create_kwargs": {"dummy": "dummy"}
-                },
-                "get_wikipedia_article": {
-                    "create_kwargs": {"dummy": "dummy"}
-                },
-            }],
+            [
+                {
+                    "search_wikipedia": {"create_kwargs": {"dummy": "dummy"}},
+                    "get_wikipedia_article": {"create_kwargs": {"dummy": "dummy"}},
+                }
+            ],
             dtype=object,
         )
         prompt_dict = TensorDict(

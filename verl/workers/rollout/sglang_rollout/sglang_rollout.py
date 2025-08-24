@@ -1261,9 +1261,7 @@ class SGLangRollout(BaseRollout):
         # this is useful for rewards that need to access files or directories.
         # look for any BenchmaxToolAdapter in self._tool_map
         any_benchmax_tool = next(
-            (tool for tool in self._tool_map.values() 
-            if isinstance(tool, BenchmaxToolAdapter)),
-            None
+            (tool for tool in self._tool_map.values() if isinstance(tool, BenchmaxToolAdapter)), None
         )
         if any_benchmax_tool is not None:
             workspaces = [any_benchmax_tool.get_rollout_workspace(req.request_id) for req in sorted_output_req_list]

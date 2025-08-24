@@ -39,9 +39,7 @@ class BenchmaxToolAdapter(BaseTool):
 
     def __init__(self, benchmax_env: Any, tool_def: Any):
         # Type checking is done manually to allow for dynamic imports.
-        assert BaseEnv is not None and ToolDefinition is not None, (
-            "BenchmaxToolAdapter requires benchmax package."
-        )
+        assert BaseEnv is not None and ToolDefinition is not None, "BenchmaxToolAdapter requires benchmax package."
         assert isinstance(benchmax_env, BaseEnv), (
             f"benchmax_env must be an instance of BaseEnv, but got {type(benchmax_env)}"
         )

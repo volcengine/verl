@@ -13,8 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from collections import defaultdict
 import logging
+from collections import defaultdict
 from pathlib import Path
 
 import torch
@@ -26,6 +26,7 @@ from verl.workers.reward_manager import register
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
+
 
 @register("benchmax")
 class BenchmaxRewardManager:
