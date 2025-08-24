@@ -22,6 +22,7 @@ import torch
 from verl import DataProto
 from verl.tools.utils.tool_registry import get_tool_class
 from verl.workers.reward_manager import register
+from verl.workers.reward_manager.abstract import AbstractRewardManager
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -29,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 @register("benchmax")
-class BenchmaxRewardManager:
+class BenchmaxRewardManager(AbstractRewardManager):
     """BenchmaxRewardManager is a reward manager that computes rewards as defined in a benchmax environment."""
 
     def __init__(self, tokenizer, benchmax_cls_name="", **kwargs) -> None:
@@ -47,7 +48,7 @@ class BenchmaxRewardManager:
 
     def __call__(self, data: DataProto, return_dict=False):
         reward_tensor = torch.zeros_like(data.batch["responses"], dtype=torch.float32)
-        reward_extra_info = defaultdict(list)
+        reward_extra_info: dict = defaultdict(list)
         for i in range(len(data)):
             data_item = data[i]
 
