@@ -95,7 +95,6 @@ class DataParallelPPOActor(BasePPOActor):
             entropy: # (bs, response_len)
             log_probs: # (bs, response_len)
         """
-        # 初始化，避免 calculate_entropy=False 时未定义
         entropy = None
         response_length = micro_batch["responses"].size(-1)
         multi_modal_inputs = {}
@@ -118,48 +117,13 @@ class DataParallelPPOActor(BasePPOActor):
                             [inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0
                         )
 
-        import os
-        _DBG = os.getenv("VERL_DEBUG_GL", "0") == "1"
-
-        def _shape(x):
-            try:
-                return f"dim={x.dim()} shape={tuple(x.shape)} dtype={x.dtype}"
-            except Exception:
-                return "unavailable"
-
-        # 更稳健地打印模型类型（不依赖 self.model）
-        if _DBG:
-            try:
-                _mt = None
-                for _attr in ("actor_module", "module", "model"):
-                    _m = getattr(self, _attr, None)
-                    if _m is None:
-                        continue
-                    _cfg = getattr(_m, "config", None)
-                    if _cfg is not None and getattr(_cfg, "model_type", None):
-                        _mt = _cfg.model_type
-                        break
-                    _lm = getattr(_m, "language_model", None)
-                    if _lm is not None and getattr(getattr(_lm, "config", None), "model_type", None):
-                        _mt = _lm.config.model_type
-                        break
-                print(f"[DBG][_forward_micro_batch] model_type={_mt}", flush=True)
-            except Exception as e:
-                print(f"[DBG][_forward_micro_batch] model_type=? ({e})", flush=True)
-
-        # 必须先从 micro_batch 取出 input_ids / attention_mask，否则下面会 NameError
         input_ids = micro_batch["input_ids"]
         attention_mask = micro_batch["attention_mask"].to(bool)
 
-        # 新增：用于 pad_input 恢复 (bsz, seqlen) 的原始尺寸
         batch_size = input_ids.size(0)
         seqlen = input_ids.size(1)
 
-        # 从 micro_batch 读取 position_ids 后打印一次初始形状
         position_ids = micro_batch["position_ids"]
-        if _DBG:
-            print(f"[DBG] position_ids initial {_shape(position_ids)}", flush=True)
-
         position_ids = position_ids.transpose(0, 1)  # (bsz, 3, seqlen) -> (3, bsz, seqlen)
 
         if self.use_remove_padding:
@@ -167,7 +131,7 @@ class DataParallelPPOActor(BasePPOActor):
                 input_ids.unsqueeze(-1), attention_mask
             )
             input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
-    
+
             # unpad the position_ids to align the rotary
             if position_ids.dim() == 3:
                 position_ids_rmpad = (
@@ -179,17 +143,17 @@ class DataParallelPPOActor(BasePPOActor):
                 position_ids_rmpad = index_first_axis(
                     rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices
                 ).transpose(0, 1)
-    
+
             if "image_bound" in multi_modal_inputs:
                 from verl.utils.dataset.vision_utils import process_multi_modal_inputs_for_minicpmo
-    
+
                 multi_modal_inputs = process_multi_modal_inputs_for_minicpmo(
                     input_ids, attention_mask, position_ids, cu_seqlens, multi_modal_inputs
                 )
-    
+
             # for compute the log_prob
             input_ids_rmpad_rolled = torch.roll(input_ids_rmpad, shifts=-1, dims=1)  # (1, total_nnz)
-    
+
             # pad and slice the inputs if sp > 1
             if self.use_ulysses_sp:
                 is_vlm_model = "multi_modal_inputs" in micro_batch.keys()
@@ -211,11 +175,10 @@ class DataParallelPPOActor(BasePPOActor):
                     position_ids_rmpad=None,
                     sp_size=self.ulysses_sequence_parallel_size,
                 )
-    
+
             input_ids_rmpad_rolled = input_ids_rmpad_rolled.squeeze(0)  # ((total_nnz / sp) + pad)
-    
-            # 关键修复：GLM4V + rmpad + 3D position_ids + attention_mask=None 会在 transformers.masking_utils 里报错
-            # 这里将 position_ids 置为 None，让 GLM4V 内部自行构造 3D position_ids，避免 _preprocess_mask_arguments 的 2D 假设冲突
+
+            # GLM4V 3D position_ids 在 rmpad + attention_mask=None 时与 masking_utils 的 2D 假设冲突，置为 None 让模型内部构造
             def _get_model_type_lower():
                 mt = None
                 _m = getattr(self, "actor_module", None)
@@ -228,24 +191,19 @@ class DataParallelPPOActor(BasePPOActor):
                         if lm is not None:
                             mt = getattr(getattr(lm, "config", None), "model_type", None)
                 return (str(mt).lower() if mt is not None else "")
-    
+
             _model_type_lower = _get_model_type_lower()
             _is_glm4v = _model_type_lower == "glm4v"
             position_ids_arg = position_ids_rmpad
             if _is_glm4v and position_ids_arg is not None and position_ids_arg.dim() == 3:
-                if _DBG:
-                    print("[DBG] glm4v + rmpad: 3D position_ids detected, set position_ids=None to avoid masking_utils 2D assumption", flush=True)
                 position_ids_arg = None
-    
+
             # only pass input_ids and position_ids to enable flash_attn_varlen
             extra_args = {}
             if self.use_fused_kernels:
                 extra_args["temperature"] = temperature
                 extra_args["return_dict"] = True
-    
-            if _DBG:
-                print(f"[DBG] call model with attention_mask=None, position_ids={'None' if position_ids_arg is None else _shape(position_ids_arg)}", flush=True)
-    
+
             output = self.actor_module(
                 input_ids=input_ids_rmpad,
                 attention_mask=None,
@@ -263,7 +221,6 @@ class DataParallelPPOActor(BasePPOActor):
                 logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
                 logits_rmpad.div_(temperature)
 
-                # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
                 inplace_backward = True
                 if calculate_entropy:
                     inplace_backward = False
@@ -273,7 +230,6 @@ class DataParallelPPOActor(BasePPOActor):
                     inplace_backward=inplace_backward,
                 )
 
-                # compute entropy
                 if calculate_entropy:
                     if not self.config.entropy_checkpointing:
                         entropy_rmpad = self.compute_entropy_from_logits(logits_rmpad)  # ((total_nnz / sp) + pad)
@@ -313,12 +269,10 @@ class DataParallelPPOActor(BasePPOActor):
                 seqlen=seqlen,
             )
 
-            # only return response part:
             if calculate_entropy:
                 entropy = full_entropy.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
             log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
 
-            # 关键修复：rmpad 分支需要返回
             return entropy, log_probs
 
         else:  # not using rmpad and no ulysses sp
