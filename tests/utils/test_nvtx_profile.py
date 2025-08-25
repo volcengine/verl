@@ -120,8 +120,9 @@ class TestNsightSystemsProfiler(unittest.TestCase):
         mock_self = MagicMock()
         mock_self.profiler = self.profiler
         mock_self.profiler.this_step = True
+        decorator = mock_self.profiler.annotate(message="test")
 
-        @NsightSystemsProfiler.annotate(message="test")
+        @decorator
         def test_func(self, *args, **kwargs):
             return "result"
 
