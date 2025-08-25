@@ -37,6 +37,7 @@ class HFModelConfig(BaseConfig):
         "tokenizer",
         "processor",
         "local_path",
+        "architectures",
     }
 
     path: str = MISSING
@@ -76,6 +77,8 @@ class HFModelConfig(BaseConfig):
     use_fused_kernels: bool = False
     fused_kernel_options: dict = field(default_factory=dict)
 
+    architectures: Optional[str] = None
+
     def __post_init__(self):
         if self.hf_config_path is None:
             self.hf_config_path = self.path
@@ -94,6 +97,10 @@ class HFModelConfig(BaseConfig):
         self.hf_config = AutoConfig.from_pretrained(
             self.hf_config_path, trust_remote_code=self.trust_remote_code, attn_implementation=attn_implementation
         )
+
+        self.architectures = self.hf_config.get("architectures", None)
+        assert len(self.architectures) == 1, "Expect only one architecture, got {}".format(self.architectures)
+        self.architectures = self.architectures[0]
 
         override_config_kwargs = {
             "bos_token_id": self.tokenizer.bos_token_id,

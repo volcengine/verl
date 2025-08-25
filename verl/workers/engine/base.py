@@ -24,12 +24,13 @@ from verl import DataProto
 
 class BaseEngine:
     """
-    Abstract base class defining the interface for model training engines.
+    Abstract base class defining the interface for model training engines. Interface is subject to
+    change before release.
 
     Engine implementations must subclass BaseEngine and provide concrete behavior for all methods.
     """
 
-    def __init__(self, config):
+    def __init__(self):
         """
         Initialize the BaseEngine.
 
@@ -38,7 +39,7 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def init_model(self):
+    def initialize(self):
         """
         Instantiate or load the model, optimizer, and learning rate scheduler.
 
@@ -66,7 +67,7 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def infer_batch(
+    def forward_step(
         self,
         data: DataProto,
         post_fn: Callable[[DataProto, torch.Tensor], tuple[torch.Tensor, dict[str, torch.Tensor]]],
@@ -84,10 +85,10 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def train_batch(
+    def train_step(
         self,
         data: DataProto,
-        loss_fn: Callable[[DataProto, torch.Tensor], tuple[torch.Tensor, dict[str, torch.Tensor]]],
+        loss_fn: Callable[[DataProto, torch.Tensor], tuple[list[torch.Tensor], dict[str, torch.Tensor]]],
     ) -> dict[str, torch.Tensor]:
         """
         Perform a training step on a mini-batch of data.
@@ -101,21 +102,6 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def optimizer_zero_grad(self):
-        """
-        Zero out gradients of all parameters before starting a new backward pass.
-        """
-        raise NotImplementedError
-
-    def optimizer_step(self):
-        """
-        Perform an optimization step to update model parameters based on accumulated gradients.
-
-        Returns:
-            grad_norm (float): The norm of the gradients before clipping or update.
-        """
-        raise NotImplementedError
-
     def lr_scheduler_step(self):
         """
         Advance the learning rate scheduler by one step.
@@ -125,28 +111,10 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def shard_data(self, data):
-        """
-        Shard or partition data for distributed training or parallel execution.
-
-        Args:
-            data: Data structure to be sharded across devices/workers.
-
-        Returns:
-            Sharded data in the same format as input.
-        """
+    def get_data_parallel_size(self):
         raise NotImplementedError
 
-    def unshard_data(self, data):
-        """
-        Reconstruct or gather sharded data back to a unified format.
-
-        Args:
-            data: Sharded data structure to reconstruct.
-
-        Returns:
-            Unsharded, combined data.
-        """
+    def estimate_flops(self, global_num_tokens, delta_time):
         raise NotImplementedError
 
     def to(self, device: str, model: bool = True, optimizer: bool = True):
@@ -196,7 +164,7 @@ class EngineRegistry:
     _engines = {}
 
     @classmethod
-    def register(cls, key):
+    def register(cls, key: list[str] | str):
         """
         A class method decorator that registers an engine class with a given key.
 
@@ -211,10 +179,20 @@ class EngineRegistry:
 
         def decorator(engine_class):
             assert issubclass(engine_class, BaseEngine)
-            cls._engines[key] = engine_class
+            if isinstance(key, list):
+                for k in key:
+                    cls._engines[k] = engine_class
+            else:
+                assert isinstance(key, str)
+                cls._engines[key] = engine_class
             return engine_class
 
         return decorator
+
+    @classmethod
+    def get_engine_cls(cls, key):
+        assert key in cls._engines, f"Unknown engine: {key}"
+        return cls._engines[key]
 
     @classmethod
     def new(cls, key, *args, **kwargs):

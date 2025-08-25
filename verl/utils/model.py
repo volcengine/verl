@@ -658,6 +658,52 @@ def load_valuehead_model(local_path, torch_dtype, model_config, trust_remote_cod
     return model
 
 
+def load_torch_module(module_type, local_path, torch_dtype, model_config, trust_remote_code):
+    _MODULE_TYPE_DICT = {
+        "causal_lm": AutoModelForCausalLM,
+        "token_classification": AutoModelForTokenClassification,
+        "vision2seq": AutoModelForVision2Seq,
+    }
+    assert module_type in _MODULE_TYPE_DICT, f"module_type({module_type}) is not supported"
+    module_class = _MODULE_TYPE_DICT[module_type]
+    model = module_class.from_pretrained(
+        pretrained_model_name_or_path=local_path,
+        torch_dtype=torch_dtype,
+        config=model_config,
+        attn_implementation="flash_attention_2",
+        trust_remote_code=trust_remote_code,
+    )
+    return model
+
+
+def get_hf_auto_model_class(hf_config):
+    from transformers import (
+        AutoModel,
+        AutoModelForCausalLM,
+        AutoModelForVision2Seq,
+    )
+
+    has_remote_code = hasattr(hf_config, "auto_map") and any(
+        hf_config.architectures[0] in val for val in hf_config.auto_map.values()
+    )
+    if has_remote_code:
+        auto_class = next(k for k, v in hf_config.auto_map.items() if hf_config.architectures[0] in v)
+        match auto_class:
+            case "AutoModelForVision2Seq":
+                actor_module_class = AutoModelForVision2Seq
+            case "AutoModelForCausalLM":
+                actor_module_class = AutoModelForCausalLM
+            case _:
+                actor_module_class = AutoModel
+    else:
+        if type(hf_config) in AutoModelForVision2Seq._model_mapping.keys():
+            actor_module_class = AutoModelForVision2Seq
+        elif type(hf_config) in AutoModelForCausalLM._model_mapping.keys():
+            actor_module_class = AutoModelForCausalLM
+        else:
+            actor_module_class = AutoModel
+
+
 @dataclass
 class CausalLMOutputForPPO(CausalLMOutputWithPast):
     log_probs: Optional[torch.FloatTensor] = None

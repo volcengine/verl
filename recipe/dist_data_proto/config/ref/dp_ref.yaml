@@ -1,0 +1,46 @@
+# defaults specify the default config from each component
+defaults:
+
+  # dp ref config, inheriting from trainer/config/ref/ref.yaml
+  - ref
+
+  # load the reference default config, then apply the fields in the current yaml
+  - _self_
+
+# ref model is assumed to be identical to actor model. Specify model.path for using a different ref model.
+# Potential use case involves on policy distillation where we calculate KL divergence between student actor
+# and teacher ref
+model: null
+
+# config for FSDP strategy
+fsdp_config:
+
+  # Target class for this configuration
+  _target_: verl.workers.config.FSDPEngineConfig
+
+  # the wrap policy for FSDP model
+  wrap_policy:
+
+    # minimum number of params in a wrapped module
+    min_num_params: 0
+
+  # whether to offload parameters in FSDP
+  param_offload: False
+
+  # whether to perform reshard after model forward to save memory.
+  # only for fsdp2, [True, False, int between 1 and fsdp_size]
+  reshard_after_forward: True
+
+  # Only for FSDP1: FSDP1 configuration, prefetch the next forward-pass all-gather
+  # before the current forward computation.
+  forward_prefetch: False
+
+# sequence parallel size
+# same as actor_rollout_ref.actor.ulysses_sequence_parallel_size if it exists, otherwise 1
+ulysses_sequence_parallel_size: ${oc.select:actor_rollout_ref.actor.ulysses_sequence_parallel_size,1}
+
+# calculate entropy with chunking to reduce memory peak
+entropy_from_logits_with_chunking: False
+
+# recompute entropy
+entropy_checkpointing: False

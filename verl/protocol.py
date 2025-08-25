@@ -331,7 +331,7 @@ class DataProto:
         import io
 
         buffer = io.BytesIO()
-        if version.parse(tensordict.__version__) >= version.parse("0.5.0") and self.batch is not None:
+        if version.parse(tensordict.__version__) >= version.parse("0.5.0") and self.batch is not None and len(self.batch[0]) > 0:
             batch_to_save = self.batch.contiguous().consolidate()
         else:
             batch_to_save = self.batch

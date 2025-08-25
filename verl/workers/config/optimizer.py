@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Tuple
 
 from omegaconf import MISSING
 
@@ -39,6 +39,7 @@ class OptimizerConfig(BaseConfig):
     total_training_steps: int = -1
     weight_decay: float = 0.01
     lr_warmup_steps: Optional[int] = -1
+    betas: Tuple[float, float] = (0.9, 0.999)
 
     def __post_init__(self):
         assert self.lr != MISSING
