@@ -73,7 +73,7 @@ class AlgoConfig(BaseConfig):
         kl_ctrl (KLControlConfig): KL control configuration.
         use_pf_ppo (bool): Whether to enable preference feedback PPO.
         pf_ppo (dict[str, Any]): Preference feedback PPO settings.
-        filter_groups (Optional[FilterGroupsConfig]): Filter groups configuration, used in DAPO and Entropy
+        dynamic_filter (Optional[FilterGroupsConfig]): Dynamic filter configuration, used in DAPO and Entropy
     """
 
     gamma: float = 1.0
@@ -85,4 +85,4 @@ class AlgoConfig(BaseConfig):
     kl_ctrl: KLControlConfig = field(default_factory=KLControlConfig)
     use_pf_ppo: bool = False
     pf_ppo: dict[str, Any] = field(default_factory=dict)
-    filter_groups: Optional[FilterGroupsConfig] = None
+    dynamic_filter: Optional[FilterGroupsConfig] = None
