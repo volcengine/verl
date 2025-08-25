@@ -37,6 +37,8 @@ class HFModelConfig(BaseConfig):
         "tokenizer",
         "processor",
         "local_path",
+        "local_hf_config_path",
+        "local_tokenizer_path",
     }
 
     path: str = MISSING
