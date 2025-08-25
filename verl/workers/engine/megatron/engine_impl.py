@@ -23,34 +23,25 @@ from omegaconf import OmegaConf
 from verl import DataProto
 from verl.trainer.config import CheckpointConfig
 from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpointManager
-from verl.utils.device import get_torch_device
+
+from verl.utils.device import get_device_id, get_device_name, get_nccl_backend, get_torch_device
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.model import load_mcore_dist_weights, load_megatron_gptmodel_weights
 from verl.workers.config import HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
 
+from verl.utils.megatron_utils import (
+    load_megatron_model_to_gpu,
+    load_megatron_optimizer,
+    offload_megatron_model_to_cpu,
+    offload_megatron_optimizer,
+)
+
 from ..base import BaseEngine, EngineRegistry
+
+from .utils import set_random_seed
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
-
-
-def set_random_seed(seed):
-    import random
-
-    import numpy as np
-    import torch
-
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-    random.seed(seed)
-    if get_torch_device().device_count() > 0:
-        from megatron.core import tensor_parallel
-
-        tensor_parallel.model_parallel_cuda_manual_seed(seed)
-    # FIXME: torch cumsum not support deterministic (used in vllm sampler),
-    # https://github.com/pytorch/pytorch/issues/89492
-    # torch.use_deterministic_algorithms(True, warn_only=True)
-    # os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
 
 
 @EngineRegistry.register("megatron")
@@ -72,6 +63,12 @@ class MegatronEngine(BaseEngine):
         self._init_device_mesh()
 
         set_random_seed(seed=self.engine_config.seed)
+
+        self._is_offload_param = self.engine_config.param_offload
+        self._is_offload_grad = self.engine_config.grad_offload
+        self._is_offload_optimizer = self.engine_config.optimizer_offload
+
+        self.mode = None
 
     def _init_device_mesh(self):
         mpu.initialize_model_parallel(
@@ -182,6 +179,8 @@ class MegatronEngine(BaseEngine):
         return optimizer_scheduler
 
     def initialize(self):
+        self._build_tf_config()
+
         self.module = self._build_megatron_module()
 
         if not self.engine_config.forward_only:
@@ -223,7 +222,7 @@ class MegatronEngine(BaseEngine):
             with engine.train_mode():
                 # runs in training mode
         """
-        raise NotImplementedError
+        return EngineTrainModeCtx(self)
 
     def eval_mode(self):
         """
@@ -233,7 +232,7 @@ class MegatronEngine(BaseEngine):
             with engine.eval_mode():
                 # runs in evaluation mode
         """
-        raise NotImplementedError
+        return EngineEvalModeCtx(self)
 
     def forward_step(
         self,
@@ -303,7 +302,21 @@ class MegatronEngine(BaseEngine):
             model: If True, move the model.
             optimizer: If True, move the optimizer states.
         """
-        raise NotImplementedError
+        assert device in ("cuda", "cpu")
+        if device == "cuda":
+            if not self.engine_config.param_offload:
+                if model:
+                    load_megatron_model_to_gpu(self.module, load_grad=True)
+                if optimizer and self.optimizer is not None:
+                    load_megatron_optimizer(self.optimizer, device)
+        elif device == "cpu":
+            if not self.engine_config.param_offload:
+                if model:
+                    offload_megatron_model_to_cpu(self.module)
+                if optimizer and self.optimizer is not None:
+                    offload_megatron_optimizer(self.optimizer)
+        else:
+            raise ValueError(f"Invalid device type: {device}")
 
     def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
         """
@@ -327,3 +340,47 @@ class MegatronEngine(BaseEngine):
             del_local_after_load: Whether to delete local copy after loading.
         """
         raise NotImplementedError
+
+
+
+
+class EngineEvalModeCtx:
+    def __init__(self, engine: MegatronEngine):
+        self.engine = engine
+
+    def __enter__(self):
+        assert isinstance(self.engine, MegatronEngine)
+
+        self.engine.mode = "eval"
+        if self.engine._is_offload_param:
+            load_megatron_model_to_gpu(self.engine.module, load_grad=True)
+
+        self.engine.module.eval()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self.engine._is_offload_param:
+            offload_megatron_model_to_cpu(self.engine.fsdp_module)
+        self.engine.mode = None
+
+
+class EngineTrainModeCtx:
+    def __init__(self, engine: MegatronEngine):
+        self.engine = engine
+
+    def __enter__(self):
+        assert isinstance(self.engine, MegatronEngine)
+
+        self.engine.mode = "train"
+        if self.engine._is_offload_param:
+            load_megatron_model_to_gpu(self.engine.module, load_grad=True)
+        if self.engine._is_offload_optimizer:
+            load_megatron_optimizer(optimizer=self.engine.optimizer)
+
+        self.engine.module.train()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self.engine._is_offload_param:
+            offload_megatron_model_to_cpu(self.engine.module)
+        if self.engine._is_offload_optimizer:
+            offload_megatron_optimizer(optimizer=self.engine.optimizer)
+        self.engine.mode = None
