@@ -19,7 +19,9 @@ import hydra
 import ray
 
 from recipe.spin.spin_trainer import RaySPINTrainer
+from recipe.spin.utils import validate_config
 from verl.trainer.ppo.reward import get_custom_reward_fn
+from verl.trainer.ppo.utils import need_reference_policy
 
 
 @hydra.main(config_path="config", config_name="spin_trainer", version_base=None)
@@ -55,16 +57,6 @@ class TaskRunner:
 
         pprint(OmegaConf.to_container(config, resolve=True))  # resolve=True will eval symbol values
         OmegaConf.resolve(config)
-
-        # download the checkpoint from hdfs
-        local_path = copy_to_local(config.actor_rollout_ref.model.path)
-
-        # instantiate tokenizer
-        from verl.utils import hf_processor, hf_tokenizer
-
-        trust_remote_code = config.data.get("trust_remote_code", False)
-        tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
-        processor = hf_processor(local_path, use_fast=True)  # used for multimodal LLM, could be none
 
         # define worker classes
         if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
@@ -116,6 +108,23 @@ class TaskRunner:
         # role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
         role_worker_mapping[Role.RefPolicy] = ray.remote(SPINRolloutRefWorker)
         mapping[Role.RefPolicy] = global_pool_id
+
+        # validate config
+        validate_config(
+            config=config,
+            use_reference_policy=need_reference_policy(self.role_worker_mapping),
+            use_critic=False,
+        )
+
+        # download the checkpoint from hdfs
+        local_path = copy_to_local(config.actor_rollout_ref.model.path)
+
+        # instantiate tokenizer
+        from verl.utils import hf_processor, hf_tokenizer
+
+        trust_remote_code = config.data.get("trust_remote_code", False)
+        tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
+        processor = hf_processor(local_path, use_fast=True)  # used for multimodal LLM, could be none
 
         from verl.workers.reward_manager import get_reward_manager_cls
 

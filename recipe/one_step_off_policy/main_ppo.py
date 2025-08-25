@@ -23,9 +23,12 @@ import hydra
 import ray
 from omegaconf import OmegaConf
 
+from recipe.one_step_off_policy.utils import need_critic
 from verl.trainer.constants_ppo import get_ppo_ray_runtime_env
 from verl.trainer.main_ppo import create_rl_dataset, create_rl_sampler
 from verl.trainer.ppo.reward import load_reward_manager
+from verl.trainer.ppo.utils import need_reference_policy
+from verl.utils.config import validate_config
 
 from .ray_trainer import OneStepOffRayTrainer
 
@@ -86,20 +89,6 @@ class TaskRunner:
         pprint(OmegaConf.to_container(config, resolve=True))
 
         OmegaConf.resolve(config)
-
-        # Download the checkpoint from HDFS to the local machine.
-        # `use_shm` determines whether to use shared memory, which could lead to faster model loading if turned on
-        local_path = copy_to_local(
-            config.actor_rollout_ref.model.path, use_shm=config.actor_rollout_ref.model.get("use_shm", False)
-        )
-
-        # Instantiate the tokenizer and processor.
-        from verl.utils import hf_processor, hf_tokenizer
-
-        trust_remote_code = config.data.get("trust_remote_code", False)
-        tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
-        # Used for multimodal LLM, could be None
-        processor = hf_processor(local_path, trust_remote_code=trust_remote_code, use_fast=True)
 
         # Define worker classes based on the actor strategy.
         if config.actor_rollout_ref.actor.strategy == "fsdp2":
@@ -189,6 +178,27 @@ class TaskRunner:
         if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
             role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
             mapping[Role.RefPolicy] = global_pool_id
+
+        # validate config
+        validate_config(
+            config=config,
+            use_reference_policy=need_reference_policy(role_worker_mapping),
+            use_critic=need_critic(config),
+        )
+
+        # Download the checkpoint from HDFS to the local machine.
+        # `use_shm` determines whether to use shared memory, which could lead to faster model loading if turned on
+        local_path = copy_to_local(
+            config.actor_rollout_ref.model.path, use_shm=config.actor_rollout_ref.model.get("use_shm", False)
+        )
+
+        # Instantiate the tokenizer and processor.
+        from verl.utils import hf_processor, hf_tokenizer
+
+        trust_remote_code = config.data.get("trust_remote_code", False)
+        tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
+        # Used for multimodal LLM, could be None
+        processor = hf_processor(local_path, trust_remote_code=trust_remote_code, use_fast=True)
 
         # Load the reward manager for training and validation.
         reward_fn = load_reward_manager(
