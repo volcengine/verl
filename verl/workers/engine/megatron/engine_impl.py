@@ -270,7 +270,11 @@ class MegatronEngine(BaseEngine):
         """
         Zero out gradients of all parameters before starting a new backward pass.
         """
-        raise NotImplementedError
+        self.optimizer.zero_grad()
+            # use use_contiguous_buffers_in_local_ddp and no overlap_dp_param_comm
+        for chunk in self.module:
+            # if use distributed optimizer, zero grad buffer will be handled by optimizer
+            chunk.zero_grad_buffer()
 
     def optimizer_step(self):
         """
@@ -279,7 +283,15 @@ class MegatronEngine(BaseEngine):
         Returns:
             grad_norm (float): The norm of the gradients before clipping or update.
         """
-        raise NotImplementedError
+        update_successful, grad_norm, num_zeros_in_grad = self.actor_optimizer.step()
+
+        if update_successful:
+            # allgather already execute in optimizer.step in new megatron
+            pass
+        else:
+            raise NotImplementedError("Megatron optimizer step failed. This should not happen")
+
+        return grad_norm
 
     def lr_scheduler_step(self):
         """
@@ -288,7 +300,7 @@ class MegatronEngine(BaseEngine):
         Returns:
             current_lr (float or list[float]): Updated learning rate(s).
         """
-        raise NotImplementedError
+        self.lr_scheduler.step(1)
 
     def to(self, device: str, model: bool = True, optimizer: bool = True):
         """
