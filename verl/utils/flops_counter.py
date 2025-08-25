@@ -80,8 +80,12 @@ def get_device_flops(unit="T"):
         flops = 989e12
     elif "A100" in device_name or "A800" in device_name:
         flops = 312e12
+    elif "L40S" in device_name:
+        flops = 362.05e12
     elif "L40" in device_name:
         flops = 181.05e12
+    elif "A40" in device_name:
+        flops = 149.7e12
     elif "L20" in device_name:
         flops = 119.5e12
     elif "H20" in device_name:
