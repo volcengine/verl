@@ -539,7 +539,7 @@ def compute_reward_pattern_metrics(
         Dictionary containing reward pattern statistics
     """
     prompt_uid2rewards = {}
-    for uid, reward in zip(prompt_uids, token_level_scores.sum(dim=-1).cpu().numpy(), strict=False):
+    for uid, reward in zip(prompt_uids, token_level_scores.sum(dim=-1).cpu().float().numpy(), strict=False):
         if uid not in prompt_uid2rewards:
             prompt_uid2rewards[uid] = []
         prompt_uid2rewards[uid].append(reward)
