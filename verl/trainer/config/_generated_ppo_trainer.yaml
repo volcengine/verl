@@ -199,8 +199,11 @@ actor_rollout_ref:
       _target_: verl.workers.config.TraceConfig
       backend: null
       token2text: false
-    skip_rollout: false
-    skip_dump_dir: /tmp/rollout_dump
+    skip:
+      enable: false
+      dump_dir: /tmp/rollout_dump
+      active_step: 1
+      action_after_dumped: circular
     profiler:
       _target_: verl.utils.profiler.ProfilerConfig
       tool: ${oc.select:global_profiler.tool,null}

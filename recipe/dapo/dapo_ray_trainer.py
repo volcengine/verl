@@ -84,9 +84,9 @@ class RayDAPOTrainer(RayPPOTrainer):
             if self.config.trainer.get("val_only", False):
                 return
 
-        if self.config.actor_rollout_ref.rollout.get("skip_rollout", False):
-            rollout_skip = RolloutSkip(self.config, self.actor_rollout_wg)
-            rollout_skip.wrap_generate_sequences()
+        if self.config.actor_rollout_ref.rollout.skip.get("enable", False):
+            rollout_skip = RolloutSkip(self.config)
+            rollout_skip.wrap_generate_sequences(self.actor_rollout_wg)
 
         # add tqdm
         progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps, desc="Training Progress")

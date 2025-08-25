@@ -3,3 +3,4 @@ excludes: ["/.git/"]
 env_vars:
   TORCH_NCCL_AVOID_RECORD_STREAMS: "1"
   VLLM_USE_V1: "1"
+  RAY_DEBUG_POST_MORTEM: "1"

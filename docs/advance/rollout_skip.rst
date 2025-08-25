@@ -54,6 +54,11 @@ Then, you should add the following parameters to your config to enable the Rollo
     actor_rollout_ref.rollout.skip_rollout=True \
     actor_rollout_ref.rollout.skip_dump_dir="/tmp/rollout_dump" \
 
+    临时记录:
+    skip_rollout_steps 用于标记xvycstep的rollout, 
+
+
+
 
 Note:
 

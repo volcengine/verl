@@ -232,16 +232,22 @@ trace:
   # whether translate token id to text in output
   token2text: False
 
-# When enabled (True), the trainer will attempt to load previously generated rollout data from the specified directory instead of computing new rollouts.
-# If no cached data is found or loading fails, new rollouts will be generated and automatically saved.
-# This feature is useful for debugging or when you want to reuse computation results across multiple runs.
-skip_rollout: False
+skip:
+  # When enabled (True), the trainer will attempt to load previously generated rollout data from the specified directory instead of computing new rollouts.
+  # If no cached data is found or loading fails, new rollouts will be generated and automatically saved.
+  # This feature is useful for debugging or when you want to reuse computation results across multiple runs.
+  enable: False
+  # Specifies the filesystem path where rollout data should be cached when skip_rollout is enabled.
+  # Note: Giving path under /tmp/ray/session* is not recommended as these are temporary Ray cluster directories.
+  dump_dir: /tmp/rollout_dump
+  #* 如果是复现问题，那么应该一直沿用出问题时配置的推理结果，所以始终应该从第一步开始 dump
+  #* 启用skip功能后，持续多少步启用skip 功能
+  active_step: 1
+  #* circular, replicate, exit, continue
+  action_after_dumped: "circular"
 
-# Specifies the filesystem path where rollout data should be cached when skip_rollout is enabled.
-# Note: Giving path under /tmp/ray/session* is not recommended as these are temporary Ray cluster directories.
-skip_dump_dir: /tmp/rollout_dump
 
-# profile the rollout model in `generate_sequence` 
+# profile the rollout model in `generate_sequence`
 profiler:
 
   # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
@@ -253,7 +259,7 @@ profiler:
 
   # whether enable profile on ref
   enable: ${oc.select:actor_rollout_ref.actor.profiler.enable,false}
-  
+
   # Whether to profile all ranks.
   all_ranks: ${oc.select:actor_rollout_ref.actor.profiler.all_ranks,false}
 

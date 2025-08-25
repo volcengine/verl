@@ -76,6 +76,14 @@ class TraceConfig(BaseConfig):
 
 
 @dataclass
+class SkipConfig(BaseConfig):
+    enable: bool = False
+    active_step: int = 1
+    action_after_dumped: str = "replicate"
+    dump_dir: str = "/tmp/rollout_dump"
+
+
+@dataclass
 class RolloutConfig(BaseConfig):
     _mutable_fields = {"max_model_len"}
 
@@ -133,9 +141,7 @@ class RolloutConfig(BaseConfig):
 
     update_weights_bucket_megabytes: int = 512
 
-    skip_rollout: bool = False
-
-    skip_dump_dir: str = "/tmp/rollout_dump"
+    skip: SkipConfig = field(default_factory=SkipConfig)
 
     profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
 

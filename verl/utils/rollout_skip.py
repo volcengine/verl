@@ -26,45 +26,55 @@ class RolloutSkip:
         rollout_wg: The worker group that handles the rollout process.
 
     Note:
-        When rollout.n or rollout.gen_batch_size differ from previous runs,
-        new sequences will be generated and saved with different filenames.
+        Whenever any of the following parameters differ from previous runs—trainer.experiment_name,
+        trainer.project_name, rollout.n, or rollout.gen_batch_size—new sequences will be generated
+        and saved under different filenames.
     """
 
     print_mark = "[RolloutSkip()]"
 
-    def __init__(self, config, rollout_wg):
+    def __init__(self, config):
         self.rollout_config = config.actor_rollout_ref.rollout
-        self.exp_name = config.data.get("experiment_name", "")
-        self.project_name = config.data.get("project_name", "")
+        self.skip_config = self.rollout_config.skip
+        self.exp_name = config.trainer.get("experiment_name", "")
+        self.project_name = config.trainer.get("project_name", "")
 
         self.n = int(self.rollout_config.get("n", 0))
         self.gbs = int(config.data.get("gen_batch_size", config.data.get("train_batch_size", 0)))
+        self._rollout_wg = None
+        self._create_dump_path()
 
-        self.dumped_dir = Path(self.rollout_config.get("skip_dump_dir", "/tmp/verl/rollout_dump"))
+    @property
+    def curr_path_dump(self):
+        return self.dumped_dir.joinpath(f"{self.exp_name}_{self.project_name}_GBS{self.gbs}__N{self.n}").absolute()
+
+    def _create_dump_path(self):
+        """
+        Create the directory for dumping rollout data if it doesn't exist.
+        Warn if the directory is within Ray's temporary session directory.
+        """
+
+        self.dumped_dir = Path(self.skip_config.get("dump_dir", "/tmp/verl/rollout_dump"))
         self.dumped_dir.mkdir(parents=True, exist_ok=True)
 
+        tmp_ray = "/tmp/ray/session"
+
         # Check if path is in Ray temporary directory
-        if str(self.dumped_dir.absolute()).startswith("/tmp/ray/session"):
+        if str(self.dumped_dir.absolute()).startswith(tmp_ray):
             print(
                 f"\033[33m{self.print_mark} Warning: \nUsing dump path ",
                 f"'{self.dumped_dir.absolute()}' is not recommended ",
-                "as it's located in /tmp/ray/session*\033[0m",
+                f"as it's located in {tmp_ray}*\033[0m",
                 flush=True,
             )
-
         print(
             f"{self.print_mark} Rollout skip dump path set to: ",
             f"{self.dumped_dir.absolute()}",
             flush=True,
         )
 
+    def wrap_generate_sequences(self, rollout_wg):
         self._rollout_wg = rollout_wg
-
-    @property
-    def curr_path_dump(self):
-        return self.dumped_dir.joinpath(f"{self.exp_name}_{self.project_name}_GBS{self.gbs}__N{self.n}").absolute()
-
-    def wrap_generate_sequences(self):
         try:
             self._rollout_wg.generate_sequences = wrap_generate_sequences(self, self._rollout_wg)
             print(
