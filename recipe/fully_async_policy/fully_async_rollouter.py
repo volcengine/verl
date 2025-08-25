@@ -22,11 +22,12 @@ from tqdm import tqdm
 from recipe.fully_async_policy.detach_utils import (
     RolloutSample,
     calculate_one_step_size,
-    prepare_single_generation_data,
+    prepare_single_generation_data, ValidateMetrics,
 )
 from recipe.fully_async_policy.message_queue import MessageQueueClient
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer, ResourcePoolManager, Role, WorkerType
+from verl.utils.profiler import marked_timer
 from verl.utils.tracking import ValidationGenerationsLogger
 
 
@@ -145,7 +146,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
             f"max_required_samples: {self.max_required_samples}"
         )
 
-        # 单次最多扔一次迭代需要的样本
+        # 单次最多扔一次更新需要的样本
         self.max_concurrent_samples = self.required_samples
 
         # 流式处理统计
@@ -166,6 +167,15 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
         # 通过 pause 和 resume 控制 monitor_loop 中，是否进行 尝试恢复 操作
         self.monitor_loop_trigger = True
+
+        self.update_param_version_time = 0
+        self.global_steps = 0
+
+        self.progress_bar = tqdm(
+            total=self.total_rollout_steps / (
+                    self.required_samples * self.config.async_training.trigger_parameter_sync_step),
+            initial=self.global_steps, desc="Training Progress"
+        )
 
     async def set_message_queue_client(self, message_queue_client: MessageQueueClient):
         """Set message queue client"""
@@ -195,6 +205,17 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 f"[FullyAsyncRollouter][Public][update_param_version] "
                 f"Parameter version updated from {old_version} to {version}"
             )
+            timing_raw = {}
+            self.update_param_version_time += 1
+            if (self.val_reward_fn is not None
+                    and self.config.trainer.test_freq > 0
+                    and (self.is_last_step or self.global_steps % self.config.trainer.test_freq == 0)):
+                with marked_timer("testing", timing_raw, color="green"):
+                    val_metrics: dict = self._validate()
+                    data = ValidateMetrics(timing_raw=timing_raw, metrics=val_metrics)
+                    self.message_queue_client.put_validate(ray.cloudpickle.dumps(data))
+            if version > 0:
+                self.progress_bar.update(1)
 
     def _validate_config(self):
         # Validate asynchronous training configuration
@@ -245,10 +266,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
         sample_count = 0
         should_stop = False
 
-        progress_bar = tqdm(
-            total=self.total_rollout_steps / self.required_samples, initial=self.global_steps, desc="Training Progress"
-        )
-
         for epoch, batch_dict in continuous_iterator:
             if should_stop:  # 检查停止标志
                 break
@@ -275,6 +292,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
                 # 检查是否到达最后一步
                 if self.global_steps >= self.total_rollout_steps:
+                    self.is_last_step = True
                     print(
                         f"[FullyAsyncRollouter][Feed] "
                         f"达到最大步数，停止添加新样本 "
@@ -283,15 +301,13 @@ class FullyAsyncRollouter(RayPPOTrainer):
                     should_stop = True  # 设置停止标志
                     break
 
-                if self.global_steps % self.required_samples == 0:
-                    progress_bar.update(1)
                 self.global_steps += 1
 
             sample_count += 1
 
         # 发送结束信号
         progress_bar.close()
-        await self.pending_queue.put("DONE")
+        await self.pending_should_stopqueue.put("DONE")
         print(f"[FullyAsyncRollouter][Feed] 样本添加完成，总共添加了 {self.global_steps} 个步骤的样本")
 
     async def _processor_worker(self):
@@ -377,12 +393,12 @@ class FullyAsyncRollouter(RayPPOTrainer):
         rollout_sample.processing_time += processing_time
         rollout_sample.param_version = self.current_param_version
 
-        # print(
-        #     f"[FullyAsyncRollouter] rollout {rollout_sample.sample_id} "
-        #     f"cost {processing_time:.2f}s  "
-        #     f"len: {len(rollout_sample.agent_loop_output.response_ids)} "
-        #     f"cancel: {agent_loop_output.is_cancel} "
-        # )
+        print(
+            f"[FullyAsyncRollouter] rollout {rollout_sample.sample_id} "
+            f"cost {processing_time:.2f}s  "
+            f"len: {len(rollout_sample.agent_loop_output.response_ids)} "
+            f"cancel: {agent_loop_output.is_cancel} "
+        )
 
         if agent_loop_output.is_cancel:
             # 放入 cancel 队列中，等待恢复生成
@@ -411,8 +427,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
             else:
                 self.dropped_stale_samples += 1
 
-            # print(f"[FullyAsyncRollouter] submit {rollout_sample.sample_id} {'success' if success else 'error'}")
-
             # 标记结果队列任务完成
             self.result_queue.task_done()
 
@@ -427,20 +441,19 @@ class FullyAsyncRollouter(RayPPOTrainer):
             config=OmegaConf.to_container(self.config, resolve=True),
         )
 
-        self.global_steps = 0
-
         # load checkpoint before doing anything
         self._load_checkpoint()
 
         # perform validation before training
         # currently, we only support validation using the reward_function.
-        if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
-            val_metrics = self._validate()
-            assert val_metrics, f"{val_metrics=}"
-            pprint(f"[FullyAsyncRollouter] Initial validation metrics: {val_metrics}")
-            self.logger.log(data=val_metrics, step=self.global_steps)
-            if self.config.trainer.get("val_only", False):
-                return
+        async with self.lock:
+            if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
+                print("Initial validation metric")
+                val_metrics = self._validate()
+                assert val_metrics, f"{val_metrics=}"
+                pprint(f"[FullyAsyncRollouter] Initial validation metrics: {val_metrics}")
+                if self.config.trainer.get("val_only", False):
+                    return
 
         # we start from step 1
         self.global_steps += 1
@@ -570,26 +583,30 @@ class FullyAsyncRollouter(RayPPOTrainer):
         version_diff = self.current_param_version - current_trainer_version
 
         if version_diff > self.staleness_threshold:
-            print(
-                "[FullyAsyncRollouter][ShouldPause] "
-                f"due to version_diff > self.staleness_threshold: "
-                f"rollout_version={self.current_param_version}, "
-                f"trainer_version={current_trainer_version}, diff={version_diff}"
-            )
+            if not self.paused:
+                print(
+                    "[FullyAsyncRollouter][ShouldPause] "
+                    f"due to version_diff > self.staleness_threshold: "
+                    f"rollout_version={self.current_param_version}, "
+                    f"trainer_version={current_trainer_version}, diff={version_diff}"
+                )
             return True
 
         if queue_size >= self.max_queue_size:
-            print(
-                f"[FullyAsyncRollouter][ShouldPause]  due to full queue: size={queue_size}, max={self.max_queue_size}"
-            )
+            if not self.paused:
+                print(
+                    f"[FullyAsyncRollouter][ShouldPause]  "
+                    f"due to full queue: size={queue_size}, max={self.max_queue_size}"
+                )
             return True
 
         if self.staleness_samples > self.max_required_samples:
-            print(
-                "[FullyAsyncRollouter][ShouldPause] "
-                f"due to "
-                f"staleness_samples {self.staleness_samples} > max_required_samples {self.max_required_samples} "
-            )
+            if not self.paused:
+                print(
+                    "[FullyAsyncRollouter][ShouldPause] "
+                    f"due to "
+                    f"staleness_samples {self.staleness_samples} > max_required_samples {self.max_required_samples} "
+                )
             return True
 
         return False

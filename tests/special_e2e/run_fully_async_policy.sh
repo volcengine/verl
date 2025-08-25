@@ -49,15 +49,18 @@ top_k=-1
 val_top_p=0.7
 
 # Fully async specific parameters
-n_gpus_rollout=6
+n_gpus_rollout=4
 n_gpus_training=$((NUM_GPUS - n_gpus_rollout))
 
 train_prompt_bsz=0
 gen_prompt_bsz=1
-n_resp_per_prompt=3
-train_prompt_mini_bsz=32
-total_rollout_steps=50000
-staleness_threshold=10
+n_resp_per_prompt=16
+train_prompt_mini_bsz=64
+staleness_threshold=1
+total_rollout_steps=$(((512*16*10)))
+test_freq=2
+trigger_parameter_sync_step=2
+partial_rollout=True
 
 exp_name="$(basename "${MODEL_ID,,}")-fully-async-policy-${ACTOR_STRATEGY}-minimal"
 
@@ -114,7 +117,7 @@ common_params=(
     trainer.logger=['console']
     trainer.project_name='verl-test-fully-async'
     trainer.experiment_name="${exp_name}"
-    trainer.val_before_train=False
+    trainer.val_before_train=True
     trainer.test_freq=-1
     trainer.save_freq=-1
     trainer.resume_mode=disable
@@ -126,6 +129,7 @@ common_params=(
     rollout.total_epochs=2
     # Fully async specific configurations
     async_training.staleness_threshold=${staleness_threshold}
+    async_training.trigger_parameter_sync_step="${trigger_parameter_sync_step}"
 )
 
 if [ "${ACTOR_STRATEGY}" == "fsdp2" ]; then
