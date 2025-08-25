@@ -28,7 +28,6 @@ from typing import Iterable
 import torch
 import torch.distributed
 from megatron.core import parallel_state as mpu
-from megatron.core.distributed import finalize_model_grads
 
 # from megatron.core.optimizer import DistributedOptimizer
 from megatron.core.optimizer import DistributedOptimizer
@@ -136,23 +135,9 @@ class MegatronPPOActor(BasePPOActor):
             for model in self.actor_module:
                 patch_fused_forward(model)
 
-        self.optimizer_step_args = OmegaConf.create(
-            {
-                "skip_grad": None,
-                "overlap_dp_param_comm": False,
-                "overlap_dp_grad_comm": False,
-                "gradient_accumulation_steps": 1,
-                "sequence_parallel": self.tf_config.sequence_parallel,
-                "DDP_impl": "local",
-                "layernorm_allreduce_bucket_threshold": 0,
-                "pipeline_model_parallel_split_rank": None,
-                "reduce_grads_use_alltoall": False,
-            }
-        )
-
         config = get_model_config(self.actor_module[0])
-        print(config)
-        config.finalize_model_grads_func = finalize_model_grads
+        if torch.distributed.get_rank() == 0:
+            print(config)
 
     def _validate_config(self, config) -> None:
         """Validate config options not implemented for Megatron backend"""
@@ -194,12 +179,6 @@ class MegatronPPOActor(BasePPOActor):
                 "micro batch size is needed for forward compute when use_dynamic_bsz is False"
             )
 
-        def compute_logprobs_fn(output, data, use_dynamic_bsz=False, indices=None):
-            response = data["responses"]
-            response_length = response.size(1)
-            log_probs = output["log_probs"][:, -response_length - 1 : -1].contiguous()
-            return {"log_probs": log_probs}
-
         # We make recompute_old_log_prob by default here.
         # TODO (zhangchi.usc1992): actually, this function should only return log_prob and this logic should be
         # handled by user outside
@@ -217,7 +196,6 @@ class MegatronPPOActor(BasePPOActor):
                 output = self.forward_backward_batch(
                     data,
                     forward_only=True,
-                    post_process_fn=compute_logprobs_fn,
                     calculate_entropy=calculate_entropy,
                     use_dynamic_bsz=use_dynamic_bsz,
                     micro_batch_size=micro_batch_size,
@@ -225,21 +203,32 @@ class MegatronPPOActor(BasePPOActor):
                 )
                 if mpu.is_pipeline_last_stage(ignore_virtual=True):
                     # only on last rank. It should be on every tp rank
-                    if calculate_entropy:
-                        log_probs = [o[0]["log_probs"] for o in output["output"]]  # (bs, seq_size)
-                    else:
-                        log_probs = [o["log_probs"] for o in output["output"]]  # (bs, seq_size)
+                    log_probs = [o["log_probs"] for o in output["output"]]  # (bs, seq_size)
                     log_probs = torch.cat(log_probs, dim=0).to(torch.float32)
+
+                    if calculate_entropy:
+                        entropys = torch.cat([o["entropy"] for o in output["output"]], dim=0)
+                        entropys = entropys.to(torch.float32)
+
                     if use_dynamic_bsz:
                         indices = output["indices"]
                         indices = list(itertools.chain.from_iterable(indices))
                         assert len(indices) == log_probs.size(0), f"{len(indices)} vs. {log_probs.size()}"
                         revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
                         log_probs = log_probs[revert_indices]
+                        if calculate_entropy:
+                            assert len(indices) == entropys.size(0), f"{len(indices)} vs. {entropys.size()}"
+                            entropys = entropys[revert_indices]
                 else:
+                    # other pp ranks
                     log_probs = torch.empty(
                         size=(batch_size, response_length), dtype=torch.float32, device=input_ids.device
                     )
+                    if calculate_entropy:
+                        entropys = torch.empty(
+                            size=(batch_size, response_length), dtype=torch.float32, device=input_ids.device
+                        )
+
                 log_probs = log_probs.to(get_device_id())
                 # broadcast across pp ranks
                 torch.distributed.broadcast(
@@ -249,22 +238,8 @@ class MegatronPPOActor(BasePPOActor):
                     async_op=False,
                 )
                 log_probs = log_probs.to("cpu")
+
                 if calculate_entropy:
-                    # Note that o[0] is metrics, o[1] is entropy
-                    if mpu.is_pipeline_last_stage(ignore_virtual=True):
-                        entropys = torch.cat([o[1] for o in output["output"]], dim=0)
-                        entropys = entropys.to(torch.float32)
-                        if use_dynamic_bsz:
-                            indices = output["indices"]
-                            indices = list(itertools.chain.from_iterable(indices))
-                            assert len(indices) == entropys.size(0), f"{len(indices)} vs. {entropys.size()}"
-                            revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
-                            entropys = entropys[revert_indices]
-                    else:
-                        entropys = torch.empty(
-                            size=(batch_size, response_length), dtype=torch.float32, device=input_ids.device
-                        )
-                    # broadcast across pp ranks
                     entropys = entropys.to(get_device_id())
                     torch.distributed.broadcast(
                         tensor=entropys,
@@ -332,12 +307,10 @@ class MegatronPPOActor(BasePPOActor):
         self,
         data: DataProto,
         forward_only=False,
-        post_process_fn=None,
         calculate_entropy=False,
         use_dynamic_bsz=False,
         micro_batch_size=None,
         max_token_len=None,
-        mini_batch_size=None,
     ):
         """
         We assume:
@@ -400,85 +373,81 @@ class MegatronPPOActor(BasePPOActor):
 
         forward_backward_func = get_forward_backward_func()
 
-        def loss_func(output, data, meta_info):
+        def loss_func(output, data):
             # For memory efficiency
             # We move calculation of entropy to compute_log_probs, forward_only == True
             device = output["log_probs"].device
-            metrics = {}
-            if forward_only:
-                if post_process_fn is None:
-                    pass
-                    # metrics["logits"] = output
-                else:
-                    stats = post_process_fn(output, data)
-                    metrics.update(stats)
-                if not calculate_entropy:
-                    return torch.tensor(1.0, device=device), metrics
 
             responses = data["responses"]
             response_length = responses.size(1)
+
+            log_prob = output["log_probs"][:, -response_length - 1 : -1].contiguous()
+            if calculate_entropy:
+                entropy = output["entropy"][:, -response_length - 1 : -1].contiguous()
+            else:
+                entropy = None
+
+            if forward_only:
+                # for inference
+                output_dict = {'log_probs': log_prob}
+                if calculate_entropy:
+                    output_dict['entropy'] = entropy
+                return torch.tensor(1.0, device=device), output_dict
+
+            # for training
+            metrics = {}
+
             response_mask = data["response_mask"].to(bool)
             loss_agg_mode = self.config.loss_agg_mode
 
             # compute policy loss
-            log_prob = output["log_probs"][:, -response_length - 1 : -1].contiguous()
-            ret_entropy = None
-            stats = {}
-            if not forward_only:
-                old_log_prob = data["old_log_probs"]
-                advantages = data["advantages"]
+            old_log_prob = data["old_log_probs"]
+            advantages = data["advantages"]
 
-                entropy_coeff = self.config.entropy_coeff
-                loss_agg_mode = self.config.loss_agg_mode
+            entropy_coeff = self.config.entropy_coeff
+            loss_agg_mode = self.config.loss_agg_mode
 
-                loss_mode = self.config.policy_loss.get("loss_mode", "vanilla")
+            loss_mode = self.config.policy_loss.get("loss_mode", "vanilla")
 
-                policy_loss_fn = get_policy_loss_fn(loss_mode)
-                pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = policy_loss_fn(
-                    old_log_prob=old_log_prob,
-                    log_prob=log_prob,
-                    advantages=advantages,
-                    response_mask=response_mask,
-                    loss_agg_mode=loss_agg_mode,
-                    config=self.config,
-                )
+            policy_loss_fn = get_policy_loss_fn(loss_mode)
+            pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = policy_loss_fn(
+                old_log_prob=old_log_prob,
+                log_prob=log_prob,
+                advantages=advantages,
+                response_mask=response_mask,
+                loss_agg_mode=loss_agg_mode,
+                config=self.config,
+            )
 
-                stats.update(
-                    {
-                        "actor/pg_loss": pg_loss.detach().item(),
-                        "actor/pg_clipfrac": pg_clipfrac.detach().item(),
-                        "actor/ppo_kl": ppo_kl.detach().item(),
-                        "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
-                    }
-                )
-                policy_loss = pg_loss
+            metrics.update(
+                {
+                    "actor/pg_loss": pg_loss.detach().item(),
+                    "actor/pg_clipfrac": pg_clipfrac.detach().item(),
+                    "actor/ppo_kl": ppo_kl.detach().item(),
+                    "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
+                }
+            )
+            policy_loss = pg_loss
 
+            # add entropy loss
             if calculate_entropy:
-                entropy = output["entropy"][:, -response_length - 1 : -1].contiguous()
-                if not forward_only:
-                    entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
-                    entropy_coeff = meta_info["entropy_coeff"]
-                    policy_loss = pg_loss - entropy_coeff * entropy_loss
-                else:
-                    ret_entropy = entropy
+                entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+                entropy_coeff = self.config.entropy_coeff
+                policy_loss = pg_loss - entropy_coeff * entropy_loss
+            
+            # add kl loss
+            if self.config.use_kl_loss:
+                ref_log_prob = data["ref_log_prob"]
+                # compute kl loss
+                kld = kl_penalty(logprob=log_prob, ref_logprob=ref_log_prob, kl_penalty=self.config.kl_loss_type)
+                kl_loss = agg_loss(loss_mat=kld, loss_mask=response_mask, loss_agg_mode=self.config.loss_agg_mode)
 
-            if forward_only:
-                policy_loss = torch.tensor(1.0, device=device)
-            else:
-                if self.config.use_kl_loss:
-                    ref_log_prob = data["ref_log_prob"]
-                    # compute kl loss
-                    kld = kl_penalty(logprob=log_prob, ref_logprob=ref_log_prob, kl_penalty=self.config.kl_loss_type)
-                    kl_loss = agg_loss(loss_mat=kld, loss_mask=response_mask, loss_agg_mode=self.config.loss_agg_mode)
+                policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
+                metrics["actor/kl_loss"] = kl_loss.detach().item()
+                metrics["actor/kl_coef"] = self.config.kl_loss_coef
 
-                    policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
-                    metrics["actor/kl_loss"] = kl_loss.detach().item()
-                    metrics["actor/kl_coef"] = self.config.kl_loss_coef
-
-                # return loss and stats
-
-            append_to_dict(metrics, stats)
-            return policy_loss, [metrics, ret_entropy]
+            # return loss and stats
+            return policy_loss, metrics
 
         def forward_step(batch_iter, model):
             batch = next(batch_iter)
@@ -531,11 +500,12 @@ class MegatronPPOActor(BasePPOActor):
                     ret = {}
                     if calculate_entropy:
                         logits_bak = logits.clone()
-                        logger.warning_once(
-                            "For memory-efficient computation, enable fused kernels via "
-                            "`actor_rollout_ref.model.use_fused_kernels=True`. "
-                            "The current `clone()` operation ensures correctness but increases memory usage."
-                        )
+                        if torch.distributed.get_rank() == 0:
+                            logger.warning_once(
+                                "For memory-efficient computation, enable fused kernels via "
+                                "`actor_rollout_ref.model.use_fused_kernels=True`. "
+                                "The current `clone()` operation ensures correctness but increases memory usage."
+                            )
                         entropy = vocab_parallel_entropy(logits)
                         ret["entropy"] = entropy
                     else:
@@ -557,42 +527,22 @@ class MegatronPPOActor(BasePPOActor):
                     logits_processor_args=logits_processor_args,
                 )
 
-            if forward_only:
-                meta_info = None
-            else:
-                clip_ratio_c = self.config.get("clip_ratio_c", 3.0)
-                meta_info = {
-                    "clip_ratio": self.config.clip_ratio,
-                    "entropy_coeff": self.config.entropy_coeff,
-                    "clip_ratio_c": clip_ratio_c,
-                }
-            return output, partial(loss_func, data=batch, meta_info=meta_info)
+            return output, partial(loss_func, data=batch)
 
         # batch should be a list of batches inside micro-batches
         batch_generator = make_batch_generator(micro_batches, vpp_size=len(self.actor_module))
 
         # TODO: we may use the new schedule instead
         # for flash-attn: (seq_len, batch_size, hidden_size) = (mbs*seq_len, 1, hidden_size)
-        if mpu.get_pipeline_model_parallel_world_size() > 1:
-            losses_reduced = forward_backward_func(
-                forward_step_func=forward_step,
-                data_iterator=batch_generator,
-                model=self.actor_module,
-                num_microbatches=n_micro_batch,
-                seq_length=total_seqlen,  # no use when input_shapes was set
-                micro_batch_size=1,  # no use when input_shapes was set
-                forward_only=forward_only,
-            )
-        else:
-            losses_reduced = forward_backward_func(
-                forward_step_func=forward_step,
-                data_iterator=batch_generator,
-                model=self.actor_module,
-                num_microbatches=n_micro_batch,
-                seq_length=total_seqlen,  # in use for pp = 1
-                micro_batch_size=1,  # in use for pp = 1
-                forward_only=forward_only,
-            )
+        losses_reduced = forward_backward_func(
+            forward_step_func=forward_step,
+            data_iterator=batch_generator,
+            model=self.actor_module,
+            num_microbatches=n_micro_batch,
+            seq_length=total_seqlen,  # no use when input_shapes was set
+            micro_batch_size=1,  # no use when input_shapes was set
+            forward_only=forward_only,
+        )
         # loss_reduces contains the stats returned from loss_func
 
         if self.has_multi_modal_inputs:
@@ -642,12 +592,11 @@ class MegatronPPOActor(BasePPOActor):
                 use_dynamic_bsz=self.config.use_dynamic_bsz,
                 micro_batch_size=micro_batch_size,
                 max_token_len=max_token_len,
-                mini_batch_size=self.config.ppo_mini_batch_size,
             )
             metric_micro_batch = metric_micro_batch["output"]
             for metric in metric_micro_batch:
                 # Note that o[0] is metrics, o[1] is entropy, o[2] is response_mask
-                append_to_dict(metrics, metric[0])  # append the metric from this micro-batch to global metrics.
+                append_to_dict(metrics, metric)  # append the metric from this micro-batch to global metrics.
 
             update_successful, grad_norm, num_zeros_in_grad = self.actor_optimizer.step()
             data = {"actor/grad_norm": grad_norm}
