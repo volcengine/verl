@@ -339,7 +339,15 @@ class MegatronEngine(BaseEngine):
             hdfs_path: Optional HDFS path where checkpoint is stored.
             del_local_after_load: Whether to delete local copy after loading.
         """
-        raise NotImplementedError
+        if self._is_offload_param:
+            load_megatron_model_to_gpu(self.module)
+        self.checkpoint_mananager.load_checkpoint(
+            local_path=local_path, hdfs_path=hdfs_path, del_local_after_load=del_local_after_load
+        )
+        if self._is_offload_param:
+            offload_megatron_model_to_cpu(self.module)
+        if self._is_offload_optimizer:
+            offload_megatron_optimizer(self.optimizer)
 
 
 
