@@ -276,7 +276,7 @@ class AsyncvLLMServer(AsyncServerBase):
             skip_tokenizer_init=False,
             max_model_len=self.max_model_len,
             max_num_seqs=config.max_num_seqs,
-            load_format="dummy" if self.config.load_format.startswith("dummy") else self.config.load_format,
+            load_format="dummy" if config.load_format.startswith("dummy") else config.load_format,
             disable_log_stats=config.disable_log_stats,
             max_num_batched_tokens=max_num_batched_tokens,
             enable_chunked_prefill=config.enable_chunked_prefill,
