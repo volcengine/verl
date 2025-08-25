@@ -399,6 +399,7 @@ algorithm:
   lam: 1.0
   adv_estimator: gae
   dynamic_filter:
+    _target_: verl.trainer.config.FilterGroupsConfig
     enable: false
     metric: seq_reward
     max_num_gen_batches: 10
