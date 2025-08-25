@@ -360,7 +360,7 @@ class FSDPSFTTrainer:
         input_ids = batch["input_ids"].to(self.device_name)
         attention_mask = batch["attention_mask"].to(self.device_name)
         position_ids = batch["position_ids"].to(self.device_name)
-        loss_mask = batch.pop("loss_mask")[:, :-1].reshape(-1).to(self.device_name)
+        loss_mask = batch.pop("loss_mask")[:, :-1].to(self.device_name)
         loss_fct = nn.CrossEntropyLoss(reduction="none")
 
         # Context manager for sequence parallel if needed
@@ -433,11 +433,10 @@ class FSDPSFTTrainer:
                     hidden_states=loss.unsqueeze(-1), indices=indices, batch=batch_size, seqlen=seqlen
                 )
                 full_loss = full_loss.squeeze(-1)[:, :-1]  # Remove last token's loss
-                full_loss = full_loss.reshape(-1)
                 loss_mask = loss_mask.to(full_loss.device)
                 loss = full_loss * loss_mask
 
-            valid_token_this_rank = torch.sum(loss_mask)
+            valid_token_this_rank = torch.sum(loss_mask, dim=1)
 
             if self.config.data.balance_dp_token:
                 torch.distributed.all_reduce(valid_token_this_rank)
@@ -445,7 +444,9 @@ class FSDPSFTTrainer:
             else:
                 dp_size = 1
 
-            loss = torch.sum(loss) / (valid_token_this_rank + 1e-8) * dp_size
+            loss = torch.sum(loss, dim=1) / (valid_token_this_rank + 1e-8) * dp_size
+
+            loss = torch.mean(loss)
 
             if do_backward:
                 loss.backward()
