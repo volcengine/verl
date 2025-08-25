@@ -128,7 +128,7 @@ class TestBatchUtils(unittest.TestCase):
 
         return RolloutSample(
             full_batch=mock_gen_data,
-            agent_loop_output=agent_loop_output,
+            agent_loop_output_list=agent_loop_output,
             sample_id=sample_id,
             epoch=0,
             rollout_n_index=0,

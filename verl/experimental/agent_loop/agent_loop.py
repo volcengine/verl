@@ -18,7 +18,7 @@ import os
 import random
 import time
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Any, Optional, List
 
 import hydra
 import numpy as np
@@ -383,13 +383,14 @@ class AgentLoopWorker:
         return output
 
     async def generate_sequences_no_post(
-        self, batch: DataProto, partial_output: Optional[AgentLoopOutput]
+            self,
+            batch: DataProto, partial_output_list: Optional[List[AgentLoopOutput]]
     ) -> list[AgentLoopOutput]:
         """Generate sequences from agent loop.
 
         Args:
             batch (DataProto): Input batch.
-            partial_output: Optional[AgentLoopOutput]: already rollout result.
+            partial_output_list: Optional[List[AgentLoopOutput]]: already rollout result.
 
         Returns:
             list[AgentLoopOutput]: List of agent loop outputs, one per sample in the batch.
@@ -427,8 +428,14 @@ class AgentLoopWorker:
         trajectory_info = await get_trajectory_info(
             batch.meta_info.get("global_steps", -1), index, batch.meta_info.get("validate", False)
         )
+        if not partial_output_list:
+            partial_output_list = [None] * len(batch)
 
-        for agent_name, messages, trajectory in zip(agent_names, raw_prompts, trajectory_info, strict=True):
+        for agent_name, messages, trajectory, partial_output in zip(agent_names,
+                                                                    raw_prompts,
+                                                                    trajectory_info,
+                                                                    partial_output_list,
+                                                                    strict=True):
             tasks.append(
                 asyncio.create_task(
                     self._run_agent_loop(agent_name, messages.tolist(), sampling_params, trajectory, partial_output)
@@ -602,38 +609,25 @@ class AgentLoopManager:
         output.meta_info = {"timing": timing}
         return output
 
-    async def generate_single_sample_async(
-        self, sample: DataProto, partial_output: Optional[AgentLoopOutput]
-    ) -> tuple[AgentLoopOutput, float]:
+    async def generate_single_sample_async(self,
+                                           sample: DataProto,
+                                           partial_output_list: Optional[List[AgentLoopOutput]],
+                                           ) -> List[AgentLoopOutput]:
         """
-        异步处理单个样本 - 用于流式推理的核心方法
+        异步处理单个样本, 需要复制n次
 
         Args:
             sample: 单个样本数据
-            partial_output: Optional[AgentLoopOutput]: already rollout result.
+            partial_output_list: Optional[List[AgentLoopOutput]]: already rollout result.
 
         Returns:
             tuple[AgentLoopOutput, float]: 处理结果和处理时间
         """
-        start_time = time.time()
-
         # 使用负载均衡选择 worker
         worker = self._select_best_worker()
-
         # 异步处理单个样本 - 使用无后处理版本获取原始AgentLoopOutput
-        output_future = worker.generate_sequences_no_post.remote(sample, partial_output)
-        outputs = await asyncio.wrap_future(output_future.future())
-
-        processing_time = time.time() - start_time
-
-        # outputs 是 AgentLoopOutput 列表，取第一个（因为是单样本）
-        assert len(outputs) == 1, f"Expected single output for single sample, got {len(outputs)}"
-        output = outputs[0]
-
-        # 添加处理时间到metrics
-        output.metrics.generate_sequences = processing_time
-
-        return output, processing_time
+        output_future = worker.generate_sequences_no_post.remote(sample, partial_output_list)
+        return await asyncio.wrap_future(output_future.future())
 
     def _select_best_worker(self):
         """选择最佳的 worker（简单的轮询负载均衡）"""
