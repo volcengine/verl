@@ -411,14 +411,11 @@ class MegatronPPOActor(BasePPOActor):
                 )
             else:
                 micro_batches, indices = rearrange_micro_batches(batch=mini_batch.batch, max_token_len=max_token_len)
-            total_seqlen = max_token_len
         else:
             assert micro_batch_size is not None, (
                 "micro_batch_size is needed to be passed in when not using dynamic batch size"
             )
             micro_batches = mini_batch.batch.split(micro_batch_size)
-            seq_len = micro_batches[0]["input_ids"].shape[1]
-            total_seqlen = micro_batch_size * seq_len
         # compute input shapes for pp stages
         n_micro_batch = len(micro_batches)
 
@@ -432,7 +429,6 @@ class MegatronPPOActor(BasePPOActor):
             responses = data["responses"]
             response_length = responses.size(1)
 
-            model_output = {}
             log_prob = output["log_probs"][:, -response_length - 1 : -1].contiguous()
             model_output = {"log_probs": log_prob}
             if calculate_entropy:
@@ -540,8 +536,8 @@ class MegatronPPOActor(BasePPOActor):
             data_iterator=batch_generator,
             model=self.actor_module,
             num_microbatches=n_micro_batch,
-            seq_length=total_seqlen,  # no use when input_shapes was set
-            micro_batch_size=1,  # no use when input_shapes was set
+            seq_length=1,  # the communication shape is obtained via p2p comm
+            micro_batch_size=1,  # the communication shape is obtained via p2p comm
             forward_only=forward_only,
         )
         # loss_reduces contains the stats returned from loss_func
