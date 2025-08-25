@@ -181,72 +181,70 @@ class MegatronPPOActor(BasePPOActor):
         # We make recompute_old_log_prob by default here.
         # TODO (zhangchi.usc1992): actually, this function should only return log_prob and this logic should be
         # handled by user outside
-        recompute_old_log_prob = self.config.get("recompute_old_log_prob", True)
-
         entropys = torch.Tensor()
-        if recompute_old_log_prob:
-            select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
-            batch = data.select(batch_keys=select_keys).batch
-            input_ids = batch["input_ids"]
-            batch_size = input_ids.size(0)
-            response = batch["responses"]
-            response_length = response.size(1)
-            with torch.no_grad():
-                output = self.forward_backward_batch(
-                    data,
-                    forward_only=True,
-                    calculate_entropy=calculate_entropy,
-                    use_dynamic_bsz=use_dynamic_bsz,
-                    micro_batch_size=micro_batch_size,
-                    max_token_len=max_token_len,
-                )
-                if mpu.is_pipeline_last_stage(ignore_virtual=True):
-                    # only on last rank. It should be on every tp rank
-                    log_probs = [o["log_probs"] for o in output["output"]]  # (bs, seq_size)
-                    log_probs = torch.cat(log_probs, dim=0).to(torch.float32)
 
+        select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
+        batch = data.select(batch_keys=select_keys).batch
+        input_ids = batch["input_ids"]
+        batch_size = input_ids.size(0)
+        response = batch["responses"]
+        response_length = response.size(1)
+        with torch.no_grad():
+            output = self.forward_backward_batch(
+                data,
+                forward_only=True,
+                calculate_entropy=calculate_entropy,
+                use_dynamic_bsz=use_dynamic_bsz,
+                micro_batch_size=micro_batch_size,
+                max_token_len=max_token_len,
+            )
+            if mpu.is_pipeline_last_stage(ignore_virtual=True):
+                # only on last rank. It should be on every tp rank
+                log_probs = [o["log_probs"] for o in output["output"]]  # (bs, seq_size)
+                log_probs = torch.cat(log_probs, dim=0).to(torch.float32)
+
+                if calculate_entropy:
+                    entropys = torch.cat([o["entropy"] for o in output["output"]], dim=0)
+                    entropys = entropys.to(torch.float32)
+
+                if use_dynamic_bsz:
+                    indices = output["indices"]
+                    indices = list(itertools.chain.from_iterable(indices))
+                    assert len(indices) == log_probs.size(0), f"{len(indices)} vs. {log_probs.size()}"
+                    revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
+                    log_probs = log_probs[revert_indices]
                     if calculate_entropy:
-                        entropys = torch.cat([o["entropy"] for o in output["output"]], dim=0)
-                        entropys = entropys.to(torch.float32)
-
-                    if use_dynamic_bsz:
-                        indices = output["indices"]
-                        indices = list(itertools.chain.from_iterable(indices))
-                        assert len(indices) == log_probs.size(0), f"{len(indices)} vs. {log_probs.size()}"
-                        revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
-                        log_probs = log_probs[revert_indices]
-                        if calculate_entropy:
-                            assert len(indices) == entropys.size(0), f"{len(indices)} vs. {entropys.size()}"
-                            entropys = entropys[revert_indices]
-                else:
-                    # other pp ranks
-                    log_probs = torch.empty(
+                        assert len(indices) == entropys.size(0), f"{len(indices)} vs. {entropys.size()}"
+                        entropys = entropys[revert_indices]
+            else:
+                # other pp ranks
+                log_probs = torch.empty(
+                    size=(batch_size, response_length), dtype=torch.float32, device=input_ids.device
+                )
+                if calculate_entropy:
+                    entropys = torch.empty(
                         size=(batch_size, response_length), dtype=torch.float32, device=input_ids.device
                     )
-                    if calculate_entropy:
-                        entropys = torch.empty(
-                            size=(batch_size, response_length), dtype=torch.float32, device=input_ids.device
-                        )
 
-                log_probs = log_probs.to(get_device_id())
-                # broadcast across pp ranks
+            log_probs = log_probs.to(get_device_id())
+            # broadcast across pp ranks
+            torch.distributed.broadcast(
+                tensor=log_probs,
+                src=mpu.get_pipeline_model_parallel_last_rank(),
+                group=mpu.get_pipeline_model_parallel_group(),
+                async_op=False,
+            )
+            log_probs = log_probs.to("cpu")
+
+            if calculate_entropy:
+                entropys = entropys.to(get_device_id())
                 torch.distributed.broadcast(
-                    tensor=log_probs,
+                    tensor=entropys,
                     src=mpu.get_pipeline_model_parallel_last_rank(),
                     group=mpu.get_pipeline_model_parallel_group(),
                     async_op=False,
                 )
-                log_probs = log_probs.to("cpu")
-
-                if calculate_entropy:
-                    entropys = entropys.to(get_device_id())
-                    torch.distributed.broadcast(
-                        tensor=entropys,
-                        src=mpu.get_pipeline_model_parallel_last_rank(),
-                        group=mpu.get_pipeline_model_parallel_group(),
-                        async_op=False,
-                    )
-                    entropys = entropys.to("cpu")
+                entropys = entropys.to("cpu")
 
         # add empty cache after each compute
         get_torch_device().empty_cache()
@@ -309,13 +307,10 @@ class MegatronPPOActor(BasePPOActor):
         metrics = {}
 
         response_mask = data["response_mask"].to(bool)
-        loss_agg_mode = self.config.loss_agg_mode
-
         # compute policy loss
         old_log_prob = data["old_log_probs"]
         advantages = data["advantages"]
 
-        entropy_coeff = self.config.entropy_coeff
         loss_agg_mode = self.config.loss_agg_mode
 
         loss_mode = self.config.policy_loss.get("loss_mode", "vanilla")
@@ -344,7 +339,7 @@ class MegatronPPOActor(BasePPOActor):
         if entropy is not None:
             entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
             entropy_coeff = self.config.entropy_coeff
-            policy_loss = pg_loss - entropy_coeff * entropy_loss
+            policy_loss -= entropy_coeff * entropy_loss
 
         # add kl loss
         if self.config.use_kl_loss:
@@ -353,7 +348,7 @@ class MegatronPPOActor(BasePPOActor):
             kld = kl_penalty(logprob=log_prob, ref_logprob=ref_log_prob, kl_penalty=self.config.kl_loss_type)
             kl_loss = agg_loss(loss_mat=kld, loss_mask=response_mask, loss_agg_mode=self.config.loss_agg_mode)
 
-            policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
+            policy_loss += kl_loss * self.config.kl_loss_coef
             metrics["actor/kl_loss"] = kl_loss.detach().item()
             metrics["actor/kl_coef"] = self.config.kl_loss_coef
 
