@@ -28,12 +28,13 @@ from torch import nn
 from torch.distributed.device_mesh import DeviceMesh
 
 from verl.protocol import DataProto, all_gather_data_proto
-from verl.utils.device import get_torch_device
+from verl.utils.device import get_torch_device, set_expandable_segments
 from verl.utils.megatron_utils import (
     load_megatron_model_to_gpu,
     offload_megatron_model_to_cpu,
     per_tensor_generator,
 )
+from verl.utils.memory_utils import aggressive_empty_cache
 from verl.utils.profiler import GPUMemoryLogger, log_gpu_memory_usage, simple_timer
 from verl.workers.rollout.sglang_rollout.utils import get_named_tensor_buckets
 
@@ -101,7 +102,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         self.offload_param = offload_param
 
         if self.device_mesh is not None:
-            self.infer_tp_size = self.device_mesh["tp"].mesh.size()[0]
+            self.infer_tp_size = self.device_mesh["infer_tp"].mesh.size()[0]
         else:
             self.infer_tp_size = self.inference_engine._tp_size
 
@@ -141,7 +142,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
             - Main logic: https://github.com/THUDM/slime/blob/fb7605cc5fb09af0f9369d37f7192f12bddee577/slime/ray/ppo_actor.py#L452
             - runtime envs: https://github.com/THUDM/slime/blob/fb7605cc5fb09af0f9369d37f7192f12bddee577/slime/ray/ppo_actor.py#L39
         """
-        if self.device_mesh["tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
+        if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
             await self.inference_engine.resume_memory_occupation()
         named_tensors = params
 
@@ -150,19 +151,21 @@ class MegatronSGLangShardingManager(BaseShardingManager):
             await sgl_update_weights(
                 engine=self.inference_engine,
                 params_batch=params_batch,
-                device_mesh_key="tp",
+                device_mesh_key="infer_tp",
                 device_mesh=self.device_mesh,
             )
 
-        if self.device_mesh["tp"].get_local_rank() == 0:
+        if self.device_mesh["infer_tp"].get_local_rank() == 0:
             await self.inference_engine.flush_cache()
 
     async def release_memory(self):
-        if self.device_mesh["tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
+        if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
             await self.inference_engine.release_memory_occupation()
 
     @GPUMemoryLogger(role="MegatronSGLangShardingManager enter", logger=logger)
     async def wake_up(self):
+        aggressive_empty_cache(force_sync=True)
+
         if self.offload_param:
             load_megatron_model_to_gpu(self.actor_module, load_grad=False)
         if self.bridge is not None:
@@ -175,10 +178,13 @@ class MegatronSGLangShardingManager(BaseShardingManager):
                 self.transformer_config,
                 self.layer_name_mapping,
             )
+
+        set_expandable_segments(False)
+
         await self.update_weights(per_tensor_param)
         if self.offload_param:
             offload_megatron_model_to_cpu(self.actor_module)
-        get_torch_device().empty_cache()
+        aggressive_empty_cache(force_sync=True)
         # important: need to manually set the random states of each tp to be identical.
         if self.device_mesh is not None:
             self.torch_random_states = get_torch_device().get_rng_state()
@@ -194,7 +200,9 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         for model in self.actor_module:
             model.train()
         # add empty cache after each compute
-        get_torch_device().empty_cache()
+        aggressive_empty_cache(force_sync=True)
+
+        set_expandable_segments(True)
 
         # restore random states
         if self.device_mesh is not None:
@@ -206,7 +214,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         # DP_COMPUTE_PROTO: all training ranks are dp, the same as fsdp
         if self.infer_tp_size == 1:
             return data
-        all_gather_data_proto(data, self.device_mesh["tp"].get_group())
+        all_gather_data_proto(data, self.device_mesh["infer_tp"].get_group())
         return data
 
     @GPUMemoryLogger(role="megatron sglang sharding_manager", logger=logger)
@@ -214,4 +222,4 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         # DP_COMPUTE_PROTO: all training ranks are dp, the same as fsdp
         if self.infer_tp_size == 1:
             return data
-        return data.chunk(chunks=self.infer_tp_size)[self.device_mesh["tp"].get_local_rank()]
+        return data.chunk(chunks=self.infer_tp_size)[self.device_mesh["infer_tp"].get_local_rank()]

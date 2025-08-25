@@ -22,6 +22,7 @@ from typing import Any, Optional
 import fastapi
 import ray
 import uvicorn
+from pydantic import BaseModel
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -32,6 +33,13 @@ def _get_free_port():
     with socket.socket() as sock:
         sock.bind(("", 0))
         return sock.getsockname()[1]
+
+
+class TokenOutput(BaseModel):
+    token_ids: list[int]
+    """response token ids"""
+    log_probs: Optional[list[float]] = None
+    """logprobs of response token ids"""
 
 
 class AsyncServerBase(ABC):
@@ -89,7 +97,7 @@ class AsyncServerBase(ABC):
         sampling_params: dict[str, Any],
         request_id: str,
         image_data: Optional[list[Any]] = None,
-    ) -> list[int]:
+    ) -> TokenOutput:
         """Generate response ids given prompt ids.
 
         Args:
@@ -98,7 +106,7 @@ class AsyncServerBase(ABC):
             request_id (str): request id
             image_data (Optional[list[Any]]): image data
         Returns:
-            List[int]: response ids
+            TokenOutput: token output
         """
         raise NotImplementedError
 

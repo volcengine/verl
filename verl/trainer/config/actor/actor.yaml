@@ -178,6 +178,9 @@ profiler:
 
       # Whether to automatically parse the data.
       analysis: True
+
+      # True for each task has its own database, False for all tasks in one training step share one database.
+      discrete: False
     
     # torch profiler config
     torch:
@@ -193,3 +196,14 @@ profiler:
       # stop profile mini-batch in training
       step_end: null
 
+    # torch memory profiler config
+    torch_memory:
+
+      # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+      _target_: verl.utils.profiler.config.TorchMemoryToolConfig
+
+      # Maximum number of memory allocation entries to track
+      trace_alloc_max_entries: ${oc.select:global_profiler.global_tool_config.torch_memory.trace_alloc_max_entries,100000}
+
+      # Stack trace depth for memory allocations
+      stack_depth: ${oc.select:global_profiler.global_tool_config.torch_memory.stack_depth,32}

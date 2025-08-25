@@ -94,6 +94,7 @@ verl is fast with:
    perf/perf_tuning
    README_vllm0.8.md
    perf/device_tuning
+   perf/verl_profiler_system.md
    perf/nsight_profiling.md
 
 .. toctree::
@@ -127,7 +128,7 @@ verl is fast with:
    amd_tutorial/amd_build_dockerfile_page.rst
    amd_tutorial/amd_vllm_page.rst
    ascend_tutorial/ascend_quick_start.rst
-   ascend_tutorial/ascend_profiling.rst
+   ascend_tutorial/ascend_profiling_zh.rst
    ascend_tutorial/ascend_profiling_en.rst
 
 .. toctree::

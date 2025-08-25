@@ -4,7 +4,7 @@ Installation
 Requirements
 ------------
 
-- **Python**: Version >= 3.9
+- **Python**: Version >= 3.10
 - **CUDA**: Version >= 12.1
 
 verl supports various backends. Currently, the following configurations are available:
