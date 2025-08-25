@@ -105,14 +105,16 @@ class DataParallelPPOActor(BasePPOActor):
                 for key in micro_batch["multi_modal_inputs"][0].keys():
                     if key == "pixel_values":
                         multi_modal_inputs[key] = torch.cat(
-                            [inputs[key].squeeze(0) if inputs[key].ndim == 3 else inputs[key] 
-                                for inputs in  micro_batch["multi_modal_inputs"]], dim=0
+                            [
+                                inputs[key].squeeze(0) if inputs[key].ndim == 3 else inputs[key]
+                                for inputs in micro_batch["multi_modal_inputs"]
+                            ],
+                            dim=0,
                         )
                     else:
                         multi_modal_inputs[key] = torch.cat(
                             [inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0
                         )
-                    
 
         with torch.autocast(device_type=self.device_name, dtype=torch.bfloat16):
             input_ids = micro_batch["input_ids"]

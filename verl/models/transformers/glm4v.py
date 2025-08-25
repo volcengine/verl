@@ -13,14 +13,44 @@
 # limitations under the License.
 
 import itertools
+import logging
+import os
 from dataclasses import dataclass
 from typing import Optional
 
 import torch
+from transformers.modeling_flash_attention_utils import _flash_attention_forward
 from transformers.models.glm4v.modeling_glm4v import (
     Glm4vCausalLMOutputWithPast,
     Glm4vForConditionalGeneration,
 )
+
+# Import compatibility wrapper for flash_attn_supports_top_left_mask
+from verl.utils.transformers_compat import flash_attn_supports_top_left_mask
+from verl.utils.ulysses import (
+    gather_heads_scatter_seq,
+    gather_seq_scatter_heads,
+    get_ulysses_sequence_parallel_world_size,
+    validate_ulysses_config,
+)
+
+logger = logging.getLogger(__file__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
+
+try:
+    from transformers.modeling_flash_attention_utils import flash_attn_func, flash_attn_varlen_func
+except ImportError:
+    # Fallback: try to import from flash_attn package directly
+    flash_attn_func = None
+    _flash_supports_window_size = None
+    try:
+        from flash_attn import flash_attn_varlen_func
+    except ImportError:
+        # If flash_attn is not available, set it to None
+        flash_attn_varlen_func = None
+        logger.warning(
+            "flash_attn_varlen_func not available. Variable length attention will fall back to standard attention."
+        )
 
 
 def get_rope_index(
@@ -141,6 +171,173 @@ def get_rope_index(
             position_ids = torch.arange(input_ids.shape[0], device=input_ids.device).view(1, -1).expand(3, -1)
 
     return position_ids
+
+
+def prepare_fa2_from_position_ids(
+    query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, position_ids: torch.Tensor
+):
+    query = query.view(-1, query.size(-2), query.size(-1))
+    key = key.view(-1, key.size(-2), key.size(-1))
+    value = value.view(-1, value.size(-2), value.size(-1))
+    position_ids = position_ids.flatten()
+    indices_q = torch.arange(position_ids.size(0), device=position_ids.device, dtype=torch.int32)
+    cu_seqlens = torch.cat(
+        (
+            indices_q[position_ids == 0],
+            torch.tensor(position_ids.size(), device=position_ids.device, dtype=torch.int32),
+        )
+    )
+    max_length = cu_seqlens.diff().max()  # use cu_seqlens to infer max_length for qwen2vl mrope
+    return (query, key, value, indices_q, (cu_seqlens, cu_seqlens), (max_length, max_length))
+
+
+def flash_attention_forward(
+    query_states: torch.Tensor,
+    key_states: torch.Tensor,
+    value_states: torch.Tensor,
+    attention_mask: torch.Tensor,
+    query_length: int,
+    is_causal: bool = True,
+    position_ids: Optional[torch.Tensor] = None,
+    sliding_window: Optional[int] = None,
+    use_top_left_mask: bool = False,
+    deterministic: Optional[bool] = None,
+    **kwargs,
+):
+    """
+    Patches flash attention forward to handle 3D position ids in mrope. (3, batch_size, seq_length)
+    """
+    causal = is_causal if not use_top_left_mask else is_causal and query_length != 1
+
+    if (
+        flash_attn_varlen_func is not None
+        and position_ids is not None
+        and query_length != 1
+        and not (torch.diff(position_ids[0], dim=-1) >= 0).all()
+    ):
+        batch_size = query_states.size(0)
+        query_states, key_states, value_states, _, cu_seq_lens, max_seq_lens = prepare_fa2_from_position_ids(
+            query_states, key_states, value_states, position_ids[0]
+        )  # remove channel dimension
+        cu_seqlens_q, cu_seqlens_k = cu_seq_lens
+        max_seqlen_in_batch_q, max_seqlen_in_batch_k = max_seq_lens
+        attn_output = flash_attn_varlen_func(
+            query_states,
+            key_states,
+            value_states,
+            cu_seqlens_q=cu_seqlens_q,
+            cu_seqlens_k=cu_seqlens_k,
+            max_seqlen_q=max_seqlen_in_batch_q,
+            max_seqlen_k=max_seqlen_in_batch_k,
+            dropout_p=kwargs.pop("dropout", 0.0),
+            softmax_scale=kwargs.pop("softmax_scale", None),
+            causal=causal,
+        )
+        attn_output = attn_output.view(batch_size, -1, attn_output.size(-2), attn_output.size(-1))
+    else:
+        if (
+            flash_attn_varlen_func is None
+            and position_ids is not None
+            and query_length != 1
+            and not (torch.diff(position_ids[0], dim=-1) >= 0).all()
+        ):
+            logger.warning_once(
+                "flash_attn_varlen_func is not available; falling back to _flash_attention_forward."
+                "This may be suboptimal for non-monotonic position_ids in VLM mRoPE."
+            )
+        attn_output = _flash_attention_forward(
+            query_states,
+            key_states,
+            value_states,
+            attention_mask,
+            query_length,
+            is_causal=is_causal,
+            sliding_window=sliding_window,
+            use_top_left_mask=flash_attn_supports_top_left_mask(),
+            deterministic=deterministic,
+            **kwargs,
+        )
+
+    return attn_output
+
+
+def ulysses_flash_attn_forward(
+    self,
+    hidden_states: torch.Tensor,
+    attention_mask: Optional[torch.Tensor] = None,
+    position_ids: Optional[torch.LongTensor] = None,
+    position_embeddings: Optional[tuple[torch.Tensor, torch.Tensor]] = None,  # will become mandatory in v4.46
+    **kwargs,
+) -> tuple[torch.Tensor, None, None]:
+    from transformers.models.glm4v.modeling_glm4v import apply_multimodal_rotary_pos_emb, repeat_kv
+
+    bsz, q_len, _ = hidden_states.size()  # q_len = seq_length / sp_size
+    query_states = self.q_proj(hidden_states)  # (batch_size, seq_length / sp_size, num_heads * head_size)
+    key_states = self.k_proj(hidden_states)
+    value_states = self.v_proj(hidden_states)
+
+    query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+    key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+    value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+
+    ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
+
+    if ulysses_sp_size > 1:
+        validate_ulysses_config(self.num_heads, ulysses_sp_size)
+
+        key_states = repeat_kv(key_states, self.num_key_value_groups)
+        value_states = repeat_kv(value_states, self.num_key_value_groups)
+        query_states = gather_seq_scatter_heads(query_states, seq_dim=2, head_dim=1)
+        key_states = gather_seq_scatter_heads(key_states, seq_dim=2, head_dim=1)
+        value_states = gather_seq_scatter_heads(value_states, seq_dim=2, head_dim=1)
+        # (batch_size, num_head / sp_size, seq_length, head_size)
+        full_q_len = query_states.size(2)  # full_q_len = seq_length
+    else:
+        full_q_len = q_len
+
+    # Because the input can be padded, the absolute sequence length depends on the max position id.
+    if position_embeddings is None:
+        cos, sin = self.rotary_emb(value_states, position_ids)
+    else:
+        cos, sin = position_embeddings
+
+    query_states, key_states = apply_multimodal_rotary_pos_emb(
+        query_states, key_states, cos, sin, self.rope_scaling["mrope_section"]
+    )
+    dropout_rate = 0.0 if not self.training else self.attention_dropout
+
+    # Reashape to the expected shape for Flash Attention
+    query_states = query_states.transpose(1, 2)
+    key_states = key_states.transpose(1, 2)
+    value_states = value_states.transpose(1, 2)
+
+    if (
+        self.config.use_sliding_window
+        and getattr(self.config, "sliding_window", None) is not None
+        and self.layer_idx >= self.config.max_window_layers
+    ):
+        sliding_window = self.config.sliding_window
+    else:
+        sliding_window = None
+
+    attn_output = flash_attention_forward(
+        query_states,
+        key_states,
+        value_states,
+        attention_mask,
+        full_q_len,
+        dropout=dropout_rate,
+        sliding_window=sliding_window,
+        is_causal=self.is_causal,
+        use_top_left_mask=flash_attn_supports_top_left_mask(),
+        position_ids=position_ids,  # important: pass position ids
+    )  # (batch_size, seq_length, num_head / sp_size, head_size)
+    if ulysses_sp_size > 1:
+        attn_output = gather_heads_scatter_seq(attn_output, head_dim=2, seq_dim=1)
+
+    attn_output = attn_output.reshape(bsz, q_len, self.hidden_size).contiguous()
+    attn_output = self.o_proj(attn_output)
+    return attn_output, None
 
 
 @dataclass
