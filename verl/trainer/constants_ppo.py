@@ -23,6 +23,13 @@ PPO_RAY_RUNTIME_ENV = {
         "CUDA_DEVICE_MAX_CONNECTIONS": "1",
         "HCCL_HOST_SOCKET_PORT_RANGE": "60000-60050",
         "HCCL_NPU_SOCKET_PORT_RANGE": "61000-61050",
+        # "ASCEND_GLOBAL_LOG_LEVEL": "0",
+        "VERL_PPO_LOGGING_LEVEL": "DEBUG",
+        "VERL_LOGGING_LEVEL": "DEBUG",
+        # "ASCEND_HOST_LOG_FILE_NUM":"1000",
+        "OOM_SNAPSHOT_ENABLE": "1",
+        "OOM_SNAPSHOT_PATH": "/home/l00878165/sglang/repos/logs/snapshot/launch",
+        "PYTORCH_NPU_ALLOC_CONF": "expandable_segments:True",
     },
 }
 
@@ -34,6 +41,7 @@ def get_ppo_ray_runtime_env():
     """
     runtime_env = {"env_vars": PPO_RAY_RUNTIME_ENV["env_vars"].copy()}
     for key in list(runtime_env["env_vars"].keys()):
-        if os.environ.get(key) is not None:
-            runtime_env["env_vars"].pop(key, None)
+        # if os.environ.get(key) is not None:
+        #     runtime_env["env_vars"].pop(key, None)
+        pass
     return runtime_env

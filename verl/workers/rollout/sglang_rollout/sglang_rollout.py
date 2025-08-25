@@ -434,8 +434,10 @@ class SGLangRollout(BaseRollout):
         attention_backend = engine_kwargs.get("attention_backend", None)
 
         enable_memory_saver = True
-        # if get_device_name() == "npu":
-        #     enable_memory_saver = False
+
+        # todo: 支持torch_memory_saver后移除这个限制
+        if get_device_name() == "npu":
+            enable_memory_saver = False
         backend = "fa3" if self.attention_backend != "ascend" else "ascend"
         if first_rank_in_node:
             rank = dist.get_rank()
@@ -459,7 +461,7 @@ class SGLangRollout(BaseRollout):
                 # NOTE(Chenyang): if you want to debug the SGLang engine output
                 # please set the following parameters
                 # Otherwise, it will make the engine run too slow
-                # log_level="INFO",
+                log_level="debug",
                 # log_requests=True,
                 # log_requests_level=2,
                 # max_running_requests=1,

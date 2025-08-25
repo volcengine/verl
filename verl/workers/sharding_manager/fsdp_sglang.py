@@ -170,6 +170,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         params = convert_weight_keys(params, getattr(self.module, "_fsdp_wrapped_module", self.module))
 
         # Copy, not share memory
+        # torch.save(params, "/home/l00878165/sglang/repos/logs/params/params.pth")
         await self.update_weights(params)
         log_gpu_memory_usage("After sync model weights in sharding manager", logger=logger)
 
