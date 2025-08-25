@@ -338,16 +338,35 @@ class FSDPVLLMShardingManager(BaseShardingManager):
 
                 updated_params = {replace_lora_wrapper(k): v for k, v in updated_params.items()}
 
+
         from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 
         patch_vllm_moe_model_weight_loader(model)
         device = get_device_id()  # used when fsdp2 set cpu_offload_policy
-        loaded_params = model.load_weights(
-            (
-                (name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param)
-                for name, param in updated_params.items()
-            )
-        )
+
+        # make all DTensor full tensor before quantization
+        updated_params = {
+            name: param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param
+            for name, param in updated_params.items()
+        }
+
+        quantization = self.rollout_config.quantization
+        quantization_config_file = self.rollout_config.quantization_config_file
+        maybe_quantized_updated_params = {}
+        from vllm.model_executor.layers.quantization import get_quantization_config
+        import json
+        if quantization is not None and quantization_config_file is not None:
+            quant_cls = get_quantization_config(quantization)
+            config = quant_cls.from_config_file(quantization_config_file)
+            for name, param in updated_params.items():
+                if name.endswith("proj.weight"):
+                    maybe_quantized_updated_params[name] = config.quantize_param(param)
+                else:
+                    maybe_quantized_updated_params[name] = param
+        else:
+            quantized_updated_params = updated_params
+
+        loaded_params = model.load_weights(quantized_updated_params.items())
 
         self.base_sync_done = True
         logger.info(f"vLLM load weights, loaded_params: {len(loaded_params) if loaded_params else -1}")

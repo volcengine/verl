@@ -195,6 +195,8 @@ class vLLMRollout(BaseRollout):
             enable_prefix_caching=True,
             trust_remote_code=trust_remote_code,
             seed=config.get("seed", 0),
+            quantization=config.quantization,
+            hf_overrides={"quantization_config": {"quantization_config_file": config.quantization_config_file}},
             **compilation_config,
             **lora_kwargs,
             **engine_kwargs,
