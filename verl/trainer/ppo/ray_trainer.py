@@ -49,8 +49,10 @@ from verl.trainer.ppo.core_algos import AdvantageEstimator, agg_loss
 from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
     compute_reward_metrics,
+    compute_reward_pattern_metrics,
     compute_throughout_metrics,
     compute_timing_metrics,
+    log_reward_pattern_summary,
     process_validation_metrics,
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
@@ -1134,7 +1136,7 @@ class RayPPOTrainer:
         if self.config.algorithm.dynamic_filter.enable:
             print(f"[DF] Dynamic Filter ENABLED - Target batch size: {prompt_bsz} prompts")
             print(f"[DF] Filter metric: {self.config.algorithm.dynamic_filter.metric}")
-            max_gen_batches = self.config.algorithm.dynamic_filter.get("max_backfill_attempts", "unlimited")
+            max_gen_batches = self.config.algorithm.dynamic_filter.get("max_num_gen_batches", "unlimited")
             print(f"[DF] Max backfill attempts: {max_gen_batches}")
         else:
             print(f"[Normal] Dynamic Filter DISABLED - Processing single batches of {prompt_bsz} prompts")
@@ -1220,47 +1222,13 @@ class RayPPOTrainer:
                     if self.reward_step < self.global_steps:
                         self.reward_step += 1
 
-                        # Calculate reward pattern metrics for prompts
-                        prompt_uid2rewards = {}
-                        for uid, reward in zip(
+                        # Calculate reward pattern metrics for prompts using common function
+                        sample_metrics = compute_reward_pattern_metrics(
                             batch.non_tensor_batch["uid"],
-                            batch.batch["token_level_scores"].sum(dim=-1).cpu().numpy(),
-                            strict=False,
-                        ):
-                            if uid not in prompt_uid2rewards:
-                                prompt_uid2rewards[uid] = []
-                            prompt_uid2rewards[uid].append(reward)
-
-                        # Count different reward patterns
-                        all_negative_prompts = 0  # 全<0
-                        all_positive_prompts = 0  # 全>0
-                        mixed_prompts = 0  # 正负都有
-                        exact_all_ones = 0  # 全=1.0
-                        exact_all_minus_ones = 0  # 全=-1.0
-
-                        for uid, rewards in prompt_uid2rewards.items():
-                            rewards = np.array(rewards)
-                            if np.all(rewards < 0):
-                                all_negative_prompts += 1
-                            elif np.all(rewards > 0):
-                                all_positive_prompts += 1
-                            else:
-                                mixed_prompts += 1
-
-                            # Check for exact values
-                            if np.all(rewards == 1.0):
-                                exact_all_ones += 1
-                            elif np.all(rewards == -1.0):
-                                exact_all_minus_ones += 1
-
-                        sample_metrics = {
-                            "train/reward_pattern/all_negative_prompts": all_negative_prompts,
-                            "train/reward_pattern/all_positive_prompts": all_positive_prompts,
-                            "train/reward_pattern/mixed_prompts": mixed_prompts,
-                            "train/reward_pattern/exact_all_ones": exact_all_ones,
-                            "train/reward_pattern/exact_all_minus_ones": exact_all_minus_ones,
-                            "train/reward_pattern/total_unique_prompts": len(prompt_uid2rewards),
-                        }
+                            batch.batch["token_level_scores"],
+                            prefix="train/reward_pattern",
+                            include_exact_values=True,
+                        )
                         metrics.update(sample_metrics)
 
                         # update train/reward in metric only once per step using the not filtered batch
@@ -1275,11 +1243,7 @@ class RayPPOTrainer:
                             f"[DF] Reward: {reward_mean:.4f} ± {reward_std:.4f} "
                             f"(max: {reward_max:.4f}, min: {reward_min:.4f})"
                         )
-                        print(
-                            f"[Reward Pattern] All-: {all_negative_prompts}, All+: {all_positive_prompts}, "
-                            f"Mixed: {mixed_prompts}, Exact=1.0: {exact_all_ones}, Exact=-1.0: {exact_all_minus_ones}, "
-                            f"Total: {len(prompt_uid2rewards)}"
-                        )
+                        log_reward_pattern_summary(sample_metrics, "Reward Pattern")
 
                     if self.config.algorithm.dynamic_filter.enable:
                         # NOTE: When prompts after filtering is less than train batch size,
@@ -1355,19 +1319,20 @@ class RayPPOTrainer:
                         )
                         accumulated_trajectories = len(accumulated_batch.batch["responses"]) if accumulated_batch else 0
 
-
                         print(
                             f"[DF] Trajectories: {kept_trajectories_this_batch} kept this batch, "
                             f"{accumulated_trajectories} total accumulated"
                         )
-                        max_backfill_attempts = self.config.algorithm.dynamic_filter.max_backfill_attempts
-                        if num_prompt_in_batch < prompt_bsz and num_gen_batches < max_backfill_attempts:
+                        max_num_gen_batches = self.config.algorithm.dynamic_filter.max_num_gen_batches
+                        if num_prompt_in_batch < prompt_bsz and num_gen_batches < max_num_gen_batches:
                             print(f"[DF] Status: {num_prompt_in_batch}/{prompt_bsz} prompts collected, need more data")
                             print(f"[DF] Continue generating (batch {num_gen_batches + 1})...")
                             continue
-                        if num_gen_batches >= max_backfill_attempts:
+                        if num_gen_batches >= max_num_gen_batches:
                             prompt_deficit = prompt_bsz - num_prompt_in_batch
-                            repeated_batch = accumulated_batch[:prompt_deficit * self.config.actor_rollout_ref.rollout.n]
+                            repeated_batch = accumulated_batch[
+                                : prompt_deficit * self.config.actor_rollout_ref.rollout.n
+                            ]
                             batch = DataProto.concat([accumulated_batch, repeated_batch])
                         # Align the batch
                         traj_bsz = self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n
@@ -1379,101 +1344,30 @@ class RayPPOTrainer:
                         )
                         print(f"[DF] Final batch: {len(batch.batch['responses'])} trajectories ready for training")
 
-                        # Calculate post-filter reward pattern metrics
-                        post_filter_prompt_uid2rewards = {}
-                        for uid, reward in zip(
+                        # Calculate post-filter reward pattern metrics using common function
+                        post_filter_metrics = compute_reward_pattern_metrics(
                             batch.non_tensor_batch["uid"],
-                            batch.batch["token_level_scores"].sum(dim=-1).cpu().numpy(),
-                            strict=False,
-                        ):
-                            if uid not in post_filter_prompt_uid2rewards:
-                                post_filter_prompt_uid2rewards[uid] = []
-                            post_filter_prompt_uid2rewards[uid].append(reward)
-
-                        # Count different reward patterns after filtering
-                        post_filter_all_negative = 0  # 全<0
-                        post_filter_all_positive = 0  # 全>0
-                        post_filter_mixed = 0  # 正负都有
-                        post_filter_exact_all_ones = 0  # 全=1.0
-                        post_filter_exact_all_minus_ones = 0  # 全=-1.0
-
-                        for uid, rewards in post_filter_prompt_uid2rewards.items():
-                            rewards = np.array(rewards)
-                            if np.all(rewards <= 0):
-                                post_filter_all_negative += 1
-                            elif np.all(rewards > 0):
-                                post_filter_all_positive += 1
-                            else:
-                                post_filter_mixed += 1
-
-                            # Check for exact values
-                            if np.all(rewards == 1.0):
-                                post_filter_exact_all_ones += 1
-                            elif np.all(rewards == -1.0):
-                                post_filter_exact_all_minus_ones += 1
-
-                        post_filter_metrics = {
-                            "train/post_filter_reward_pattern/all_negative_prompts": post_filter_all_negative,
-                            "train/post_filter_reward_pattern/all_positive_prompts": post_filter_all_positive,
-                            "train/post_filter_reward_pattern/mixed_prompts": post_filter_mixed,
-                            "train/post_filter_reward_pattern/exact_all_ones": post_filter_exact_all_ones,
-                            "train/post_filter_reward_pattern/exact_all_minus_ones": (
-                                post_filter_exact_all_minus_ones
-                            ),
-                            "train/post_filter_reward_pattern/total_unique_prompts": len(
-                                post_filter_prompt_uid2rewards
-                            ),
-                        }
+                            batch.batch["token_level_scores"],
+                            prefix="train/post_filter_reward_pattern",
+                            include_exact_values=True,
+                        )
                         metrics.update(post_filter_metrics)
 
-                        print(
-                            f"[Post-Filter Reward Pattern] All-: {post_filter_all_negative}, "
-                            f"All+: {post_filter_all_positive}, "
-                            f"Mixed: {post_filter_mixed}, Exact=1.0: {post_filter_exact_all_ones}, "
-                            f"Exact=-1.0: {post_filter_exact_all_minus_ones}, "
-                            f"Total: {len(post_filter_prompt_uid2rewards)}"
-                        )
+                        log_reward_pattern_summary(post_filter_metrics, "Post-Filter Reward Pattern")
                     else:
                         # Non-dynamic filter case - always complete after processing one batch
                         print(f"[Normal] Processing single batch: {len(batch.batch['responses'])} trajectories")
 
-                        # Calculate reward pattern metrics for non-dynamic filter case
-                        normal_prompt_uid2rewards = {}
-                        for uid, reward in zip(
+                        # Calculate reward pattern metrics for non-dynamic filter case using common function
+                        normal_final_metrics = compute_reward_pattern_metrics(
                             batch.non_tensor_batch["uid"],
-                            batch.batch["token_level_scores"].sum(dim=-1).cpu().numpy(),
-                            strict=False,
-                        ):
-                            if uid not in normal_prompt_uid2rewards:
-                                normal_prompt_uid2rewards[uid] = []
-                            normal_prompt_uid2rewards[uid].append(reward)
-
-                        # Count different reward patterns
-                        normal_all_negative = 0  # 全-1
-                        normal_all_positive = 0  # 全1
-                        normal_mixed = 0  # 1/-1都有
-
-                        for uid, rewards in normal_prompt_uid2rewards.items():
-                            rewards = np.array(rewards)
-                            if np.all(rewards <= 0):
-                                normal_all_negative += 1
-                            elif np.all(rewards > 0):
-                                normal_all_positive += 1
-                            else:
-                                normal_mixed += 1
-
-                        normal_final_metrics = {
-                            "train/final_batch_reward_pattern/all_negative_prompts": normal_all_negative,
-                            "train/final_batch_reward_pattern/all_positive_prompts": normal_all_positive,
-                            "train/final_batch_reward_pattern/mixed_prompts": normal_mixed,
-                            "train/final_batch_reward_pattern/total_unique_prompts": len(normal_prompt_uid2rewards),
-                        }
+                            batch.batch["token_level_scores"],
+                            prefix="train/final_batch_reward_pattern",
+                            include_exact_values=False,
+                        )
                         metrics.update(normal_final_metrics)
 
-                        print(
-                            f"[Final Batch Reward Pattern] All-: {normal_all_negative}, All+: {normal_all_positive}, "
-                            f"Mixed: {normal_mixed}, Total: {len(normal_prompt_uid2rewards)}"
-                        )
+                        log_reward_pattern_summary(normal_final_metrics, "Final Batch Reward Pattern")
 
                     if "response_mask" not in batch.batch.keys():
                         batch.batch["response_mask"] = compute_response_mask(batch)
@@ -1680,7 +1574,6 @@ class RayPPOTrainer:
 
                 progress_bar.update(1)
                 self.global_steps += 1
-
 
                 # Training step completed, show summary
                 if self.config.algorithm.dynamic_filter.enable and num_gen_batches > 0:

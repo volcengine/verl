@@ -50,6 +50,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     actor_rollout_ref.rollout.over_sample_rate=0 \
     algorithm.use_kl_in_reward=False \
+    algorithm.dynamic_filter.enable=True \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
     trainer.project_name='gsm8k_async_rl' \

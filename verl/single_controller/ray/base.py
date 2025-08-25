@@ -276,7 +276,7 @@ class RayWorkerGroup(WorkerGroup):
         detached=False,
         worker_names=None,
         worker_handles: list[ray.actor.ActorHandle] = None,
-        ray_wait_register_center_timeout: int = 450,
+        ray_wait_register_center_timeout: int = 300,
         **kwargs,
     ) -> None:
         """Initialize a RayWorkerGroup.
