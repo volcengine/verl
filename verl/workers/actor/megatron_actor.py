@@ -32,7 +32,6 @@ from megatron.core import parallel_state as mpu
 # from megatron.core.optimizer import DistributedOptimizer
 from megatron.core.optimizer import DistributedOptimizer
 from megatron.core.pipeline_parallel import get_forward_backward_func
-from omegaconf import OmegaConf
 from torch import nn
 
 from verl import DataProto
@@ -302,10 +301,10 @@ class MegatronPPOActor(BasePPOActor):
             seed=self.config.data_loader_seed,
             dataloader_kwargs={"shuffle": self.config.shuffle},
         )
-    
+
     def compute_ppo_loss(self, model_output, data):
-        log_prob = model_output['log_probs']
-        entropy = model_output.get('entropy', None)
+        log_prob = model_output["log_probs"]
+        entropy = model_output.get("entropy", None)
 
         metrics = {}
 
@@ -346,7 +345,7 @@ class MegatronPPOActor(BasePPOActor):
             entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
             entropy_coeff = self.config.entropy_coeff
             policy_loss = pg_loss - entropy_coeff * entropy_loss
-        
+
         # add kl loss
         if self.config.use_kl_loss:
             ref_log_prob = data["ref_log_prob"]
@@ -359,8 +358,6 @@ class MegatronPPOActor(BasePPOActor):
             metrics["actor/kl_coef"] = self.config.kl_loss_coef
 
         return policy_loss, metrics
-
-
 
     def forward_backward_batch(
         self,
@@ -442,10 +439,10 @@ class MegatronPPOActor(BasePPOActor):
 
             model_output = {}
             log_prob = output["log_probs"][:, -response_length - 1 : -1].contiguous()
-            model_output = {'log_probs': log_prob}
+            model_output = {"log_probs": log_prob}
             if calculate_entropy:
                 entropy = output["entropy"][:, -response_length - 1 : -1].contiguous()
-                model_output['entropy'] = entropy
+                model_output["entropy"] = entropy
 
             if forward_only:
                 # for inference
