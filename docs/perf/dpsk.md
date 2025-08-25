@@ -1,6 +1,6 @@
 # Training DeepSeek 671b
 
-Last updated: 06/13/2025.
+Last updated: 08/20/2025.
 
 verl integrates Megatron to support large MoE models such as `Qwen3-235B-A22B` and `deepseek-ai/DeepSeek-V3`. This is an ongoing community effort.
 
@@ -25,6 +25,8 @@ and the megatron backend now has a wider list of models supported:
 
 ### preparation
 The recommended image with pre-built Megatron dependency is `verlai/verl:app-verl0.4-vllm0.8.5-mcore0.13.0-preview`, which is built using the Dockerfile at [docker/verl0.4-cu124-torch2.6-fa2.7.4/Dockerfile.app.vllm.mcore0.13.preview](https://github.com/volcengine/verl/blob/main/docker/verl0.4-cu124-torch2.6-fa2.7.4/Dockerfile.app.vllm.mcore0.13.preview).
+
+The image is build in Hopper GPUs with DeepEP. It does not support None-Hopper GPUs, such as A100. You may need to reinstall DeepEP to work with A100.
 
 With `OFFLOAD_FRACTION=1`, the system's minimum requirements are lowered. It can run on as few as 96 H20 (96GB) GPUs for DeepSeek-V3, and on as few as 32 H20 (96GB) GPUs for Qwen3-235B-A22B. However, this configuration will use 1.6TB CPU memory per node. If you run out of CPU memory or require faster training speed, you can add more nodes.
 
@@ -60,6 +62,18 @@ Here are some benchmark results for DeepSeek / Qwen3-235B. All configurations ma
 | model | num gpus | mean response length | rollout time(s) | GPU memory(GB) | CPU memory(GB) | mfu | step time(s) |
 | -- | -- | -- | -- | -- | -- | -- | -- |
 | DeepSeek 671b | 96 | 1960 | 1050 | 66 | 1500 | 0.19 | 1700 |
+
+### Qwen3-30B-A3B MOE
+
+For Qwen3-30b, please refer to [examples/grpo_trainer/run_qwen3moe-30b_megatron_96gb.sh](https://github.com/volcengine/verl/blob/main/examples/grpo_trainer/run_qwen3moe-30b_megatron_96gb.sh]).
+
+To train your project, configure the following environment variables based on the number of available GPUs. These are recommended settings and can be adjusted based on your specific hardware.
+| num gpus | NNODES | TP | PP | EP | OFFLOAD_FRACTION | MFU |
+| -- | -- | -- | -- | -- | -- | -- | 
+| 8 | 1 | 1 | 1 | 8 | 1. | True | 0.4 |
+| 16 | 2 | 1 | 1 | 8 | 1. | True | 0.37 |
+| 32 | 4 | 1 | 1 | 8 | 1. | True | 0.31 |
+
 
 ## Upcoming Optimizations
 
