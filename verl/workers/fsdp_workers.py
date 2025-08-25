@@ -382,13 +382,14 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         self.use_orig_params = fsdp_config.get("use_orig_params", False)
         if self.config.actor.get("freeze_vision_tower", False):
+            vision_tower = None
             if hasattr(actor_module, "model") and hasattr(actor_module.model, "visual"):  # transformers >= 4.52.0
-                actor_module.model.visual.requires_grad_(False)
-                self.use_orig_params = True
-                if self.rank == 0:
-                    print("Vision tower is set to not trainable.")
+                vision_tower = actor_module.model.visual
             elif hasattr(actor_module, "visual"):  # transformers < 4.52.0
-                actor_module.visual.requires_grad_(False)
+                vision_tower = actor_module.visual
+
+            if vision_tower is not None:
+                vision_tower.requires_grad_(False)
                 self.use_orig_params = True
                 if self.rank == 0:
                     print("Vision tower is set to not trainable.")
