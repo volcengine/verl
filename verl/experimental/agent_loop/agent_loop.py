@@ -245,20 +245,31 @@ def register(agent_name: str):
 class RewardManagerWorker:
     """Reward manager worker to compute reward score asynchronously to overlap with agent loop."""
 
-    def __init__(self, config: DictConfig, local_path: str) -> None:
+    def __init__(self, config: DictConfig, local_path: str, rm_wg: RayWorkerGroup = None) -> None:
         tokenizer = hf_tokenizer(local_path, trust_remote_code=True)
+        self.rm_wg = rm_wg
         self.reward_manager = load_reward_manager(
             config, tokenizer, num_examine=0, **config.reward_model.get("reward_kwargs", {})
         )
         self.loop = asyncio.get_event_loop()
 
-    async def compute_score(self, output: AgentLoopOutput, kwargs: dict) -> float:
+    async def compute_score(
+        self,
+        output: AgentLoopOutput,
+        input_ids: torch.Tensor,
+        position_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        kwargs: dict,
+    ) -> float:
         """Compute reward score for agent loop output.
 
         NOTE: Since `reward_manager.__call__` is blocking function, we run it in thread pool to
         compute multiple samples in parallel.
 
         Args:
+            input_ids: prompt_ids + response_ids
+            position_ids:
+            attention_mask: attention_mask
             output (AgentLoopOutput): Agent loop output.
             kwargs (dict): Dataset fields from `verl.utils.dataset.RLHFDataset`.
 
@@ -267,12 +278,15 @@ class RewardManagerWorker:
         """
         prompts = torch.tensor(output.prompt_ids, dtype=torch.long).unsqueeze(0)
         responses = torch.tensor(output.response_ids, dtype=torch.long).unsqueeze(0)
-        attention_mask = torch.ones((1, prompts.shape[1] + responses.shape[1]), dtype=torch.long)
+        if self.rm_wg is None:
+            attention_mask = torch.ones((1, prompts.shape[1] + responses.shape[1]), dtype=torch.long)
         batch = TensorDict(
             {
                 "prompts": prompts,  # [1, prompt_length]
                 "responses": responses,  # [1, response_length]
                 "attention_mask": attention_mask,  # [1, prompt_length + response_length]
+                "input_ids": input_ids,  # [1, prompt_length + response_length]
+                "position_ids": position_ids,
             },
             batch_size=1,
         )
@@ -284,19 +298,38 @@ class RewardManagerWorker:
             batch=batch,
             non_tensor_batch=non_tensor_batch,
         )
+
         reward_tensor = await self.loop.run_in_executor(
             None,
-            self.reward_manager,
+            self.reward_wrapper,
             data,
         )
         return reward_tensor.sum(dim=-1).item()
+
+    def reward_wrapper(self, data: DataProto) -> torch.Tensor:
+        """Assemble reward functions and reward model into one function and expose it to the event loop
+
+
+        Args:
+            data: DataProto from compute reward score
+
+        Returns:
+            torch.Tensor: Reward score tensor.
+        """
+        if self.rm_wg is not None:
+            reward_tensor = self.rm_wg.compute_rm_score(data)
+            data = data.union(reward_tensor)
+            data.batch["attention_mask"] = torch.ones(
+                (1, data.batch["prompts"].shape[1] + data.batch["responses"].shape[1]), dtype=torch.long
+            )
+        return self.reward_manager(data)
 
 
 @ray.remote
 class AgentLoopWorker:
     """Agent loop worker takes a batch of messages and run each message in an agent loop."""
 
-    def __init__(self, config: DictConfig, server_handles: list[ray.actor.ActorHandle]):
+    def __init__(self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], rm_wg: RayWorkerGroup = None):
         """Initialize agent loop manager.
 
         Args:
@@ -305,6 +338,7 @@ class AgentLoopWorker:
         """
         self.config = config
         self.server_manager = AsyncLLMServerManager(config, server_handles)
+        self.rm_wg = rm_wg
 
         model_path = config.actor_rollout_ref.model.path
         self.model_name = "/".join(model_path.split("/")[-2:])
@@ -327,7 +361,7 @@ class AgentLoopWorker:
                 node_id=ray.get_runtime_context().get_node_id(),
                 soft=False,
             ),
-        ).remote(self.config, local_path)
+        ).remote(self.config, local_path, rm_wg)
 
         trace_config = self.config.actor_rollout_ref.rollout.get("trace", {})
         RolloutTraceConfig.init(
@@ -423,8 +457,6 @@ class AgentLoopWorker:
             output: AgentLoopOutput = await agent_loop.run(sampling_params, **kwargs)
 
             # Some AgentLoop may have already computed the reward score, e.g SWE-agent.
-            if output.reward_score is None and not self.config.reward_model.enable:
-                output.reward_score = await self.reward_manager_worker.compute_score.remote(output, kwargs)
 
             # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py
             # prompt_ids: left padded with zeros (e.g., [0,0,0,0,1,2,3,4])
@@ -520,6 +552,11 @@ class AgentLoopWorker:
                 ).unsqueeze(0)  # (1, 3, seq_len)
             else:
                 position_ids = compute_position_id_with_mask(attention_mask)  # (1, seq_len)
+            enable_async_reward = self.rm_wg is not None or not self.config.reward_model.enable
+            if output.reward_score is None and enable_async_reward:
+                output.reward_score = await self.reward_manager_worker.compute_score.remote(
+                    output, input_ids, position_ids, attention_mask, kwargs
+                )
 
             return _InternalAgentLoopOutput(
                 prompt_ids=prompt_output["input_ids"],
@@ -609,7 +646,7 @@ async def get_trajectory_info(step, index, validate):
 class AgentLoopManager:
     """Agent loop manager that manages a group of agent loop workers."""
 
-    def __init__(self, config: DictConfig, worker_group: RayWorkerGroup):
+    def __init__(self, config: DictConfig, worker_group: RayWorkerGroup, rm_wg: RayWorkerGroup = None):
         """Initialize agent loop manager.
 
         Args:
@@ -618,6 +655,7 @@ class AgentLoopManager:
         """
         self.config = config
         self.worker_group = worker_group
+        self.rm_wg = rm_wg
 
         self._initialize_llm_servers()
         self._init_agent_loop_workers()
@@ -691,7 +729,7 @@ class AgentLoopManager:
                     scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
                         node_id=node_id, soft=True
                     ),
-                ).remote(self.config, self.async_llm_servers)
+                ).remote(self.config, self.async_llm_servers, self.rm_wg)
             )
 
     def generate_sequences(self, prompts: DataProto) -> DataProto:
