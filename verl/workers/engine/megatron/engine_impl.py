@@ -25,7 +25,6 @@ from verl.trainer.config import CheckpointConfig
 from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpointManager
 
 from verl.utils.device import get_device_id, get_device_name, get_nccl_backend, get_torch_device
-from verl.utils.flops_counter import FlopsCounter
 from verl.utils.model import load_mcore_dist_weights, load_megatron_gptmodel_weights
 from verl.workers.config import HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
 
@@ -189,8 +188,6 @@ class MegatronEngine(BaseEngine):
         else:
             self.optimizer = None
             self.lr_scheduler = None
-
-        self.flops_counter = FlopsCounter(self.model_config.hf_config)
 
         tmp_config = OmegaConf.create({"model": {"path": self.model_config.local_path}})
 
