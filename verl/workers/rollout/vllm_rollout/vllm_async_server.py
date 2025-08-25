@@ -19,7 +19,7 @@ from typing import Any, Callable, Optional
 import numpy as np
 import ray
 import zmq
-from omegaconf import DictConfig, ListConfig
+from omegaconf import ListConfig
 from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
 from vllm import SamplingParams
@@ -33,97 +33,17 @@ from vllm.inputs import TokensPrompt
 from vllm.outputs import RequestOutput
 from vllm.v1.engine.async_llm import AsyncLLM
 from vllm.v1.executor.abstract import Executor
-from vllm.worker.worker_base import WorkerWrapperBase
 
+from verl.single_controller.ray import RayClassWithInitArgs
 from verl.third_party.vllm import VLLM_SLEEP_LEVEL
 from verl.utils import hf_processor
 from verl.utils.fs import copy_to_local
-from verl.workers.rollout.async_server import AsyncServerBase, TokenOutput
+from verl.workers.config.model import HFModelConfig
+from verl.workers.config.rollout import RolloutConfig
+from verl.workers.rollout.rollout_server import RolloutMode, RolloutServer, TokenOutput
+from verl.workers.rollout.vllm_rollout.vllm_rollout_spmd import vLLMAsyncRollout
 
 logger = logging.getLogger(__file__)
-
-
-def _get_model_runner_workers(vllm_config, init_ray: bool = True):
-    assert vllm_config.instance_id is not None, "instance_id must be set for external ray actors."
-
-    fields = vllm_config.instance_id.split(":")
-    assert len(fields) == 4, (
-        f"instance_id: {vllm_config.instance_id} must be in the format of "
-        f"<namespace>:<wg_prefix>:<vllm_dp_size>:<vllm_dp_rank>."
-    )
-    namespace, wg_prefix, vllm_dp_size, vllm_dp_rank = fields[0], fields[1], int(fields[2]), int(fields[3])
-
-    # Make sure subprocess in same namespace as parent actor.
-    # actor name format: {name_prefix}WorkerDict_{pg_idx}:{local_rank}
-    if init_ray:
-        ray.init(namespace=namespace)
-    actor_names = [
-        actor_name for actor_name in ray.util.list_named_actors() if actor_name.startswith(f"{wg_prefix}WorkerDict")
-    ]
-
-    vllm_tp_size = vllm_config.parallel_config.tensor_parallel_size
-    assert len(actor_names) == vllm_dp_size * vllm_tp_size, (
-        f"instance_id: {vllm_config.instance_id} has {len(actor_names)} actors, but vllm_dp_size: "
-        f"{vllm_dp_size} * vllm_tp_size: {vllm_tp_size} = {vllm_dp_size * vllm_tp_size} is expected."
-    )
-
-    def get_pg_index_and_local_rank(actor_name) -> tuple[int, int]:
-        fields = actor_name.split(":")
-        assert len(fields) == 2, f"invalid actor name: {actor_name}"
-        pg_index, local_rank = int(fields[0].split("_")[-1]), int(fields[1])
-        return pg_index, local_rank
-
-    # sort actor names by pg_index and local_rank
-    actor_names = sorted(actor_names, key=get_pg_index_and_local_rank)
-    actor_names = actor_names[vllm_dp_rank * vllm_tp_size : (vllm_dp_rank + 1) * vllm_tp_size]
-    workers: list[WorkerWrapperBase] = [ray.get_actor(actor_name) for actor_name in actor_names]
-    print(f"instance_id: {vllm_config.instance_id} initializes with external actors: {actor_names}")
-
-    return workers
-
-
-class ExternalRayDistributedExecutor(Executor):
-    """An executor that engines are launched by external ray actors."""
-
-    uses_ray: bool = False
-
-    def _init_executor(self) -> None:
-        self.workers = _get_model_runner_workers(vllm_config=self.vllm_config, init_ray=True)
-
-        kwargs = dict(
-            vllm_config=self.vllm_config,
-            local_rank=None,
-            rank=None,
-            distributed_init_method="env://",
-            is_driver_worker=True,
-        )
-        self.collective_rpc("init_worker", args=([kwargs],))
-        self.collective_rpc("init_device")
-        self.collective_rpc("load_model")
-        print(f"instance_id: {self.vllm_config.instance_id} initializes finished.")
-
-    def collective_rpc(
-        self,
-        method: str | Callable,
-        timeout: Optional[float] = None,
-        args: tuple = (),
-        kwargs: Optional[dict[str, Any]] = None,
-    ) -> list[Any]:
-        # TODO(wuxibin): support ray compiled graph
-        if isinstance(method, str):
-            sent_method = method
-        else:
-            sent_method = pickle.dumps(method)
-        del method
-
-        # ~3ms overhead per schedule step due to SchedulerOutput/ModelRunnerOutput serialization/deserialization.
-        outputs = ray.get(
-            [worker.execute_method.remote(sent_method, *args, **(kwargs or {})) for worker in self.workers]
-        )
-        return outputs
-
-    def check_health(self):
-        return
 
 
 class ExternalZeroMQDistributedExecutor(Executor):
@@ -178,7 +98,7 @@ class ExternalZeroMQDistributedExecutor(Executor):
 
 
 @ray.remote(num_cpus=1)
-class AsyncvLLMServer(AsyncServerBase):
+class AsyncvLLMServer:
     """
     AsyncvLLMServer is a wrapper for AsyncLLM, it uses ExternalRayDistributedExecutor to launch engines
     in hybrid rollout workers, i.e AsyncActorRolloutRefWorker.
@@ -194,7 +114,7 @@ class AsyncvLLMServer(AsyncServerBase):
     For vLLM AsyncLLM design, see: https://github.com/vllm-project/vllm/pull/9826
     """
 
-    def __init__(self, config: DictConfig, vllm_dp_size: int, vllm_dp_rank: int, wg_prefix: str):
+    def __init__(self, config: RolloutConfig, model_config: HFModelConfig, workers: list[ray.actor.ActorHandle]):
         """
         Args:
             config: DictConfig.
@@ -202,22 +122,18 @@ class AsyncvLLMServer(AsyncServerBase):
             vllm_dp_rank: int, vllm data parallel rank.
             wg_prefix: str, worker group prefix, used to lookup actors.
         """
-        super().__init__()
-
-        self.config = config.actor_rollout_ref
-        self.vllm_dp_size = vllm_dp_size
-        self.vllm_dp_rank = vllm_dp_rank
-        self.wg_prefix = wg_prefix
+        self.config = config
+        self.model_config = model_config
+        self.workers = workers
         self.engine: AsyncLLM = None
 
-    async def init_engine(self):
+    async def init_server(self):
         """Init vLLM AsyncLLM engine."""
-        config = self.config
-        model_path = config.model.path
+        model_path = self.model_config.path
         model_name = "/".join(model_path.split("/")[-2:])
         local_path = copy_to_local(model_path)
-        trust_remote_code = config.model.get("trust_remote_code", False)
-        config = config.rollout
+        trust_remote_code = self.model_config.trust_remote_code
+        config = self.config
 
         tensor_parallel_size = config.get("tensor_model_parallel_size", 1)
         max_num_batched_tokens = config.get("max_num_batched_tokens", 8192)
@@ -240,8 +156,6 @@ class AsyncvLLMServer(AsyncServerBase):
         backend = os.environ.get("VERL_VLLM_DISTRIBUTED_BACKEND", "zeromq")
         if backend == "zeromq":
             distributed_executor_backend = ExternalZeroMQDistributedExecutor
-        elif backend == "ray":
-            distributed_executor_backend = ExternalRayDistributedExecutor
         else:
             distributed_executor_backend = None
 
@@ -312,13 +226,10 @@ class AsyncvLLMServer(AsyncServerBase):
 
     def _create_engine_config(self, engine_args: AsyncEngineArgs):
         vllm_config = engine_args.create_engine_config()
-        namespace = ray.get_runtime_context().namespace
-        vllm_config.instance_id = f"{namespace}:{self.wg_prefix}:{self.vllm_dp_size}:{self.vllm_dp_rank}"
 
         # VERL_VLLM_ZMQ_ADDRESSES
         if engine_args.distributed_executor_backend == ExternalZeroMQDistributedExecutor:
-            workers = _get_model_runner_workers(vllm_config=vllm_config, init_ray=False)
-            zmq_addresses = ray.get([worker.get_zeromq_address.remote() for worker in workers])
+            zmq_addresses = ray.get([worker.get_zeromq_address.remote() for worker in self.workers])
             print(f"VERL_VLLM_ZMQ_ADDRESSES: {zmq_addresses}")
             os.environ["VERL_VLLM_ZMQ_ADDRESSES"] = ",".join(zmq_addresses)
 
@@ -369,14 +280,18 @@ class AsyncvLLMServer(AsyncServerBase):
             log_probs = [logprobs[token_ids[i]].logprob for i, logprobs in enumerate(final_res.outputs[0].logprobs)]
         return TokenOutput(token_ids=token_ids, log_probs=log_probs)
 
+    def get_server_address(self) -> str:
+        # TODO(@wuxibin): add native vllm server
+        return None
+
     async def wake_up(self):
-        if self.config.rollout.free_cache_engine:
+        if self.config.free_cache_engine:
             await self.engine.wake_up()
 
     async def sleep(self):
         # TODO: https://github.com/vllm-project/vllm/issues/17103
         await self.engine.reset_prefix_cache()
-        if self.config.rollout.free_cache_engine:
+        if self.config.free_cache_engine:
             await self.engine.sleep(level=VLLM_SLEEP_LEVEL)
 
 
@@ -406,3 +321,48 @@ def _qwen2_5_vl_dedup_image_tokens(prompt_ids: list[int], processor):
         return prompt_ids[mask].tolist()
     else:
         return prompt_ids
+
+
+_rollout_worker_actor_cls = ray.remote(vLLMAsyncRollout)
+
+
+class vLLMRolloutServer(RolloutServer):
+    def get_ray_class_with_init_args(self) -> RayClassWithInitArgs:
+        """Get rollout worker actor class."""
+        worker_dict_cls = RayClassWithInitArgs(
+            cls=_rollout_worker_actor_cls,
+            model_path=self.model_config.local_path,
+            config=self.config,
+            tokenizer=self.model_config.tokenizer,
+            model_hf_config=self.model_config.hf_config,
+        )
+        return worker_dict_cls
+
+    async def init_server(self):
+        """Init rollout server."""
+        # make sure AsyncvLLMServer colocates with its corresponding workers
+        node_id = await self.workers[0].__ray_call__.remote(lambda self: ray.get_runtime_context().get_node_id())
+        self._server_handle = AsyncvLLMServer.options(
+            scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
+                node_id=node_id,
+                soft=False,
+            ),
+            name=f"async_llm_server_{self.dp_rank}",
+        ).remote(self.config, self.model_config, self.workers)
+        await self._server_handle.init_server.remote()
+        self._server_address = await self._server_handle.get_server_address.remote()
+
+    async def wake_up(self):
+        """Wake up rollout server."""
+        assert self.mode != RolloutMode.STANDALONE, "wake_up shoud not be called in standalone mode"
+        await self._server_handle.wake_up.remote()
+
+    async def sleep(self):
+        """Sleep rollout server."""
+        assert self.mode != RolloutMode.STANDALONE, "sleep shoud not be called in standalone mode"
+        await self._server_handle.sleep.remote()
+
+    async def update_weights(self):
+        """Update weights of standalone rollout server."""
+        assert self.mode == RolloutMode.STANDALONE, "update_weights should be called in standalone mode"
+        raise NotImplementedError

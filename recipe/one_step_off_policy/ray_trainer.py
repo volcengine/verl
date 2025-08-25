@@ -271,7 +271,7 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         # create async rollout manager and request scheduler
         self.async_rollout_mode = False
         if self.config.actor_rollout_ref.rollout.mode == "async" and self._is_rollout:
-            from verl.workers.rollout.async_server import AsyncLLMServerManager
+            from verl.workers.rollout.rollout_server import AsyncLLMServerManager
 
             self.async_rollout_mode = True
             self.async_rollout_manager = AsyncLLMServerManager(

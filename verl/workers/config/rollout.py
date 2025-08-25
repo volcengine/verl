@@ -115,6 +115,7 @@ class RolloutConfig(BaseConfig):
     cudagraph_capture_sizes: Optional[list] = None
     free_cache_engine: bool = True
     tensor_model_parallel_size: int = 2
+    num_standalone_rollouts: int = 0
     max_num_batched_tokens: int = 8192
 
     # TODO: enable train_kwargs
@@ -156,7 +157,7 @@ class RolloutConfig(BaseConfig):
     profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
 
     enable_chunked_prefill: bool = True
-    load_format: str = "dummy_dtensor"
+    load_format: str = "dummy"
 
     layered_summon: bool = False
 

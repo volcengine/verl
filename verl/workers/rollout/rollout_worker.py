@@ -13,7 +13,6 @@
 # limitations under the License.
 
 
-import datetime
 import logging
 import os
 from typing import Any, Optional
@@ -48,7 +47,6 @@ class RolloutWorker(Worker):
                 backend=f"cpu:gloo,{self.device_name}:{get_nccl_backend()}",
                 rank=rank,
                 world_size=world_size,
-                timeout=datetime.timedelta(seconds=self.config.get("nccl_timeout", 600)),
                 init_method=os.environ.get("DIST_INIT_METHOD", None),
             )
 
@@ -148,6 +146,10 @@ class RolloutWorker(Worker):
         return self.rollout.get_zeromq_address()
 
     # ============================ SGLang related ============================
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
+    def get_server_address(self) -> str:
+        return self.rollout.get_server_address()
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
     async def chat_completion(self, json_request):

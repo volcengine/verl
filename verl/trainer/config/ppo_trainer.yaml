@@ -42,6 +42,7 @@ actor_rollout_ref:
 
   # common configs for the model
   model:
+    _target_: verl.workers.config.HFModelConfig
 
     # Huggingface model path. This can be either local path or HDFS path.
     path: ~/models/deepseek-llm-7b-chat
@@ -98,13 +99,6 @@ actor_rollout_ref:
 
   # Rollout model config.
   rollout:
-
-    # may get higher throughput when set to True. When activated, Please increase max_num_batched_tokens or decrease max_model_len.
-    enable_chunked_prefill: True
-
-    # Which loader to use for rollout model weights: dummy_dtensor, hf, megatron, etc.
-    # safetensors (for huge model, and set use_shm=True); dummy_dtensor: randomly init model weight
-    load_format: dummy_dtensor
 
     # for huge model, layered summon can save memory (prevent OOM) but make it slower
     layered_summon: False

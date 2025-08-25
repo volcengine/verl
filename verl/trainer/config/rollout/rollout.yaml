@@ -7,6 +7,10 @@ name: ???
 # sync: LLM, async: AsyncLLM
 mode: sync
 
+# Which loader to use for rollout model weights: dummy_dtensor, hf, megatron, etc.
+# safetensors (for huge model, and set use_shm=True); dummy_dtensor: randomly init model weight
+load_format: dummy
+
 # Sampling temperature for rollout.
 temperature: 1.0
 
@@ -48,6 +52,14 @@ free_cache_engine: True
 
 # TP size for rollout. Not effective for hf
 tensor_model_parallel_size: 2
+
+# Number of standalone rollouts.
+# If = 0, rollouts are colocated with actor model worker group, with GPU sharing and context switch.
+# If > 0, rollouts are located in separate worker group, without GPU sharing and context switch.
+num_standalone_rollouts: 0
+
+# may get higher throughput when set to True. When activated, Please increase max_num_batched_tokens or decrease max_model_len.
+enable_chunked_prefill: True
 
 # max number of tokens in a batch
 max_num_batched_tokens: 8192
