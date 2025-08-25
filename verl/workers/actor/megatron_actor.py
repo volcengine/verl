@@ -302,6 +302,65 @@ class MegatronPPOActor(BasePPOActor):
             seed=self.config.data_loader_seed,
             dataloader_kwargs={"shuffle": self.config.shuffle},
         )
+    
+    def compute_ppo_loss(self, model_output, data):
+        log_prob = model_output['log_probs']
+        entropy = model_output.get('entropy', None)
+
+        metrics = {}
+
+        response_mask = data["response_mask"].to(bool)
+        loss_agg_mode = self.config.loss_agg_mode
+
+        # compute policy loss
+        old_log_prob = data["old_log_probs"]
+        advantages = data["advantages"]
+
+        entropy_coeff = self.config.entropy_coeff
+        loss_agg_mode = self.config.loss_agg_mode
+
+        loss_mode = self.config.policy_loss.get("loss_mode", "vanilla")
+
+        policy_loss_fn = get_policy_loss_fn(loss_mode)
+        pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = policy_loss_fn(
+            old_log_prob=old_log_prob,
+            log_prob=log_prob,
+            advantages=advantages,
+            response_mask=response_mask,
+            loss_agg_mode=loss_agg_mode,
+            config=self.config,
+        )
+
+        metrics.update(
+            {
+                "actor/pg_loss": pg_loss.detach().item(),
+                "actor/pg_clipfrac": pg_clipfrac.detach().item(),
+                "actor/ppo_kl": ppo_kl.detach().item(),
+                "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
+            }
+        )
+        policy_loss = pg_loss
+
+        # add entropy loss
+        if entropy is not None:
+            entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+            entropy_coeff = self.config.entropy_coeff
+            policy_loss = pg_loss - entropy_coeff * entropy_loss
+        
+        # add kl loss
+        if self.config.use_kl_loss:
+            ref_log_prob = data["ref_log_prob"]
+            # compute kl loss
+            kld = kl_penalty(logprob=log_prob, ref_logprob=ref_log_prob, kl_penalty=self.config.kl_loss_type)
+            kl_loss = agg_loss(loss_mat=kld, loss_mask=response_mask, loss_agg_mode=self.config.loss_agg_mode)
+
+            policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
+            metrics["actor/kl_loss"] = kl_loss.detach().item()
+            metrics["actor/kl_coef"] = self.config.kl_loss_coef
+
+        return policy_loss, metrics
+
+
 
     def forward_backward_batch(
         self,
@@ -381,70 +440,20 @@ class MegatronPPOActor(BasePPOActor):
             responses = data["responses"]
             response_length = responses.size(1)
 
+            model_output = {}
             log_prob = output["log_probs"][:, -response_length - 1 : -1].contiguous()
+            model_output = {'log_probs': log_prob}
             if calculate_entropy:
                 entropy = output["entropy"][:, -response_length - 1 : -1].contiguous()
-            else:
-                entropy = None
+                model_output['entropy'] = entropy
 
             if forward_only:
                 # for inference
-                output_dict = {'log_probs': log_prob}
-                if calculate_entropy:
-                    output_dict['entropy'] = entropy
-                return torch.tensor(1.0, device=device), output_dict
+                return torch.tensor(1.0, device=device), model_output
 
             # for training
-            metrics = {}
-
-            response_mask = data["response_mask"].to(bool)
-            loss_agg_mode = self.config.loss_agg_mode
-
-            # compute policy loss
-            old_log_prob = data["old_log_probs"]
-            advantages = data["advantages"]
-
-            entropy_coeff = self.config.entropy_coeff
-            loss_agg_mode = self.config.loss_agg_mode
-
-            loss_mode = self.config.policy_loss.get("loss_mode", "vanilla")
-
-            policy_loss_fn = get_policy_loss_fn(loss_mode)
-            pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = policy_loss_fn(
-                old_log_prob=old_log_prob,
-                log_prob=log_prob,
-                advantages=advantages,
-                response_mask=response_mask,
-                loss_agg_mode=loss_agg_mode,
-                config=self.config,
-            )
-
-            metrics.update(
-                {
-                    "actor/pg_loss": pg_loss.detach().item(),
-                    "actor/pg_clipfrac": pg_clipfrac.detach().item(),
-                    "actor/ppo_kl": ppo_kl.detach().item(),
-                    "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
-                }
-            )
-            policy_loss = pg_loss
-
-            # add entropy loss
-            if calculate_entropy:
-                entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
-                entropy_coeff = self.config.entropy_coeff
-                policy_loss = pg_loss - entropy_coeff * entropy_loss
-            
-            # add kl loss
-            if self.config.use_kl_loss:
-                ref_log_prob = data["ref_log_prob"]
-                # compute kl loss
-                kld = kl_penalty(logprob=log_prob, ref_logprob=ref_log_prob, kl_penalty=self.config.kl_loss_type)
-                kl_loss = agg_loss(loss_mat=kld, loss_mask=response_mask, loss_agg_mode=self.config.loss_agg_mode)
-
-                policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
-                metrics["actor/kl_loss"] = kl_loss.detach().item()
-                metrics["actor/kl_coef"] = self.config.kl_loss_coef
+            # note that this loss function can be swapped with other loss functions such as SFT
+            policy_loss, metrics = self.compute_ppo_loss(model_output, data)
 
             # return loss and stats
             return policy_loss, metrics
