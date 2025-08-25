@@ -42,7 +42,9 @@ class HFModelConfig(BaseConfig):
     path: str = MISSING
     local_path: Optional[str] = None
     hf_config_path: Optional[str] = None
+    local_hf_config_path: Optional[str] = None
     tokenizer_path: Optional[str] = None
+    local_tokenizer_path: Optional[str] = None
 
     hf_config: Any = None
     generation_config: Any = None
@@ -85,17 +87,19 @@ class HFModelConfig(BaseConfig):
         self.local_path = copy_to_local(self.path, use_shm=self.use_shm)
 
         # constuct tokenizer
-        local_tokenizer_path = copy_to_local(self.tokenizer_path, use_shm=self.use_shm)
-        self.tokenizer = hf_tokenizer(local_tokenizer_path, trust_remote_code=self.trust_remote_code)
-        self.processor = hf_processor(local_tokenizer_path, trust_remote_code=self.trust_remote_code)
+        self.local_tokenizer_path = copy_to_local(self.tokenizer_path, use_shm=self.use_shm)
+        self.tokenizer = hf_tokenizer(self.local_tokenizer_path, trust_remote_code=self.trust_remote_code)
+        self.processor = hf_processor(self.local_tokenizer_path, trust_remote_code=self.trust_remote_code)
 
-        local_hf_config_path = copy_to_local(self.hf_config_path, use_shm=self.use_shm)
-        self.generation_config = get_generation_config(local_hf_config_path, trust_remote_code=self.trust_remote_code)
+        self.local_hf_config_path = copy_to_local(self.hf_config_path, use_shm=self.use_shm)
+        self.generation_config = get_generation_config(
+            self.local_hf_config_path, trust_remote_code=self.trust_remote_code
+        )
 
         # constuct hf_config
         attn_implementation = self.override_config.get("attn_implementation", "flash_attention_2")
         self.hf_config = AutoConfig.from_pretrained(
-            local_hf_config_path, trust_remote_code=self.trust_remote_code, attn_implementation=attn_implementation
+            self.local_hf_config_path, trust_remote_code=self.trust_remote_code, attn_implementation=attn_implementation
         )
 
         override_config_kwargs = {
