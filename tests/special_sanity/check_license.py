@@ -37,11 +37,19 @@ license_headers = [
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument("--directory", "-d", required=True, type=str)
+    parser.add_argument(
+        "--directories",
+        "-d",
+        required=True,
+        type=Path,
+        nargs="+",
+        help="List of directories to check for license headers",
+    )
     args = parser.parse_args()
-    directory_in_str = args.directory
 
-    pathlist = Path(directory_in_str).glob("**/*.py")
+    # Collect all Python files from specified directories
+    pathlist = set(path for directory in args.directories for path in directory.glob("**/*.py"))
+
     for path in pathlist:
         # because path is object not string
         path_in_str = str(path.absolute())
