@@ -51,20 +51,18 @@ MODEL_CLASSES = {
     "qwen3": [
         qwen3.modeling_qwen3.Qwen3MLP,
         qwen3.modeling_qwen3.Qwen3RMSNorm,
-        qwen3.modeling_qwen3.apply_rotary_pos_emb,
     ],
     "qwen3_moe": [
         qwen3_moe.modeling_qwen3_moe.Qwen3MoeMLP,
         qwen3_moe.modeling_qwen3_moe.Qwen3MoeRMSNorm,
-        qwen3_moe.modeling_qwen3_moe.apply_rotary_pos_emb,
     ],
 }
 
 
-def npu_rotary_pos_emb_vl(
+def npu_apply_rotary_pos_emb_flashatt(
     q: torch.Tensor, k: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """NPU optimized rotary position embedding for vlm model"""
+    """NPU optimized rotary position embedding"""
     cos = cos.chunk(2, dim=-1)[0].contiguous()
     sin = sin.chunk(2, dim=-1)[0].contiguous()
     cos = cos.repeat(1, 2)
@@ -76,17 +74,6 @@ def npu_rotary_pos_emb_vl(
         k.float(), cos.unsqueeze(0).unsqueeze(2).float(), sin.unsqueeze(0).unsqueeze(2).float()
     ).type_as(k)
     return q_embed, k_embed
-
-
-def npu_rotary_pos_emb(
-    q: torch.Tensor, k: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor, unsqueeze_dim: int = 1
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """NPU optimized rotary position embedding"""
-    cos = cos.unsqueeze(unsqueeze_dim)
-    sin = sin.unsqueeze(unsqueeze_dim)
-    q_embed = torch_npu.npu_rotary_mul(q, cos, sin)
-    k_embed = torch_npu.npu_rotary_mul(k, cos, sin)
-    return q_embed.to(q.dtype), k_embed.to(k.dtype)
 
 
 def npu_rms_norm(self, x: torch.Tensor) -> torch.Tensor:
@@ -108,19 +95,13 @@ def apply_patches():
     For tracking integration progress: https://github.com/huggingface/transformers/issues/39105.
     """
 
-    apply_rotary_pos_emb_vlm_models = ["qwen2_5_vl"]
-    apply_rotary_pos_emb_models = ["qwen3", "qwen3_moe"]
+    apply_rotary_pos_emb_models = ["qwen2_5_vl"]
     apply_rms_norm_and_silu_models = ["llama", "qwen2", "qwen2_moe", "qwen2_5_vl", "qwen3", "qwen3_moe"]
-
-    # Patch rotary embedding for supported vlm models
-    for model in apply_rotary_pos_emb_vlm_models:
-        if model in MODEL_CLASSES:
-            MODEL_CLASSES[model][2] = npu_rotary_pos_emb_vl
 
     # Patch rotary embedding for supported models
     for model in apply_rotary_pos_emb_models:
         if model in MODEL_CLASSES:
-            MODEL_CLASSES[model][2] = npu_rotary_pos_emb
+            MODEL_CLASSES[model][2] = npu_apply_rotary_pos_emb_flashatt
 
     # Patch RMSNorm and silu for supported models
     for model in apply_rms_norm_and_silu_models:
