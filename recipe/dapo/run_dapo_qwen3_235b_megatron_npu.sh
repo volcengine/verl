@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -xeuo pipefail
 # 0. download the config
 # only need to download the configuration_deepseek.py and config.json
@@ -44,7 +44,7 @@ CKPTS_DIR="/sfs_turbo/tmp/"
 TRAIN_FILE="/sfs_turbo/myq/dapo-math-17k-update-reasoning-shuffled.parquet"
 TEST_FILE="/sfs_turbo/zzy/data/test.parquet"
 
-# Algorithm 
+# Algorithm
 temperature=1.0
 top_p=1.0
 top_k=-1 # 0 for HF rollout, -1 for vLLM rollout
