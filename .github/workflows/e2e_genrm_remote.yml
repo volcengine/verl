@@ -87,7 +87,7 @@ jobs:
       HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     container:
-      image: verlai/verl:app-verl0.5-vllm0.9.1-mcore0.12.2-te2.2
+      image: verlai/verl:app-verl0.5-transformers4.55.4-vllm0.10.0-mcore0.13.0-te2.2
       options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2

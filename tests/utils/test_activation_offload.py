@@ -29,6 +29,23 @@ from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.utils.fsdp_utils import MixedPrecisionPolicy, apply_fsdp2, get_fsdp_wrap_policy
 
 
+def create_random_input_ids(batch_size, seq_len, vocab_size):
+    from flash_attn.bert_padding import unpad_input
+
+    from verl.utils.model import compute_position_id_with_mask, create_random_mask
+
+    input_ids = torch.randint(0, vocab_size, (batch_size, seq_len), device="cuda")
+
+    attention_mask = create_random_mask(
+        input_ids, max_ratio_of_left_padding=0.1, min_ratio_of_valid_token=0.5, max_ratio_of_valid_token=0.7
+    )
+    position_ids = compute_position_id_with_mask(attention_mask)
+
+    input_ids = unpad_input(input_ids.unsqueeze(-1), attention_mask)[0].transpose(0, 1)
+    position_ids = unpad_input(position_ids.unsqueeze(-1), attention_mask)[0].transpose(0, 1)
+    return input_ids, position_ids
+
+
 def _fsdp_activation_offloading_test(rank, world_size, rendezvous_file, strategy="fsdp"):
     torch.cuda.set_device(rank)
     torch.distributed.init_process_group(
@@ -85,15 +102,13 @@ def _fsdp_activation_offloading_test(rank, world_size, rendezvous_file, strategy
     seq_len = 32
     vocab_size = 32000
     # First input for initial update
-    input_ids1 = torch.randint(0, vocab_size, (batch_size, seq_len), device="cuda")
-    attention_mask1 = torch.ones_like(input_ids1)
+    input_ids1, position_ids1 = create_random_input_ids(batch_size, seq_len, vocab_size)
 
     # Second input for verification
-    input_ids2 = torch.randint(0, vocab_size, (batch_size, seq_len), device="cuda")
-    attention_mask2 = torch.ones_like(input_ids2)
+    input_ids2, position_ids2 = create_random_input_ids(batch_size, seq_len, vocab_size)
 
     # Step 1: Initial update and save checkpoint
-    outputs1 = model(input_ids=input_ids1, attention_mask=attention_mask1)
+    outputs1 = model(input_ids=input_ids1, position_ids=position_ids1)
     loss1 = outputs1.logits.mean()
     loss1.backward()
     optimizer.step()
@@ -106,7 +121,7 @@ def _fsdp_activation_offloading_test(rank, world_size, rendezvous_file, strategy
     checkpoint_manager.save_checkpoint(local_path=checkpoint_path, hdfs_path=None, global_step=0)
 
     # Step 2: Second update and forward pass
-    outputs2 = model(input_ids=input_ids2, attention_mask=attention_mask2)
+    outputs2 = model(input_ids=input_ids2, position_ids=position_ids2)
     loss2 = outputs2.logits.mean()
     loss2.backward()
     optimizer.step()
@@ -115,14 +130,14 @@ def _fsdp_activation_offloading_test(rank, world_size, rendezvous_file, strategy
 
     # Record logits after second update
     with torch.no_grad():
-        logits_without_offloading = model(input_ids=input_ids2, attention_mask=attention_mask2).logits
+        logits_without_offloading = model(input_ids=input_ids2, position_ids=position_ids2).logits
 
     # Step 3: wrap module with activation offloading and load checkpoint
-    enable_activation_offloading(model, "fsdp")
+    enable_activation_offloading(model, strategy=strategy)
     checkpoint_manager.load_checkpoint(checkpoint_path)
 
     # Step 4: Repeat the second update with same input
-    outputs3 = model(input_ids=input_ids2, attention_mask=attention_mask2)
+    outputs3 = model(input_ids=input_ids2, position_ids=position_ids2)
     loss3 = outputs3.logits.mean()
     loss3.backward()
     optimizer.step()
@@ -131,7 +146,7 @@ def _fsdp_activation_offloading_test(rank, world_size, rendezvous_file, strategy
 
     # Record logits after loaded checkpoint and update
     with torch.no_grad():
-        logits_with_offloading = model(input_ids=input_ids2, attention_mask=attention_mask2).logits
+        logits_with_offloading = model(input_ids=input_ids2, position_ids=position_ids2).logits
 
     # Step 4: Verify outputs match
     torch.testing.assert_close(logits_without_offloading, logits_with_offloading, atol=0.0, rtol=0.0)
