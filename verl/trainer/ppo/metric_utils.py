@@ -488,3 +488,115 @@ def process_validation_metrics(
                 data_src2var2metric2val[data_source][var_name][metric_name] = np.mean(prompt_vals)
 
     return data_src2var2metric2val
+
+
+def compute_reward_metrics(batch: DataProto) -> dict[str, Any]:
+    """
+    Computes reward-related metrics from a batch of data for PPO training.
+
+    This function computes metrics from the RAW batch BEFORE any dynamic filtering
+    is applied. When using dynamic filtering (DAPO), this captures the reward distribution
+    of ALL generated responses, including those that will be filtered out for being too
+    homogeneous. This provides insight into the raw reward signal quality before diversity
+    filtering removes low-variance response groups.
+
+    This function calculates statistics (mean, std, max, min) for sequence-level rewards
+    derived from token-level scores.
+
+    Args:
+        batch: A DataProto object containing batch data with token-level scores
+
+    Returns:
+        A dictionary of reward metrics including:
+            - train/reward/mean: Mean sequence reward (pre-filtering)
+            - train/reward/std: Standard deviation of sequence rewards (pre-filtering)
+            - train/reward/max: Maximum sequence reward (pre-filtering)
+            - train/reward/min: Minimum sequence reward (pre-filtering)
+    """
+    seq_reward_tensor = batch.batch["token_level_scores"].sum(-1)
+
+    return {
+        "train/reward/mean": seq_reward_tensor.mean().detach().item(),
+        "train/reward/std": seq_reward_tensor.std().detach().item(),
+        "train/reward/max": seq_reward_tensor.max().detach().item(),
+        "train/reward/min": seq_reward_tensor.min().detach().item(),
+    }
+
+
+def compute_reward_pattern_metrics(
+    prompt_uids, token_level_scores, prefix="train/reward_pattern", include_exact_values=False
+) -> dict[str, Any]:
+    """
+    Generic reward pattern statistics function
+
+    Args:
+        prompt_uids: List of prompt UIDs
+        token_level_scores: Token-level scores
+        prefix: Metric prefix
+        include_exact_values: Whether to include exact value statistics (e.g., all 1.0 or -1.0 cases)
+
+    Returns:
+        Dictionary containing reward pattern statistics
+    """
+    prompt_uid2rewards = {}
+    for uid, reward in zip(prompt_uids, token_level_scores.sum(dim=-1).cpu().numpy(), strict=False):
+        if uid not in prompt_uid2rewards:
+            prompt_uid2rewards[uid] = []
+        prompt_uid2rewards[uid].append(reward)
+
+    # Basic statistics
+    all_negative = sum(1 for rewards in prompt_uid2rewards.values() if np.all(np.array(rewards) < 0))
+    all_positive = sum(1 for rewards in prompt_uid2rewards.values() if np.all(np.array(rewards) > 0))
+    mixed = sum(
+        1
+        for rewards in prompt_uid2rewards.values()
+        if not (np.all(np.array(rewards) < 0) or np.all(np.array(rewards) > 0))
+    )
+
+    metrics = {
+        f"{prefix}/all_negative_prompts": all_negative,
+        f"{prefix}/all_positive_prompts": all_positive,
+        f"{prefix}/mixed_prompts": mixed,
+        f"{prefix}/total_unique_prompts": len(prompt_uid2rewards),
+    }
+
+    # Optional exact value statistics
+    if include_exact_values:
+        exact_all_ones = sum(1 for rewards in prompt_uid2rewards.values() if np.all(np.array(rewards) == 1.0))
+        exact_all_minus_ones = sum(1 for rewards in prompt_uid2rewards.values() if np.all(np.array(rewards) == -1.0))
+        metrics.update(
+            {
+                f"{prefix}/exact_all_ones": exact_all_ones,
+                f"{prefix}/exact_all_minus_ones": exact_all_minus_ones,
+            }
+        )
+
+    return metrics
+
+
+def log_reward_pattern_summary(metrics: dict, prefix: str = "Reward Pattern"):
+    """
+    Unified reward pattern log output function
+
+    Args:
+        metrics: Dictionary containing reward pattern statistics
+        prefix: Log prefix
+    """
+    normalized_prefix = prefix.lower().replace(" ", "_").replace("-", "_")
+
+    all_negative = metrics.get(f"{normalized_prefix}/all_negative_prompts", 0)
+    all_positive = metrics.get(f"{normalized_prefix}/all_positive_prompts", 0)
+    mixed = metrics.get(f"{normalized_prefix}/mixed_prompts", 0)
+    total = metrics.get(f"{normalized_prefix}/total_unique_prompts", 0)
+
+    # Check if exact value statistics exist
+    exact_all_ones = metrics.get(f"{normalized_prefix}/exact_all_ones", None)
+    exact_all_minus_ones = metrics.get(f"{normalized_prefix}/exact_all_minus_ones", None)
+
+    if exact_all_ones is not None and exact_all_minus_ones is not None:
+        print(
+            f"[{prefix}] All-: {all_negative}, All+: {all_positive}, Mixed: {mixed}, "
+            f"Exact=1.0: {exact_all_ones}, Exact=-1.0: {exact_all_minus_ones}, Total: {total}"
+        )
+    else:
+        print(f"[{prefix}] All-: {all_negative}, All+: {all_positive}, Mixed: {mixed}, Total: {total}")

@@ -48,7 +48,8 @@ class FilterGroupsConfig(BaseConfig):
     Args:
         enable (bool): Whether to enable filter groups.
         metric (Optional[str]): Metric to use for filtering: "acc", "score", "seq_reward", "seq_final_reward", etc.
-        max_num_gen_batches (int): Non-positive values mean no upper limit.
+        max_num_gen_batches (int): Maximum number of backfill attempts when collecting diverse responses.
+                                   Non-positive values mean no upper limit (use with caution).
     """
 
     enable: bool = False
