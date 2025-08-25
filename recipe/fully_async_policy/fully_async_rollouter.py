@@ -307,7 +307,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
         # 发送结束信号
         progress_bar.close()
-        await self.pending_should_stopqueue.put("DONE")
+        await self.pending_queue.put("DONE")
         print(f"[FullyAsyncRollouter][Feed] 样本添加完成，总共添加了 {self.global_steps} 个步骤的样本")
 
     async def _processor_worker(self):
