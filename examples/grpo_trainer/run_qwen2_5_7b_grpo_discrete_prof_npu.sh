@@ -48,6 +48,13 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
+    actor_rollout_ref.ref.profiler.enable=True \
+    actor_rollout_ref.ref.profiler.ranks=$PROFILE_RANKS \
+    actor_rollout_ref.ref.profiler.all_ranks=$PROFILE_RANKS_ALL \
+    actor_rollout_ref.ref.profiler.tool_config.npu.discrete=$DISCRETE \
+    actor_rollout_ref.ref.profiler.tool_config.npu.contents=$CONTENTS \
+    actor_rollout_ref.ref.profiler.tool_config.npu.level=$LEVEL \
+    actor_rollout_ref.ref.profiler.tool_config.npu.analysis=$ANALYSIS \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
     trainer.logger=console \
