@@ -311,14 +311,8 @@ def ulysses_flash_attn_forward(
     key_states = key_states.transpose(1, 2)
     value_states = value_states.transpose(1, 2)
 
-    if (
-        self.config.use_sliding_window
-        and getattr(self.config, "sliding_window", None) is not None
-        and self.layer_idx >= self.config.max_window_layers
-    ):
-        sliding_window = self.config.sliding_window
-    else:
-        sliding_window = None
+    # GLM4V 不使用 sliding window，固定禁用
+    sliding_window = None
 
     attn_output = flash_attention_forward(
         query_states,

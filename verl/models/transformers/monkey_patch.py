@@ -350,10 +350,11 @@ def apply_monkey_patch(
         from transformers.models.glm4v.modeling_glm4v import Glm4vTextAttention
 
         if use_remove_padding or ulysses_sp_size > 1:
-            from verl.models.transformers.qwen2_vl import ulysses_flash_attn_forward
+            # 使用 GLM4V 专属的 Ulysses FlashAttention 前向实现，避免调用 Qwen2-VL 的实现
+            from verl.models.transformers.glm4v import ulysses_flash_attn_forward
 
             Glm4vTextAttention.forward = ulysses_flash_attn_forward
-            print("Monkey patch FlashAttention2.forward in GLM-4.1V")
+            print("Monkey patch FlashAttention2.forward in GLM4V")
         if ulysses_sp_size > 1:
             from transformers.models.glm4v.modeling_glm4v import Glm4vTextModel
 
