@@ -13,7 +13,7 @@
 # limitations under the License.
 import time
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import numpy as np
 import torch
@@ -36,26 +36,22 @@ class RolloutSample:
     full_batch: Any
 
     # AgentLoopOutput from generation
-    agent_loop_output: Any  # AgentLoopOutput
+    agent_loop_output_list: List[Any]  # AgentLoopOutput
 
     # Metadata
     sample_id: str
     epoch: int
-    rollout_n_index: int  # Index within the rollout.n repetitions (0, 1, ..., n-1)
-    original_sample_index: int  # Index of the original sample before repetition
 
     # Processing metadata
-    processing_time: float
+    processing_times: List[float]
     param_version: int
-
 
 @dataclass
 class ValidateMetrics:
     timing_raw: Dict[str, Any]
     metrics: Dict[str, Any]
 
-
-def prepare_single_generation_data(batch_dict, global_steps) -> DataProto:
+def prepare_single_generation_data(batch_dict, global_steps, rollout_n) -> DataProto:
     """
     类似 ray_trainer._prepare_generate_batch 的逻辑，但针对单个样本
     分离出用于生成的数据和需要保留的原始数据
@@ -87,8 +83,33 @@ def prepare_single_generation_data(batch_dict, global_steps) -> DataProto:
 
     # 添加全局步数到生成数据
     full_batch.meta_info["global_steps"] = global_steps
-
+    full_batch = full_batch.repeat(repeat_times=rollout_n, interleave=True)
     return full_batch
+
+
+def merge_rollout_sample(config, tokenizer, rs: RolloutSample):
+    # 第一步：从 AgentLoopOutput 创建生成结果的 DataProto
+    gen_batch_output = postprocess_agent_loop_outputs(rs.agent_loop_output_list, tokenizer, config)
+
+    # 第二步：添加 uid
+    rs.full_batch.non_tensor_batch["uid"] = np.array([f"uid_{rs.sample_id}"] * len(rs.full_batch), dtype=object)
+
+    # 第二步：合并batch
+    # 将 original_batch 的 non_tensor_batch 和 meta_info 合并到 final_batch
+    for key, value in rs.full_batch.non_tensor_batch.items():
+        gen_batch_output.non_tensor_batch[key] = value
+    gen_batch_output.meta_info.update(rs.full_batch.meta_info)
+
+    # 第三步，设置 full_batch
+    rs.full_batch = gen_batch_output
+    rs.processing_times = []
+    for agent_loop in rs.agent_loop_output_list:
+        rs.processing_times.append(agent_loop.metrics.generate_sequences)
+
+    # 第四步，清空 agent_loop_output_list
+    rs.agent_loop_output_list = []
+
+    return rs
 
 
 def assemble_batch_from_rollout_samples(
@@ -117,47 +138,13 @@ def assemble_batch_from_rollout_samples(
 
     print(f"[BatchUtils] Assembling batch from {len(rollout_samples)} RolloutSample objects")
 
-    # 直接处理 RolloutSample 对象
-    processing_times = [rs.processing_time for rs in rollout_samples]
+    rollout_samples_batch = []
+    processing_times = []
 
-    # 第一步：从 AgentLoopOutput 创建生成结果的 DataProto
-    agent_loop_outputs = [rs.agent_loop_output for rs in rollout_samples]
-    gen_batch_output = postprocess_agent_loop_outputs(agent_loop_outputs, tokenizer, config)
-
-    # 第二步：重建原始 batch 信息
-    # 每个 RolloutSample 都是独立的，直接按顺序重建原始数据
-    original_batch_list = []
     for rs in rollout_samples:
-        item = rs.full_batch.to_items()[0]
-        original_batch_list.append(item)
-
-    # print("=" * 300)
-    # print(original_batch_list)
-
-    # 合并所有原始样本为一个批次
-    if original_batch_list:
-        original_batch = DataProto.from_items(original_batch_list)
-    else:
-        # 如果没有原始数据，创建空的 DataProto
-        original_batch = DataProto.from_single_dict({})
-
-    # print("=" * 300)
-    # print(original_batch)
-
-    # 添加 UID
-    uids = []
-    for rs in rollout_samples:
-        uids.append(f"uid_{rs.sample_id}")
-    original_batch.non_tensor_batch["uid"] = np.array(uids, dtype=object)
-
-    # 直接合并原始数据和生成结果，不需要 repeat
-    # 因为队列中的每个 RolloutSample 都已经是独立的样本
-    if original_batch.batch is None:
-        final_batch = gen_batch_output
-        # 将 original_batch 的 non_tensor_batch 和 meta_info 合并到 final_batch
-        for key, value in original_batch.non_tensor_batch.items():
-            final_batch.non_tensor_batch[key] = value
-        final_batch.meta_info.update(original_batch.meta_info)
+        rollout_samples_batch.append(rs.full_batch)
+        processing_times.extend(rs.processing_times)
+    final_batch = DataProto.concat(rollout_samples_batch)
 
     # 计算 response_mask（如果不存在）
     if "response_mask" not in final_batch.batch.keys():

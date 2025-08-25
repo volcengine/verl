@@ -75,14 +75,19 @@ n_gpus_training=$((NGPUS_PER_NODE - n_gpus_rollout))
 train_prompt_bsz=0
 gen_prompt_bsz=1
 n_resp_per_prompt=16
-train_prompt_mini_bsz=64
-staleness_threshold=1
-total_rollout_steps=$(((512*16*10)))
+train_prompt_mini_bsz=4
+total_rollout_steps=$(((512*10)))
 test_freq=-1
-trigger_parameter_sync_step=32
+staleness_threshold=1
+trigger_parameter_sync_step=16
 partial_rollout=True
 
-/home/hadoop-djst-algoplat/miniconda3/bin/python -m recipe.fully_async_policy.fully_async_main \
+PYTHON_INTERPRETER="/home/hadoop-djst-algoplat/miniconda3/bin/python"
+if [ ! -x "$PYTHON_INTERPRETER" ]; then
+    PYTHON_INTERPRETER="python3"
+fi
+
+$PYTHON_INTERPRETER -m recipe.fully_async_policy.fully_async_main \
     data.train_files="${TRAIN_FILE}" \
     data.val_files="${TEST_FILE}" \
     data.prompt_key=prompt \

@@ -55,11 +55,11 @@ n_gpus_training=$((NUM_GPUS - n_gpus_rollout))
 train_prompt_bsz=0
 gen_prompt_bsz=1
 n_resp_per_prompt=16
-train_prompt_mini_bsz=64
-staleness_threshold=1
-total_rollout_steps=$(((512*16*10)))
+train_prompt_mini_bsz=4
+total_rollout_steps=$(((128*2)))
 test_freq=2
-trigger_parameter_sync_step=2
+staleness_threshold=1
+trigger_parameter_sync_step=1
 partial_rollout=True
 
 exp_name="$(basename "${MODEL_ID,,}")-fully-async-policy-${ACTOR_STRATEGY}-minimal"
@@ -129,15 +129,16 @@ common_params=(
     rollout.total_epochs=2
     # Fully async specific configurations
     async_training.staleness_threshold=${staleness_threshold}
+    async_training.partial_rollout="${partial_rollout}"
     async_training.trigger_parameter_sync_step="${trigger_parameter_sync_step}"
 )
 
 if [ "${ACTOR_STRATEGY}" == "fsdp2" ]; then
     echo "Running fully async training with FSDP2 strategy..."
     # FSDP2 specific parameters
-    gen_tp=2
-    sp_size=2
-    fsdp_size=2
+    gen_tp=1
+    sp_size=1
+    fsdp_size=1
     ref_offload=True
     actor_offload=False
 
