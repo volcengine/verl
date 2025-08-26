@@ -129,7 +129,6 @@ class BaseEngine:
         return self.forward_backward_batch(data, None, forward_only=True)
 
 
-
     def lr_scheduler_step(self):
         """
         Advance the learning rate scheduler by one step.
@@ -140,9 +139,6 @@ class BaseEngine:
         raise NotImplementedError
 
     def get_data_parallel_size(self):
-        raise NotImplementedError
-
-    def estimate_flops(self, global_num_tokens, delta_time):
         raise NotImplementedError
 
     def to(self, device: str, model: bool = True, optimizer: bool = True):

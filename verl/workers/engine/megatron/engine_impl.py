@@ -231,41 +231,6 @@ class MegatronEngine(BaseEngine):
         """
         return EngineEvalModeCtx(self)
 
-    def forward_step(
-        self,
-        data: DataProto,
-        post_fn: Callable[[DataProto, torch.Tensor], tuple[list[torch.Tensor], dict[str, torch.Tensor]]],
-    ) -> dict[str, torch.Tensor]:
-        """
-        Perform inference on a mini batch of data.
-
-        Args:
-            data: The input data for inference, typically containing tensors and metadata.
-            post_fn: A post-processing function that takes a micro-batch and predictions as input,
-                     and returns a tuple containing processed predictions and a dictionary of outputs.
-
-        Returns:
-            dict[str, torch.Tensor]: A dictionary containing the predictions for the entire batch.
-        """
-        raise NotImplementedError
-
-    def train_step(
-        self,
-        data: DataProto,
-        loss_fn: Callable[[DataProto, torch.Tensor], tuple[torch.Tensor, dict[str, torch.Tensor]]],
-    ) -> dict[str, torch.Tensor]:
-        """
-        Perform a training step on a mini-batch of data.
-
-        Args:
-            data (DataProto): The input data for training, typically containing tensors and metadata.
-            loss_fn (Callable): A function that computes the loss and metrics given a micro-batch and predictions.
-
-        Returns:
-            dict[str, torch.Tensor]: A dictionary containing the aggregated training metrics for the mini-batch.
-        """
-        raise NotImplementedError
-
     def optimizer_zero_grad(self):
         """
         Zero out gradients of all parameters before starting a new backward pass.
@@ -403,9 +368,3 @@ class EngineTrainModeCtx:
         if self.engine._is_offload_optimizer:
             offload_megatron_optimizer(optimizer=self.engine.optimizer)
         self.engine.mode = None
-
-
-
-
-class MegatronEngineForCausalLM(MegatronEngine):
-    def 
