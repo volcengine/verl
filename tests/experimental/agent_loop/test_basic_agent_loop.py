@@ -26,6 +26,7 @@ from verl.experimental.agent_loop.agent_loop import get_trajectory_info
 from verl.protocol import DataProto
 from verl.tools.base_tool import BaseTool, OpenAIFunctionToolSchema
 from verl.tools.schemas import ToolResponse
+from verl.trainer.ppo.reward import compute_reward, load_reward_manager
 from verl.utils import hf_tokenizer
 
 
@@ -41,6 +42,10 @@ def init_config() -> DictConfig:
                 # test sleep/wake_up with fsdp offload
                 "actor_rollout_ref.actor.fsdp_config.param_offload=True",
                 "actor_rollout_ref.actor.fsdp_config.optimizer_offload=True",
+                "reward_model.reward_manager=dapo",
+                "+reward_model.reward_kwargs.overlong_buffer_cfg.enable=False",
+                "+reward_model.reward_kwargs.overlong_buffer_cfg.len=3072",
+                "+reward_model.reward_kwargs.max_resp_len=4096",
             ],
         )
 
@@ -69,6 +74,10 @@ def test_single_turn(init_config):
     )
 
     agent_loop_manager = init_agent_loop_manager(init_config)
+    tokenizer = hf_tokenizer(init_config.actor_rollout_ref.model.path)
+    reward_fn = load_reward_manager(
+        init_config, tokenizer, num_examine=0, **init_config.reward_model.get("reward_kwargs", {})
+    )
 
     raw_prompts = [
         [
@@ -97,9 +106,16 @@ def test_single_turn(init_config):
     assert result.batch["input_ids"].size(1) == seq_len
     assert result.batch["attention_mask"].size(1) == seq_len
     assert result.batch["position_ids"].size(1) == seq_len
-    assert result.batch["rm_scores"].size(1) == result.batch["responses"].size(1)
+
     if init_config.actor_rollout_ref.rollout.calculate_log_probs:
         assert result.batch["rollout_log_probs"].size(1) == result.batch["responses"].size(1)
+
+    # check compute score
+    assert result.batch["rm_scores"].shape == result.batch["responses"].shape
+    reward_tensor, reward_extra_info = compute_reward(result, reward_fn)
+    assert reward_tensor.shape == result.batch["responses"].shape
+    assert "acc" in reward_extra_info, f"reward_extra_info {reward_extra_info} should contain 'acc'"
+    assert reward_extra_info["acc"].shape == (len(result),), f"invalid acc: {reward_extra_info['acc']}"
 
     # check turns
     num_turns = result.non_tensor_batch["__num_turns__"]
