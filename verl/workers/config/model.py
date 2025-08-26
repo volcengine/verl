@@ -81,7 +81,7 @@ class HFModelConfig(BaseConfig):
     use_fused_kernels: bool = False
     fused_kernel_options: dict = field(default_factory=dict)
 
-    architectures: Optional[str] = None
+    architectures: Optional[list[str]] = None
 
     def __post_init__(self):
         if self.hf_config_path is None:
@@ -125,7 +125,6 @@ class HFModelConfig(BaseConfig):
         # get model architectures
         self.architectures = getattr(self.hf_config, "architectures", None)
         assert len(self.architectures) == 1, "Expect only one architecture, got {}".format(self.architectures)
-        self.architectures = self.architectures[0]
 
         # per model patch
         if getattr(self.hf_config, "model_type", None) == "kimi_vl":

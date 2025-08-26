@@ -117,8 +117,8 @@ class MegatronEngine(BaseEngine):
 
         # TODO: add more cases
         is_value_model = (
-            "ForTokenClassification" in self.model_config.architectures
-            or "ForSequenceClassification" in self.model_config.architectures
+            "ForTokenClassification" in self.model_config.architectures[0]
+            or "ForSequenceClassification" in self.model_config.architectures[0]
         )
 
         if self.engine_config.forward_only:
@@ -306,6 +306,9 @@ class MegatronEngine(BaseEngine):
 
     def get_data_parallel_rank(self):
         return mpu.get_data_parallel_rank()
+    
+    def get_data_parallel_size(self):
+        return mpu.get_data_parallel_world_size()
 
     def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
         """

@@ -33,14 +33,15 @@ class OptimizerConfig(BaseConfig):
         weight_decay (float): Weight decay factor.
         lr_warmup_steps (Optional[int]): Number of warmup steps; None delegates to lr_warmup_steps_ratio.
     """
+    _mutable_fields = {"clip_grad"}
 
-    lr: float = MISSING
+    lr: float = 1e-3
     lr_warmup_steps_ratio: float = 0.0
     total_training_steps: int = -1
     weight_decay: float = 0.01
     lr_warmup_steps: Optional[int] = -1
     betas: tuple[float, float] = (0.9, 0.999)
-    clip_grad: float = None
+    clip_grad: float = 1.0
     # deprecate grad_clip
     grad_clip: float = 1.0
 

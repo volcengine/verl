@@ -92,7 +92,7 @@ class ActorConfig(BaseConfig):
 
     strategy: str = MISSING
     ppo_mini_batch_size: int = 256
-    ppo_micro_batch_size: Optional[int] = None
+    ppo_micro_batch_size: Optional[int] = None  # deprecate
     ppo_micro_batch_size_per_gpu: Optional[int] = None
     ppo_infer_micro_batch_size_per_gpu: Optional[int] = None
     use_dynamic_bsz: bool = False
@@ -123,6 +123,7 @@ class ActorConfig(BaseConfig):
     def __post_init__(self):
         """Validate actor configuration parameters."""
         assert self.strategy != MISSING
+        assert self.n != MISSING
         if not self.use_dynamic_bsz:
             if self.ppo_micro_batch_size is not None and self.ppo_micro_batch_size_per_gpu is not None:
                 raise ValueError(

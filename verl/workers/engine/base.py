@@ -28,15 +28,6 @@ class BaseEngine:
     Engine implementations must subclass BaseEngine and provide concrete behavior for all methods.
     """
 
-    def __init__(self):
-        """
-        Initialize the BaseEngine.
-
-        Args:
-            config: Configuration object containing parameters for engine setup.
-        """
-        raise NotImplementedError
-
     def initialize(self):
         """
         Instantiate or load the model, optimizer, and learning rate scheduler.
