@@ -60,16 +60,16 @@ To enable profiling for specific components and steps, modify your ppo_trainer.y
         discrete: False
     actor_rollout_ref:
         actor:
-            profile:
+            profiler:
                 enable: True
                 all_ranks: True
         # rollout & ref follow actor settings
     critic:
-            profile:
+            profiler:
                 enable: True
                 all_ranks: True
     reward_model:
-            profile:
+            profiler:
                 enable: True
                 all_ranks: True
 ```
