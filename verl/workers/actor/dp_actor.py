@@ -103,20 +103,34 @@ class DataParallelPPOActor(BasePPOActor):
                 for key in micro_batch["multi_modal_inputs"][0].keys():
                     multi_modal_inputs[key] = [inputs[key] for inputs in micro_batch["multi_modal_inputs"]]
             else:
-                for key in micro_batch["multi_modal_inputs"][0].keys():
-                    if key == "pixel_values":
-                        multi_modal_inputs[key] = torch.cat(
-                            [
-                                inputs[key].squeeze(0) if inputs[key].ndim == 3 else inputs[key]
-                                for inputs in micro_batch["multi_modal_inputs"]
-                            ],
-                            dim=0,
-                        )
+                # 改为对所有样本取并集 keys，避免样本0缺少的键被整批忽略
+                mmi_list = micro_batch["multi_modal_inputs"]  # list[dict]
+                all_keys = set().union(*(set(d.keys()) for d in mmi_list))
+                for key in all_keys:
+                    vals = []
+                    if key in ("pixel_values", "pixel_values_videos"):
+                        # 仅收集存在的视觉特征；若全部缺失则不传该键，避免模型误走视觉分支
+                        for d in mmi_list:
+                            if key in d and d[key] is not None:
+                                v = d[key]
+                                # 兼容历史形状：若为3D/4D/5D，维持与原逻辑一致的处理
+                                vals.append(v.squeeze(0) if v.ndim == 3 else v)
+                        if len(vals) > 0:
+                            multi_modal_inputs[key] = torch.cat(vals, dim=0)
+                    elif key in ("image_grid_thw", "video_grid_thw", "second_per_grid_ts"):
+                        # grid/timestamps 等：只在存在非空项时传；需要时也可在此补空(0行)再cat
+                        for d in mmi_list:
+                            if key in d and d[key] is not None:
+                                vals.append(d[key])
+                        if len(vals) > 0:
+                            multi_modal_inputs[key] = torch.cat(vals, dim=0)
                     else:
-                        multi_modal_inputs[key] = torch.cat(
-                            [inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0
-                        )
-
+                        # 其他键：聚合存在的，全部缺失则不传
+                        for d in mmi_list:
+                            if key in d and d[key] is not None:
+                                vals.append(d[key])
+                        if len(vals) > 0:
+                            multi_modal_inputs[key] = torch.cat(vals, dim=0)
         input_ids = micro_batch["input_ids"]
         attention_mask = micro_batch["attention_mask"].to(bool)
 
