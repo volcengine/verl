@@ -123,7 +123,7 @@ class ActorWorker(Worker, DistProfilerExtension):
             )
 
     def _build_engine(self):
-        model_config = None
+        model_config = self.config.model_config
         engine_config = self.config.engine
         optimizer_config = self.config.optim
         checkpoint_config = self.config.checkpoint

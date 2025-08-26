@@ -22,6 +22,7 @@ from verl.trainer.config import CheckpointConfig
 from verl.utils.profiler.config import ProfilerConfig
 
 from .engine import FSDPEngineConfig, McoreEngineConfig
+from .model import HFModelConfig
 from .optimizer import OptimizerConfig
 
 __all__ = ["PolicyLossConfig", "ActorConfig", "FSDPActorConfig", "McoreActorConfig"]
@@ -117,6 +118,7 @@ class ActorConfig(BaseConfig):
     engine: BaseConfig = field(default_factory=BaseConfig)
     data_loader_seed = 1
     n: int = MISSING  # must be override by sampling config
+    model_config: HFModelConfig = field(default_factory=HFModelConfig)
 
     def __post_init__(self):
         """Validate actor configuration parameters."""
