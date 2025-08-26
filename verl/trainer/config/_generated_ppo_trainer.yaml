@@ -26,6 +26,7 @@ actor_rollout_ref:
     clip_ratio_c: 3.0
     loss_agg_mode: token-mean
     entropy_coeff: 0
+    tis_imp_ratio_cap: -1
     use_kl_loss: false
     use_torch_compile: true
     kl_loss_coef: 0.001
