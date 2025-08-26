@@ -145,3 +145,6 @@ class RolloutConfig(BaseConfig):
     layered_summon: bool = False
 
     layer_name_map: dict = field(default_factory=dict)
+
+    limit_images: Optional[int] = None
+
