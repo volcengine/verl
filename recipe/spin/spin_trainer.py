@@ -832,7 +832,7 @@ class RaySPINTrainer:
         except Exception as e:
             logger_context = nullcontext()
             print(f"Warning: Failed to initialize logger: {e}")
-        
+
         with logger_context as logger:
             self._fit_dpo(logger)
 

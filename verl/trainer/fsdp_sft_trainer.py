@@ -704,7 +704,7 @@ class FSDPSFTTrainer:
                 config=OmegaConf.to_container(self.config, resolve=True),
             )
         with tracking_context as tracking:
-            self._fit(rank, tracking)        
+            self._fit(rank, tracking)
 
     def _fit(self, rank, tracking):
         global_step = self.resume_global_step  # Start from resumed step

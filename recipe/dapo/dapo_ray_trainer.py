@@ -49,6 +49,7 @@ class RayDAPOTrainer(RayPPOTrainer):
     """
     Note that this trainer runs on the driver process on a single CPU/GPU node.
     """
+
     def fit(self):
         """
         The training loop of PPO.

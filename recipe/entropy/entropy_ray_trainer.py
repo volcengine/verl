@@ -46,6 +46,7 @@ class RayEntropyTrainer(RayPPOTrainer):
     """
     Note that this trainer runs on the driver process on a single CPU/GPU node.
     """
+
     def fit(self):
         """
         The training loop of PPO.
@@ -65,7 +66,7 @@ class RayEntropyTrainer(RayPPOTrainer):
         ) as logger:
             self._fit(logger)
 
-    def fit(self, logger):
+    def _fit(self, logger):
         self.global_steps = 0
 
         # load checkpoint before doing anything
