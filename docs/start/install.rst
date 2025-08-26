@@ -64,7 +64,7 @@ From this version, we divide images built for vLLM and SGLang as the divergence 
 There are 2 types of application images available:
 
 - **vLLM with FSDP and Megatron**: ``verlai/verl:app-verl0.5-transformers4.55.4-vllm0.10.0-mcore0.13.0-te2.2``
-- **SGLang with FSDP and Megatron**: ``verlai/verl:app-verl0.5-transformers4.55.4-sglang0.4.9.post6-mcore0.13.0-te2.2``
+- **SGLang with FSDP and Megatron**: ``verlai/verl:app-verl0.5-transformers4.55.4-sglang0.4.10.post2-mcore0.13.0-te2.2``
 
 Docker images with Megatron backends are runnable with large language model like ``Qwen/Qwen3-235B-A22B``, ``deepseek-ai/DeepSeek-V3-0324`` post-training. Refer to the :doc:`Large Language Model Post-Training documentation<../perf/dpsk>` for more details.
 
