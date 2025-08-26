@@ -1150,15 +1150,9 @@ class RayPPOTrainer:
             else False
         )
         next_step_profile = False
-
-        # dynamic filter
-
-        self.gen_steps = 1
         accumulated_batch = None
         num_prompt_in_batch = 0
         num_gen_batches = 0
-        # prompt_bsz = self.config.actor_rollout_ref.actor.ppo_mini_batch_size
-        prompt_bsz = self.config.data.train_batch_size
         self.reward_step = 0
 
         for epoch in range(self.config.trainer.total_epochs):
@@ -1251,11 +1245,11 @@ class RayPPOTrainer:
                         )
 
                         max_num_gen_batches = self.config.algorithm.dynamic_filter.max_num_gen_batches
-                        if num_prompt_in_batch < prompt_bsz and num_gen_batches < max_num_gen_batches:
+                        if num_prompt_in_batch < self.config.data.train_batch_size and num_gen_batches < max_num_gen_batches:
                             continue
                         # if we still could not get enough prompts, repeat the batch content
                         if num_gen_batches >= max_num_gen_batches:
-                            prompt_deficit = prompt_bsz - num_prompt_in_batch
+                            prompt_deficit = self.config.data.train_batch_size - num_prompt_in_batch
                             repeated_batch = accumulated_batch[
                                 : prompt_deficit * self.config.actor_rollout_ref.rollout.n
                             ]
@@ -1484,7 +1478,6 @@ class RayPPOTrainer:
                     )
 
                 # Reset dynamic filter state for next training step
-                self.gen_steps += 1
                 num_gen_batches = 0
                 num_prompt_in_batch = 0
                 accumulated_batch = None
