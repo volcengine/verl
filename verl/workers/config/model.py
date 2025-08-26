@@ -38,12 +38,16 @@ class HFModelConfig(BaseConfig):
         "processor",
         "local_path",
         "architectures",
+        "local_hf_config_path",
+        "local_tokenizer_path",
     }
 
     path: str = MISSING
     local_path: Optional[str] = None
     hf_config_path: Optional[str] = None
+    local_hf_config_path: Optional[str] = None
     tokenizer_path: Optional[str] = None
+    local_tokenizer_path: Optional[str] = None
 
     hf_config: Any = None
     generation_config: Any = None
@@ -85,10 +89,12 @@ class HFModelConfig(BaseConfig):
         if self.tokenizer_path is None:
             self.tokenizer_path = self.path
 
-        # constuct tokenizer
         self.local_path = copy_to_local(self.path, use_shm=self.use_shm)
-        self.tokenizer = hf_tokenizer(self.local_path, trust_remote_code=self.trust_remote_code)
-        self.processor = hf_processor(self.local_path, trust_remote_code=self.trust_remote_code)
+
+        # constuct tokenizer
+        self.local_tokenizer_path = copy_to_local(self.tokenizer_path, use_shm=self.use_shm)
+        self.tokenizer = hf_tokenizer(self.local_tokenizer_path, trust_remote_code=self.trust_remote_code)
+        self.processor = hf_processor(self.local_tokenizer_path, trust_remote_code=self.trust_remote_code)
 
         if self.custom_chat_template is not None:
             if self.processor is not None:
@@ -96,12 +102,15 @@ class HFModelConfig(BaseConfig):
             else:
                 self.tokenizer.chat_template = self.custom_chat_template
 
-        self.generation_config = get_generation_config(self.hf_config_path, trust_remote_code=self.trust_remote_code)
+        self.local_hf_config_path = copy_to_local(self.hf_config_path, use_shm=self.use_shm)
+        self.generation_config = get_generation_config(
+            self.local_hf_config_path, trust_remote_code=self.trust_remote_code
+        )
 
         # constuct hf_config
         attn_implementation = self.override_config.get("attn_implementation", "flash_attention_2")
         self.hf_config = AutoConfig.from_pretrained(
-            self.hf_config_path, trust_remote_code=self.trust_remote_code, attn_implementation=attn_implementation
+            self.local_hf_config_path, trust_remote_code=self.trust_remote_code, attn_implementation=attn_implementation
         )
         override_config_kwargs = {
             "bos_token_id": self.tokenizer.bos_token_id,

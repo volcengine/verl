@@ -134,6 +134,8 @@ class AgentLoopOutput(BaseModel):
     """Number of chat turns, including user, assistant, tool."""
     metrics: AgentLoopMetrics
     """Auxiliary performance metrics"""
+    extra_fields: dict[str, Any] = {}
+    """Extra fields for dynamic addition."""
 
 
 class _InternalAgentLoopOutput(AgentLoopOutput):
@@ -252,7 +254,7 @@ class RewardManagerWorker:
         )
         self.loop = asyncio.get_event_loop()
 
-    async def compute_score(self, output: AgentLoopOutput, kwargs: dict) -> float:
+    async def compute_score(self, output: AgentLoopOutput, kwargs: dict) -> dict:
         """Compute reward score for agent loop output.
 
         NOTE: Since `reward_manager.__call__` is blocking function, we run it in thread pool to
@@ -263,7 +265,7 @@ class RewardManagerWorker:
             kwargs (dict): Dataset fields from `verl.utils.dataset.RLHFDataset`.
 
         Returns:
-            float: Reward score.
+            dict: Reward score and reward extra info.
         """
         prompts = torch.tensor(output.prompt_ids, dtype=torch.long).unsqueeze(0)
         responses = torch.tensor(output.response_ids, dtype=torch.long).unsqueeze(0)
@@ -284,12 +286,16 @@ class RewardManagerWorker:
             batch=batch,
             non_tensor_batch=non_tensor_batch,
         )
-        reward_tensor = await self.loop.run_in_executor(
+        result = await self.loop.run_in_executor(
             None,
             self.reward_manager,
             data,
+            True,  # return_dict
         )
-        return reward_tensor.sum(dim=-1).item()
+
+        reward_score = result["reward_tensor"].sum(dim=-1).item()
+        reward_extra_info = {k: v[0] for k, v in result.get("reward_extra_info", {}).items()}
+        return {"reward_score": reward_score, "reward_extra_info": reward_extra_info}
 
 
 @ray.remote
@@ -424,7 +430,9 @@ class AgentLoopWorker:
 
             # Some AgentLoop may have already computed the reward score, e.g SWE-agent.
             if output.reward_score is None and not self.config.reward_model.enable:
-                output.reward_score = await self.reward_manager_worker.compute_score.remote(output, kwargs)
+                result = await self.reward_manager_worker.compute_score.remote(output, kwargs)
+                output.reward_score = result["reward_score"]
+                output.extra_fields["reward_extra_info"] = result["reward_extra_info"]
 
             # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py
             # prompt_ids: left padded with zeros (e.g., [0,0,0,0,1,2,3,4])
@@ -534,6 +542,7 @@ class AgentLoopWorker:
                 reward_score=output.reward_score,
                 num_turns=output.num_turns,
                 metrics=output.metrics,
+                extra_fields=output.extra_fields,
             )
 
     def _postprocess(self, inputs: list[_InternalAgentLoopOutput]) -> DataProto:
@@ -575,13 +584,23 @@ class AgentLoopWorker:
             "__num_turns__": np.array([input.num_turns for input in inputs], dtype=np.int32),
         }
 
+        # add reward_extra_info to non_tensor_batch
+        reward_extra_infos = [input.extra_fields.get("reward_extra_info", {}) for input in inputs]
+        reward_extra_keys = list(reward_extra_infos[0].keys())
+        for key in reward_extra_keys:
+            non_tensor_batch[key] = np.array([info[key] for info in reward_extra_infos])
+
         # Add multi_modal_inputs to non_tensor_batch if any samples have them
         multi_modal_inputs_list = [input.multi_modal_inputs for input in inputs]
         if any(mmi is not None for mmi in multi_modal_inputs_list):
             non_tensor_batch["multi_modal_inputs"] = np.array(multi_modal_inputs_list, dtype=object)
 
         metrics = [input.metrics.model_dump() for input in inputs]
-        return DataProto(batch=batch, non_tensor_batch=non_tensor_batch, meta_info={"metrics": metrics})
+        return DataProto(
+            batch=batch,
+            non_tensor_batch=non_tensor_batch,
+            meta_info={"metrics": metrics, "reward_extra_keys": reward_extra_keys},
+        )
 
 
 async def get_trajectory_info(step, index, validate):
@@ -717,10 +736,10 @@ class AgentLoopManager:
             self.sleep()
 
         # calculate performance metrics
-        metrics = [output.meta_info["metrics"] for output in outputs]  # List[List[Dict[str, str]]]
+        metrics = [output.meta_info.pop("metrics") for output in outputs]  # List[List[Dict[str, str]]]
         timing = self._performance_metrics(metrics, output)
 
-        output.meta_info = {"timing": timing}
+        output.meta_info = {"timing": timing, **outputs[0].meta_info}
         return output
 
     def _performance_metrics(self, metrics: list[list[dict[str, str]]], output: DataProto) -> dict[str, float]:
