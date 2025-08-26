@@ -147,4 +147,3 @@ class RolloutConfig(BaseConfig):
     layer_name_map: dict = field(default_factory=dict)
 
     limit_images: Optional[int] = None
-
