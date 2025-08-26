@@ -728,6 +728,7 @@ class TestAsyncHttpServerEngineAdapter:
         assert adapter.max_connections == 50
         assert adapter._need_reload is True
 
+    @pytest.mark.asyncio
     async def test_make_async_request_success(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test successful async HTTP request."""
 
@@ -760,6 +761,7 @@ class TestAsyncHttpServerEngineAdapter:
                 "http://localhost:8000/test_endpoint", json={"param": "value"}, timeout=adapter.timeout
             )
 
+    @pytest.mark.asyncio
     async def test_make_async_request_get_method(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test async GET request using aiohttp and proper context mocking."""
 
@@ -788,6 +790,7 @@ class TestAsyncHttpServerEngineAdapter:
             assert result == {"data": "test"}
             mock_session.get.assert_called_once_with("http://localhost:8000/test_endpoint", timeout=adapter.timeout)
 
+    @pytest.mark.asyncio
     async def test_make_async_request_non_master(self, mock_launch_server_process):
         """Test async request from non-master node."""
         kwargs = {"host": "localhost", "port": 8000, "node_rank": 1, "model_path": "/tmp/test_model"}
@@ -796,6 +799,7 @@ class TestAsyncHttpServerEngineAdapter:
 
         assert result == {}
 
+    @pytest.mark.asyncio
     async def test_async_generate(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test async generate method."""
         adapter = AsyncHttpServerAdapter(**basic_adapter_kwargs)
@@ -812,6 +816,7 @@ class TestAsyncHttpServerEngineAdapter:
             assert result == {"text": "Generated text"}
             mock_request.assert_called_once()
 
+    @pytest.mark.asyncio
     async def test_async_memory_management(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test async memory management methods."""
         adapter = AsyncHttpServerAdapter(**basic_adapter_kwargs)
