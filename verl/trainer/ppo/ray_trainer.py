@@ -59,11 +59,10 @@ from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, shou
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.debug import marked_timer
 from verl.utils.metric import reduce_metrics
-from verl.utils.tracking import Tracking
 from verl.utils.rollout_skip import RolloutSkip
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
-from verl.utils.tracking import ValidationGenerationsLogger
+from verl.utils.tracking import Tracking, ValidationGenerationsLogger
 
 WorkerType = type[Worker]
 
@@ -1079,9 +1078,7 @@ class RayPPOTrainer:
 
         # Collect the sequence reward for each trajectory
         prompt_uid2metric_vals = defaultdict(list)
-        for uid, metric_val in zip(
-            batch.non_tensor_batch["uid"], batch.non_tensor_batch[metric_name], strict=True
-        ):
+        for uid, metric_val in zip(batch.non_tensor_batch["uid"], batch.non_tensor_batch[metric_name], strict=True):
             prompt_uid2metric_vals[uid].append(metric_val)
 
         prompt_uid2filter_decision = {}
@@ -1094,19 +1091,15 @@ class RayPPOTrainer:
             should_keep = not (all_positive or all_non_positive) or len(metric_vals) == 1
             prompt_uid2filter_decision[prompt_uid] = should_keep
 
-        kept_prompt_uids = [
-            uid for uid, should_keep in prompt_uid2filter_decision.items() if should_keep
-        ]
+        kept_prompt_uids = [uid for uid, should_keep in prompt_uid2filter_decision.items() if should_keep]
         kept_prompts_this_batch = len(kept_prompt_uids)
-
-        num_prompt_in_batch += kept_prompts_this_batch
 
         kept_traj_idxs = []
         for idx, traj_from_prompt_uid in enumerate(batch.non_tensor_batch["uid"]):
             if traj_from_prompt_uid in kept_prompt_uids:
                 kept_traj_idxs.append(idx)
 
-        return num_prompt_in_batch, kept_traj_idxs
+        return kept_prompts_this_batch, kept_traj_idxs
 
     def fit(self):
         """
@@ -1242,13 +1235,17 @@ class RayPPOTrainer:
                         batch.batch["token_level_scores"] = reward_tensor
                         if reward_extra_infos_dict:
                             batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
-                            reward_extra_info_keys = reward_extra_infos_dict.keys()                    
+                            reward_extra_info_keys = reward_extra_infos_dict.keys()
 
-                    assert not self.config.algorithm.dynamic_filter.enable or not self.config.reward_model.launch_reward_fn_async, "Dynamic filter and reward model async are not supported together"
+                    assert (
+                        not self.config.algorithm.dynamic_filter.enable
+                        or not self.config.reward_model.launch_reward_fn_async
+                    ), "Dynamic filter and reward model async are not supported together"
                     if self.config.algorithm.dynamic_filter.enable:
-                        num_prompt_in_batch, kept_traj_idxs = self._apply_dynamic_filter(batch, metrics, logger)
-                        batch = batch[kept_traj_idxs]
+                        kept_prompts_this_batch, kept_traj_idxs = self._apply_dynamic_filter(batch, metrics, logger)
 
+                        batch = batch[kept_traj_idxs]
+                        num_prompt_in_batch += kept_prompts_this_batch
                         accumulated_batch = (
                             batch if accumulated_batch is None else DataProto.concat([accumulated_batch, batch])
                         )
