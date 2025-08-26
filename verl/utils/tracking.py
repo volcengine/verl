@@ -142,7 +142,6 @@ class Tracking:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        print("Finalizing loggers...")
         if "wandb" in self.logger:
             self.logger["wandb"].finish(exit_code=0)
         if "swanlab" in self.logger:
@@ -151,8 +150,8 @@ class Tracking:
             self.logger["vemlp_wandb"].finish(exit_code=0)
         if "tensorboard" in self.logger:
             self.logger["tensorboard"].finish()
-        if "clearnml" in self.logger:
-            self.logger["clearnml"].finish()
+        if "clearml" in self.logger:
+            self.logger["clearml"].finish()
         if "trackio" in self.logger:
             self.logger["trackio"].finish()
 
@@ -206,7 +205,7 @@ class ClearMLLogger:
                 )
 
     def finish(self):
-        self._task.mark_completed()
+        self._task.close()
 
 
 class _TensorboardAdapter:

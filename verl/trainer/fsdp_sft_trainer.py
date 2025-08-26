@@ -694,16 +694,16 @@ class FSDPSFTTrainer:
     def fit(self):
         rank = self.device_mesh.get_rank()
 
-        tracking = nullcontext()
+        tracking_context = nullcontext()
         # TODO: add a unified tracking
         if rank == 0:
-            tracking = Tracking(
+            tracking_context = Tracking(
                 project_name=self.config.trainer.project_name,
                 experiment_name=self.config.trainer.experiment_name,
                 default_backend=self.config.trainer.logger,
                 config=OmegaConf.to_container(self.config, resolve=True),
             )
-        with tracking:
+        with tracking_context as tracking:
             self._fit(rank, tracking)        
 
     def _fit(self, rank, tracking):
