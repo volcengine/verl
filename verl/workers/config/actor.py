@@ -86,14 +86,17 @@ class ActorConfig(BaseConfig):
         "ppo_mini_batch_size",
         "ppo_micro_batch_size",
         "ppo_micro_batch_size_per_gpu",
+        "ppo_infer_micro_batch_size_per_gpu",
     }
 
     strategy: str = MISSING
     ppo_mini_batch_size: int = 256
     ppo_micro_batch_size: Optional[int] = None
     ppo_micro_batch_size_per_gpu: Optional[int] = None
+    ppo_infer_micro_batch_size_per_gpu: Optional[int] = None
     use_dynamic_bsz: bool = False
     ppo_max_token_len_per_gpu: int = 16384
+    ppo_infer_max_token_len_per_gpu: int = 16384
     clip_ratio: float = 0.2
     clip_ratio_low: float = 0.2
     clip_ratio_high: float = 0.2
@@ -111,6 +114,9 @@ class ActorConfig(BaseConfig):
     optim: OptimizerConfig = field(default_factory=OptimizerConfig)
     use_fused_kernels: bool = False
     profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
+    engine: BaseConfig = field(default_factory=BaseConfig)
+    data_loader_seed = 1
+    n: int = MISSING  # must be override by sampling config
 
     def __post_init__(self):
         """Validate actor configuration parameters."""

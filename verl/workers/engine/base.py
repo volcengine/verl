@@ -15,9 +15,7 @@
 The abstract base class defining the interface for model training engines.
 """
 
-from typing import Callable, Any
-
-import torch
+from typing import Any, Callable
 
 from verl import DataProto
 
@@ -66,13 +64,13 @@ class BaseEngine:
                 # runs in evaluation mode
         """
         raise NotImplementedError
-    
+
     def optimizer_zero_grad(self):
         """
         Zero the gradients of the optimizer.
         """
         raise NotImplementedError
-    
+
     def optimizer_step(self):
         """
         Perform an optimization step using the optimizer.
@@ -82,6 +80,9 @@ class BaseEngine:
     def lr_scheduler_step(self):
         """
         Advance the learning rate scheduler by one step.
+
+        Returns:
+            current_lr (float or list[float]): Updated learning rate(s).
         """
         raise NotImplementedError
 
@@ -97,8 +98,7 @@ class BaseEngine:
             Any: The output of the forward pass, which can be used for loss computation or other purposes.
         """
         raise NotImplementedError
-    
-    
+
     def train_batch(self, data: DataProto, loss_function: Callable) -> Any:
         """
         Perform a training step on a batch of data.
@@ -112,9 +112,9 @@ class BaseEngine:
         """
         self.optimizer_zero_grad()
         outputs = self.forward_backward_batch(data, loss_function, forward_only=False)
-        self.optimizer_step()
+        grad_norm = self.optimizer_step()
+        outputs["grad_norm"] = grad_norm
         return outputs
-        
 
     def infer_batch(self, data: DataProto) -> Any:
         """
@@ -128,17 +128,10 @@ class BaseEngine:
         """
         return self.forward_backward_batch(data, None, forward_only=True)
 
-
-    def lr_scheduler_step(self):
-        """
-        Advance the learning rate scheduler by one step.
-
-        Returns:
-            current_lr (float or list[float]): Updated learning rate(s).
-        """
+    def get_data_parallel_size(self):
         raise NotImplementedError
 
-    def get_data_parallel_size(self):
+    def get_data_parallel_rank(self):
         raise NotImplementedError
 
     def to(self, device: str, model: bool = True, optimizer: bool = True):

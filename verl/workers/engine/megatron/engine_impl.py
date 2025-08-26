@@ -115,7 +115,11 @@ class MegatronEngine(BaseEngine):
         from verl.utils.megatron_utils import McoreModuleWrapperConfig, make_megatron_module
         from verl.utils.model import print_model_size
 
-        is_value_model = False
+        # TODO: add more cases
+        is_value_model = (
+            "ForTokenClassification" in self.model_config.architectures
+            or "ForSequenceClassification" in self.model_config.architectures
+        )
 
         if self.engine_config.forward_only:
             wrap_with_ddp = False
@@ -300,6 +304,9 @@ class MegatronEngine(BaseEngine):
         else:
             raise ValueError(f"Invalid device type: {device}")
 
+    def get_data_parallel_rank(self):
+        return mpu.get_data_parallel_rank()
+
     def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
         """
         Save model, optimizer, and scheduler states to a checkpoint.
@@ -394,7 +401,7 @@ class MegatronEngineForCausalLM(MegatronEngine):
             max_token_len_per_gpu = data.meta_info.get("max_token_len_per_gpu")
             max_token_len = max_token_len_per_gpu * self.engine_config.context_parallel_size
         else:
-            micro_batch_size = data.meta_info.get("micro_batch_size")
+            micro_batch_size_per_gpu = data.meta_info.get("micro_batch_size_per_gpu")
 
         # step 1: split batch data into micro-batches
         data = data.to(get_device_id())
@@ -434,10 +441,10 @@ class MegatronEngineForCausalLM(MegatronEngine):
             else:
                 micro_batches, indices = rearrange_micro_batches(batch=mini_batch.batch, max_token_len=max_token_len)
         else:
-            assert micro_batch_size is not None, (
+            assert micro_batch_size_per_gpu is not None, (
                 "micro_batch_size is needed to be passed in when not using dynamic batch size"
             )
-            micro_batches = mini_batch.batch.split(micro_batch_size)
+            micro_batches = mini_batch.batch.split(micro_batch_size_per_gpu)
         # compute input shapes for pp stages
         n_micro_batch = len(micro_batches)
 
@@ -604,3 +611,8 @@ class MegatronEngineForCausalLM(MegatronEngine):
                     append_to_dict(metrics, metric)  # append the metric from this micro-batch to global metrics.
 
                 return metrics
+
+
+class MegatronEngineForTokenClassification(MegatronEngine):
+    # for
+    pass
