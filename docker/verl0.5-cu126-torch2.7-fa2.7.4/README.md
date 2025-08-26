@@ -23,4 +23,4 @@ megatron.core==core_r0.13.0
   - `verlai/verl:base-verl0.5-cu126-cudnn9.8-torch2.7.1-fa2.7.4`: We offer a base image with deep ep built in, for vllm/sglang
 - App image:
   - `verlai/verl:app-verl0.5-transformers4.55.4-vllm0.10.0-mcore0.13.0-te2.2`
-  - `verlai/verl:app-verl0.5-transformers4.55.4-sglang0.4.9.post6-mcore0.13.0-te2.2`
+  - `verlai/verl:app-verl0.5-transformers4.55.4-sglang0.4.10.post2-mcore0.13.0-te2.2`
