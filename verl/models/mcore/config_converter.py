@@ -156,7 +156,8 @@ def check_and_construct_configs(original_config: dict, cls: type[T]) -> T:
         for key in removed_keys:
             original_config.pop(key)
 
-    print(f"Overridden {cls.__name__} init config: {original_config}")
+    if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
+        print(f"Overridden {cls.__name__} init config: {original_config}")
     return cls(**original_config)
 
 
