@@ -300,7 +300,9 @@ class MegatronEngine(BaseEngine):
         Returns:
             current_lr (float or list[float]): Updated learning rate(s).
         """
+        from verl.utils.megatron.optimizer import get_megatron_last_lr
         self.lr_scheduler.step(1)
+        return get_megatron_last_lr(self.optimizer)
 
     def to(self, device: str, model: bool = True, optimizer: bool = True):
         """
@@ -401,3 +403,9 @@ class EngineTrainModeCtx:
         if self.engine._is_offload_optimizer:
             offload_megatron_optimizer(optimizer=self.engine.optimizer)
         self.engine.mode = None
+
+
+
+
+class MegatronEngineForCausalLM(MegatronEngine):
+    def 

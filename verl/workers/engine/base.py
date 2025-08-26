@@ -15,7 +15,7 @@
 The abstract base class defining the interface for model training engines.
 """
 
-from typing import Callable
+from typing import Callable, Any
 
 import torch
 
@@ -66,41 +66,69 @@ class BaseEngine:
                 # runs in evaluation mode
         """
         raise NotImplementedError
-
-    def forward_step(
-        self,
-        data: DataProto,
-        post_fn: Callable[[DataProto, torch.Tensor], tuple[torch.Tensor, dict[str, torch.Tensor]]],
-    ) -> dict[str, torch.Tensor]:
+    
+    def optimizer_zero_grad(self):
         """
-        Perform inference on a mini batch of data.
+        Zero the gradients of the optimizer.
+        """
+        raise NotImplementedError
+    
+    def optimizer_step(self):
+        """
+        Perform an optimization step using the optimizer.
+        """
+        raise NotImplementedError
+
+    def lr_scheduler_step(self):
+        """
+        Advance the learning rate scheduler by one step.
+        """
+        raise NotImplementedError
+
+    def forward_backward_batch(self, data: DataProto, loss_function: Callable, forward_only=False) -> Any:
+        """
+        Perform a forward pass and optionally a backward pass on a batch of data.
+
+        Args:
+            data: The input data for the forward pass, typically containing tensors and metadata.
+            forward_only: If True, perform only the forward pass. If False, perform forward and backward pass.
+
+        Returns:
+            Any: The output of the forward pass, which can be used for loss computation or other purposes.
+        """
+        raise NotImplementedError
+    
+    
+    def train_batch(self, data: DataProto, loss_function: Callable) -> Any:
+        """
+        Perform a training step on a batch of data.
+
+        Args:
+            data: The input data for training, typically containing tensors and metadata.
+            loss_function: A function that computes the loss and metrics given a batch and predictions.
+
+        Returns:
+            dict[str, torch.Tensor]: A dictionary containing the aggregated training metrics for the batch.
+        """
+        self.optimizer_zero_grad()
+        outputs = self.forward_backward_batch(data, loss_function, forward_only=False)
+        self.optimizer_step()
+        return outputs
+        
+
+    def infer_batch(self, data: DataProto) -> Any:
+        """
+        Perform inference on a batch of data.
 
         Args:
             data: The input data for inference, typically containing tensors and metadata.
-            post_fn: A post-processing function that takes a micro-batch and predictions as input,
-                     and returns a tuple containing processed predictions and a dictionary of outputs.
 
         Returns:
-            dict[str, torch.Tensor]: A dictionary containing the predictions for the entire batch.
+            Any: The output of the inference, which can be used for predictions or other purposes.
         """
-        raise NotImplementedError
+        return self.forward_backward_batch(data, None, forward_only=True)
 
-    def train_step(
-        self,
-        data: DataProto,
-        loss_fn: Callable[[DataProto, torch.Tensor], tuple[list[torch.Tensor], dict[str, torch.Tensor]]],
-    ) -> dict[str, torch.Tensor]:
-        """
-        Perform a training step on a mini-batch of data.
 
-        Args:
-            data (DataProto): The input data for training, typically containing tensors and metadata.
-            loss_fn (Callable): A function that computes the loss and metrics given a micro-batch and predictions.
-
-        Returns:
-            dict[str, torch.Tensor]: A dictionary containing the aggregated training metrics for the mini-batch.
-        """
-        raise NotImplementedError
 
     def lr_scheduler_step(self):
         """
