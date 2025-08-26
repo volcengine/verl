@@ -572,31 +572,3 @@ def compute_reward_pattern_metrics(
         )
 
     return metrics
-
-
-def log_reward_pattern_summary(metrics: dict, prefix: str = "Reward Pattern"):
-    """
-    Unified reward pattern log output function
-
-    Args:
-        metrics: Dictionary containing reward pattern statistics
-        prefix: Log prefix
-    """
-    normalized_prefix = prefix.lower().replace(" ", "_").replace("-", "_")
-
-    all_negative = metrics.get(f"{normalized_prefix}/all_negative_prompts", 0)
-    all_positive = metrics.get(f"{normalized_prefix}/all_positive_prompts", 0)
-    mixed = metrics.get(f"{normalized_prefix}/mixed_prompts", 0)
-    total = metrics.get(f"{normalized_prefix}/total_unique_prompts", 0)
-
-    # Check if exact value statistics exist
-    exact_all_ones = metrics.get(f"{normalized_prefix}/exact_all_ones", None)
-    exact_all_minus_ones = metrics.get(f"{normalized_prefix}/exact_all_minus_ones", None)
-
-    if exact_all_ones is not None and exact_all_minus_ones is not None:
-        print(
-            f"[{prefix}] All-: {all_negative}, All+: {all_positive}, Mixed: {mixed}, "
-            f"Exact=1.0: {exact_all_ones}, Exact=-1.0: {exact_all_minus_ones}, Total: {total}"
-        )
-    else:
-        print(f"[{prefix}] All-: {all_negative}, All+: {all_positive}, Mixed: {mixed}, Total: {total}")

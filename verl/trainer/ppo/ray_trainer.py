@@ -52,7 +52,6 @@ from verl.trainer.ppo.metric_utils import (
     compute_reward_pattern_metrics,
     compute_throughout_metrics,
     compute_timing_metrics,
-    log_reward_pattern_summary,
     process_validation_metrics,
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
@@ -1208,18 +1207,12 @@ class RayPPOTrainer:
                         reward_metrics = compute_reward_metrics(batch)
                         metrics.update(reward_metrics)
                         logger.log(data=metrics, step=self.global_steps)
-                        reward_mean = reward_metrics["train/reward/mean"]
-                        reward_std = reward_metrics["train/reward/std"]
-                        reward_max = reward_metrics["train/reward/max"]
-                        reward_min = reward_metrics["train/reward/min"]
-                        log_reward_pattern_summary(sample_metrics, "Reward Pattern")
 
                     if self.config.algorithm.dynamic_filter.enable:
                         # NOTE: When prompts after filtering is less than train batch size,
                         # we skip to the next generation batch
                         metric_name = self.config.algorithm.dynamic_filter.metric
 
-                        num_trajectories = len(batch.batch["responses"])
                         if metric_name == "seq_final_reward":
                             # Turn to numpy for easier filtering
                             raise ValueError("seq_final_reward is not supported for dynamic filter")
@@ -1249,22 +1242,7 @@ class RayPPOTrainer:
                         kept_prompt_uids = [
                             uid for uid, should_keep in prompt_uid2filter_decision.items() if should_keep
                         ]
-
-                        total_prompts_this_batch = len(prompt_uid2filter_decision)
                         kept_prompts_this_batch = len(kept_prompt_uids)
-                        filtered_prompts_this_batch = total_prompts_this_batch - kept_prompts_this_batch
-
-                        # Count filtering reasons
-                        all_positive_filtered = sum(
-                            1
-                            for uid, vals in prompt_uid2metric_vals.items()
-                            if np.all(np.array(vals) > 0) and len(vals) > 1
-                        )
-                        all_non_positive_filtered = sum(
-                            1
-                            for uid, vals in prompt_uid2metric_vals.items()
-                            if np.all(np.array(vals) <= 0) and len(vals) > 1
-                        )
 
                         num_prompt_in_batch += kept_prompts_this_batch
 
@@ -1274,12 +1252,10 @@ class RayPPOTrainer:
                                 kept_traj_idxs.append(idx)
 
                         batch = batch[kept_traj_idxs]
-                        kept_trajectories_this_batch = len(kept_traj_idxs)
 
                         accumulated_batch = (
                             batch if accumulated_batch is None else DataProto.concat([accumulated_batch, batch])
                         )
-                        accumulated_trajectories = len(accumulated_batch.batch["responses"]) if accumulated_batch else 0
 
                         max_num_gen_batches = self.config.algorithm.dynamic_filter.max_num_gen_batches
                         if num_prompt_in_batch < prompt_bsz and num_gen_batches < max_num_gen_batches:
@@ -1302,8 +1278,6 @@ class RayPPOTrainer:
                             include_exact_values=True,
                         )
                         metrics.update(post_filter_metrics)
-
-                        log_reward_pattern_summary(post_filter_metrics, "Post-Filter Reward Pattern")
                     else:
                         # Calculate reward pattern metrics for non-dynamic filter case using common function
                         normal_final_metrics = compute_reward_pattern_metrics(
@@ -1313,8 +1287,6 @@ class RayPPOTrainer:
                             include_exact_values=False,
                         )
                         metrics.update(normal_final_metrics)
-
-                        log_reward_pattern_summary(normal_final_metrics, "Final Batch Reward Pattern")
 
                     if "response_mask" not in batch.batch.keys():
                         batch.batch["response_mask"] = compute_response_mask(batch)
@@ -1438,7 +1410,9 @@ class RayPPOTrainer:
                                 for item in batch
                             ]
                             if reward_extra_info_keys:
-                                reward_extra_infos_dict = self._extract_reward_extra_infos(batch, reward_extra_info_keys)
+                                reward_extra_infos_dict = self._extract_reward_extra_infos(
+                                    batch, reward_extra_info_keys
+                                )
                             elif not reward_extra_info_keys:
                                 reward_extra_infos_dict = {}
 
@@ -1526,7 +1500,9 @@ class RayPPOTrainer:
 
                 # Training step completed, show summary
                 if self.config.algorithm.dynamic_filter.enable and num_gen_batches > 0:
-                    print(f"Step {self.global_steps} completed, Dynamic Filter: Used {num_gen_batches} generation batches")
+                    print(
+                        f"Step {self.global_steps} completed, Dynamic Filter: Used {num_gen_batches} generation batches"
+                    )
 
                 # Reset dynamic filter state for next training step
                 self.gen_steps += 1
