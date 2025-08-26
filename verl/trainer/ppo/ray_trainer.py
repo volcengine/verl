@@ -578,30 +578,11 @@ class RayPPOTrainer:
         except Exception as e:
             print(f"Warning: Could not set total_training_steps in config. Structure missing? Error: {e}")
 
-    def _extract_reward_extra_infos(self, batch: DataProto) -> dict[str, list]:
+    def _extract_reward_extra_infos(self, batch: DataProto, reward_extra_info_keys: list[str]) -> dict[str, list]:
         """Extract reward extra info from batch.non_tensor_batch for dump_generations."""
         reward_extra_infos_dict = {}
-
-        if hasattr(batch, "non_tensor_batch") and batch.non_tensor_batch:
-            # Standard keys that are not reward extra info
-            standard_keys = {
-                "uid",
-                "data_source",
-                "__num_turns__",
-                "seq_reward",
-                "seq_final_reward",
-                "raw_prompt_ids",
-                "raw_prompt",
-                "multi_modal_data",
-                "tools_kwargs",
-                "interaction_kwargs",
-                "agent_name",
-                "index",
-            }
-
-            for key, values in batch.non_tensor_batch.items():
-                if key not in standard_keys and isinstance((list, np.ndarray), values):
-                    reward_extra_infos_dict[key] = values.tolist() if isinstance(np.ndarray, values) else values
+        for key in reward_extra_info_keys:
+            reward_extra_infos_dict[key] = batch.non_tensor_batch[key]
 
         return reward_extra_infos_dict
 
@@ -1219,6 +1200,7 @@ class RayPPOTrainer:
 
                         if reward_extra_infos_dict:
                             batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
+                            reward_extra_info_keys = reward_extra_infos_dict.keys()
                     if self.reward_step < self.global_steps:
                         self.reward_step += 1
 
@@ -1490,8 +1472,10 @@ class RayPPOTrainer:
                                 item.non_tensor_batch.get("reward_model", {}).get("ground_truth", None)
                                 for item in batch
                             ]
-
-                            reward_extra_infos_dict = self._extract_reward_extra_infos(batch)
+                            if reward_extra_info_keys:
+                                reward_extra_infos_dict = self._extract_reward_extra_infos(batch, reward_extra_info_keys)
+                            elif not reward_extra_info_keys:
+                                reward_extra_infos_dict = {}
 
                             self._dump_generations(
                                 inputs=inputs,
