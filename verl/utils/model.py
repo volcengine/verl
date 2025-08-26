@@ -658,24 +658,6 @@ def load_valuehead_model(local_path, torch_dtype, model_config, trust_remote_cod
     return model
 
 
-def load_torch_module(module_type, local_path, torch_dtype, model_config, trust_remote_code):
-    _MODULE_TYPE_DICT = {
-        "causal_lm": AutoModelForCausalLM,
-        "token_classification": AutoModelForTokenClassification,
-        "vision2seq": AutoModelForVision2Seq,
-    }
-    assert module_type in _MODULE_TYPE_DICT, f"module_type({module_type}) is not supported"
-    module_class = _MODULE_TYPE_DICT[module_type]
-    model = module_class.from_pretrained(
-        pretrained_model_name_or_path=local_path,
-        torch_dtype=torch_dtype,
-        config=model_config,
-        attn_implementation="flash_attention_2",
-        trust_remote_code=trust_remote_code,
-    )
-    return model
-
-
 def get_hf_auto_model_class(hf_config):
     from transformers import (
         AutoModel,
@@ -702,6 +684,8 @@ def get_hf_auto_model_class(hf_config):
             actor_module_class = AutoModelForCausalLM
         else:
             actor_module_class = AutoModel
+
+    return actor_module_class
 
 
 @dataclass
