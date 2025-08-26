@@ -59,6 +59,7 @@ from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, shou
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.debug import marked_timer
 from verl.utils.metric import reduce_metrics
+from verl.utils.tracking import Tracking
 from verl.utils.rollout_skip import RolloutSkip
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
@@ -1050,6 +1051,63 @@ class RayPPOTrainer:
         )
         metrics.update(global_balance_stats)
 
+    def _apply_dynamic_filter(self, batch: DataProto, metrics: dict, logger: Tracking):
+        if self.reward_step < self.global_steps:
+            self.reward_step += 1
+
+            # Calculate reward pattern metrics for prompts using common function
+            sample_metrics = compute_reward_pattern_metrics(
+                batch.non_tensor_batch["uid"],
+                batch.batch["token_level_scores"],
+                prefix="train/before_filter_reward_pattern",
+                include_exact_values=True,
+            )
+            metrics.update(sample_metrics)
+
+            # update train/reward in metric only once per step using the not filtered batch
+            reward_metrics = compute_reward_metrics(batch)
+            metrics.update(reward_metrics)
+            logger.log(data=metrics, step=self.global_steps)
+        # NOTE: When prompts after filtering is less than train batch size,
+        # we skip to the next generation batch
+        metric_name = self.config.algorithm.dynamic_filter.metric
+
+        if metric_name == "seq_final_reward":
+            raise ValueError("seq_final_reward is not supported for dynamic filter")
+        elif metric_name == "seq_reward":
+            batch.non_tensor_batch["seq_reward"] = batch.batch["token_level_scores"].sum(dim=-1).numpy()
+
+        # Collect the sequence reward for each trajectory
+        prompt_uid2metric_vals = defaultdict(list)
+        for uid, metric_val in zip(
+            batch.non_tensor_batch["uid"], batch.non_tensor_batch[metric_name], strict=True
+        ):
+            prompt_uid2metric_vals[uid].append(metric_val)
+
+        prompt_uid2filter_decision = {}
+        for prompt_uid, metric_vals in prompt_uid2metric_vals.items():
+            metric_vals = np.array(metric_vals)
+            # Filter out prompts that are all positive OR all <= 0
+            all_positive = np.all(metric_vals > 0)
+            all_non_positive = np.all(metric_vals <= 0)
+            # Keep prompt only if it has both positive and non-positive values
+            should_keep = not (all_positive or all_non_positive) or len(metric_vals) == 1
+            prompt_uid2filter_decision[prompt_uid] = should_keep
+
+        kept_prompt_uids = [
+            uid for uid, should_keep in prompt_uid2filter_decision.items() if should_keep
+        ]
+        kept_prompts_this_batch = len(kept_prompt_uids)
+
+        num_prompt_in_batch += kept_prompts_this_batch
+
+        kept_traj_idxs = []
+        for idx, traj_from_prompt_uid in enumerate(batch.non_tensor_batch["uid"]):
+            if traj_from_prompt_uid in kept_prompt_uids:
+                kept_traj_idxs.append(idx)
+
+        return num_prompt_in_batch, kept_traj_idxs
+
     def fit(self):
         """
         The training loop of PPO.
@@ -1058,8 +1116,6 @@ class RayPPOTrainer:
         The light-weight advantage computation is done on the driver process.
         """
         from omegaconf import OmegaConf
-
-        from verl.utils.tracking import Tracking
 
         logger = Tracking(
             project_name=self.config.trainer.project_name,
@@ -1181,76 +1237,16 @@ class RayPPOTrainer:
                         reward_tensor = self.rm_wg.compute_rm_score(batch)
                         batch = batch.union(reward_tensor)
 
-                    if (
-                        self.config.algorithm.dynamic_filter.enable
-                        or not self.config.reward_model.launch_reward_fn_async
-                    ):
+                    if not self.config.reward_model.launch_reward_fn_async:
                         reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
                         batch.batch["token_level_scores"] = reward_tensor
-
                         if reward_extra_infos_dict:
                             batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
-                            reward_extra_info_keys = reward_extra_infos_dict.keys()
-                    if self.reward_step < self.global_steps:
-                        self.reward_step += 1
+                            reward_extra_info_keys = reward_extra_infos_dict.keys()                    
 
-                        # Calculate reward pattern metrics for prompts using common function
-                        sample_metrics = compute_reward_pattern_metrics(
-                            batch.non_tensor_batch["uid"],
-                            batch.batch["token_level_scores"],
-                            prefix="train/reward_pattern",
-                            include_exact_values=True,
-                        )
-                        metrics.update(sample_metrics)
-
-                        # update train/reward in metric only once per step using the not filtered batch
-                        reward_metrics = compute_reward_metrics(batch)
-                        metrics.update(reward_metrics)
-                        logger.log(data=metrics, step=self.global_steps)
-
+                    assert not self.config.algorithm.dynamic_filter.enable or not self.config.reward_model.launch_reward_fn_async, "Dynamic filter and reward model async are not supported together"
                     if self.config.algorithm.dynamic_filter.enable:
-                        # NOTE: When prompts after filtering is less than train batch size,
-                        # we skip to the next generation batch
-                        metric_name = self.config.algorithm.dynamic_filter.metric
-
-                        if metric_name == "seq_final_reward":
-                            # Turn to numpy for easier filtering
-                            raise ValueError("seq_final_reward is not supported for dynamic filter")
-                            # batch.non_tensor_batch["seq_final_reward"] = (
-                            #     batch.batch["token_level_rewards"].sum(dim=-1).numpy()
-                            # )
-                        elif metric_name == "seq_reward":
-                            batch.non_tensor_batch["seq_reward"] = batch.batch["token_level_scores"].sum(dim=-1).numpy()
-
-                        # Collect the sequence reward for each trajectory
-                        prompt_uid2metric_vals = defaultdict(list)
-                        for uid, metric_val in zip(
-                            batch.non_tensor_batch["uid"], batch.non_tensor_batch[metric_name], strict=True
-                        ):
-                            prompt_uid2metric_vals[uid].append(metric_val)
-
-                        prompt_uid2filter_decision = {}
-                        for prompt_uid, metric_vals in prompt_uid2metric_vals.items():
-                            metric_vals = np.array(metric_vals)
-                            # Filter out prompts that are all positive OR all <= 0
-                            all_positive = np.all(metric_vals > 0)
-                            all_non_positive = np.all(metric_vals <= 0)
-                            # Keep prompt only if it has both positive and non-positive values
-                            should_keep = not (all_positive or all_non_positive) or len(metric_vals) == 1
-                            prompt_uid2filter_decision[prompt_uid] = should_keep
-
-                        kept_prompt_uids = [
-                            uid for uid, should_keep in prompt_uid2filter_decision.items() if should_keep
-                        ]
-                        kept_prompts_this_batch = len(kept_prompt_uids)
-
-                        num_prompt_in_batch += kept_prompts_this_batch
-
-                        kept_traj_idxs = []
-                        for idx, traj_from_prompt_uid in enumerate(batch.non_tensor_batch["uid"]):
-                            if traj_from_prompt_uid in kept_prompt_uids:
-                                kept_traj_idxs.append(idx)
-
+                        num_prompt_in_batch, kept_traj_idxs = self._apply_dynamic_filter(batch, metrics, logger)
                         batch = batch[kept_traj_idxs]
 
                         accumulated_batch = (
@@ -1260,6 +1256,7 @@ class RayPPOTrainer:
                         max_num_gen_batches = self.config.algorithm.dynamic_filter.max_num_gen_batches
                         if num_prompt_in_batch < prompt_bsz and num_gen_batches < max_num_gen_batches:
                             continue
+                        # if we still could not get enough prompts, repeat the batch content
                         if num_gen_batches >= max_num_gen_batches:
                             prompt_deficit = prompt_bsz - num_prompt_in_batch
                             repeated_batch = accumulated_batch[
@@ -1270,23 +1267,14 @@ class RayPPOTrainer:
                         traj_bsz = self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n
                         batch = accumulated_batch[:traj_bsz]
 
-                        # Calculate post-filter reward pattern metrics using common function
-                        post_filter_metrics = compute_reward_pattern_metrics(
-                            batch.non_tensor_batch["uid"],
-                            batch.batch["token_level_scores"],
-                            prefix="train/post_filter_reward_pattern",
-                            include_exact_values=True,
-                        )
-                        metrics.update(post_filter_metrics)
-                    else:
-                        # Calculate reward pattern metrics for non-dynamic filter case using common function
-                        normal_final_metrics = compute_reward_pattern_metrics(
-                            batch.non_tensor_batch["uid"],
-                            batch.batch["token_level_scores"],
-                            prefix="train/final_batch_reward_pattern",
-                            include_exact_values=False,
-                        )
-                        metrics.update(normal_final_metrics)
+                    # Calculate post-filter reward pattern metrics using common function
+                    post_filter_metrics = compute_reward_pattern_metrics(
+                        batch.non_tensor_batch["uid"],
+                        batch.batch["token_level_scores"],
+                        prefix="train/final_batch_pattern",
+                        include_exact_values=True,
+                    )
+                    metrics.update(post_filter_metrics)
 
                     if "response_mask" not in batch.batch.keys():
                         batch.batch["response_mask"] = compute_response_mask(batch)
@@ -1304,10 +1292,7 @@ class RayPPOTrainer:
                     with marked_timer("reward", timing_raw, color="yellow"):
                         # compute reward model score
 
-                        if (
-                            self.config.reward_model.launch_reward_fn_async
-                            and not self.config.algorithm.dynamic_filter.enable
-                        ):
+                        if self.config.reward_model.launch_reward_fn_async:
                             future_reward = compute_reward_async.remote(data=batch, reward_fn=self.reward_fn)
 
                     # recompute old_log_probs
@@ -1345,10 +1330,7 @@ class RayPPOTrainer:
 
                     with marked_timer("adv", timing_raw, color="brown"):
                         # we combine with rule-based rm
-                        if (
-                            self.config.reward_model.launch_reward_fn_async
-                            and not self.config.algorithm.dynamic_filter.enable
-                        ):
+                        if self.config.reward_model.launch_reward_fn_async:
                             reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
                             batch.batch["token_level_scores"] = reward_tensor
 
