@@ -694,6 +694,7 @@ class FSDPSFTTrainer:
     def fit(self):
         rank = self.device_mesh.get_rank()
 
+        tracking = nullcontext()
         # TODO: add a unified tracking
         if rank == 0:
             tracking = Tracking(
@@ -702,7 +703,10 @@ class FSDPSFTTrainer:
                 default_backend=self.config.trainer.logger,
                 config=OmegaConf.to_container(self.config, resolve=True),
             )
+        with tracking:
+            self._fit(rank, tracking)        
 
+    def _fit(self, rank, tracking):
         global_step = self.resume_global_step  # Start from resumed step
         last_valid_metric = None
         # compute the total training steps.

@@ -42,16 +42,18 @@ def fit(self):
     The light-weight advantage computation is done on the driver process.
     """
     from omegaconf import OmegaConf
-
     from verl.utils.tracking import Tracking
 
-    logger = Tracking(
+    with Tracking(
         project_name=self.config.trainer.project_name,
         experiment_name=self.config.trainer.experiment_name,
         default_backend=self.config.trainer.logger,
         config=OmegaConf.to_container(self.config, resolve=True),
-    )
+    ) as logger:
+        _fit(self, logger)
 
+
+def _fit(self, logger):
     self.global_steps = 0
 
     # load checkpoint before doing anything

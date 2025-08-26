@@ -46,7 +46,6 @@ class RayEntropyTrainer(RayPPOTrainer):
     """
     Note that this trainer runs on the driver process on a single CPU/GPU node.
     """
-
     def fit(self):
         """
         The training loop of PPO.
@@ -58,13 +57,15 @@ class RayEntropyTrainer(RayPPOTrainer):
 
         from verl.utils.tracking import Tracking
 
-        logger = Tracking(
+        with Tracking(
             project_name=self.config.trainer.project_name,
             experiment_name=self.config.trainer.experiment_name,
             default_backend=self.config.trainer.logger,
             config=OmegaConf.to_container(self.config, resolve=True),
-        )
+        ) as logger:
+            self._fit(logger)
 
+    def fit(self, logger):
         self.global_steps = 0
 
         # load checkpoint before doing anything
