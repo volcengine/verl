@@ -1245,7 +1245,10 @@ class RayPPOTrainer:
                         )
 
                         max_num_gen_batches = self.config.algorithm.dynamic_filter.max_num_gen_batches
-                        if num_prompt_in_batch < self.config.data.train_batch_size and num_gen_batches < max_num_gen_batches:
+                        if (
+                            num_prompt_in_batch < self.config.data.train_batch_size
+                            and num_gen_batches < max_num_gen_batches
+                        ):
                             continue
                         # if we still could not get enough prompts, repeat the batch content
                         if num_gen_batches >= max_num_gen_batches:
