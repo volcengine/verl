@@ -1,4 +1,4 @@
-# Recipe for InfiGUI-G1
+# Recipe for AEPO
 
 This directory contains the official implementation for the paper [InfiGUI-G1: Advancing GUI Grounding with Adaptive Exploration Policy Optimization](https://arxiv.org/abs/2508.05731).
 
