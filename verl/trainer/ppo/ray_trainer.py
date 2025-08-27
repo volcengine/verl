@@ -54,6 +54,7 @@ from verl.trainer.ppo.metric_utils import (
     compute_timing_metrics,
     process_validation_metrics,
 )
+from verl.trainer.ppo.dynamic_filtering import DynamicFilterManager
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
 from verl.utils.config import omega_conf_to_dataclass
@@ -370,6 +371,17 @@ class RayPPOTrainer:
         # kl loss control currently not suppoorted
         if self.config.algorithm.use_kl_in_reward:
             self.kl_ctrl_in_reward = core_algos.get_kl_controller(self.config.algorithm.kl_ctrl)
+
+        # initialize dynamic filter manager
+        self.dynamic_filter_manager = None
+        if self.config.algorithm.dynamic_filter and self.config.algorithm.dynamic_filter.enable:
+            filter_config = self.config.algorithm.dynamic_filter
+            
+            self.dynamic_filter_manager = DynamicFilterManager(
+                filter_function=filter_config.filter_function,
+                metric=filter_config.metric or "seq_reward",
+                **filter_config.filter_kwargs
+            )
 
         if config.critic.enable is not None:
             self.use_critic = bool(config.critic.enable)
@@ -1051,6 +1063,7 @@ class RayPPOTrainer:
         metrics.update(global_balance_stats)
 
     def _apply_dynamic_filter(self, batch: DataProto, metrics: dict, logger: Tracking):
+        """Apply dynamic filtering using the configured filter manager."""
         if self.reward_step < self.global_steps:
             self.reward_step += 1
 
@@ -1067,39 +1080,12 @@ class RayPPOTrainer:
             reward_metrics = compute_reward_metrics(batch)
             metrics.update(reward_metrics)
             logger.log(data=metrics, step=self.global_steps)
-        # NOTE: When prompts after filtering is less than train batch size,
-        # we skip to the next generation batch
-        metric_name = self.config.algorithm.dynamic_filter.metric
 
-        if metric_name == "seq_final_reward":
-            raise ValueError("seq_final_reward is not supported for dynamic filter")
-        elif metric_name == "seq_reward":
-            batch.non_tensor_batch["seq_reward"] = batch.batch["token_level_scores"].sum(dim=-1).numpy()
-
-        # Collect the sequence reward for each trajectory
-        prompt_uid2metric_vals = defaultdict(list)
-        for uid, metric_val in zip(batch.non_tensor_batch["uid"], batch.non_tensor_batch[metric_name], strict=True):
-            prompt_uid2metric_vals[uid].append(metric_val)
-
-        prompt_uid2filter_decision = {}
-        for prompt_uid, metric_vals in prompt_uid2metric_vals.items():
-            metric_vals = np.array(metric_vals)
-            # Filter out prompts that are all positive OR all <= 0
-            all_positive = np.all(metric_vals > 0)
-            all_non_positive = np.all(metric_vals <= 0)
-            # Keep prompt only if it has both positive and non-positive values
-            should_keep = not (all_positive or all_non_positive) or len(metric_vals) == 1
-            prompt_uid2filter_decision[prompt_uid] = should_keep
-
-        kept_prompt_uids = [uid for uid, should_keep in prompt_uid2filter_decision.items() if should_keep]
-        kept_prompts_this_batch = len(kept_prompt_uids)
-
-        kept_traj_idxs = []
-        for idx, traj_from_prompt_uid in enumerate(batch.non_tensor_batch["uid"]):
-            if traj_from_prompt_uid in kept_prompt_uids:
-                kept_traj_idxs.append(idx)
-
-        return kept_prompts_this_batch, kept_traj_idxs
+        # Apply filtering using the dynamic filter manager
+        if self.dynamic_filter_manager is not None:
+            return self.dynamic_filter_manager.apply_filter(batch)
+        else:
+            raise ValueError("Dynamic filter is enabled but no filter manager is configured. Please specify filter_path.")
 
     def fit(self):
         """
