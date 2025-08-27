@@ -25,8 +25,11 @@ from verl.workers.config import ActorConfig, HFModelConfig, McoreEngineConfig, M
 
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 
+from transformers import AutoModelForCausalLM
+
 import ray
 
+from verl.utils.torch_functional import logprobs_from_logits_naive
 from verl.utils.model import create_random_mask, compute_position_id_with_mask
 from verl.workers.roles.losses import sft_loss, ppo_loss
 
@@ -82,25 +85,32 @@ if __name__ == "__main__":
     
     sft_loss = partial(sft_loss, config=config)
 
-    # train 
+    # eval 
     output = wg.compute_log_prob(data)
 
-    data = data.union(output)
+    # load hf model
+    hf_model = AutoModelForCausalLM.from_pretrained(path, torch_dtype=torch.bfloat16)
+    hf_output = hf_model(input_ids, attention_mask=attention_mask)
+    hf_logprobs = logprobs_from_logits_naive(hf_output.logits[:, -response_length - 1:-1, :].float(), input_ids[:, -response_length:])
 
-    wg.set_loss_fn(sft_loss)
+    torch.testing.assert_close(hf_logprobs * response_mask, output.batch['old_log_probs'] * response_mask)
 
-    # train for one step
-    metrics = wg.update_actor(data)
+    # data = data.union(output)
 
-    # add ppo data
-    data.batch['advantages'] = torch.rand_like(responses, dtype=torch.float32)
-    data.batch['ref_log_prob'] = torch.rand_like(responses, dtype=torch.float32)
+    # wg.set_loss_fn(sft_loss)
+
+    # # train for one step
+    # metrics = wg.update_actor(data)
+
+    # # add ppo data
+    # data.batch['advantages'] = torch.rand_like(responses, dtype=torch.float32)
+    # data.batch['ref_log_prob'] = torch.rand_like(responses, dtype=torch.float32)
     
-    # set ppo loss
-    ppo_loss = partial(ppo_loss, config=config)
-    wg.set_loss_fn(ppo_loss)
+    # # set ppo loss
+    # ppo_loss = partial(ppo_loss, config=config)
+    # wg.set_loss_fn(ppo_loss)
 
-    # update again
-    ppo_metrics = wg.update_actor(data)
+    # # update again
+    # ppo_metrics = wg.update_actor(data)
 
 
