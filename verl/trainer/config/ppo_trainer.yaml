@@ -42,6 +42,8 @@ actor_rollout_ref:
 
   # common configs for the model
   model:
+
+    # Huggingface model config
     _target_: verl.workers.config.HFModelConfig
 
     # Huggingface model path. This can be either local path or HDFS path.

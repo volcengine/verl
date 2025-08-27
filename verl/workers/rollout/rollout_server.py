@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import logging
+import os
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Optional
@@ -183,6 +184,8 @@ def get_rollout_server_class(rollout: str):
 
         return vLLMRolloutServer
     elif rollout == "sglang":
+        # NOTE: verl driver is cpu only, avoid sglang fp8 quantization import error.
+        os.environ["SGLANG_USE_CPU_ENGINE"] = "1"
         from verl.workers.rollout.sglang_rollout.async_sglang_server import SGLangRolloutServer
 
         return SGLangRolloutServer

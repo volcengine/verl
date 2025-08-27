@@ -46,7 +46,16 @@ def init_config() -> DictConfig:
 
 @pytest.mark.asyncio
 async def test_standalone_rollout(init_config):
-    ray.init()
+    ray.init(
+        runtime_env={
+            "env_vars": {
+                "TOKENIZERS_PARALLELISM": "true",
+                "NCCL_DEBUG": "WARN",
+                "VLLM_LOGGING_LEVEL": "INFO",
+                "VLLM_USE_V1": "1",
+            }
+        }
+    )
 
     # create standalone rollout server
     rollout_config: RolloutConfig = omega_conf_to_dataclass(init_config.actor_rollout_ref.rollout)

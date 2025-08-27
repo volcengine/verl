@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import asyncio
+import copy
 import heapq
 import logging
 import os
@@ -24,7 +25,7 @@ import numpy as np
 import ray
 import torch
 from cachetools import LRUCache
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig, OmegaConf, open_dict
 from pydantic import BaseModel, ConfigDict
 from tensordict import TensorDict
 from transformers import AutoProcessor, AutoTokenizer
@@ -642,8 +643,16 @@ class AgentLoopManager:
         self.config = config
         self.worker_group = worker_group
 
+        # (vermouth1992). self.config.model in megatron differs from that of fsdp in the override_config.
+        # To workaround this we deepcopy self.config.model and make them compatible
+        omega_model_config = copy.deepcopy(self.config.actor_rollout_ref.model)
+        with open_dict(omega_model_config):
+            override_config = omega_model_config.override_config.pop("model_config", None)
+            if override_config is not None:
+                omega_model_config.override_config = override_config
+
         self.rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.actor_rollout_ref.rollout)
-        self.model_config: HFModelConfig = omega_conf_to_dataclass(self.config.actor_rollout_ref.model)
+        self.model_config: HFModelConfig = omega_conf_to_dataclass(omega_model_config)
 
         self._initialize_llm_servers()
         self._init_agent_loop_workers()
