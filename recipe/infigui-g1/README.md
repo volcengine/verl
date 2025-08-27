@@ -1,4 +1,4 @@
-# Recipe for AEPO
+# Recipe for InfiGUI-G1
 
 This directory contains the official implementation for the paper [InfiGUI-G1: Advancing GUI Grounding with Adaptive Exploration Policy Optimization](https://arxiv.org/abs/2508.05731).
 
@@ -9,6 +9,8 @@ We provide training scripts for both 3B and 7B models, configured for a single m
 ## Environment Setup
 
 Please follow the main environment setup guide for `verl`.
+
+The provided scripts use the following Docker image: `verlai/verl:app-verl0.5-transformers4.55.4-sglang0.4.10.post2-mcore0.13.0-te2.2`
 
 ## Data Preparation
 
