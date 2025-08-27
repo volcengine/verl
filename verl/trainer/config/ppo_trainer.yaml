@@ -151,6 +151,12 @@ algorithm:
     # If set to 0 or negative, allows unlimited backfill attempts (use with caution)
     max_num_gen_batches: 10
 
+    # Default filter function for mixed reward filtering
+    filter_function: verl.trainer.ppo.dynamic_filtering.keep_mixed_reward
+
+    # Additional arguments for the filter function
+    filter_kwargs: {}
+
   # Whether to normalize advantages by std (specific to GRPO)
   norm_adv_by_std_in_grpo: True
 

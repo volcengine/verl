@@ -83,6 +83,9 @@ algorithm:
   # Dynamic filter for DAPO: filters out homogeneous groups, keeps diverse responses
   dynamic_filter:
 
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+    _target_: verl.trainer.config.FilterGroupsConfig
+
     # Whether to enable dynamic filter
     enable: False
 
@@ -92,6 +95,12 @@ algorithm:
     # Maximum number of backfill attempts when collecting diverse responses
     # If set to 0 or negative, allows unlimited backfill attempts (use with caution)
     max_num_gen_batches: 10
+
+    # Default filter function for mixed reward filtering
+    filter_function: verl.trainer.ppo.dynamic_filtering.keep_mixed_reward
+
+    # Additional arguments for the filter function
+    filter_kwargs: {}
 
 trainer:
   balance_batch: True

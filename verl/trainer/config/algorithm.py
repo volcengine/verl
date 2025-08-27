@@ -59,7 +59,7 @@ class FilterGroupsConfig(BaseConfig):
     enable: bool = False
     metric: Optional[str] = None
     max_num_gen_batches: int = 0
-    filter_function: Optional[str] = None
+    filter_function: Optional[str] = "verl.trainer.ppo.dynamic_filtering.keep_mixed_reward"
     filter_kwargs: Optional[dict] = field(default_factory=dict)
 
 
