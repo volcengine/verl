@@ -14,9 +14,7 @@ The first two types of images are hosted on dockerhub [verlai/verl](https://hub.
 
 ## Base Image
 
-The stable base image is ``verlai/verl:base-verl0.4-cu124-cudnn9.8-torch2.6-fa2.7.4``. The installed package versions can be found from tags, and the Dockerfile can be found in ``verl[version]-[packages]/Dockerfile.base``.
-
-The base images for preview are ``verlai/verl:base-verl0.5-cu126-cudnn9.8-torch2.7.1-fa2.8.0`` and ``verlai/verl:base-verl0.5-preview-cu128-cudnn9.8-torch2.7.1-fa2.8.0`` with different CUDA versions.
+The stable base image is ``verlai/verl:base-verl0.5-cu126-cudnn9.8-torch2.7.1-fa2.7.4`` with different CUDA versions.
 
 The update of base image is not frequent, and the app image can be built on top of it without reinstalling base packages.
 
@@ -25,8 +23,8 @@ The update of base image is not frequent, and the app image can be built on top 
 From this version, we divide images built for vLLM and SGLang as the divergence of dependent packages like FlashInfer.
 There are 2 types of application images available:
 
-- **vLLM with FSDP and Megatron**: ``verlai/verl:app-verl0.5-vllm0.9.1-mcore0.12.2-te2.2``
-- **SGLang with FSDP and Megatron**: ``verlai/verl:app-verl0.5-sglang0.4.9.post6-mcore0.12.2-te2.2``
+- **vLLM with FSDP and Megatron**: ``verlai/verl:app-verl0.5-transformers4.55.4-vllm0.10.0-mcore0.13.0-te2.2``
+- **SGLang with FSDP and Megatron**: `verlai/verl:app-verl0.5-transformers4.55.4-sglang0.4.10.post2-mcore0.13.0-te2.2`
 
 Docker images with Megatron backends are runnable with large language model like ``Qwen/Qwen3-235B-A22B``, ``deepseek-ai/DeepSeek-V3-0324`` post-training. Refer to the :doc:`Large Language Model Post-Training documentation<../perf/dpsk>` for more details.
 
@@ -54,7 +52,7 @@ docker start verl
 docker exec -it verl bash
 ```
 
-2.	If you use the images provided, you only need to install verl itself without dependencies:
+2. If you use the images provided, you only need to install verl itself without dependencies:
 
 ```sh
 # install the nightly version (recommended)

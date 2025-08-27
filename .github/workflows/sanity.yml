@@ -12,7 +12,7 @@
 # - `special_sanity`: a suite of quick sanity tests
 # - `special_standalone`: a set of test that are designed to run in dedicated environments
 
-# Accelerators for tests 
+# Accelerators for tests
 # - By default tests are run with GPU available, except for the ones under `special_npu`, and any test script whose name ends with `on_cpu.py`.
 # - For test scripts with `on_cpu.py` name suffix would be tested on CPU resources in linux environment.
 
@@ -78,7 +78,7 @@ jobs:
           pytest -s -x tests/special_sanity
       - name: Run license test
         run: |
-          python3 tests/special_sanity/check_license.py --directory .
+          python3 tests/special_sanity/check_license.py --directories .
       - name: Assert naming convention
         run: |
           if grep -rIn --exclude-dir=.git --exclude-dir=.github --exclude-dir=venv --exclude-dir=__pycache__ 'veRL' .; then
