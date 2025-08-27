@@ -4,8 +4,8 @@ ulimit -n 65535
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=rloo \
-    data.train_files=./recipe/infigui-g1/data/omniact_filtered_train.parquet \
-    data.val_files=./recipe/infigui-g1/data/omniact_filtered_val.parquet \
+    data.train_files=./data/omniact_grounding_filtered/omniact_filtered_train.parquet \
+    data.val_files=./data/omniact_grounding_filtered/omniact_filtered_val.parquet \
     data.train_batch_size=128 \
     data.max_prompt_length=7168 \
     data.max_response_length=1024 \

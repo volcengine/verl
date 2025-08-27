@@ -19,10 +19,10 @@ Before starting the training, you need to download the example dataset. This dat
 The data is hosted on the Hugging Face. You can download it using the `huggingface-cli`:
 
 ```bash
-huggingface-cli download --repo-type dataset --resume-download InfiX-ai/omniact_grounding_filtered --local-dir recipe/infigui-g1/data
+huggingface-cli download --repo-type dataset --resume-download InfiX-ai/omniact_grounding_filtered --local-dir data/omniact_grounding_filtered
 ```
 
-This command will download the training and validation parquet files into the `recipe/infigui-g1/data` directory, which is the default path used by the scripts.
+This command will download the training and validation parquet files into the `data/omniact_grounding_filtered` directory, which is the default path used by the scripts.
 
 ## Training
 
@@ -42,7 +42,7 @@ We provide scripts to train the 3B and 7B models. Please run them from the root 
 
 ## Using Custom Data
 
-If you wish to train on your own dataset, please format your data to match the structure of the example files located in `recipe/infigui-g1/data`.
+If you wish to train on your own dataset, please format your data to match the structure of the example files located in `data/omniact_grounding_filtered`.
 
 Once your data is ready, you need to update the data path arguments in the training script.
 
