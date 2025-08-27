@@ -36,8 +36,10 @@ from verl.workers.roles.losses import sft_loss, ppo_loss
 from verl import DataProto
 import numpy as np
 
-if __name__ == "__main__":
-    path = '/mnt/hdfs/zhangchi.usc1992_lf_lq/models/Qwen2.5-0.5B-Instruct'
+
+
+def test_mcore_engine():
+    path = os.path.expanduser('~/models/Qwen/Qwen2.5-0.5B-Instruct')
     model_config = HFModelConfig(path=path)
     engine_config = McoreEngineConfig(forward_only=False, use_mbridge=False,
                                       tensor_model_parallel_size=2,
@@ -53,7 +55,7 @@ if __name__ == "__main__":
                          use_dynamic_bsz=True,
                          n=1)
     ray_cls_with_init = RayClassWithInitArgs(cls=ray.remote(ActorWorker), config=config)
-    resource_pool = RayResourcePool(process_on_nodes=[16])
+    resource_pool = RayResourcePool(process_on_nodes=[8])
     wg = RayWorkerGroup(resource_pool=resource_pool, ray_cls_with_init=ray_cls_with_init)
     # init model
     wg.init_model()
@@ -83,7 +85,7 @@ if __name__ == "__main__":
     data = DataProto.from_single_dict({"input_ids": input_ids, "attention_mask": attention_mask, "position_ids": position_ids, "responses": responses, "response_mask": response_mask}, 
                                       meta_info={'temperature': 1.0, 'global_token_num': global_token_num})
     
-    sft_loss = partial(sft_loss, config=config)
+    sft_loss_ = partial(sft_loss, config=config)
 
     # eval 
     output = wg.compute_log_prob(data)
@@ -99,7 +101,7 @@ if __name__ == "__main__":
 
     data = data.union(output)
 
-    wg.set_loss_fn(sft_loss)
+    wg.set_loss_fn(sft_loss_)
 
     # train for one step
     metrics = wg.update_actor(data)
@@ -109,8 +111,8 @@ if __name__ == "__main__":
     data.batch['ref_log_prob'] = torch.rand_like(responses, dtype=torch.float32)
     
     # set ppo loss
-    ppo_loss = partial(ppo_loss, config=config)
-    wg.set_loss_fn(ppo_loss)
+    ppo_loss_ = partial(ppo_loss, config=config)
+    wg.set_loss_fn(ppo_loss_)
 
     # update again
     ppo_metrics = wg.update_actor(data)
