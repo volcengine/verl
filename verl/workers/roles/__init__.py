@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .critic import CriticWorker
 from .actor import ActorWorker
+from .critic import CriticWorker
 
 __all__ = ["CriticWorker", "ActorWorker"]

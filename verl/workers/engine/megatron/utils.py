@@ -15,6 +15,7 @@
 
 from verl.utils.device import get_torch_device
 
+
 def set_random_seed(seed):
     import random
 
@@ -32,6 +33,3 @@ def set_random_seed(seed):
     # https://github.com/pytorch/pytorch/issues/89492
     # torch.use_deterministic_algorithms(True, warn_only=True)
     # os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
-
-
-

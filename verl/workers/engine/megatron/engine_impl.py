@@ -306,7 +306,7 @@ class MegatronEngine(BaseEngine):
 
     def get_data_parallel_rank(self):
         return mpu.get_data_parallel_rank()
-    
+
     def get_data_parallel_size(self):
         return mpu.get_data_parallel_world_size()
 
@@ -606,7 +606,7 @@ class MegatronEngineForCausalLM(MegatronEngine):
                         entropys = entropys[revert_indices]
 
                 output = {
-                    "log_probs": log_probs,   
+                    "log_probs": log_probs,
                 }
                 if calculate_entropy:
                     output["entropy"] = entropys
@@ -625,23 +625,18 @@ class MegatronEngineForCausalLM(MegatronEngine):
         else:
             if forward_only:
                 # create dummy output
-                log_probs = torch.empty(
-                    size=(batch_size, response_length), dtype=torch.float32
-                )
+                log_probs = torch.empty(size=(batch_size, response_length), dtype=torch.float32)
                 if calculate_entropy:
-                    entropys = torch.empty(
-                        size=(batch_size, response_length), dtype=torch.float32
-                    )
+                    entropys = torch.empty(size=(batch_size, response_length), dtype=torch.float32)
 
                 output = {
-                    "log_probs": log_probs,   
+                    "log_probs": log_probs,
                 }
                 if calculate_entropy:
                     output["entropy"] = entropys
                 return output
             else:
                 return {}
-
 
 
 class MegatronEngineForTokenClassification(MegatronEngine):

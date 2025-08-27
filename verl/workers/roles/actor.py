@@ -14,9 +14,8 @@
 
 import logging
 import os
-from typing import Iterable
-
 from functools import partial
+from typing import Iterable
 
 import psutil
 from codetiming import Timer
@@ -24,7 +23,6 @@ from codetiming import Timer
 from verl import DataProto
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
-
 from verl.utils.device import (
     get_device_id,
     get_device_name,
@@ -42,7 +40,6 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 device_name = get_device_name()
-
 
 
 class ActorWorker(Worker, DistProfilerExtension):

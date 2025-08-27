@@ -15,5 +15,3 @@
 from .engine_impl import MegatronEngine, MegatronEngineForCausalLM
 
 __all__ = ["MegatronEngine", "MegatronEngineForCausalLM"]
-
-

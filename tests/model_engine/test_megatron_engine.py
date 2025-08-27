@@ -14,46 +14,45 @@
 
 import os
 
-os.environ['NCCL_DEBUG'] = 'WARN'
-
-import torch
+os.environ["NCCL_DEBUG"] = "WARN"
 
 from functools import partial
 
-from verl.workers.roles import ActorWorker
-from verl.workers.config import ActorConfig, HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
-
-from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
-
+import numpy as np
+import ray
+import torch
 from transformers import AutoModelForCausalLM
 
-import ray
-
-from verl.utils.torch_functional import logprobs_from_logits_naive
-from verl.utils.model import create_random_mask, compute_position_id_with_mask
-from verl.workers.roles.losses import sft_loss, ppo_loss
-
 from verl import DataProto
-import numpy as np
-
+from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
+from verl.utils.model import compute_position_id_with_mask, create_random_mask
+from verl.utils.torch_functional import logprobs_from_logits_naive
+from verl.workers.config import ActorConfig, HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
+from verl.workers.roles import ActorWorker
+from verl.workers.roles.losses import ppo_loss, sft_loss
 
 
 def test_mcore_engine():
-    path = os.path.expanduser('~/models/Qwen/Qwen2.5-0.5B-Instruct')
+    path = os.path.expanduser("~/models/Qwen/Qwen2.5-0.5B-Instruct")
     model_config = HFModelConfig(path=path)
-    engine_config = McoreEngineConfig(forward_only=False, use_mbridge=False,
-                                      tensor_model_parallel_size=2,
-                                      pipeline_model_parallel_size=2,
-                                      context_parallel_size=2)
+    engine_config = McoreEngineConfig(
+        forward_only=False,
+        use_mbridge=False,
+        tensor_model_parallel_size=2,
+        pipeline_model_parallel_size=2,
+        context_parallel_size=2,
+    )
     optimizer_config = McoreOptimizerConfig(lr_decay_steps=10)
-    config = ActorConfig(model_config=model_config, 
-                         engine=engine_config, 
-                         strategy="megatron", 
-                         ppo_micro_batch_size_per_gpu=256,
-                         ppo_mini_batch_size=4,
-                         optim=optimizer_config,
-                         use_dynamic_bsz=True,
-                         n=1)
+    config = ActorConfig(
+        model_config=model_config,
+        engine=engine_config,
+        strategy="megatron",
+        ppo_micro_batch_size_per_gpu=256,
+        ppo_mini_batch_size=4,
+        optim=optimizer_config,
+        use_dynamic_bsz=True,
+        n=1,
+    )
     ray_cls_with_init = RayClassWithInitArgs(cls=ray.remote(ActorWorker), config=config)
     resource_pool = RayResourcePool(process_on_nodes=[8])
     wg = RayWorkerGroup(resource_pool=resource_pool, ray_cls_with_init=ray_cls_with_init)
@@ -69,8 +68,9 @@ def test_mcore_engine():
     np.random.seed(1)
 
     input_ids = torch.randint(0, model_config.hf_config.vocab_size, (batch_size, seqlen))
-    attention_mask = create_random_mask(input_ids=input_ids, max_ratio_of_valid_token=0.8, 
-                                        max_ratio_of_left_padding=0.2, min_ratio_of_valid_token=0.6)
+    attention_mask = create_random_mask(
+        input_ids=input_ids, max_ratio_of_valid_token=0.8, max_ratio_of_left_padding=0.2, min_ratio_of_valid_token=0.6
+    )
     position_ids = compute_position_id_with_mask(attention_mask)
 
     global_token_num = torch.sum(attention_mask, dim=-1).tolist()
@@ -82,20 +82,30 @@ def test_mcore_engine():
 
     assert torch.all(response_mask[:, 0] == 1)
 
-    data = DataProto.from_single_dict({"input_ids": input_ids, "attention_mask": attention_mask, "position_ids": position_ids, "responses": responses, "response_mask": response_mask}, 
-                                      meta_info={'temperature': 1.0, 'global_token_num': global_token_num})
-    
+    data = DataProto.from_single_dict(
+        {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "position_ids": position_ids,
+            "responses": responses,
+            "response_mask": response_mask,
+        },
+        meta_info={"temperature": 1.0, "global_token_num": global_token_num},
+    )
+
     sft_loss_ = partial(sft_loss, config=config)
 
-    # eval 
+    # eval
     output = wg.compute_log_prob(data)
 
     # load hf model and compare results with hf model
     hf_model = AutoModelForCausalLM.from_pretrained(path, torch_dtype=torch.bfloat16)
     hf_output = hf_model(input_ids, attention_mask=attention_mask)
-    hf_logprobs = logprobs_from_logits_naive(hf_output.logits[:, -response_length - 1:-1, :].float(), input_ids[:, -response_length:])
+    hf_logprobs = logprobs_from_logits_naive(
+        hf_output.logits[:, -response_length - 1 : -1, :].float(), input_ids[:, -response_length:]
+    )
     hf_logprobs_mean = torch.mean(hf_logprobs * response_mask)
-    mcore_logprobs_mean = torch.mean(output.batch['old_log_probs'] * response_mask)
+    mcore_logprobs_mean = torch.mean(output.batch["old_log_probs"] * response_mask)
 
     torch.testing.assert_close(hf_logprobs_mean, mcore_logprobs_mean, atol=1e-3, rtol=1e-2)
 
@@ -105,16 +115,16 @@ def test_mcore_engine():
 
     # train for one step
     metrics = wg.update_actor(data)
+    print(metrics)
 
     # add ppo data
-    data.batch['advantages'] = torch.rand_like(responses, dtype=torch.float32)
-    data.batch['ref_log_prob'] = torch.rand_like(responses, dtype=torch.float32)
-    
+    data.batch["advantages"] = torch.rand_like(responses, dtype=torch.float32)
+    data.batch["ref_log_prob"] = torch.rand_like(responses, dtype=torch.float32)
+
     # set ppo loss
     ppo_loss_ = partial(ppo_loss, config=config)
     wg.set_loss_fn(ppo_loss_)
 
     # update again
     ppo_metrics = wg.update_actor(data)
-
-
+    print(ppo_metrics)
