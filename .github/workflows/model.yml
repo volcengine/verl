@@ -195,4 +195,4 @@ jobs:
 
       - name: Running mcore engine tests on 8 L20 GPUs
         run: |
-          pytest -s -x tests/model_engine/test_megatron_engine.py
+          pytest -s -x tests/model/test_megatron_engine.py

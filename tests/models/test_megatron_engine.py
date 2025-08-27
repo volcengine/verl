@@ -33,6 +33,8 @@ from verl.workers.roles.losses import ppo_loss, sft_loss
 
 
 def test_mcore_engine():
+    ray.init()
+
     path = os.path.expanduser("~/models/Qwen/Qwen2.5-0.5B-Instruct")
     model_config = HFModelConfig(path=path)
     engine_config = McoreEngineConfig(
@@ -128,3 +130,5 @@ def test_mcore_engine():
     # update again
     ppo_metrics = wg.update_actor(data)
     print(ppo_metrics)
+
+    ray.shutdown()
