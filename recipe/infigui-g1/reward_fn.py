@@ -86,9 +86,24 @@ def extract_and_parse_json(input_string, wrapper):
 
     start_char, end_char = wrapper
     start_index = input_string.find(start_char)
-    end_index = input_string.rfind(end_char)
 
-    if start_index == -1 or end_index == -1 or start_index >= end_index:
+    if start_index == -1:
+        return None
+
+    # Find the matching end character by balancing brackets/braces
+    balance = 1
+    end_index = -1
+    for i in range(start_index + 1, len(input_string)):
+        if input_string[i] == start_char:
+            balance += 1
+        elif input_string[i] == end_char:
+            balance -= 1
+
+        if balance == 0:
+            end_index = i
+            break
+
+    if end_index == -1:
         return None
 
     json_string = input_string[start_index : end_index + 1]
@@ -181,7 +196,7 @@ def _check_collinear(points_2d):
         # Check for collinearity using the cross-product method.
         # If (y2 - y1) * (x3 - x1) == (y3 - y1) * (x2 - x1), the points are collinear.
         # This is equivalent to checking if the area of the triangle formed by the points is 0.
-        if (y2 - y1) * (x3 - x1) == (y3 - y1) * (x2 - x1):
+        if math.isclose((y2 - y1) * (x3 - x1), (y3 - y1) * (x2 - x1)):
             return True
 
     return False
