@@ -44,12 +44,12 @@ class OptimizerConfig(BaseConfig):
     betas: tuple[float, float] = (0.9, 0.999)
     clip_grad: float = 1.0
     # deprecate grad_clip
-    grad_clip: float = 1.0
+    grad_clip: Optional[float] = None
 
     def __post_init__(self):
         assert self.lr != MISSING
-        if self.clip_grad is not None:
-            warnings.warn("grad_clip is deprecated, use clip_grad instead", stacklevel=2)
+        if self.grad_clip is not None:
+            warnings.warn("`grad_clip` is deprecated, use `clip_grad` instead.", DeprecationWarning, stacklevel=2)
             self.clip_grad = self.grad_clip
 
 
