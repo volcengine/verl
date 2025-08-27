@@ -22,7 +22,7 @@ from codetiming import Timer
 from verl import DataProto
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
-from verl.trainer.ppo.core_algos import agg_loss, get_policy_loss_fn, kl_penalty
+
 from verl.utils.device import (
     get_device_id,
     get_device_name,
@@ -34,65 +34,13 @@ from verl.utils.profiler import DistProfiler, DistProfilerExtension
 from verl.utils.py_functional import append_to_dict
 from verl.workers.config import ActorConfig
 
+from .losses import ppo_loss
+
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 device_name = get_device_name()
 
-
-def ppo_loss(config: ActorConfig, model_output, data):
-    log_prob = model_output["log_probs"]
-    entropy = model_output.get("entropy", None)
-
-    metrics = {}
-
-    response_mask = data["response_mask"].to(bool)
-    # compute policy loss
-    old_log_prob = data["old_log_probs"]
-    advantages = data["advantages"]
-
-    loss_agg_mode = config.loss_agg_mode
-
-    loss_mode = config.policy_loss.get("loss_mode", "vanilla")
-
-    policy_loss_fn = get_policy_loss_fn(loss_mode)
-    pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = policy_loss_fn(
-        old_log_prob=old_log_prob,
-        log_prob=log_prob,
-        advantages=advantages,
-        response_mask=response_mask,
-        loss_agg_mode=loss_agg_mode,
-        config=config,
-    )
-
-    metrics.update(
-        {
-            "pg_loss": pg_loss.detach().item(),
-            "pg_clipfrac": pg_clipfrac.detach().item(),
-            "ppo_kl": ppo_kl.detach().item(),
-            "pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
-        }
-    )
-    policy_loss = pg_loss
-
-    # add entropy loss
-    if entropy is not None:
-        entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
-        entropy_coeff = config.entropy_coeff
-        policy_loss -= entropy_coeff * entropy_loss
-
-    # add kl loss
-    if config.use_kl_loss:
-        ref_log_prob = data["ref_log_prob"]
-        # compute kl loss
-        kld = kl_penalty(logprob=log_prob, ref_logprob=ref_log_prob, kl_penalty=config.kl_loss_type)
-        kl_loss = agg_loss(loss_mat=kld, loss_mask=response_mask, loss_agg_mode=config.loss_agg_mode)
-
-        policy_loss += kl_loss * config.kl_loss_coef
-        metrics["kl_loss"] = kl_loss.detach().item()
-        metrics["kl_coef"] = config.kl_loss_coef
-
-    return policy_loss, metrics
 
 
 class ActorWorker(Worker, DistProfilerExtension):
@@ -121,6 +69,8 @@ class ActorWorker(Worker, DistProfilerExtension):
                 world_size=world_size,
                 init_method=os.environ.get("DIST_INIT_METHOD", None),
             )
+
+        self.loss_fn = ppo_loss
 
     def _build_engine(self):
         model_config = self.config.model_config
@@ -164,6 +114,10 @@ class ActorWorker(Worker, DistProfilerExtension):
         self._build_engine()
         self.engine.initialize()
 
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def set_loss_fn(self, loss_fn):
+        self.loss_fn = loss_fn
+
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @DistProfiler.annotate(color="blue", role="actor_compute_log_prob")
     def compute_log_prob(self, data: DataProto):
@@ -177,9 +131,9 @@ class ActorWorker(Worker, DistProfilerExtension):
 
         with self.engine.eval_mode():
             output = self.engine.infer_batch(data)
-            output = DataProto.from_dict(
-                tensors={"old_log_probs": output["log_probs"], "entropys": output["entropy"]},
-            )
+        output = DataProto.from_dict(
+            tensors={"old_log_probs": output["log_probs"], "entropy": output["entropy"]},
+        )
         output = output.to("cpu")
 
         return output
@@ -210,23 +164,7 @@ class ActorWorker(Worker, DistProfilerExtension):
         Returns:
 
         """
-        select_keys = [
-            "responses",
-            "input_ids",
-            "attention_mask",
-            "response_mask",
-            "position_ids",
-            "old_log_probs",
-            "advantages",
-        ]
-        if self.config.use_kl_loss:
-            select_keys.append("ref_log_prob")
-        self.has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
-        if self.has_multi_modal_inputs:
-            data = data.select(select_keys, ["multi_modal_inputs"])
-        else:
-            data = data.select(batch_keys=select_keys)
-
+        # Note that we do not select data here. It's the user's responsibility to select data outside trainer
         # it's very important to setup seed here. Otherwise, data in model parallel region can disagree and cause hangs
         return data.make_iterator(
             mini_batch_size=self.ppo_mini_batch_size_per_dp,

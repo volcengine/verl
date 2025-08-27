@@ -360,7 +360,9 @@ class EngineEvalModeCtx:
         if self.engine._is_offload_param:
             load_megatron_model_to_gpu(self.engine.module, load_grad=True)
 
-        self.engine.module.eval()
+        # mcore module is a list of model chunk in each vpp stage
+        for module in self.engine.module:
+            module.eval()
 
     def __exit__(self, exc_type, exc_value, traceback):
         if self.engine._is_offload_param:
@@ -381,7 +383,9 @@ class EngineTrainModeCtx:
         if self.engine._is_offload_optimizer:
             load_megatron_optimizer(optimizer=self.engine.optimizer)
 
-        self.engine.module.train()
+        # mcore module is a list of model chunk in each vpp stage
+        for module in self.engine.module:
+            module.train()
 
     def __exit__(self, exc_type, exc_value, traceback):
         if self.engine._is_offload_param:
@@ -396,6 +400,8 @@ class MegatronEngineForCausalLM(MegatronEngine):
         use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", True)
         use_fused_kernels = data.meta_info.get("use_fused_kernels", False)
         calculate_entropy = data.meta_info.get("calculate_entropy", False)
+
+        batch_size, response_length = data.batch["responses"].size()
 
         if use_dynamic_bsz:
             assert "max_token_len_per_gpu" in data.meta_info, (
@@ -600,9 +606,11 @@ class MegatronEngineForCausalLM(MegatronEngine):
                         entropys = entropys[revert_indices]
 
                 output = {
-                    "log_probs": log_probs,
-                    "entropys": entropys,
+                    "log_probs": log_probs,   
                 }
+                if calculate_entropy:
+                    output["entropy"] = entropys
+
                 return output
 
             else:
@@ -614,6 +622,26 @@ class MegatronEngineForCausalLM(MegatronEngine):
                     append_to_dict(metrics, metric)  # append the metric from this micro-batch to global metrics.
 
                 return metrics
+        else:
+            if forward_only:
+                # create dummy output
+                log_probs = torch.empty(
+                    size=(batch_size, response_length), dtype=torch.float32
+                )
+                if calculate_entropy:
+                    entropys = torch.empty(
+                        size=(batch_size, response_length), dtype=torch.float32
+                    )
+
+                output = {
+                    "log_probs": log_probs,   
+                }
+                if calculate_entropy:
+                    output["entropy"] = entropys
+                return output
+            else:
+                return {}
+
 
 
 class MegatronEngineForTokenClassification(MegatronEngine):

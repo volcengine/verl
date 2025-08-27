@@ -16,28 +16,65 @@ import os
 
 os.environ['NCCL_DEBUG'] = 'WARN'
 
+import torch
 
 from verl.workers.roles import ActorWorker
 from verl.workers.config import ActorConfig, HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
 
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 
-
 import ray
+
+from verl.utils.model import create_random_mask, compute_position_id_with_mask
+from verl import DataProto
+import numpy as np
 
 if __name__ == "__main__":
     path = '/mnt/hdfs/zhangchi.usc1992_lf_lq/models/Qwen2.5-0.5B-Instruct'
     model_config = HFModelConfig(path=path)
-    engine_config = McoreEngineConfig(forward_only=False, use_mbridge=True)
+    engine_config = McoreEngineConfig(forward_only=False, use_mbridge=False,
+                                      tensor_model_parallel_size=2,
+                                      pipeline_model_parallel_size=2,
+                                      context_parallel_size=2)
     optimizer_config = McoreOptimizerConfig(lr_decay_steps=10)
     config = ActorConfig(model_config=model_config, 
                          engine=engine_config, 
                          strategy="megatron", 
                          ppo_micro_batch_size_per_gpu=256,
                          optim=optimizer_config,
+                         use_dynamic_bsz=True,
                          n=1)
     ray_cls_with_init = RayClassWithInitArgs(cls=ray.remote(ActorWorker), config=config)
-    resource_pool = RayResourcePool(process_on_nodes=[1])
+    resource_pool = RayResourcePool(process_on_nodes=[16])
     wg = RayWorkerGroup(resource_pool=resource_pool, ray_cls_with_init=ray_cls_with_init)
-
+    # init model
     wg.init_model()
+
+    batch_size = 8
+    seqlen = 32
+
+    response_length = seqlen // 2
+
+    torch.manual_seed(1)
+    np.random.seed(1)
+
+    input_ids = torch.randint(0, model_config.hf_config.vocab_size, (batch_size, seqlen))
+    attention_mask = create_random_mask(input_ids=input_ids, max_ratio_of_valid_token=0.8, 
+                                        max_ratio_of_left_padding=0.2, min_ratio_of_valid_token=0.6)
+    position_ids = compute_position_id_with_mask(attention_mask)
+
+    print(input_ids.float().mean(), attention_mask.float().mean())
+
+    responses = input_ids[:, response_length:]
+    response_mask = attention_mask[:, response_length:]
+
+    assert torch.all(response_mask[:, 0] == 1)
+
+    data = DataProto.from_single_dict({"input_ids": input_ids, "attention_mask": attention_mask, "position_ids": position_ids, "responses": responses, "response_mask": response_mask}, meta_info={'temperature': 1.0})
+    
+    # train 
+    output = wg.compute_log_prob(data)
+    
+    # train for one step
+    
+
