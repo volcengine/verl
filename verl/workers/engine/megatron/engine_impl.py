@@ -368,7 +368,7 @@ class EngineEvalModeCtx:
 
     def __exit__(self, exc_type, exc_value, traceback):
         if self.engine._is_offload_param:
-            offload_megatron_model_to_cpu(self.engine.fsdp_module)
+            offload_megatron_model_to_cpu(self.engine.module)
         self.engine.mode = None
 
 
