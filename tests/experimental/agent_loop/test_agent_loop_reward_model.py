@@ -56,6 +56,7 @@ def test_agent_loop_compute_score_with_model():
     config.reward_model.n_gpus_per_node = 1
     config.reward_model.nnodes = 1
     config.reward_model.model.trust_remote_code = True
+    config.reward_model.model.input_tokenizer = None
     config.trainer.n_gpus_per_node = 4
     config.trainer.nnodes = 1
     # 1. init agent loop manager
