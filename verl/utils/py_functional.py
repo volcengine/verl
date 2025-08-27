@@ -177,7 +177,7 @@ def append_to_dict(data: dict, new_data: dict, prefix: str = ""):
     """
     for key, val in new_data.items():
         new_key = f"{prefix}{key}"
-        if key not in data:
+        if new_key not in data:
             data[new_key] = []
         data[new_key].append(val)
 
