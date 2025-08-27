@@ -88,29 +88,31 @@ if __name__ == "__main__":
     # eval 
     output = wg.compute_log_prob(data)
 
-    # load hf model
+    # load hf model and compare results with hf model
     hf_model = AutoModelForCausalLM.from_pretrained(path, torch_dtype=torch.bfloat16)
     hf_output = hf_model(input_ids, attention_mask=attention_mask)
     hf_logprobs = logprobs_from_logits_naive(hf_output.logits[:, -response_length - 1:-1, :].float(), input_ids[:, -response_length:])
+    hf_logprobs_mean = torch.mean(hf_logprobs * response_mask)
+    mcore_logprobs_mean = torch.mean(output.batch['old_log_probs'] * response_mask)
 
-    torch.testing.assert_close(hf_logprobs * response_mask, output.batch['old_log_probs'] * response_mask)
+    torch.testing.assert_close(hf_logprobs_mean, mcore_logprobs_mean, atol=1e-3, rtol=1e-2)
 
-    # data = data.union(output)
+    data = data.union(output)
 
-    # wg.set_loss_fn(sft_loss)
+    wg.set_loss_fn(sft_loss)
 
-    # # train for one step
-    # metrics = wg.update_actor(data)
+    # train for one step
+    metrics = wg.update_actor(data)
 
-    # # add ppo data
-    # data.batch['advantages'] = torch.rand_like(responses, dtype=torch.float32)
-    # data.batch['ref_log_prob'] = torch.rand_like(responses, dtype=torch.float32)
+    # add ppo data
+    data.batch['advantages'] = torch.rand_like(responses, dtype=torch.float32)
+    data.batch['ref_log_prob'] = torch.rand_like(responses, dtype=torch.float32)
     
-    # # set ppo loss
-    # ppo_loss = partial(ppo_loss, config=config)
-    # wg.set_loss_fn(ppo_loss)
+    # set ppo loss
+    ppo_loss = partial(ppo_loss, config=config)
+    wg.set_loss_fn(ppo_loss)
 
-    # # update again
-    # ppo_metrics = wg.update_actor(data)
+    # update again
+    ppo_metrics = wg.update_actor(data)
 
 
