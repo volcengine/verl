@@ -27,7 +27,7 @@ from omegaconf import OmegaConf
 from verl import DataProto
 from verl.trainer.config import CheckpointConfig
 from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpointManager
-from verl.utils.device import get_device_id
+from verl.utils.device import get_device_id, get_device_name
 from verl.utils.megatron.pipeline_parallel import make_batch_generator
 from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy, vocab_parallel_log_probs_from_logits
 from verl.utils.megatron_utils import (
@@ -288,8 +288,10 @@ class MegatronEngine(BaseEngine):
             model: If True, move the model.
             optimizer: If True, move the optimizer states.
         """
-        assert device in ("cuda", "cpu")
-        if device == "cuda":
+        device_name = get_device_name()
+
+        assert device in (device_name, "cpu")
+        if device == device_name:
             if not self.engine_config.param_offload:
                 if model:
                     load_megatron_model_to_gpu(self.module, load_grad=True)
