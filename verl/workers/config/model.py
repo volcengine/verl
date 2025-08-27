@@ -124,7 +124,9 @@ class HFModelConfig(BaseConfig):
 
         # get model architectures
         self.architectures = getattr(self.hf_config, "architectures", None)
-        assert self.architectures is not None and len(self.architectures) == 1, "Expect only one architecture, got {}".format(self.architectures)
+        assert self.architectures is not None and len(self.architectures) == 1, (
+            "Expect only one architecture, got {}".format(self.architectures)
+        )
 
         # per model patch
         if getattr(self.hf_config, "model_type", None) == "kimi_vl":
