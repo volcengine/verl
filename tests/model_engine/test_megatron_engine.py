@@ -18,6 +18,8 @@ os.environ['NCCL_DEBUG'] = 'WARN'
 
 import torch
 
+from functools import partial
+
 from verl.workers.roles import ActorWorker
 from verl.workers.config import ActorConfig, HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
 
@@ -26,6 +28,8 @@ from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, Ra
 import ray
 
 from verl.utils.model import create_random_mask, compute_position_id_with_mask
+from verl.workers.roles.losses import sft_loss, ppo_loss
+
 from verl import DataProto
 import numpy as np
 
@@ -41,6 +45,7 @@ if __name__ == "__main__":
                          engine=engine_config, 
                          strategy="megatron", 
                          ppo_micro_batch_size_per_gpu=256,
+                         ppo_mini_batch_size=4,
                          optim=optimizer_config,
                          use_dynamic_bsz=True,
                          n=1)
@@ -63,6 +68,8 @@ if __name__ == "__main__":
                                         max_ratio_of_left_padding=0.2, min_ratio_of_valid_token=0.6)
     position_ids = compute_position_id_with_mask(attention_mask)
 
+    global_token_num = torch.sum(attention_mask, dim=-1).tolist()
+
     print(input_ids.float().mean(), attention_mask.float().mean())
 
     responses = input_ids[:, response_length:]
@@ -70,11 +77,30 @@ if __name__ == "__main__":
 
     assert torch.all(response_mask[:, 0] == 1)
 
-    data = DataProto.from_single_dict({"input_ids": input_ids, "attention_mask": attention_mask, "position_ids": position_ids, "responses": responses, "response_mask": response_mask}, meta_info={'temperature': 1.0})
+    data = DataProto.from_single_dict({"input_ids": input_ids, "attention_mask": attention_mask, "position_ids": position_ids, "responses": responses, "response_mask": response_mask}, 
+                                      meta_info={'temperature': 1.0, 'global_token_num': global_token_num})
     
+    sft_loss = partial(sft_loss, config=config)
+
     # train 
     output = wg.compute_log_prob(data)
-    
+
+    data = data.union(output)
+
+    wg.set_loss_fn(sft_loss)
+
     # train for one step
+    metrics = wg.update_actor(data)
+
+    # add ppo data
+    data.batch['advantages'] = torch.rand_like(responses, dtype=torch.float32)
+    data.batch['ref_log_prob'] = torch.rand_like(responses, dtype=torch.float32)
     
+    # set ppo loss
+    ppo_loss = partial(ppo_loss, config=config)
+    wg.set_loss_fn(ppo_loss)
+
+    # update again
+    ppo_metrics = wg.update_actor(data)
+
 

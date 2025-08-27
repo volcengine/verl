@@ -16,6 +16,8 @@ import logging
 import os
 from typing import Iterable
 
+from functools import partial
+
 import psutil
 from codetiming import Timer
 
@@ -70,7 +72,7 @@ class ActorWorker(Worker, DistProfilerExtension):
                 init_method=os.environ.get("DIST_INIT_METHOD", None),
             )
 
-        self.loss_fn = ppo_loss
+        self.loss_fn = partial(ppo_loss, config=self.config)
 
     def _build_engine(self):
         model_config = self.config.model_config
@@ -192,7 +194,7 @@ class ActorWorker(Worker, DistProfilerExtension):
             dataloader = self._make_minibatch_iterator(data)
             with Timer(name="update_policy", logger=None) as timer:
                 for batch_idx, mini_batch in enumerate(dataloader):
-                    mini_batch_metrics = self.engine.train_batch(mini_batch, ppo_loss)
+                    mini_batch_metrics = self.engine.train_batch(mini_batch, self.loss_fn)
                     append_to_dict(metrics, mini_batch_metrics, prefix="actor/")
 
             delta_time = timer.last
@@ -204,7 +206,7 @@ class ActorWorker(Worker, DistProfilerExtension):
             metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024**3)
             metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024**3)
 
-            lr = self.engine.lr_scheduler_step()[0]
+            lr = self.engine.lr_scheduler_step()
             metrics["actor/lr"] = lr
 
             output = DataProto(batch=None, meta_info={"metrics": metrics})

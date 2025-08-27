@@ -479,7 +479,7 @@ class MegatronEngineForCausalLM(MegatronEngine):
 
             # for training
             # note that this loss function can be swapped with other loss functions such as SFT
-            policy_loss, metrics = loss_function(model_output, data)
+            policy_loss, metrics = loss_function(model_output=model_output, data=data)
 
             # return loss and stats
             return policy_loss, metrics
