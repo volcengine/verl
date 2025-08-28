@@ -404,6 +404,8 @@ algorithm:
     enable: false
     metric: seq_reward
     max_num_gen_batches: 10
+    filter_function: verl.utils.filtering.dynamic_filtering.keep_mixed_reward
+    filter_kwargs: {}
   norm_adv_by_std_in_grpo: true
   use_kl_in_reward: false
   kl_penalty: kl

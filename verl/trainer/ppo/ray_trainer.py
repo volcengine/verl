@@ -43,15 +43,14 @@ from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.config import AlgoConfig
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import AdvantageEstimator, agg_loss
+from verl.trainer.ppo.dynamic_filtering import DynamicFilterManager
 from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
     compute_reward_metrics,
-    compute_reward_pattern_metrics,
     compute_throughout_metrics,
     compute_timing_metrics,
     process_validation_metrics,
 )
-from verl.trainer.ppo.dynamic_filtering import DynamicFilterManager
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.trainer.ppo.utils import Role, WorkerType, need_critic, need_reference_policy, need_reward_model
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
@@ -360,11 +359,11 @@ class RayPPOTrainer:
         self.dynamic_filter_manager = None
         if self.config.algorithm.dynamic_filter and self.config.algorithm.dynamic_filter.enable:
             filter_config = self.config.algorithm.dynamic_filter
-            
+
             self.dynamic_filter_manager = DynamicFilterManager(
                 filter_function=filter_config.filter_function,
                 metric=filter_config.metric or "seq_reward",
-                **filter_config.filter_kwargs
+                **filter_config.filter_kwargs,
             )
 
         if config.critic.enable is not None:
@@ -934,15 +933,6 @@ class RayPPOTrainer:
         if self.reward_step < self.global_steps:
             self.reward_step += 1
 
-            # Calculate reward pattern metrics for prompts using common function
-            sample_metrics = compute_reward_pattern_metrics(
-                batch.non_tensor_batch["uid"],
-                batch.batch["token_level_scores"],
-                prefix="train/before_filter_reward_pattern",
-                include_exact_values=True,
-            )
-            metrics.update(sample_metrics)
-
             # update train/reward in metric only once per step using the not filtered batch
             reward_metrics = compute_reward_metrics(batch)
             metrics.update(reward_metrics)
@@ -952,7 +942,9 @@ class RayPPOTrainer:
         if self.dynamic_filter_manager is not None:
             return self.dynamic_filter_manager.apply_filter(batch)
         else:
-            raise ValueError("Dynamic filter is enabled but no filter manager is configured. Please specify filter_path.")
+            raise ValueError(
+                "Dynamic filter is enabled but no filter manager is configured. Please specify filter_path."
+            )
 
     def fit(self):
         """
@@ -1113,15 +1105,6 @@ class RayPPOTrainer:
                         # Align the batch
                         traj_bsz = self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n
                         batch = accumulated_batch[:traj_bsz]
-
-                    # Calculate post-filter reward pattern metrics using common function
-                    post_filter_metrics = compute_reward_pattern_metrics(
-                        batch.non_tensor_batch["uid"],
-                        batch.batch["token_level_scores"],
-                        prefix="train/final_batch_pattern",
-                        include_exact_values=True,
-                    )
-                    metrics.update(post_filter_metrics)
 
                     if "response_mask" not in batch.batch.keys():
                         batch.batch["response_mask"] = compute_response_mask(batch)

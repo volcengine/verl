@@ -97,7 +97,7 @@ algorithm:
     max_num_gen_batches: 10
 
     # Default filter function for mixed reward filtering
-    filter_function: verl.trainer.ppo.dynamic_filtering.keep_mixed_reward
+    filter_function: verl.utils.filtering.dynamic_filtering.keep_mixed_reward
 
     # Additional arguments for the filter function
     filter_kwargs: {}

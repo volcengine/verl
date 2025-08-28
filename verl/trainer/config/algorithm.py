@@ -52,14 +52,14 @@ class FilterGroupsConfig(BaseConfig):
                                    Non-positive values mean no upper limit (use with caution).
         filter_function (Optional[str]): Path to filter function (e.g., "my_module.my_filter_func").
                                         Required when dynamic_filter is enabled. For the original mixed rewards
-                                        filter, use "verl.trainer.ppo.dynamic_filtering.keep_mixed_reward".
+                                        filter, use "verl.utils.filtering.dynamic_filtering.keep_mixed_reward".
         filter_kwargs (Optional[dict]): Additional arguments for the filter function.
     """
 
     enable: bool = False
     metric: Optional[str] = None
     max_num_gen_batches: int = 0
-    filter_function: Optional[str] = "verl.trainer.ppo.dynamic_filtering.keep_mixed_reward"
+    filter_function: Optional[str] = "verl.utils.filtering.dynamic_filtering.keep_mixed_reward"
     filter_kwargs: Optional[dict] = field(default_factory=dict)
 
 

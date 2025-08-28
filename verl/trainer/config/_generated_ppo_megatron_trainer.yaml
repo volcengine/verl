@@ -451,9 +451,12 @@ algorithm:
     reweight_method: pow
     weight_pow: 2.0
   dynamic_filter:
+    _target_: verl.trainer.config.FilterGroupsConfig
     enable: false
     metric: seq_reward
     max_num_gen_batches: 10
+    filter_function: verl.utils.filtering.dynamic_filtering.keep_mixed_reward
+    filter_kwargs: {}
 trainer:
   balance_batch: true
   total_epochs: 30

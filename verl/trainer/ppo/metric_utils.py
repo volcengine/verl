@@ -508,67 +508,16 @@ def compute_reward_metrics(batch: DataProto) -> dict[str, Any]:
 
     Returns:
         A dictionary of reward metrics including:
-            - train/reward/mean: Mean sequence reward (pre-filtering)
-            - train/reward/std: Standard deviation of sequence rewards (pre-filtering)
-            - train/reward/max: Maximum sequence reward (pre-filtering)
-            - train/reward/min: Minimum sequence reward (pre-filtering)
+            - before_filtering/reward/mean: Mean sequence reward (pre-filtering)
+            - before_filtering/reward/std: Standard deviation of sequence rewards (pre-filtering)
+            - before_filtering/reward/max: Maximum sequence reward (pre-filtering)
+            - before_filtering/reward/min: Minimum sequence reward (pre-filtering)
     """
     seq_reward_tensor = batch.batch["token_level_scores"].sum(-1)
 
     return {
-        "train/reward/mean": seq_reward_tensor.mean().detach().item(),
-        "train/reward/std": seq_reward_tensor.std().detach().item(),
-        "train/reward/max": seq_reward_tensor.max().detach().item(),
-        "train/reward/min": seq_reward_tensor.min().detach().item(),
+        "before_filtering/reward/mean": seq_reward_tensor.mean().detach().item(),
+        "before_filtering/reward/std": seq_reward_tensor.std().detach().item(),
+        "before_filtering/reward/max": seq_reward_tensor.max().detach().item(),
+        "before_filtering/reward/min": seq_reward_tensor.min().detach().item(),
     }
-
-
-def compute_reward_pattern_metrics(
-    prompt_uids, token_level_scores, prefix="train/reward_pattern", include_exact_values=False
-) -> dict[str, Any]:
-    """
-    Generic reward pattern statistics function
-
-    Args:
-        prompt_uids: List of prompt UIDs
-        token_level_scores: Token-level scores
-        prefix: Metric prefix
-        include_exact_values: Whether to include exact value statistics (e.g., all 1.0 or -1.0 cases)
-
-    Returns:
-        Dictionary containing reward pattern statistics
-    """
-    prompt_uid2rewards = {}
-    for uid, reward in zip(prompt_uids, token_level_scores.sum(dim=-1).cpu().float().numpy(), strict=False):
-        if uid not in prompt_uid2rewards:
-            prompt_uid2rewards[uid] = []
-        prompt_uid2rewards[uid].append(reward)
-
-    # Basic statistics
-    all_negative = sum(1 for rewards in prompt_uid2rewards.values() if np.all(np.array(rewards) < 0))
-    all_positive = sum(1 for rewards in prompt_uid2rewards.values() if np.all(np.array(rewards) > 0))
-    mixed = sum(
-        1
-        for rewards in prompt_uid2rewards.values()
-        if not (np.all(np.array(rewards) < 0) or np.all(np.array(rewards) > 0))
-    )
-
-    metrics = {
-        f"{prefix}/all_negative_prompts": all_negative,
-        f"{prefix}/all_positive_prompts": all_positive,
-        f"{prefix}/mixed_prompts": mixed,
-        f"{prefix}/total_unique_prompts": len(prompt_uid2rewards),
-    }
-
-    # Optional exact value statistics
-    if include_exact_values:
-        exact_all_ones = sum(1 for rewards in prompt_uid2rewards.values() if np.all(np.array(rewards) == 1.0))
-        exact_all_minus_ones = sum(1 for rewards in prompt_uid2rewards.values() if np.all(np.array(rewards) == -1.0))
-        metrics.update(
-            {
-                f"{prefix}/exact_all_ones": exact_all_ones,
-                f"{prefix}/exact_all_minus_ones": exact_all_minus_ones,
-            }
-        )
-
-    return metrics
