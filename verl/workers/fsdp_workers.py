@@ -339,12 +339,16 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 else:
                     actor_module_class = AutoModel
 
-            actor_module = actor_module_class.from_pretrained(
-                pretrained_model_name_or_path=local_path,
-                torch_dtype=torch_dtype,
-                config=actor_model_config,
-                trust_remote_code=trust_remote_code,
-            )
+            if self.rank > 0 and self.config.actor.strategy == "fsdp2":
+                # weights will be broadcasted in FSDP2 init, so we only need to load weights on rank 0
+                actor_module = actor_module_class.from_config(actor_model_config)
+            else:
+                actor_module = actor_module_class.from_pretrained(
+                    pretrained_model_name_or_path=local_path,
+                    torch_dtype=torch_dtype,
+                    config=actor_model_config,
+                    trust_remote_code=trust_remote_code,
+                )
 
             # Apply Liger kernel to the model if use_liger is set to True
             if use_liger:
