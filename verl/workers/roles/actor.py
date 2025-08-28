@@ -130,10 +130,13 @@ class ActorWorker(Worker, DistProfilerExtension):
 
         with self.engine.eval_mode():
             output = self.engine.infer_batch(data)
-        output = DataProto.from_dict(
-            tensors={"old_log_probs": output["log_probs"], "entropy": output["entropy"]},
-        )
-        output = output.to("cpu")
+        
+        if 'log_probs' in output and 'entropy' in output:
+            # in megatron, only last pp contains valid data and returned to the single controller
+            output = DataProto.from_dict(
+                tensors={"old_log_probs": output["log_probs"].float(), "entropy": output["entropy"].float()},
+            )
+            output = output.to("cpu")
 
         return output
 
