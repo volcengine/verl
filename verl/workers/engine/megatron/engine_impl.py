@@ -351,7 +351,7 @@ class MegatronEngine(BaseEngine):
         if self._is_offload_optimizer:
             offload_megatron_optimizer(self.optimizer)
 
-    def _prepare_micro_batches(self, data: DataProto) -> list[TensorDict]:
+    def prepare_micro_batches(self, data: DataProto) -> list[TensorDict]:
         use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", True)
 
         if use_dynamic_bsz:
@@ -408,7 +408,7 @@ class MegatronEngine(BaseEngine):
         return micro_batches, indices
 
     def forward_backward_batch(self, data: DataProto, loss_function: Callable, forward_only=False) -> Any:
-        micro_batches, indices = self._prepare_micro_batches(data=data)
+        micro_batches, indices = self.prepare_micro_batches(data=data)
 
         # compute input shapes for pp stages
         n_micro_batch = len(micro_batches)
@@ -449,8 +449,8 @@ class MegatronEngine(BaseEngine):
 
         if mpu.is_pipeline_last_stage(ignore_virtual=True):
             if forward_only:
-                # losses_reduced is a list of dict containing entropy and logprobs for each micro-batch
-                # reorder entropy and logprobs. Return None for other pp ranks
+                # losses_reduced is a list of dict containing outputs for each micro-batch
+                # reorder entropy and outputs. Return None for other pp ranks
                 # only on last rank. It should be on every tp rank
 
                 output = {}
