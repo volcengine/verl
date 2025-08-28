@@ -33,8 +33,7 @@ from verl.utils.flops_counter import FlopsCounter
 from verl.utils.profiler import DistProfiler, DistProfilerExtension
 from verl.utils.py_functional import append_to_dict
 from verl.workers.config import ActorConfig
-
-from .losses import ppo_loss
+from verl.workers.roles.utils.losses import ppo_loss
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))

@@ -83,6 +83,7 @@ class BaseEngine:
 
         Args:
             data: The input data for the forward pass, typically containing tensors and metadata.
+            loss_function: The loss function to optimize. See `verl.workers.roles.utils.losses` for examples.
             forward_only: If True, perform only the forward pass. If False, perform forward and backward pass.
 
         Returns:

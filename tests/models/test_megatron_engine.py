@@ -29,7 +29,7 @@ from verl.utils.model import compute_position_id_with_mask, create_random_mask
 from verl.utils.torch_functional import logprobs_from_logits_naive
 from verl.workers.config import ActorConfig, HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
 from verl.workers.roles import ActorWorker
-from verl.workers.roles.losses import ppo_loss, sft_loss
+from verl.workers.roles.utils.losses import ppo_loss, sft_loss
 
 
 def test_mcore_engine():
