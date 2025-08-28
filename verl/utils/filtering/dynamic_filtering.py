@@ -65,7 +65,7 @@ class DynamicFilterManager:
         # Apply filtering
         if not self.custom_filter_func:
             raise ValueError(
-                "No filter function configured. Please specify filter_function in dynamic_filter config. "
+                "No filter function configured. Please specify filter_function in filter_groups config. "
                 "For the original mixed rewards filter, use 'verl.utils.filtering.dynamic_filtering.keep_mixed_reward'"
             )
 
@@ -99,7 +99,7 @@ def keep_mixed_reward(metric_vals: list[float | int], **kwargs) -> bool:
 
     Example configuration:
         algorithm:
-          dynamic_filter:
+          filter_groups:
             enable: true
             filter_function: "verl.utils.filtering.dynamic_filtering.keep_mixed_reward"
     """

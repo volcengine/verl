@@ -51,7 +51,7 @@ class FilterGroupsConfig(BaseConfig):
         max_num_gen_batches (int): Maximum number of backfill attempts when collecting diverse responses.
                                    Non-positive values mean no upper limit (use with caution).
         filter_function (Optional[str]): Path to filter function (e.g., "my_module.my_filter_func").
-                                        Required when dynamic_filter is enabled. For the original mixed rewards
+                                        Required when filter_groups is enabled. For the original mixed rewards
                                         filter, use "verl.utils.filtering.dynamic_filtering.keep_mixed_reward".
         filter_kwargs (Optional[dict]): Additional arguments for the filter function.
     """
@@ -79,7 +79,7 @@ class AlgoConfig(BaseConfig):
         kl_ctrl (KLControlConfig): KL control configuration.
         use_pf_ppo (bool): Whether to enable preference feedback PPO.
         pf_ppo (dict[str, Any]): Preference feedback PPO settings.
-        dynamic_filter (Optional[FilterGroupsConfig]): Dynamic filter configuration, used in DAPO and Entropy
+        filter_groups (Optional[FilterGroupsConfig]): Dynamic filter configuration, used in DAPO and Entropy
     """
 
     gamma: float = 1.0
@@ -91,4 +91,4 @@ class AlgoConfig(BaseConfig):
     kl_ctrl: KLControlConfig = field(default_factory=KLControlConfig)
     use_pf_ppo: bool = False
     pf_ppo: dict[str, Any] = field(default_factory=dict)
-    dynamic_filter: Optional[FilterGroupsConfig] = None
+    filter_groups: Optional[FilterGroupsConfig] = None

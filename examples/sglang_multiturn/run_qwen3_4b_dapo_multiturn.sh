@@ -88,7 +88,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.val_kwargs.top_p=0.6 \
     actor_rollout_ref.rollout.val_kwargs.temperature=1.0 \
     actor_rollout_ref.rollout.val_kwargs.n=30 \
-    algorithm.dynamic_filter.enable=True \
+    algorithm.filter_groups.enable=True \
     trainer.logger=['console','wandb'] \
     trainer.project_name=sglang-dapo-multiturn \
     trainer.experiment_name=qwen3_4b_sft_dapo_multiturn \

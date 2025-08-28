@@ -135,7 +135,7 @@ algorithm:
   adv_estimator: gae
 
   # Dynamic filter for DAPO: filters out homogeneous groups, keeps diverse responses
-  dynamic_filter:
+  filter_groups:
 
     # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
     _target_: verl.trainer.config.FilterGroupsConfig

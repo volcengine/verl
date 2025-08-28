@@ -55,12 +55,13 @@ from verl.trainer.ppo.utils import Role, WorkerType, need_critic, need_reference
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.debug import marked_timer
+from verl.utils.filtering.dynamic_filtering import DynamicFilterManager
 from verl.utils.metric import reduce_metrics
 from verl.utils.rollout_skip import RolloutSkip
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import Tracking, ValidationGenerationsLogger
-from verl.utils.filtering.dynamic_filtering import DynamicFilterManager
+
 
 @dataclass
 class ResourcePoolManager:
@@ -353,11 +354,10 @@ class RayPPOTrainer:
         if self.config.algorithm.use_kl_in_reward:
             self.kl_ctrl_in_reward = core_algos.get_kl_controller(self.config.algorithm.kl_ctrl)
 
-
         # initialize dynamic filter manager
         self.dynamic_filter_manager = None
-        if self.config.algorithm.dynamic_filter and self.config.algorithm.dynamic_filter.enable:
-            filter_config = self.config.algorithm.dynamic_filter
+        if self.config.algorithm.filter_groups and self.config.algorithm.filter_groups.enable:
+            filter_config = self.config.algorithm.filter_groups
 
             self.dynamic_filter_manager = DynamicFilterManager(
                 filter_function=filter_config.filter_function,
@@ -1063,10 +1063,10 @@ class RayPPOTrainer:
                             reward_extra_info_keys = reward_extra_infos_dict.keys()
 
                     assert (
-                        not self.config.algorithm.dynamic_filter.enable
+                        not self.config.algorithm.filter_groups.enable
                         or not self.config.reward_model.launch_reward_fn_async
                     ), "Dynamic filter and reward model async are not supported together"
-                    if self.config.algorithm.dynamic_filter.enable:
+                    if self.config.algorithm.filter_groups.enable:
                         kept_prompts_this_batch, kept_traj_idxs = self._apply_dynamic_filter(batch, metrics, logger)
 
                         batch = batch[kept_traj_idxs]
@@ -1075,7 +1075,7 @@ class RayPPOTrainer:
                             batch if accumulated_batch is None else DataProto.concat([accumulated_batch, batch])
                         )
 
-                        max_num_gen_batches = self.config.algorithm.dynamic_filter.max_num_gen_batches
+                        max_num_gen_batches = self.config.algorithm.filter_groups.max_num_gen_batches
                         if (
                             num_prompt_in_batch < self.config.data.train_batch_size
                             and num_gen_batches < max_num_gen_batches
@@ -1303,7 +1303,7 @@ class RayPPOTrainer:
                 self.global_steps += 1
 
                 # Training step completed, show summary
-                if self.config.algorithm.dynamic_filter.enable and num_gen_batches > 0:
+                if self.config.algorithm.filter_groups.enable and num_gen_batches > 0:
                     print(
                         f"Step {self.global_steps} completed, Dynamic Filter: Used {num_gen_batches} generation batches"
                     )
