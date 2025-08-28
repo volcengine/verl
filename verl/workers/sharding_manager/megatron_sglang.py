@@ -152,9 +152,6 @@ class MegatronSGLangShardingManager(BaseShardingManager):
             await self.inference_engine.release_memory_occupation()
 
     async def resume_memory(self, tags: Optional[list[str]] = None):
-        if self._need_reload:
-            await self.inference_engine.release_memory_occupation()
-            self._need_reload = False
         if self.device_mesh["tp"].get_local_rank() == 0:
             await self.inference_engine.resume_memory_occupation(tags=tags)
 
