@@ -245,11 +245,12 @@ def register(agent_name: str):
 
     return decorator
 
+
 @ray.remote(num_cpus=1)
 class BatchExecutor:
     """Batch executor is used to collect requests into a batch execution"""
 
-    def __init__(self, batch_func, micro_batch_size=1,max_batch_size=None):
+    def __init__(self, batch_func, micro_batch_size=1, max_batch_size=None):
         """
 
         Args:
@@ -318,14 +319,13 @@ class BatchExecutor:
 class RewardManagerWorker:
     """Reward manager worker to compute reward score asynchronously to overlap with agent loop."""
 
-    def __init__(self, config: DictConfig, local_path: str, rm_executor:BatchExecutor=None) -> None:
+    def __init__(self, config: DictConfig, local_path: str, rm_executor: BatchExecutor = None) -> None:
         tokenizer = hf_tokenizer(local_path, trust_remote_code=True)
         self.reward_manager = load_reward_manager(
             config, tokenizer, num_examine=0, **config.reward_model.get("reward_kwargs", {})
         )
         self.rm_executor = rm_executor
         self.loop = asyncio.get_event_loop()
-
 
     async def compute_score(
         self,
@@ -366,18 +366,19 @@ class RewardManagerWorker:
             torch.Tensor: Reward score tensor.
         """
         if self.rm_executor is not None:
-
             res = ray.get(self.rm_executor.submit_task.remote(data))
             data = data.union(res)
 
-        return self.reward_manager(data,return_dict)
+        return self.reward_manager(data, return_dict)
 
 
 @ray.remote
 class AgentLoopWorker:
     """Agent loop worker takes a batch of messages and run each message in an agent loop."""
 
-    def __init__(self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], rm_executor: BatchExecutor=None):
+    def __init__(
+        self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], rm_executor: BatchExecutor = None
+    ):
         """Initialize agent loop manager.
 
         Args:
@@ -600,7 +601,9 @@ class AgentLoopWorker:
                 ).unsqueeze(0)  # (1, 3, seq_len)
             else:
                 position_ids = compute_position_id_with_mask(attention_mask)  # (1, seq_len)
-            enable_async_reward = (self.rm_executor is not None and self.config.reward_model.enable_resource_pool) or not self.config.reward_model.enable
+            enable_async_reward = (
+                self.rm_executor is not None and self.config.reward_model.enable_resource_pool
+            ) or not self.config.reward_model.enable
             if output.reward_score is None and enable_async_reward:
                 batch = TensorDict(
                     {
@@ -842,7 +845,9 @@ class AgentLoopManager:
         """
 
         if self.rm_micro_batch_size and len(prompts) % self.rm_micro_batch_size != 0:
-            raise ValueError(f"The length of prompts {len(prompts)} cannot divide the world size of rm_wg {self.rm_micro_batch_size}")
+            raise ValueError(
+                f"The length of prompts {len(prompts)} cannot divide the world size of rm_wg {self.rm_micro_batch_size}"
+            )
         if self.config.actor_rollout_ref.rollout.free_cache_engine:
             self.wake_up()
         chunkes = prompts.chunk(len(self.agent_loop_workers))
