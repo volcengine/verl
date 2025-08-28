@@ -16,7 +16,7 @@ import itertools
 import logging
 import os
 from functools import partial
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from tensordict import TensorDict
 
@@ -353,53 +353,6 @@ class MegatronEngine(BaseEngine):
             offload_megatron_optimizer(self.optimizer)
 
 
-class EngineEvalModeCtx:
-    def __init__(self, engine: MegatronEngine):
-        self.engine = engine
-
-    def __enter__(self):
-        assert isinstance(self.engine, MegatronEngine)
-
-        self.engine.mode = "eval"
-        if self.engine._is_offload_param:
-            load_megatron_model_to_gpu(self.engine.module, load_grad=True)
-
-        # mcore module is a list of model chunk in each vpp stage
-        for module in self.engine.module:
-            module.eval()
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        if self.engine._is_offload_param:
-            offload_megatron_model_to_cpu(self.engine.module)
-        self.engine.mode = None
-
-
-class EngineTrainModeCtx:
-    def __init__(self, engine: MegatronEngine):
-        self.engine = engine
-
-    def __enter__(self):
-        assert isinstance(self.engine, MegatronEngine)
-
-        self.engine.mode = "train"
-        if self.engine._is_offload_param:
-            load_megatron_model_to_gpu(self.engine.module, load_grad=True)
-        if self.engine._is_offload_optimizer:
-            load_megatron_optimizer(optimizer=self.engine.optimizer)
-
-        # mcore module is a list of model chunk in each vpp stage
-        for module in self.engine.module:
-            module.train()
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        if self.engine._is_offload_param:
-            offload_megatron_model_to_cpu(self.engine.module)
-        if self.engine._is_offload_optimizer:
-            offload_megatron_optimizer(optimizer=self.engine.optimizer)
-        self.engine.mode = None
-
-
-class MegatronEngineForCausalLM(MegatronEngine):
     def _prepare_micro_batches(self, data: DataProto) -> list[TensorDict]:
         use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", True)
 
@@ -455,9 +408,141 @@ class MegatronEngineForCausalLM(MegatronEngine):
             micro_batches = mini_batch.batch.split(micro_batch_size_per_gpu)
 
         return micro_batches, indices
+
+
+    def forward_backward_batch(self, data: DataProto, loss_function: Callable, forward_only=False) -> Any:
+        micro_batches, indices = self._prepare_micro_batches(data=data)
+
+        # compute input shapes for pp stages
+        n_micro_batch = len(micro_batches)
+
+        forward_backward_func = get_forward_backward_func()
+
+        postprocess_micro_batch_func = partial(self.postprocess_micro_batch_func, 
+                                               meta_info=data.meta_info, forward_only=forward_only, loss_function=loss_function)
+        forward_step = partial(self.forward_step, 
+                               meta_info=data.meta_info,
+                               postprocess_micro_batch_func=postprocess_micro_batch_func)
+
+        # batch should be a list of batches inside micro-batches
+        batch_generator = make_batch_generator(micro_batches, vpp_size=len(self.module))
+
+        # TODO: we may use the new schedule instead
+        # for flash-attn: (seq_len, batch_size, hidden_size) = (mbs*seq_len, 1, hidden_size)
+        losses_reduced = forward_backward_func(
+            forward_step_func=forward_step,
+            data_iterator=batch_generator,
+            model=self.module,
+            num_microbatches=n_micro_batch,
+            seq_length=1,  # the communication shape is obtained via p2p comm
+            micro_batch_size=1,  # the communication shape is obtained via p2p comm
+            forward_only=forward_only,
+        )
+        # loss_reduces contains the stats returned from loss_func
+        return self.postprocess_batch_func(losses_reduced=losses_reduced, indices=indices, 
+                                           forward_only=forward_only, data=data)
     
 
+    def postprocess_batch_func(self, losses_reduced, indices, forward_only, data: DataProto):
+        use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", True)
+
+        if mpu.is_pipeline_last_stage(ignore_virtual=True):
+            if forward_only:
+                # losses_reduced is a list of dict containing entropy and logprobs for each micro-batch
+                # reorder entropy and logprobs. Return None for other pp ranks
+                # only on last rank. It should be on every tp rank
+
+                output = {}
+
+                for o in losses_reduced:
+                    for key, val in o.items():
+                        if key not in output:
+                            output[key] = []
+                        output[key].append(val)
+
+                indices = list(itertools.chain.from_iterable(indices))
+                revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
+
+                for key, val in output.items():
+                    val = torch.cat(val, dim=0)
+                    if use_dynamic_bsz:
+                        assert len(indices) == val.size(0), f"{len(indices)} vs. {val.size()}"
+                        val = val[revert_indices]
+                    output[key] = val
+
+                return output
+
+            else:
+                metrics = {}
+                # combine metrics of each micro-batch
+                metric_micro_batch = losses_reduced
+                for metric in metric_micro_batch:
+                    # Note that o[0] is metrics, o[1] is entropy, o[2] is response_mask
+                    append_to_dict(metrics, metric)  # append the metric from this micro-batch to global metrics.
+
+                return metrics
+        else:
+            return {}
+
+
+
     def forward_step(self, batch_iter, model, meta_info: dict, postprocess_micro_batch_func):
+        raise NotImplementedError("forward_step must be implemented in subclass")
+    
+    def postprocess_micro_batch_func(self, output, data: TensorDict, meta_info: dict, forward_only: bool, loss_function):
+        raise NotImplementedError("postprocess_micro_batch_func must be implemented in subclass")
+    
+    
+
+
+class EngineEvalModeCtx:
+    def __init__(self, engine: MegatronEngine):
+        self.engine = engine
+
+    def __enter__(self):
+        assert isinstance(self.engine, MegatronEngine)
+
+        self.engine.mode = "eval"
+        if self.engine._is_offload_param:
+            load_megatron_model_to_gpu(self.engine.module, load_grad=True)
+
+        # mcore module is a list of model chunk in each vpp stage
+        for module in self.engine.module:
+            module.eval()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self.engine._is_offload_param:
+            offload_megatron_model_to_cpu(self.engine.module)
+        self.engine.mode = None
+
+
+class EngineTrainModeCtx:
+    def __init__(self, engine: MegatronEngine):
+        self.engine = engine
+
+    def __enter__(self):
+        assert isinstance(self.engine, MegatronEngine)
+
+        self.engine.mode = "train"
+        if self.engine._is_offload_param:
+            load_megatron_model_to_gpu(self.engine.module, load_grad=True)
+        if self.engine._is_offload_optimizer:
+            load_megatron_optimizer(optimizer=self.engine.optimizer)
+
+        # mcore module is a list of model chunk in each vpp stage
+        for module in self.engine.module:
+            module.train()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self.engine._is_offload_param:
+            offload_megatron_model_to_cpu(self.engine.module)
+        if self.engine._is_offload_optimizer:
+            offload_megatron_optimizer(optimizer=self.engine.optimizer)
+        self.engine.mode = None
+
+
+class MegatronEngineForCausalLM(MegatronEngine):
+    def forward_step(self, batch_iter: Iterator[TensorDict], model, meta_info: dict, postprocess_micro_batch_func):
         use_fused_kernels = meta_info.get("use_fused_kernels", False)
         calculate_entropy = meta_info.get("calculate_entropy", False)
         temperature = meta_info["temperature"]
@@ -570,103 +655,8 @@ class MegatronEngineForCausalLM(MegatronEngine):
         return policy_loss, metrics
 
 
-    def postprocess_batch_func(self, losses_reduced, indices, forward_only, data: DataProto):
-        calculate_entropy = data.meta_info.get("calculate_entropy", False)
-        batch_size, response_length = data.batch["responses"].size()
-        use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", True)
+    
 
-        if mpu.is_pipeline_last_stage(ignore_virtual=True):
-            if forward_only:
-                # losses_reduced is a list of dict containing entropy and logprobs for each micro-batch
-                # reorder entropy and logprobs. Return None for other pp ranks
-                # only on last rank. It should be on every tp rank
-                log_probs = [o["log_probs"] for o in losses_reduced]  # (bs, seq_size)
-                log_probs = torch.cat(log_probs, dim=0).to(torch.float32)
-
-                if calculate_entropy:
-                    entropys = torch.cat([o["entropy"] for o in losses_reduced], dim=0)
-                    entropys = entropys.to(torch.float32)
-
-                if use_dynamic_bsz:
-                    indices = list(itertools.chain.from_iterable(indices))
-                    assert len(indices) == log_probs.size(0), f"{len(indices)} vs. {log_probs.size()}"
-                    revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
-                    log_probs = log_probs[revert_indices]
-                    if calculate_entropy:
-                        assert len(indices) == entropys.size(0), f"{len(indices)} vs. {entropys.size()}"
-                        entropys = entropys[revert_indices]
-
-                output = {
-                    "log_probs": log_probs,
-                }
-                if calculate_entropy:
-                    output["entropy"] = entropys
-
-                return output
-
-            else:
-                metrics = {}
-                # combine metrics of each micro-batch
-                metric_micro_batch = losses_reduced
-                for metric in metric_micro_batch:
-                    # Note that o[0] is metrics, o[1] is entropy, o[2] is response_mask
-                    append_to_dict(metrics, metric)  # append the metric from this micro-batch to global metrics.
-
-                return metrics
-        else:
-            if forward_only:
-                # create dummy output
-                log_probs = torch.empty(size=(batch_size, response_length), dtype=torch.float32)
-                if calculate_entropy:
-                    entropys = torch.empty(size=(batch_size, response_length), dtype=torch.float32)
-
-                output = {
-                    "log_probs": log_probs,
-                }
-                if calculate_entropy:
-                    output["entropy"] = entropys
-                return output
-            else:
-                return {}
-
-
-
-    def forward_backward_batch(self, data: DataProto, loss_function: Callable, forward_only=False) -> Any:
-        micro_batches, indices = self._prepare_micro_batches(data=data)
-
-        # compute input shapes for pp stages
-        n_micro_batch = len(micro_batches)
-
-        forward_backward_func = get_forward_backward_func()
-
-        postprocess_micro_batch_func = partial(self.postprocess_micro_batch_func, 
-                                               meta_info=data.meta_info, forward_only=forward_only, loss_function=loss_function)
-        forward_step = partial(self.forward_step, 
-                               meta_info=data.meta_info,
-                               postprocess_micro_batch_func=postprocess_micro_batch_func)
-
-        # batch should be a list of batches inside micro-batches
-        batch_generator = make_batch_generator(micro_batches, vpp_size=len(self.module))
-
-        # TODO: we may use the new schedule instead
-        # for flash-attn: (seq_len, batch_size, hidden_size) = (mbs*seq_len, 1, hidden_size)
-        losses_reduced = forward_backward_func(
-            forward_step_func=forward_step,
-            data_iterator=batch_generator,
-            model=self.module,
-            num_microbatches=n_micro_batch,
-            seq_length=1,  # the communication shape is obtained via p2p comm
-            micro_batch_size=1,  # the communication shape is obtained via p2p comm
-            forward_only=forward_only,
-        )
-        # loss_reduces contains the stats returned from loss_func
-        data.batch.pop("multi_modal_inputs")
-        data.batch.pop("multi_modal_inputs_idx")
-        data.non_tensor_batch.pop("multi_modal_inputs")
-
-        return self.postprocess_batch_func(losses_reduced=losses_reduced, indices=indices, 
-                                           forward_only=forward_only, data=data)
-        
 
 
 class MegatronEngineForTokenClassification(MegatronEngine):
