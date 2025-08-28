@@ -35,8 +35,6 @@ class OptimizerConfig(BaseConfig):
     """
     _mutable_fields = {"clip_grad"}
 
-    _mutable_fields = {"clip_grad"}
-
     lr: float = 1e-3
     lr_warmup_steps_ratio: float = 0.0
     total_training_steps: int = -1

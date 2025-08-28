@@ -104,7 +104,7 @@ class FSDPEngineConfig(BaseConfig):
     reshard_after_forward: bool = True
     fsdp_size: int = -1
     forward_prefetch: bool = False
-    model_dtype: Optional[str] = None
+    model_dtype: str = "fp32"
     use_orig_params: bool = False
     mixed_precision: Optional[dict[str, Any]] = None
     ulysses_sequence_parallel_size: int = 1

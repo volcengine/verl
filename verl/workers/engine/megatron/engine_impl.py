@@ -309,6 +309,7 @@ class MegatronEngine(BaseEngine):
 
     def get_data_parallel_rank(self):
         return mpu.get_data_parallel_rank()
+
     def get_data_parallel_size(self):
         return mpu.get_data_parallel_world_size()
 
