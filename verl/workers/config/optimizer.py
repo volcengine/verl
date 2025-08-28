@@ -33,6 +33,7 @@ class OptimizerConfig(BaseConfig):
         weight_decay (float): Weight decay factor.
         lr_warmup_steps (Optional[int]): Number of warmup steps; None delegates to lr_warmup_steps_ratio.
     """
+
     _mutable_fields = {"clip_grad"}
 
     lr: float = 1e-3
