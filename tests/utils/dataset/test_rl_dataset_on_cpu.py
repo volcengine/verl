@@ -77,7 +77,7 @@ def test_image_rl_data():
             "prompt_key": "prompt",
             "max_prompt_length": 1024,
             "filter_overlong_prompts": True,
-            "filter_overlong_prompts_workers": 2,
+            "filter_overlong_prompts_workers": 1,
         }
     )
     dataset = RLHFDataset(

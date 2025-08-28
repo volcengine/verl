@@ -298,7 +298,6 @@ class MegatronPPOCritic(BasePPOCritic):
         metrics = {}
 
         for data in dataloader:
-            # data = data.batch.to(self.critic_module.device)
             self.critic_optimizer.zero_grad()
             # use use_contiguous_buffers_in_local_ddp and no overlap_dp_param_comm
             for chunk in self.critic_module:
