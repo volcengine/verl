@@ -186,8 +186,24 @@ def get_rollout_server_class(rollout: str):
     elif rollout == "sglang":
         # NOTE: verl driver is cpu only, avoid sglang fp8 quantization import error.
         os.environ["SGLANG_USE_CPU_ENGINE"] = "1"
+
+        # TODO: remove this once we bump to sglang>=0.5.1
+        try:
+            import vllm  # noqa: F401
+        except ImportError:
+            import sys
+            from unittest.mock import Mock
+
+            mock_vllm = Mock()
+            mock_vllm._custom_ops = Mock()
+            mock_vllm._custom_ops.scaled_fp8_quant = Mock()
+
+            sys.modules["vllm"] = mock_vllm
+            sys.modules["vllm._custom_ops"] = mock_vllm._custom_ops
+
         from verl.workers.rollout.sglang_rollout.async_sglang_server import SGLangRolloutServer
 
+        del os.environ["SGLANG_USE_CPU_ENGINE"]
         return SGLangRolloutServer
     else:
         raise ValueError(f"Unknown rollout mode: {rollout}")
