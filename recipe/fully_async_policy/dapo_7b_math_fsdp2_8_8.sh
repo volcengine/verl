@@ -2,7 +2,7 @@
 set -xeuo pipefail
 
 project_name='DAPO'
-exp_name='DAPO-Qwen2.5-7b-MATH-0527a1-fsdp2-fully-async-4-4'
+exp_name='DAPO-Qwen2.5-7b-MATH-0527a1-fsdp2-fully-async-8-8'
 
 # Ray
 # RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
@@ -65,7 +65,7 @@ gen_tp=1
 sp_size=1
 fsdp_size=2
 
-NNODES=${NNODES:-1}
+NNODES=${NNODES:-2}
 NGPUS_PER_NODE=${NGPUS_PER_NODE:-8}
 
 # Fully async specific parameters
@@ -76,8 +76,8 @@ train_prompt_bsz=0
 gen_prompt_bsz=1
 n_resp_per_prompt=16
 train_prompt_mini_bsz=4
-total_rollout_steps=$(((512*10)))
-test_freq=-1
+total_rollout_steps=$(((512*100)))
+test_freq=10
 staleness_threshold=1
 trigger_parameter_sync_step=16
 partial_rollout=True
