@@ -27,8 +27,6 @@ from transformers.models import (
     qwen3_moe,
 )
 
-from verl.utils.device import get_device_name
-
 # Define model classes mapping
 MODEL_CLASSES = {
     "llama": [
@@ -46,7 +44,7 @@ MODEL_CLASSES = {
     "qwen2_5_vl": [
         qwen2_5_vl.modeling_qwen2_5_vl.Qwen2_5_VLMLP,
         qwen2_5_vl.modeling_qwen2_5_vl.Qwen2RMSNorm,
-        qwen2_5_vl.modeling_qwen2_5_vl.apply_rotary_pos_emb_flashatt,
+        qwen2_5_vl.modeling_qwen2_5_vl,
     ],
     "qwen3": [
         qwen3.modeling_qwen3.Qwen3MLP,
@@ -101,7 +99,7 @@ def apply_patches():
     # Patch rotary embedding for supported models
     for model in apply_rotary_pos_emb_models:
         if model in MODEL_CLASSES:
-            MODEL_CLASSES[model][2] = npu_apply_rotary_pos_emb_flashatt
+            MODEL_CLASSES[model][2].apply_rotary_pos_emb_flashatt = npu_apply_rotary_pos_emb_flashatt
 
     # Patch RMSNorm and silu for supported models
     for model in apply_rms_norm_and_silu_models:
@@ -111,12 +109,11 @@ def apply_patches():
 
 
 # Apply all patches
-if get_device_name() == "npu":
-    if transformers.__version__ != "4.52.4":
-        raise ImportError("NPU fusion kernels patch only works with transformers==4.52.4")
-    else:
-        apply_patches()
-        print(
-            "Applied some optimized fusion kernels patch on npu. "
-            "Check verl.models.transformers.npu_patch.py for more details."
-        )
+if transformers.__version__ != "4.52.4":
+    raise ImportError("NPU fusion kernels patch only works with transformers==4.52.4")
+else:
+    apply_patches()
+    print(
+        "Applied some optimized fusion kernels patch on npu. "
+        "Check verl.models.transformers.npu_patch.py for more details."
+    )
