@@ -13,7 +13,7 @@
 # limitations under the License.
 import asyncio
 import time
-from pprint import pformat
+from pprint import pformat, pprint
 
 import ray
 from omegaconf import OmegaConf
@@ -210,9 +210,11 @@ class FullyAsyncRollouter(RayPPOTrainer):
             )
             timing_raw = {}
             self.update_param_version_time += 1
+            is_last_step = self.global_steps >= self.total_training_steps
             if (self.val_reward_fn is not None
                     and self.config.trainer.test_freq > 0
-                    and (self.is_last_step or self.global_steps % self.config.trainer.test_freq == 0)):
+                    and ((self.global_steps > 0 and self.global_steps % self.config.trainer.test_freq == 0)
+                         or is_last_step)):
                 with marked_timer("testing", timing_raw, color="green"):
                     val_metrics: dict = self._validate()
                     data = ValidateMetrics(timing_raw=timing_raw, metrics=val_metrics)
@@ -438,12 +440,12 @@ class FullyAsyncRollouter(RayPPOTrainer):
             config=OmegaConf.to_container(self.config, resolve=True),
         )
 
-        # load checkpoint before doing anything
-        self._load_checkpoint()
+        # load checkpoint before doing anything 
+        self._load_checkpoint() # TODO: 检查是否需要
 
         # perform validation before training
         # currently, we only support validation using the reward_function.
-        async with self.lock:
+        async with self.lock:   # TODO: 检查是否需要锁
             if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
                 print("Initial validation metric")
                 val_metrics = self._validate()
