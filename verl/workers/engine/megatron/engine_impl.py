@@ -541,7 +541,7 @@ class EngineTrainModeCtx:
         self.engine.mode = None
 
 
-class MegatronEngineForCausalLM(MegatronEngine):
+class MegatronEngineWithLMHead(MegatronEngine):
     def forward_step(self, batch_iter: Iterator[TensorDict], model, meta_info: dict, postprocess_micro_batch_func):
         use_fused_kernels = meta_info.get("use_fused_kernels", False)
         calculate_entropy = meta_info.get("calculate_entropy", False)
@@ -655,10 +655,7 @@ class MegatronEngineForCausalLM(MegatronEngine):
         return policy_loss, metrics
 
 
-    
 
-
-
-class MegatronEngineForTokenClassification(MegatronEngine):
-    # for
+class MegatronEngineWithValueHead(MegatronEngine):
+    # for value head
     pass

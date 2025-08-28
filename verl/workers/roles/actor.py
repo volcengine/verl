@@ -80,9 +80,9 @@ class ActorWorker(Worker, DistProfilerExtension):
         if self.config.strategy == "megatron":
             from megatron.core import parallel_state as mpu
 
-            from verl.workers.engine.megatron.engine_impl import MegatronEngineForCausalLM
+            from verl.workers.engine.megatron.engine_impl import MegatronEngineWithLMHead
 
-            self.engine = MegatronEngineForCausalLM(
+            self.engine = MegatronEngineWithLMHead(
                 model_config=model_config,
                 engine_config=engine_config,
                 optimizer_config=optimizer_config,
