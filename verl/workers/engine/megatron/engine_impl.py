@@ -18,13 +18,12 @@ import os
 from functools import partial
 from typing import Any, Callable, Iterator
 
-from tensordict import TensorDict
-
 import torch
 import torch.distributed
 from megatron.core import parallel_state as mpu
 from megatron.core.pipeline_parallel import get_forward_backward_func
 from omegaconf import OmegaConf
+from tensordict import TensorDict
 
 from verl import DataProto
 from verl.trainer.config import CheckpointConfig
@@ -352,7 +351,6 @@ class MegatronEngine(BaseEngine):
         if self._is_offload_optimizer:
             offload_megatron_optimizer(self.optimizer)
 
-
     def _prepare_micro_batches(self, data: DataProto) -> list[TensorDict]:
         use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", True)
 
@@ -409,7 +407,6 @@ class MegatronEngine(BaseEngine):
 
         return micro_batches, indices
 
-
     def forward_backward_batch(self, data: DataProto, loss_function: Callable, forward_only=False) -> Any:
         micro_batches, indices = self._prepare_micro_batches(data=data)
 
@@ -418,11 +415,15 @@ class MegatronEngine(BaseEngine):
 
         forward_backward_func = get_forward_backward_func()
 
-        postprocess_micro_batch_func = partial(self.postprocess_micro_batch_func, 
-                                               meta_info=data.meta_info, forward_only=forward_only, loss_function=loss_function)
-        forward_step = partial(self.forward_step, 
-                               meta_info=data.meta_info,
-                               postprocess_micro_batch_func=postprocess_micro_batch_func)
+        postprocess_micro_batch_func = partial(
+            self.postprocess_micro_batch_func,
+            meta_info=data.meta_info,
+            forward_only=forward_only,
+            loss_function=loss_function,
+        )
+        forward_step = partial(
+            self.forward_step, meta_info=data.meta_info, postprocess_micro_batch_func=postprocess_micro_batch_func
+        )
 
         # batch should be a list of batches inside micro-batches
         batch_generator = make_batch_generator(micro_batches, vpp_size=len(self.module))
@@ -439,9 +440,9 @@ class MegatronEngine(BaseEngine):
             forward_only=forward_only,
         )
         # loss_reduces contains the stats returned from loss_func
-        return self.postprocess_batch_func(losses_reduced=losses_reduced, indices=indices, 
-                                           forward_only=forward_only, data=data)
-    
+        return self.postprocess_batch_func(
+            losses_reduced=losses_reduced, indices=indices, forward_only=forward_only, data=data
+        )
 
     def postprocess_batch_func(self, losses_reduced, indices, forward_only, data: DataProto):
         use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", True)
@@ -484,15 +485,13 @@ class MegatronEngine(BaseEngine):
         else:
             return {}
 
-
-
     def forward_step(self, batch_iter, model, meta_info: dict, postprocess_micro_batch_func):
         raise NotImplementedError("forward_step must be implemented in subclass")
-    
-    def postprocess_micro_batch_func(self, output, data: TensorDict, meta_info: dict, forward_only: bool, loss_function):
+
+    def postprocess_micro_batch_func(
+        self, output, data: TensorDict, meta_info: dict, forward_only: bool, loss_function
+    ):
         raise NotImplementedError("postprocess_micro_batch_func must be implemented in subclass")
-    
-    
 
 
 class EngineEvalModeCtx:
@@ -626,8 +625,9 @@ class MegatronEngineWithLMHead(MegatronEngine):
 
         return output, partial(postprocess_micro_batch_func, data=batch)
 
-
-    def postprocess_micro_batch_func(self, output, data: TensorDict, meta_info: dict, forward_only: bool, loss_function):
+    def postprocess_micro_batch_func(
+        self, output, data: TensorDict, meta_info: dict, forward_only: bool, loss_function
+    ):
         # For memory efficiency
         # We move calculation of entropy to compute_log_probs, forward_only == True
         calculate_entropy = meta_info.get("calculate_entropy", False)
@@ -653,7 +653,6 @@ class MegatronEngineWithLMHead(MegatronEngine):
 
         # return loss and stats
         return policy_loss, metrics
-
 
 
 class MegatronEngineWithValueHead(MegatronEngine):
