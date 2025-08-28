@@ -221,6 +221,8 @@ class FullyAsyncTaskRunner:
             resource_pool_manager=create_resource_pool_manager(config, roles=[Role.Rollout]),
             ray_worker_group_cls=self.components["ray_worker_group_cls"],
             processor=self.components["processor"],
+            reward_fn=self.components["reward_fn"],
+            val_reward_fn=self.components["val_reward_fn"],
             device_name=config.trainer.device,
         )
 
