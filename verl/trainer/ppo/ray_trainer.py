@@ -366,19 +366,6 @@ class RayPPOTrainer:
                 **filter_config.filter_kwargs,
             )
 
-        if config.critic.enable is not None:
-            self.use_critic = bool(config.critic.enable)
-        elif self.config.algorithm.adv_estimator == AdvantageEstimator.GAE:
-            self.use_critic = True
-        else:
-            warnings.warn(
-                "Disabled critic as algorithm.adv_estimator != gae. "
-                "If it is not intended, please set critic.enable=True",
-                stacklevel=2,
-            )
-            self.use_critic = False
-
-        self._validate_config()
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
 
     def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler: Optional[Sampler]):
@@ -1227,6 +1214,12 @@ class RayPPOTrainer:
                                 )
                             elif not reward_extra_info_keys:
                                 reward_extra_infos_dict = {}
+
+                            if "request_id" in batch.non_tensor_batch:
+                                reward_extra_infos_dict.setdefault(
+                                    "request_id",
+                                    batch.non_tensor_batch["request_id"].tolist(),
+                                )
 
                             self._dump_generations(
                                 inputs=inputs,
