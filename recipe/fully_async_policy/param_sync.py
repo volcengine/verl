@@ -86,8 +86,9 @@ class ParameterSynchronizer:
         self.actor_wg.sync_rollout_weights()
         ray.get(self.rollout_wg.sync_rollout_weights())
 
-        # Update rollout version
-        ray.get(self.rollouter.update_param_version.remote(version))
+        # Async Update rollout version
+        self.rollouter.update_param_version.remote(version)
+
         ray.get(self.rollouter.resume.remote())
         end_time = time.time()
 

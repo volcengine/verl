@@ -15,7 +15,7 @@ import asyncio
 import json
 import logging
 import os
-from typing import Any
+from typing import Any, Optional
 from uuid import uuid4
 
 from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput, register
@@ -56,7 +56,10 @@ class ToolAgentLoop(AgentLoopBase):
         cls.system_prompt = tokenizer.apply_chat_template([{}], add_generation_prompt=False, tokenize=True)
 
     @rollout_trace_op
-    async def run(self, messages: list[dict[str, Any]], sampling_params: dict[str, Any]) -> AgentLoopOutput:
+    async def run(self,
+                  messages: list[dict[str, Any]],
+                  sampling_params: dict[str, Any],
+                  output: Optional[AgentLoopOutput]) -> AgentLoopOutput:
         metrics = {}
         request_id = uuid4().hex
         prompt_ids = await self.loop.run_in_executor(

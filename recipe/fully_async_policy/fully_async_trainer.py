@@ -15,6 +15,7 @@
 import logging
 import time
 import warnings
+from datetime import datetime
 from pprint import pprint
 from typing import Any
 
@@ -23,7 +24,7 @@ from omegaconf import OmegaConf
 
 from recipe.fully_async_policy.detach_utils import (
     assemble_batch_from_rollout_samples,
-    calculate_one_step_size,
+    calculate_one_step_size, ValidateMetrics,
 )
 from recipe.fully_async_policy.message_queue import MessageQueueClient
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
@@ -156,7 +157,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
 
             queue_samples.append(sample)
 
-            if len(queue_samples) % 10 == 0:
+            if len(queue_samples) % 64 == 0:
                 print(
                     f"[FullyAsyncTrainer] Collected {len(queue_samples)}/{self.required_samples} samples. "
                     f"mq_len: {queue_len}"
@@ -251,6 +252,12 @@ class FullyAsyncTrainer(RayPPOTrainer):
             metrics = {}
             timing_raw = {}
 
+            val_data = self.message_queue_client.get_validate_sync()
+            if val_data:
+                val_data: ValidateMetrics = ray.cloudpickle.loads(val_data)
+                metrics.update(val_data.metrics)
+                timing_raw.update(val_data.timing_raw)
+
             with marked_timer("step", timing_raw):
                 with marked_timer("gen", timing_raw, color="red"):
                     epoch, batch = self._get_samples_from_queue()
@@ -285,13 +292,17 @@ class FullyAsyncTrainer(RayPPOTrainer):
                 self._log_rollout(batch, reward_extra_infos_dict, timing_raw)
                 self._check_save_checkpoint(False, timing_raw)
 
-            # self._collect_metrics(batch, epoch, metrics, timing_raw)
+            self._collect_metrics(batch, 0, metrics, timing_raw)
             pprint(metrics)
             # Trigger parameter synchronization after training step
+
+            time_str = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+
             print(
                 f"[FullyAsyncTrainer] global_steps: {self.global_steps} "
                 f"local_trigger_step: {self.local_trigger_step} "
-                f"trigger_parameter_sync_step: {self.trigger_parameter_sync_step}"
+                f"trigger_parameter_sync_step: {self.trigger_parameter_sync_step} "
+                f"{time_str}"
             )
             self._trigger_parameter_sync_after_step()
             self.global_steps += 1

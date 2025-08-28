@@ -36,6 +36,9 @@ class MessageQueue:
         self.queue = deque(maxlen=max_queue_size)
         self.current_param_version = 0
 
+        self.val_queue = deque()
+
+
         try:
             if hasattr(config, "async_training") and config.async_training is not None:
                 self.staleness_threshold = getattr(config.async_training, "staleness_threshold", 3)
@@ -188,6 +191,18 @@ class MessageQueue:
                 "estimated_memory_mb": total_size / (1024 * 1024),
             }
 
+    async def put_validate(self, data):
+        async with self._lock:
+            self.val_queue.append(data)
+
+    async def get_validate(self):
+        async with self._lock:
+            if self.val_queue:
+                return self.val_queue.popleft()
+            else:
+                return None
+
+
 
 class MessageQueueClient:
     """Asyncio-compatible MessageQueue client for communicating with MessageQueue Actor"""
@@ -199,6 +214,13 @@ class MessageQueueClient:
         """Put batch into queue (async)"""
         future = self.queue_actor.put_sample.remote(sample, param_version)
         return await asyncio.wrap_future(future.future())
+
+    async def put_validate(self, data: Any) -> bool:
+        future = self.queue_actor.put_validate.remote(data)
+        return await asyncio.wrap_future(future.future())
+
+    def get_validate_sync(self) -> Any | None:
+        return ray.get(self.queue_actor.get_validate.remote())
 
     async def get_sample(self) -> Any | None:
         """Get single sample from queue, wait until one is available (async)"""
