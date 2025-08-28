@@ -110,6 +110,65 @@ def _ulysses_flash_attention_forward(
     return attn_output
 
 
+def _ulysses_flash_attention_forward_transformers_4_55(
+    query_states: torch.Tensor,
+    key_states: torch.Tensor,
+    value_states: torch.Tensor,
+    attention_mask: Optional[torch.Tensor],
+    query_length: int,
+    *args,
+    position_ids: Optional[torch.Tensor] = None,
+    **kwargs,
+):
+    """For transformers>=4.55, the flash attention api has changed,
+    we need to pass the query_length after doing ulysses alltoall.
+
+    See https://github.com/huggingface/transformers/issues/40399
+    """
+    ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
+
+    ########## AlltoAll for Ulysses ##########
+    if ulysses_sp_size > 1:
+        assert position_ids is not None, "position_ids is required for Ulysses sequence parallelism"
+
+        # NOTE: repeat kv heads to be divided by sequence parallel. Instead of repeating nheads_q//nheads_k,
+        # we choose to repeat sp_size//nheads_k, since flash_attention supports MQA/GQA.
+        # For example:
+        # - nheads_k=4, sp=8, repeats=2
+        # - nheads_k=8, sp=8, repeats=1
+        # - nheads_k=16, sp=8, repeats=1
+        repeats = max(ulysses_sp_size // key_states.size(2), 1)
+        key_states = repeat_kv(key_states, repeats)
+        value_states = repeat_kv(value_states, repeats)
+
+        # (bsz, seq_len/n, n_head, head_dim) -> (bsz, seq_len, n_head/n, head_dim)
+        query_states = gather_seq_scatter_heads(query_states, seq_dim=1, head_dim=2)
+        key_states = gather_seq_scatter_heads(key_states, seq_dim=1, head_dim=2)
+        value_states = gather_seq_scatter_heads(value_states, seq_dim=1, head_dim=2)
+
+        # TODO: all_gather position_ids because `prepare_fa2_from_position_ids` needs it, we can eliminate
+        # this all_gather by passing cu_seq_lens_q, cu_seq_lens_k, max_length_k, max_length_q explicitly.
+        # https://github.com/huggingface/transformers/pull/33932
+
+        # (bsz, seq_len/n) -> (bsz, seq_len)
+        position_ids_list = [torch.empty_like(position_ids) for _ in range(ulysses_sp_size)]
+        torch.distributed.all_gather(position_ids_list, position_ids, group=get_ulysses_sequence_parallel_group())
+        position_ids = torch.concat(position_ids_list, dim=-1)
+
+    # (bsz, seq_len, n_head/n, head_dim)
+    query_length = query_states.size(1)
+    attn_output = _flash_attention_forward(
+        query_states, key_states, value_states, attention_mask, query_length, *args, position_ids=position_ids, **kwargs
+    )
+
+    ########## AlltoAll for Ulysses ##########
+    if ulysses_sp_size > 1:
+        # (bsz, seq_len, n_head/n, head_dim) -> (bsz, seq_len/n, n_head, head_dim)
+        attn_output = gather_heads_scatter_seq(attn_output, seq_dim=1, head_dim=2)
+
+    return attn_output
+
+
 def patch_vlm_for_ulysses_input_slicing(model_class: type):
     """
     Applies a monkey patch to the forward method of a given model class
@@ -304,11 +363,17 @@ def apply_monkey_patch(
             module._flash_attention_forward = _ulysses_flash_attention_forward
             print(f"Monkey patch _flash_attention_forward in {model.__module__}")
         else:
-            # transformers>=4.48.0
-            from transformers.integrations import flash_attention
+            if is_transformers_version_in_range(min_version="4.55.0"):
+                from transformers.integrations import flash_attention
 
-            flash_attention._flash_attention_forward = _ulysses_flash_attention_forward
-            print(f"Monkey patch _flash_attention_forward in {flash_attention.__name__}")
+                flash_attention._flash_attention_forward = _ulysses_flash_attention_forward_transformers_4_55
+                print(f"Monkey patch _flash_attention_forward in {model.__module__} for new api")
+            else:
+                # 4.48.0 <= transformers <= 4.54.1, Vision attention
+                from transformers.integrations import flash_attention
+
+                flash_attention._flash_attention_forward = _ulysses_flash_attention_forward
+                print(f"Monkey patch _flash_attention_forward in {flash_attention.__name__}")
 
     patch_forward_with_backends(model, use_fused_kernels=use_fused_kernels, fused_kernels_backend=fused_kernels_backend)
 

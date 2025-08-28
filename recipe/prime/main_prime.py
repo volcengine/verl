@@ -33,6 +33,9 @@ import hydra
 import ray
 from omegaconf import OmegaConf
 
+from verl.trainer.ppo.utils import need_reference_policy
+from verl.utils.config import validate_config
+
 from .prime_ray_trainer import RayPRIMETrainer
 
 
@@ -66,14 +69,6 @@ def main_task(config, compute_score=None):
 
     pprint(OmegaConf.to_container(config, resolve=True))  # resolve=True will eval symbol values
     OmegaConf.resolve(config)
-
-    # download the checkpoint from hdfs
-    local_path = copy_local_path_from_hdfs(config.actor_rollout_ref.model.path)
-
-    # instantiate tokenizer
-    from verl.utils import hf_tokenizer
-
-    tokenizer = hf_tokenizer(local_path)
 
     # define worker classes
     if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
@@ -118,6 +113,21 @@ def main_task(config, compute_score=None):
         role_worker_mapping[Role.RewardModel] = ray.remote(PRIMERewardModelWorker)
         mapping[Role.RewardModel] = global_pool_id
 
+    # validate config
+    # TODO: Additional config checks can be added with proper function under prime recipe
+    validate_config(
+        config=config,
+        use_reference_policy=need_reference_policy(role_worker_mapping),
+        use_critic=False,
+    )
+
+    # download the checkpoint from hdfs
+    local_path = copy_local_path_from_hdfs(config.actor_rollout_ref.model.path)
+
+    # instantiate tokenizer
+    from verl.utils import hf_tokenizer
+
+    tokenizer = hf_tokenizer(local_path)
     reward_manager_name = config.reward_model.get("reward_manager", "naive")
     if reward_manager_name == "naive":
         from verl.workers.reward_manager import NaiveRewardManager

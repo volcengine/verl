@@ -68,6 +68,7 @@ from verl.workers.rollout.schemas import (
     FinishReasonTypeEnum,
     Message,
 )
+from verl.workers.rollout.sglang_rollout.http_server_engine import AsyncHttpServerAdapter
 from verl.workers.rollout.sglang_rollout.utils import broadcast_pyobj
 
 try:
@@ -445,40 +446,58 @@ class SGLangRollout(BaseRollout):
         attention_backend = engine_kwargs.pop("attention_backend", None)
         max_running_requests = self.config.get("max_num_seqs", None)
 
-        if first_rank_in_node:
+        try:
+            is_server_mode = self.config.sglang_rollout_mode == "server"
+        except Exception:
+            is_server_mode = False
+        effective_first = first_rank_in_node or is_server_mode
+
+        if effective_first:
             rank = dist.get_rank()
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
-            self._engine = AsyncEngine(
-                model_path=actor_module,
-                dtype=self.config.dtype,
-                mem_fraction_static=self.config.gpu_memory_utilization,
-                enable_memory_saver=True,
-                base_gpu_id=0,
-                gpu_id_step=1,
-                tp_size=self._tp_size,
-                node_rank=node_rank,
-                load_format=load_format,
-                dist_init_addr=dist_init_addr,
-                nnodes=nnodes,
-                max_running_requests=max_running_requests,
-                trust_remote_code=trust_remote_code,
+            args = {
+                "model_path": actor_module,
+                "dtype": self.config.dtype,
+                "mem_fraction_static": self.config.gpu_memory_utilization,
+                "enable_memory_saver": True,
+                "base_gpu_id": 0,
+                "gpu_id_step": 1,
+                "tp_size": self._tp_size,
+                "node_rank": node_rank,
+                "load_format": load_format,
+                "dist_init_addr": dist_init_addr,
+                "nnodes": nnodes,
+                "trust_remote_code": trust_remote_code,
+                "max_running_requests": max_running_requests,
                 # NOTE(linjunrong): add rank to prevent SGLang generate same port inside PortArgs.init_new
                 # when random.seed is being set during training
-                port=30000 + rank,
-                # NOTE(Chenyang): turn on log_level to see the decoding speed of SGLang Engine
-                # log_level="INFO"
-                # NOTE(Chenyang): turn the following lines to see the input and output of each request
+                "port": 30000 + rank,
+                # NOTE(Chenyang): if you want to debug the SGLang engine output
+                # please set the following parameters
+                # Otherwise, it will make the engine run too slow
+                "log_level": "info",
+                # "log_level": "error",
                 # log_requests=True,
                 # log_requests_level=2,
                 # NOTE(Chenyang): turn on max_running_requests to set the max concurrent running requests
                 # max_running_requests=1,
-                mm_attention_backend="fa3",
-                attention_backend=attention_backend if attention_backend is not None else "fa3",
-                # In async mode for AgentLoop, SGLang support token in token out to avoid the tokenizer
-                # inconsistency issue.
-                skip_tokenizer_init=self.config.mode == "async",
-                **engine_kwargs,
-            )
+                "mm_attention_backend": "fa3",
+                "attention_backend": attention_backend if attention_backend is not None else "fa3",
+                # In async mode, we want token in token out.
+                "skip_tokenizer_init": self.config.mode == "async",
+            }
+
+            if is_server_mode:
+                # add server specific args
+                args["first_rank_in_node"] = first_rank_in_node
+                args["timeout"] = self.config.server["timeout"]
+                args["max_attempts"] = self.config.server["max_attempts"]
+                args["retry_delay"] = self.config.server["retry_delay"]
+                args["max_connections"] = self.config.server["max_connections"]
+                args["max_start_wait_time"] = self.config.server["max_start_wait_time"]
+                self._engine = AsyncHttpServerAdapter(**args)
+            else:
+                self._engine = AsyncEngine(**args)
         else:
             self._engine = None
 
@@ -860,7 +879,7 @@ class SGLangRollout(BaseRollout):
                             self._tool_map[tool_call.function.name].execute(
                                 _req.request_id,
                                 tool_call.function.arguments,
-                                **_req.tools_kwargs[tool_call.function.name].get("execute_kwargs", {}),
+                                **_req.tools_kwargs.get(tool_call.function.name, {}).get("execute_kwargs", {}),
                             )
                             for tool_call in parsed_tool_calls
                         ]
