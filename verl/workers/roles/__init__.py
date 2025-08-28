@@ -14,6 +14,5 @@
 
 from .actor import ActorWorker
 from .critic import CriticWorker
-from .actor import ActorWorker
 
 __all__ = ["CriticWorker", "ActorWorker"]
