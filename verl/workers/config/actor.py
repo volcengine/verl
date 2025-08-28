@@ -118,8 +118,8 @@ class ActorConfig(BaseConfig):
     profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
     engine: BaseConfig = field(default_factory=BaseConfig)
     data_loader_seed = 1
-    n: int = MISSING  # must be override by sampling config
-    model_config: HFModelConfig = field(default_factory=HFModelConfig)
+    n: int = 1  # must be override by sampling config
+    model_config: HFModelConfig = field(default_factory=BaseConfig)
 
     def __post_init__(self):
         """Validate actor configuration parameters."""

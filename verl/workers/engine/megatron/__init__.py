@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .engine_impl import MegatronEngine, MegatronEngineForCausalLM
+from .engine_impl import MegatronEngine, MegatronEngineWithLMHead
 
-__all__ = ["MegatronEngine", "MegatronEngineForCausalLM"]
-
-
+__all__ = ["MegatronEngine", "MegatronEngineWithLMHead"]

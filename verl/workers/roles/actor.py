@@ -14,9 +14,8 @@
 
 import logging
 import os
-from typing import Iterable
-
 from functools import partial
+from typing import Iterable
 
 import psutil
 from codetiming import Timer
@@ -24,7 +23,6 @@ from codetiming import Timer
 from verl import DataProto
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
-
 from verl.utils.device import (
     get_device_id,
     get_device_name,
@@ -35,14 +33,12 @@ from verl.utils.flops_counter import FlopsCounter
 from verl.utils.profiler import DistProfiler, DistProfilerExtension
 from verl.utils.py_functional import append_to_dict
 from verl.workers.config import ActorConfig
-
-from .losses import ppo_loss
+from verl.workers.roles.utils.losses import ppo_loss
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 device_name = get_device_name()
-
 
 
 class ActorWorker(Worker, DistProfilerExtension):
@@ -83,9 +79,9 @@ class ActorWorker(Worker, DistProfilerExtension):
         if self.config.strategy == "megatron":
             from megatron.core import parallel_state as mpu
 
-            from verl.workers.engine.megatron.engine_impl import MegatronEngineForCausalLM
+            from verl.workers.engine.megatron.engine_impl import MegatronEngineWithLMHead
 
-            self.engine = MegatronEngineForCausalLM(
+            self.engine = MegatronEngineWithLMHead(
                 model_config=model_config,
                 engine_config=engine_config,
                 optimizer_config=optimizer_config,
@@ -133,10 +129,13 @@ class ActorWorker(Worker, DistProfilerExtension):
 
         with self.engine.eval_mode():
             output = self.engine.infer_batch(data)
-        output = DataProto.from_dict(
-            tensors={"old_log_probs": output["log_probs"], "entropy": output["entropy"]},
-        )
-        output = output.to("cpu")
+
+        if "log_probs" in output and "entropy" in output:
+            # in megatron, only last pp contains valid data and returned to the single controller
+            output = DataProto.from_dict(
+                tensors={"old_log_probs": output["log_probs"].float(), "entropy": output["entropy"].float()},
+            )
+            output = output.to("cpu")
 
         return output
 
