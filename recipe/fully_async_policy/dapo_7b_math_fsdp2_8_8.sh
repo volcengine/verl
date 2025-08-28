@@ -65,12 +65,12 @@ gen_tp=1
 sp_size=1
 fsdp_size=2
 
-NNODES=${NNODES:-2}
+NNODES=${NNODES:-1}
 NGPUS_PER_NODE=${NGPUS_PER_NODE:-8}
 
 # Fully async specific parameters
-n_gpus_rollout=4
-n_gpus_training=$((NGPUS_PER_NODE - n_gpus_rollout))
+n_gpus_rollout=8
+n_gpus_training=8
 
 train_prompt_bsz=0
 gen_prompt_bsz=1
