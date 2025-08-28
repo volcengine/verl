@@ -43,7 +43,6 @@ from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.config import AlgoConfig
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import AdvantageEstimator, agg_loss
-from verl.trainer.ppo.dynamic_filtering import DynamicFilterManager
 from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
     compute_reward_metrics,
@@ -61,7 +60,7 @@ from verl.utils.rollout_skip import RolloutSkip
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import Tracking, ValidationGenerationsLogger
-
+from verl.utils.filtering.dynamic_filtering import DynamicFilterManager
 
 @dataclass
 class ResourcePoolManager:
