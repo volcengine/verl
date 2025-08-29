@@ -15,6 +15,7 @@
 The main entry point to run the PPO algorithm
 """
 
+import asyncio
 import copy
 import datetime
 import logging
@@ -41,7 +42,13 @@ from verl.single_controller.base.decorator import Dispatch, make_nd_compute_data
 from verl.utils import hf_tokenizer
 from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpointManager
 from verl.utils.config import omega_conf_to_dataclass
-from verl.utils.device import get_device_id, get_device_name, get_nccl_backend, get_torch_device
+from verl.utils.device import (
+    get_device_id,
+    get_device_name,
+    get_nccl_backend,
+    get_torch_device,
+    set_expandable_segments,
+)
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local
 from verl.utils.megatron_utils import (
@@ -49,6 +56,7 @@ from verl.utils.megatron_utils import (
     load_megatron_optimizer,
     offload_megatron_model_to_cpu,
     offload_megatron_optimizer,
+    per_tensor_generator,
 )
 from verl.utils.memory_utils import aggressive_empty_cache
 from verl.utils.model import get_hf_model_path, load_mcore_dist_weights, load_megatron_gptmodel_weights
@@ -65,7 +73,7 @@ from verl.workers.actor.megatron_actor import MegatronPPOActor
 from verl.workers.config import HFModelConfig, McoreCriticConfig, RolloutConfig
 from verl.workers.critic.megatron_critic import MegatronPPOCritic
 from verl.workers.reward_model.megatron.reward_model import MegatronRewardModel
-from verl.workers.rollout.rollout_worker import RolloutWorker
+from verl.workers.rollout import get_rollout_class
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -378,13 +386,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
     def _build_rollout(self, trust_remote_code=False):
         from torch.distributed.device_mesh import init_device_mesh
 
-        layer_name_mapping = {
-            "qkv_layer_name": "self_attention.linear_qkv.",
-            "gate_proj_layer_name": "linear_fc1.",
-        }
-
-        rollout_name = self.config.rollout.name
-
+        # 1. parse rollout and huggingface model config
         rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
 
         # (vermouth1992). self.config.model in megatron differs from that of fsdp in the override_config.
@@ -396,6 +398,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         model_config: HFModelConfig = omega_conf_to_dataclass(omega_model_config, dataclass_type=HFModelConfig)
 
+        # 2. build rollout device mesh
         infer_tp = self.config.rollout.tensor_model_parallel_size
         dp = self.world_size // infer_tp
         assert self.world_size % infer_tp == 0, (
@@ -405,67 +408,40 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             get_device_name(), mesh_shape=(dp, infer_tp), mesh_dim_names=["dp", "infer_tp"]
         )
 
-        # build rollout worker inside hybrid engine
-        log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=logger)
-        rollout_worker = RolloutWorker(config=rollout_config, model_config=model_config)
-        log_gpu_memory_usage(f"After building {rollout_name} rollout", logger=logger)
-
         is_collect = rollout_device_mesh["infer_tp"].get_local_rank() == 0
         self._register_dispatch_collect_info(
             "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
         )
 
+        # 3. init trainer and rollout random states
+        self.torch_random_states = get_torch_device().get_rng_state()
+        gen_dp_rank = rollout_device_mesh["dp"].get_local_rank()
+        get_torch_device().manual_seed(gen_dp_rank + 1000)  # make sure all tp ranks have the same random states
+        self.gen_random_states = get_torch_device().get_rng_state()
+        get_torch_device().set_rng_state(self.torch_random_states)
+
+        # 4. build rollout model
+        log_gpu_memory_usage(f"Before building {self.config.rollout.name} rollout", logger=logger)
+        self.rollout = get_rollout_class(rollout_config.name, rollout_config.mode)(
+            config=rollout_config, model_config=model_config, device_mesh=rollout_device_mesh
+        )
+        log_gpu_memory_usage(f"After building {self.config.rollout.name} rollout", logger=logger)
+
         from verl.models.mcore import get_mcore_weight_converter
 
-        weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
+        self.layer_name_mapping = {
+            "qkv_layer_name": "self_attention.linear_qkv.",
+            "gate_proj_layer_name": "linear_fc1.",
+        }
+        self.weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
 
-        if self.config.rollout.name == "vllm":
-            # perform weight resharding between actor and rollout
-
-            from verl.workers.sharding_manager.megatron_vllm import MegatronVLLMShardingManager
-
-            sharding_manager = MegatronVLLMShardingManager(
-                inference_engine=rollout_worker.rollout.inference_engine,
-                model_config=self.actor_model_config,
-                transformer_config=self.tf_config,
-                rollout_config=self.config.rollout,
-                layer_name_mapping=layer_name_mapping,
-                actor_module=self.actor.actor_module,
-                weight_converter=weight_converter,
-                device_mesh=rollout_device_mesh,
-                offload_param=self._is_offload_param,
-                bridge=self.bridge,
-            )
-            log_gpu_memory_usage("After building sharding manager", logger=logger)
-
-        elif self.config.rollout.name == "sglang":
-            # NOTE(linjunrong): Due to recent fp8 support in SGLang. Now importing any symbol relate to SGLang's
-            # model_runner would check CUDA device capability.
-            # However, due to verl's setting, the main process of ray can not find any CUDA device, which would
-            # potentially lead to: "RuntimeError: No CUDA GPUs are available".
-            # For this reason, sharding_manager.__init__ should not import FSDPSGLangShardingManager and we import it
-            # here use the abs path.
-            # check: https://github.com/sgl-project/sglang/blob/00f42707eaddfc2c0528e5b1e0094025c640b7a0/python/sglang/srt/layers/quantization/fp8_utils.py#L76
-            from verl.workers.sharding_manager.megatron_sglang import MegatronSGLangShardingManager
-
-            weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
-            sharding_manager = MegatronSGLangShardingManager(
-                actor_module=self.actor.actor_module,
-                inference_engine=rollout_worker.rollout._engine,
-                model_config=self.actor_model_config,
-                rollout_config=self.config.rollout,
-                transformer_config=self.tf_config,
-                layer_name_mapping=layer_name_mapping,
-                weight_converter=weight_converter,
-                bridge=self.bridge,
-                device_mesh=rollout_device_mesh,
-                offload_param=self._is_offload_param,
-            )
-            log_gpu_memory_usage("After building sharding manager", logger=logger)
-        else:
-            raise NotImplementedError("Only vllmRollout is supported with Megatron now")
-        print(f"rollout and sharding manager init done sharding_manager: {sharding_manager}")
-        return rollout_worker, sharding_manager
+        # 5. switch to trainer mode
+        # NOTE: It's critical that hybrid engine in trainer mode initially to load checkpoint.
+        # For sync mode, we directly switch to trainer mode here.
+        # For async mode, we can't call run_until_complete here, so we will switch to trainer mode in AgentLoopManager.
+        if rollout_config.mode == "sync":
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(self.trainer_mode())
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
@@ -530,11 +506,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             log_gpu_memory_usage("After MegatronPPOActor init", logger=logger)
 
         if self._is_rollout:
-            self.rollout, self.sharding_manager = self._build_rollout(
-                trust_remote_code=self.config.model.get("trust_remote_code", False)
-            )
-            # used for sleep/wake_up
-            self.rollout.sharding_manager = self.sharding_manager
+            self._build_rollout(trust_remote_code=self.config.model.get("trust_remote_code", False))
             log_gpu_memory_usage("After rollout init", logger=logger)
 
         if self._is_ref:
@@ -580,6 +552,54 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             )
         get_torch_device().empty_cache()
         log_gpu_memory_usage("After init_model finish", logger=logger)
+
+    async def rollout_mode(self):
+        """Context switch hybridengine to rollout mode."""
+        aggressive_empty_cache(force_sync=True)
+
+        if self._is_offload_param:
+            load_megatron_model_to_gpu(self.actor.actor_module, load_grad=False)
+        if self.bridge is not None:
+            per_tensor_param = self.bridge.export_weights(self.actor.actor_module)
+        else:
+            per_tensor_param = per_tensor_generator(
+                self.actor.actor_module,
+                self.actor_model_config,
+                self.weight_converter,
+                self.tf_config,
+                self.layer_name_mapping,
+            )
+
+        set_expandable_segments(False)
+
+        await self.rollout.resume(tags=["weights"])
+        await self.rollout.update_weights(per_tensor_param)
+        if self._is_offload_param:
+            offload_megatron_model_to_cpu(self.actor.actor_module)
+        aggressive_empty_cache(force_sync=True)
+        await self.rollout.resume(tags=["kv_cache"])
+
+        # important: need to manually set the random states of each tp to be identical.
+        self.torch_random_states = get_torch_device().get_rng_state()
+        get_torch_device().set_rng_state(self.gen_random_states)
+
+    async def trainer_mode(self):
+        """Context switch hybridengine to trainer mode."""
+        if self.config.rollout.free_cache_engine:
+            log_gpu_memory_usage("Before rollout offload", logger=logger)
+            await self.rollout.release()
+            log_gpu_memory_usage("After rollout offload", logger=logger)
+
+        for model in self.actor.actor_module:
+            model.train()
+        # add empty cache after each compute
+        aggressive_empty_cache(force_sync=True)
+
+        set_expandable_segments(True)
+
+        # restore random states
+        self.gen_random_states = get_torch_device().get_rng_state()
+        get_torch_device().set_rng_state(self.torch_random_states)
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @GPUMemoryLogger(role="update_actor", logger=logger)
@@ -643,13 +663,16 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             offload_megatron_optimizer(self.actor_optimizer)
 
         timing_generate = {}
-        with self.sharding_manager:
-            log_gpu_memory_usage("After entering sharding manager", logger=logger)
-            with simple_timer("generate_sequences", timing_generate):
-                output = self.rollout.generate_sequences(prompts=prompts)
-            log_gpu_memory_usage("After rollout generation", logger=logger)
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(self.rollout_mode())
+        log_gpu_memory_usage("After switch to rollout mode", logger=logger)
 
-        timing_generate.update(self.sharding_manager.timing)
+        with simple_timer("generate_sequences", timing_generate):
+            output = self.rollout.generate_sequences(prompts=prompts)
+
+        loop.run_until_complete(self.trainer_mode())
+        log_gpu_memory_usage("After switch to trainer mode", logger=logger)
+
         # We calculate the average timing across all ranks
         # to make sure meta_info["timing"] is the same
         timing_generate_topk_ratio, timing_generate_min, timing_generate_max = topk_reduce_ratio_min_max(
@@ -746,26 +769,17 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
 
 class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
-    def _build_rollout(self, trust_remote_code=False):
-        rollout_worker, rollout_sharding_manager = super()._build_rollout(trust_remote_code)
-
-        # NOTE: rollout is not actually initialized here, it's deferred
-        # to be initialized by AsyncvLLMServer.
-
-        self.vllm_tp_size = self.config.rollout.tensor_model_parallel_size
-        self.vllm_dp_rank = int(os.environ["RANK"]) // self.vllm_tp_size
-        self.vllm_tp_rank = int(os.environ["RANK"]) % self.vllm_tp_size
-
-        # used for sleep/wake_up
-        rollout_worker.rollout.sharding_manager = rollout_sharding_manager
-
-        return rollout_worker, rollout_sharding_manager
-
-    # ============================ vLLM related ============================
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
+    async def wake_up(self):
+        await self.rollout_mode()
+        return True
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    def execute_method(self, method: str | bytes, *args, **kwargs):
-        return self.rollout.execute_method(method, *args, **kwargs)
+    async def sleep(self):
+        await self.trainer_mode()
+        return True
+
+    # ============================ vLLM related ============================
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     def get_zeromq_address(self):
@@ -788,17 +802,6 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
     ) -> list[int]:
         ret = await self.rollout.generate(prompt_ids, sampling_params, request_id, image_data=image_data)
         return ret
-
-    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    async def wake_up(self):
-        await self.rollout.wake_up()
-        return True
-
-    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    async def sleep(self):
-        await self.rollout.sleep()
-        # return something to block the caller
-        return True
 
 
 class CriticWorker(MegatronWorker, DistProfilerExtension):

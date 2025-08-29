@@ -34,7 +34,7 @@ import pickle
 import socket
 from contextlib import contextmanager
 from types import MethodType
-from typing import Any
+from typing import Any, Generator
 
 import numpy as np
 import ray
@@ -43,21 +43,21 @@ import torch.distributed
 import zmq
 import zmq.asyncio
 from filelock import FileLock
-from omegaconf import DictConfig, ListConfig
+from omegaconf import ListConfig
 from tensordict import TensorDict
+from torch.distributed.device_mesh import DeviceMesh
 from vllm import LLM, SamplingParams
 from vllm.config import CompilationConfig, CompilationLevel
-from vllm.distributed import parallel_state as vllm_ps
 from vllm.lora.request import LoRARequest
 from vllm.model_executor.sampling_metadata import SamplingMetadata
 from vllm.worker.worker_base import WorkerWrapperBase
 
 from verl import DataProto
-from verl.third_party.vllm import VLLM_SLEEP_LEVEL
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.ray_utils import ray_noset_visible_devices
 from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
-from verl.workers.config import RolloutConfig
+from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
+from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
 
 logger = logging.getLogger(__file__)
@@ -80,32 +80,29 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> list[in
 
 
 class vLLMRollout(BaseRollout):
-    def __init__(self, model_path: str, config: RolloutConfig, tokenizer, model_hf_config, **kwargs):
-        """A vLLM rollout. It requires the module is supported by the vllm.
+    def __init__(
+        self,
+        config: RolloutConfig,
+        model_config: HFModelConfig,
+        device_mesh: DeviceMesh,
+    ):
+        super().__init__(config, model_config, device_mesh)
 
-        Args:
-            module: module here follows huggingface APIs
-            config: DictConfig
-            tokenizer: the task/model tokenizer
-            model_hf_config: the huggingface config to initiallize the generating model in vllm
-            **kwargs: train_tp, for Megatron Backend to initialize hybrid engine (zero redundancy) process group
-        """
-        super().__init__()
-        self.config = config
+        model_path = model_config.local_path
+        tokenizer = model_config.tokenizer
+        model_hf_config = model_config.hf_config
+        trust_remote_code = model_config.trust_remote_code
+        self.lora_kwargs = (
+            {"lora_kwargs": {"enable_lora": True, "max_loras": 1, "max_lora_rank": model_config.lora_rank}}
+            if model_config.lora_rank > 0
+            else {}
+        )
 
         tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
         assert tensor_parallel_size <= torch.distributed.get_world_size(), (
             "tensor parallel size should be less than or equal to the world size"
         )
         max_num_batched_tokens = self.config.get("max_num_batched_tokens", 8192)
-
-        if kwargs.get("train_tp") is not None:
-            # deployed with megatron
-            import os
-
-            os.environ["CUDA_TIMER_STREAM_KAFKA_ENABLE"] = "0"
-            os.environ["MEGATRON_IMPORT_TIMERS"] = "0"
-            vllm_ps.initialize_model_parallel(tensor_model_parallel_size=tensor_parallel_size)
 
         rope_scaling_config = getattr(model_hf_config, "rope_scaling", None)
         if not rope_scaling_config:
@@ -148,11 +145,8 @@ class vLLMRollout(BaseRollout):
                              please increase max_num_batched_tokens or disable chunked prefill"
             )
 
-        trust_remote_code = kwargs.get("trust_remote_code", False)
         load_format = "dummy" if config.load_format.startswith("dummy") else config.load_format
 
-        lora_kwargs = kwargs.pop("lora_kwargs", {})
-        self.lora_kwargs = lora_kwargs
         # copy it to avoid secretly modifying the engine config
         engine_kwargs = config.get("engine_kwargs", {}).get("vllm", {}) or {}
 
@@ -196,13 +190,9 @@ class vLLMRollout(BaseRollout):
             trust_remote_code=trust_remote_code,
             seed=config.get("seed", 0),
             **compilation_config,
-            **lora_kwargs,
+            **self.lora_kwargs,
             **engine_kwargs,
         )
-
-        # Offload vllm model to reduce peak memory usage
-        if config.free_cache_engine:
-            self.inference_engine.sleep(level=VLLM_SLEEP_LEVEL)
 
         kwargs = dict(
             n=1,
@@ -398,6 +388,29 @@ class vLLMRollout(BaseRollout):
 
         return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
 
+    async def resume(self, tags: list[str]):
+        """Resume rollout weights or kv cache in GPU memory.
+
+        Args:
+            tags: weights or kv_cache.
+        """
+        self.inference_engine.wake_up(tags=tags)
+
+    async def release(self):
+        """Release weights and kv cache in GPU memory."""
+        self.inference_engine.reset_prefix_cache()
+        self.inference_engine.sleep(level=2)
+
+    async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None]):
+        """Update the weights of the rollout model.
+
+        Args:
+            weights: A generator that yields the name of the weight tensor and the tensor itself.
+        """
+        model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
+        patch_vllm_moe_model_weight_loader(model)
+        model.load_weights(weights)
+
 
 # https://github.com/vllm-project/vllm/issues/13175
 def _monkey_patch_compute_logits(model, vocab_size: int):
@@ -415,19 +428,19 @@ def _monkey_patch_compute_logits(model, vocab_size: int):
     model.compute_logits = MethodType(compute_logits, model)
 
 
-class vLLMAsyncRollout:
-    """vLLMAsyncRollout is a thin wrapper of WorkerWrapperBase,
-    which is engine in single worker process.
-    """
+class vLLMAsyncRollout(BaseRollout):
+    """vLLMAsyncRollout is a thin wrapper of WorkerWrapperBase, which is engine in single worker process."""
 
-    def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_config, **kwargs):
-        self.tokenizer = tokenizer
+    def __init__(
+        self,
+        config: RolloutConfig,
+        model_config: HFModelConfig,
+        device_mesh: DeviceMesh,
+    ):
+        super().__init__(config, model_config, device_mesh)
 
-        # Engine is deferred to be initialized in init_worker
-        self.config = config
+        self.tokenizer = model_config.tokenizer
         self.inference_engine: WorkerWrapperBase = None
-        self.sharding_manager = None
-        self.is_sleep = False
         self.address = self._init_zeromq()
 
     def _init_zeromq(self) -> str:
@@ -463,10 +476,14 @@ class vLLMAsyncRollout:
 
     async def _loop_forever(self):
         while True:
-            message = await self.socket.recv()
-            method, args, kwargs = pickle.loads(message)
-            result = await self._execute_method(method, *args, **kwargs)
-            await self.socket.send(pickle.dumps(result))
+            try:
+                message = await self.socket.recv()
+                method, args, kwargs = pickle.loads(message)
+                result = await self._execute_method(method, *args, **kwargs)
+                await self.socket.send(pickle.dumps(result))
+            except Exception as e:
+                logger.exception(f"vLLMAsyncRollout _loop_forever error: {e}")
+                os._exit(-1)
 
     def _init_worker(self, all_kwargs: list[dict[str, Any]]):
         """Initialize worker engine."""
@@ -478,11 +495,6 @@ class vLLMAsyncRollout:
 
     def _load_model(self, *args, **kwargs):
         self.inference_engine.load_model(*args, **kwargs)
-
-        # inference engine is initialized now, update sharding manager
-        self.sharding_manager.inference_engine = self.inference_engine
-        self.sharding_manager.model_runner = self.inference_engine.worker.model_runner
-
         _monkey_patch_compute_logits(self.inference_engine.worker.model_runner.model, len(self.tokenizer))
 
     async def _execute_method(self, method: str | bytes, *args, **kwargs):
@@ -490,36 +502,38 @@ class vLLMAsyncRollout:
             return self._init_worker(*args, **kwargs)
         elif method == "load_model":
             return self._load_model(*args, **kwargs)
-        elif method == "sleep":
-            return await self.sleep(*args, **kwargs)
-        elif method == "wake_up":
-            return await self.wake_up(*args, **kwargs)
+        elif method == "sleep" or method == "wake_up":
+            raise ValueError("wake_up and sleep should not be called through ZeroMQ")
         else:
             return self.inference_engine.execute_method(method, *args, **kwargs)
+
+    async def resume(self, tags: list[str]):
+        """Resume rollout weights or kv cache in GPU memory.
+
+        Args:
+            tags: weights or kv_cache.
+        """
+        self.inference_engine.wake_up(tags=tags)
+
+    async def release(self):
+        """Release weights and kv cache in GPU memory."""
+        self.inference_engine.sleep(level=2)
+
+    async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None]):
+        """Update the weights of the rollout model.
+
+        Args:
+            weights: A generator that yields the name of the weight tensor and the tensor itself.
+        """
+        model = self.inference_engine.worker.model_runner.model
+        patch_vllm_moe_model_weight_loader(model)
+        model.load_weights(weights)
+
+    def generate_sequences(self, prompts: DataProto) -> DataProto:
+        """Batch generate sequences in sync mode."""
+        raise NotImplementedError
 
     # ==================== server mode public methods ====================
 
     def get_zeromq_address(self):
         return self.address
-
-    async def sleep(self, *args, **kwargs):
-        """Offload model weights and discard kv cache."""
-        if self.is_sleep:
-            return
-        self.sharding_manager.__exit__(None, None, None)
-        self.is_sleep = True
-
-    async def wake_up(self, *args, **kwargs):
-        """Load model weights and build kv cache."""
-        if not self.is_sleep:
-            return
-        self.sharding_manager.__enter__()  # pylint: disable=C2801
-        self.is_sleep = False
-
-    async def generate(self, *args, **kwargs):
-        """Generate sequence with token-in-token-out."""
-        raise NotImplementedError
-
-    async def chat_completion(self, json_request):
-        """OpenAI chat completion API."""
-        raise NotImplementedError

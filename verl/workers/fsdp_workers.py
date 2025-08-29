@@ -15,6 +15,7 @@
 The main entry point to run the PPO algorithm
 """
 
+import asyncio
 import datetime
 import json
 import logging
@@ -34,6 +35,13 @@ from peft import LoraConfig, TaskType, get_peft_model
 from safetensors.torch import save_file
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp.api import FullStateDictConfig, ShardedStateDictConfig, StateDictType
+
+try:
+    # for torch 2.5+
+    from torch.distributed.tensor import DTensor
+except ImportError:
+    from torch.distributed._tensor import DTensor
 
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
@@ -51,6 +59,7 @@ from verl.utils.device import (
     get_torch_device,
     is_cuda_available,
     is_npu_available,
+    set_expandable_segments,
 )
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local
@@ -71,12 +80,13 @@ from verl.utils.fsdp_utils import (
     offload_fsdp_optimizer,
 )
 from verl.utils.import_utils import import_external_libs
-from verl.utils.model import compute_position_id_with_mask
+from verl.utils.memory_utils import aggressive_empty_cache
+from verl.utils.model import compute_position_id_with_mask, convert_weight_keys
 from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerConfig, log_gpu_memory_usage, simple_timer
 from verl.utils.profiler.performance import reduce_timing, topk_reduce_ratio_min_max
 from verl.utils.py_functional import convert_to_regular_types
 from verl.workers.config import FSDPCriticConfig, FSDPEngineConfig, HFModelConfig, RolloutConfig
-from verl.workers.rollout.rollout_worker import RolloutWorker
+from verl.workers.rollout import get_rollout_class
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 logger = logging.getLogger(__file__)
@@ -517,7 +527,12 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     def _build_rollout(self, trust_remote_code=False):
         from torch.distributed.device_mesh import init_device_mesh
 
-        # TODO(sgm): support FSDP hybrid shard for larger model
+        # 1. parse rollout and huggingface model config
+        rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
+        model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model, dataclass_type=HFModelConfig)
+        self.model_config = model_config
+
+        # 2. build rollout device mesh
         infer_tp = self.config.rollout.tensor_model_parallel_size
         dp = self.world_size // infer_tp
         assert self.world_size % infer_tp == 0, (
@@ -536,59 +551,99 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
             )
 
-        rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
-        model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model, dataclass_type=HFModelConfig)
+        # 3. init trainer and rollout random states
+        self.torch_random_states = get_torch_device().get_rng_state()
+        gen_dp_rank = rollout_device_mesh["dp"].get_local_rank()
+        get_torch_device().manual_seed(gen_dp_rank + 1000)  # make sure all tp ranks have the same random states
+        self.gen_random_states = get_torch_device().get_rng_state()
+        get_torch_device().set_rng_state(self.torch_random_states)
 
-        # build rollout worker inside hybrid engine
-        log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=logger)
-        rollout_worker = RolloutWorker(config=rollout_config, model_config=model_config)
-        log_gpu_memory_usage(f"After building {rollout_name} rollout", logger=logger)
+        # 4. build rollout model
+        log_gpu_memory_usage(f"Before building {self.config.rollout.name} rollout", logger=logger)
+        self.rollout = get_rollout_class(rollout_config.name, rollout_config.mode)(
+            config=rollout_config, model_config=model_config, device_mesh=rollout_device_mesh
+        )
+        log_gpu_memory_usage(f"After building {self.config.rollout.name} rollout", logger=logger)
 
-        if rollout_name == "vllm":
-            from verl.workers.sharding_manager.fsdp_vllm import FSDPVLLMShardingManager
-
-            full_params = torch.distributed.get_world_size() == 1
-            rollout_sharding_manager = FSDPVLLMShardingManager(
-                module=self.actor_module_fsdp,
-                inference_engine=rollout_worker.rollout.inference_engine,
-                model_config=self.actor_model_config,
-                rollout_config=self.config.rollout,
-                full_params=full_params,
-                device_mesh=rollout_device_mesh,
-                offload_param=self._is_offload_param,
-                load_format=self.config.rollout.load_format,
-                layered_summon=self.config.rollout.get("layered_summon", False),
+        # Full params
+        if torch.distributed.get_world_size() == 1 and fsdp_version(self.actor_module_fsdp) == 1:
+            FSDP.set_state_dict_type(
+                self.actor_module_fsdp,
+                state_dict_type=StateDictType.FULL_STATE_DICT,
+                state_dict_config=FullStateDictConfig(),
             )
-            log_gpu_memory_usage("After building sharding manager", logger=logger)
-
-        elif rollout_name == "sglang":
-            # NOTE(linjunrong): Due to recent fp8 support in SGLang. Now importing any symbol relate to
-            # SGLang's model_runner would check CUDA device capability. However, due to verl's setting,
-            # the main process of ray can not find any CUDA device, which would potentially lead to:
-            # "RuntimeError: No CUDA GPUs are available".
-            # For this reason, sharding_manager.__init__ should not import FSDPSGLangShardingManager and
-            # we import it here use the abs path.
-            # check: https://github.com/sgl-project/sglang/blob/00f42707eaddfc2c0528e5b1e0094025c640b7a0/python/sglang/srt/layers/quantization/fp8_utils.py#L76
-            from verl.workers.sharding_manager.fsdp_sglang import FSDPSGLangShardingManager
-
-            if torch.distributed.get_world_size() == 1:
-                self.config.rollout.load_format = "dummy_hf"
-            rollout_sharding_manager = FSDPSGLangShardingManager(
-                module=self.actor_module_fsdp,
-                inference_engine=rollout_worker.rollout._engine,
-                model_config=self.actor_model_config,
-                rollout_config=self.config.rollout,
-                full_params="hf" in self.config.rollout.load_format,
-                device_mesh=rollout_device_mesh,
-                offload_param=self._is_offload_param,
-                multi_stage_wake_up=self.config.rollout.multi_stage_wake_up,
+        elif fsdp_version(self.actor_module_fsdp) == 1:
+            FSDP.set_state_dict_type(
+                self.actor_module_fsdp,
+                state_dict_type=StateDictType.SHARDED_STATE_DICT,
+                state_dict_config=ShardedStateDictConfig(),
             )
-            log_gpu_memory_usage("After building sharding manager", logger=logger)
 
-        else:
-            raise NotImplementedError(f"Rollout name: {self.config.rollout.name} is not supported")
+        # 5. switch to trainer mode
+        # NOTE: It's critical that hybrid engine in trainer mode initially to load checkpoint.
+        # For sync mode, we directly switch to trainer mode here.
+        # For async mode, we can't call run_until_complete here, so we will switch to trainer mode in AgentLoopManager.
+        if rollout_config.mode == "sync":
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(self.trainer_mode())
 
-        return rollout_worker, rollout_sharding_manager
+    async def rollout_mode(self):
+        """Context switch hybridengine to rollout mode."""
+        aggressive_empty_cache(force_sync=True)
+
+        log_gpu_memory_usage("Before load_fsdp_model_to_gpu", logger=logger)
+        if self._is_offload_param:
+            load_fsdp_model_to_gpu(self.actor_module_fsdp)
+        log_gpu_memory_usage("After load_fsdp_model_to_gpu", logger=logger)
+
+        # TODO(@wuxibin): support peft
+        params = self.actor_module_fsdp.state_dict()
+        params = convert_weight_keys(
+            params, getattr(self.actor_module_fsdp, "_fsdp_wrapped_module", self.actor_module_fsdp)
+        )
+
+        log_gpu_memory_usage("Before offload_fsdp_model_to_cpu", logger=logger)
+        if self._is_offload_param:
+            offload_fsdp_model_to_cpu(self.actor_module_fsdp)
+        log_gpu_memory_usage("After offload_fsdp_model_to_cpu", logger=logger)
+
+        set_expandable_segments(False)
+        device = get_device_id()  # used when fsdp2 set cpu_offload_policy
+        per_tensor_param = (
+            (name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param)
+            for name, param in params.items()
+        )
+
+        await self.rollout.resume(tags=["weights"])
+        log_gpu_memory_usage("After resume weights", logger=logger)
+        await self.rollout.update_weights(per_tensor_param)
+        log_gpu_memory_usage("After update_weights", logger=logger)
+        del params, per_tensor_param
+        aggressive_empty_cache(force_sync=True)
+        await self.rollout.resume(tags=["kv_cache"])
+        log_gpu_memory_usage("After resume kv_cache", logger=logger)
+
+        # important: need to manually set the random states of each tp to be identical.
+        self.torch_random_states = get_torch_device().get_rng_state()
+        get_torch_device().set_rng_state(self.gen_random_states)
+
+    async def trainer_mode(self):
+        """Context switch hybridengine to trainer mode."""
+        if self.config.rollout.free_cache_engine:
+            log_gpu_memory_usage("Before rollout offload", logger=logger)
+            await self.rollout.release()
+            log_gpu_memory_usage("After rollout offload", logger=logger)
+
+        self.actor_module_fsdp.train()
+
+        # add empty cache after each compute
+        aggressive_empty_cache(force_sync=True)
+
+        set_expandable_segments(True)
+
+        # restore random states
+        self.gen_random_states = get_torch_device().get_rng_state()
+        get_torch_device().set_rng_state(self.torch_random_states)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
@@ -650,9 +705,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             )
 
         if self._is_rollout:
-            self.rollout, self.rollout_sharding_manager = self._build_rollout(
-                trust_remote_code=self.config.model.get("trust_remote_code", False)
-            )
+            self._build_rollout(trust_remote_code=self.config.model.get("trust_remote_code", False))
 
         if self._is_ref:
             ref_model_path = self.config.model.path
@@ -750,20 +803,30 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     @DistProfiler.annotate(color="red", role="rollout_generate")
     def generate_sequences(self, prompts: DataProto):
         # Support all hardwares
+        assert self._is_rollout
         prompts = prompts.to(get_device_id())
 
-        assert self._is_rollout
+        meta_info = {
+            "eos_token_id": self.model_config.generation_config.eos_token_id
+            if self.model_config.generation_config is not None
+            else self.model_config.tokenizer.eos_token_id,
+            "pad_token_id": self.model_config.generation_config.pad_token_id
+            if self.model_config.generation_config is not None
+            else self.model_config.tokenizer.pad_token_id,
+        }
+        prompts.meta_info.update(meta_info)
 
         timing_generate = {}
-        with self.rollout_sharding_manager:
-            log_gpu_memory_usage("After entering rollout sharding manager", logger=logger)
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(self.rollout_mode())
+        log_gpu_memory_usage("After switch to rollout mode", logger=logger)
 
-            with simple_timer("generate_sequences", timing_generate):
-                output = self.rollout.generate_sequences(prompts=prompts)
+        with simple_timer("generate_sequences", timing_generate):
+            output = self.rollout.generate_sequences(prompts=prompts)
 
-            log_gpu_memory_usage("After rollout generation", logger=logger)
+        loop.run_until_complete(self.trainer_mode())
+        log_gpu_memory_usage("After switch to trainer mode", logger=logger)
 
-        timing_generate.update(self.rollout_sharding_manager.timing)
         # We calculate the average timing across all ranks
         # to make sure meta_info["timing"] is the same
         timing_generate_topk_ratio, timing_generate_min, timing_generate_max = topk_reduce_ratio_min_max(
@@ -1728,31 +1791,17 @@ class RewardModelWorker(Worker, DistProfilerExtension):
 
 # ================================= Async related workers =================================
 class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
-    def _build_rollout(self, trust_remote_code=False):
-        rollout_worker, rollout_sharding_manager = super()._build_rollout(trust_remote_code)
-
-        # NOTE: rollout is not actually initialized here, it's deferred
-        # to be initialized by AsyncvLLMServer.
-
-        self.vllm_tp_size = self.config.rollout.tensor_model_parallel_size
-        self.vllm_dp_rank = int(os.environ["RANK"]) // self.vllm_tp_size
-        self.vllm_tp_rank = int(os.environ["RANK"]) % self.vllm_tp_size
-
-        # used for sleep/wake_up
-        rollout_worker.rollout.sharding_manager = rollout_sharding_manager
-
-        return rollout_worker, rollout_sharding_manager
-
-    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    def generate_sequences(self, prompts: DataProto):
-        raise NotImplementedError("AsyncActorRolloutRefWorker does not support generate_sequences")
-
-    # ============================ vLLM related ============================
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
+    async def wake_up(self):
+        await self.rollout_mode()
+        return True
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    def execute_method(self, method: str | bytes, *args, **kwargs):
-        """Called by ExternalRayDistributedExecutor collective_rpc."""
-        return self.rollout.execute_method(method, *args, **kwargs)
+    async def sleep(self):
+        await self.trainer_mode()
+        return True
+
+    # ============================ vLLM related ============================
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     def get_zeromq_address(self):
@@ -1775,15 +1824,3 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
     ) -> list[int]:
         ret = await self.rollout.generate(prompt_ids, sampling_params, request_id, image_data=image_data)
         return ret
-
-    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    async def wake_up(self):
-        await self.rollout.wake_up()
-        # return something to block the caller
-        return True
-
-    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    async def sleep(self):
-        await self.rollout.sleep()
-        # return something to block the caller
-        return True
