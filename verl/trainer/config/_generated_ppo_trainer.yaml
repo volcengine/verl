@@ -399,7 +399,7 @@ algorithm:
   gamma: 1.0
   lam: 1.0
   adv_estimator: gae
-  dynamic_filter:
+  filter_groups:
     _target_: verl.trainer.config.FilterGroupsConfig
     enable: false
     metric: seq_reward

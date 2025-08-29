@@ -450,7 +450,7 @@ algorithm:
   pf_ppo:
     reweight_method: pow
     weight_pow: 2.0
-  dynamic_filter:
+  filter_groups:
     _target_: verl.trainer.config.FilterGroupsConfig
     enable: false
     metric: seq_reward
