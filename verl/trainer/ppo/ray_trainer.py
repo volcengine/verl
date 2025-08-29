@@ -356,8 +356,8 @@ class RayPPOTrainer:
 
         # initialize dynamic filter manager
         self.dynamic_filter_manager = None
-        if self.config.algorithm.filter_groups and self.config.algorithm.filter_groups.enable:
-            filter_config = self.config.algorithm.filter_groups
+        filter_config = self.config.algorithm.filter_groups
+        if filter_config and filter_config.enable:
 
             self.dynamic_filter_manager = DynamicFilterManager(
                 filter_function=filter_config.filter_function,
