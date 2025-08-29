@@ -166,7 +166,6 @@ class ToolAgentLoop(AgentLoopBase):
         response_ids = agent_data.prompt_ids[-len(agent_data.response_mask) :]
         prompt_ids = agent_data.prompt_ids[: len(agent_data.prompt_ids) - len(agent_data.response_mask)]
         multi_modal_data = {"image": agent_data.image_data} if agent_data.image_data is not None else {}
-
         output = AgentLoopOutput(
             prompt_ids=prompt_ids,
             response_ids=response_ids[: self.response_length],
@@ -177,8 +176,9 @@ class ToolAgentLoop(AgentLoopBase):
             else None,
             num_turns=agent_data.user_turns + agent_data.assistant_turns + 1,
             metrics=agent_data.metrics,
-            extra_fields={"turn_scores": agent_data.turn_scores},
+            extra_fields={},
         )
+        output.extra_fields.update({"turn_scores": agent_data.turn_scores})
         return output
 
     async def _handle_pending_state(self, agent_data: AgentData, sampling_params: dict[str, Any]) -> AgentState:
@@ -229,6 +229,10 @@ class ToolAgentLoop(AgentLoopBase):
 
         # Check termination conditions
         if len(agent_data.response_mask) >= self.response_length:
+            return AgentState.TERMINATED
+        if self.max_assistant_turns and agent_data.assistant_turns >= self.max_assistant_turns:
+            return AgentState.TERMINATED
+        if self.max_user_turns and agent_data.user_turns >= self.max_user_turns:
             return AgentState.TERMINATED
 
         # Extract tool calls
@@ -338,7 +342,8 @@ class ToolAgentLoop(AgentLoopBase):
                 lambda: self.tokenizer.apply_chat_template(add_messages, add_generation_prompt=True, tokenize=True),
             )
         response_ids = response_ids[len(self.system_prompt) :]
-
+        if len(agent_data.response_mask) + len(response_ids) >= self.response_length:
+            return AgentState.TERMINATED
         # Update prompt_ids and response_mask
         agent_data.prompt_ids += response_ids
         agent_data.response_mask += [0] * len(response_ids)
