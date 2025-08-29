@@ -433,48 +433,6 @@ class FSDPEngine(BaseEngine):
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
 
-    def _get_params(self):
-        params = self.module.state_dict()
-        from verl.utils.model import convert_weight_keys
-
-        params = convert_weight_keys(params, getattr(self.module, "_fsdp_wrapped_module", self.module))
-        return params
-
-    def send_params(self):
-        assert hasattr(self, "_weights_info") and self._weights_info is not None
-
-        params = self._get_params()
-        for key, shape, dtype in self._weights_info:
-            tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
-
-            assert key in params
-            origin_data = params[key]
-            if hasattr(origin_data, "full_tensor"):
-                origin_data = origin_data.full_tensor()
-            if torch.distributed.get_rank() == 0:
-                tensor.copy_(origin_data)
-            from ray.util.collective import collective
-
-            collective.broadcast(tensor, src_rank=0, group_name="actor_rollout")
-
-    def get_params_meta_info(self):
-        if hasattr(self, "_weights_info"):
-            return self._weights_info
-        if fsdp_version(self.module) == 1:
-            from torch.distributed.fsdp.api import ShardedStateDictConfig, StateDictType
-
-            FSDP.set_state_dict_type(
-                self.module,
-                state_dict_type=StateDictType.SHARDED_STATE_DICT,
-                state_dict_config=ShardedStateDictConfig(),
-            )
-        params = self._get_params()
-        ret = []
-        for key, tensor in params.items():
-            ret.append((key, tensor.size(), tensor.dtype))
-        self._weights_info = ret
-        return ret
-
     def train_mode(self):
         """
         Return a context manager that switches to training mode with FSDP-specific handling.
