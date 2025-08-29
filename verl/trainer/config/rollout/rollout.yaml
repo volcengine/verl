@@ -170,6 +170,9 @@ multi_turn:
   # Format of the multi-turn interaction. Options: hermes, llama3_json, ...
   format: hermes
 
+  # Number of repeat rollouts for each interaction
+  num_repeat_rollouts: null
+
 # support logging rollout prob for debugging purpose
 # "Truncated importance sampling" requires rollout log probs, set to True when turning on Truncated importance sampling
 calculate_log_probs: False 

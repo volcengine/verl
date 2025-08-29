@@ -14,9 +14,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
+import copy
 import logging
 import os
-import copy
 from typing import Any, Optional
 from uuid import uuid4
 
@@ -89,15 +90,15 @@ class CollabLLMInteraction(BaseInteraction):
     def __init__(self, config: dict):
         super().__init__(config)
         _config = copy.deepcopy(config)
-        
-        self.name = _config.pop("name") 
+
+        self.name = _config.pop("name")
         self.user_model = _config.pop("user_model")
 
         self.termination_signal = _config.pop("termination_signal", TERMINATION_SIGNAL)
         self.num_retries = _config.pop("num_retries", 3)
 
         self.user_model_kwargs = _config
-        
+
         self._instance_dict = {}
 
     async def start_interaction(
@@ -114,101 +115,104 @@ class CollabLLMInteraction(BaseInteraction):
         assert "single_turn_prompt" in kwargs, "single_turn_prompt is required in interaction_kwargs"
         return instance_id
 
-    
     async def generate_response(
         self, instance_id: str, messages: list[dict[str, Any]], **kwargs
     ) -> tuple[bool, str, float, dict]:
-
-        assert messages[-1]["role"] in ["system", "assistant"], \
+        assert messages[-1]["role"] in ["system", "assistant"], (
             "Last message input to the user model must be from system or assistant role"
+        )
 
         # Check if litellm is available, fallback to openai if not
         try:
             import litellm
+
             use_litellm = True
         except ImportError:
             # litellm not found, falling back to openai
-            import openai
             use_litellm = False
 
         chat_history = self._parse_messages(messages, strip_sys_prompt=True)
         prompt = USER_PROMPT_TEMPLATE.format(
-                task_desc=self.interaction_kwargs.get("task_desc", "general assistance task"),
-                single_turn_prompt=self.interaction_kwargs["single_turn_prompt"],
-                chat_history=chat_history,
-                termination_signal=self.termination_signal,
+            task_desc=self.interaction_kwargs.get("task_desc", "general assistance task"),
+            single_turn_prompt=self.interaction_kwargs["single_turn_prompt"],
+            chat_history=chat_history,
+            termination_signal=self.termination_signal,
         )
-        
+
         response = ""
-        for _ in range(self.num_retries):
-            if use_litellm:
+        for i in range(self.num_retries):
+            try:
                 full_response = (
-                    await litellm.acompletion(
-                        model=self.user_model,
-                        messages=[{"role": "user", "content": prompt}],
-                        **self.user_model_kwargs,
+                    (
+                        await litellm.acompletion(
+                            model=self.user_model,
+                            messages=[{"role": "user", "content": prompt}],
+                            **self.user_model_kwargs,
+                        )
                     )
-                ).choices[0].message.content
-            else:
-                client = openai.AsyncOpenAI()  # Assumes API key is set in environment
-                full_response = (
-                    await client.chat.completions.create(
-                        model=self.user_model,
-                        messages=[{"role": "user", "content": prompt}],
-                        **self.user_model_kwargs,
-                    )
-                ).choices[0].message.content
- 
+                    .choices[0]
+                    .message.content
+                )
+            except litellm.RateLimitError as e:
+                logger.warning(f"[CollabLLMInteraction] hit RateLimitError: {e}. Retrying...")
+                await asyncio.sleep(max(2**i, 60))
+                continue
+            except Exception as e:
+                logger.exception(f"An unexpected error occurred in CollabLLMAgentLoop: {e}")
+                continue
+
             try:
                 if isinstance(full_response, str):
                     full_response = extract_json(full_response)
             except Exception as e:
-                print(f"[CollabLLMInteraction] Error extracting JSON: {e}")
+                logger.warning(f"[CollabLLMInteraction] Error extracting JSON: {e}. Retrying...")
                 continue
 
             if isinstance(full_response, dict):
                 keys = full_response.keys()
-                if {'current_answer', 'thought', 'response'}.issubset(keys):
-                    response = full_response.pop('response').strip()
-                    break
+                if {"current_answer", "thought", "response"}.issubset(keys):
+                    response = full_response.pop("response")
+                    if isinstance(response, str):
+                        break
+                    else:
+                        logger.warning(
+                            f"[CollabLLMInteraction] got an invaild response {response} full_response {full_response}. Retrying..."
+                        )
+                        continue
                 else:
-                    print(f"[CollabLLMInteraction] Keys {keys} do not match expected keys. Retrying...")
+                    logger.warning(f"[CollabLLMInteraction] Keys {keys} do not match expected keys. Retrying...")
                     continue
 
         self._instance_dict[instance_id]["response"] = response
-        print(f"[CollabLLMInteraction] User: {response}")
+        logger.debug(f"[CollabLLMInteraction] User: {response}")
         should_terminate_sequence = self.termination_signal in response
         reward = 0.0
 
         return should_terminate_sequence, response, reward, {}
 
-
     async def finalize_interaction(self, instance_id: str, **kwargs) -> None:
         del self._instance_dict[instance_id]
 
-
     def _parse_messages(self, messages, strip_sys_prompt=True):
-        if messages is None: return ''
+        if messages is None:
+            return ""
 
         if strip_sys_prompt:
-            messages = [msg for msg in messages if msg['role'] != 'system']
-        
-        chat = "\n".join(
-            f"**{m['role'].capitalize()}**: {m['content']}" for m in messages
-        )
+            messages = [msg for msg in messages if msg["role"] != "system"]
+
+        chat = "\n".join(f"**{m['role'].capitalize()}**: {m['content']}" for m in messages)
 
         return chat
 
 
 def extract_json(s):
-
     def convert_value(value):
-        true_values = {'true': True, 'false': False, 'null': None}
+        true_values = {"true": True, "false": False, "null": None}
         value_lower = value.lower()
         if value_lower in true_values:
             return true_values[value_lower]
         try:
-            if '.' in value or 'e' in value.lower():
+            if "." in value or "e" in value.lower():
                 return float(value)
             else:
                 return int(value)
@@ -217,35 +221,35 @@ def extract_json(s):
 
     def parse_number(s, pos):
         start = pos
-        while pos < len(s) and s[pos] in '-+0123456789.eE':
-            pos +=1
+        while pos < len(s) and s[pos] in "-+0123456789.eE":
+            pos += 1
         num_str = s[start:pos]
         try:
-            if '.' in num_str or 'e' in num_str.lower():
+            if "." in num_str or "e" in num_str.lower():
                 return float(num_str), pos
             else:
                 return int(num_str), pos
         except ValueError:
-            raise ValueError(f'Invalid number at position {start}: {num_str}')
+            raise ValueError(f"Invalid number at position {start}: {num_str}")
 
     def skip_whitespace(s, pos):
-        while pos < len(s) and s[pos] in ' \t\n\r':
-            pos +=1
+        while pos < len(s) and s[pos] in " \t\n\r":
+            pos += 1
         return pos
 
     def parse_string(s, pos):
         quote_char = s[pos]
         assert quote_char in ('"', "'")
         pos += 1
-        result = ''
+        result = ""
         while pos < len(s):
             c = s[pos]
-            if c == '\\':
+            if c == "\\":
                 pos += 1
                 if pos >= len(s):
-                    raise ValueError('Invalid escape sequence')
+                    raise ValueError("Invalid escape sequence")
                 c = s[pos]
-                escape_sequences = {'n': '\n', 't': '\t', 'r': '\r', '\\': '\\', quote_char: quote_char}
+                escape_sequences = {"n": "\n", "t": "\t", "r": "\r", "\\": "\\", quote_char: quote_char}
                 result += escape_sequences.get(c, c)
             elif c == quote_char:
                 pos += 1
@@ -255,115 +259,115 @@ def extract_json(s):
             else:
                 result += c
             pos += 1
-        raise ValueError('Unterminated string')
-            
+        raise ValueError("Unterminated string")
+
     def parse_key(s, pos):
         pos = skip_whitespace(s, pos)
         if s[pos] in ('"', "'"):
             key, pos = parse_string(s, pos)
             return key, pos
         else:
-            raise ValueError(f'Expected string for key at position {pos}')
+            raise ValueError(f"Expected string for key at position {pos}")
 
     def parse_object(s, pos):
         obj = {}
-        assert s[pos] == '{'
-        pos +=1
+        assert s[pos] == "{"
+        pos += 1
         pos = skip_whitespace(s, pos)
-        while pos < len(s) and s[pos] != '}':
+        while pos < len(s) and s[pos] != "}":
             pos = skip_whitespace(s, pos)
             key, pos = parse_key(s, pos)
             pos = skip_whitespace(s, pos)
-            if pos >= len(s) or s[pos] != ':':
+            if pos >= len(s) or s[pos] != ":":
                 raise ValueError(f'Expected ":" at position {pos}')
-            pos +=1
+            pos += 1
             pos = skip_whitespace(s, pos)
             value, pos = parse_value(s, pos)
             obj[key] = value
             pos = skip_whitespace(s, pos)
-            if pos < len(s) and s[pos] == ',':
-                pos +=1
+            if pos < len(s) and s[pos] == ",":
+                pos += 1
                 pos = skip_whitespace(s, pos)
-            elif pos < len(s) and s[pos] == '}':
+            elif pos < len(s) and s[pos] == "}":
                 break
-            elif pos < len(s) and s[pos] != '}':
+            elif pos < len(s) and s[pos] != "}":
                 raise ValueError(f'Expected "," or "}}" at position {pos}')
-        if pos >= len(s) or s[pos] != '}':
+        if pos >= len(s) or s[pos] != "}":
             raise ValueError(f'Expected "}}" at position {pos}')
-        pos +=1
+        pos += 1
         return obj, pos
 
     def parse_array(s, pos):
         lst = []
-        assert s[pos] == '['
-        pos +=1
+        assert s[pos] == "["
+        pos += 1
         pos = skip_whitespace(s, pos)
-        while pos < len(s) and s[pos] != ']':
+        while pos < len(s) and s[pos] != "]":
             value, pos = parse_value(s, pos)
             lst.append(value)
             pos = skip_whitespace(s, pos)
-            if pos < len(s) and s[pos] == ',':
-                pos +=1
+            if pos < len(s) and s[pos] == ",":
+                pos += 1
                 pos = skip_whitespace(s, pos)
-            elif pos < len(s) and s[pos] == ']':
+            elif pos < len(s) and s[pos] == "]":
                 break
-            elif pos < len(s) and s[pos] != ']':
+            elif pos < len(s) and s[pos] != "]":
                 raise ValueError(f'Expected "," or "]" at position {pos}')
-        if pos >= len(s) or s[pos] != ']':
+        if pos >= len(s) or s[pos] != "]":
             raise ValueError(f'Expected "]" at position {pos}')
-        pos +=1
+        pos += 1
         return lst, pos
 
     def parse_triple_quoted_string(s, pos):
-        if s[pos:pos+3] == "'''":
+        if s[pos : pos + 3] == "'''":
             quote_str = "'''"
-        elif s[pos:pos+3] == '"""':
+        elif s[pos : pos + 3] == '"""':
             quote_str = '"""'
         else:
-            raise ValueError(f'Expected triple quotes at position {pos}')
+            raise ValueError(f"Expected triple quotes at position {pos}")
         pos += 3
-        result = ''
+        result = ""
         while pos < len(s):
-            if s[pos:pos+3] == quote_str:
+            if s[pos : pos + 3] == quote_str:
                 pos += 3
                 # Attempt to convert to a number if possible
                 converted_value = convert_value(result)
                 return converted_value, pos
             else:
                 result += s[pos]
-                pos +=1
-        raise ValueError('Unterminated triple-quoted string')
+                pos += 1
+        raise ValueError("Unterminated triple-quoted string")
 
     def parse_value(s, pos):
         pos = skip_whitespace(s, pos)
         if pos >= len(s):
-            raise ValueError('Unexpected end of input')
-        if s[pos] == '{':
+            raise ValueError("Unexpected end of input")
+        if s[pos] == "{":
             return parse_object(s, pos)
-        elif s[pos] == '[':
+        elif s[pos] == "[":
             return parse_array(s, pos)
-        elif s[pos:pos+3] in ("'''", '"""'):
+        elif s[pos : pos + 3] in ("'''", '"""'):
             return parse_triple_quoted_string(s, pos)
         elif s[pos] in ('"', "'"):
             return parse_string(s, pos)
-        elif s[pos:pos+4].lower() == 'true':
-            return True, pos+4
-        elif s[pos:pos+5].lower() == 'false':
-            return False, pos+5
-        elif s[pos:pos+4].lower() == 'null':
-            return None, pos+4
-        elif s[pos] in '-+0123456789.':
+        elif s[pos : pos + 4].lower() == "true":
+            return True, pos + 4
+        elif s[pos : pos + 5].lower() == "false":
+            return False, pos + 5
+        elif s[pos : pos + 4].lower() == "null":
+            return None, pos + 4
+        elif s[pos] in "-+0123456789.":
             return parse_number(s, pos)
         else:
-            raise ValueError(f'Unexpected character at position {pos}: {s[pos]}')
+            raise ValueError(f"Unexpected character at position {pos}: {s[pos]}")
 
     json_start = s.index("{")
     json_end = s.rfind("}")
-    s = s[json_start:json_end + 1]
+    s = s[json_start : json_end + 1]
 
     s = s.strip()
     result, pos = parse_value(s, 0)
     pos = skip_whitespace(s, pos)
     if pos != len(s):
-        raise ValueError(f'Unexpected content at position {pos}')
+        raise ValueError(f"Unexpected content at position {pos}")
     return result
