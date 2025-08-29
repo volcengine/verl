@@ -34,6 +34,7 @@ from verl.utils.profiler import DistProfiler, DistProfilerExtension
 from verl.utils.py_functional import append_to_dict
 from verl.workers.config import ActorConfig
 from verl.workers.roles.utils.losses import ppo_loss
+from verl.utils.distributed import initialize_global_process_group_ray
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -56,18 +57,8 @@ class ActorWorker(Worker, DistProfilerExtension):
             self, DistProfiler(rank=self.rank, config=self.profiler_config, tool_config=tool_config)
         )
 
-        import torch.distributed
-
-        if not torch.distributed.is_initialized():
-            rank = int(os.environ.get("RANK", 0))
-            world_size = int(os.environ.get("WORLD_SIZE", 1))
-            torch.distributed.init_process_group(
-                backend=f"cpu:gloo,{get_device_name()}:{get_nccl_backend()}",
-                rank=rank,
-                world_size=world_size,
-                init_method=os.environ.get("DIST_INIT_METHOD", None),
-            )
-
+        initialize_global_process_group_ray(timeout_second=None)
+        
         self.loss_fn = partial(ppo_loss, config=self.config)
 
     def _build_engine(self):
@@ -96,7 +87,9 @@ class ActorWorker(Worker, DistProfilerExtension):
             self._register_dispatch_collect_info(
                 mesh_name="actor", dp_rank=mpu.get_data_parallel_rank(), is_collect=is_collect
             )
-        else:
+        elif self.config.strategy in ['fsdp', 'fsdp2']:
+            pass
+
             raise NotImplementedError
 
         # aggregate with bon sampling
