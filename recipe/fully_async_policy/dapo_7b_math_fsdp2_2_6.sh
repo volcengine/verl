@@ -69,15 +69,15 @@ NNODES=${NNODES:-1}
 NGPUS_PER_NODE=${NGPUS_PER_NODE:-8}
 
 # Fully async specific parameters
-n_gpus_rollout=4
+n_gpus_rollout=2
 n_gpus_training=$((NGPUS_PER_NODE - n_gpus_rollout))
 
 train_prompt_bsz=0
 gen_prompt_bsz=1
 n_resp_per_prompt=16
-train_prompt_mini_bsz=4
-total_rollout_steps=$(((512*10)))
-test_freq=-1
+train_prompt_mini_bsz=64
+total_rollout_steps=$(((512*100)))
+test_freq=5
 staleness_threshold=1
 trigger_parameter_sync_step=16
 partial_rollout=True
@@ -140,6 +140,7 @@ $PYTHON_INTERPRETER -m recipe.fully_async_policy.fully_async_main \
     actor_rollout_ref.rollout.val_kwargs.top_k=${top_k} \
     actor_rollout_ref.rollout.val_kwargs.do_sample=True \
     actor_rollout_ref.rollout.val_kwargs.n=1 \
+    actor_rollout_ref.rollout.calculate_log_probs=True \
     actor_rollout_ref.ref.fsdp_config.param_offload=${ref_offload} \
     actor_rollout_ref.ref.ulysses_sequence_parallel_size=${sp_size} \
     actor_rollout_ref.actor.fsdp_config.fsdp_size=${fsdp_size} \

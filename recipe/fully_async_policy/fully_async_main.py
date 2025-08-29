@@ -185,8 +185,18 @@ class FullyAsyncTaskRunner:
         print("[ASYNC MAIN] Creating FullyAsyncTrainer...")
         self._create_trainer(config)
 
-        print("[ASYNC MAIN] Creating MessageQueue...")
+        # 同步require samples
+        required_samples = ray.get(self.components["trainer"].get_required_samples.remote())
+        ray.get(self.components["rollouter"].set_required_samples.remote(required_samples))
+
+        # 同步total_train_steps
+        total_train_steps = ray.get(self.components["rollouter"].get_total_train_steps.remote())
+        print(f"total_train_steps {total_train_steps}")
+        ray.get(self.components["trainer"].set_total_train_steps.remote(total_train_steps))
+
+        # 获取 max_queue_size (使用同步方法避免异步返回值问题)
         max_queue_size = ray.get(self.components["rollouter"].get_max_queue_size.remote())
+        print(f"[ASYNC MAIN] Creating MessageQueue... max_queue_size {max_queue_size}")
         message_queue = MessageQueue.remote(config, max_queue_size)
         message_queue_client = MessageQueueClient(message_queue)
         self.components["message_queue"] = message_queue
@@ -204,9 +214,7 @@ class FullyAsyncTaskRunner:
             rollouter=self.components["rollouter"],
             mq=self.components["message_queue_client"],
         )
-
         ray.get(self.components["trainer"].set_parameter_synchronizer.remote(param_synchronizer))
-        ray.get(self.components["rollouter"].set_parameter_synchronizer.remote(param_synchronizer))
 
         ray.get(param_synchronizer.sync_weights.remote(0))
 

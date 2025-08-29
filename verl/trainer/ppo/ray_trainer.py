@@ -1281,7 +1281,6 @@ class RayPPOTrainer:
                     }
                 )
                 if self.config.async_training and self.config.async_training.use_rollout_log_probs:
-                    print("use_rollout_log_probs")
                     batch.batch["old_log_probs"] = batch.batch["rollout_log_probs"]
                     del actor_old_log_probs
 

@@ -32,12 +32,14 @@ class MessageQueue:
 
     def __init__(self, config: DictConfig, max_queue_size: int = 1000):
         self.config = config
-        self.max_queue_size = max_queue_size
-        self.queue = deque(maxlen=max_queue_size)
+        # 确保 max_queue_size 不为 None
+        if max_queue_size is None:
+            raise ValueError(f"max_queue_size cannot be None, got: {max_queue_size}")
+        self.max_queue_size = int(max_queue_size)
+        self.queue = deque(maxlen=self.max_queue_size)
         self.current_param_version = 0
 
         self.val_queue = deque()
-
 
         try:
             if hasattr(config, "async_training") and config.async_training is not None:
@@ -201,7 +203,6 @@ class MessageQueue:
                 return self.val_queue.popleft()
             else:
                 return None
-
 
 
 class MessageQueueClient:

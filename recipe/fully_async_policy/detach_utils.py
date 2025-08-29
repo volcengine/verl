@@ -13,7 +13,7 @@
 # limitations under the License.
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any
 
 import numpy as np
 import torch
@@ -36,20 +36,22 @@ class RolloutSample:
     full_batch: Any
 
     # AgentLoopOutput from generation
-    agent_loop_output_list: List[Any]  # AgentLoopOutput
+    agent_loop_output_list: list[Any]  # AgentLoopOutput
 
     # Metadata
     sample_id: str
     epoch: int
 
     # Processing metadata
-    processing_times: List[float]
+    processing_times: list[float]
     param_version: int
+
 
 @dataclass
 class ValidateMetrics:
-    timing_raw: Dict[str, Any]
-    metrics: Dict[str, Any]
+    timing_raw: dict[str, Any]
+    metrics: dict[str, Any]
+
 
 def prepare_single_generation_data(batch_dict, global_steps, rollout_n) -> DataProto:
     """
@@ -87,8 +89,7 @@ def prepare_single_generation_data(batch_dict, global_steps, rollout_n) -> DataP
     return full_batch
 
 
-def process_rollout_log_probs(data_proto: DataProto,
-                              rollout_log_probs: list[list[float]]) -> torch.Tensor:
+def process_rollout_log_probs(data_proto: DataProto, rollout_log_probs: list[list[float]]) -> torch.Tensor:
     """
     根据 DataProto 中的 mask 逻辑处理 rollout_log_probs
     # attention_mask: [0,0,0,0,1,1,1,1, | 1,1,1,0,0,0,0,0]
@@ -108,7 +109,6 @@ def process_rollout_log_probs(data_proto: DataProto,
     # 初始化结果 tensor
     rollout_log_probs_tensor = torch.zeros((bsz, response_length), dtype=torch.float32) - 1
 
-
     for i, log_probs_seq in enumerate(rollout_log_probs):
         # 获取当前样本的有效长度（mask 中为 1 的位置数量）
         valid_length = response_mask[i].sum().item()
@@ -123,12 +123,13 @@ def process_rollout_log_probs(data_proto: DataProto,
     rollout_log_probs_tensor = rollout_log_probs_tensor.to(torch.float32)
     return rollout_log_probs_tensor
 
+
 def merge_rollout_sample(config, tokenizer, rs: RolloutSample):
     # 第一步：从 AgentLoopOutput 创建生成结果的 DataProto
     gen_batch_output = postprocess_agent_loop_outputs(rs.agent_loop_output_list, tokenizer, config)
     rollout_log_probs = [x.log_probs for x in rs.agent_loop_output_list]
     rollout_log_probs = process_rollout_log_probs(gen_batch_output, rollout_log_probs)
-    gen_batch_output.batch['rollout_log_probs'] = rollout_log_probs.to(torch.float32)
+    gen_batch_output.batch["rollout_log_probs"] = rollout_log_probs.to(torch.float32)
 
     # 第二步：添加 uid
     rs.full_batch.non_tensor_batch["uid"] = np.array([f"uid_{rs.sample_id}"] * len(rs.full_batch), dtype=object)

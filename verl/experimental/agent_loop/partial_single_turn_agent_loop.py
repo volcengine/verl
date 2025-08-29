@@ -35,7 +35,6 @@ class PartialSingleTurnAgentLoop(AgentLoopBase):
     async def run(
         self, messages: list[dict[str, Any]], sampling_params: dict[str, Any], output: Optional[AgentLoopOutput]
     ) -> AgentLoopOutput:
-
         if not output:
             prompt_ids = await self.loop.run_in_executor(
                 None, lambda: self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=True)
@@ -71,5 +70,5 @@ class PartialSingleTurnAgentLoop(AgentLoopBase):
             num_turns=2,
             metrics=metrics,
             is_cancel=is_cancel,
-            log_probs=log_probs
+            log_probs=log_probs,
         )
