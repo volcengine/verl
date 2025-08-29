@@ -15,16 +15,14 @@ import asyncio
 import logging
 import os
 import pickle
-from contextlib import ExitStack
-from typing import Any, Callable, Optional, Coroutine, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 import ray
 import zmq
-from omegaconf import DictConfig, ListConfig
+from omegaconf import DictConfig
 from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
-from vllm import SamplingParams, RequestOutput
-from vllm.config import CompilationConfig, CompilationLevel
+from vllm import SamplingParams
 from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.entrypoints.logger import RequestLogger
 from vllm.entrypoints.openai.protocol import ChatCompletionRequest, ChatCompletionResponse, ErrorResponse
@@ -337,7 +335,7 @@ class AsyncvLLMServer(AsyncServerBase):
 
     async def _generate_step(self, prompt_ids: list[int], sampling_params: dict[str, Any], request_id: str):
         max_tokens = self.max_model_len - len(prompt_ids)
-        sampling_params = SamplingParams(max_tokens=max_tokens, **sampling_params)
+        sampling_params = SamplingParams(max_tokens=max_tokens, logprobs=1, **sampling_params)
         prompt = TokensPrompt(prompt_token_ids=prompt_ids)
         generator = self.engine.generate(prompt=prompt, sampling_params=sampling_params, request_id=request_id)
 
@@ -349,12 +347,12 @@ class AsyncvLLMServer(AsyncServerBase):
 
     async def generate_for_partial(
         self, prompt_ids: list[int], sampling_params: dict[str, Any], request_id: str
-    ) -> tuple[Sequence[int], bool] | tuple[str, bool]:
+    ) -> tuple[list[Any], list[Any], bool] | tuple[Sequence[int], list[float], Any]:
         # 设置中断标志
         async with self.lock:
             if self.paused:
                 # cancel 后， 所有任务直接返回，等待下次提交
-                return [], True
+                return [], [], True
             self.cancel_event[request_id] = asyncio.Event()
             cancel_handle = asyncio.create_task(self.cancel_event[request_id].wait())
             generation_handle = asyncio.create_task(self._generate_step(prompt_ids, sampling_params, request_id))
@@ -369,10 +367,15 @@ class AsyncvLLMServer(AsyncServerBase):
 
         async with self.lock:
             token_ids = self.req_output[request_id].outputs[0].token_ids
+            log_probs: list[float] = []
+            for i, x in enumerate(self.req_output[request_id].outputs[0].logprobs):
+                # sampling_params 中 logprobs 设置为1，只返回1个
+                token_id = self.req_output[request_id].outputs[0].token_ids[i]
+                log_probs.append(x[token_id].logprob)
             is_cancel = generation_handle not in done
             self.cancel_event.pop(request_id, None)
             self.req_output.pop(request_id, None)
-        return token_ids, is_cancel
+        return token_ids, log_probs, is_cancel
 
     async def cancel(self):
         async with self.lock:

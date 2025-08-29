@@ -13,6 +13,7 @@ async_training:
   staleness_threshold: 1              # 样本新鲜度阈值
   trigger_parameter_sync_step: 4     # >=1 train 每次训练一个batch, 迭代多少次后触发更新
   partial_rollout: True               # 同步参数时，是否中断 rollout
+  use_rollout_log_probs: True
 
 # Rollout配置
 rollout:

@@ -12,19 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import logging
 import time
 import warnings
 from datetime import datetime
-from pprint import pprint
 from typing import Any
 
 import ray
 from omegaconf import OmegaConf
+from tqdm import tqdm
 
 from recipe.fully_async_policy.detach_utils import (
+    ValidateMetrics,
     assemble_batch_from_rollout_samples,
-    calculate_one_step_size, ValidateMetrics,
 )
 from recipe.fully_async_policy.message_queue import MessageQueueClient
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
@@ -37,8 +36,6 @@ from verl.trainer.ppo.ray_trainer import (
     WorkerType,
 )
 from verl.utils.debug import marked_timer
-
-logger = logging.getLogger(__name__)
 
 
 @ray.remote(num_cpus=10)
@@ -103,15 +100,25 @@ class FullyAsyncTrainer(RayPPOTrainer):
         self.param_synchronizer = None
 
         # Statistics
+        # we start from step 1
+        self.global_steps = 1
+        self.local_trigger_step = 1
         self.processed_samples = 0
         self.stale_samples_processed = 0
         self.current_param_version = 0
-
-        self.local_trigger_step = 1
+        self.total_train_steps = None
+        self.progress_bar = None
         self.trigger_parameter_sync_step = config.async_training.trigger_parameter_sync_step
 
-        self.required_samples = calculate_one_step_size(
-            self.minimal_bsz, config.actor_rollout_ref.actor.ppo_mini_batch_size
+        # calculate required_samples
+        ppo_mini_batch_size = config.actor_rollout_ref.actor.ppo_mini_batch_size
+        rollout_n = config.actor_rollout_ref.rollout.n
+        if ppo_mini_batch_size % rollout_n != 0:
+            raise ValueError(
+                f"PPO mini batch size ({ppo_mini_batch_size}) must be divisible by rollout n ({rollout_n})"
+            )
+        self.required_samples = int(
+            self.minimal_bsz * config.actor_rollout_ref.actor.ppo_mini_batch_size / config.actor_rollout_ref.rollout.n
         )
 
     def set_message_queue_client(self, message_queue_client: MessageQueueClient):
@@ -122,9 +129,16 @@ class FullyAsyncTrainer(RayPPOTrainer):
         """Set parameter synchronizer"""
         self.param_synchronizer = param_synchronizer
 
+    def set_total_train_steps(self, total_train_steps):
+        self.total_train_steps = total_train_steps
+        self.progress_bar = tqdm(total=self.total_train_steps, initial=0, desc="Training Progress")
+
     def get_actor_wg(self):
         """Get actor worker group"""
         return self.actor_wg
+
+    def get_required_samples(self):
+        return self.required_samples
 
     def _get_samples_from_queue(self) -> tuple[None, None] | tuple[int, Any]:
         """
@@ -166,7 +180,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
         consumer_end = time.time()
 
         if not queue_samples or len(queue_samples) < self.required_samples:
-            logger.warning("not enough samples collected after loop")
+            print("[FullyAsyncTrainer] not enough samples collected after loop")
             return None, None
 
         print(
@@ -230,22 +244,16 @@ class FullyAsyncTrainer(RayPPOTrainer):
 
         from verl.utils.tracking import Tracking
 
-        self.logger = Tracking(
+        logger = Tracking(
             project_name=self.config.trainer.project_name,
             experiment_name=self.config.trainer.experiment_name,
             default_backend=self.config.trainer.logger,
             config=OmegaConf.to_container(self.config, resolve=True),
         )
 
-        self.global_steps = 0
-
         # load checkpoint before doing anything
         self._load_checkpoint()
-
-        # we start from step 1
-        self.global_steps += 1
         self.max_steps_duration = 0
-
         # Use queue mode, no need for traditional dataloader iterator
         # Initialize to get the first batch of data
         while True:
@@ -277,27 +285,18 @@ class FullyAsyncTrainer(RayPPOTrainer):
                                 "fully_async/current_param_version": self.current_param_version,
                             }
                         )
-                        for metric in [
-                            "avg_processing_time",
-                            "max_processing_time",
-                            "min_processing_time",
-                            "tp50_processing_time",
-                            "tp99_processing_time",
-                            "tp95_processing_time",
-                            "param_version_diversity",
-                        ]:
-                            metrics[f"fully_async/{metric}"] = batch.meta_info.get(metric, 0)
+                        for key, value in batch.meta_info.items():
+                            if key.startswith("fully_async"):
+                                metrics[key] = value
 
                 batch, reward_extra_infos_dict = self._process_batch_common(batch, metrics, timing_raw)
                 self._log_rollout(batch, reward_extra_infos_dict, timing_raw)
                 self._check_save_checkpoint(False, timing_raw)
 
             self._collect_metrics(batch, 0, metrics, timing_raw)
-            pprint(metrics)
+            logger.log(data=metrics, step=self.global_steps)
             # Trigger parameter synchronization after training step
-
             time_str = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-
             print(
                 f"[FullyAsyncTrainer] global_steps: {self.global_steps} "
                 f"local_trigger_step: {self.local_trigger_step} "
@@ -316,6 +315,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
             self.local_trigger_step = 1
             self.current_param_version = self.current_param_version + 1
             ray.get(self.param_synchronizer.sync_weights.remote(self.current_param_version))
+            self.progress_bar.update(1)
             return
         else:
             self.local_trigger_step += 1

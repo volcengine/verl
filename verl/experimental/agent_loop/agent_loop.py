@@ -16,9 +16,8 @@ import heapq
 import logging
 import os
 import random
-import time
 from abc import ABC, abstractmethod
-from typing import Any, Optional, List
+from typing import Any, Optional
 
 import hydra
 import numpy as np
@@ -105,6 +104,7 @@ class AsyncLLMServerManager:
         return output
 
     async def generate_for_partial(self, request_id, prompt_ids, sampling_params):
+        """Generate tokens from prompt ids. with partial rollout function"""
         server = self._choose_server(request_id)
         output = await server.generate_for_partial.remote(
             request_id=request_id,
@@ -136,6 +136,8 @@ class AgentLoopOutput(BaseModel):
     """Auxiliary performance metrics"""
     is_cancel: bool = False
     """Indicates whether the request was interrupted"""
+    log_probs: list[float] = None
+    """Response token log probs including LLM generated token, tool response token."""
 
 
 # make hydra.utils.instantiate happy
@@ -383,8 +385,7 @@ class AgentLoopWorker:
         return output
 
     async def generate_sequences_no_post(
-            self,
-            batch: DataProto, partial_output_list: Optional[List[AgentLoopOutput]]
+        self, batch: DataProto, partial_output_list: Optional[list[AgentLoopOutput]]
     ) -> list[AgentLoopOutput]:
         """Generate sequences from agent loop.
 
@@ -431,11 +432,9 @@ class AgentLoopWorker:
         if not partial_output_list:
             partial_output_list = [None] * len(batch)
 
-        for agent_name, messages, trajectory, partial_output in zip(agent_names,
-                                                                    raw_prompts,
-                                                                    trajectory_info,
-                                                                    partial_output_list,
-                                                                    strict=True):
+        for agent_name, messages, trajectory, partial_output in zip(
+            agent_names, raw_prompts, trajectory_info, partial_output_list, strict=True
+        ):
             tasks.append(
                 asyncio.create_task(
                     self._run_agent_loop(agent_name, messages.tolist(), sampling_params, trajectory, partial_output)
@@ -608,10 +607,11 @@ class AgentLoopManager:
         output.meta_info = {"timing": timing}
         return output
 
-    async def generate_single_sample_async(self,
-                                           sample: DataProto,
-                                           partial_output_list: Optional[List[AgentLoopOutput]],
-                                           ) -> List[AgentLoopOutput]:
+    async def generate_single_sample_async(
+        self,
+        sample: DataProto,
+        partial_output_list: Optional[list[AgentLoopOutput]],
+    ) -> list[AgentLoopOutput]:
         """
         异步处理单个样本, 需要复制n次
 
