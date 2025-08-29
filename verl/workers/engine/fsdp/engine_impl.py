@@ -15,6 +15,7 @@
 The concrete Engine implementation using PyTorch FullyShardedDataParallel (FSDP)
 """
 
+import itertools
 import gc
 import logging
 import os
@@ -23,10 +24,13 @@ from typing import Callable, Iterator
 
 from functools import partial
 
+from contextlib import nullcontext
+
 import torch
 import torch.distributed
 from peft import LoraConfig, TaskType, get_peft_model
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+import verl.utils.torch_functional as verl_F
 
 from verl import DataProto
 from verl.models.transformers.monkey_patch import apply_monkey_patch
@@ -59,8 +63,9 @@ from verl.utils.fsdp_utils import (
 )
 from verl.utils.import_utils import import_external_libs
 from verl.utils.py_functional import append_to_dict, convert_to_regular_types
-from verl.utils.seqlen_balancing import rearrange_micro_batches
-from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad_and_slice_inputs
+from verl.utils.torch_functional import logprobs_from_logits
+from verl.utils.seqlen_balancing import rearrange_micro_batches, get_reverse_idx
+from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad_and_slice_inputs, ulysses_pad
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 if is_cuda_available:
@@ -140,6 +145,17 @@ class FSDPEngine(BaseEngine):
         self._is_offload_optimizer = self.engine_config.optimizer_offload
         self._is_lora = self.model_config.lora_rank > 0
 
+        if self.engine_config.entropy_from_logits_with_chunking:
+            entropy_from_logits = verl_F.entropy_from_logits_with_chunking
+        else:
+            entropy_from_logits = verl_F.entropy_from_logits
+
+        self.compute_entropy_from_logits = (
+            torch.compile(entropy_from_logits, dynamic=True)
+            if self.engine_config.use_torch_compile  #  use torch compile by default
+            else entropy_from_logits
+        )
+
     def initialize(self):
         """
         Build the model, optimizer, and learning rate scheduler under FSDP.
@@ -183,6 +199,7 @@ class FSDPEngine(BaseEngine):
             )
 
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
+        self.use_ulysses_sp = self.ulysses_sequence_parallel_size > 1
 
     def _build_module(self):
         from verl.utils.model import get_hf_auto_model_class
@@ -488,7 +505,6 @@ class FSDPEngine(BaseEngine):
         Prepare micro batches from data.
         """
         use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", True)
-        
 
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
         select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
@@ -512,34 +528,65 @@ class FSDPEngine(BaseEngine):
     def forward_backward_batch(self, data: DataProto, loss_function: Callable, forward_only=False) -> list[DataProto]:
         micro_batches, indices = self.prepare_micro_batches(data=data)
 
-        postprocess_micro_batch_func = partial(
-            self.postprocess_micro_batch_func,
-            forward_only=forward_only,
-            loss_function=loss_function,
-        )
-
         output = []
 
+        ctx = torch.no_grad() if forward_only else nullcontext()
+
         for micro_batch in micro_batches:
-            # note that loss must be scaled in postprocess_micro_batch_func
-            loss, metrics = self.forward_step(micro_batch, postprocess_micro_batch_func)
-            if not forward_only:
-                # metrics contain the output, loss is dummy
-                loss.backward()
+            with ctx:
+                # note that loss must be scaled in postprocess_micro_batch_func
+                loss, metrics = self.forward_step(micro_batch, loss_function=loss_function, 
+                                                  forward_only=forward_only)
+                if not forward_only:
+                    # metrics contain the output, loss is dummy
+                    loss.backward()
 
             output.append(metrics)
 
         # postprocess and return
+        return self.postprocess_batch_func(output, indices, forward_only, data)
 
 
-    def forward_step(self, micro_batch: DataProto, postprocess_micro_batch_func):
+    def postprocess_batch_func(self, losses_reduced, indices, forward_only, data: DataProto):
+        use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", True)
+
+        if forward_only:
+            # losses_reduced is a list of dict containing outputs for each micro-batch
+            # reorder entropy and outputs. Return None for other pp ranks
+            # only on last rank. It should be on every tp rank
+            output = {}
+
+            for o in losses_reduced:
+                for key, val in o.items():
+                    if key not in output:
+                        output[key] = []
+                    output[key].append(val)
+
+            indices = list(itertools.chain.from_iterable(indices))
+            revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
+
+            for key, val in output.items():
+                val = torch.cat(val, dim=0)
+                if use_dynamic_bsz:
+                    assert len(indices) == val.size(0), f"{len(indices)} vs. {val.size()}"
+                    val = val[revert_indices]
+                output[key] = val
+
+            return output
+
+        else:
+            metrics = {}
+            # combine metrics of each micro-batch
+            metric_micro_batch = losses_reduced
+            for metric in metric_micro_batch:
+                # Note that o[0] is metrics, o[1] is entropy, o[2] is response_mask
+                append_to_dict(metrics, metric)  # append the metric from this micro-batch to global metrics.
+
+            return metrics
+
+
+    def forward_step(self, micro_batch: DataProto, loss_function, forward_only):
         raise NotImplementedError("forward_step must be implemented in subclass")
-
-    def postprocess_micro_batch_func(
-        self, output, micro_batch: DataProto, forward_only: bool, loss_function
-    ):
-        raise NotImplementedError("postprocess_micro_batch_func must be implemented in subclass")
-
 
     def optimizer_zero_grad(self):
         """
@@ -697,7 +744,14 @@ class EngineTrainModeCtx:
 
 
 class FSDPEngineWithLMHead(FSDPEngine):
-    def forward_step(self, micro_batch: DataProto, postprocess_micro_batch_func):
+    def forward_step(self, micro_batch: DataProto, loss_function, forward_only):
+        use_remove_padding = micro_batch.meta_info.get('use_remove_padding', True)
+        use_fused_kernels = micro_batch.meta_info.get('use_fused_kernels', False)
+        temperature = micro_batch.meta_info["temperature"]
+        calculate_entropy = micro_batch.meta_info.get("calculate_entropy", False)
+
+        device_name = get_device_name()
+
         response_length = micro_batch["responses"].size(-1)
         multi_modal_inputs = {}
         if "multi_modal_inputs" in micro_batch.keys():
@@ -710,7 +764,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
                         [inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0
                     )
 
-        with torch.autocast(device_type=self.device_name, dtype=torch.bfloat16):
+        with torch.autocast(device_type=device_name, dtype=torch.bfloat16):
             input_ids = micro_batch["input_ids"]
             batch_size, seqlen = input_ids.shape
             attention_mask = micro_batch["attention_mask"]
@@ -719,7 +773,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
             if position_ids.dim() == 3:  # qwen2vl mrope
                 position_ids = position_ids.transpose(0, 1)  # (bsz, 3, seqlen) -> (3, bsz, seqlen)
 
-            if self.use_remove_padding:
+            if use_remove_padding:
                 input_ids_rmpad, indices, cu_seqlens, *_ = unpad_input(
                     input_ids.unsqueeze(-1), attention_mask
                 )  # input_ids_rmpad (total_nnz, ...)
@@ -773,11 +827,11 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
                 # only pass input_ids and position_ids to enable flash_attn_varlen
                 extra_args = {}
-                if self.use_fused_kernels:
+                if use_fused_kernels:
                     extra_args["temperature"] = temperature
                     extra_args["return_dict"] = True
 
-                output = self.actor_module(
+                output = self.module(
                     input_ids=input_ids_rmpad,
                     attention_mask=None,
                     position_ids=position_ids_rmpad,
@@ -786,7 +840,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
                     **extra_args,
                 )  # prevent model thinks we are generating
 
-                if self.use_fused_kernels:
+                if use_fused_kernels:
                     log_probs = output.log_probs.squeeze(0)  # (total_nnz,)
                     entropy_rmpad = output.entropy.squeeze(0)  # (total_nnz,)
 
@@ -806,7 +860,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
                     # compute entropy
                     if calculate_entropy:
-                        if not self.config.entropy_checkpointing:
+                        if not self.engine_config.entropy_checkpointing:
                             entropy_rmpad = self.compute_entropy_from_logits(logits_rmpad)  # ((total_nnz / sp) + pad)
                         else:
                             entropy_rmpad = torch.utils.checkpoint.checkpoint(
@@ -851,11 +905,11 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
             else:  # not using rmpad and no ulysses sp
                 extra_args = {}
-                if self.use_fused_kernels:
+                if use_fused_kernels:
                     extra_args["temperature"] = temperature
                     extra_args["return_dict"] = True
 
-                output = self.actor_module(
+                output = self.module(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
                     position_ids=position_ids,
@@ -864,7 +918,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
                     **extra_args,
                 )  # prevent model thinks we are generating
 
-                if self.use_fused_kernels:
+                if use_fused_kernels:
                     log_probs = output.log_probs[:, -response_length - 1 : -1]
                     entropy = output.entropy[:, -response_length - 1 : -1]  # (bsz, response_length)
 
@@ -875,7 +929,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
                     logits = logits[:, -response_length - 1 : -1, :]  # (bsz, response_length, vocab_size)
                     log_probs = logprobs_from_logits(logits, micro_batch["responses"])
                     if calculate_entropy:
-                        if not self.config.entropy_checkpointing:
+                        if not self.engine_config.entropy_checkpointing:
                             entropy = verl_F.entropy_from_logits(logits)  # (bsz, response_length)
                         else:
                             entropy = torch.utils.checkpoint.checkpoint(verl_F.entropy_from_logits, logits)
@@ -884,6 +938,8 @@ class FSDPEngineWithLMHead(FSDPEngine):
             if calculate_entropy:
                 output['entropy'] = entropy
 
-            
-            loss, metrics = postprocess_micro_batch_func(output, micro_batch)
-            return loss, metrics
+            if forward_only:
+                return None, output
+            else:
+                policy_loss, metrics = loss_function(model_output=output, data=micro_batch)
+                return policy_loss, metrics
