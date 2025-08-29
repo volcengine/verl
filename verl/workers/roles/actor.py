@@ -68,8 +68,6 @@ class ActorWorker(Worker, DistProfilerExtension):
         checkpoint_config = self.config.checkpoint
 
         if self.config.strategy == "megatron":
-            from megatron.core import parallel_state as mpu
-
             from verl.workers.engine.megatron.engine_impl import MegatronEngineWithLMHead
 
             self.engine = MegatronEngineWithLMHead(
@@ -77,15 +75,6 @@ class ActorWorker(Worker, DistProfilerExtension):
                 engine_config=engine_config,
                 optimizer_config=optimizer_config,
                 checkpoint_config=checkpoint_config,
-            )
-            # build dispatch info
-            is_collect = (
-                mpu.get_tensor_model_parallel_rank() == 0
-                and mpu.get_pipeline_model_parallel_rank() == mpu.get_pipeline_model_parallel_world_size() - 1
-                and mpu.get_context_parallel_rank() == 0
-            )
-            self._register_dispatch_collect_info(
-                mesh_name="actor", dp_rank=mpu.get_data_parallel_rank(), is_collect=is_collect
             )
         elif self.config.strategy in ['fsdp', 'fsdp2']:
             from verl.workers.engine.fsdp.engine_impl import FSDPEngineWithLMHead
@@ -95,14 +84,13 @@ class ActorWorker(Worker, DistProfilerExtension):
                 optimizer_config=optimizer_config,
                 checkpoint_config=checkpoint_config,
             )
+        else:
+            raise ValueError(f"Unknown strategy {self.config.strategy}")
 
-            if self.engine.ulysses_device_mesh is not None:
-                is_collect = self.ulysses_device_mesh["sp"].get_local_rank() == 0
-                self._register_dispatch_collect_info(
-                    "actor", dp_rank=self.ulysses_device_mesh["dp"].get_local_rank(), is_collect=is_collect
-                )
-            else:
-                self._register_dispatch_collect_info("actor", dp_rank=self.rank, is_collect=True)
+        # build dispatch info
+        self._register_dispatch_collect_info(
+            mesh_name="actor", dp_rank=self.engine.get_data_parallel_rank(), is_collect=self.engine.is_collect()
+        )
 
         # aggregate with bon sampling
         self.ppo_mini_batch_size = self.config.ppo_mini_batch_size * self.config.n

@@ -15,6 +15,7 @@
 The concrete Engine implementation using PyTorch FullyShardedDataParallel (FSDP)
 """
 
+import copy
 import itertools
 import gc
 import logging
@@ -140,6 +141,10 @@ class FSDPEngine(BaseEngine):
             if self.engine_config.use_torch_compile  #  use torch compile by default
             else entropy_from_logits
         )
+
+    def is_collect(self):
+        is_collect = self.ulysses_device_mesh["sp"].get_local_rank() == 0
+        return is_collect
 
     def initialize(self):
         """
@@ -401,7 +406,7 @@ class FSDPEngine(BaseEngine):
 
         # Wrap model with FSDP for distributed training (sharding, mixed precision, etc.)
         log_gpu_memory_usage("Before FSDP", logger=None)
-        fsdp_module = self._build_fsdp_module(module)
+        module = self._build_fsdp_module(module)
         log_gpu_memory_usage("After FSDP", logger=None)
 
         if not self.engine_config.forward_only:
@@ -413,7 +418,6 @@ class FSDPEngine(BaseEngine):
             optimizer = None
             lr_scheduler = None
 
-        self.fsdp_module = fsdp_module
         self.module = module
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
@@ -449,10 +453,12 @@ class FSDPEngine(BaseEngine):
         """
         use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", True)
 
-        has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
-        select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
-        non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
-        batch = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
+        # # has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
+        # # select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
+        # # non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
+        # batch = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
+
+        # batch.meta_info = copy.deepcopy(data.meta_info)
 
         if use_dynamic_bsz:
             assert "max_token_len_per_gpu" in data.meta_info, (
@@ -460,10 +466,10 @@ class FSDPEngine(BaseEngine):
             )
             max_token_len_per_gpu = data.meta_info.get("max_token_len_per_gpu")
             max_token_len = max_token_len_per_gpu * self.ulysses_sequence_parallel_size
-            micro_batches, batch_idx_list = prepare_dynamic_batch(batch, max_token_len=max_token_len)
+            micro_batches, batch_idx_list = prepare_dynamic_batch(data, max_token_len=max_token_len)
         else:
             micro_batch_size_per_gpu = data.meta_info.get("micro_batch_size_per_gpu")
-            micro_batches = batch.split(micro_batch_size_per_gpu)
+            micro_batches = data.split(micro_batch_size_per_gpu)
             batch_idx_list = None
         return micro_batches, batch_idx_list
 
@@ -639,10 +645,10 @@ class EngineEvalModeCtx:
     def __enter__(self):
         self.engine.mode = "eval"
         if self.engine._is_offload_param:
-            load_fsdp_model_to_gpu(self.engine.fsdp_module)
+            load_fsdp_model_to_gpu(self.engine.module)
 
         self.engine.ulysses_sharding_manager.__enter__()
-        self.engine.fsdp_module.eval()
+        self.engine.module.eval()
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.engine.ulysses_sharding_manager.__exit__(exc_type, exc_value, traceback)
@@ -651,13 +657,13 @@ class EngineEvalModeCtx:
         # unshard the root FSDP module
         world_size = torch.distributed.get_world_size()
         if world_size > 1:
-            if fsdp_version(self.engine.fsdp_module) == 1:
-                self.engine.fsdp_module._handle.reshard(True)
-            elif fsdp_version(self.engine.fsdp_module) == 2:
-                self.engine.fsdp_module.reshard()
+            if fsdp_version(self.engine.module) == 1:
+                self.engine.module._handle.reshard(True)
+            elif fsdp_version(self.engine.module) == 2:
+                self.engine.module.reshard()
 
         if self.engine._is_offload_param:
-            offload_fsdp_model_to_cpu(self.engine.fsdp_module)
+            offload_fsdp_model_to_cpu(self.engine.module)
         self.engine.mode = None
 
 
@@ -668,19 +674,19 @@ class EngineTrainModeCtx:
     def __enter__(self):
         self.engine.mode = "train"
         if self.engine._is_offload_param:
-            load_fsdp_model_to_gpu(self.engine.fsdp_module)
+            load_fsdp_model_to_gpu(self.engine.module)
         if self.engine._is_offload_optimizer:
             load_fsdp_optimizer(optimizer=self.engine.optimizer, device_id=get_torch_device().current_device())
 
         self.engine.ulysses_sharding_manager.__enter__()
-        self.engine.fsdp_module.train()
+        self.engine.module.train()
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.engine.ulysses_sharding_manager.__exit__(exc_type, exc_value, traceback)
         self.engine.optimizer_zero_grad()
 
         if self.engine._is_offload_param:
-            offload_fsdp_model_to_cpu(self.engine.fsdp_module)
+            offload_fsdp_model_to_cpu(self.engine.module)
         if self.engine._is_offload_optimizer:
             offload_fsdp_optimizer(optimizer=self.engine.optimizer)
         self.engine.mode = None
@@ -694,6 +700,9 @@ class FSDPEngineWithLMHead(FSDPEngine):
         calculate_entropy = micro_batch.meta_info.get("calculate_entropy", False)
 
         device_name = get_device_name()
+        # actually, we should avoid assigning like this...
+        micro_batch = micro_batch.to(get_device_id())
+        micro_batch = micro_batch.batch.to(device_name)
 
         response_length = micro_batch["responses"].size(-1)
         multi_modal_inputs = {}

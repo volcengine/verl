@@ -61,7 +61,7 @@ def test_mcore_engine():
             forward_only=False,
             fsdp_size=4,
             strategy=strategy,
-            ulysses_sequence_parallel_size=4
+            ulysses_sequence_parallel_size=2
         )
         optimizer_config = FSDPOptimizerConfig()
     else:
