@@ -22,7 +22,6 @@ import logging
 import math
 import os
 import pickle
-import random
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
@@ -792,28 +791,16 @@ class DataProto:
 
         return output
 
-    def split(self, split_size: int, shuffle: bool = False, seed: int = None) -> list["DataProto"]:
+    def split(self, split_size: int) -> list["DataProto"]:
         """Split the batch among dim=0 into chunks. The meta_info is passed to each DataProto after split.
 
-            Args:
-                split_size (int): the size of each split
-                shuffle (bool): whether to shuffle the data before splitting. Default: False
-                seed (int): random seed for shuffling. Only used when shuffle=True. Default: None
-        Returns:
+        Args:
+            split_size (int): the size of each split
 
-            Returns:
-                List[DataProto]: a list of DataProto after splitting
+        Returns:
+            List[DataProto]: a list of DataProto after splitting
         """
-        if shuffle:
-            indices = list(range(len(self)))
-            if seed is not None:
-                random.seed(seed)
-                random.shuffle(indices)
-            else:
-                random.shuffle(indices)
-            return [self[indices[i : i + split_size]] for i in range(0, len(self), split_size)]
-        else:
-            return [self[i : i + split_size] for i in range(0, len(self), split_size)]
+        return [self[i : i + split_size] for i in range(0, len(self), split_size)]
 
     @staticmethod
     def concat(data: list["DataProto"]) -> "DataProto":
