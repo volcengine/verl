@@ -41,6 +41,7 @@ PolicyLossFn = Callable[
         torch.Tensor,  # response_mask
         str,  # loss_agg_mode
         Optional[DictConfig | AlgoConfig],  # config
+        torch.Tensor | None,  # rollout_log_probs
     ],
     tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
 ]
