@@ -1691,7 +1691,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
             rm_data = DataProto.from_dict(rm_inputs)
 
         # Support all hardwares
-        rm_data.batch = rm_data.batch.to(get_device_id())
+        rm_data = rm_data.to(get_device_id())
 
         # perform forward computation
         with self.ulysses_sharding_manager:

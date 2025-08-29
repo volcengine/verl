@@ -577,10 +577,9 @@ class FSDPEngine(BaseEngine):
         mini_batch_metrics = {}
         for micro_batch in micro_batches:
             # Support all devices
+            micro_batch = micro_batch.to(get_device_id())
             if isinstance(micro_batch, DataProto):
-                micro_batch = {**micro_batch.batch.to(get_device_id()), **micro_batch.non_tensor_batch}
-            else:
-                micro_batch = micro_batch.to(get_device_id())  # critic device is cpu when using offload
+                micro_batch = {**micro_batch.batch, **micro_batch.non_tensor_batch}
 
             preds = self._forward_micro_batch(micro_batch)
             loss, micro_batch_metrics = loss_fn(micro_batch, preds)

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -xeuo pipefail
 
-project_name='DAPO-Qwen2.5-32B'
-exp_name='Qwen2.5-32B-npu-32rank-gbs128'
+project_name='DAPO'
+exp_name='DAPO-Qwen2.5-32B-TIS'  # Truncated Importance Sampling (TIS) -> https://fengyao.notion.site/off-policy-rl
 
 adv_estimator=grpo
 
@@ -10,32 +10,32 @@ use_kl_in_reward=False
 kl_coef=0.0
 use_kl_loss=False
 kl_loss_coef=0.0
+tis_imp_ratio_cap=2.0
+
 clip_ratio_low=0.2
 clip_ratio_high=0.28
+
 max_prompt_length=$((1024 * 2))
 max_response_length=$((1024 * 20))
 enable_overlong_buffer=True
 overlong_buffer_len=$((1024 * 4))
 overlong_penalty_factor=1.0
+
 loss_agg_mode="token-mean"
+
 enable_filter_groups=True
 filter_groups_metric=acc
 max_num_gen_batches=10
-
-NNODES=2
-
-train_prompt_bsz=128
+train_prompt_bsz=512
 gen_prompt_bsz=$((train_prompt_bsz * 3))
 n_resp_per_prompt=16
 train_prompt_mini_bsz=32
-now=$(date +%Y%m%d_%H%M%S)
 
 # Ray
-PWD=./
 RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
 WORKING_DIR=${WORKING_DIR:-"${PWD}"}
 RUNTIME_ENV=${RUNTIME_ENV:-"${WORKING_DIR}/verl/trainer/runtime_env.yaml"}
-
+NNODES=${NNODES:-16}
 # Paths
 RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
 MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen2.5-32B"}
@@ -52,15 +52,23 @@ val_top_p=0.7
 # Performance Related Parameter
 sp_size=8
 use_dynamic_bsz=True
-actor_ppo_max_token_len=$(((max_prompt_length + max_response_length) / sp_size))
-infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) / sp_size))
+actor_ppo_max_token_len=$((max_prompt_length + max_response_length))
+infer_ppo_max_token_len=$((max_prompt_length + max_response_length))
 offload=True
 gen_tp=4
-enable_chunked_prefill=True
+
+
+# Truncated Importance Sampling (TIS) -> https://fengyao.notion.site/off-policy-rl
+
+# Please note that server mode(agent loop) hasn't return rollout_log_probs for now.
+# so currently, server mode is not supported for TIS.
+
+# To turn on TIS, you need to set the following parameters. Note 2.0 is a hyper-parameter and can be tuned.
+#   actor_rollout_ref.actor.tis_imp_ratio_cap=2.0
+#   actor_rollout_ref.rollout.calculate_log_probs=True
 
 ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     --working-dir "${WORKING_DIR}" \
-    --address "${RAY_ADDRESS}" \
     -- python3 -m recipe.dapo.main_dapo \
     data.train_files="${TRAIN_FILE}" \
     data.val_files="${TEST_FILE}" \
@@ -82,8 +90,6 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     algorithm.filter_groups.enable=${enable_filter_groups} \
     algorithm.filter_groups.max_num_gen_batches=${max_num_gen_batches} \
     algorithm.filter_groups.metric=${filter_groups_metric} \
-    actor_rollout_ref.actor.use_torch_compile=False \
-    actor_rollout_ref.ref.use_torch_compile=False \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.use_dynamic_bsz=${use_dynamic_bsz} \
     actor_rollout_ref.ref.log_prob_use_dynamic_bsz=${use_dynamic_bsz} \
@@ -91,11 +97,7 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=${actor_ppo_max_token_len} \
     actor_rollout_ref.ref.log_prob_max_token_len_per_gpu=${infer_ppo_max_token_len} \
     actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=${infer_ppo_max_token_len} \
-    actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.model.path="${MODEL_PATH}" \
-    +actor_rollout_ref.model.override_config.attention_dropout=0. \
-    +actor_rollout_ref.model.override_config.embd_pdrop=0. \
-    +actor_rollout_ref.model.override_config.resid_pdrop=0. \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.actor.optim.lr_warmup_steps=10 \
@@ -107,9 +109,11 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     actor_rollout_ref.actor.grad_clip=1.0 \
     actor_rollout_ref.actor.loss_agg_mode=${loss_agg_mode} \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=${sp_size} \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.90 \
+    actor_rollout_ref.actor.tis_imp_ratio_cap=${tis_imp_ratio_cap} \
+    actor_rollout_ref.rollout.calculate_log_probs=True \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.80 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=${gen_tp} \
-    actor_rollout_ref.rollout.enable_chunked_prefill=${enable_chunked_prefill} \
+    actor_rollout_ref.rollout.enable_chunked_prefill=True \
     actor_rollout_ref.rollout.max_num_batched_tokens=$((max_prompt_length + max_response_length)) \
     actor_rollout_ref.rollout.temperature=${temperature} \
     actor_rollout_ref.rollout.top_p=${top_p} \
@@ -119,6 +123,7 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     actor_rollout_ref.rollout.val_kwargs.top_k=${top_k} \
     actor_rollout_ref.rollout.val_kwargs.do_sample=True \
     actor_rollout_ref.rollout.val_kwargs.n=1 \
+    actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.ref.fsdp_config.param_offload=${offload} \
     actor_rollout_ref.ref.ulysses_sequence_parallel_size=${sp_size} \
     actor_rollout_ref.actor.fsdp_config.fsdp_size=-1 \
@@ -126,17 +131,14 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     reward_model.overlong_buffer.enable=${enable_overlong_buffer} \
     reward_model.overlong_buffer.len=${overlong_buffer_len} \
     reward_model.overlong_buffer.penalty_factor=${overlong_penalty_factor} \
-    trainer.logger="['console','wandb']" \
+    trainer.logger='["console","wandb"]' \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
-    trainer.n_gpus_per_node=16 \
+    trainer.n_gpus_per_node=8 \
     trainer.nnodes="${NNODES}" \
     trainer.val_before_train=True \
     trainer.test_freq=5 \
-    trainer.save_freq=20 \
+    trainer.save_freq=5 \
     trainer.total_epochs=1 \
     trainer.default_local_dir="${CKPTS_DIR}" \
-    trainer.device=npu \
-    trainer.resume_mode=auto \
-    actor_rollout_ref.actor.fsdp_config.forward_prefetch=True \
-    actor_rollout_ref.ref.fsdp_config.forward_prefetch=True \
+    trainer.resume_mode=auto 

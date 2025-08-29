@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import warnings
 from dataclasses import dataclass
 from typing import Optional
 
@@ -34,14 +34,23 @@ class OptimizerConfig(BaseConfig):
         lr_warmup_steps (Optional[int]): Number of warmup steps; None delegates to lr_warmup_steps_ratio.
     """
 
-    lr: float = MISSING
+    _mutable_fields = {"clip_grad"}
+
+    lr: float = 1e-3
     lr_warmup_steps_ratio: float = 0.0
     total_training_steps: int = -1
     weight_decay: float = 0.01
     lr_warmup_steps: Optional[int] = -1
+    betas: tuple[float, float] = (0.9, 0.999)
+    clip_grad: float = 1.0
+    # deprecate grad_clip
+    grad_clip: Optional[float] = None
 
     def __post_init__(self):
         assert self.lr != MISSING
+        if self.grad_clip is not None:
+            warnings.warn("`grad_clip` is deprecated, use `clip_grad` instead.", DeprecationWarning, stacklevel=2)
+            self.clip_grad = self.grad_clip
 
 
 @dataclass
