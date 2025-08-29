@@ -18,8 +18,8 @@ os.environ["NCCL_DEBUG"] = "WARN"
 
 from functools import partial
 
-import pytest
 import numpy as np
+import pytest
 import ray
 import torch
 from transformers import AutoModelForCausalLM
@@ -29,18 +29,18 @@ from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, Ra
 from verl.utils.model import compute_position_id_with_mask, create_random_mask
 from verl.utils.torch_functional import logprobs_from_logits_naive
 from verl.workers.config import (
-    ActorConfig, 
-    HFModelConfig, 
-    McoreEngineConfig, 
-    McoreOptimizerConfig,
+    ActorConfig,
     FSDPEngineConfig,
-    FSDPOptimizerConfig
+    FSDPOptimizerConfig,
+    HFModelConfig,
+    McoreEngineConfig,
+    McoreOptimizerConfig,
 )
 from verl.workers.roles import ActorWorker
 from verl.workers.roles.utils.losses import ppo_loss, sft_loss
 
 
-@pytest.mark.parametrize("strategy", ['megatron', 'fsdp', 'fsdp2'])
+@pytest.mark.parametrize("strategy", ["megatron", "fsdp", "fsdp2"])
 def test_mcore_engine(strategy):
     ray.init()
 
@@ -58,10 +58,7 @@ def test_mcore_engine(strategy):
         optimizer_config = McoreOptimizerConfig(lr_decay_steps=10)
     elif strategy in ["fsdp", "fsdp2"]:
         engine_config = FSDPEngineConfig(
-            forward_only=False,
-            fsdp_size=4,
-            strategy=strategy,
-            ulysses_sequence_parallel_size=2
+            forward_only=False, fsdp_size=4, strategy=strategy, ulysses_sequence_parallel_size=2
         )
         optimizer_config = FSDPOptimizerConfig()
     else:
@@ -93,8 +90,7 @@ def test_mcore_engine(strategy):
 
     input_ids = torch.randint(0, model_config.hf_config.vocab_size, (batch_size, seqlen))
     attention_mask = create_random_mask(
-        input_ids=input_ids, max_ratio_of_valid_token=0.8, 
-        max_ratio_of_left_padding=0.2, min_ratio_of_valid_token=0.6
+        input_ids=input_ids, max_ratio_of_valid_token=0.8, max_ratio_of_left_padding=0.2, min_ratio_of_valid_token=0.6
     )
     position_ids = compute_position_id_with_mask(attention_mask)
 

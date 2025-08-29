@@ -26,15 +26,14 @@ from verl.single_controller.base.decorator import Dispatch, make_nd_compute_data
 from verl.utils.device import (
     get_device_id,
     get_device_name,
-    get_nccl_backend,
     get_torch_device,
 )
+from verl.utils.distributed import initialize_global_process_group_ray
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.profiler import DistProfiler, DistProfilerExtension
 from verl.utils.py_functional import append_to_dict
 from verl.workers.config import ActorConfig
 from verl.workers.roles.utils.losses import ppo_loss
-from verl.utils.distributed import initialize_global_process_group_ray
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -58,7 +57,7 @@ class ActorWorker(Worker, DistProfilerExtension):
         )
 
         initialize_global_process_group_ray(timeout_second=None)
-        
+
         self.loss_fn = partial(ppo_loss, config=self.config)
 
     def _build_engine(self):
@@ -76,8 +75,9 @@ class ActorWorker(Worker, DistProfilerExtension):
                 optimizer_config=optimizer_config,
                 checkpoint_config=checkpoint_config,
             )
-        elif self.config.strategy in ['fsdp', 'fsdp2']:
+        elif self.config.strategy in ["fsdp", "fsdp2"]:
             from verl.workers.engine.fsdp.engine_impl import FSDPEngineWithLMHead
+
             self.engine = FSDPEngineWithLMHead(
                 model_config=model_config,
                 engine_config=engine_config,
@@ -94,8 +94,9 @@ class ActorWorker(Worker, DistProfilerExtension):
 
         # aggregate with bon sampling
         self.ppo_mini_batch_size = self.config.ppo_mini_batch_size * self.config.n
-        assert self.ppo_mini_batch_size % self.engine.get_data_parallel_size() == 0, \
-            f"ppo_mini_batch_size {self.ppo_mini_batch_size} is not divisible by data parallel size {self.engine.get_data_parallel_size()}"
+        assert self.ppo_mini_batch_size % self.engine.get_data_parallel_size() == 0, (
+            f"{self.ppo_mini_batch_size=} is not divisible by {self.engine.get_data_parallel_size()=}"
+        )
         self.ppo_mini_batch_size_per_dp = self.ppo_mini_batch_size // self.engine.get_data_parallel_size()
 
         # setup flops counter

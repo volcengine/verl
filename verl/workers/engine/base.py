@@ -159,7 +159,7 @@ class BaseEngine:
             del_local_after_load: Whether to delete local copy after loading.
         """
         raise NotImplementedError
-    
+
     def is_collect(self):
         """
         Whether the output will be collected by the single controller process

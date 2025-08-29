@@ -15,24 +15,20 @@
 The concrete Engine implementation using PyTorch FullyShardedDataParallel (FSDP)
 """
 
-import copy
-import itertools
 import gc
+import itertools
 import logging
 import os
 import warnings
-from typing import Callable, Iterator
-
-from functools import partial
-
 from contextlib import nullcontext
+from typing import Callable
 
 import torch
 import torch.distributed
 from peft import LoraConfig, TaskType, get_peft_model
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-import verl.utils.torch_functional as verl_F
 
+import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.models.transformers.monkey_patch import apply_monkey_patch
 from verl.utils.activation_offload import enable_activation_offloading
@@ -45,7 +41,6 @@ from verl.utils.device import (
     is_cuda_available,
     is_npu_available,
 )
-from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fsdp_utils import (
     CPUOffloadPolicy,
     FSDPModule,
@@ -64,9 +59,9 @@ from verl.utils.fsdp_utils import (
 )
 from verl.utils.import_utils import import_external_libs
 from verl.utils.py_functional import append_to_dict, convert_to_regular_types
+from verl.utils.seqlen_balancing import get_reverse_idx
 from verl.utils.torch_functional import logprobs_from_logits
-from verl.utils.seqlen_balancing import rearrange_micro_batches, get_reverse_idx
-from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad_and_slice_inputs, ulysses_pad
+from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad, ulysses_pad_and_slice_inputs
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 if is_cuda_available:
@@ -75,7 +70,7 @@ elif is_npu_available:
     from transformers.integrations.npu_flash_attention import index_first_axis, pad_input, rearrange, unpad_input
 
 from verl.trainer.config import CheckpointConfig
-from verl.utils.seqlen_balancing import prepare_dynamic_batch, restore_dynamic_batch
+from verl.utils.seqlen_balancing import prepare_dynamic_batch
 from verl.workers.config import FSDPEngineConfig, FSDPOptimizerConfig, HFModelConfig
 
 from ..base import BaseEngine, EngineRegistry
@@ -440,7 +435,7 @@ class FSDPEngine(BaseEngine):
 
     def get_data_parallel_rank(self):
         if self.ulysses_device_mesh is not None:
-            return self.ulysses_device_mesh['dp'].get_local_rank()
+            return self.ulysses_device_mesh["dp"].get_local_rank()
         else:
             return torch.distributed.get_rank()
 
@@ -473,7 +468,6 @@ class FSDPEngine(BaseEngine):
             batch_idx_list = None
         return micro_batches, batch_idx_list
 
-
     def forward_backward_batch(self, data: DataProto, loss_function: Callable, forward_only=False) -> list[DataProto]:
         micro_batches, indices = self.prepare_micro_batches(data=data)
 
@@ -484,8 +478,7 @@ class FSDPEngine(BaseEngine):
         for micro_batch in micro_batches:
             with ctx:
                 # note that loss must be scaled in postprocess_micro_batch_func
-                loss, metrics = self.forward_step(micro_batch, loss_function=loss_function, 
-                                                  forward_only=forward_only)
+                loss, metrics = self.forward_step(micro_batch, loss_function=loss_function, forward_only=forward_only)
                 if not forward_only:
                     # metrics contain the output, loss is dummy
                     loss.backward()
@@ -494,7 +487,6 @@ class FSDPEngine(BaseEngine):
 
         # postprocess and return
         return self.postprocess_batch_func(output, indices, forward_only, data)
-
 
     def postprocess_batch_func(self, losses_reduced, indices, forward_only, data: DataProto):
         use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", True)
@@ -532,7 +524,6 @@ class FSDPEngine(BaseEngine):
                 append_to_dict(metrics, metric)  # append the metric from this micro-batch to global metrics.
 
             return metrics
-
 
     def forward_step(self, micro_batch: DataProto, loss_function, forward_only):
         raise NotImplementedError("forward_step must be implemented in subclass")
@@ -574,7 +565,7 @@ class FSDPEngine(BaseEngine):
         Advance FSDP scheduler and return updated learning rate.
         """
         self.lr_scheduler.step()
-        lr = self.lr_scheduler.get_last_lr()[0] # only return the first group
+        lr = self.lr_scheduler.get_last_lr()[0]  # only return the first group
         return lr
 
     def to(self, device: str, model: bool = True, optimizer: bool = True):
@@ -694,8 +685,8 @@ class EngineTrainModeCtx:
 
 class FSDPEngineWithLMHead(FSDPEngine):
     def forward_step(self, micro_batch: DataProto, loss_function, forward_only):
-        use_remove_padding = micro_batch.meta_info.get('use_remove_padding', True)
-        use_fused_kernels = micro_batch.meta_info.get('use_fused_kernels', False)
+        use_remove_padding = micro_batch.meta_info.get("use_remove_padding", True)
+        use_fused_kernels = micro_batch.meta_info.get("use_fused_kernels", False)
         temperature = micro_batch.meta_info["temperature"]
         calculate_entropy = micro_batch.meta_info.get("calculate_entropy", False)
 
@@ -886,9 +877,9 @@ class FSDPEngineWithLMHead(FSDPEngine):
                         else:
                             entropy = torch.utils.checkpoint.checkpoint(verl_F.entropy_from_logits, logits)
 
-            output = {'log_probs': log_probs}
+            output = {"log_probs": log_probs}
             if calculate_entropy:
-                output['entropy'] = entropy
+                output["entropy"] = entropy
 
             if forward_only:
                 return None, output

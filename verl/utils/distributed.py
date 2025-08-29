@@ -14,11 +14,11 @@
 """Utilities for distributed training."""
 
 import os
-
-import torch.distributed
 from datetime import timedelta
 
-from verl.utils.device import get_nccl_backend, get_torch_device, get_device_name
+import torch.distributed
+
+from verl.utils.device import get_device_name, get_nccl_backend, get_torch_device
 
 
 def initialize_global_process_group(timeout_second=36000):
@@ -41,7 +41,6 @@ def destroy_global_process_group():
         torch.distributed.destroy_process_group()
 
 
-
 def initialize_global_process_group_ray(timeout_second=None):
     # in current ray environment, LOCAL_RANK is always zero.
 
@@ -59,4 +58,3 @@ def initialize_global_process_group_ray(timeout_second=None):
             timeout=timeout,
             init_method=os.environ.get("DIST_INIT_METHOD", None),
         )
-

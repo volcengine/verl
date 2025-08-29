@@ -186,12 +186,12 @@ class MegatronEngine(BaseEngine):
             optimizer=self.optimizer, config=self.optimizer_config
         )
         return optimizer_scheduler
-    
+
     def is_collect(self):
         return (
             mpu.get_tensor_model_parallel_rank() == 0
-                and mpu.get_pipeline_model_parallel_rank() == mpu.get_pipeline_model_parallel_world_size() - 1
-                and mpu.get_context_parallel_rank() == 0
+            and mpu.get_pipeline_model_parallel_rank() == mpu.get_pipeline_model_parallel_world_size() - 1
+            and mpu.get_context_parallel_rank() == 0
         )
 
     def initialize(self):
