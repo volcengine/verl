@@ -361,7 +361,7 @@ class RayPPOTrainer:
 
             self.dynamic_filter_manager = DynamicFilterManager(
                 filter_function=filter_config.filter_function,
-                metric=filter_config.metric or "seq_reward",
+                metric=filter_config.metric,
                 **filter_config.filter_kwargs,
             )
 
