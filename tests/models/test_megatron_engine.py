@@ -27,28 +27,49 @@ from verl import DataProto
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 from verl.utils.model import compute_position_id_with_mask, create_random_mask
 from verl.utils.torch_functional import logprobs_from_logits_naive
-from verl.workers.config import ActorConfig, HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
+from verl.workers.config import (
+    ActorConfig, 
+    HFModelConfig, 
+    McoreEngineConfig, 
+    McoreOptimizerConfig,
+    FSDPEngineConfig,
+    FSDPOptimizerConfig
+)
 from verl.workers.roles import ActorWorker
 from verl.workers.roles.utils.losses import ppo_loss, sft_loss
 
 
 def test_mcore_engine():
     ray.init()
+    
+    strategy = "fsdp"
 
     path = os.path.expanduser("~/models/Qwen/Qwen2.5-0.5B-Instruct")
     model_config = HFModelConfig(path=path)
-    engine_config = McoreEngineConfig(
-        forward_only=False,
-        use_mbridge=False,
-        tensor_model_parallel_size=2,
-        pipeline_model_parallel_size=2,
-        context_parallel_size=2,
-    )
-    optimizer_config = McoreOptimizerConfig(lr_decay_steps=10)
+
+    if strategy == "megatron":
+        engine_config = McoreEngineConfig(
+            forward_only=False,
+            use_mbridge=False,
+            tensor_model_parallel_size=2,
+            pipeline_model_parallel_size=2,
+            context_parallel_size=2,
+        )
+        optimizer_config = McoreOptimizerConfig(lr_decay_steps=10)
+    elif strategy in ["fsdp", "fsdp2"]:
+        engine_config = FSDPEngineConfig(
+            forward_only=False,
+            fsdp_size=8,
+            strategy=strategy,
+        )
+        optimizer_config = FSDPOptimizerConfig()
+    else:
+        raise NotImplementedError(f"strategy {strategy} is not supported")
+
     config = ActorConfig(
         model_config=model_config,
         engine=engine_config,
-        strategy="megatron",
+        strategy=strategy,
         ppo_micro_batch_size_per_gpu=256,
         ppo_mini_batch_size=4,
         optim=optimizer_config,
@@ -71,7 +92,8 @@ def test_mcore_engine():
 
     input_ids = torch.randint(0, model_config.hf_config.vocab_size, (batch_size, seqlen))
     attention_mask = create_random_mask(
-        input_ids=input_ids, max_ratio_of_valid_token=0.8, max_ratio_of_left_padding=0.2, min_ratio_of_valid_token=0.6
+        input_ids=input_ids, max_ratio_of_valid_token=0.8, 
+        max_ratio_of_left_padding=0.2, min_ratio_of_valid_token=0.6
     )
     position_ids = compute_position_id_with_mask(attention_mask)
 

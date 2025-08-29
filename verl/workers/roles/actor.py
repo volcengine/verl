@@ -88,9 +88,21 @@ class ActorWorker(Worker, DistProfilerExtension):
                 mesh_name="actor", dp_rank=mpu.get_data_parallel_rank(), is_collect=is_collect
             )
         elif self.config.strategy in ['fsdp', 'fsdp2']:
-            pass
+            from verl.workers.engine.fsdp.engine_impl import FSDPEngineWithLMHead
+            self.engine = FSDPEngineWithLMHead(
+                model_config=model_config,
+                engine_config=engine_config,
+                optimizer_config=optimizer_config,
+                checkpoint_config=checkpoint_config,
+            )
 
-            raise NotImplementedError
+            if self.engine.ulysses_device_mesh is not None:
+                is_collect = self.ulysses_device_mesh["sp"].get_local_rank() == 0
+                self._register_dispatch_collect_info(
+                    "actor", dp_rank=self.ulysses_device_mesh["dp"].get_local_rank(), is_collect=is_collect
+                )
+            else:
+                self._register_dispatch_collect_info("actor", dp_rank=self.rank, is_collect=True)
 
         # aggregate with bon sampling
         self.ppo_mini_batch_size = self.config.ppo_mini_batch_size * self.config.n
