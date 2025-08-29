@@ -879,3 +879,11 @@ class FSDPEngineWithLMHead(FSDPEngine):
                             entropy = verl_F.entropy_from_logits(logits)  # (bsz, response_length)
                         else:
                             entropy = torch.utils.checkpoint.checkpoint(verl_F.entropy_from_logits, logits)
+
+            output = {'log_probs': log_probs}
+            if calculate_entropy:
+                output['entropy'] = entropy
+
+            
+            loss, metrics = postprocess_micro_batch_func(output, micro_batch)
+            return loss, metrics
