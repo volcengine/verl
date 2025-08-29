@@ -1,0 +1,27 @@
+# Format checks enforced on CI:
+# 1. Comments must appear above each field.
+# 2. There must be a blank line between each field.
+# 3. Inline comments (after a field on the same line) are not allowed.
+# 4. Indentation level is respected for nested fields.
+
+# Dynamic filter for DAPO: filters out homogeneous groups, keeps diverse responses
+filter_groups:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.trainer.config.FilterGroupsConfig
+
+  # Whether to enable dynamic filter
+  enable: False
+
+  # Metric to use for dynamic filter: currently only "seq_reward" is supported
+  metric: seq_reward
+
+  # Maximum number of backfill attempts when collecting diverse responses
+  # If set to 0 or negative, allows unlimited backfill attempts (use with caution)
+  max_num_gen_batches: 10
+
+  # Default filter function for mixed reward filtering
+  filter_function: verl.utils.filtering.dynamic_filtering.keep_mixed_reward
+
+  # Additional arguments for the filter function
+  filter_kwargs: {}

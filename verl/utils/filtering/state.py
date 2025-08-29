@@ -29,6 +29,36 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .state import DynamicFilterState
+from dataclasses import dataclass
+from typing import Optional
 
-__all__ = ["DynamicFilterState"]
+from verl import DataProto
+
+
+@dataclass
+class DynamicFilterState:
+    """State tracking for dynamic filtering during batch processing."""
+
+    num_gen_batches: int = 0
+    num_prompt_in_batch: int = 0
+    accumulated_batch: Optional[DataProto] = None
+
+    def reset(self) -> None:
+        """Reset all state variables for the next training step."""
+        self.num_gen_batches = 0
+        self.num_prompt_in_batch = 0
+        self.accumulated_batch = None
+
+    def increment_gen_batches(self) -> None:
+        """Increment the generation batch counter."""
+        self.num_gen_batches += 1
+
+    def add_prompts(self, count: int) -> None:
+        """Add to the prompt count."""
+        self.num_prompt_in_batch += count
+
+    def accumulate_batch(self, batch: DataProto) -> None:
+        """Accumulate a batch, concatenating with existing if present."""
+        self.accumulated_batch = (
+            batch if self.accumulated_batch is None else DataProto.concat([self.accumulated_batch, batch])
+        )

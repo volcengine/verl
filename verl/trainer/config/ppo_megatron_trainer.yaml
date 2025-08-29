@@ -16,6 +16,8 @@ defaults:
   - critic@critic: megatron_critic
   # Reward model config.
   - reward_model@reward_model: megatron_reward_model
+  # Algorithm filter groups config.
+  - filter_groups@algorithm.filter_groups: algorithm/filter_groups
   - _self_
 
 actor_rollout_ref:
@@ -79,28 +81,6 @@ algorithm:
   pf_ppo:
     reweight_method: pow  # ["pow", "max_min", "max_random"]
     weight_pow: 2.0
-
-  # Dynamic filter for DAPO: filters out homogeneous groups, keeps diverse responses
-  filter_groups:
-
-    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
-    _target_: verl.trainer.config.FilterGroupsConfig
-
-    # Whether to enable dynamic filter
-    enable: False
-
-    # Metric to use for dynamic filter: currently only "seq_reward" is supported
-    metric: seq_reward
-
-    # Maximum number of backfill attempts when collecting diverse responses
-    # If set to 0 or negative, allows unlimited backfill attempts (use with caution)
-    max_num_gen_batches: 10
-
-    # Default filter function for mixed reward filtering
-    filter_function: verl.utils.filtering.dynamic_filtering.keep_mixed_reward
-
-    # Additional arguments for the filter function
-    filter_kwargs: {}
 
 trainer:
   balance_batch: True

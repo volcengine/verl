@@ -55,6 +55,7 @@ from verl.trainer.ppo.utils import Role, WorkerType, need_critic, need_reference
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.debug import marked_timer
+from verl.utils.filtering import DynamicFilterState
 from verl.utils.filtering.dynamic_filtering import DynamicFilterManager
 from verl.utils.metric import reduce_metrics
 from verl.utils.rollout_skip import RolloutSkip
@@ -981,9 +982,7 @@ class RayPPOTrainer:
             else False
         )
         next_step_profile = False
-        accumulated_batch = None
-        num_prompt_in_batch = 0
-        num_gen_batches = 0
+        dynamic_filter_state = DynamicFilterState()
         self.reward_step = 0
 
         for epoch in range(self.config.trainer.total_epochs):
@@ -992,7 +991,7 @@ class RayPPOTrainer:
                 timing_raw = {}
 
                 # dynamic filter
-                num_gen_batches += 1
+                dynamic_filter_state.increment_gen_batches()
 
                 with marked_timer("start_profile", timing_raw):
                     self._start_profiling(
@@ -1070,27 +1069,27 @@ class RayPPOTrainer:
                         kept_prompts_this_batch, kept_traj_idxs = self._apply_dynamic_filter(batch, metrics, logger)
 
                         batch = batch[kept_traj_idxs]
-                        num_prompt_in_batch += kept_prompts_this_batch
-                        accumulated_batch = (
-                            batch if accumulated_batch is None else DataProto.concat([accumulated_batch, batch])
-                        )
+                        dynamic_filter_state.add_prompts(kept_prompts_this_batch)
+                        dynamic_filter_state.accumulate_batch(batch)
 
                         max_num_gen_batches = self.config.algorithm.filter_groups.max_num_gen_batches
                         if (
-                            num_prompt_in_batch < self.config.data.train_batch_size
-                            and num_gen_batches < max_num_gen_batches
+                            dynamic_filter_state.num_prompt_in_batch < self.config.data.train_batch_size
+                            and dynamic_filter_state.num_gen_batches < max_num_gen_batches
                         ):
                             continue
                         # if we still could not get enough prompts, repeat the batch content
-                        if num_gen_batches >= max_num_gen_batches:
-                            prompt_deficit = self.config.data.train_batch_size - num_prompt_in_batch
-                            repeated_batch = accumulated_batch[
+                        if dynamic_filter_state.num_gen_batches >= max_num_gen_batches:
+                            prompt_deficit = (
+                                self.config.data.train_batch_size - dynamic_filter_state.num_prompt_in_batch
+                            )
+                            repeated_batch = dynamic_filter_state.accumulated_batch[
                                 : prompt_deficit * self.config.actor_rollout_ref.rollout.n
                             ]
-                            batch = DataProto.concat([accumulated_batch, repeated_batch])
+                            batch = DataProto.concat([dynamic_filter_state.accumulated_batch, repeated_batch])
                         # Align the batch
                         traj_bsz = self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n
-                        batch = accumulated_batch[:traj_bsz]
+                        batch = dynamic_filter_state.accumulated_batch[:traj_bsz]
 
                     if "response_mask" not in batch.batch.keys():
                         batch.batch["response_mask"] = compute_response_mask(batch)
@@ -1303,15 +1302,13 @@ class RayPPOTrainer:
                 self.global_steps += 1
 
                 # Training step completed, show summary
-                if self.config.algorithm.filter_groups.enable and num_gen_batches > 0:
+                if self.config.algorithm.filter_groups.enable and dynamic_filter_state.num_gen_batches > 0:
                     print(
-                        f"Step {self.global_steps} completed, Dynamic Filter: Used {num_gen_batches} generation batches"
+                        f"Step {self.global_steps} completed, Dynamic Filter: Used {dynamic_filter_state.num_gen_batches} generation batches"
                     )
 
                 # Reset dynamic filter state for next training step
-                num_gen_batches = 0
-                num_prompt_in_batch = 0
-                accumulated_batch = None
+                dynamic_filter_state.reset()
 
                 if (
                     hasattr(self.config.actor_rollout_ref.actor, "profiler")
