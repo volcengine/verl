@@ -125,21 +125,6 @@ class FSDPEngine(BaseEngine):
 
         self._init_device_mesh()
 
-        # normalize config, update engine's member instead of config
-        # self.mini_bsz = config.train_mini_batch_size
-        # self.mini_bsz = self.mini_bsz // dp
-        # assert self.mini_bsz > 0, f"mini_bsz {self.mini_bsz} should be larger than 0 after normalization"
-        #
-        # if self.config.train_micro_batch_size_per_gpu is not None:
-        #     assert self.mini_bsz % self.config.train_micro_batch_size_per_gpu == 0, (
-        #         f"normalized train_mini_batch_size {self.mini_bsz} should be divisible by "
-        #         f"train_micro_batch_size_per_gpu {self.config.train_micro_batch_size_per_gpu}"
-        #     )
-        #     assert self.mini_bsz // self.config.train_micro_batch_size_per_gpu > 0, (
-        #         f"normalized train_mini_batch_size {self.mini_bsz} should be larger than "
-        #         f"train_micro_batch_size_per_gpu {self.config.train_micro_batch_size_per_gpu}"
-        #     )
-
         # set FSDP offload params
         self._is_offload_param = self.engine_config.param_offload
         self._is_offload_optimizer = self.engine_config.optimizer_offload
