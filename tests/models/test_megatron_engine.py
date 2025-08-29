@@ -18,6 +18,7 @@ os.environ["NCCL_DEBUG"] = "WARN"
 
 from functools import partial
 
+import pytest
 import numpy as np
 import ray
 import torch
@@ -39,10 +40,9 @@ from verl.workers.roles import ActorWorker
 from verl.workers.roles.utils.losses import ppo_loss, sft_loss
 
 
-def test_mcore_engine():
+@pytest.mark.parametrize("strategy", ['megatron', 'fsdp', 'fsdp2'])
+def test_mcore_engine(strategy):
     ray.init()
-    
-    strategy = "fsdp"
 
     path = os.path.expanduser("~/models/Qwen/Qwen2.5-0.5B-Instruct")
     model_config = HFModelConfig(path=path)
