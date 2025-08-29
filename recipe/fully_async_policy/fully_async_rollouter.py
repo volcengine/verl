@@ -226,7 +226,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
         # Validate asynchronous training configuration
         if not hasattr(self.config, "async_training"):
             raise ValueError("[FullyAsyncRollouter] Missing async_training configuration")
-
+        assert self.config.actor_rollout_ref.rollout.calculate_log_probs == True, "must rollout calculate log_probs"
         super()._validate_config()
 
     def _create_actor_rollout_classes(self):

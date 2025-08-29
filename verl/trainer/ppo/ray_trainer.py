@@ -1280,6 +1280,11 @@ class RayPPOTrainer:
                         "training/rollout_probs_diff_std": rollout_probs_diff_std.detach().item(),
                     }
                 )
+                if self.config.async_training and self.config.async_training.use_rollout_log_probs:
+                    print("use_rollout_log_probs")
+                    batch.batch["old_log_probs"] = batch.batch["rollout_log_probs"]
+                    del actor_old_log_probs
+
         if self.use_reference_policy:
             # compute reference log_prob
             with marked_timer("ref", timing_raw, color="olive"):

@@ -136,6 +136,8 @@ class AgentLoopOutput(BaseModel):
     """Auxiliary performance metrics"""
     is_cancel: bool = False
     """Indicates whether the request was interrupted"""
+    log_probs: list[float] = None
+    """Response token log probs including LLM generated token, tool response token."""
 
 
 # make hydra.utils.instantiate happy

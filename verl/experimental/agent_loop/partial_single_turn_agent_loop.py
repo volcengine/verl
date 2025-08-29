@@ -51,7 +51,7 @@ class PartialSingleTurnAgentLoop(AgentLoopBase):
         metrics = {}
         request_id = uuid4().hex
         with simple_timer("generate_sequences", metrics):
-            response_ids, is_cancel = await self.server_manager.generate_for_partial(
+            response_ids, log_probs, is_cancel = await self.server_manager.generate_for_partial(
                 request_id=request_id, prompt_ids=prompt_ids, sampling_params=sampling_params
             )
 
@@ -60,6 +60,7 @@ class PartialSingleTurnAgentLoop(AgentLoopBase):
         # 暂停待恢复样本, 把输出结果加到 response_ids 后，并重置 response_mask
         else:
             prompt_ids = output.prompt_ids
+            log_probs = output.log_probs + log_probs
             response_ids = output.response_ids + response_ids
             response_mask = [1] * len(response_ids)
 
@@ -70,4 +71,5 @@ class PartialSingleTurnAgentLoop(AgentLoopBase):
             num_turns=2,
             metrics=metrics,
             is_cancel=is_cancel,
+            log_probs=log_probs
         )

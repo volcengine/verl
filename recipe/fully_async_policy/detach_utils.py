@@ -87,9 +87,48 @@ def prepare_single_generation_data(batch_dict, global_steps, rollout_n) -> DataP
     return full_batch
 
 
+def process_rollout_log_probs(data_proto: DataProto,
+                              rollout_log_probs: list[list[float]]) -> torch.Tensor:
+    """
+    根据 DataProto 中的 mask 逻辑处理 rollout_log_probs
+    # attention_mask: [0,0,0,0,1,1,1,1, | 1,1,1,0,0,0,0,0]
+
+    Args:
+        data_proto: 包含 batch 信息的 DataProto 对象
+        rollout_log_probs: 二维列表，每个子列表包含一个样本的 log_probs
+
+    Returns:
+        torch.Tensor: 处理后的 log_probs tensor，形状为 [bsz, response_length]
+    """
+
+    batch = data_proto.batch
+    response_mask = batch["response_mask"]
+    bsz, response_length = response_mask.shape
+
+    # 初始化结果 tensor
+    rollout_log_probs_tensor = torch.zeros((bsz, response_length), dtype=torch.float32) - 1
+
+
+    for i, log_probs_seq in enumerate(rollout_log_probs):
+        # 获取当前样本的有效长度（mask 中为 1 的位置数量）
+        valid_length = response_mask[i].sum().item()
+
+        # 确保 log_probs_seq 的长度不超过有效长度
+        actual_length = min(len(log_probs_seq), valid_length)
+
+        # 将 log_probs 填入对应位置
+        if actual_length > 0:
+            rollout_log_probs_tensor[i, :actual_length] = torch.tensor(log_probs_seq[:actual_length])
+
+    rollout_log_probs_tensor = rollout_log_probs_tensor.to(torch.float32)
+    return rollout_log_probs_tensor
+
 def merge_rollout_sample(config, tokenizer, rs: RolloutSample):
     # 第一步：从 AgentLoopOutput 创建生成结果的 DataProto
     gen_batch_output = postprocess_agent_loop_outputs(rs.agent_loop_output_list, tokenizer, config)
+    rollout_log_probs = [x.log_probs for x in rs.agent_loop_output_list]
+    rollout_log_probs = process_rollout_log_probs(gen_batch_output, rollout_log_probs)
+    gen_batch_output.batch['rollout_log_probs'] = rollout_log_probs.to(torch.float32)
 
     # 第二步：添加 uid
     rs.full_batch.non_tensor_batch["uid"] = np.array([f"uid_{rs.sample_id}"] * len(rs.full_batch), dtype=object)
