@@ -59,8 +59,9 @@ def test_mcore_engine():
     elif strategy in ["fsdp", "fsdp2"]:
         engine_config = FSDPEngineConfig(
             forward_only=False,
-            fsdp_size=8,
+            fsdp_size=4,
             strategy=strategy,
+            ulysses_sequence_parallel_size=4
         )
         optimizer_config = FSDPOptimizerConfig()
     else:

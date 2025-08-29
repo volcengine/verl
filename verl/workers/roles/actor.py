@@ -106,7 +106,8 @@ class ActorWorker(Worker, DistProfilerExtension):
 
         # aggregate with bon sampling
         self.ppo_mini_batch_size = self.config.ppo_mini_batch_size * self.config.n
-        assert self.ppo_mini_batch_size % self.engine.get_data_parallel_size() == 0
+        assert self.ppo_mini_batch_size % self.engine.get_data_parallel_size() == 0, \
+            f"ppo_mini_batch_size {self.ppo_mini_batch_size} is not divisible by data parallel size {self.engine.get_data_parallel_size()}"
         self.ppo_mini_batch_size_per_dp = self.ppo_mini_batch_size // self.engine.get_data_parallel_size()
 
         # setup flops counter
