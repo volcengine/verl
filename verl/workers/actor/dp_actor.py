@@ -390,14 +390,15 @@ class DataParallelPPOActor(BasePPOActor):
 
         data = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
 
-        # Split to make minibatch iterator for updating the actor
-        # See PPO paper for details. https://arxiv.org/abs/1707.06347
-        mini_batches = data.split(self.config.ppo_mini_batch_size)
-
-        on_policy = len(mini_batches) == 1 and self.config.ppo_epochs == 1
-
         metrics = {}
-        for _ in range(self.config.ppo_epochs):
+        for epoch in range(self.config.ppo_epochs):
+            # Split to make minibatch iterator for updating the actor
+            # See PPO paper for details. https://arxiv.org/abs/1707.06347
+            # Shffle date for each eoch, https://github.com/openai/baselines/blob/ea25b9e8b234e6ee1bca43083f8f3cf974143998/baselines/ppo2/ppo2.py#L160
+
+            mini_batches = data.split(self.config.ppo_mini_batch_size, shuffle=True, seed=epoch)
+            on_policy = len(mini_batches) == 1 and self.config.ppo_epochs == 1
+
             for batch_idx, mini_batch in enumerate(mini_batches):
                 if self.config.use_dynamic_bsz:
                     max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size

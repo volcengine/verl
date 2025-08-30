@@ -148,19 +148,16 @@ class CriticWorker(Worker, DistProfilerExtension):
                     "values",
                     "returns",
                 ]
-                batch = data.select(batch_keys=select_keys).batch
                 has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
+                non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
 
-                # Split to make minibatch iterator for updating the actor
-                # See PPO paper for details. https://arxiv.org/abs/1707.06347
-                if has_multi_modal_inputs:
-                    num_mini_batches = data.batch.batch_size[0] // self.config.ppo_mini_batch_size
-                    non_tensor_select_keys = ["multi_modal_inputs"]
-                    dataloader = data.select(select_keys, non_tensor_select_keys).chunk(num_mini_batches)
-                else:
-                    dataloader = batch.split(self.config.ppo_mini_batch_size)
+                data = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
 
                 for epoch in range(self.config.ppo_epochs):
+                    # Split to make minibatch iterator for updating the actor
+                    # See PPO paper for details. https://arxiv.org/abs/1707.06347
+                    # Shffle date for each eoch, https://github.com/openai/baselines/blob/ea25b9e8b234e6ee1bca43083f8f3cf974143998/baselines/ppo2/ppo2.py#L160
+                    dataloader = data.split(self.config.ppo_mini_batch_size, shuffle=True, seed=epoch)
                     for batch_idx, mini_batch in enumerate(dataloader):
                         self.engine.optimizer_zero_grad()
                         mini_batch_metrics = self.engine.train_batch(mini_batch, self.loss_fn)
