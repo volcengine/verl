@@ -51,7 +51,14 @@ from verl.trainer.ppo.metric_utils import (
     process_validation_metrics,
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
-from verl.trainer.ppo.utils import Role, WorkerType, extract_reward_extra_infos, need_critic, need_reference_policy, need_reward_model
+from verl.trainer.ppo.utils import (
+    Role,
+    WorkerType,
+    extract_reward_extra_infos,
+    need_critic,
+    need_reference_policy,
+    need_reward_model,
+)
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.debug import marked_timer
@@ -906,8 +913,6 @@ class RayPPOTrainer:
         )
         metrics.update(global_balance_stats)
 
-
-
     def fit(self):
         """
         The training loop of PPO.
@@ -1033,10 +1038,18 @@ class RayPPOTrainer:
                             batch = batch.union(reward_tensor)
 
                         # compute reward function score
+                        reward_extra_infos_dict = {}
                         if self.config.reward_model.launch_reward_fn_async:
                             future_reward = compute_reward_async.remote(data=batch, reward_fn=self.reward_fn)
                         else:
                             reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
+                            # Set token_level_scores immediately for sync case (needed for compute_reward_metrics)
+                            batch.batch["token_level_scores"] = reward_tensor
+
+                            if reward_extra_infos_dict:
+                                batch.non_tensor_batch.update(
+                                    {k: np.array(v) for k, v in reward_extra_infos_dict.items()}
+                                )
 
                     # Apply dynamic filtering after reward computation
                     filter_config = self.config.algorithm.filter_groups
@@ -1044,14 +1057,14 @@ class RayPPOTrainer:
                         assert not self.config.reward_model.launch_reward_fn_async, (
                             "Dynamic filter has not supported async reward function yet."
                         )
-                        
+
                         # Update reward metrics only once per step using the unfiltered batch
                         if self.reward_step < self.global_steps:
                             self.reward_step += 1
                             reward_metrics = compute_reward_metrics(batch)
                             metrics.update(reward_metrics)
                             logger.log(data=metrics, step=self.global_steps)
-                        
+
                         # Apply dynamic filtering and handle batch accumulation
                         processed_batch, should_continue = self.dynamic_filter_manager.process_batch_with_filtering(
                             batch,
@@ -1060,10 +1073,10 @@ class RayPPOTrainer:
                             self.config.algorithm.filter_groups.max_num_gen_batches,
                             self.config.actor_rollout_ref.rollout.n,
                         )
-                        
+
                         if should_continue:
                             continue
-                        
+
                         batch = processed_batch
 
                     if "response_mask" not in batch.batch.keys():
@@ -1114,13 +1127,22 @@ class RayPPOTrainer:
 
                     with marked_timer("adv", timing_raw, color="brown"):
                         # we combine with rule-based rm
+                        reward_extra_info_keys = set()
                         if self.config.reward_model.launch_reward_fn_async:
                             reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
-                        batch.batch["token_level_scores"] = reward_tensor
-                        reward_extra_info_keys = set()
-                        if reward_extra_infos_dict:
-                            batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
-                            reward_extra_info_keys = set(reward_extra_infos_dict.keys())
+                            # Set token_level_scores for async case
+                            batch.batch["token_level_scores"] = reward_tensor
+
+                            if reward_extra_infos_dict:
+                                batch.non_tensor_batch.update(
+                                    {k: np.array(v) for k, v in reward_extra_infos_dict.items()}
+                                )
+                                reward_extra_info_keys = set(reward_extra_infos_dict.keys())
+                        else:
+                            # For sync case, token_level_scores and extra_infos are already set above
+                            reward_extra_info_keys = (
+                                set(reward_extra_infos_dict.keys()) if reward_extra_infos_dict else set()
+                            )
                         # compute rewards. apply_kl_penalty if available
                         if self.config.algorithm.use_kl_in_reward:
                             batch, kl_metrics = apply_kl_penalty(
@@ -1173,11 +1195,13 @@ class RayPPOTrainer:
                                 item.non_tensor_batch.get("reward_model", {}).get("ground_truth", None)
                                 for item in batch
                             ]
-                            
-                            reward_extra_infos_dict = extract_reward_extra_infos(
-                                batch, reward_extra_info_keys
-                            ) if reward_extra_info_keys else {}
-                            
+
+                            reward_extra_infos_dict = (
+                                extract_reward_extra_infos(batch, reward_extra_info_keys)
+                                if reward_extra_info_keys
+                                else {}
+                            )
+
                             if "request_id" in batch.non_tensor_batch:
                                 reward_extra_infos_dict.setdefault(
                                     "request_id",
@@ -1269,7 +1293,8 @@ class RayPPOTrainer:
                 # Training step completed, show summary
                 if self.config.algorithm.filter_groups.enable and dynamic_filter_state.num_gen_batches > 0:
                     print(
-                        f"Step {self.global_steps} completed, Dynamic Filter: Used {dynamic_filter_state.num_gen_batches} generation batches"
+                        f"Step {self.global_steps} completed, Dynamic Filter: "
+                        f"Used {dynamic_filter_state.num_gen_batches} generation batches"
                     )
 
                 # Reset dynamic filter state for next training step

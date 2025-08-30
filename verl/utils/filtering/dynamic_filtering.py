@@ -19,8 +19,8 @@
 # - This implementation references the ReTool implementation: recipe/retool/ in VERL codebase
 import importlib
 from collections import defaultdict
-from dataclasses import dataclass, field
-from typing import Optional, Callable
+from dataclasses import dataclass
+from typing import Optional
 
 import numpy as np
 
@@ -79,8 +79,6 @@ class DynamicFilterManager:
             module = importlib.import_module(module_path)
             self.custom_filter_func = getattr(module, func_name)
 
-
-
     def process_batch_with_filtering(
         self,
         batch: DataProto,
@@ -90,14 +88,14 @@ class DynamicFilterManager:
         rollout_n: int,
     ) -> tuple[DataProto, bool]:
         """Process a batch with dynamic filtering and accumulation logic.
-        
+
         Args:
             batch: The input batch to process
             dynamic_filter_state: State object tracking filtering progress
             train_batch_size: Target number of prompts for training
             max_num_gen_batches: Maximum number of generation batches allowed
             rollout_n: Number of rollouts per prompt
-            
+
         Returns:
             tuple: (processed_batch, should_continue)
                 - processed_batch: The batch ready for training (None if should continue)
@@ -140,34 +138,32 @@ class DynamicFilterManager:
                 kept_traj_idxs.append(i)
 
         kept_prompts_this_batch = len(kept_prompt_uids)
-        
+
         # Filter the batch and update state
         filtered_batch = batch[kept_traj_idxs]
         dynamic_filter_state.add_prompts(kept_prompts_this_batch)
         dynamic_filter_state.accumulate_batch(filtered_batch)
-        
+
         # Check if we have enough prompts or reached max generation batches
         if (
             dynamic_filter_state.num_prompt_in_batch < train_batch_size
             and dynamic_filter_state.num_gen_batches < max_num_gen_batches
         ):
             return None, True  # Continue collecting more batches
-        
+
         # If we reached max generation batches but still don't have enough prompts,
         # repeat batch content to fill the deficit
         if dynamic_filter_state.num_gen_batches >= max_num_gen_batches:
             prompt_deficit = train_batch_size - dynamic_filter_state.num_prompt_in_batch
-            repeated_batch = dynamic_filter_state.accumulated_batch[
-                : prompt_deficit * rollout_n
-            ]
+            repeated_batch = dynamic_filter_state.accumulated_batch[: prompt_deficit * rollout_n]
             final_batch = DataProto.concat([dynamic_filter_state.accumulated_batch, repeated_batch])
         else:
             final_batch = dynamic_filter_state.accumulated_batch
-        
+
         # Align the batch to the expected trajectory batch size
         traj_bsz = train_batch_size * rollout_n
         aligned_batch = final_batch[:traj_bsz]
-        
+
         return aligned_batch, False  # Ready for training
 
 

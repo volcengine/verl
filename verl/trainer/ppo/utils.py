@@ -14,10 +14,7 @@
 
 import warnings
 from enum import Enum
-from typing import Any, Optional
 
-import numpy as np
-import torch
 from omegaconf import DictConfig
 
 from verl import DataProto
@@ -76,5 +73,3 @@ def extract_reward_extra_infos(batch: DataProto, reward_extra_info_keys: list[st
         reward_extra_infos_dict[key] = batch.non_tensor_batch[key]
 
     return reward_extra_infos_dict
-
-
