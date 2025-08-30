@@ -236,6 +236,7 @@ actor_rollout_ref:
       save_path: ${oc.select:global_profiler.save_path,null}
       tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}
     enable_chunked_prefill: false
+    enable_prefix_caching: true
     load_format: dummy_megatron
     layer_name_map:
       qkv_layer_name: qkv
@@ -252,6 +253,7 @@ actor_rollout_ref:
         freeze_moe_router: false
     use_fused_kernels: false
     trust_remote_code: false
+    use_remove_padding: false
 data:
   tokenizer: null
   use_shm: false
