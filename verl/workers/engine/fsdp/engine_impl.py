@@ -693,25 +693,25 @@ class FSDPEngineWithLMHead(FSDPEngine):
         device_name = get_device_name()
         # actually, we should avoid assigning like this...
         micro_batch = micro_batch.to(get_device_id())
-        micro_batch = micro_batch.batch.to(device_name)
+        micro_batch_tensor = micro_batch.batch.to(device_name)
 
-        response_length = micro_batch["responses"].size(-1)
+        response_length = micro_batch_tensor["responses"].size(-1)
         multi_modal_inputs = {}
-        if "multi_modal_inputs" in micro_batch.keys():
-            if "image_bound" in micro_batch["multi_modal_inputs"][0]:  # minicpm-o logic
-                for key in micro_batch["multi_modal_inputs"][0].keys():
-                    multi_modal_inputs[key] = [inputs[key] for inputs in micro_batch["multi_modal_inputs"]]
+        if "multi_modal_inputs" in micro_batch_tensor.keys():
+            if "image_bound" in micro_batch_tensor["multi_modal_inputs"][0]:  # minicpm-o logic
+                for key in micro_batch_tensor["multi_modal_inputs"][0].keys():
+                    multi_modal_inputs[key] = [inputs[key] for inputs in micro_batch_tensor["multi_modal_inputs"]]
             else:
-                for key in micro_batch["multi_modal_inputs"][0].keys():
+                for key in micro_batch_tensor["multi_modal_inputs"][0].keys():
                     multi_modal_inputs[key] = torch.cat(
-                        [inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0
+                        [inputs[key] for inputs in micro_batch_tensor["multi_modal_inputs"]], dim=0
                     )
 
         with torch.autocast(device_type=device_name, dtype=torch.bfloat16):
-            input_ids = micro_batch["input_ids"]
+            input_ids = micro_batch_tensor["input_ids"]
             batch_size, seqlen = input_ids.shape
-            attention_mask = micro_batch["attention_mask"]
-            position_ids = micro_batch["position_ids"]
+            attention_mask = micro_batch_tensor["attention_mask"]
+            position_ids = micro_batch_tensor["position_ids"]
             entropy = None
             if position_ids.dim() == 3:  # qwen2vl mrope
                 position_ids = position_ids.transpose(0, 1)  # (bsz, 3, seqlen) -> (3, bsz, seqlen)
@@ -746,7 +746,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
                 # pad and slice the inputs if sp > 1
                 if self.use_ulysses_sp:
-                    is_vlm_model = "multi_modal_inputs" in micro_batch.keys()
+                    is_vlm_model = "multi_modal_inputs" in micro_batch_tensor.keys()
                     if is_vlm_model:
                         # vlm model's inputs will be sliced after embedding
                         input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad(
@@ -870,7 +870,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
                     logits.div_(temperature)
                     logits = logits[:, -response_length - 1 : -1, :]  # (bsz, response_length, vocab_size)
-                    log_probs = logprobs_from_logits(logits, micro_batch["responses"])
+                    log_probs = logprobs_from_logits(logits, micro_batch_tensor["responses"])
                     if calculate_entropy:
                         if not self.engine_config.entropy_checkpointing:
                             entropy = verl_F.entropy_from_logits(logits)  # (bsz, response_length)
@@ -884,5 +884,5 @@ class FSDPEngineWithLMHead(FSDPEngine):
             if forward_only:
                 return None, output
             else:
-                policy_loss, metrics = loss_function(model_output=output, data=micro_batch)
+                policy_loss, metrics = loss_function(model_output=output, data=micro_batch_tensor)
                 return policy_loss, metrics
