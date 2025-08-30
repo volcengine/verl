@@ -14,7 +14,10 @@
 
 import warnings
 from enum import Enum
+from typing import Any, Optional
 
+import numpy as np
+import torch
 from omegaconf import DictConfig
 
 from verl import DataProto
@@ -73,3 +76,37 @@ def extract_reward_extra_infos(batch: DataProto, reward_extra_info_keys: list[st
         reward_extra_infos_dict[key] = batch.non_tensor_batch[key]
 
     return reward_extra_infos_dict
+
+
+def update_batch_with_reward_info(
+    batch: DataProto,
+    reward_tensor: torch.Tensor,
+    reward_extra_infos_dict: Optional[dict[str, Any]] = None,
+    reward_tensor_key: str = "token_level_scores"
+) -> set[str]:
+    """
+    Update a DataProto batch with reward tensor and extra reward information.
+    
+    Args:
+        batch: The DataProto batch to update
+        reward_tensor: The reward tensor to add to the batch
+        reward_extra_infos_dict: Optional dictionary of extra reward information
+        reward_tensor_key: Key to use for storing the reward tensor in the batch
+        
+    Returns:
+        Set of keys from reward_extra_infos_dict that were added to the batch
+    """
+    # Add reward tensor to batch
+    batch.batch[reward_tensor_key] = reward_tensor
+    
+    # Track which extra info keys were added
+    reward_extra_info_keys = set()
+    
+    # Add extra reward information if provided
+    if reward_extra_infos_dict:
+        batch.non_tensor_batch.update(
+            {k: np.array(v) for k, v in reward_extra_infos_dict.items()}
+        )
+        reward_extra_info_keys = set(reward_extra_infos_dict.keys())
+    
+    return reward_extra_info_keys
