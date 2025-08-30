@@ -359,7 +359,6 @@ class RayPPOTrainer:
         self.dynamic_filter_manager = None
         filter_config = self.config.algorithm.filter_groups
         if filter_config and filter_config.enable:
-
             self.dynamic_filter_manager = DynamicFilterManager(
                 filter_function=filter_config.filter_function,
                 metric=filter_config.metric,
@@ -1050,22 +1049,32 @@ class RayPPOTrainer:
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_batch_output)
 
-                    if self.use_rm:
-                        reward_tensor = self.rm_wg.compute_rm_score(batch)
-                        batch = batch.union(reward_tensor)
+                    # Compute all reward scores in one consolidated block
+                    with marked_timer("reward", timing_raw, color="yellow"):
+                        # compute reward model score
+                        if self.use_rm:
+                            reward_tensor = self.rm_wg.compute_rm_score(batch)
+                            batch = batch.union(reward_tensor)
 
-                    if not self.config.reward_model.launch_reward_fn_async:
-                        reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
-                        batch.batch["token_level_scores"] = reward_tensor
-                        if reward_extra_infos_dict:
-                            batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
-                            reward_extra_info_keys = reward_extra_infos_dict.keys()
+                        # compute reward function score
+                        if self.config.reward_model.launch_reward_fn_async:
+                            future_reward = compute_reward_async.remote(data=batch, reward_fn=self.reward_fn)
+                        else:
+                            reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
+                            # TODO: Extract as a standalone utility function.
+                            batch.batch["token_level_scores"] = reward_tensor
+                            if reward_extra_infos_dict:
+                                batch.non_tensor_batch.update(
+                                    {k: np.array(v) for k, v in reward_extra_infos_dict.items()}
+                                )
+                                reward_extra_info_keys = reward_extra_infos_dict.keys()
 
-                    assert (
-                        not self.config.algorithm.filter_groups.enable
-                        or not self.config.reward_model.launch_reward_fn_async
-                    ), "Dynamic filter and reward model async are not supported together"
-                    if self.config.algorithm.filter_groups.enable:
+                    # Apply dynamic filtering after reward computation
+                    filter_config = self.config.algorithm.filter_groups
+                    if filter_config.enable:
+                        assert not self.config.reward_model.launch_reward_fn_async, (
+                            "Dynamic filter has not supported async reward function yet."
+                        )
                         kept_prompts_this_batch, kept_traj_idxs = self._apply_dynamic_filter(batch, metrics, logger)
 
                         batch = batch[kept_traj_idxs]
@@ -1104,12 +1113,6 @@ class RayPPOTrainer:
                     # compute global_valid tokens
                     batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
 
-                    with marked_timer("reward", timing_raw, color="yellow"):
-                        # compute reward model score
-
-                        if self.config.reward_model.launch_reward_fn_async:
-                            future_reward = compute_reward_async.remote(data=batch, reward_fn=self.reward_fn)
-
                     # recompute old_log_probs
                     with marked_timer("old_log_prob", timing_raw, color="blue"):
                         old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
@@ -1143,17 +1146,17 @@ class RayPPOTrainer:
                             values = self.critic_wg.compute_values(batch)
                             batch = batch.union(values)
 
-                    with marked_timer("adv", timing_raw, color="brown"):
-                        # we combine with rule-based rm
-                        if self.config.reward_model.launch_reward_fn_async:
+                    # Complete async reward computation if needed
+                    if self.config.reward_model.launch_reward_fn_async:
+                        with marked_timer("reward_async_completion", timing_raw, color="yellow"):
                             reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
                             batch.batch["token_level_scores"] = reward_tensor
-
                             if reward_extra_infos_dict:
                                 batch.non_tensor_batch.update(
                                     {k: np.array(v) for k, v in reward_extra_infos_dict.items()}
                                 )
 
+                    with marked_timer("adv", timing_raw, color="brown"):
                         # compute rewards. apply_kl_penalty if available
                         if self.config.algorithm.use_kl_in_reward:
                             batch, kl_metrics = apply_kl_penalty(
