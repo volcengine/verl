@@ -51,7 +51,7 @@ from verl.trainer.ppo.metric_utils import (
     process_validation_metrics,
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
-from verl.trainer.ppo.utils import Role, WorkerType, need_critic, need_reference_policy, need_reward_model
+from verl.trainer.ppo.utils import Role, WorkerType, extract_reward_extra_infos, need_critic, need_reference_policy, need_reward_model
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.debug import marked_timer
@@ -440,14 +440,6 @@ class RayPPOTrainer:
                     self.config.critic.optim.total_training_steps = total_training_steps
         except Exception as e:
             print(f"Warning: Could not set total_training_steps in config. Structure missing? Error: {e}")
-
-    def _extract_reward_extra_infos(self, batch: DataProto, reward_extra_info_keys: list[str]) -> dict[str, list]:
-        """Extract reward extra info from batch.non_tensor_batch for dump_generations."""
-        reward_extra_infos_dict = {}
-        for key in reward_extra_info_keys:
-            reward_extra_infos_dict[key] = batch.non_tensor_batch[key]
-
-        return reward_extra_infos_dict
 
     def _dump_generations(self, inputs, outputs, gts, scores, reward_extra_infos_dict, dump_path):
         """Dump rollout/validation samples as JSONL."""
@@ -1210,7 +1202,7 @@ class RayPPOTrainer:
                                 for item in batch
                             ]
                             if reward_extra_info_keys:
-                                reward_extra_infos_dict = self._extract_reward_extra_infos(
+                                reward_extra_infos_dict = extract_reward_extra_infos(
                                     batch, reward_extra_info_keys
                                 )
                             elif not reward_extra_info_keys:
