@@ -465,6 +465,10 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         else:
             raise NotImplementedError("Only vllmRollout is supported with Megatron now")
         print(f"rollout and sharding manager init done sharding_manager: {sharding_manager}")
+
+        # used for server mode wake_up/sleep
+        rollout_worker.rollout.sharding_manager = sharding_manager
+
         return rollout_worker, sharding_manager
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
@@ -746,32 +750,17 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
 
 class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
-    def _build_rollout(self, trust_remote_code=False):
-        rollout_worker, rollout_sharding_manager = super()._build_rollout(trust_remote_code)
-
-        # NOTE: rollout is not actually initialized here, it's deferred
-        # to be initialized by AsyncvLLMServer.
-
-        self.vllm_tp_size = self.config.rollout.tensor_model_parallel_size
-        self.vllm_dp_rank = int(os.environ["RANK"]) // self.vllm_tp_size
-        self.vllm_tp_rank = int(os.environ["RANK"]) % self.vllm_tp_size
-
-        # used for sleep/wake_up
-        rollout_worker.rollout.sharding_manager = rollout_sharding_manager
-
-        return rollout_worker, rollout_sharding_manager
-
     # ============================ vLLM related ============================
-
-    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    def execute_method(self, method: str | bytes, *args, **kwargs):
-        return self.rollout.execute_method(method, *args, **kwargs)
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     def get_zeromq_address(self):
         return self.rollout.get_zeromq_address()
 
     # ============================ SGLang related ============================
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
+    def get_server_address(self) -> str:
+        return self.rollout.get_server_address()
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
     async def chat_completion(self, json_request):

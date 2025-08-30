@@ -92,6 +92,7 @@ class vLLMRollout(BaseRollout):
         """
         super().__init__()
         self.config = config
+        self.sharding_manager = None
 
         tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
         assert tensor_parallel_size <= torch.distributed.get_world_size(), (
@@ -463,10 +464,14 @@ class vLLMAsyncRollout:
 
     async def _loop_forever(self):
         while True:
-            message = await self.socket.recv()
-            method, args, kwargs = pickle.loads(message)
-            result = await self._execute_method(method, *args, **kwargs)
-            await self.socket.send(pickle.dumps(result))
+            try:
+                message = await self.socket.recv()
+                method, args, kwargs = pickle.loads(message)
+                result = await self._execute_method(method, *args, **kwargs)
+                await self.socket.send(pickle.dumps(result))
+            except Exception as e:
+                logger.exception(f"vLLM model runner failed: {e}")
+                os._exit(-1)
 
     def _init_worker(self, all_kwargs: list[dict[str, Any]]):
         """Initialize worker engine."""
@@ -480,10 +485,26 @@ class vLLMAsyncRollout:
         self.inference_engine.load_model(*args, **kwargs)
 
         # inference engine is initialized now, update sharding manager
-        self.sharding_manager.inference_engine = self.inference_engine
-        self.sharding_manager.model_runner = self.inference_engine.worker.model_runner
+        # NOTE: standalone rollout has no sharding manager
+        if self.sharding_manager is not None:
+            self.sharding_manager.inference_engine = self.inference_engine
+            self.sharding_manager.model_runner = self.inference_engine.worker.model_runner
 
         _monkey_patch_compute_logits(self.inference_engine.worker.model_runner.model, len(self.tokenizer))
+
+    def _sleep(self, *args, **kwargs):
+        """Offload model weights and discard kv cache."""
+        if self.is_sleep:
+            return
+        self.sharding_manager.__exit__(None, None, None)
+        self.is_sleep = True
+
+    def _wake_up(self, *args, **kwargs):
+        """Load model weights and build kv cache."""
+        if not self.is_sleep:
+            return
+        self.sharding_manager.__enter__()  # pylint: disable=C2801
+        self.is_sleep = False
 
     async def _execute_method(self, method: str | bytes, *args, **kwargs):
         if method == "init_worker":
@@ -491,35 +512,11 @@ class vLLMAsyncRollout:
         elif method == "load_model":
             return self._load_model(*args, **kwargs)
         elif method == "sleep":
-            return await self.sleep(*args, **kwargs)
+            return self._sleep(*args, **kwargs)
         elif method == "wake_up":
-            return await self.wake_up(*args, **kwargs)
+            return self._wake_up(*args, **kwargs)
         else:
             return self.inference_engine.execute_method(method, *args, **kwargs)
 
-    # ==================== server mode public methods ====================
-
     def get_zeromq_address(self):
         return self.address
-
-    async def sleep(self, *args, **kwargs):
-        """Offload model weights and discard kv cache."""
-        if self.is_sleep:
-            return
-        self.sharding_manager.__exit__(None, None, None)
-        self.is_sleep = True
-
-    async def wake_up(self, *args, **kwargs):
-        """Load model weights and build kv cache."""
-        if not self.is_sleep:
-            return
-        self.sharding_manager.__enter__()  # pylint: disable=C2801
-        self.is_sleep = False
-
-    async def generate(self, *args, **kwargs):
-        """Generate sequence with token-in-token-out."""
-        raise NotImplementedError
-
-    async def chat_completion(self, json_request):
-        """OpenAI chat completion API."""
-        raise NotImplementedError

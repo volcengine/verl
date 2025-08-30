@@ -164,6 +164,7 @@ actor_rollout_ref:
     _target_: verl.workers.config.RolloutConfig
     name: ???
     mode: sync
+    load_format: dummy
     temperature: 1.0
     top_k: -1
     top_p: 1
@@ -175,7 +176,9 @@ actor_rollout_ref:
     enforce_eager: false
     cudagraph_capture_sizes: null
     free_cache_engine: true
-    tensor_model_parallel_size: 1
+    tensor_model_parallel_size: 2
+    num_standalone_rollouts: 0
+    enable_chunked_prefill: true
     max_num_batched_tokens: 8192
     max_model_len: null
     max_num_seqs: 1024
@@ -235,14 +238,13 @@ actor_rollout_ref:
       ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
       save_path: ${oc.select:global_profiler.save_path,null}
       tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}
-    enable_chunked_prefill: false
-    load_format: dummy_megatron
     layer_name_map:
       qkv_layer_name: qkv
       gate_proj_layer_name: gate_up
   hybrid_engine: true
   nccl_timeout: 600
   model:
+    _target_: verl.workers.config.HFModelConfig
     path: ~/models/deepseek-llm-7b-chat
     custom_chat_template: null
     external_lib: null

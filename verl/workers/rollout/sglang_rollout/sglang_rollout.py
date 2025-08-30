@@ -60,8 +60,8 @@ from verl.utils.net_utils import is_ipv6
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
 from verl.workers.config import RolloutConfig
-from verl.workers.rollout.async_server import TokenOutput
 from verl.workers.rollout.base import BaseRollout
+from verl.workers.rollout.rollout_server import TokenOutput
 from verl.workers.rollout.schemas import (
     AsyncRolloutRequest,
     AsyncRolloutRequestStateEnum,
@@ -330,6 +330,16 @@ class SGLangRollout(BaseRollout):
                 raise ValueError(f"Cannot get pad_token_id from processing_class {self.processing_class}") from e
 
     def _init_distributed_env(self, device_mesh_cpu, **kwargs):
+        if not torch.distributed.is_initialized():
+            rank = int(os.environ.get("RANK", 0))
+            world_size = int(os.environ.get("WORLD_SIZE", 1))
+            torch.distributed.init_process_group(
+                backend="cpu:gloo,cuda:nccl",
+                rank=rank,
+                world_size=world_size,
+                init_method=os.environ.get("DIST_INIT_METHOD", None),
+            )
+
         self._device_mesh_cpu = device_mesh_cpu
         os.environ.setdefault("SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK", "true")
         self.tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
@@ -1583,6 +1593,10 @@ class SGLangRollout(BaseRollout):
             token_ids = output["output_ids"]
             log_probs = None
         return TokenOutput(token_ids=token_ids, log_probs=log_probs)
+
+    def get_server_address(self) -> str:
+        # TODO(@wuxibin): add native sglang server
+        return None
 
     async def wake_up(self):
         """Load model weights and build kv cache."""
