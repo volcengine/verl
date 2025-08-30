@@ -51,7 +51,7 @@ from verl.trainer.ppo.metric_utils import (
     process_validation_metrics,
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
-from verl.trainer.ppo.utils import Role, WorkerType, extract_reward_extra_infos, need_critic, need_reference_policy, need_reward_model, update_batch_with_reward_info
+from verl.trainer.ppo.utils import Role, WorkerType, extract_reward_extra_infos, need_critic, need_reference_policy, need_reward_model
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.debug import marked_timer
@@ -1037,9 +1037,18 @@ class RayPPOTrainer:
                             future_reward = compute_reward_async.remote(data=batch, reward_fn=self.reward_fn)
                         else:
                             reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
-                            reward_extra_info_keys = update_batch_with_reward_info(
-                                batch, reward_tensor, reward_extra_infos_dict
-                            )
+                            # Add reward tensor to batch
+                            batch.batch["token_level_scores"] = reward_tensor
+                            
+                            # Track which extra info keys were added
+                            reward_extra_info_keys = set()
+                            
+                            # Add extra reward information if provided
+                            if reward_extra_infos_dict:
+                                batch.non_tensor_batch.update(
+                                    {k: np.array(v) for k, v in reward_extra_infos_dict.items()}
+                                )
+                                reward_extra_info_keys = set(reward_extra_infos_dict.keys())
 
                     # Apply dynamic filtering after reward computation
                     filter_config = self.config.algorithm.filter_groups
@@ -1119,7 +1128,12 @@ class RayPPOTrainer:
                     if self.config.reward_model.launch_reward_fn_async:
                         with marked_timer("reward_async_completion", timing_raw, color="yellow"):
                             reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
-                            update_batch_with_reward_info(batch, reward_tensor, reward_extra_infos_dict)
+                            batch.batch["token_level_scores"] = reward_tensor
+                            
+                            if reward_extra_infos_dict:
+                                batch.non_tensor_batch.update(
+                                    {k: np.array(v) for k, v in reward_extra_infos_dict.items()}
+                                )
 
                     with marked_timer("adv", timing_raw, color="brown"):
                         # compute rewards. apply_kl_penalty if available
