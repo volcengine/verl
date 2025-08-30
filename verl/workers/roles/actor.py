@@ -26,9 +26,9 @@ from verl.single_controller.base.decorator import Dispatch, make_nd_compute_data
 from verl.utils.device import (
     get_device_id,
     get_device_name,
-    get_nccl_backend,
     get_torch_device,
 )
+from verl.utils.distributed import initialize_global_process_group_ray
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.profiler import DistProfiler, DistProfilerExtension
 from verl.utils.py_functional import append_to_dict
@@ -56,17 +56,7 @@ class ActorWorker(Worker, DistProfilerExtension):
             self, DistProfiler(rank=self.rank, config=self.profiler_config, tool_config=tool_config)
         )
 
-        import torch.distributed
-
-        if not torch.distributed.is_initialized():
-            rank = int(os.environ.get("RANK", 0))
-            world_size = int(os.environ.get("WORLD_SIZE", 1))
-            torch.distributed.init_process_group(
-                backend=f"cpu:gloo,{get_device_name()}:{get_nccl_backend()}",
-                rank=rank,
-                world_size=world_size,
-                init_method=os.environ.get("DIST_INIT_METHOD", None),
-            )
+        initialize_global_process_group_ray(timeout_second=None)
 
         self.loss_fn = partial(ppo_loss, config=self.config)
 
@@ -77,8 +67,6 @@ class ActorWorker(Worker, DistProfilerExtension):
         checkpoint_config = self.config.checkpoint
 
         if self.config.strategy == "megatron":
-            from megatron.core import parallel_state as mpu
-
             from verl.workers.engine.megatron.engine_impl import MegatronEngineWithLMHead
 
             self.engine = MegatronEngineWithLMHead(
@@ -87,21 +75,28 @@ class ActorWorker(Worker, DistProfilerExtension):
                 optimizer_config=optimizer_config,
                 checkpoint_config=checkpoint_config,
             )
-            # build dispatch info
-            is_collect = (
-                mpu.get_tensor_model_parallel_rank() == 0
-                and mpu.get_pipeline_model_parallel_rank() == mpu.get_pipeline_model_parallel_world_size() - 1
-                and mpu.get_context_parallel_rank() == 0
-            )
-            self._register_dispatch_collect_info(
-                mesh_name="actor", dp_rank=mpu.get_data_parallel_rank(), is_collect=is_collect
+        elif self.config.strategy in ["fsdp", "fsdp2"]:
+            from verl.workers.engine.fsdp.engine_impl import FSDPEngineWithLMHead
+
+            self.engine = FSDPEngineWithLMHead(
+                model_config=model_config,
+                engine_config=engine_config,
+                optimizer_config=optimizer_config,
+                checkpoint_config=checkpoint_config,
             )
         else:
-            raise NotImplementedError
+            raise ValueError(f"Unknown strategy {self.config.strategy}")
+
+        # build dispatch info
+        self._register_dispatch_collect_info(
+            mesh_name="actor", dp_rank=self.engine.get_data_parallel_rank(), is_collect=self.engine.is_collect()
+        )
 
         # aggregate with bon sampling
         self.ppo_mini_batch_size = self.config.ppo_mini_batch_size * self.config.n
-        assert self.ppo_mini_batch_size % self.engine.get_data_parallel_size() == 0
+        assert self.ppo_mini_batch_size % self.engine.get_data_parallel_size() == 0, (
+            f"{self.ppo_mini_batch_size=} is not divisible by {self.engine.get_data_parallel_size()=}"
+        )
         self.ppo_mini_batch_size_per_dp = self.ppo_mini_batch_size // self.engine.get_data_parallel_size()
 
         # setup flops counter
