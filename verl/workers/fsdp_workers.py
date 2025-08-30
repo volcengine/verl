@@ -155,6 +155,28 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
         self._lora_rank = self.config.model.get("lora_rank", 0)
+        self._lora_alpha = self.config.model.get("lora_alpha", 1)
+        self._target_modules = self.config.model.get("target_modules", "all-linear")
+        self._exclude_modules = self.config.model.exclude_modules
+        self._lora_adapter = self.config.model.get("lora_adapter", None)
+
+        self._peft_config = None
+        self._peft_weights = None
+
+        if self._lora_adapter is not None:
+            from verl.utils.peft_utils import load_peft_config, load_peft_weights
+
+            use_shm = self.config.model.get("use_shm", False)
+            self._lora_adapter = copy_to_local(self._lora_adapter, use_shm=use_shm)
+            self._peft_config = load_peft_config(self._lora_adapter)
+            self._peft_weights = load_peft_weights(self._lora_adapter)
+            self._lora_rank = self._peft_config["r"]
+            self._lora_alpha = self._peft_config["lora_alpha"]
+            self._target_modules = self._peft_config["target_modules"]  # list
+            self._target_modules = "[" + ", ".join(self._target_modules) + "]"  # str
+            self._exclude_modules = self._peft_config.get("exclude_modules", [])
+            self._exclude_modules = "[" + ", ".join(self._exclude_modules) + "]"
+
         self._is_lora = self._lora_rank > 0
 
         self.role = role
@@ -376,13 +398,20 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 # Convert config to regular Python types before creating PEFT model
                 lora_config = {
                     "task_type": TaskType.CAUSAL_LM,
-                    "r": self.config.model.lora_rank,
-                    "lora_alpha": self.config.model.lora_alpha,
-                    "target_modules": convert_to_regular_types(self.config.model.target_modules),
-                    "exclude_modules": convert_to_regular_types(self.config.model.exclude_modules),
+                    "r": self._lora_rank,
+                    "lora_alpha": self._lora_alpha,
+                    "target_modules": convert_to_regular_types(self._target_modules),
+                    "exclude_modules": convert_to_regular_types(self._exclude_modules),
                     "bias": "none",
                 }
+                if self._lora_adapter is not None:
+                    lora_config = self._peft_config
                 actor_module = get_peft_model(actor_module, LoraConfig(**lora_config))
+                if self._lora_adapter is not None:
+                    from verl.utils.peft_utils import set_model_peft_weights
+
+                    set_model_peft_weights(actor_module.base_model.model, self._peft_weights)
+
         torch.distributed.barrier()
 
         if self.rank == 0:
@@ -883,8 +912,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             if dist.get_rank() == 0:
                 os.makedirs(lora_save_path, exist_ok=True)
                 peft_config = asdict(peft_model.peft_config.get("default", {}))
-                peft_config["task_type"] = peft_config["task_type"].value
-                peft_config["peft_type"] = peft_config["peft_type"].value
+                peft_config["task_type"] = getattr(peft_config["task_type"], "value", f"{peft_config['task_type']}")
+                peft_config["peft_type"] = getattr(peft_config["peft_type"], "value", f"{peft_config['peft_type']}")
                 peft_config["target_modules"] = list(peft_config["target_modules"])
             try:
                 if fsdp_version(self.actor_module_fsdp) > 0:
