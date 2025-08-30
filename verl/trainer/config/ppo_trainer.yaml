@@ -27,6 +27,9 @@ defaults:
   # Reward model config.
   - reward_model@reward_model: dp_reward_model
 
+  # Algorithm filter groups config.
+  - algorithm/filter_groups@algorithm.filter_groups
+
   # load the reference default config, then apply the fields in the current yaml
   # self config override anything above
   - _self_
