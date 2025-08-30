@@ -1030,6 +1030,9 @@ class RayPPOTrainer:
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_batch_output)
 
+                    if "response_mask" not in batch.batch.keys():
+                        batch.batch["response_mask"] = compute_response_mask(batch)
+
                     # Compute all reward scores in one consolidated block
                     with marked_timer("reward", timing_raw, color="yellow"):
                         # compute reward model score
@@ -1051,19 +1054,18 @@ class RayPPOTrainer:
                                     {k: np.array(v) for k, v in reward_extra_infos_dict.items()}
                                 )
 
+                    # Compute reward metrics
+                    if self.reward_step < self.global_steps:
+                        self.reward_step += 1
+                        reward_metrics = compute_reward_metrics(batch)
+                        metrics.update(reward_metrics)
+
                     # Apply dynamic filtering after reward computation
                     filter_config = self.config.algorithm.filter_groups
                     if filter_config.enable:
                         assert not self.config.reward_model.launch_reward_fn_async, (
                             "Dynamic filter has not supported async reward function yet."
                         )
-
-                        # Update reward metrics only once per step using the unfiltered batch
-                        if self.reward_step < self.global_steps:
-                            self.reward_step += 1
-                            reward_metrics = compute_reward_metrics(batch)
-                            metrics.update(reward_metrics)
-                            logger.log(data=metrics, step=self.global_steps)
 
                         # Apply dynamic filtering and handle batch accumulation
                         processed_batch, should_continue = self.dynamic_filter_manager.process_batch_with_filtering(
@@ -1079,8 +1081,6 @@ class RayPPOTrainer:
 
                         batch = processed_batch
 
-                    if "response_mask" not in batch.batch.keys():
-                        batch.batch["response_mask"] = compute_response_mask(batch)
                     # Balance the number of valid tokens across DP ranks.
                     # NOTE: This usually changes the order of data in the `batch`,
                     # which won't affect the advantage calculation (since it's based on uid),
