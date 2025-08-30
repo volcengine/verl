@@ -906,23 +906,7 @@ class RayPPOTrainer:
         )
         metrics.update(global_balance_stats)
 
-    def _apply_dynamic_filter(self, batch: DataProto, metrics: dict, logger: Tracking):
-        """Apply dynamic filtering using the configured filter manager."""
-        if self.reward_step < self.global_steps:
-            self.reward_step += 1
 
-            # update train/reward in metric only once per step using the not filtered batch
-            reward_metrics = compute_reward_metrics(batch)
-            metrics.update(reward_metrics)
-            logger.log(data=metrics, step=self.global_steps)
-
-        # Apply filtering using the dynamic filter manager
-        if self.dynamic_filter_manager is not None:
-            return self.dynamic_filter_manager.apply_filter(batch)
-        else:
-            raise ValueError(
-                "Dynamic filter is enabled but no filter manager is configured. Please specify filter_path."
-            )
 
     def fit(self):
         """
@@ -1063,30 +1047,27 @@ class RayPPOTrainer:
                         assert not self.config.reward_model.launch_reward_fn_async, (
                             "Dynamic filter has not supported async reward function yet."
                         )
-                        kept_prompts_this_batch, kept_traj_idxs = self._apply_dynamic_filter(batch, metrics, logger)
-
-                        batch = batch[kept_traj_idxs]
-                        dynamic_filter_state.add_prompts(kept_prompts_this_batch)
-                        dynamic_filter_state.accumulate_batch(batch)
-
-                        max_num_gen_batches = self.config.algorithm.filter_groups.max_num_gen_batches
-                        if (
-                            dynamic_filter_state.num_prompt_in_batch < self.config.data.train_batch_size
-                            and dynamic_filter_state.num_gen_batches < max_num_gen_batches
-                        ):
+                        
+                        # Update reward metrics only once per step using the unfiltered batch
+                        if self.reward_step < self.global_steps:
+                            self.reward_step += 1
+                            reward_metrics = compute_reward_metrics(batch)
+                            metrics.update(reward_metrics)
+                            logger.log(data=metrics, step=self.global_steps)
+                        
+                        # Apply dynamic filtering and handle batch accumulation
+                        processed_batch, should_continue = self.dynamic_filter_manager.process_batch_with_filtering(
+                            batch,
+                            dynamic_filter_state,
+                            self.config.data.train_batch_size,
+                            self.config.algorithm.filter_groups.max_num_gen_batches,
+                            self.config.actor_rollout_ref.rollout.n,
+                        )
+                        
+                        if should_continue:
                             continue
-                        # if we still could not get enough prompts, repeat the batch content
-                        if dynamic_filter_state.num_gen_batches >= max_num_gen_batches:
-                            prompt_deficit = (
-                                self.config.data.train_batch_size - dynamic_filter_state.num_prompt_in_batch
-                            )
-                            repeated_batch = dynamic_filter_state.accumulated_batch[
-                                : prompt_deficit * self.config.actor_rollout_ref.rollout.n
-                            ]
-                            batch = DataProto.concat([dynamic_filter_state.accumulated_batch, repeated_batch])
-                        # Align the batch
-                        traj_bsz = self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n
-                        batch = dynamic_filter_state.accumulated_batch[:traj_bsz]
+                        
+                        batch = processed_batch
 
                     if "response_mask" not in batch.batch.keys():
                         batch.batch["response_mask"] = compute_response_mask(batch)
@@ -1193,13 +1174,11 @@ class RayPPOTrainer:
                                 item.non_tensor_batch.get("reward_model", {}).get("ground_truth", None)
                                 for item in batch
                             ]
-                            if reward_extra_info_keys:
-                                reward_extra_infos_dict = extract_reward_extra_infos(
-                                    batch, reward_extra_info_keys
-                                )
-                            elif not reward_extra_info_keys:
-                                reward_extra_infos_dict = {}
-
+                            
+                            reward_extra_infos_dict = extract_reward_extra_infos(
+                                batch, reward_extra_info_keys
+                            ) if reward_extra_info_keys else {}
+                            
                             if "request_id" in batch.non_tensor_batch:
                                 reward_extra_infos_dict.setdefault(
                                     "request_id",

@@ -13,13 +13,44 @@
 # limitations under the License.
 import importlib
 from collections import defaultdict
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Optional, Callable
 
 import numpy as np
 
 from verl import DataProto
 
 
+@dataclass
+class DynamicFilterState:
+    """State tracking for dynamic filtering during batch processing."""
+
+    num_gen_batches: int = 0
+    num_prompt_in_batch: int = 0
+    accumulated_batch: Optional[DataProto] = None
+
+    def reset(self) -> None:
+        """Reset all state variables for the next training step."""
+        self.num_gen_batches = 0
+        self.num_prompt_in_batch = 0
+        self.accumulated_batch = None
+
+    def increment_gen_batches(self) -> None:
+        """Increment the generation batch counter."""
+        self.num_gen_batches += 1
+
+    def add_prompts(self, count: int) -> None:
+        """Add to the prompt count."""
+        self.num_prompt_in_batch += count
+
+    def accumulate_batch(self, batch: DataProto) -> None:
+        """Accumulate a batch, concatenating with existing if present."""
+        self.accumulated_batch = (
+            batch if self.accumulated_batch is None else DataProto.concat([self.accumulated_batch, batch])
+        )
+
+
+@dataclass
 class DynamicFilterManager:
     """Manager class for handling dynamic filtering during training."""
 
@@ -42,13 +73,35 @@ class DynamicFilterManager:
             module = importlib.import_module(module_path)
             self.custom_filter_func = getattr(module, func_name)
 
-    def apply_filter(self, batch: DataProto) -> tuple[int, list[int]]:
-        """Apply dynamic filtering to a batch of data."""
-        # Extract data from batch
+
+
+    def process_batch_with_filtering(
+        self,
+        batch: DataProto,
+        dynamic_filter_state: "DynamicFilterState",
+        train_batch_size: int,
+        max_num_gen_batches: int,
+        rollout_n: int,
+    ) -> tuple[DataProto, bool]:
+        """Process a batch with dynamic filtering and accumulation logic.
+        
+        Args:
+            batch: The input batch to process
+            dynamic_filter_state: State object tracking filtering progress
+            train_batch_size: Target number of prompts for training
+            max_num_gen_batches: Maximum number of generation batches allowed
+            rollout_n: Number of rollouts per prompt
+            
+        Returns:
+            tuple: (processed_batch, should_continue)
+                - processed_batch: The batch ready for training (None if should continue)
+                - should_continue: True if more batches are needed, False if ready for training
+        """
+        # Apply filtering to the batch - inline the filtering logic
         uids = batch.non_tensor_batch["uid"]
         token_level_scores = batch.batch["token_level_scores"]
 
-        # Handle metric calculation same as original code
+        # Handle metric calculation
         if self.metric == "seq_final_reward":
             raise ValueError("seq_final_reward is not supported for dynamic filter")
         elif self.metric == "seq_reward":
@@ -58,7 +111,6 @@ class DynamicFilterManager:
 
         # Group by prompt UID and collect metric values
         prompt_uid_to_metric_vals = defaultdict(list)
-
         for uid, metric_val in zip(uids, batch.non_tensor_batch[self.metric], strict=False):
             prompt_uid_to_metric_vals[uid].append(metric_val)
 
@@ -81,7 +133,36 @@ class DynamicFilterManager:
             if uid in kept_prompt_uids:
                 kept_traj_idxs.append(i)
 
-        return len(kept_prompt_uids), kept_traj_idxs
+        kept_prompts_this_batch = len(kept_prompt_uids)
+        
+        # Filter the batch and update state
+        filtered_batch = batch[kept_traj_idxs]
+        dynamic_filter_state.add_prompts(kept_prompts_this_batch)
+        dynamic_filter_state.accumulate_batch(filtered_batch)
+        
+        # Check if we have enough prompts or reached max generation batches
+        if (
+            dynamic_filter_state.num_prompt_in_batch < train_batch_size
+            and dynamic_filter_state.num_gen_batches < max_num_gen_batches
+        ):
+            return None, True  # Continue collecting more batches
+        
+        # If we reached max generation batches but still don't have enough prompts,
+        # repeat batch content to fill the deficit
+        if dynamic_filter_state.num_gen_batches >= max_num_gen_batches:
+            prompt_deficit = train_batch_size - dynamic_filter_state.num_prompt_in_batch
+            repeated_batch = dynamic_filter_state.accumulated_batch[
+                : prompt_deficit * rollout_n
+            ]
+            final_batch = DataProto.concat([dynamic_filter_state.accumulated_batch, repeated_batch])
+        else:
+            final_batch = dynamic_filter_state.accumulated_batch
+        
+        # Align the batch to the expected trajectory batch size
+        traj_bsz = train_batch_size * rollout_n
+        aligned_batch = final_batch[:traj_bsz]
+        
+        return aligned_batch, False  # Ready for training
 
 
 def keep_mixed_reward(metric_vals: list[float | int], **kwargs) -> bool:
