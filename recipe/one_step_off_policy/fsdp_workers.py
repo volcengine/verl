@@ -43,6 +43,8 @@ from verl.utils.profiler.performance import reduce_timing, topk_reduce_ratio_min
 from verl.workers.fsdp_workers import ActorRolloutRefWorker as ARRWorker
 from verl.workers.fsdp_workers import CriticWorker
 
+from .distributed_util import stateless_init_process_group
+
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
@@ -52,6 +54,17 @@ __all__ = ["ActorRolloutRefWorker", "AsyncActorRolloutRefWorker", "CriticWorker"
 
 
 class ActorRolloutRefWorker(ARRWorker):
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
+    def create_weight_sync_group(self, master_address, master_port, rank_offset, world_size):
+        rank = torch.distributed.get_rank() + rank_offset
+        self._weight_sync_group = stateless_init_process_group(
+            master_address,
+            master_port,
+            rank,
+            world_size,
+            get_torch_device().current_device(),
+        )
+
     def _get_actor_params(self):
         assert self._is_actor
         params = self.actor_module_fsdp.state_dict()
@@ -84,9 +97,8 @@ class ActorRolloutRefWorker(ARRWorker):
                     origin_data = origin_data.full_tensor()
                 if torch.distributed.get_rank() == 0:
                     tensor.copy_(origin_data)
-            from ray.util.collective import collective
 
-            collective.broadcast(tensor, src_rank=0, group_name="actor_rollout")
+            self._weight_sync_group.broadcast(tensor, src=0, stream=get_torch_device().current_stream())
             if self._is_rollout:
                 inference_model.load_weights([(key, tensor)])
 
