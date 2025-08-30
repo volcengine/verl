@@ -720,6 +720,7 @@ class RayPPOTrainer:
             self.ref_policy_wg = all_wg["ref"]
             self.ref_policy_wg.init_model()
 
+        self.rm_wg = None
         if self.use_rm:
             self.rm_wg = all_wg["rm"]
             self.rm_wg.init_model()
@@ -735,8 +736,7 @@ class RayPPOTrainer:
 
             self.async_rollout_mode = True
             self.async_rollout_manager = AgentLoopManager(
-                config=self.config,
-                worker_group=self.actor_rollout_wg,
+                config=self.config, worker_group=self.actor_rollout_wg, rm_wg=self.rm_wg
             )
 
     def _save_checkpoint(self):
@@ -1023,7 +1023,7 @@ class RayPPOTrainer:
 
                     with marked_timer("reward", timing_raw, color="yellow"):
                         # compute reward model score
-                        if self.use_rm:
+                        if self.use_rm and "rm_scores" not in batch.batch.keys():
                             reward_tensor = self.rm_wg.compute_rm_score(batch)
                             batch = batch.union(reward_tensor)
 

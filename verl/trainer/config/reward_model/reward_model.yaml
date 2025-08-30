@@ -6,6 +6,12 @@
 # If False, the following parameters are not effective
 enable: False
 
+# Whether to deploy the model to a separate resource pool.
+# If true, n_gpus_per_node & nnodes will be used to determine the resource node.
+enable_resource_pool: False
+n_gpus_per_node: 0
+nnodes: 0
+
 # FSDP strategy: "fsdp" or "fsdp2"
 strategy: ???
 

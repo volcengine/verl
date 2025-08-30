@@ -171,6 +171,16 @@ class TaskRunner:
         resource_pool_spec = {
             global_pool_id: [config.trainer.n_gpus_per_node] * config.trainer.nnodes,
         }
+        # TODO Here you can use the new registration method to support dynamic registration of roles
+        if config.reward_model.enable_resource_pool:
+            if config.reward_model.n_gpus_per_node <= 0:
+                raise ValueError("config.reward_model.n_gpus_per_node must be greater than 0")
+            if config.reward_model.nnodes <= 0:
+                raise ValueError("config.reward_model.nnodes must be greater than 0")
+
+            reward_pool = [config.reward_model.n_gpus_per_node] * config.reward_model.nnodes
+            resource_pool_spec["reward_pool"] = reward_pool
+
         self.mapping[Role.ActorRollout] = global_pool_id
         self.mapping[Role.Critic] = global_pool_id
         from verl.trainer.ppo.ray_trainer import ResourcePoolManager
@@ -190,7 +200,10 @@ class TaskRunner:
             else:
                 raise NotImplementedError
             self.role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
-            self.mapping[Role.RewardModel] = "global_pool"
+            if config.reward_model.enable_resource_pool:
+                self.mapping[Role.RewardModel] = "reward_pool"
+            else:
+                self.mapping[Role.RewardModel] = "global_pool"
 
     def add_ref_policy_worker(self, config, ref_policy_cls):
         """Add reference policy worker if KL loss or KL reward is used."""
