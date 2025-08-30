@@ -465,13 +465,19 @@ class DataParallelPPOActor(BasePPOActor):
 
                     if self.config.use_kl_loss:
                         ref_log_prob = model_inputs["ref_log_prob"]
+
+                        negative_approx_kl = log_prob - old_log_prob
+                        # Clamp negative_approx_kl for stability
+                        negative_approx_kl = torch.clamp(negative_approx_kl, min=-20.0, max=20.0)
+                        ratio = torch.exp(negative_approx_kl)
+                        
                         # compute kl loss
                         kld = kl_penalty(
                             logprob=log_prob, ref_logprob=ref_log_prob, kl_penalty=self.config.kl_loss_type
                         )
-                        kl_loss = agg_loss(loss_mat=kld, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
-
+                        kl_loss = agg_loss(loss_mat=kld * ratio, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
                         policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
+
                         micro_batch_metrics["actor/kl_loss"] = kl_loss.detach().item() * loss_scale_factor
                         micro_batch_metrics["actor/kl_coef"] = self.config.kl_loss_coef
 
