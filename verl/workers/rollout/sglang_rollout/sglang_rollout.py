@@ -54,6 +54,7 @@ from verl.interactions.base import BaseInteraction
 from verl.interactions.utils.interaction_registry import initialize_interactions_from_config
 from verl.third_party.sglang import parallel_state as sglang_ps
 from verl.tools.base_tool import BaseTool
+from verl.tools.benchmax_tool import BenchmaxToolAdapter
 from verl.tools.schemas import OpenAIFunctionCallSchema, OpenAIFunctionParsedSchema, OpenAIFunctionToolCall
 from verl.tools.utils.tool_registry import initialize_tools_from_config
 from verl.utils.net_utils import is_ipv6
@@ -1335,6 +1336,16 @@ class SGLangRollout(BaseRollout):
             "reward_scores": np.array(reward_scores),
             "request_id": np.array(request_ids),
         }
+
+        # if benchmax tool, get workspace dirs as well
+        # this is useful for rewards that need to access files or directories.
+        # look for any BenchmaxToolAdapter in self._tool_map
+        any_benchmax_tool = next(
+            (tool for tool in self._tool_map.values() if isinstance(tool, BenchmaxToolAdapter)), None
+        )
+        if any_benchmax_tool is not None:
+            workspaces = [any_benchmax_tool.get_rollout_workspace(req.request_id) for req in sorted_output_req_list]
+            non_tensor_batch["workspaces"] = np.array(workspaces, dtype=object)
 
         is_multimodal = isinstance(self.processing_class, ProcessorMixin) and (
             hasattr(self.processing_class, "image_processor") or hasattr(self.model_hf_config, "vision_config")
