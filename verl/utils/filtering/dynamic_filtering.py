@@ -159,6 +159,8 @@ class DynamicFilter:
         # If we reached max generation batches but still don't have enough prompts,
         # repeat batch content to fill the deficit
         if self.num_gen_batches >= max_num_gen_batches:
+            if self.num_prompt_in_batch == 0:
+                raise ValueError("No prompts collected in the generation batch,consider increasing max_num_gen_batches or rollout.n")
             prompt_deficit = train_batch_size - self.num_prompt_in_batch
             repeated_batch = self.accumulated_batch[: prompt_deficit * rollout_n]
             final_batch = DataProto.concat([self.accumulated_batch, repeated_batch])
