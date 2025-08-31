@@ -75,6 +75,8 @@ class CustomRLHFDataset(RLHFDataset):
 
         if self.processor is not None:
             raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+
+            row_dict["is_multi_modal"] = self.image_key in row_dict or self.video_key in row_dict
             multi_modal_data = {}
 
             images = None
