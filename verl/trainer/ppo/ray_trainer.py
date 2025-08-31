@@ -1112,7 +1112,6 @@ class RayPPOTrainer:
 
                     with marked_timer("adv", timing_raw, color="brown"):
                         # we combine with rule-based rm
-                        reward_extra_info_keys = set()
                         if self.config.reward_model.launch_reward_fn_async:
                             reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
                             # Set token_level_scores for async case
@@ -1122,12 +1121,7 @@ class RayPPOTrainer:
                                 batch.non_tensor_batch.update(
                                     {k: np.array(v) for k, v in reward_extra_infos_dict.items()}
                                 )
-                                reward_extra_info_keys = set(reward_extra_infos_dict.keys())
-                        else:
                             # For sync case, token_level_scores and extra_infos are already set above
-                            reward_extra_info_keys = (
-                                set(reward_extra_infos_dict.keys()) if reward_extra_infos_dict else set()
-                            )
                         # compute rewards. apply_kl_penalty if available
                         if self.config.algorithm.use_kl_in_reward:
                             batch, kl_metrics = apply_kl_penalty(
@@ -1182,9 +1176,7 @@ class RayPPOTrainer:
                             ]
 
                             reward_extra_infos_dict = (
-                                extract_reward_extra_infos(batch, reward_extra_info_keys)
-                                if reward_extra_info_keys
-                                else {}
+                                extract_reward_extra_infos(batch, set(reward_extra_infos_dict.keys()))
                             )
 
                             if "request_id" in batch.non_tensor_batch:
