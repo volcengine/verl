@@ -27,18 +27,39 @@ import numpy as np
 from verl import DataProto
 
 
-@dataclass
-class DynamicFilterState:
-    """State tracking for dynamic filtering during batch processing."""
+class DynamicFilter:
+    """Unified class for handling dynamic filtering during training with state management."""
 
-    num_gen_batches: int = 0
-    num_prompt_in_batch: int = 0
-    accumulated_batch: Optional[DataProto] = None
-    reward_step: int = 0
+    def __init__(self, config):
+        """Initialize the dynamic filter.
+
+        Args:
+            config: configuration from ray_trainer
+        """
+        # Configuration attributes
+        self.metric = config.algorithm.filter_groups.metric
+        self.filter_kwargs = config.algorithm.filter_groups.filter_kwargs
+        self.custom_filter_func = None
+        self.filter_function = config.algorithm.filter_groups.filter_function
+
+        # State attributes
+        self.num_gen_batches: int = 0
+        self.num_prompt_in_batch: int = 0
+        self.accumulated_batch: Optional[DataProto] = None
+        self.reward_step: int = 0
+
+        assert not config.reward_model.launch_reward_fn_async, (
+            "Dynamic filter has not supported async reward function yet."
+        )
+
+        if self.filter_function:
+            # Import custom filter function
+            module_path, func_name = self.filter_function.rsplit(".", 1)
+            module = importlib.import_module(module_path)
+            self.custom_filter_func = getattr(module, func_name)
 
     def clear(self) -> None:
         """Reset all state variables for the next training step."""
-
         if self.num_gen_batches > 0:
             print(f"Dynamic Filter: Used {self.num_gen_batches} generation batches to complete this step")
 
@@ -48,6 +69,7 @@ class DynamicFilterState:
         self.reward_step = 0
 
     def increment_reward_step(self, global_step) -> bool:
+        """Increment the reward step if it's less than the global step."""
         if self.reward_step < global_step:
             self.reward_step += 1
             return True
@@ -67,40 +89,13 @@ class DynamicFilterState:
             batch if self.accumulated_batch is None else DataProto.concat([self.accumulated_batch, batch])
         )
 
-
-@dataclass
-class DynamicFilterManager:
-    """Manager class for handling dynamic filtering during training."""
-
-    def __init__(self, config):
-        """Initialize the filter manager.
-
-        Args:
-            config: configuration from ray_trainer
-        """
-        self.metric = config.algorithm.filter_groups.metric
-        self.filter_kwargs = config.algorithm.filter_groups.filter_kwargs
-        self.custom_filter_func = None
-        self.filter_function = config.algorithm.filter_groups.filter_function
-
-        assert not config.reward_model.launch_reward_fn_async, (
-            "Dynamic filter has not supported async reward function yet."
-        )
-
-        if self.filter_function:
-            # Import custom filter function
-            module_path, func_name = self.filter_function.rsplit(".", 1)
-            module = importlib.import_module(module_path)
-            self.custom_filter_func = getattr(module, func_name)
-
     def process_batch_with_filtering(
-        self, batch: DataProto, dynamic_filter_state: "DynamicFilterState", config
+        self, batch: DataProto, config
     ) -> tuple[DataProto, bool]:
         """Process a batch with dynamic filtering and accumulation logic.
 
         Args:
             batch: The input batch to process
-            dynamic_filter_state: State object tracking filtering progress
             config: configuration from ray_trainer
 
         Returns:
@@ -151,24 +146,24 @@ class DynamicFilterManager:
 
         # Filter the batch and update state
         filtered_batch = batch[kept_traj_idxs]
-        dynamic_filter_state.add_prompts(kept_prompts_this_batch)
-        dynamic_filter_state.accumulate_batch(filtered_batch)
+        self.add_prompts(kept_prompts_this_batch)
+        self.accumulate_batch(filtered_batch)
 
         # Check if we have enough prompts or reached max generation batches
         if (
-            dynamic_filter_state.num_prompt_in_batch < train_batch_size
-            and dynamic_filter_state.num_gen_batches < max_num_gen_batches
+            self.num_prompt_in_batch < train_batch_size
+            and self.num_gen_batches < max_num_gen_batches
         ):
             return None, True  # Continue collecting more batches
 
         # If we reached max generation batches but still don't have enough prompts,
         # repeat batch content to fill the deficit
-        if dynamic_filter_state.num_gen_batches >= max_num_gen_batches:
-            prompt_deficit = train_batch_size - dynamic_filter_state.num_prompt_in_batch
-            repeated_batch = dynamic_filter_state.accumulated_batch[: prompt_deficit * rollout_n]
-            final_batch = DataProto.concat([dynamic_filter_state.accumulated_batch, repeated_batch])
+        if self.num_gen_batches >= max_num_gen_batches:
+            prompt_deficit = train_batch_size - self.num_prompt_in_batch
+            repeated_batch = self.accumulated_batch[: prompt_deficit * rollout_n]
+            final_batch = DataProto.concat([self.accumulated_batch, repeated_batch])
         else:
-            final_batch = dynamic_filter_state.accumulated_batch
+            final_batch = self.accumulated_batch
 
         # Align the batch to the expected trajectory batch size
         traj_bsz = train_batch_size * rollout_n

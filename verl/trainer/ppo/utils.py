@@ -64,12 +64,3 @@ def need_critic(config: DictConfig) -> bool:
             stacklevel=2,
         )
         return False
-
-
-def extract_reward_extra_infos(batch: DataProto, reward_extra_info_keys: list[str]) -> dict[str, list]:
-    """Extract reward extra info from batch.non_tensor_batch for dump_generations."""
-    reward_extra_infos_dict = {}
-    for key in reward_extra_info_keys:
-        reward_extra_infos_dict[key] = batch.non_tensor_batch[key]
-
-    return reward_extra_infos_dict

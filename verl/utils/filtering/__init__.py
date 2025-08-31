@@ -18,6 +18,6 @@
 #   Paper: https://arxiv.org/abs/2503.14476
 # - This implementation references the ReTool implementation: recipe/retool/ in VERL codebase
 
-from .dynamic_filtering import DynamicFilterState
+from .dynamic_filtering import DynamicFilter, keep_mixed_reward
 
-__all__ = ["DynamicFilterState"]
+__all__ = ["DynamicFilter", "keep_mixed_reward"]

@@ -50,11 +50,10 @@ from verl.trainer.ppo.metric_utils import (
     compute_timing_metrics,
     process_validation_metrics,
 )
-from verl.trainer.ppo.reward import compute_reward, compute_reward_async
+from verl.trainer.ppo.reward import compute_reward, compute_reward_async, extract_reward_extra_infos
 from verl.trainer.ppo.utils import (
     Role,
     WorkerType,
-    extract_reward_extra_infos,
     need_critic,
     need_reference_policy,
     need_reward_model,
@@ -62,8 +61,7 @@ from verl.trainer.ppo.utils import (
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.debug import marked_timer
-from verl.utils.filtering import DynamicFilterState
-from verl.utils.filtering.dynamic_filtering import DynamicFilterManager
+from verl.utils.filtering.dynamic_filtering import DynamicFilter
 from verl.utils.metric import reduce_metrics
 from verl.utils.rollout_skip import RolloutSkip
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
@@ -362,9 +360,8 @@ class RayPPOTrainer:
         if self.config.algorithm.use_kl_in_reward:
             self.kl_ctrl_in_reward = core_algos.get_kl_controller(self.config.algorithm.kl_ctrl)
 
-        # initialize dynamic filter manager
-        self.dynamic_filter_manager = (
-            DynamicFilterManager(config=self.config)
+        self.dynamic_filter = (
+            DynamicFilter(config=self.config)
             if self.config.algorithm.filter_groups and self.config.algorithm.filter_groups.enable
             else None
         )
@@ -959,7 +956,7 @@ class RayPPOTrainer:
             else False
         )
         next_step_profile = False
-        dynamic_filter_state = DynamicFilterState()
+
 
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
@@ -967,7 +964,8 @@ class RayPPOTrainer:
                 timing_raw = {}
 
                 # dynamic filter
-                dynamic_filter_state.increment_gen_batches()
+                if self.dynamic_filter:
+                    self.dynamic_filter.increment_gen_batches()
 
                 with marked_timer("start_profile", timing_raw):
                     self._start_profiling(
@@ -1051,16 +1049,15 @@ class RayPPOTrainer:
                                 )
 
                     # Compute reward metrics
-                    if dynamic_filter_state.increment_reward_step(self.global_steps):
+                    if self.dynamic_filter and self.dynamic_filter.increment_reward_step(self.global_steps):
                         reward_metrics = compute_reward_metrics(batch)
                         metrics.update(reward_metrics)
 
                     # Apply dynamic filtering after reward computation
-                    if self.dynamic_filter_manager:
+                    if self.dynamic_filter:
                         # Apply dynamic filtering and handle batch accumulation
-                        processed_batch, should_continue = self.dynamic_filter_manager.process_batch_with_filtering(
+                        processed_batch, should_continue = self.dynamic_filter.process_batch_with_filtering(
                             batch,
-                            dynamic_filter_state,
                             self.config,
                         )
 
@@ -1279,7 +1276,8 @@ class RayPPOTrainer:
                 self.global_steps += 1
 
                 # Reset dynamic filter state for next training step
-                dynamic_filter_state.clear()
+                if self.dynamic_filter:
+                    self.dynamic_filter.clear()
 
                 if (
                     hasattr(self.config.actor_rollout_ref.actor, "profiler")
