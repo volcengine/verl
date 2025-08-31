@@ -19,7 +19,6 @@
 # - This implementation references the ReTool implementation: recipe/retool/ in VERL codebase
 import importlib
 from collections import defaultdict
-from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
@@ -89,9 +88,7 @@ class DynamicFilter:
             batch if self.accumulated_batch is None else DataProto.concat([self.accumulated_batch, batch])
         )
 
-    def process_batch_with_filtering(
-        self, batch: DataProto, config
-    ) -> tuple[DataProto, bool]:
+    def process_batch_with_filtering(self, batch: DataProto, config) -> tuple[DataProto, bool]:
         """Process a batch with dynamic filtering and accumulation logic.
 
         Args:
@@ -150,17 +147,16 @@ class DynamicFilter:
         self.accumulate_batch(filtered_batch)
 
         # Check if we have enough prompts or reached max generation batches
-        if (
-            self.num_prompt_in_batch < train_batch_size
-            and self.num_gen_batches < max_num_gen_batches
-        ):
+        if self.num_prompt_in_batch < train_batch_size and self.num_gen_batches < max_num_gen_batches:
             return None, True  # Continue collecting more batches
 
         # If we reached max generation batches but still don't have enough prompts,
         # repeat batch content to fill the deficit
         if self.num_gen_batches >= max_num_gen_batches:
             if self.num_prompt_in_batch == 0:
-                raise ValueError("No prompts collected in the generation batch,consider increasing max_num_gen_batches or rollout.n")
+                raise ValueError(
+                    "No prompts collected in the generation batch,consider increasing max_num_gen_batches or rollout.n"
+                )
             prompt_deficit = train_batch_size - self.num_prompt_in_batch
             repeated_batch = self.accumulated_batch[: prompt_deficit * rollout_n]
             final_batch = DataProto.concat([self.accumulated_batch, repeated_batch])
