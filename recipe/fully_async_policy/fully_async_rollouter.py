@@ -271,6 +271,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 epoch=epoch,
                 param_version=0,  # 待处理后填充
                 processing_times=[],
+                rollout_status={},
             )
 
             await self.pending_queue.put(rollout_sample)
