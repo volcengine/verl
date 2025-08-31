@@ -285,7 +285,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
                                 "fully_async/current_param_version": self.current_param_version,
                             }
                         )
-                        for key, value in batch.meta_info:
+                        for key, value in batch.meta_info.items():
                             if key.startswith("fully_async"):
                                 metrics[key] = value
 
@@ -320,3 +320,5 @@ class FullyAsyncTrainer(RayPPOTrainer):
         else:
             self.local_trigger_step += 1
             return
+
+
