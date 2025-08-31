@@ -34,6 +34,7 @@ class DynamicFilterState:
     num_gen_batches: int = 0
     num_prompt_in_batch: int = 0
     accumulated_batch: Optional[DataProto] = None
+    reward_step: int = 0
 
     def clear(self) -> None:
         """Reset all state variables for the next training step."""

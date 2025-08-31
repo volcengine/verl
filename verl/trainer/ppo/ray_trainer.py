@@ -1049,7 +1049,7 @@ class RayPPOTrainer:
                                 )
 
                     # Compute reward metrics
-                    if self.dynamic_filter_state.increment_reward_step(self.global_steps):
+                    if dynamic_filter_state.increment_reward_step(self.global_steps):
                         reward_metrics = compute_reward_metrics(batch)
                         metrics.update(reward_metrics)
 
