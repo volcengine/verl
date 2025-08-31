@@ -187,6 +187,7 @@ def compute_reward_async(data: DataProto, config=None, tokenizer=None, reward_fn
 
     return compute_reward(data, reward_fn)
 
+
 def extract_reward_extra_infos(batch: DataProto, reward_extra_info_keys: list[str]) -> dict[str, list]:
     """Extract reward extra info from batch.non_tensor_batch for dump_generations."""
     reward_extra_infos_dict = {}

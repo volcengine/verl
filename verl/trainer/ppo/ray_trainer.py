@@ -957,7 +957,6 @@ class RayPPOTrainer:
         )
         next_step_profile = False
 
-
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
                 metrics = {}
@@ -1175,8 +1174,8 @@ class RayPPOTrainer:
                                 for item in batch
                             ]
 
-                            reward_extra_infos_dict = (
-                                extract_reward_extra_infos(batch, set(reward_extra_infos_dict.keys()))
+                            reward_extra_infos_dict = extract_reward_extra_infos(
+                                batch, set(reward_extra_infos_dict.keys())
                             )
 
                             if "request_id" in batch.non_tensor_batch:
