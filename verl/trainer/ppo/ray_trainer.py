@@ -958,7 +958,6 @@ class RayPPOTrainer:
         )
         next_step_profile = False
         dynamic_filter_state = DynamicFilterState()
-        self.reward_step = 0
 
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
@@ -1050,8 +1049,7 @@ class RayPPOTrainer:
                                 )
 
                     # Compute reward metrics
-                    if self.reward_step < self.global_steps:
-                        self.reward_step += 1
+                    if self.dynamic_filter_state.increment_reward_step(self.global_steps):
                         reward_metrics = compute_reward_metrics(batch)
                         metrics.update(reward_metrics)
 
@@ -1061,9 +1059,7 @@ class RayPPOTrainer:
                         processed_batch, should_continue = self.dynamic_filter_manager.process_batch_with_filtering(
                             batch,
                             dynamic_filter_state,
-                            self.config.data.train_batch_size,
-                            self.config.algorithm.filter_groups.max_num_gen_batches,
-                            self.config.actor_rollout_ref.rollout.n,
+                            self.config,
                         )
 
                         if should_continue:

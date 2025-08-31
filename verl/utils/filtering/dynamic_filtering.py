@@ -39,14 +39,18 @@ class DynamicFilterState:
         """Reset all state variables for the next training step."""
 
         if self.num_gen_batches > 0:
-            print(
-                f"Dynamic Filter: "
-                f"Used {self.num_gen_batches} generation batches to complete this step"
-            )
+            print(f"Dynamic Filter: Used {self.num_gen_batches} generation batches to complete this step")
 
         self.num_gen_batches = 0
         self.num_prompt_in_batch = 0
         self.accumulated_batch = None
+        self.reward_step = 0
+
+    def increment_reward_step(self, global_step) -> bool:
+        if self.reward_step < global_step:
+            self.reward_step += 1
+            return True
+        return False
 
     def increment_gen_batches(self) -> None:
         """Increment the generation batch counter."""
@@ -76,12 +80,11 @@ class DynamicFilterManager:
         self.metric = config.algorithm.filter_groups.metric
         self.filter_kwargs = config.algorithm.filter_groups.filter_kwargs
         self.custom_filter_func = None
-        self.filter_function=config.algorithm.filter_groups.filter_function
+        self.filter_function = config.algorithm.filter_groups.filter_function
 
         assert not config.reward_model.launch_reward_fn_async, (
             "Dynamic filter has not supported async reward function yet."
         )
-
 
         if self.filter_function:
             # Import custom filter function
@@ -90,21 +93,14 @@ class DynamicFilterManager:
             self.custom_filter_func = getattr(module, func_name)
 
     def process_batch_with_filtering(
-        self,
-        batch: DataProto,
-        dynamic_filter_state: "DynamicFilterState",
-        train_batch_size: int,
-        max_num_gen_batches: int,
-        rollout_n: int,
+        self, batch: DataProto, dynamic_filter_state: "DynamicFilterState", config
     ) -> tuple[DataProto, bool]:
         """Process a batch with dynamic filtering and accumulation logic.
 
         Args:
             batch: The input batch to process
             dynamic_filter_state: State object tracking filtering progress
-            train_batch_size: Target number of prompts for training
-            max_num_gen_batches: Maximum number of generation batches allowed
-            rollout_n: Number of rollouts per prompt
+            config: configuration from ray_trainer
 
         Returns:
             tuple: (processed_batch, should_continue)
@@ -114,6 +110,9 @@ class DynamicFilterManager:
         # Apply filtering to the batch - inline the filtering logic
         uids = batch.non_tensor_batch["uid"]
         token_level_scores = batch.batch["token_level_scores"]
+        train_batch_size = config.data.train_batch_size
+        max_num_gen_batches = config.algorithm.filter_groups.max_num_gen_batches
+        rollout_n = config.actor_rollout_ref.rollout.n
 
         # Handle metric calculation
         if self.metric == "seq_final_reward":
