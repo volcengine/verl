@@ -364,13 +364,8 @@ class RayPPOTrainer:
 
         # initialize dynamic filter manager
         self.dynamic_filter_manager = None
-        filter_config = self.config.algorithm.filter_groups
-        if filter_config and filter_config.enable:
-            self.dynamic_filter_manager = DynamicFilterManager(
-                filter_function=filter_config.filter_function,
-                metric=filter_config.metric,
-                **filter_config.filter_kwargs,
-            )
+        if self.config.algorithm.filter_groups and self.config.algorithm.filter_groups.enable:
+            self.dynamic_filter_manager = DynamicFilterManager(config=self.config)
 
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
 
@@ -1061,12 +1056,7 @@ class RayPPOTrainer:
                         metrics.update(reward_metrics)
 
                     # Apply dynamic filtering after reward computation
-                    filter_config = self.config.algorithm.filter_groups
-                    if filter_config.enable:
-                        assert not self.config.reward_model.launch_reward_fn_async, (
-                            "Dynamic filter has not supported async reward function yet."
-                        )
-
+                    if self.dynamic_filter_manager:
                         # Apply dynamic filtering and handle batch accumulation
                         processed_batch, should_continue = self.dynamic_filter_manager.process_batch_with_filtering(
                             batch,
@@ -1290,15 +1280,8 @@ class RayPPOTrainer:
                 progress_bar.update(1)
                 self.global_steps += 1
 
-                # Training step completed, show summary
-                if self.config.algorithm.filter_groups.enable and dynamic_filter_state.num_gen_batches > 0:
-                    print(
-                        f"Step {self.global_steps} completed, Dynamic Filter: "
-                        f"Used {dynamic_filter_state.num_gen_batches} generation batches"
-                    )
-
                 # Reset dynamic filter state for next training step
-                dynamic_filter_state.reset()
+                dynamic_filter_state.clear()
 
                 if (
                     hasattr(self.config.actor_rollout_ref.actor, "profiler")

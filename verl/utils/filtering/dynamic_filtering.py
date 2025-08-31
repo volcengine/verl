@@ -35,8 +35,15 @@ class DynamicFilterState:
     num_prompt_in_batch: int = 0
     accumulated_batch: Optional[DataProto] = None
 
-    def reset(self) -> None:
+    def clear(self) -> None:
         """Reset all state variables for the next training step."""
+
+        if self.num_gen_batches > 0:
+            print(
+                f"Dynamic Filter: "
+                f"Used {self.num_gen_batches} generation batches to complete this step"
+            )
+
         self.num_gen_batches = 0
         self.num_prompt_in_batch = 0
         self.accumulated_batch = None
@@ -60,22 +67,25 @@ class DynamicFilterState:
 class DynamicFilterManager:
     """Manager class for handling dynamic filtering during training."""
 
-    def __init__(self, filter_function: Optional[str] = None, metric: str = "seq_reward", **filter_kwargs):
+    def __init__(self, config):
         """Initialize the filter manager.
 
         Args:
-            filter_function: Path to custom filter function (e.g., "my_module.my_filter_func").
-                           If None, uses built-in mixed rewards filter.
-            metric: Metric to use for filtering.
-            **filter_kwargs: Additional arguments for the custom filter function.
+            config: configuration from ray_trainer
         """
-        self.metric = metric
-        self.filter_kwargs = filter_kwargs
+        self.metric = config.algorithm.filter_groups.metric
+        self.filter_kwargs = config.algorithm.filter_groups.filter_kwargs
         self.custom_filter_func = None
+        self.filter_function=config.algorithm.filter_groups.filter_function
 
-        if filter_function:
+        assert not config.reward_model.launch_reward_fn_async, (
+            "Dynamic filter has not supported async reward function yet."
+        )
+
+
+        if self.filter_function:
             # Import custom filter function
-            module_path, func_name = filter_function.rsplit(".", 1)
+            module_path, func_name = self.filter_function.rsplit(".", 1)
             module = importlib.import_module(module_path)
             self.custom_filter_func = getattr(module, func_name)
 
