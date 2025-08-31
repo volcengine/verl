@@ -371,6 +371,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
         # 直接更新 RolloutSample 对象，填充剩余字段
         rollout_sample.agent_loop_output_list = agent_loop_output_list
         rollout_sample.param_version = self.current_param_version
+        rollout_sample.rollout_status = await self.get_statistics()
 
         is_cancel = False
         # 收集所有信息
@@ -438,6 +439,8 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 val_metrics = self._validate()
                 assert val_metrics, f"{val_metrics=}"
                 pprint(f"[FullyAsyncRollouter] Initial validation metrics: {val_metrics}")
+                data = ValidateMetrics(timing_raw={}, metrics=val_metrics)
+                await self.message_queue_client.put_validate(ray.cloudpickle.dumps(data))
                 if self.config.trainer.get("val_only", False):
                     return
 
@@ -548,8 +551,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
             if current_time - last_stats_time >= stats_interval:
                 stats = await self.get_statistics()
                 print(f"[FullyAsyncRollouter][MonitorLoop][Statistics] {pformat(stats)}")
-                data = ValidateMetrics(timing_raw={}, metrics=stats)
-                await self.message_queue_client.put_validate(ray.cloudpickle.dumps(data))
                 last_stats_time = current_time
 
             # pause 和 resume 之间，不进行恢复操作

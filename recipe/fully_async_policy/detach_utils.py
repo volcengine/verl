@@ -45,6 +45,7 @@ class RolloutSample:
     # Processing metadata
     processing_times: list[float]
     param_version: int
+    rollout_status: dict[str, Any]
 
 
 @dataclass
@@ -180,6 +181,9 @@ def assemble_batch_from_rollout_samples(
 
     rollout_samples_batch = []
     processing_times = []
+    rollout_status = rollout_samples[0].rollout_status
+    # 为 rollout_status 的所有 key 添加前缀
+    rollout_status = {f"fully_async/{key}": value for key, value in rollout_status.items()}
 
     for rs in rollout_samples:
         rollout_samples_batch.append(rs.full_batch)
@@ -208,6 +212,7 @@ def assemble_batch_from_rollout_samples(
         "tp99_processing_time": np.percentile(processing_times, 99),  # 99百分位
         "tp95_processing_time": np.percentile(processing_times, 95),  # 95百分位也很有用
     }
+    processing_time_stats = {f"fully_async/{key}": value for key, value in processing_time_stats.items()}
 
     # 创建 meta_info
     final_batch.meta_info.update(
@@ -215,6 +220,7 @@ def assemble_batch_from_rollout_samples(
             "rollout_param_versions": param_versions,
             "param_version_diversity": len(set(param_versions)) if param_versions else 0,
             **processing_time_stats,
+            **rollout_status,
         }
     )
 

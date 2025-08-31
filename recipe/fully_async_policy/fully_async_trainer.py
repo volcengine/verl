@@ -285,16 +285,9 @@ class FullyAsyncTrainer(RayPPOTrainer):
                                 "fully_async/current_param_version": self.current_param_version,
                             }
                         )
-                        for metric in [
-                            "avg_processing_time",
-                            "max_processing_time",
-                            "min_processing_time",
-                            "tp50_processing_time",
-                            "tp99_processing_time",
-                            "tp95_processing_time",
-                            "param_version_diversity",
-                        ]:
-                            metrics[f"fully_async/{metric}"] = batch.meta_info.get(metric, 0)
+                        for key, value in batch.meta_info:
+                            if key.startswith("fully_async"):
+                                metrics[key] = value
 
                 batch, reward_extra_infos_dict = self._process_batch_common(batch, metrics, timing_raw)
                 self._log_rollout(batch, reward_extra_infos_dict, timing_raw)
