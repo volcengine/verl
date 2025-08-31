@@ -363,9 +363,11 @@ class RayPPOTrainer:
             self.kl_ctrl_in_reward = core_algos.get_kl_controller(self.config.algorithm.kl_ctrl)
 
         # initialize dynamic filter manager
-        self.dynamic_filter_manager = None
-        if self.config.algorithm.filter_groups and self.config.algorithm.filter_groups.enable:
-            self.dynamic_filter_manager = DynamicFilterManager(config=self.config)
+        self.dynamic_filter_manager = (
+            DynamicFilterManager(config=self.config)
+            if self.config.algorithm.filter_groups and self.config.algorithm.filter_groups.enable
+            else None
+        )
 
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
 
