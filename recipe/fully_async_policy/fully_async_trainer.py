@@ -182,20 +182,21 @@ class FullyAsyncTrainer(RayPPOTrainer):
         if not queue_samples or len(queue_samples) < self.required_samples:
             print("[FullyAsyncTrainer] not enough samples collected after loop")
             return None, None
+        total_wait_time = consumer_end - consumer_start
 
         print(
             f"[FullyAsyncTrainer] Loop collection completed: {len(queue_samples)}/{self.required_samples} samples, "
-            f"total wait time: {consumer_end - consumer_start:.2f} seconds"
+            f"total wait time: {total_wait_time:.2f} seconds"
         )
 
         queue_samples = [ray.cloudpickle.loads(x) for x in queue_samples]
-        # print(queue_samples)
         # Assemble batch - now working directly with RolloutSample objects
         if self.config.trainer.balance_batch:
             batch = assemble_batch_from_rollout_samples(queue_samples, self.tokenizer, self.config, self._balance_batch)
         else:
             batch = assemble_batch_from_rollout_samples(queue_samples, self.tokenizer, self.config, None)
-        # print(f" _assemble_gen_batch_output_from_queue_samples {batch}")
+
+        batch.meta_info["fully_async/total_wait_time"] = total_wait_time
         return 0, batch
 
     def _create_actor_rollout_classes(self):
