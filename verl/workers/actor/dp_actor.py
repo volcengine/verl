@@ -118,7 +118,8 @@ class DataParallelPPOActor(BasePPOActor):
                         if len(vals) > 0:
                             multi_modal_inputs[key] = torch.cat(vals, dim=0)
                     elif key in ("image_grid_thw", "video_grid_thw", "second_per_grid_ts"):
-                        # Grid/timestamps etc.: only pass when non-empty items exist; can also pad empty (0 rows) and cat if needed
+                        # Grid/timestamps etc.: only pass when non-empty items exist;
+                        # can also pad empty (0 rows) and cat if needed
                         for d in mmi_list:
                             if key in d and d[key] is not None:
                                 vals.append(d[key])
@@ -141,9 +142,7 @@ class DataParallelPPOActor(BasePPOActor):
         position_ids = position_ids.transpose(0, 1)  # (bsz, 3, seqlen) -> (3, bsz, seqlen)
 
         if self.use_remove_padding:
-            input_ids_rmpad, indices, cu_seqlens, *_ = unpad_input(
-                input_ids.unsqueeze(-1), attention_mask
-            )
+            input_ids_rmpad, indices, cu_seqlens, *_ = unpad_input(input_ids.unsqueeze(-1), attention_mask)
             input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
 
             # unpad the position_ids to align the rotary
@@ -192,7 +191,8 @@ class DataParallelPPOActor(BasePPOActor):
 
             input_ids_rmpad_rolled = input_ids_rmpad_rolled.squeeze(0)  # ((total_nnz / sp) + pad)
 
-            # GLM4V 3D position_ids conflicts with masking_utils 2D assumption when rmpad + attention_mask=None, set to None for internal model construction
+            # GLM4V 3D position_ids conflicts with masking_utils 2D assumption
+            # when rmpad + attention_mask=None, set to None for internal model construction
             def _get_model_type_lower():
                 mt = None
                 _m = getattr(self, "actor_module", None)
@@ -204,7 +204,7 @@ class DataParallelPPOActor(BasePPOActor):
                         lm = getattr(_m, "language_model", None)
                         if lm is not None:
                             mt = getattr(getattr(lm, "config", None), "model_type", None)
-                return (str(mt).lower() if mt is not None else "")
+                return str(mt).lower() if mt is not None else ""
 
             _model_type_lower = _get_model_type_lower()
             _is_glm4v = _model_type_lower == "glm4v"
