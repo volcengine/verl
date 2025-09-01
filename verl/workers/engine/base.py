@@ -160,6 +160,12 @@ class BaseEngine:
         """
         raise NotImplementedError
 
+    def is_collect(self):
+        """
+        Whether the output will be collected by the single controller process
+        """
+        raise NotImplementedError
+
 
 class EngineRegistry:
     """
