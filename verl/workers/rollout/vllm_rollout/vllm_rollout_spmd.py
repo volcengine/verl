@@ -32,7 +32,9 @@ import logging
 import os
 import pickle
 import socket
+import time
 from contextlib import contextmanager
+from dataclasses import asdict
 from types import MethodType
 from typing import Any, Generator
 
@@ -56,6 +58,7 @@ from verl import DataProto
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.ray_utils import ray_noset_visible_devices
 from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
+from verl.utils.vllm import TensorLoRARequest, VLLMHijack, is_version_ge
 from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
@@ -79,6 +82,10 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> list[in
     return token_ids
 
 
+if is_version_ge(pkg="vllm", minver="0.7.3"):
+    VLLMHijack.hijack()
+
+
 class vLLMRollout(BaseRollout):
     def __init__(
         self,
@@ -93,7 +100,7 @@ class vLLMRollout(BaseRollout):
         model_hf_config = model_config.hf_config
         trust_remote_code = model_config.trust_remote_code
         self.lora_kwargs = (
-            {"lora_kwargs": {"enable_lora": True, "max_loras": 1, "max_lora_rank": model_config.lora_rank}}
+            {"enable_lora": True, "max_loras": 1, "max_lora_rank": model_config.lora_rank}
             if model_config.lora_rank > 0
             else {}
         )
@@ -401,15 +408,28 @@ class vLLMRollout(BaseRollout):
         self.inference_engine.reset_prefix_cache()
         self.inference_engine.sleep(level=2)
 
-    async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None]):
+    async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None], **kwargs):
         """Update the weights of the rollout model.
 
         Args:
             weights: A generator that yields the name of the weight tensor and the tensor itself.
         """
-        model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
-        patch_vllm_moe_model_weight_loader(model)
-        model.load_weights(weights)
+        peft_config = kwargs.get("peft_config", None)
+        if peft_config:
+            lora_int_id = int(time.time_ns() % 0x7FFFFFFF)
+            lora_reqest = TensorLoRARequest(
+                lora_name=f"{lora_int_id}",
+                lora_int_id=lora_int_id,
+                lora_path="simon_lora_path",
+                peft_config=asdict(peft_config),
+                lora_tensors=weights,
+            )
+            self.inference_engine.llm_engine.add_lora(lora_reqest)
+            logger.info(f"vLLM load weights, loaded_params: {len(weights)}")
+        else:
+            model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
+            patch_vllm_moe_model_weight_loader(model)
+            model.load_weights(weights)
 
 
 # https://github.com/vllm-project/vllm/issues/13175
@@ -519,7 +539,7 @@ class vLLMAsyncRollout(BaseRollout):
         """Release weights and kv cache in GPU memory."""
         self.inference_engine.sleep(level=2)
 
-    async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None]):
+    async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None], **kwargs):
         """Update the weights of the rollout model.
 
         Args:

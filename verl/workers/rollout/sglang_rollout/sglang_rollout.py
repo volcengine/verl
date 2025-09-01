@@ -1470,7 +1470,7 @@ class SGLangRollout(BaseRollout):
         if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.config.free_cache_engine:
             await self._engine.release_memory_occupation(tags=["kv_cache", "weights"])
 
-    async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None]):
+    async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None], **kwargs):
         """
         Update model weights using tensor buckets, similar to THUDM/slime's implementation.
 

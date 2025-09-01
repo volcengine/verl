@@ -48,7 +48,11 @@ class BaseRollout(ABC):
         pass
 
     @abstractmethod
-    async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None]):
+    async def update_weights(
+        self,
+        weights: Generator[tuple[str, torch.Tensor], None, None],
+        **kwargs,
+    ):
         """Update the weights of the rollout model.
 
         Args:
