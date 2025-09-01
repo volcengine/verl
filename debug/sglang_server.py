@@ -1,8 +1,45 @@
-from sglang.test.doc_patch import launch_server_cmd
-from sglang.utils import wait_for_server, print_highlight, terminate_process
+import os
+from transformers import AutoTokenizer
+from verl.workers.rollout.sglang_rollout.http_server_engine import HttpServerAdapter
 
-server_process, port = launch_server_cmd(
-    "python3 -m sglang.launch_server --model-path qwen/qwen2.5-0.5b-instruct --host 0.0.0.0"
-)
 
-wait_for_server(f"http://localhost:{port}")
+# bash /opt/tiger/mlx_deploy/mlx_launch_cmd.sh
+
+
+os.environ["http_proxy"] = ""
+os.environ["https_proxy"] = ""
+os.environ["HTTP_PROXY"] = ""
+os.environ["HTTPS_PROXY"] = ""
+
+
+def main():
+    args = {
+        "model_path": "/mnt/hdfs/yyding/models/Skywork-Reward-Llama-3.1-8B-v0.2",
+        "tp_size": 2,
+        "first_rank_in_node": True,
+        "is_embedding": True,
+    }
+
+    server = HttpServerAdapter(**args)
+    tokenizer = AutoTokenizer.from_pretrained(args["model_path"])
+
+    PROMPT = (
+        "What is the range of the numeric output of a sigmoid node in a neural network?"
+    )
+    RESPONSE1 = "The output of a sigmoid node is bounded between -1 and 1."
+    RESPONSE2 = "The output of a sigmoid node is bounded between 0 and 1."
+
+    CONVS = [
+        [{"role": "user", "content": PROMPT}, {"role": "assistant", "content": RESPONSE1}],
+        [{"role": "user", "content": PROMPT}, {"role": "assistant", "content": RESPONSE2}],
+    ]
+    for conv in CONVS:
+        prompt = tokenizer.apply_chat_template(conv, tokenize=False)
+        print(server.reward_score(prompt))
+
+    # prompts = tokenizer.apply_chat_template(CONVS, tokenize=False)
+    # print(prompts)
+
+
+if __name__ == "__main__":
+    main()
