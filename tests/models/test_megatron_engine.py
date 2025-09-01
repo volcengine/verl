@@ -19,6 +19,7 @@ os.environ["NCCL_DEBUG"] = "WARN"
 from functools import partial
 
 import numpy as np
+import pytest
 import ray
 import torch
 from transformers import AutoModelForCausalLM
@@ -27,28 +28,46 @@ from verl import DataProto
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 from verl.utils.model import compute_position_id_with_mask, create_random_mask
 from verl.utils.torch_functional import logprobs_from_logits_naive
-from verl.workers.config import ActorConfig, HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
+from verl.workers.config import (
+    ActorConfig,
+    FSDPEngineConfig,
+    FSDPOptimizerConfig,
+    HFModelConfig,
+    McoreEngineConfig,
+    McoreOptimizerConfig,
+)
 from verl.workers.roles import ActorWorker
 from verl.workers.roles.utils.losses import ppo_loss, sft_loss
 
 
-def test_mcore_engine():
+@pytest.mark.parametrize("strategy", ["megatron", "fsdp", "fsdp2"])
+def test_mcore_engine(strategy):
     ray.init()
 
     path = os.path.expanduser("~/models/Qwen/Qwen2.5-0.5B-Instruct")
     model_config = HFModelConfig(path=path)
-    engine_config = McoreEngineConfig(
-        forward_only=False,
-        use_mbridge=False,
-        tensor_model_parallel_size=2,
-        pipeline_model_parallel_size=2,
-        context_parallel_size=2,
-    )
-    optimizer_config = McoreOptimizerConfig(lr_decay_steps=10)
+
+    if strategy == "megatron":
+        engine_config = McoreEngineConfig(
+            forward_only=False,
+            use_mbridge=False,
+            tensor_model_parallel_size=2,
+            pipeline_model_parallel_size=2,
+            context_parallel_size=2,
+        )
+        optimizer_config = McoreOptimizerConfig(lr_decay_steps=10)
+    elif strategy in ["fsdp", "fsdp2"]:
+        engine_config = FSDPEngineConfig(
+            forward_only=False, fsdp_size=4, strategy=strategy, ulysses_sequence_parallel_size=2
+        )
+        optimizer_config = FSDPOptimizerConfig()
+    else:
+        raise NotImplementedError(f"strategy {strategy} is not supported")
+
     config = ActorConfig(
         model_config=model_config,
         engine=engine_config,
-        strategy="megatron",
+        strategy=strategy,
         ppo_micro_batch_size_per_gpu=256,
         ppo_mini_batch_size=4,
         optim=optimizer_config,

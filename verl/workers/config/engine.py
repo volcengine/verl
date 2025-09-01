@@ -108,5 +108,8 @@ class FSDPEngineConfig(BaseConfig):
     use_orig_params: bool = False
     mixed_precision: Optional[dict[str, Any]] = None
     ulysses_sequence_parallel_size: int = 1
+    entropy_from_logits_with_chunking: bool = False
+    use_torch_compile: bool = True
+    entropy_checkpointing: bool = False
     forward_only: bool = False
     strategy: str = "fsdp"
