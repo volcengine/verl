@@ -2,7 +2,7 @@
 
 hydra:
   searchpath:
-    - file://verl/verl/trainer/config
+    - file://verl/trainer/config
 
 defaults:
   - ppo_trainer
@@ -25,7 +25,7 @@ actor_rollout_ref:
       format: rstar2_agent_hermes
     agent:
       num_workers: 1
-      agent_loop_config_path: rstar2_agent/config/rstar2_agent_loop.yaml
+      agent_loop_config_path: recipe/rstar2_agent/src/config/rstar2_agent_loop.yaml
 
 augmentation:
   do_down_sampling: False

@@ -74,7 +74,7 @@ class CodeJudgeRewardManager(AbstractRewardManager):
 
             results = self.execute_tool_calls(tool_calls)
             for j in range(len(results)):
-                reward_tensor[i * 64 + j, valid_response_length - 1] = results[j]
+                reward_tensor[i + j, valid_response_length - 1] = results[j]
 
         if return_dict:
             return {
