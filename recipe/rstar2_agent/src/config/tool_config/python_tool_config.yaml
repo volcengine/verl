@@ -1,0 +1,24 @@
+tools:
+  - class_name: "rstar2_agent.tools.code_judge_tool.PythonTool"
+    config: 
+      type: native
+      request_processor_concurrency: 8
+      request_processor_batch_size: 32
+      request_processor_batch_timeout_seconds: 30
+      host_addr: "localhost"
+      host_port: "8088"
+    tool_schema:
+      type: "function"
+      function:
+        name: "python_code_with_standard_io"
+        description: "Execute Python code with standard input and capture standard output. This function takes a Python code string and an input string, provides the input string through standard input (stdin) to the code, and captures and returns any output produced through standard output (stdout). If the executed code raises an exception, the error message will be captured and returned instead."
+        parameters:
+          type: "object"
+          properties:
+            code:
+              type: "string"
+              description: "A string containing Python code to be executed. The code can read from standard input using the input() function."
+            input:
+              type: "string"
+              description: "A string that will be provided as standard input to the code when it calls input()."
+          required: ["code", "input"]

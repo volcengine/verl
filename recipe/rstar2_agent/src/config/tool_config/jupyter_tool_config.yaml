@@ -1,0 +1,21 @@
+tools:
+  - class_name: "rstar2_agent.tools.code_judge_tool.CodeJudgeTool"
+    config: 
+      type: native
+      request_processor_concurrency: 8
+      request_processor_batch_size: 32
+      request_processor_batch_timeout_seconds: 30
+      host_addr: "localhost"
+      host_port: "8088"
+    tool_schema:
+      type: "function"
+      function:
+        name: "jupyter_code"
+        description: "Execute python code in a Jupyter notebook cell and return result"
+        parameters:
+          type: "object"
+          properties:
+            code:
+              type: "string"
+              description: "The python code to execute in a single cell"
+          required: ["code"]

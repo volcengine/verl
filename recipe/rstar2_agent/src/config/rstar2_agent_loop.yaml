@@ -1,0 +1,2 @@
+- name: rstar2_agent
+  _target_: rstar2_agent.rollout.rstar2_agent_loop.RStar2AgentLoop

@@ -1,0 +1,4 @@
+weave
+sympy
+scipy
+math-verify
