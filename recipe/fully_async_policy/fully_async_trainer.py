@@ -252,8 +252,6 @@ class FullyAsyncTrainer(RayPPOTrainer):
             config=OmegaConf.to_container(self.config, resolve=True),
         )
 
-        # load checkpoint before doing anything
-        self._load_checkpoint()
         self.max_steps_duration = 0
         # Use queue mode, no need for traditional dataloader iterator
         # Initialize to get the first batch of data
@@ -307,19 +305,35 @@ class FullyAsyncTrainer(RayPPOTrainer):
             self._trigger_parameter_sync_after_step()
             self.global_steps += 1
 
-    def _trigger_parameter_sync_after_step(self):
+        # final parameter sync and validate
+        self._trigger_parameter_sync_after_step(last_sync=True)
+        val_data = self.message_queue_client.get_validate_sync()
+
+        if val_data:
+            val_data: ValidateMetrics = ray.cloudpickle.loads(val_data)
+            from pprint import pprint
+            pprint(f"[FullyAsyncTrainer] Final validation metrics: {val_data.metrics}")
+            # TODO: 是否需要计入log
+
+        print("[FullyAsyncTrainer] Training completed, sending end signal...,sleeping")
+        time.sleep(10)
+        self.message_queue_client.set_training_end()
+        print("[FullyAsyncTrainer] End signal sent")
+
+        self._check_save_checkpoint(True, timing_raw) # TODO: 检查checkpoint
+
+    def load_checkpoint(self):
+        return self._load_checkpoint()
+
+    def _trigger_parameter_sync_after_step(self, last_sync: bool = False):
         """
         Trigger parameter synchronization after training step
         This ensures rollouter always uses the latest trained parameters
         """
-        if self.local_trigger_step >= self.trigger_parameter_sync_step:
-            self.local_trigger_step = 1
-            self.current_param_version = self.current_param_version + 1
-            ray.get(self.param_synchronizer.sync_weights.remote(self.current_param_version))
-            self.progress_bar.update(1)
-            return
-        else:
+        if self.local_trigger_step < self.trigger_parameter_sync_step  and not last_sync:
             self.local_trigger_step += 1
             return
 
-
+        self.current_param_version += 1 
+        self.local_trigger_step = 1
+        ray.get(self.param_synchronizer.sync_weights.remote(self.current_param_version, last_sync=last_sync))

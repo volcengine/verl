@@ -119,7 +119,6 @@ common_params=(
     trainer.project_name='verl-test-fully-async'
     trainer.experiment_name="${exp_name}"
     trainer.val_before_train=True
-    trainer.test_freq=-1
     trainer.save_freq=-1
     trainer.resume_mode=disable
     trainer.nnodes=1
@@ -128,6 +127,7 @@ common_params=(
     rollout.n_gpus_per_node=${n_gpus_rollout}
     rollout.total_rollout_steps=${total_rollout_steps}
     rollout.total_epochs=2
+    rollout.test_freq=${test_freq}
     # Fully async specific configurations
     async_training.staleness_threshold=${staleness_threshold}
     async_training.partial_rollout="${partial_rollout}"

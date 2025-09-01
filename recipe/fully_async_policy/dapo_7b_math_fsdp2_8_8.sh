@@ -155,7 +155,6 @@ $PYTHON_INTERPRETER -m recipe.fully_async_policy.fully_async_main \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
     trainer.val_before_train=True \
-    trainer.test_freq="${test_freq}" \
     trainer.save_freq=-1 \
     trainer.default_local_dir="${CKPTS_DIR}" \
     trainer.resume_mode=auto \
@@ -165,6 +164,7 @@ $PYTHON_INTERPRETER -m recipe.fully_async_policy.fully_async_main \
     rollout.n_gpus_per_node="${n_gpus_rollout}" \
     rollout.total_rollout_steps="${total_rollout_steps}" \
     rollout.total_epochs=10 \
+    rollout.test_freq="${test_freq}" \
     async_training.staleness_threshold="${staleness_threshold}" \
     async_training.trigger_parameter_sync_step="${trigger_parameter_sync_step}" \
     async_training.partial_rollout="${partial_rollout}"

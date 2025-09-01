@@ -216,7 +216,9 @@ class FullyAsyncTaskRunner:
         )
         ray.get(self.components["trainer"].set_parameter_synchronizer.remote(param_synchronizer))
 
-        ray.get(param_synchronizer.sync_weights.remote(0))
+        # load checkpoint and sync parameter before doing anything
+        ray.get(self.components["trainer"].load_checkpoint.remote()) 
+        ray.get(param_synchronizer.sync_weights.remote(version=0))
 
         self.components["param_synchronizer"] = param_synchronizer
         print("[ASYNC MAIN] All components initialized successfully")

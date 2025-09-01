@@ -186,7 +186,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
     def get_total_train_steps(self):
         return self.total_train_steps
 
-    async def update_param_version(self, version: int):
+    async def update_param_version(self, version: int, last_sync: bool = False):
         """Update current parameter version"""
         async with self.lock:
             old_version = self.current_param_version
@@ -198,11 +198,13 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 f"Parameter version updated from {old_version} to {version}"
             )
             timing_raw = {}
-            is_last_step = self.global_steps >= self.total_training_steps
             if (
                 self.val_reward_fn is not None
-                and self.config.trainer.test_freq > 0
-                and ((self.global_steps > 0 and self.global_steps % self.config.trainer.test_freq == 0) or is_last_step)
+                and self.config.rollout.test_freq > 0
+                and self.current_param_version % self.config.rollout.test_freq == 0 # test_freq 表示每多少步参数更新测试一次
+                and self.current_param_version > 0 # don't test here in the initial parameter sync
+            ) or (
+                last_sync and self.val_reward_fn is not None
             ):
                 with marked_timer("testing", timing_raw, color="green"):
                     val_metrics: dict = self._validate()
@@ -429,20 +431,18 @@ class FullyAsyncRollouter(RayPPOTrainer):
             config=OmegaConf.to_container(self.config, resolve=True),
         )
 
-        # load checkpoint before doing anything
-        self._load_checkpoint()  # TODO: 检查是否需要
-
         # perform validation before training
         # currently, we only support validation using the reward_function.
-        async with self.lock:  # TODO: 检查是否需要锁
+        async with self.lock:
             if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
-                print("Initial validation metric")
+                print("[FullyAsyncRollouter] Initial validating before training...")
                 val_metrics = self._validate()
                 assert val_metrics, f"{val_metrics=}"
                 pprint(f"[FullyAsyncRollouter] Initial validation metrics: {val_metrics}")
                 data = ValidateMetrics(timing_raw={}, metrics=val_metrics)
                 await self.message_queue_client.put_validate(ray.cloudpickle.dumps(data))
-                if self.config.trainer.get("val_only", False):
+                if self.config.trainer.get("val_only", False): # TODO: 是否需要保留此功能
+
                     return
 
         # we start from step 1
@@ -544,7 +544,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
         while True:
             async with self.lock:
-                if not self.running:
+                if not self.running and self.message_queue_client.is_training_ended():
                     break
             await asyncio.sleep(check_interval)
             # 定期打印统计信息

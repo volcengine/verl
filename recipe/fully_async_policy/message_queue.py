@@ -51,6 +51,9 @@ class MessageQueue:
 
         # Asyncio for message handling
         self.running = True
+        
+        # trainer end signal
+        self.training_ended = False
 
         # async safe - 在第一次使用时初始化
         self._lock = asyncio.Lock()
@@ -204,6 +207,15 @@ class MessageQueue:
             else:
                 return None
 
+    async def set_training_end(self):
+        """set training end signal"""
+        async with self._lock:
+            self.training_ended = True
+    
+    async def is_training_ended(self):
+        """check training end signal"""
+        async with self._lock:
+            return self.training_ended
 
 class MessageQueueClient:
     """Asyncio-compatible MessageQueue client for communicating with MessageQueue Actor"""
@@ -269,3 +281,11 @@ class MessageQueueClient:
     def update_param_version_sync(self, version: int):
         """Update parameter version (async)"""
         return ray.get(self.queue_actor.update_param_version.remote(version))
+
+    def set_training_end(self):
+        """Notify the end of training"""
+        return ray.get(self.queue_actor.set_training_end.remote())
+    
+    def is_training_ended(self):
+        """Check if training is finished"""
+        return ray.get(self.queue_actor.is_training_ended.remote())
