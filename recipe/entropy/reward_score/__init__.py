@@ -34,5 +34,5 @@ def _default_compute_score(
             return float(res[0])
     except Exception as e:
         print(f"[ERROR] Error in process_completion for task : {str(e)}")
-        traceback.print_exc()  # 打印完整堆栈
-        raise  # 重新抛出异常以便上层捕获
+        traceback.print_exc()  # Print full stack trace
+        raise  # Re-raise exception for upper level handling

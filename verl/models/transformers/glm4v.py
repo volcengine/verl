@@ -311,7 +311,7 @@ def ulysses_flash_attn_forward(
     key_states = key_states.transpose(1, 2)
     value_states = value_states.transpose(1, 2)
 
-    # GLM4V 不使用 sliding window，固定禁用
+    # GLM4V does not use sliding window, disable it
     sliding_window = None
 
     attn_output = flash_attention_forward(
