@@ -28,6 +28,7 @@ When working with Megatron:
 
 import asyncio
 import getpass
+import inspect
 import logging
 import os
 import pickle
@@ -55,6 +56,7 @@ from vllm.model_executor.sampling_metadata import SamplingMetadata
 from vllm.worker.worker_base import WorkerWrapperBase
 
 from verl import DataProto
+from verl.third_party.vllm import VLLM_SLEEP_LEVEL
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.ray_utils import ray_noset_visible_devices
 from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
@@ -401,12 +403,15 @@ class vLLMRollout(BaseRollout):
         Args:
             tags: weights or kv_cache.
         """
-        self.inference_engine.wake_up(tags=tags)
+        if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
+            self.inference_engine.wake_up(tags=tags)
+        else:
+            self.inference_engine.wake_up()
 
     async def release(self):
         """Release weights and kv cache in GPU memory."""
         self.inference_engine.reset_prefix_cache()
-        self.inference_engine.sleep(level=2)
+        self.inference_engine.sleep(level=VLLM_SLEEP_LEVEL)
 
     async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None], **kwargs):
         """Update the weights of the rollout model.
@@ -537,7 +542,7 @@ class vLLMAsyncRollout(BaseRollout):
 
     async def release(self):
         """Release weights and kv cache in GPU memory."""
-        self.inference_engine.sleep(level=2)
+        self.inference_engine.sleep(level=VLLM_SLEEP_LEVEL)
 
     async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None], **kwargs):
         """Update the weights of the rollout model.
