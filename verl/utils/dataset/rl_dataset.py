@@ -140,7 +140,7 @@ class RLHFDataset(Dataset):
 
         self.dataframe = self.maybe_filter_out_long_prompts(self.dataframe)
 
-    def maybe_filter_out_long_prompts(self, dataframe: datasets.Dataset = None):
+    def maybe_filter_out_long_prompts(self, dataframe: datasets.Dataset = None, tools=None):
         # filter out too long prompts
         if self.filter_overlong_prompts:
             tokenizer = self.tokenizer
@@ -155,7 +155,7 @@ class RLHFDataset(Dataset):
                 def doc2len(doc) -> int:
                     messages = self._build_messages(doc)
                     raw_prompt = self.processor.apply_chat_template(
-                        messages, add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
+                        messages, add_generation_prompt=True, tokenize=False, tools=tools, **self.apply_chat_template_kwargs
                     )
                     images = (
                         [process_image(image) for image in doc[image_key]]
@@ -175,7 +175,7 @@ class RLHFDataset(Dataset):
                 def doc2len(doc) -> int:
                     return len(
                         tokenizer.apply_chat_template(
-                            doc[prompt_key], add_generation_prompt=True, **self.apply_chat_template_kwargs
+                            doc[prompt_key], add_generation_prompt=True, tools=tools, **self.apply_chat_template_kwargs
                         )
                     )
 

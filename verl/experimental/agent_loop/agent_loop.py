@@ -134,6 +134,10 @@ class AgentLoopOutput(BaseModel):
     """Number of chat turns, including user, assistant, tool."""
     metrics: AgentLoopMetrics
     """Auxiliary performance metrics"""
+    prompt_text: str = None
+    """Prompt text decoded from prompt_ids"""
+    response_text: str = None
+    """Response text decoded from response_ids"""
     extra_fields: dict[str, Any] = {}
     """Extra fields for dynamic addition."""
 
@@ -582,6 +586,8 @@ class AgentLoopWorker:
 
         non_tensor_batch = {
             "__num_turns__": np.array([input.num_turns for input in inputs], dtype=np.int32),
+            "prompt_text": np.array([input.prompt_text for input in inputs]),
+            "response_text": np.array([input.response_text for input in inputs]),
         }
 
         # add reward_extra_info to non_tensor_batch
