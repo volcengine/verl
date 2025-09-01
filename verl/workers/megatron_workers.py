@@ -433,7 +433,9 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             "qkv_layer_name": "self_attention.linear_qkv.",
             "gate_proj_layer_name": "linear_fc1.",
         }
-        self.weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
+        self.weight_converter = None
+        if not self.bridge:
+            self.weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
 
         # 5. switch to trainer mode
         # NOTE: It's critical that hybrid engine in trainer mode initially to load checkpoint.
