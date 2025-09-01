@@ -106,6 +106,8 @@ MODEL_FORWARD_REGISTRY: dict[SupportedModel, Callable] = {
     SupportedModel.QWEN2: gptmodel_forward,
     SupportedModel.QWEN2_MOE: gptmodel_forward,
     SupportedModel.MIXTRAL: gptmodel_forward,
+    SupportedModel.DEEPSEEK_V3: gptmodel_forward,
+    SupportedModel.QWEN2_5_VL: gptmodel_forward,
     SupportedModel.LLAMA4: gptmodel_forward,
     SupportedModel.QWEN3: gptmodel_forward,
     SupportedModel.QWEN3_MOE: gptmodel_forward,

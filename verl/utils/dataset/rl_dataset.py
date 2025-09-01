@@ -305,7 +305,7 @@ class RLHFDataset(Dataset):
                 )
             ]  # (1, 3, seq_len)
 
-        if self.processor is not None and "Glm4vImageProcessor" in self.processor.image_processor.__class__.__name__:
+        elif self.processor is not None and "Glm4vImageProcessor" in self.processor.image_processor.__class__.__name__:
             from verl.models.transformers.glm4v import get_rope_index
 
             position_ids = [
