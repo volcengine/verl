@@ -27,6 +27,7 @@ from .config_converter import (
     TransformerConfig,
     hf_to_mcore_config_dense,
     hf_to_mcore_config_dpskv3,
+    hf_to_mcore_config_glm4v,
     hf_to_mcore_config_llama4,
     hf_to_mcore_config_mixtral,
     hf_to_mcore_config_qwen2_5_vl,
@@ -35,7 +36,6 @@ from .config_converter import (
 )
 from .model_forward import (
     gptmodel_forward,
-    gptmodel_forward_qwen2_5_vl,
 )
 from .model_forward_fused import (
     fused_forward_gptmodel,
@@ -67,6 +67,7 @@ class SupportedModel(Enum):
     DEEPSEEK_V3 = "DeepseekV3ForCausalLM"  # not tested
     MIXTRAL = "MixtralForCausalLM"  # tested
     QWEN2_5_VL = "Qwen2_5_VLForConditionalGeneration"  # not supported
+    GLM4V = "Glm4vForConditionalGeneration"  # not supported
     LLAMA4 = "Llama4ForConditionalGeneration"  # not tested
     QWEN3 = "Qwen3ForCausalLM"  # tested
     QWEN3_MOE = "Qwen3MoeForCausalLM"  # not tested
@@ -79,7 +80,7 @@ MODEL_CONFIG_CONVERTER_REGISTRY: dict[SupportedModel, Callable[[PretrainedConfig
     SupportedModel.QWEN2_MOE: hf_to_mcore_config_qwen2moe,
     SupportedModel.DEEPSEEK_V3: hf_to_mcore_config_dpskv3,
     SupportedModel.MIXTRAL: hf_to_mcore_config_mixtral,
-    SupportedModel.QWEN2_5_VL: hf_to_mcore_config_qwen2_5_vl,
+    SupportedModel.GLM4V: hf_to_mcore_config_glm4v,
     SupportedModel.LLAMA4: hf_to_mcore_config_llama4,
     SupportedModel.QWEN3: hf_to_mcore_config_dense,
     SupportedModel.QWEN3_MOE: hf_to_mcore_config_qwen3moe,
@@ -93,7 +94,6 @@ MODEL_INITIALIZER_REGISTRY: dict[SupportedModel, type[BaseModelInitializer]] = {
     SupportedModel.QWEN2_MOE: Qwen2MoEModel,
     SupportedModel.MIXTRAL: MixtralModel,
     SupportedModel.DEEPSEEK_V3: DeepseekV3Model,
-    SupportedModel.QWEN2_5_VL: Qwen25VLModel,
     SupportedModel.LLAMA4: DenseModel,
     SupportedModel.QWEN3: DenseModel,
     SupportedModel.QWEN3_MOE: Qwen3MoEModel,
@@ -106,12 +106,9 @@ MODEL_FORWARD_REGISTRY: dict[SupportedModel, Callable] = {
     SupportedModel.QWEN2: gptmodel_forward,
     SupportedModel.QWEN2_MOE: gptmodel_forward,
     SupportedModel.MIXTRAL: gptmodel_forward,
-    SupportedModel.DEEPSEEK_V3: gptmodel_forward,
-    SupportedModel.QWEN2_5_VL: gptmodel_forward,
     SupportedModel.LLAMA4: gptmodel_forward,
     SupportedModel.QWEN3: gptmodel_forward,
     SupportedModel.QWEN3_MOE: gptmodel_forward,
-    SupportedModel.QWEN2_5_VL: gptmodel_forward_qwen2_5_vl,
     SupportedModel.DEEPSEEK_V3: gptmodel_forward,
 }
 
@@ -121,8 +118,6 @@ MODEL_FORWARD_FUSED_REGISTRY: dict[SupportedModel, Callable] = {
     SupportedModel.QWEN2: fused_forward_gptmodel,
     SupportedModel.QWEN2_MOE: fused_forward_gptmodel,
     SupportedModel.MIXTRAL: fused_forward_gptmodel,
-    SupportedModel.DEEPSEEK_V3: fused_forward_gptmodel,
-    SupportedModel.QWEN2_5_VL: fused_forward_qwen2_5_vl,
     SupportedModel.LLAMA4: fused_forward_gptmodel,
     SupportedModel.QWEN3: fused_forward_gptmodel,
     SupportedModel.QWEN3_MOE: fused_forward_gptmodel,

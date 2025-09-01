@@ -232,7 +232,7 @@ class JsonLineViewer(App):
                 yield Select(
                     id="sample-sort",
                     value=0,
-                    prompt="排序",
+                    prompt="Sort",
                     options=[
                         ("sort", 0),
                         ("score asc", 1),

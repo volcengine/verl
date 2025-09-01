@@ -235,6 +235,11 @@ def patch_forward_with_backends(
 
         forward_with_torch_backend_function = forward_with_torch_backend
         forward_with_triton_backend_function = forward_with_triton_backend
+    elif model.config.model_type == "glm4v":
+        from verl.models.transformers.glm4v import forward_with_torch_backend, forward_with_triton_backend
+
+        forward_with_torch_backend_function = forward_with_torch_backend
+        forward_with_triton_backend_function = forward_with_triton_backend
     else:
         from verl.models.transformers.dense_common import forward_with_torch_backend, forward_with_triton_backend
 
@@ -264,7 +269,6 @@ def apply_monkey_patch(
     In the end of this function forward function of the model is patched for fused kernel.
     If the model is not supported with fused kernel, please return after patch.
     """
-
     """Replace _flash_attention_forward to _ulysses_flash_attention_forward"""
     module = sys.modules[model.__module__]
 
@@ -341,6 +345,20 @@ def apply_monkey_patch(
 
                 patch_vlm_for_ulysses_input_slicing(Qwen2VLModel)
 
+    if model.config.model_type == "glm4v":
+        from transformers.models.glm4v.modeling_glm4v import Glm4vTextAttention
+
+        if use_remove_padding or ulysses_sp_size > 1:
+            # Use GLM4V-specific Ulysses FlashAttention forward implementation to avoid calling Qwen2-VL implementation
+            from verl.models.transformers.glm4v import ulysses_flash_attn_forward
+
+            Glm4vTextAttention.forward = ulysses_flash_attn_forward
+            print("Monkey patch FlashAttention2.forward in GLM4V")
+        if ulysses_sp_size > 1:
+            from transformers.models.glm4v.modeling_glm4v import Glm4vTextModel
+
+            patch_vlm_for_ulysses_input_slicing(Glm4vTextModel)
+
     elif model.config.model_type == "kimi_vl":
         if use_remove_padding or ulysses_sp_size > 1:
             # TODO: Changes need to be made when transformers are adapted.
@@ -369,12 +387,10 @@ def apply_monkey_patch(
                 flash_attention._flash_attention_forward = _ulysses_flash_attention_forward_transformers_4_55
                 print(f"Monkey patch _flash_attention_forward in {model.__module__} for new api")
             else:
-                # 4.48.0 <= transformers <= 4.54.1, Vision attention
                 from transformers.integrations import flash_attention
 
                 flash_attention._flash_attention_forward = _ulysses_flash_attention_forward
                 print(f"Monkey patch _flash_attention_forward in {flash_attention.__name__}")
-
     patch_forward_with_backends(model, use_fused_kernels=use_fused_kernels, fused_kernels_backend=fused_kernels_backend)
 
 
