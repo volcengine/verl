@@ -45,6 +45,8 @@ We introduce rStar2-Agent, a 14B math reasoning model that thinks smarter rather
 #### Option 1: Manual Installation
 
 ```bash
+cd recipe/rstar2_agent
+
 # install code judge
 sudo apt-get update -y && sudo apt-get install redis -y
 git clone https://github.com/0xWJ/code-judge
@@ -53,12 +55,14 @@ pip install -e code-judge
 
 # install rstar2_agent requirements
 pip install -r requirements.txt
+
+cd ../..
 ```
 
 #### Option 2: Automated Installation
 
 ```bash
-bash install.sh
+cd recipe/rstar2_agent && bash install.sh && cd ../..
 ```
 
 ### Code Judge Server Setup
