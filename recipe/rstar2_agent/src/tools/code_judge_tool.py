@@ -55,7 +55,8 @@ class CodeJudgeTool(BaseTool):
         return self._instance_dict[instance_id]["reward"]
 
     async def release(self, instance_id: str, **kwargs) -> None:
-        del self._instance_dict[instance_id]
+        if instance_id in self._instance_dict:
+            del self._instance_dict[instance_id]
 
 
 class SimJupyterTool(CodeJudgeTool):
