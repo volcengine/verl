@@ -120,6 +120,12 @@ class vLLMRollout(BaseRollout):
                 model_hf_config.text_config, "max_position_embeddings"
             ):
                 max_position_embeddings = model_hf_config.text_config.max_position_embeddings
+            elif (
+                hasattr(model_hf_config, "thinker_config")
+                and hasattr(model_hf_config.thinker_config, "text_config")
+                and hasattr(model_hf_config.thinker_config.text_config, "max_position_embeddings")
+            ):
+                max_position_embeddings = model_hf_config.thinker_config.text_config.max_position_embeddings
             if max_position_embeddings is None:
                 raise ValueError("max_position_embeddings not found in model_hf_config")
             assert max_position_embeddings >= config.prompt_length + config.response_length, (

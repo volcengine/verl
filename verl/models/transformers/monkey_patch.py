@@ -235,6 +235,10 @@ def patch_forward_with_backends(
 
         forward_with_torch_backend_function = forward_with_torch_backend
         forward_with_triton_backend_function = forward_with_triton_backend
+    elif model.config.model_type == "qwen2_5_omni_thinker":
+        from verl.models.transformers.qwen2_5_omni import forward_with_torch_backend, forward_with_triton_backend
+        forward_with_torch_backend_function = forward_with_torch_backend
+        forward_with_triton_backend_function = forward_with_triton_backend
     else:
         from verl.models.transformers.dense_common import forward_with_torch_backend, forward_with_triton_backend
 
@@ -269,7 +273,14 @@ def apply_monkey_patch(
     module = sys.modules[model.__module__]
 
     try:
-        num_attention_heads, num_key_value_heads = model.config.num_attention_heads, model.config.num_key_value_heads
+        if hasattr(model.config, "thinker_config"):
+            num_attention_heads = model.config.thinker_config.text_config.num_attention_heads
+            num_key_value_heads = model.config.thinker_config.text_config.num_key_value_heads
+        else:
+            num_attention_heads, num_key_value_heads = (
+                model.config.num_attention_heads,
+                model.config.num_key_value_heads,
+            )
     except AttributeError:
         num_attention_heads, num_key_value_heads = (
             model.config.text_config.num_attention_heads,

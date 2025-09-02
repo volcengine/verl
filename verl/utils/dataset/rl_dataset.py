@@ -102,6 +102,7 @@ class RLHFDataset(Dataset):
         self.prompt_key = config.get("prompt_key", "prompt")
         self.image_key = config.get("image_key", "images")
         self.video_key = config.get("video_key", "videos")
+        self.audio_key = config.get("audio_key", "audios")
         self.max_prompt_length = config.get("max_prompt_length", 1024)
         self.return_raw_chat = config.get("return_raw_chat", False)
         self.return_full_prompt = config.get("return_full_prompt", False)
@@ -148,9 +149,11 @@ class RLHFDataset(Dataset):
             prompt_key = self.prompt_key
             image_key = self.image_key
             video_key = self.video_key
+            audio_key = self.audio_key
 
             if processor is not None:
                 from verl.utils.dataset.vision_utils import process_image, process_video
+                from verl.utils.dataset.audio_utils import process_audio
 
                 def doc2len(doc) -> int:
                     messages = self._build_messages(doc)
@@ -167,8 +170,10 @@ class RLHFDataset(Dataset):
                         if video_key in doc and doc[video_key]
                         else None
                     )
+                    audios = [process_audio(video, True) for video in doc[video_key]] if video_key in doc else []
+                    audios.extend([process_audio(audio, False) for audio in doc[audio_key]] if audio_key in doc else [])
 
-                    return len(processor(text=[raw_prompt], images=images, videos=videos)["input_ids"][0])
+                    return len(processor(text=[raw_prompt], images=images, videos=videos, audio=audios)["input_ids"][0])
 
             else:
 
@@ -203,17 +208,19 @@ class RLHFDataset(Dataset):
     def _build_messages(self, example: dict):
         messages: list = example.pop(self.prompt_key)
 
-        if self.image_key in example or self.video_key in example:
+        if self.image_key in example or self.video_key in example or self.audio_key in example:
             for message in messages:
                 content = message["content"]
                 content_list = []
-                segments = re.split("(<image>|<video>)", content)
+                segments = re.split("(<image>|<video>|<audio>)", content)
                 segments = [item for item in segments if item != ""]
                 for segment in segments:
                     if segment == "<image>":
                         content_list.append({"type": "image"})
                     elif segment == "<video>":
                         content_list.append({"type": "video"})
+                    elif segment == "<audio>":
+                        content_list.append({"type": "audio"})
                     else:
                         content_list.append({"type": "text", "text": segment})
 
@@ -231,6 +238,7 @@ class RLHFDataset(Dataset):
 
         if self.processor is not None:
             from verl.utils.dataset.vision_utils import process_image, process_video
+            from verl.utils.dataset.audio_utils import process_audio
 
             raw_prompt = self.processor.apply_chat_template(
                 messages, add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
@@ -247,6 +255,7 @@ class RLHFDataset(Dataset):
                 multi_modal_data["image"] = images
 
             videos = None
+            audios = []
             row_dict_videos = row_dict.pop(self.video_key, None)
             if row_dict_videos:
                 videos = [process_video(video) for video in row_dict_videos]
@@ -255,7 +264,18 @@ class RLHFDataset(Dataset):
                 # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
                 multi_modal_data["video"] = [video.numpy() for video in videos]
 
-            model_inputs = self.processor(text=[raw_prompt], images=images, videos=videos, return_tensors="pt")
+                if self.config.use_audio_in_video:
+                    audios_from_videos = [process_audio(audio, True) for audio in row_dict.pop(self.audio_key)]
+                    audios.extend(audios_from_videos)
+            if self.audio_key in row_dict and row_dict.get(self.audio_key, None) is not None:
+                audios_from_raw = [process_audio(audio, False) for audio in row_dict.pop(self.audio_key)]
+                audios.extend(audios_from_raw)
+            if len(audios) > 0:
+                multi_modal_data["audio"] = audios
+
+            model_inputs = self.processor(
+                text=[raw_prompt], images=images, videos=videos, audio=audios, return_tensors="pt"
+            )
 
             input_ids = model_inputs.pop("input_ids")
             attention_mask = model_inputs.pop("attention_mask")
@@ -304,6 +324,21 @@ class RLHFDataset(Dataset):
                     attention_mask=attention_mask[0],
                 )
             ]  # (1, 3, seq_len)
+
+        elif self.processor is not None and "Qwen2_5OmniProcessor" in self.processor.__class__.__name__:
+            from verl.models.transformers.qwen2_5_omni import get_rope_index
+
+            position_ids = [
+                get_rope_index(
+                    self.processor,
+                    input_ids=input_ids,
+                    image_grid_thw=model_inputs.get("image_grid_thw"),
+                    video_grid_thw=model_inputs.get("video_grid_thw"),
+                    second_per_grid_ts=model_inputs.get("second_per_grid_ts"),
+                    attention_mask=attention_mask[0],
+                    audio_seqlens=model_inputs.get("audio_seqlens"),
+                )[0]
+            ]
 
         else:
             position_ids = compute_position_id_with_mask(attention_mask)

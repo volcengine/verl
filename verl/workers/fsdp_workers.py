@@ -293,6 +293,12 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         # Maybe support Ulysses in VisionAttention in the future and remove this patch
         if self.ulysses_sequence_parallel_size > 1 and hasattr(actor_model_config, "vision_config"):
             actor_model_config.vision_config._attn_implementation = "eager"
+        elif hasattr(actor_model_config, "thinker_config") and hasattr(
+            actor_model_config.thinker_config, "vision_config"
+        ):
+            actor_model_config.thinker_config.vision_config._attn_implementation = "eager"
+            actor_model_config.thinker_config.text_config._attn_implementation = "eager"
+            actor_model_config.thinker_config._attn_implementation = "eager"
 
         # patch for kimi-vl
         if getattr(actor_model_config, "model_type", None) == "kimi_vl":
@@ -336,6 +342,13 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                     actor_module_class = AutoModelForVision2Seq
                 elif type(actor_model_config) in AutoModelForCausalLM._model_mapping.keys():
                     actor_module_class = AutoModelForCausalLM
+                elif actor_model_config.model_type in ["qwen2_5_omni"]:
+                    # TODO: will be modified after https://github.com/huggingface/transformers/issues/40302 is completed
+                    from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import (
+                        Qwen2_5OmniForConditionalGeneration,
+                    )
+
+                    actor_module_class = Qwen2_5OmniForConditionalGeneration
                 else:
                     actor_module_class = AutoModel
 
@@ -356,14 +369,22 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             fused_kernels_backend = (
                 fused_kernel_options.get("impl_backend", None) if fused_kernel_options is not None else None
             )
-
+            actual_executed_module = actor_module
+            if hasattr(actor_module, "thinker"):
+                actual_executed_module = actor_module.thinker
             apply_monkey_patch(
-                model=actor_module,
+                model=actual_executed_module,
                 use_remove_padding=use_remove_padding,
                 ulysses_sp_size=self.ulysses_sequence_parallel_size,
                 use_fused_kernels=use_fused_kernels,
                 fused_kernels_backend=fused_kernels_backend,
             )
+            if hasattr(actor_module, "thinker"):
+                from verl.models.transformers.qwen2_5_omni import patch_model_for_thinker_using
+
+                actor_module, to_wrap_actor_module = patch_model_for_thinker_using(actor_module)
+            else:
+                to_wrap_actor_module = actor_module
 
             # some parameters may not in torch_dtype. TODO(zhangchi.usc1992) remove this after we switch to fsdp2
             actor_module.to(torch_dtype)
@@ -404,7 +425,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         mixed_precision = MixedPrecision(param_dtype=param_dtype, reduce_dtype=reduce_dtype, buffer_dtype=buffer_dtype)
 
         auto_wrap_policy = get_fsdp_wrap_policy(
-            module=actor_module,
+            module=to_wrap_actor_module,
             config=fsdp_config.get("wrap_policy", None),
             is_lora=self.config.model.get("lora_rank", 0) > 0,
         )
@@ -1082,7 +1103,12 @@ class CriticWorker(Worker, DistProfilerExtension):
         # Maybe support Ulysses in VisionAttention in the future and remove this patch
         if self.ulysses_sequence_parallel_size > 1 and hasattr(critic_model_config, "vision_config"):
             critic_model_config.vision_config._attn_implementation = "eager"
-
+        elif hasattr(critic_model_config, "thinker_config") and hasattr(
+            critic_model_config.thinker_config, "vision_config"
+        ):
+            critic_model_config.thinker_config.vision_config._attn_implementation = "eager"
+            critic_model_config.thinker_config.text_config._attn_implementation = "eager"
+            critic_model_config.thinker_config._attn_implementation = "eager"
         critic_model_config.num_labels = 1
         # patch for kimi-vl
         if getattr(critic_model_config, "model_type", None) == "kimi_vl":
@@ -1107,12 +1133,19 @@ class CriticWorker(Worker, DistProfilerExtension):
 
             use_remove_padding = config.model.get("use_remove_padding", False)
 
+            actual_executed_module = critic_module
+            if hasattr(critic_module, "thinker"):
+                actual_executed_module = critic_module.thinker
             apply_monkey_patch(
-                model=critic_module,
+                model=actual_executed_module,
                 use_remove_padding=use_remove_padding,
                 ulysses_sp_size=self.ulysses_sequence_parallel_size,
             )
+            
+            if hasattr(critic_module, "thinker"):
+                from verl.models.transformers.qwen2_5_omni import patch_model_for_thinker_using
 
+                patch_model_for_thinker_using(critic_module)
             # some parameters may not in torch_dtype
             critic_module.to(torch_dtype)
 

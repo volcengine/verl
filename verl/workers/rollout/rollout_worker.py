@@ -119,19 +119,25 @@ class RolloutWorker(Worker):
             log_gpu_memory_usage(f"After building {rollout_name} rollout", logger=logger)
         else:
             raise ValueError(f"Unknown rollout name: {self.config.name}")
-
+    def _get_token_ids_meta_info(self):
+        eos_token_id, pad_token_id = None, None
+        if self.model_config.generation_config is not None:
+            eos_token_id, pad_token_id = (
+                self.model_config.generation_config.eos_token_id,
+                self.model_config.generation_config.pad_token_id,
+            )
+        if eos_token_id is None or pad_token_id is None:
+            eos_token_id, pad_token_id = (
+                self.model_config.tokenizer.eos_token_id,
+                self.model_config.tokenizer.pad_token_id,
+            )
+        if eos_token_id is None or pad_token_id is None:
+            eos_token_id, pad_token_id = self.model_config.eos_token_id, self.model_config.pad_token_id
+        return {"eos_token_id": eos_token_id, "pad_token_id": pad_token_id}
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="infer"))
     def generate_sequences(self, prompts: DataProto):
         """Given a batch of prompts, return a batch of responses. Internally, it can use"""
-        meta_info = {
-            "eos_token_id": self.model_config.generation_config.eos_token_id
-            if self.model_config.generation_config is not None
-            else self.model_config.tokenizer.eos_token_id,
-            "pad_token_id": self.model_config.generation_config.pad_token_id
-            if self.model_config.generation_config is not None
-            else self.model_config.tokenizer.pad_token_id,
-        }
-        prompts.meta_info.update(meta_info)
+        prompts.meta_info.update(self._get_token_ids_meta_info())
 
         output = self.rollout.generate_sequences(prompts=prompts)
         return output
