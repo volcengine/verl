@@ -159,6 +159,8 @@ class _InternalAgentLoopOutput(AgentLoopOutput):
     """Padded log probabilities for the response tokens."""
     multi_modal_inputs: Optional[dict[str, torch.Tensor]] = None
     """Multi-modal inputs for processors (e.g., pixel_values, image_grid_thw)."""
+    extra_fields: dict[str, Any] = {}
+    """Extra fields for dynamic addition."""
 
 
 # make hydra.utils.instantiate happy
@@ -596,6 +598,13 @@ class AgentLoopWorker:
             non_tensor_batch["multi_modal_inputs"] = np.array(multi_modal_inputs_list, dtype=object)
 
         metrics = [input.metrics.model_dump() for input in inputs]
+        # Collect extra fields from all inputs and convert them to np.ndarray
+        extra_fields = {}
+        all_keys = set(key for input_item in inputs for key in input_item.extra_fields)
+        for key in all_keys:
+            extra_fields[key] = np.array([input.extra_fields.get(key) for input in inputs], dtype=object)
+
+        non_tensor_batch.update(extra_fields)
         return DataProto(
             batch=batch,
             non_tensor_batch=non_tensor_batch,
