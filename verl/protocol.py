@@ -332,9 +332,10 @@ class DataProto:
 
         buffer = io.BytesIO()
         if version.parse(tensordict.__version__) >= version.parse("0.5.0") and self.batch is not None:
-            self.batch = self.batch.contiguous()
-            self.batch = self.batch.consolidate()
-        torch.save(self.batch, buffer)
+            batch_to_save = self.batch.contiguous().consolidate()
+        else:
+            batch_to_save = self.batch
+        torch.save(batch_to_save, buffer)
         buffer_bytes = buffer.getvalue()
         return buffer_bytes, self.non_tensor_batch, self.meta_info
 
@@ -1062,9 +1063,9 @@ def all_gather_data_proto(data: DataProto, process_group):
     group_size = torch.distributed.get_world_size(group=process_group)
     assert isinstance(data, DataProto)
     prev_device = data.batch.device
-    data.batch = data.batch.to(get_device_id())
+    data = data.to(get_device_id())
     data.batch = allgather_dict_tensors(data.batch.contiguous(), size=group_size, group=process_group, dim=0)
-    data.batch = data.batch.to(prev_device)
+    data = data.to(prev_device)
     # all gather non_tensor_batch
     all_non_tensor_batch = [None for _ in range(group_size)]
     torch.distributed.all_gather_object(all_non_tensor_batch, data.non_tensor_batch, group=process_group)

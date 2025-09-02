@@ -7,6 +7,11 @@ defaults:
   # load the reference default config, then apply the fields in the current yaml
   - _self_
 
+# ref model is assumed to be identical to actor model. Specify model.path for using a different ref model.
+# Potential use case involves on policy distillation where we calculate KL divergence between student actor
+# and teacher ref
+model: null
+
 # config for FSDP strategy
 fsdp_config:
 

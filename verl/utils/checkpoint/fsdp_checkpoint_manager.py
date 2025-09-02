@@ -26,6 +26,7 @@ from omegaconf import DictConfig
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp import ShardedOptimStateDictConfig, ShardedStateDictConfig, StateDictType
 from transformers import GenerationConfig, PreTrainedTokenizer, ProcessorMixin
+from transformers.dynamic_module_utils import custom_object_save
 
 from verl.utils.device import is_cuda_available
 from verl.utils.fs import copy_to_local, is_non_local, local_mkdir_safe
@@ -285,6 +286,11 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                 log_only_rank_0=True,
             )
 
+            # If we have a custom model, we copy the file defining it in the folder and set the attributes so it can be
+            # loaded from the Hub.
+            if hasattr(model_config, "auto_map"):
+                custom_object_save(unwrap_model, hf_config_tokenizer_path, config=model_config)
+
             # Also save runtime FSDP config
             fsdp_config_path = os.path.join(local_path, "fsdp_config.json")
             fsdp_config = FSDPConfig(
@@ -315,9 +321,20 @@ class FSDPCheckpointManager(BaseCheckpointManager):
 
                     auto_model_cls = AutoModelForCausalLM
                 elif "ForConditionalGeneration" in model_config.architectures[0]:
-                    from transformers import AutoModelForVision2Seq
+                    # Handle different transformers versions for Vision2Seq models
+                    import transformers
+                    from packaging import version
 
-                    auto_model_cls = AutoModelForVision2Seq
+                    if version.parse(transformers.__version__) >= version.parse("4.54.0"):
+                        # transformers >= 4.54.0 uses AutoModelForImageTextToText
+                        from transformers import AutoModelForImageTextToText
+
+                        auto_model_cls = AutoModelForImageTextToText
+                    else:
+                        # transformers < 4.54.0 uses AutoModelForVision2Seq
+                        from transformers import AutoModelForVision2Seq
+
+                        auto_model_cls = AutoModelForVision2Seq
                 else:
                     raise NotImplementedError(f"Unknown architecture {model_config['architectures']}")
 

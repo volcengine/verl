@@ -76,7 +76,7 @@ permissions:
 jobs:
   vllm:
     runs-on: [L20x8]
-    timeout-minutes: 60 # Increase this timeout value as needed
+    timeout-minutes: 35 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
@@ -84,7 +84,7 @@ jobs:
       HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     container:
-      image: verlai/verl:app-verl0.5-vllm0.9.1-mcore0.12.2-te2.2
+      image: verlai/verl:app-verl0.5-transformers4.55.4-vllm0.10.0-mcore0.13.0-te2.2
       options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -100,8 +100,13 @@ jobs:
           huggingface-cli download Qwen/Qwen2.5-1.5B-Instruct
           huggingface-cli download 'Qwen/Qwen2-7B-Instruct'
           huggingface-cli download 'deepseek-ai/deepseek-llm-7b-chat'
+          huggingface-cli download 'OldKingMeister/Qwen2.5-1.5B-Instruct-YaRN' --local-dir $HOME/models/OldKingMeister/Qwen2.5-1.5B-Instruct-YaRN
           export HF_HUB_OFFLINE=1
         # Disable requests to avoid network errors
+      - name: Prepare gsm8k dataset
+        run: |
+          ray stop --force
+          python3 examples/data_preprocess/gsm8k.py
       - name: Test the latest vLLM
         run: |
           torchrun --standalone --nnodes=1 --nproc_per_node=4 $(which pytest) -s tests/workers/rollout/rollout_vllm/test_vllm_spmd.py
@@ -122,5 +127,6 @@ jobs:
           rm -rf "${OUTPUT_PATH}"
       - name: Test the latest vLLM Rollout async with agent loop
         run: |
-          ROLLOUT_NAME=vllm pytest -svvv tests/experimental/agent_loop/test_basic_agent_loop.py
+          huggingface-cli download verl-team/gsm8k-v0.4.1 --repo-type dataset --local-dir ~/verl-data/gsm8k
+          ROLLOUT_NAME=vllm pytest -svvv tests/experimental/agent_loop
       # Note(haibin.lin): for any new test, please update gpu_unit_tests.yaml to avoid repeated tests

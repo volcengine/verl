@@ -23,7 +23,6 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \
     critic.optim.lr=1e-5 \
     critic.model.path=deepseek-ai/deepseek-llm-7b-chat \
-    critic.model.enable_gradient_checkpointing=False \
     critic.ppo_micro_batch_size_per_gpu=4 \
     reward_model.enable=True \
     reward_model.megatron.tensor_model_parallel_size=4 \

@@ -17,6 +17,7 @@ import itertools
 import json
 import math
 import os
+from abc import ABC
 from collections import OrderedDict
 from contextlib import contextmanager, nullcontext
 
@@ -34,10 +35,15 @@ from verl.utils.device import get_device_id, get_device_name, get_torch_device
 
 if version.parse(torch.__version__) >= version.parse("2.6"):
     from torch.distributed.fsdp import CPUOffloadPolicy, FSDPModule, MixedPrecisionPolicy, fully_shard
+    from torch.distributed.tensor import Shard
+
+    fully_shard_module = torch.distributed.fsdp._fully_shard._fully_shard
 elif version.parse(torch.__version__) >= version.parse("2.4"):
     from torch.distributed._composable.fsdp import CPUOffloadPolicy, FSDPModule, MixedPrecisionPolicy, fully_shard
+
+    fully_shard_module = torch.distributed._composable.fsdp.fully_shard
 else:
-    fully_shard, MixedPrecisionPolicy, FSDPModule, CPUOffloadPolicy = None, None, None, None
+    fully_shard, MixedPrecisionPolicy, FSDPModule, CPUOffloadPolicy, fully_shard_module = None, None, None, None, None
 
 
 def init_fn(x: torch.nn.Module):
@@ -162,8 +168,7 @@ def offload_fsdp_model_to_cpu(model: FSDP, empty_cache: bool = True):
 
 @torch.no_grad()
 def offload_fsdp2_model_to_cpu(model, empty_cache: bool = True):
-    for param in model.parameters():
-        param.data = param.data.to(torch.device("cpu"), non_blocking=True)
+    model.cpu()
     if empty_cache:
         get_torch_device().empty_cache()
 
@@ -191,8 +196,7 @@ def load_fsdp_model_to_gpu(model: FSDP):
 @torch.no_grad()
 def load_fsdp2_model_to_gpu(model):
     device = get_device_id()
-    for param in model.parameters():
-        param.data = param.data.to(device, non_blocking=True)
+    model.to(device)
 
 
 @torch.no_grad()
@@ -480,6 +484,25 @@ def fsdp2_load_full_state_dict(model: torch.nn.Module, full_state: dict, device_
             buf.data = buf.data.to(get_device_id())
 
 
+@contextmanager
+def maybe_patch_fsdp_module(model):
+    if fully_shard_module is None:
+        yield
+        return
+
+    orig_fsdp_module = fully_shard_module.FSDPModule
+
+    class FSDPModuleABC(ABC, orig_fsdp_module):
+        pass
+
+    try:
+        if isinstance(model, ABC):
+            fully_shard_module.FSDPModule = FSDPModuleABC
+        yield
+    finally:
+        fully_shard_module.FSDPModule = orig_fsdp_module
+
+
 def apply_fsdp2(model, fsdp_kwargs, config):
     """model: AutoModelForCausalLM"""
     assert CPUOffloadPolicy is not None, "PyTorch version >= 2.4 is required for using fully_shard API (FSDP2)"
@@ -502,8 +525,28 @@ def apply_fsdp2(model, fsdp_kwargs, config):
             modules.append(module)
 
     for idx, module in enumerate(modules):
-        fully_shard(module, **fsdp_kwargs)
-    fully_shard(model, **fsdp_kwargs)  # fsdp2 will not reshard_after_forward for root module
+        # if torch.distributed.is_initialized() and torch.distributed.get_rank() == 0:
+        #     print(f"wrap module {module.__class__.__name__}")
+        with maybe_patch_fsdp_module(module):
+            fully_shard(module, **fsdp_kwargs)
+
+    # if torch.distributed.is_initialized() and torch.distributed.get_rank() == 0:
+    #     print(f"wrap module {model.__class__.__name__}")
+    with maybe_patch_fsdp_module(model):
+        fully_shard(model, **fsdp_kwargs)  # fsdp2 will not reshard_after_forward for root module
+
+
+def get_shard_placement_fn(fsdp_size):
+    """Choose the dimension that can divide fsdp_size to avoid padding"""
+
+    def shard_placement_fn(param):
+        shape = list(param.shape)
+        for i in range(len(shape)):
+            if shape[i] % fsdp_size == 0:
+                return Shard(i)
+        return Shard(0)
+
+    return shard_placement_fn
 
 
 def fsdp2_clip_grad_norm_(parameters, max_norm, norm_type=2.0, error_if_nonfinite=False, foreach=None):
@@ -536,10 +579,12 @@ def layered_summon_lora_params(fsdp_module) -> OrderedDict:
         "_fsdp_wrapped_module.base_model.model.",
         "_fsdp_wrapped_module.base_model.model.model.",
         "_fsdp_wrapped_module.base_model.model.model.layers.",
+        "_fsdp_wrapped_module.base_model.model.model.language_model.layers.",
         # fsdp2
         "base_model.model.",
         "base_model.model.model.",
         "base_model.model.model.layers.",
+        "base_model.model.model.language_model.layers.",
     ]
     peft_model = getattr(fsdp_module, "_fsdp_wrapped_module", fsdp_module)
     for prefix in prefix_list:

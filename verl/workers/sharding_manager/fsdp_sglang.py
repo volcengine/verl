@@ -18,24 +18,17 @@ import asyncio
 import logging
 import os
 
-import torch
-import torch.distributed as dist
 from sglang.srt.entrypoints.engine import Engine
-from sglang.srt.model_executor.model_runner import LocalSerializedTensor
-
-try:
-    from sglang.srt.utils import TorchPatchMultiprocessingSerializer as MultiprocessingSerializer
-except ImportError:
-    from sglang.srt.utils import MultiprocessingSerializer
+from sglang.srt.weight_sync.utils import update_weights as sgl_update_weights
 from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.fsdp.api import FullStateDictConfig, ShardedStateDictConfig, StateDictType
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
-from torch.distributed.tensor import DTensor
 
 from verl import DataProto
 from verl.protocol import all_gather_data_proto
-from verl.utils.device import get_device_id, get_torch_device
+from verl.utils.device import get_device_id, get_torch_device, set_expandable_segments
 from verl.utils.fsdp_utils import fsdp_version, load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu
+from verl.utils.memory_utils import aggressive_empty_cache
 from verl.utils.model import convert_weight_keys
 from verl.utils.profiler import GPUMemoryLogger, log_gpu_memory_usage, simple_timer
 from verl.utils.torch_functional import check_device_is_available
@@ -46,12 +39,6 @@ from .base import BaseShardingManager
 # from vllm.distributed import parallel_state as sglang_ps
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
-
-
-def _preprocess_tensor_for_update_weights(tensor: torch.Tensor):
-    if isinstance(tensor, DTensor):
-        return tensor.full_tensor()
-    return tensor
 
 
 class FSDPSGLangShardingManager(BaseShardingManager):
@@ -115,62 +102,15 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         loop.run_until_complete(self.sleep())
 
     async def update_weights(self, params):
-        # Most naive implementation, can optimize a lot if it is bottleneck from sglang Engine weight update
         named_tensors = [(k, v) for k, v in params.items()]
-        load_format = None
-        # convert megabytes to bytes
         update_weights_bucket_bytes = int(self.rollout_config.update_weights_bucket_megabytes) << 20
-        for batch in get_named_tensor_buckets(named_tensors, update_weights_bucket_bytes):
-            # On each rank, serialize a batch of (name, tensor) tuples.
-            # named_tensors_batch will be a list like:
-            # [(name0, serialized_tensor0_tp0), (name1, serialized_tensor1_tp0), ...]
-            named_tensors_batch = [
-                (name, MultiprocessingSerializer.serialize(_preprocess_tensor_for_update_weights(tensor)))
-                for name, tensor in batch
-            ]
-
-            if self.device_mesh["infer_tp"].get_local_rank() == 0:
-                # On rank 0, prepare a list to hold the gathered batches from all ranks.
-                gathered_serialized_batches = [None for _ in range(self.device_mesh["infer_tp"].mesh.size()[0])]
-            else:
-                gathered_serialized_batches = None
-
-            # Gather the named_tensors_batch from all ranks to rank 0.
-            # After this, on rank 0, gathered_serialized_batches will be a list of lists:
-            # [ [ (name0, s_t0_tp0), (name1, s_t1_tp0), ... ],  # batch from TP rank 0
-            #   [ (name0, s_t0_tp1), (name1, s_t1_tp1), ... ],  # batch from TP rank 1
-            #   ... ]
-            # On other ranks, gathered_serialized_batches will be None.
-            dist.gather_object(
-                obj=named_tensors_batch,
-                object_gather_list=gathered_serialized_batches,
-                dst=self.device_mesh["infer_tp"].mesh.tolist()[0],
-                group=self.device_mesh["infer_tp"].get_group(),
+        for params_batch in get_named_tensor_buckets(named_tensors, update_weights_bucket_bytes):
+            await sgl_update_weights(
+                engine=self.inference_engine,
+                params_batch=params_batch,
+                device_mesh_key="infer_tp",
+                device_mesh=self.device_mesh,
             )
-
-            if self.device_mesh["infer_tp"].get_local_rank() == 0:
-                # Use zip(*) to "transpose" the data structure.
-                # This groups the serialized parts for each individual tensor across all TP ranks.
-                # Example: from [[(n0, t0_tp0), (n1, t1_tp0)], [(n0, t0_tp1), (n1, t1_tp1)]]
-                # to [ ( (n0, t0_tp0), (n0, t0_tp1) ), ( (n1, t1_tp0), (n1, t1_tp1) ) ]
-                logical_tensors = zip(*gathered_serialized_batches, strict=True)
-
-                await self.inference_engine.update_weights_from_tensor(
-                    named_tensors=[
-                        # 'tensor_group' represents a single logical tensor's data from all ranks.
-                        (
-                            tensor_group[0][0],  # Get the name from the first rank's data.
-                            LocalSerializedTensor(
-                                # 'rank_part' is the (name, serialized_tensor) tuple from one specific rank.
-                                values=[rank_part[1] for rank_part in tensor_group]
-                            ),
-                        )
-                        for tensor_group in logical_tensors
-                        # each tensor_group is like ( (n0, t0_tp0), (n0, t0_tp1) )
-                    ],
-                    load_format=load_format,
-                    flush_cache=False,
-                )
 
         if self.device_mesh["infer_tp"].get_local_rank() == 0:
             await self.inference_engine.flush_cache()
@@ -185,15 +125,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
 
     @GPUMemoryLogger(role="FSDPSGLangShardingManager enter", logger=logger)
     async def wake_up(self):
-        get_torch_device().empty_cache()
-
-        if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
-            if self.multi_stage_wake_up:
-                await self.inference_engine.resume_memory_occupation(tags=["weights"])
-                log_gpu_memory_usage("Before resume SGLang weights in sharding manager", logger=logger)
-            else:
-                await self.inference_engine.resume_memory_occupation()
-                log_gpu_memory_usage("Before resume SGLang weights + kv_cache in sharding manager", logger=logger)
+        aggressive_empty_cache(force_sync=True)
 
         log_gpu_memory_usage("Before state_dict() in sharding manager memory", logger=logger)
         if self.offload_param:
@@ -208,14 +140,31 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         # convert weight keys to match the model config
         params = convert_weight_keys(params, getattr(self.module, "_fsdp_wrapped_module", self.module))
 
+        if self.offload_param:
+            offload_fsdp_model_to_cpu(self.module)
+
+        log_gpu_memory_usage("After offload_param in sharding manager memory", logger=logger)
+
+        # sglang need to set _set_allocator_settings to False
+        logger.debug("fsdp sglang sharding_manager _set_allocator_settings to False")
+        # Note(chenyang): SGLang is using torch memory pool to manage memory
+        # which is incompatible with expandable segments
+        set_expandable_segments(False)
+
+        if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
+            if self.multi_stage_wake_up:
+                await self.inference_engine.resume_memory_occupation(tags=["weights"])
+                log_gpu_memory_usage("Before resume SGLang weights in sharding manager", logger=logger)
+            else:
+                await self.inference_engine.resume_memory_occupation()
+                log_gpu_memory_usage("Before resume SGLang weights + kv_cache in sharding manager", logger=logger)
+
         # Copy, not share memory
         await self.update_weights(params)
         log_gpu_memory_usage("After sync model weights in sharding manager", logger=logger)
 
         del params
-        if self.offload_param:
-            offload_fsdp_model_to_cpu(self.module)
-        get_torch_device().empty_cache()
+        aggressive_empty_cache(force_sync=True)
         log_gpu_memory_usage("After del state_dict and empty_cache in sharding manager", logger=logger)
 
         if (
@@ -241,7 +190,12 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         self.module.train()
 
         # add empty cache after each compute
-        get_torch_device().empty_cache()
+        aggressive_empty_cache(force_sync=True)
+
+        # always set _set_allocator_settings to True when using sglang
+        # it is required by fsdp2 to avoid oom
+        logger.debug("fsdp sglang sharding_manager _set_allocator_settings to True")
+        set_expandable_segments(True)
 
         # restore random states
         if self.device_mesh is not None:

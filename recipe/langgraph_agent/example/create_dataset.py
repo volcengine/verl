@@ -15,6 +15,8 @@
 Create dataset for calculator
 """
 
+import argparse
+import os
 import random
 
 import pandas as pd
@@ -265,13 +267,23 @@ def generate_data(total_num_dataset, split):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Math Expression Dataset Generator")
+    parser.add_argument("--train_size", type=int, default=5000, help="Number of training samples")
+    parser.add_argument("--test_size", type=int, default=500, help="Number of testing samples")
+    parser.add_argument("--output_dir", default="data/math_expression_tool", help="Directory to save the dataset")
+    args = parser.parse_args()
+
     # print(calculate("3@2"))          # Output: 5 (3*3 - 2*2)
     # print(calculate("3@2+4"))        # Output: 9 (5 + 4)
     # print(calculate("3*(4@2)"))      # Output: 24 (3 * 8)
     # print(calculate("(5@3)*2"))      # Output: 18 (9 * 2)
 
-    train_dataset = generate_data(total_num_dataset=5000, split="train")
-    test_dataset = generate_data(total_num_dataset=500, split="test")
+    train_dataset = generate_data(total_num_dataset=args.train_size, split="train")
+    test_dataset = generate_data(total_num_dataset=args.test_size, split="test")
 
-    train_dataset.to_parquet("train.parquet")
-    test_dataset.to_parquet("test.parquet")
+    # Make sure the dataset directory exists
+    os.makedirs(args.output_dir, exist_ok=True)
+
+    # Save the datasets to parquet files
+    train_dataset.to_parquet(os.path.join(args.output_dir, "train.parquet"))
+    test_dataset.to_parquet(os.path.join(args.output_dir, "test.parquet"))

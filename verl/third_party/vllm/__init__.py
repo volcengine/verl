@@ -29,6 +29,7 @@ def get_version(pkg):
 package_name = "vllm"
 package_version = get_version(package_name)
 vllm_version = None
+VLLM_SLEEP_LEVEL = 1
 
 if package_version is None:
     if not is_sglang_available():
@@ -38,6 +39,8 @@ if package_version is None:
         )
 elif vs.parse(package_version) >= vs.parse("0.7.0"):
     vllm_version = package_version
+    if vs.parse(package_version) >= vs.parse("0.8.5"):
+        VLLM_SLEEP_LEVEL = 2
     from vllm import LLM
     from vllm.distributed import parallel_state
 else:

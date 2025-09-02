@@ -1,3 +1,6 @@
+# Target class for this configuration
+_target_: verl.workers.config.RolloutConfig
+
 # actor_rollout_ref.rollout.name: hf/vllm/sglang. The default value will be removed in the future
 name: ???
 
@@ -31,10 +34,16 @@ gpu_memory_utilization: 0.5
 # Whether to ignore EOS and continue generating after EOS is hit.
 ignore_eos: False
 
-# Whether to disable CUDA graph. Default True to allow cache freeing.
-enforce_eager: True
+# Whether to disable CUDA graph. Default False to best performance.
+enforce_eager: False
 
-# Whether to free engine KVCache after generation. Set enforce_eager=True when enabled.
+# batch size of cudagraph to capture. Require enforce_eager: False to use this option
+# Since cudagraph in inference engine can not be offloaded during update policy,
+# you can use smaller batch size to save memory used in cuda graph, eg: [1 ,2, 4, 8, 16, 32]
+# supported engines: vllm
+cudagraph_capture_sizes: null
+
+# Whether to free engine KVCache after generation.
 free_cache_engine: True
 
 # TP size for rollout. Not effective for hf
@@ -73,29 +82,29 @@ do_sample: True
 # number of responses (i.e. num sample times). > 1 for grpo
 n: 1
 
-# Whether to wake up inference engine in multi-stage to reduce peak memory during training-rollout transition.
+# The over_sample_rate parameter controls the early termination threshold for training rollouts,
+# where the system will abort remaining requests when (1 - over_sample_rate) * total_requests completions are reached.
+over_sample_rate: 0
+
+# Whether to wake up inference engine in multi-stage for SGLang
+# to reduce peak memory during training-rollout transition.
+# This is only effective for SGLang rollout.
 multi_stage_wake_up: false
 
-# Extra inference engine arguments (vllm, sglang).
+# Extra inference engine arguments (vllm, sglang), please refer vllm/sglang official doc for detail
 engine_kwargs:
 
-  # for vllm
-  vllm:
+  # vllm engine config
+  vllm: {}
 
-    # Swap space (in GB) used by inference engine. null uses default (e.g., 4 GB).
-    swap_space: null
-
-    # Whether to disable the preprocessor cache for multimodel models.
-    disable_mm_preprocessor_cache: False
-
-  # for sglang
-  sglang:
-
-    # The attention backend for sglang engine. Options: flashinfer, triton, flashmla, null for default.
-    attention_backend: null
+  # sglang engine config
+  sglang: {}
 
 # Sampling parameters used during validation.
 val_kwargs:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.workers.config.SamplingConfig
 
   # sampling parameters for validation
   # Top-k sampling parameter. -1 for vLLM rollout, 0 for HF rollout.
@@ -115,6 +124,9 @@ val_kwargs:
 
 # Multi-turn interaction config for tools or chat.
 multi_turn:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.workers.config.MultiTurnConfig
 
   # set to True for multi-turn tool interaction tasks; should set rollout.name to sglang as well
   enable: False
@@ -159,10 +171,14 @@ multi_turn:
   format: hermes
 
 # support logging rollout prob for debugging purpose
-calculate_log_probs: False
+# "Truncated importance sampling" requires rollout log probs, set to True when turning on Truncated importance sampling
+calculate_log_probs: False 
 
 # [Experimental] agent loop based rollout configs
 agent:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.workers.config.AgentLoopConfig
 
   # Number of agent loop workers
   num_workers: 8
@@ -181,6 +197,9 @@ agent:
 
   # custom async server configs
   custom_async_server:
+
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+    _target_: verl.workers.config.CustomAsyncServerConfig
 
     # Path to the custom async server implementation
     path: null
@@ -204,9 +223,46 @@ update_weights_bucket_megabytes: 512
 
 # trace rollout data
 trace:
-  
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.workers.config.TraceConfig
+
   # trace backend, support mlflow, weave
   backend: null
 
   # whether translate token id to text in output
   token2text: False
+
+# When enabled (True), the trainer will attempt to load previously generated rollout data from the specified directory instead of computing new rollouts.
+# If no cached data is found or loading fails, new rollouts will be generated and automatically saved.
+# This feature is useful for debugging or when you want to reuse computation results across multiple runs.
+skip_rollout: False
+
+# Specifies the filesystem path where rollout data should be cached when skip_rollout is enabled.
+# Note: Giving path under /tmp/ray/session* is not recommended as these are temporary Ray cluster directories.
+skip_dump_dir: /tmp/rollout_dump
+
+# profile the rollout model in `generate_sequence` 
+profiler:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.utils.profiler.ProfilerConfig
+
+  # profiler tool, default same as profiler.tool in global config
+  # choices: nsys, npu, torch
+  tool: ${oc.select:global_profiler.tool,null}
+
+  # whether enable profile on ref
+  enable: ${oc.select:actor_rollout_ref.actor.profiler.enable,false}
+  
+  # Whether to profile all ranks.
+  all_ranks: ${oc.select:actor_rollout_ref.actor.profiler.all_ranks,false}
+
+  # The ranks that will be profiled. [] or [0,1,...]
+  ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
+
+  # profile results saving path
+  save_path: ${oc.select:global_profiler.save_path,null}
+
+  # specific tool config
+  tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}

@@ -16,12 +16,14 @@ import os
 import pickle
 from typing import Any, Callable, Optional
 
+import numpy as np
 import ray
 import zmq
-from omegaconf import DictConfig
+from omegaconf import DictConfig, ListConfig
 from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
 from vllm import SamplingParams
+from vllm.config import CompilationConfig, CompilationLevel
 from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.entrypoints.logger import RequestLogger
 from vllm.entrypoints.openai.protocol import ChatCompletionRequest, ChatCompletionResponse, ErrorResponse
@@ -33,8 +35,10 @@ from vllm.v1.engine.async_llm import AsyncLLM
 from vllm.v1.executor.abstract import Executor
 from vllm.worker.worker_base import WorkerWrapperBase
 
+from verl.third_party.vllm import VLLM_SLEEP_LEVEL
+from verl.utils import hf_processor
 from verl.utils.fs import copy_to_local
-from verl.workers.rollout.async_server import AsyncServerBase
+from verl.workers.rollout.async_server import AsyncServerBase, TokenOutput
 
 logger = logging.getLogger(__file__)
 
@@ -241,6 +245,24 @@ class AsyncvLLMServer(AsyncServerBase):
         else:
             distributed_executor_backend = None
 
+        compilation_config = {}
+
+        cudagraph_capture_sizes = config.get("cudagraph_capture_sizes")
+        # enforce_eager must be False to use cudagraph
+        if not config.enforce_eager and cudagraph_capture_sizes:
+            if isinstance(cudagraph_capture_sizes, ListConfig):
+                compilation_config["compilation_config"] = CompilationConfig(
+                    level=CompilationLevel.PIECEWISE, cudagraph_capture_sizes=cudagraph_capture_sizes
+                )
+            else:
+                logger.warning(f"cudagraph_capture_sizes must be a list, but got {cudagraph_capture_sizes}")
+
+        engine_kwargs = config.get("engine_kwargs", {}).get("vllm", {}) or {}
+
+        engine_kwargs = {key: val for key, val in engine_kwargs.items() if val is not None}
+        if config.get("limit_images", None):  # support for multi-image data
+            engine_kwargs["limit_mm_per_prompt"] = {"image": config.get("limit_images")}
+
         engine_args = AsyncEngineArgs(
             model=local_path,
             enable_sleep_mode=config.free_cache_engine,
@@ -253,13 +275,16 @@ class AsyncvLLMServer(AsyncServerBase):
             disable_custom_all_reduce=True,
             skip_tokenizer_init=False,
             max_model_len=self.max_model_len,
-            load_format="auto",
+            max_num_seqs=config.max_num_seqs,
+            load_format="dummy" if config.load_format.startswith("dummy") else config.load_format,
             disable_log_stats=config.disable_log_stats,
             max_num_batched_tokens=max_num_batched_tokens,
             enable_chunked_prefill=config.enable_chunked_prefill,
             enable_prefix_caching=True,
             trust_remote_code=trust_remote_code,
             seed=config.get("seed", 0),
+            **compilation_config,
+            **engine_kwargs,
         )
 
         # init async llm engine
@@ -281,6 +306,9 @@ class AsyncvLLMServer(AsyncServerBase):
             enable_auto_tools=config.multi_turn.tool_config_path is not None,
             tool_parser=config.multi_turn.format,  # hermes, llama3_json, ...
         )
+
+        # used for Qwen2.5-VL
+        self.processor = hf_processor(local_path, trust_remote_code=trust_remote_code, use_fast=True)
 
     def _create_engine_config(self, engine_args: AsyncEngineArgs):
         vllm_config = engine_args.create_engine_config()
@@ -313,10 +341,20 @@ class AsyncvLLMServer(AsyncServerBase):
             assert isinstance(generator, ChatCompletionResponse)
             return JSONResponse(content=generator.model_dump())
 
-    async def generate(self, prompt_ids: list[int], sampling_params: dict[str, Any], request_id: str) -> list[int]:
+    async def generate(
+        self,
+        prompt_ids: list[int],
+        sampling_params: dict[str, Any],
+        request_id: str,
+        image_data: Optional[list[Any]] = None,
+    ) -> TokenOutput:
         max_tokens = self.max_model_len - len(prompt_ids)
+        sampling_params["logprobs"] = 0 if sampling_params.pop("logprobs", False) else None
         sampling_params = SamplingParams(max_tokens=max_tokens, **sampling_params)
-        prompt = TokensPrompt(prompt_token_ids=prompt_ids)
+        prompt_ids = _qwen2_5_vl_dedup_image_tokens(prompt_ids, self.processor)
+        prompt = TokensPrompt(
+            prompt_token_ids=prompt_ids, multi_modal_data={"image": image_data} if image_data else None
+        )
         generator = self.engine.generate(prompt=prompt, sampling_params=sampling_params, request_id=request_id)
 
         # Get final response
@@ -325,7 +363,11 @@ class AsyncvLLMServer(AsyncServerBase):
             final_res = output
         assert final_res is not None
 
-        return final_res.outputs[0].token_ids
+        token_ids = final_res.outputs[0].token_ids
+        log_probs = None
+        if sampling_params.logprobs is not None:
+            log_probs = [logprobs[token_ids[i]].logprob for i, logprobs in enumerate(final_res.outputs[0].logprobs)]
+        return TokenOutput(token_ids=token_ids, log_probs=log_probs)
 
     async def wake_up(self):
         if self.config.rollout.free_cache_engine:
@@ -335,4 +377,32 @@ class AsyncvLLMServer(AsyncServerBase):
         # TODO: https://github.com/vllm-project/vllm/issues/17103
         await self.engine.reset_prefix_cache()
         if self.config.rollout.free_cache_engine:
-            await self.engine.sleep()
+            await self.engine.sleep(level=VLLM_SLEEP_LEVEL)
+
+
+def _qwen2_5_vl_dedup_image_tokens(prompt_ids: list[int], processor):
+    """Deduplicate consecutive image tokens in prompt_ids for Qwen2.5-VL, since vLLM will replicate the
+    <|image_pad|> token by image_data.
+
+    For example,
+    ```
+    <|vision_start|><|image_pad|><|image_pad|>...<|image_pad|><|vision_end|>
+    =>
+    <|vision_start|><|image_pad|><|vision_end|>
+    ```
+    """
+    if processor is not None and "Qwen2VLImageProcessor" in processor.image_processor.__class__.__name__:
+        prompt_ids = np.array(prompt_ids)
+
+        # Create a mask where True indicates elements to keep
+        mask = np.ones(len(prompt_ids), dtype=bool)
+
+        # Find where the array equals the value
+        is_value = prompt_ids == processor.image_token_id
+
+        # Find consecutive duplicates by checking if previous element is also the value
+        mask[1:] &= ~(is_value[1:] & is_value[:-1])
+
+        return prompt_ids[mask].tolist()
+    else:
+        return prompt_ids
