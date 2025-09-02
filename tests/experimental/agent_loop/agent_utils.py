@@ -19,7 +19,7 @@ from verl.experimental.agent_loop import AgentLoopManager
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
-from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
+from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, RewardModelWorker
 
 
 def init_agent_loop_manager(config: DictConfig) -> AgentLoopManager | RayWorkerGroup:
@@ -30,6 +30,9 @@ def init_agent_loop_manager(config: DictConfig) -> AgentLoopManager | RayWorkerG
     role_worker_mapping = {
         Role.ActorRollout: ray.remote(actor_rollout_cls),
     }
+    if config.reward_model.enable:
+        role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
+
     global_pool_id = "global_pool"
     resource_pool_spec = {
         global_pool_id: [config.trainer.n_gpus_per_node] * config.trainer.nnodes,
@@ -37,6 +40,15 @@ def init_agent_loop_manager(config: DictConfig) -> AgentLoopManager | RayWorkerG
     mapping = {
         Role.ActorRollout: global_pool_id,
     }
+    if config.reward_model.enable_resource_pool:
+        mapping[Role.RewardModel] = "reward_pool"
+        if config.reward_model.n_gpus_per_node <= 0:
+            raise ValueError("config.reward_model.n_gpus_per_node must be greater than 0")
+        if config.reward_model.nnodes <= 0:
+            raise ValueError("config.reward_model.nnodes must be greater than 0")
+
+        reward_pool = [config.reward_model.n_gpus_per_node] * config.reward_model.nnodes
+        resource_pool_spec["reward_pool"] = reward_pool
     resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
     resource_pool_manager.create_resource_pool()
     resource_pool_to_cls = {pool: {} for pool in resource_pool_manager.resource_pool_dict.values()}
@@ -47,6 +59,12 @@ def init_agent_loop_manager(config: DictConfig) -> AgentLoopManager | RayWorkerG
         cls=role_worker_mapping[Role.ActorRollout], config=config.actor_rollout_ref, role="actor_rollout"
     )
     resource_pool_to_cls[resource_pool]["actor_rollout"] = actor_rollout_cls
+
+    if config.reward_model.enable:
+        # we create a RM here
+        resource_pool = resource_pool_manager.get_resource_pool(Role.RewardModel)
+        rm_cls = RayClassWithInitArgs(role_worker_mapping[Role.RewardModel], config=config.reward_model)
+        resource_pool_to_cls[resource_pool]["rm"] = rm_cls
 
     all_wg = {}
     for resource_pool, class_dict in resource_pool_to_cls.items():
@@ -60,10 +78,16 @@ def init_agent_loop_manager(config: DictConfig) -> AgentLoopManager | RayWorkerG
     if config.actor_rollout_ref.rollout.mode == "sync":
         return actor_rollout_wg
 
+    if config.reward_model.enable_resource_pool and config.reward_model.enable:
+        rm_wg = all_wg["rm"]
+        rm_wg.init_model()
+    else:
+        rm_wg = None
     # =========================== 2. Create AgentLoopManager ===========================
     agent_loop_manager = AgentLoopManager(
         config=config,
         worker_group=actor_rollout_wg,
+        rm_wg=rm_wg,
     )
 
     return agent_loop_manager
