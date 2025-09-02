@@ -108,6 +108,29 @@ class FSDPSFTTrainer:
         if self.config.data.chat_template is not None:
             raise ValueError("Apply Chat template from config is not supported yet.")
 
+        # LoRA
+        self._lora_rank = self.config.model.get("lora_rank", 0)
+        self._lora_alpha = self.config.model.get("lora_alpha", 1)
+        self._target_modules = self.config.model.get("target_modules", "all-linear")
+        self._lora_adapter = self.config.model.get("lora_adapter", None)
+
+        self._peft_config = None
+        self._peft_weights = None
+
+        if self._lora_adapter is not None:
+            from verl.utils.peft_utils import load_peft_config, load_peft_weights
+
+            use_shm = self.config.model.get("use_shm", False)
+            self._lora_adapter = copy_to_local(self._lora_adapter, use_shm=use_shm)
+            self._peft_config = load_peft_config(self._lora_adapter)
+            self._peft_weights = load_peft_weights(self._lora_adapter)
+            self._lora_rank = self._peft_config["r"]
+            self._lora_alpha = self._peft_config["lora_alpha"]
+            self._target_modules = self._peft_config["target_modules"]  # list
+            self._target_modules = "[" + ", ".join(self._target_modules) + "]"  # str
+
+        self._is_lora = self._lora_rank > 0
+
         # normalize dp size
         self._normalize_config_bsz()
 
@@ -250,17 +273,23 @@ class FSDPSFTTrainer:
 
                 _apply_liger_kernel_to_instance(model=self.model)
 
-            if self.config.model.get("lora_rank", 0) > 0:
+            if self._is_lora:
                 self.model.enable_input_require_grads()
                 # Convert config to regular Python types before creating PEFT model
                 lora_config = {
                     "task_type": TaskType.CAUSAL_LM,
-                    "r": self.config.model.lora_rank,
-                    "lora_alpha": self.config.model.lora_alpha,
-                    "target_modules": convert_to_regular_types(self.config.model.target_modules),
+                    "r": self._lora_rank,
+                    "lora_alpha": self._lora_alpha,
+                    "target_modules": convert_to_regular_types(self._target_modules),
                     "bias": "none",
                 }
+                if self._lora_adapter is not None:
+                    lora_config = self._peft_config
                 self.model = get_peft_model(self.model, LoraConfig(**lora_config))
+                if self._lora_adapter is not None:
+                    from verl.utils.peft_utils import set_model_peft_weights
+
+                    set_model_peft_weights(self.model.base_model.model, self._peft_weights)
                 self.model = self.model.to(torch_dtype)
 
         if self.config.model.enable_gradient_checkpointing:
@@ -275,7 +304,7 @@ class FSDPSFTTrainer:
         auto_wrap_policy = get_fsdp_wrap_policy(
             self.model,
             config=self.config.model.fsdp_config.wrap_policy,
-            is_lora=self.config.model.get("lora_rank", 0) > 0,
+            is_lora=self._is_lora,
         )
         if self.device_mesh.get_rank() == 0:
             print(auto_wrap_policy)
@@ -694,6 +723,8 @@ class FSDPSFTTrainer:
     def fit(self):
         rank = self.device_mesh.get_rank()
 
+        from omegaconf import OmegaConf
+
         # TODO: add a unified tracking
         if rank == 0:
             tracking = Tracking(
@@ -732,6 +763,7 @@ class FSDPSFTTrainer:
 
         # Calculate which epoch we're starting from for sampler.set_epoch()
         start_epoch = global_step // self.steps_per_epoch
+        skip_steps = int(self.config.trainer.get("skip_steps", 0))
 
         train_time = 0
         for epoch in range(start_epoch, self.config.trainer.total_epochs):
@@ -747,6 +779,8 @@ class FSDPSFTTrainer:
                 )
             ):
                 global_step += 1
+                if global_step <= skip_steps:
+                    continue
                 data = TensorDict(data, batch_size=self.config.data.train_batch_size).to(self.device_name)
                 metric = self.training_step(data)
                 train_time += metric["train/time(s)"]

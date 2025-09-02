@@ -944,6 +944,7 @@ class RayPPOTrainer:
         self.global_steps += 1
         last_val_metrics = None
         self.max_steps_duration = 0
+        skip_steps = self.config.trainer.get("skip_steps", 0)
 
         prev_step_profile = False
         curr_step_profile = (
@@ -955,6 +956,10 @@ class RayPPOTrainer:
 
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
+                if self.global_steps <= skip_steps:
+                    progress_bar.update(1)
+                    self.global_steps += 1
+                    continue
                 metrics = {}
                 timing_raw = {}
 
