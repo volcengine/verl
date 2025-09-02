@@ -585,10 +585,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
     async def trainer_mode(self):
         """Context switch hybridengine to trainer mode."""
-        # FIXME(@wuxibin): try to fix ci fail:
-        # https://github.com/volcengine/verl/actions/runs/17382936845/job/49344264323?pr=3285
-        set_expandable_segments(False)
-
         if self.config.rollout.free_cache_engine:
             log_gpu_memory_usage("Before rollout offload", logger=logger)
             await self.rollout.release()
@@ -599,7 +595,11 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         # add empty cache after each compute
         aggressive_empty_cache(force_sync=True)
 
-        set_expandable_segments(True)
+        # FIXME(@wuxibin): megatron+sglang failed with `expandable_segments:True` in ci,
+        # can't reproduce it in dev environment, temporary disable it.
+        # https://github.com/volcengine/verl/actions/runs/17382936845/job/49344264323?pr=3285
+        if os.environ.get("MEGATRON_CI_DISABLE_EXPANDABLE_SEGMENTS", "0") == "0":
+            set_expandable_segments(True)
 
         # restore random states
         self.gen_random_states = get_torch_device().get_rng_state()
