@@ -1,2 +1,5 @@
 env_vars:
   VLLM_USE_V1: "1"
+  TENSORBOARD_DIR: "/mnt/dolphinfs/hdd_pool/docker/user/hadoop-djst-algoplat/houzhenggang/tensorboard"
+  NCCL_DEBUG: "INFO"
+  HYDRA_FULL_ERROR: "1"

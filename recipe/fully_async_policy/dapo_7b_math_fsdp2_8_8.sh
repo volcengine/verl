@@ -75,7 +75,7 @@ n_gpus_training=8
 train_prompt_bsz=0
 gen_prompt_bsz=1
 n_resp_per_prompt=16
-train_prompt_mini_bsz=4
+train_prompt_mini_bsz=64
 total_rollout_steps=$(((512*100)))
 test_freq=10
 staleness_threshold=1
@@ -145,6 +145,7 @@ $PYTHON_INTERPRETER -m recipe.fully_async_policy.fully_async_main \
     actor_rollout_ref.actor.fsdp_config.fsdp_size=${fsdp_size} \
     actor_rollout_ref.rollout.name=${rollout_name} \
     actor_rollout_ref.rollout.mode=${rollout_mode} \
+    actor_rollout_ref.rollout.calculate_log_probs=True \
     reward_model.reward_manager=dapo \
     +reward_model.reward_kwargs.overlong_buffer_cfg.enable=${enable_overlong_buffer} \
     +reward_model.reward_kwargs.overlong_buffer_cfg.len=${overlong_buffer_len} \
