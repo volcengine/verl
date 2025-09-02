@@ -18,6 +18,7 @@ def main():
         "tp_size": 2,
         "first_rank_in_node": True,
         "is_embedding": True,
+        "enable_memory_saver": True,
     }
 
     server = HttpServerAdapter(**args)
@@ -33,13 +34,17 @@ def main():
         [{"role": "user", "content": PROMPT}, {"role": "assistant", "content": RESPONSE1}],
         [{"role": "user", "content": PROMPT}, {"role": "assistant", "content": RESPONSE2}],
     ]
-    for conv in CONVS:
-        prompt = tokenizer.apply_chat_template(conv, tokenize=False)
-        print(server.reward_score(prompt))
+
+    prompt = tokenizer.apply_chat_template(CONVS[0], tokenize=False)
+    print(server.reward_score(prompt))
 
     # prompts = tokenizer.apply_chat_template(CONVS, tokenize=False)
     # print(prompts)
-
+    server.release_memory_occupation()
+    import pdb; pdb.set_trace()
+    server.resume_memory_occupation()
+    prompt = tokenizer.apply_chat_template(CONVS[0], tokenize=False)
+    print(server.reward_score(prompt))
 
 if __name__ == "__main__":
     main()
