@@ -57,6 +57,13 @@ def hf_tokenizer(name_or_path, correct_pad_token=True, correct_gemma2=True, **kw
         )
         kwargs["eos_token"] = "<end_of_turn>"
         kwargs["eos_token_id"] = 107
+    if isinstance(name_or_path, str) and "glm" in name_or_path.lower():
+        # GLM models does not provide chat_template, shall be manually set
+        warnings.warn(f"Found GLM tokenizer. Manually set chat_template for {name_or_path}.", stacklevel=1)
+        kwargs["chat_template"] = "{% for message in messages %}"
+        "{% if loop.first %}[gMASK]sop<|{{ message['role'] }}|> \n "
+        "{{ message['content'] }}{% else %}<|{{ message['role'] }}|> \n "
+        "{{ message['content'] }}{% endif %}{% endfor %}{% if add_generation_prompt %}<|assistant|>{% endif %}"
     tokenizer = AutoTokenizer.from_pretrained(name_or_path, **kwargs)
     if correct_pad_token:
         set_pad_token_id(tokenizer)

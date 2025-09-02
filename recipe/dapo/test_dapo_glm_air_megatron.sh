@@ -91,8 +91,6 @@ RM_ETP=${RM_ETP:-$COMMON_ETP}
 USE_MBRIDGE=True
 USE_DIST_CKPT=False
 
-CHAT_TEMPLATE="{% for message in messages %}{% if loop.first %}[gMASK]sop<|{{ message['role'] }}|> \n {{ message['content'] }}{% else %}<|{{ message['role'] }}|> \n {{ message['content'] }}{% endif %}{% endfor %}{% if add_generation_prompt %}<|assistant|>{% endif %}",
-
 python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megatron_trainer'\
     data.train_files="${TRAIN_FILE}" \
     data.val_files="${TEST_FILE}" \
@@ -101,7 +99,6 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     data.max_prompt_length=${max_prompt_length} \
     data.max_response_length=${max_response_length} \
     data.train_batch_size=${train_prompt_bsz} \
-    +data.apply_chat_template_kwargs.chat_template=${CHAT_TEMPLATE} \
     actor_rollout_ref.rollout.n=${n_resp_per_prompt} \
     algorithm.adv_estimator=${adv_estimator} \
     algorithm.use_kl_in_reward=${use_kl_in_reward} \
