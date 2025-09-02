@@ -1,5 +1,5 @@
 tools:
-  - class_name: "rstar2_agent.tools.code_judge_tool.PythonTool"
+  - class_name: "recipe.rstar2_agent.src.tools.code_judge_tool.PythonTool"
     config: 
       type: native
       request_processor_concurrency: 8
