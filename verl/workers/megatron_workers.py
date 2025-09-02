@@ -585,6 +585,10 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
     async def trainer_mode(self):
         """Context switch hybridengine to trainer mode."""
+        # FIXME(@wuxibin): try to fix ci fail:
+        # https://github.com/volcengine/verl/actions/runs/17382936845/job/49344264323?pr=3285
+        set_expandable_segments(True)
+
         if self.config.rollout.free_cache_engine:
             log_gpu_memory_usage("Before rollout offload", logger=logger)
             await self.rollout.release()
