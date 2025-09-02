@@ -110,8 +110,8 @@ class SFTTrainer:
     def _build_config(self):
         from verl.utils.config import omega_conf_to_dataclass
         self.model_config = omega_conf_to_dataclass(self.config.model)
-        self.engine_config = omega_conf_to_dataclass(self.config.engine.engine)
-        self.optimizer_config = omega_conf_to_dataclass(self.config.engine.optim)
+        self.engine_config = omega_conf_to_dataclass(self.config.engine)
+        self.optimizer_config = omega_conf_to_dataclass(self.config.optim)
         self.checkpoint_config = omega_conf_to_dataclass(self.config.checkpoint)
 
 

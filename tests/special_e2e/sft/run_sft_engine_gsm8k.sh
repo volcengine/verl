@@ -8,6 +8,8 @@ NUM_GPUS=${NUM_GPUS:-8}
 TRAIN_FILES=~/data/gsm8k_sft/train.parquet
 VAL_FILES=~/data/gsm8k_sft/test.parquet
 
+backend=fsdp
+
 torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     data.train_files="${TRAIN_FILES}" \
     data.val_files="${VAL_FILES}" \
@@ -19,16 +21,17 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     data.use_dynamic_bsz=True \
     data.max_token_len_per_gpu=8192 \
     model.path=/mnt/hdfs/zhangchi.usc1992_lf_lq/models/Qwen2.5-3B-Instruct \
-    engine=fsdp \
-    engine.optim.lr=1e-5 \
-    engine.optim.lr_warmup_steps_ratio=0.05 \
-    engine.optim.weight_decay=0.1 \
-    engine.optim.betas="[0.9,0.95]" \
-    engine.optim.clip_grad=1.0 \
-    engine.optim.min_lr_ratio=0.1 \
-    engine.optim.warmup_style=cosine \
-    engine.engine.ulysses_sequence_parallel_size=2 \
-    engine.engine.strategy=fsdp
+    engine=${backend} \
+    optim=${backend} \
+    optim.lr=1e-5 \
+    optim.lr_warmup_steps_ratio=0.05 \
+    optim.weight_decay=0.1 \
+    optim.betas="[0.9,0.95]" \
+    optim.clip_grad=1.0 \
+    optim.min_lr_ratio=0.1 \
+    optim.warmup_style=cosine \
+    engine.ulysses_sequence_parallel_size=2 \
+    engine.strategy=fsdp
 
 
     # data.multiturn.messages_key=messages \

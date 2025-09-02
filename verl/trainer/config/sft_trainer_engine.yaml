@@ -9,6 +9,7 @@
 defaults:
   - model@model: hf_model
   - engine@engine: fsdp
+  - optim@optim: fsdp
   - _self_
 
 data:
