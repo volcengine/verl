@@ -46,6 +46,15 @@ from verl.utils.fs import copy_to_local
 from verl.utils.logger import log_with_rank
 from verl.utils.tracking import Tracking
 
+from verl.workers.config import (
+    ActorConfig,
+    FSDPEngineConfig,
+    FSDPOptimizerConfig,
+    HFModelConfig,
+    McoreEngineConfig,
+    McoreOptimizerConfig,
+)
+
 if is_cuda_available:
     pass
 elif is_npu_available:
@@ -77,34 +86,61 @@ class SFTTrainer:
 
         self._build_engine()
 
-        # normalize dp size
-        self._normalize_config_bsz()
-
         # Set sequence parallel size
         self._build_dataloader(train_dataset, val_dataset)
 
         # Initialize resume-related variables
         self.resume_global_step = 0
 
-        # build model
-        self._build_model_optimizer()
-
-        # Initialize checkpoint manager
-        self._init_checkpoint_manager()
-
         self.load_checkpoint()
 
-        if self.device_mesh.get_rank() == 0:
+        if torch.distributed.get_rank() == 0:
             print(self.config)
         self.device_name = self.config.trainer.device
 
+
+    def _get_actor_config(self):
+        strategy = self.config.strategy
+        model_config = HFModelConfig(path=self.config.model.path)
+
+        if strategy == "megatron":
+            engine_config = McoreEngineConfig(
+                forward_only=False,
+                use_mbridge=False,
+                tensor_model_parallel_size=2,
+                pipeline_model_parallel_size=2,
+                context_parallel_size=2,
+            )
+            optimizer_config = McoreOptimizerConfig(lr_decay_steps=10)
+        elif strategy in ["fsdp", "fsdp2"]:
+            engine_config = FSDPEngineConfig(
+                forward_only=False, fsdp_size=4, strategy=strategy, ulysses_sequence_parallel_size=2
+            )
+            optimizer_config = FSDPOptimizerConfig()
+        else:
+            raise NotImplementedError(f"strategy {strategy} is not supported")
+
+        config = ActorConfig(
+            model_config=model_config,
+            engine=engine_config,
+            strategy=strategy,
+            ppo_micro_batch_size_per_gpu=256,
+            ppo_mini_batch_size=4,
+            optim=optimizer_config,
+            use_dynamic_bsz=True,
+            n=1,
+        )
+
+        return config
+
+
+
     def _build_engine(self):
-        from verl.workers.config import ActorConfig
         from verl.workers.roles.actor import ActorWorker
         from verl.workers.roles.utils.losses import sft_loss
 
         # construct config
-        config = ActorConfig()
+        config = self._get_actor_config()
         # construct worker
         self.actor = ActorWorker(config=config)
         sft_loss_ = partial(sft_loss, config=self.config)
@@ -121,11 +157,11 @@ class SFTTrainer:
         # Set pin_memory_device when pin_memory is enabled.
         device_name = get_device_name()
 
-        rank = self.actor.engine.get_data_parallel_rank()
+        dp_rank = self.actor.engine.get_data_parallel_rank()
         dp_size = self.actor.engine.get_data_parallel_size()
 
         self.train_sampler = DistributedSampler(
-            self.train_dataset, shuffle=True, num_replicas=dp_size, rank=rank, drop_last=True
+            self.train_dataset, shuffle=True, num_replicas=dp_size, rank=dp_rank, drop_last=True
         )
         self.train_dataloader = StatefulDataLoader(
             dataset=self.train_dataset,
@@ -138,7 +174,7 @@ class SFTTrainer:
         )
 
         self.val_sampler = DistributedSampler(
-            self.val_dataset, shuffle=False, num_replicas=dp_size, rank=rank, drop_last=True
+            self.val_dataset, shuffle=False, num_replicas=dp_size, rank=dp_rank, drop_last=True
         )
         self.val_dataloader = StatefulDataLoader(
             dataset=self.val_dataset,
@@ -363,6 +399,11 @@ class SFTTrainer:
 
                 # TODO: construct dataproto
 
+                if torch.distributed.get_rank() == 0:
+                    from IPython import embed
+                    embed()
+                torch.distributed.barrier()
+
                 metric = self.actor.update_actor(data=data)
                 train_time += metric["train/time(s)"]
                 if rank == 0:
@@ -420,7 +461,7 @@ def run_sft(config):
     destroy_global_process_group()
 
 
-@hydra.main(config_path="config", config_name="sft_trainer", version_base=None)
+@hydra.main(config_path="config", config_name="sft_trainer_v1", version_base=None)
 def main(config):
     run_sft(config)
 
@@ -433,12 +474,9 @@ def create_sft_dataset(data_paths, data_config, tokenizer):
         from verl.utils.import_utils import load_extern_type
 
         dataset_cls = load_extern_type(data_config.custom_cls.path, data_config.custom_cls.name)
-    # Then check if multi-turn dataset should be used
-    elif data_config.get("multiturn", {}).get("enable", False):
-        dataset_cls = MultiTurnSFTDataset
-    # Default to single-turn dataset
     else:
-        dataset_cls = SFTDataset
+        # Default to multi-turn dataset
+        dataset_cls = MultiTurnSFTDataset
 
     # Create datasets based on the selected class
     dataset = dataset_cls(parquet_files=data_paths, tokenizer=tokenizer, config=data_config)
