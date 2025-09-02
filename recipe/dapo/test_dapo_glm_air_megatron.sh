@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -xeuo pipefail
 
-NNODES=${NNODES:-4}
+NNODES=${NNODES:-8}
 NGPUS_PER_NODES=${NGPUS_PER_NODES:-8}
 
 project_name='DAPO'
@@ -31,7 +31,7 @@ train_prompt_mini_bsz=128
 train_ppo_micro_batch_size_per_gpu=2
 infer_ppo_micro_batch_size_per_gpu=2
 # Paths
-MODEL_PATH=/models/zai-org/GLM-4.5-Air
+MODEL_PATH=/models/zai-org/GLM-4.5-Air-Base
 TRAIN_FILE=/data/dapo/dapo-math-17k.parquet
 aime24_test_path=/data/dapo/aime-2024.parquet
 # math500_test_path=/data/rlhf/math500/test.parquet
@@ -53,14 +53,14 @@ infer_ppo_max_token_len=$(((max_prompt_length + max_response_length)))
 offload=True
 
 COMMON_PP=${COMMON_PP:-2}
-COMMON_VPP=${COMMON_VPP:-2}
+COMMON_VPP=${COMMON_VPP:-null}
 COMMON_CP=${COMMON_CP:-4}
 COMMON_TP=${COMMON_TP:-2}
 COMMON_EP=${COMMON_EP:-8}
 COMMON_ETP=${COMMON_ETP:-1}
 
 TRAIN_TP=${TRAIN_TP:-$COMMON_TP}
-INFER_TP=${INFER_TP:-4}
+INFER_TP=${INFER_TP:-8}
 
 ACTOR_PP=${ACTOR_PP:-$COMMON_PP}
 ACTOR_VPP=${ACTOR_VPP:-$COMMON_VPP}
@@ -91,6 +91,8 @@ RM_ETP=${RM_ETP:-$COMMON_ETP}
 USE_MBRIDGE=True
 USE_DIST_CKPT=False
 
+CHAT_TEMPLATE="{% for message in messages %}{% if loop.first %}[gMASK]sop<|{{ message['role'] }}|> \n {{ message['content'] }}{% else %}<|{{ message['role'] }}|> \n {{ message['content'] }}{% endif %}{% endfor %}{% if add_generation_prompt %}<|assistant|>{% endif %}",
+
 python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megatron_trainer'\
     data.train_files="${TRAIN_FILE}" \
     data.val_files="${TEST_FILE}" \
@@ -99,6 +101,7 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     data.max_prompt_length=${max_prompt_length} \
     data.max_response_length=${max_response_length} \
     data.train_batch_size=${train_prompt_bsz} \
+    +data.apply_chat_template_kwargs.chat_template=${CHAT_TEMPLATE} \
     actor_rollout_ref.rollout.n=${n_resp_per_prompt} \
     algorithm.adv_estimator=${adv_estimator} \
     algorithm.use_kl_in_reward=${use_kl_in_reward} \
@@ -121,7 +124,6 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     actor_rollout_ref.actor.optim.weight_decay=0.1 \
     actor_rollout_ref.actor.megatron.use_mbridge=$USE_MBRIDGE \
     actor_rollout_ref.actor.megatron.use_dist_checkpointing=$USE_DIST_CKPT \
-    actor_rollout_ref.actor.megatron.dist_checkpointing_path=$DIST_CKPT_PATH \
     actor_rollout_ref.actor.megatron.param_offload=${offload} \
     actor_rollout_ref.actor.megatron.grad_offload=${offload} \
     actor_rollout_ref.actor.megatron.optimizer_offload=${offload} \
@@ -142,11 +144,13 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     +actor_rollout_ref.actor.megatron.override_transformer_config.persist_layer_norm=True \
     +actor_rollout_ref.actor.megatron.override_transformer_config.moe_grouped_gemm=True \
     +actor_rollout_ref.actor.megatron.override_transformer_config.moe_permute_fusion=True \
+    +actor_rollout_ref.actor.megatron.override_transformer_config.moe_shared_expert_overlap=False \
     +actor_rollout_ref.actor.megatron.override_transformer_config.moe_token_dispatcher_type="flex" \
     +actor_rollout_ref.actor.megatron.override_transformer_config.moe_router_dtype=fp32 \
     +actor_rollout_ref.actor.megatron.override_transformer_config.moe_enable_deepep=True \
     actor_rollout_ref.actor.entropy_coeff=0 \
     actor_rollout_ref.actor.loss_agg_mode=${loss_agg_mode} \
+    actor_rollout_ref.rollout.name='vllm' \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=${infer_ppo_micro_batch_size_per_gpu} \
     actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=${infer_ppo_max_token_len} \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
@@ -164,7 +168,6 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=${infer_ppo_micro_batch_size_per_gpu} \
     actor_rollout_ref.ref.log_prob_max_token_len_per_gpu=${infer_ppo_max_token_len} \
     actor_rollout_ref.ref.megatron.use_dist_checkpointing=True \
-    actor_rollout_ref.ref.megatron.dist_checkpointing_path=$DIST_CKPT_PATH \
     actor_rollout_ref.ref.megatron.param_offload=${offload} \
     actor_rollout_ref.ref.megatron.tensor_model_parallel_size=${REF_TP} \
     actor_rollout_ref.ref.megatron.pipeline_model_parallel_size=${REF_PP} \
