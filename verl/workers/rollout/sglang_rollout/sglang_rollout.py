@@ -436,8 +436,8 @@ class SGLangRollout(BaseRollout):
         enable_memory_saver = True
 
         # todo: 支持torch_memory_saver后移除这个限制
-        if get_device_name() == "npu":
-            enable_memory_saver = False
+        # if get_device_name() == "npu":
+        #     enable_memory_saver = False
         backend = "fa3" if self.attention_backend != "ascend" else "ascend"
         if first_rank_in_node:
             rank = dist.get_rank()
@@ -469,6 +469,7 @@ class SGLangRollout(BaseRollout):
                 attention_backend=backend,
                 # In async mode, we want token in token out.
                 skip_tokenizer_init=self.config.mode == "async",
+                dist_timeout=1800,
             )
         else:
             self._engine = None

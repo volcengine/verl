@@ -27,9 +27,11 @@ PPO_RAY_RUNTIME_ENV = {
         "VERL_PPO_LOGGING_LEVEL": "DEBUG",
         "VERL_LOGGING_LEVEL": "DEBUG",
         # "ASCEND_HOST_LOG_FILE_NUM":"1000",
-        "OOM_SNAPSHOT_ENABLE": "1",
-        "OOM_SNAPSHOT_PATH": "/home/l00878165/sglang/repos/logs/snapshot/launch",
-        "PYTORCH_NPU_ALLOC_CONF": "expandable_segments:True",
+        # "OOM_SNAPSHOT_ENABLE": "1",
+        # "OOM_SNAPSHOT_PATH": "/home/l00878165/sglang/repos/logs/snapshot/launch",
+        # "PYTORCH_NPU_ALLOC_CONF": "expandable_segments:True",
+        "HCCL_CONNECT_TIMEOUT": "1500",
+        "HCCL_EXEC_TIMEOUT": "1500",
     },
 }
 
