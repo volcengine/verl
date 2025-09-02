@@ -79,6 +79,7 @@ from verl.utils.fsdp_utils import (
     load_fsdp_optimizer,
     offload_fsdp_model_to_cpu,
     offload_fsdp_optimizer,
+    replace_lora_wrapper,
 )
 from verl.utils.import_utils import import_external_libs
 from verl.utils.memory_utils import aggressive_empty_cache
@@ -580,6 +581,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 state_dict_config=ShardedStateDictConfig(),
             )
 
+        # used for LoRA
+        self.base_sync_done: bool = "dummy" not in self.config.rollout.load_format
+
         # 5. switch to trainer mode
         # NOTE: It's critical that hybrid engine in trainer mode initially to load checkpoint.
         # For sync mode, we directly switch to trainer mode here.
@@ -599,15 +603,15 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         peft_config = None
         peft_model = getattr(self.actor_module_fsdp, "_fsdp_wrapped_module", self.actor_module_fsdp)
-        if hasattr(peft_model, "peft_config"):
-            base_sync_done = "dummy" not in self.config.rollout.load_format
-            assert base_sync_done, "load_format should not be dummy when LoRA is enabled"
+        if hasattr(peft_model, "peft_config"):  # LoRA
             peft_config = peft_model.peft_config.get("default", None)
             params = collect_lora_params(
                 module=self.actor_module_fsdp,
                 layered_summon=self.config.rollout.get("layered_summon", False),
-                base_sync_done=base_sync_done,
+                base_sync_done=self.base_sync_done,
             )
+            if not self.base_sync_done:
+                params = {replace_lora_wrapper(k, peft_config): v for k, v in params.items()}
         else:
             params = self.actor_module_fsdp.state_dict()
 
@@ -622,7 +626,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         set_expandable_segments(False)
 
-        if peft_config is not None:
+        if peft_config is not None and self.base_sync_done:
             per_tensor_param = params
         else:
             device = get_device_id()  # used when fsdp2 set cpu_offload_policy
@@ -633,13 +637,14 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         await self.rollout.resume(tags=["weights"])
         log_gpu_memory_usage("After resume weights", logger=logger)
-        await self.rollout.update_weights(per_tensor_param, peft_config=peft_config)
+        await self.rollout.update_weights(per_tensor_param, peft_config=peft_config, base_sync_done=self.base_sync_done)
         log_gpu_memory_usage("After update_weights", logger=logger)
         del params, per_tensor_param
         aggressive_empty_cache(force_sync=True)
         await self.rollout.resume(tags=["kv_cache"])
         log_gpu_memory_usage("After resume kv_cache", logger=logger)
 
+        self.base_sync_done = True
         # important: need to manually set the random states of each tp to be identical.
         self.torch_random_states = get_torch_device().get_rng_state()
         get_torch_device().set_rng_state(self.gen_random_states)

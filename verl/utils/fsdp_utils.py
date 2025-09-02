@@ -32,6 +32,7 @@ from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy, transformer
 from transformers.trainer_pt_utils import get_module_class_from_name
 
 from verl.utils.device import get_device_id, get_device_name, get_torch_device
+from verl.utils.model import check_exclude_modules, check_target_modules
 
 if version.parse(torch.__version__) >= version.parse("2.6"):
     from torch.distributed.fsdp import CPUOffloadPolicy, FSDPModule, MixedPrecisionPolicy, fully_shard
@@ -663,3 +664,31 @@ def collect_lora_params(module: FSDP, layered_summon: bool, base_sync_done: bool
                 lora_params[name] = param.detach().cpu()
             model = model.to(orig_dev)
     return lora_params
+
+
+def replace_lora_wrapper(k, peft_config):
+    """Replace LoRA parameter keys with base layer equivalents.
+
+    Transforms LoRA parameter names to their corresponding base layer
+    names for proper weight loading in vLLM when base model sync is not done.
+
+    Args:
+        k (str): Original parameter key name.
+
+    Returns:
+        str: Transformed parameter key for base layer.
+    """
+    stacked_params = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+    if k.endswith(".weight"):
+        module_k = k[: -len(".weight")]
+        if check_exclude_modules(peft_config, module_k):
+            return k
+        elif any([module_k.endswith(s) for s in stacked_params]) or check_target_modules(peft_config, module_k):
+            return f"{module_k}.base_layer.weight"
+    if k.endswith(".bias"):
+        module_k = k[: -len(".bias")]
+        if check_exclude_modules(peft_config, module_k):
+            return k
+        elif any([module_k.endswith(s) for s in stacked_params]) or check_target_modules(peft_config, module_k):
+            return f"{module_k}.base_layer.bias"
+    return k
