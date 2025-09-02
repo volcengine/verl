@@ -139,7 +139,7 @@ class RLHFDataset(Dataset):
         self.dataframe: datasets.Dataset = datasets.concatenate_datasets(dataframes)
         self.enable_audio = (
             self.audio_key in self.dataframe.column_names
-            or self.config.use_audio_in_video
+            or self.config.get("use_audio_in_video", False)
             and self.video_key in self.dataframe.column_names
         )
         print(f"dataset len: {len(self.dataframe)}")
@@ -184,7 +184,7 @@ class RLHFDataset(Dataset):
                     if self.enable_audio:
                         audios = (
                             [process_audio(video, True) for video in doc[video_key]]
-                            if video_key in doc and self.config.use_audio_in_video
+                            if video_key in doc and self.config.get("use_audio_in_video", False)
                             else []
                         )
                         audios.extend(
@@ -284,7 +284,7 @@ class RLHFDataset(Dataset):
                 # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
                 multi_modal_data["video"] = [video.numpy() for video in videos]
 
-                if self.enable_audio and self.config.use_audio_in_video:
+                if self.enable_audio and self.config.get("use_audio_in_video", False):
                     audios_from_videos = [process_audio(audio, True) for audio in row_dict.pop(self.audio_key)]
                     audios.extend(audios_from_videos)
             if self.enable_audio and self.audio_key in row_dict and row_dict.get(self.audio_key, None) is not None:
