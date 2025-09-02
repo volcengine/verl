@@ -275,11 +275,6 @@ class RLHFDataset(Dataset):
                 row_dict["multi_modal_inputs"].pop("second_per_grid_ts", None)
 
         else:
-            if not isinstance(self.tokenizer.chat_template, dict):
-                assert self.apply_chat_template_kwargs.get("chat_template") is not None, (
-                    "chat_template should be provided in apply_chat_template_kwargs"
-                    f"if tokenizer config not contains chat_template, get {self.tokenizer}"
-                )
             raw_prompt = self.tokenizer.apply_chat_template(
                 messages, add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
             )
