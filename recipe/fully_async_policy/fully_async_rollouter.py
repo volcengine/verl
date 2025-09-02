@@ -186,7 +186,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
     def get_total_train_steps(self):
         return self.total_train_steps
 
-    async def update_param_version(self, version: int, last_sync: bool = False):
+    async def update_param_version(self, version: int, validate: bool = False, global_steps: int = 0):
         """Update current parameter version"""
         async with self.lock:
             old_version = self.current_param_version
@@ -201,14 +201,16 @@ class FullyAsyncRollouter(RayPPOTrainer):
             if (
                 self.val_reward_fn is not None
                 and self.config.rollout.test_freq > 0
-                and self.current_param_version % self.config.rollout.test_freq == 0 # test_freq 表示每多少步参数更新测试一次
+                and self.current_param_version % self.config.rollout.test_freq == 0
                 and self.current_param_version > 0 # don't test here in the initial parameter sync
             ) or (
-                last_sync and self.val_reward_fn is not None
+                validate and self.val_reward_fn is not None
             ):
                 with marked_timer("testing", timing_raw, color="green"):
                     val_metrics: dict = self._validate()
-                    data = ValidateMetrics(timing_raw=timing_raw, metrics=val_metrics)
+                    data = ValidateMetrics(timing_raw=timing_raw, 
+                                           metrics=val_metrics, 
+                                           global_steps=global_steps)
                     await self.message_queue_client.put_validate(ray.cloudpickle.dumps(data))
 
     def _validate_config(self):
@@ -422,28 +424,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
     async def _streaming_generation_main(self):
         """流式处理的主入口方法，包含初始化和验证逻辑"""
-        from verl.utils.tracking import Tracking
-
-        self.logger = Tracking(
-            project_name=self.config.trainer.project_name,
-            experiment_name=self.config.trainer.experiment_name,
-            default_backend=self.config.trainer.logger,
-            config=OmegaConf.to_container(self.config, resolve=True),
-        )
-
-        # perform validation before training
-        # currently, we only support validation using the reward_function.
-        async with self.lock:
-            if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
-                print("[FullyAsyncRollouter] Initial validating before training...")
-                val_metrics = self._validate()
-                assert val_metrics, f"{val_metrics=}"
-                pprint(f"[FullyAsyncRollouter] Initial validation metrics: {val_metrics}")
-                data = ValidateMetrics(timing_raw={}, metrics=val_metrics)
-                await self.message_queue_client.put_validate(ray.cloudpickle.dumps(data))
-                if self.config.trainer.get("val_only", False): # TODO: 是否需要保留此功能
-
-                    return
 
         # we start from step 1
         self.global_steps += 1
@@ -544,7 +524,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
         while True:
             async with self.lock:
-                if not self.running and self.message_queue_client.is_training_ended():
+                if not self.running:
                     break
             await asyncio.sleep(check_interval)
             # 定期打印统计信息

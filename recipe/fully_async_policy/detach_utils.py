@@ -13,7 +13,7 @@
 # limitations under the License.
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 import torch
@@ -52,6 +52,8 @@ class RolloutSample:
 class ValidateMetrics:
     timing_raw: dict[str, Any]
     metrics: dict[str, Any]
+    global_steps: Optional[int] = None
+    param_version: Optional[int] = None
 
 
 def prepare_single_generation_data(batch_dict, global_steps, rollout_n) -> DataProto:

@@ -71,7 +71,7 @@ class ParameterSynchronizer:
             group_name=self.sync_group_name,
         )
 
-    def sync_weights(self, version, last_sync = False):
+    def sync_weights(self, version, validate = False, global_steps = 0):
         start_time = time.time()
 
         self.current_version = version
@@ -89,9 +89,10 @@ class ParameterSynchronizer:
         print(f"[ParameterSynchronizer] sync_weights success. cost {end_time - start_time:.2f} seconds")
 
         # Async Update rollout version & validation
-        self.rollouter.update_param_version.remote(version, last_sync)
+        self.rollouter.update_param_version.remote(version, validate, global_steps)
         ray.get(self.rollouter.resume.remote())
 
-        print(f"[ParameterSynchronizer] Update rollout version & validation done. cost {time.time() - end_time:.2f} seconds")
+        print(f"[ParameterSynchronizer] Update rollout version & validation done. \
+              cost {time.time() - end_time:.2f} seconds")
 
 
