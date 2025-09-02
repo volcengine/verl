@@ -1,5 +1,3 @@
-# Qwen/Qwen3-0.6B
-# Tested successfully on the crispig/verl_npu:cann8.1rc1-py3.10-torch2.5.1-vllm-ascend0.7.3.post1-250616 image.
 set -x
 
 python3 -m verl.trainer.main_ppo \
@@ -28,7 +26,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
-    actor_rollout_ref.rollout.n=5 \
+    actor_rollout_ref.rollout.n=4 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=32 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     actor_rollout_ref.ref.use_torch_compile=False \
@@ -38,7 +36,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.project_name='verl_grpo_example_gsm8k_qwen3' \
     trainer.experiment_name='qwen3_06b_function_rm' \
     trainer.nnodes=1 \
-    trainer.n_gpus_per_node=2 \
+    trainer.n_gpus_per_node=8 \
     trainer.save_freq=-1 \
     trainer.test_freq=5 \
     trainer.total_epochs=1 \
