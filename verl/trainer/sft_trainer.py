@@ -46,6 +46,8 @@ from verl.utils.fs import copy_to_local
 from verl.utils.logger import log_with_rank
 from verl.utils.tracking import Tracking
 
+from verl import DataProto
+
 from verl.workers.config import (
     ActorConfig,
     FSDPEngineConfig,
@@ -96,12 +98,8 @@ class SFTTrainer:
         
         self.device_name = self.config.trainer.device
 
-        # # patch optimizer config
-        # if torch.distributed.get_rank() == 0:
-        #     from IPython import embed
-        #     embed()
-        # torch.distributed.barrier()
-        # assert False
+        from verl.workers.roles.utils.losses import sft_loss
+        self.loss_fn = partial(sft_loss, config=None)
 
 
     def _build_config(self):
@@ -122,9 +120,6 @@ class SFTTrainer:
                                          checkpoint_config=self.checkpoint_config)
 
         
-        from verl.workers.roles.utils.losses import sft_loss
-
-
     def _init_engine(self):
         # patch optimizer config
         if self.config.trainer.total_training_steps is not None:
@@ -132,6 +127,8 @@ class SFTTrainer:
         else:
             self.total_training_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
         self.optimizer_config.total_training_steps = self.total_training_steps
+
+        self.steps_per_epoch = len(self.train_dataloader)
 
         self.engine.initialize()
 
@@ -367,6 +364,13 @@ class SFTTrainer:
         # Calculate which epoch we're starting from for sampler.set_epoch()
         start_epoch = global_step // self.steps_per_epoch
 
+        meta_info = {
+            'use_dynamic_bsz': True,
+            "max_token_len_per_gpu": self.config.data.max_token_len_per_gpu,
+            "micro_batch_size_per_gpu": self.config.data.micro_batch_size_per_gpu,
+            "temperature": 1.0
+        }
+
         train_time = 0
         for epoch in range(start_epoch, self.config.trainer.total_epochs):
             self.train_sampler.set_epoch(epoch=epoch)
@@ -380,14 +384,20 @@ class SFTTrainer:
                     disable=rank != 0,
                 )
             ):
-                global_step += 1
-                data = TensorDict(data, batch_size=self.config.data.train_batch_size).to(self.device_name)
-
-                # TODO: construct dataproto
-
                 
+
+                # if torch.distributed.get_rank() == 0:
+                #     from IPython import embed
+                #     embed()
+                # torch.distributed.barrier()
+                # assert False
+
+                global_step += 1
+                # TODO: construct dataproto
+                data = DataProto.from_dict(tensors=data)
+
                 with self.engine.train_mode():
-                    metric = self.engine.train_batch(data=data)
+                    metric = self.engine.train_batch(data=data, loss_function=self.loss_fn)
 
                 train_time += metric["train/time(s)"]
                 if rank == 0:

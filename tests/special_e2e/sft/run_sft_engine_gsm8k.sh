@@ -12,8 +12,8 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     data.train_files="${TRAIN_FILES}" \
     data.val_files="${VAL_FILES}" \
     data.train_batch_size=256 \
-    data.max_prompt_length=256 \
-    data.max_response_length=256 \
+    data.max_prompt_length=1024 \
+    data.max_response_length=1024 \
     data.pad_mode=left_right \
     data.truncation=error \
     model.path=/mnt/hdfs/zhangchi.usc1992_lf_lq/models/Qwen2.5-0.5B-Instruct \
