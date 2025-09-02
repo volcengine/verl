@@ -354,7 +354,7 @@ def prepare_dynamic_batch(data: DataProto, max_token_len: int) -> tuple[list[Dat
     for i, batch_idx in enumerate(batch_idx_list):
         tensors = dict(batch[i])
         non_tensors = {key: value[batch_idx] for key, value in data.non_tensor_batch.items()}
-        micro_batches.append(DataProto.from_dict(tensors, non_tensors))
+        micro_batches.append(DataProto.from_dict(tensors, non_tensors, meta_info=data.meta_info))
 
     return micro_batches, batch_idx_list
 
