@@ -92,7 +92,7 @@ class vLLMRollout(BaseRollout):
         """
         super().__init__()
         self.config = config
-
+        self.model_hf_config = model_hf_config
         tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
         assert tensor_parallel_size <= torch.distributed.get_world_size(), (
             "tensor parallel size should be less than or equal to the world size"
@@ -361,6 +361,12 @@ class vLLMRollout(BaseRollout):
                     rollout_log_probs, -1, max_length=self.config.response_length
                 ).to(idx.device)
                 rollout_log_probs = rollout_log_probs.to(torch.float32)
+
+            # fix the image token id in response
+            image_token_id = getattr(self.model_hf_config, "image_token_id", None)
+            if image_token_id is not None:
+                # print('fixing image_token_id')
+                response[response == image_token_id] = self.pad_token_id
 
             seq = torch.cat([idx, response], dim=-1)
 
