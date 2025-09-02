@@ -32,6 +32,9 @@ train_ppo_micro_batch_size_per_gpu=2
 infer_ppo_micro_batch_size_per_gpu=2
 # Paths
 MODEL_PATH=/models/zai-org/GLM-4.5-Air-Base
+# GLM Base model can use chat_template.jinja from instruct models
+cp /models/zai-org/GLM-4.5-Air/chat_template.jinja ${MODEL_PATH}/chat_template.jinja
+
 TRAIN_FILE=/data/dapo/dapo-math-17k.parquet
 aime24_test_path=/data/dapo/aime-2024.parquet
 # math500_test_path=/data/rlhf/math500/test.parquet
