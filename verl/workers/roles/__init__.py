@@ -14,5 +14,6 @@
 
 from .actor import ActorWorker
 from .critic import CriticWorker
+from .reward import RewardModelWorker
 
-__all__ = ["CriticWorker", "ActorWorker"]
+__all__ = ["CriticWorker", "ActorWorker", "RewardModelWorker"]

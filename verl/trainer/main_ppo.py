@@ -202,7 +202,7 @@ class TaskRunner:
                 else:
                     raise NotImplementedError
             elif use_legacy_worker_impl == "disable":
-                from verl.workers.reward_model.reward_worker import RewardModelWorker
+                from verl.workers.roles import RewardModelWorker
                 print("Using new worker implementation")
             else:
                 raise ValueError(f"Invalid use_legacy_worker_impl: {use_legacy_worker_impl}")

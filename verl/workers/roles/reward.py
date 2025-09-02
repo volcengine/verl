@@ -35,29 +35,37 @@ from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerCon
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import masked_mean
 from verl.workers.engine import EngineRegistry
+from verl.workers.reward_model.sglang_reward import SGLangReward
+from verl.workers.config import HFModelConfig
+
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 class RewardModelWorker(Worker, DistProfilerExtension):
-    def __init__(self, config):
+    def __init__(self, config, model_config: HFModelConfig) -> None:
         self.config = config
         Worker.__init__(self)
-        self.profiler_config = self.config.profiler
-        tool_config = self.profiler_config.tool_config
-        DistProfilerExtension.__init__(
-            self, DistProfiler(rank=self.rank, config=self.profiler_config, tool_config=tool_config)
-        )
+        # self.profiler_config = self.config.profiler
+        # tool_config = self.profiler_config.tool_config
+        # DistProfilerExtension.__init__(
+        #     self, DistProfiler(rank=self.rank, config=self.profiler_config, tool_config=tool_config)
+        # )
 
         initialize_global_process_group_ray(timeout_second=None)
 
-    def _build_engine(self):
-        pass
-
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
-        pass
+        self.reward_model = SGLangReward(
+            "/mnt/hdfs/yyding/models/Skywork-Reward-Llama-3.1-8B-v0.2",
+            None, None, None,
+            # actor_module=self.model_config.local_path,
+            # config=self.config,
+            # processing_class=self.model_config.get_processor(),
+            # model_hf_config=self.model_config.hf_config,
+            # trust_remote_code=self.model_config.trust_remote_code,
+        )
 
     def _switch_chat_template(self, data: DataProto):
         pass
@@ -65,4 +73,4 @@ class RewardModelWorker(Worker, DistProfilerExtension):
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="reward"))
     @DistProfiler.annotate(color="brown")
     def compute_rm_score(self, data: DataProto):
-        pass
+        self.reward_model.compute_reward(data)
