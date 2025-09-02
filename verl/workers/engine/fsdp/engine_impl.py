@@ -57,7 +57,7 @@ from verl.utils.fsdp_utils import (
     offload_fsdp_model_to_cpu,
     offload_fsdp_optimizer,
 )
-from verl.utils.import_utils import import_external_libs
+
 from verl.utils.py_functional import append_to_dict, convert_to_regular_types
 from verl.utils.seqlen_balancing import get_reverse_idx
 from verl.utils.torch_functional import logprobs_from_logits
@@ -82,7 +82,6 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 device_name = get_device_name()
 
 
-@EngineRegistry.register(["fsdp", "fsdp2"])
 class FSDPEngine(BaseEngine):
     """
     Concrete Engine implementation using PyTorch FullyShardedDataParallel (FSDP).
@@ -149,8 +148,6 @@ class FSDPEngine(BaseEngine):
         Sets up checkpoint manager and FLOPs counter.
         """
         # This is used to import external_lib into the huggingface systems
-        import_external_libs(self.model_config.external_lib)
-
         self._build_model_optimizer()
 
         if self._is_offload_param:
@@ -441,6 +438,12 @@ class FSDPEngine(BaseEngine):
 
     def get_data_parallel_size(self):
         return torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
+    
+    def get_data_parallel_group(self):
+        if self.ulysses_device_mesh is not None:
+            return self.ulysses_device_mesh.get_group(mesh_dim="dp")
+        else:
+            return torch.distributed.group.WORLD
 
     def prepare_micro_batches(self, data: DataProto):
         """
@@ -683,6 +686,7 @@ class EngineTrainModeCtx:
         self.engine.mode = None
 
 
+@EngineRegistry.register(model_type="language_model", backend=["fsdp", "fsdp2"])
 class FSDPEngineWithLMHead(FSDPEngine):
     def forward_step(self, micro_batch: DataProto, loss_function, forward_only):
         use_remove_padding = micro_batch.meta_info.get("use_remove_padding", True)
@@ -884,5 +888,5 @@ class FSDPEngineWithLMHead(FSDPEngine):
             if forward_only:
                 return None, output
             else:
-                policy_loss, metrics = loss_function(model_output=output, data=micro_batch_tensor)
+                policy_loss, metrics = loss_function(model_output=output, data=micro_batch_tensor, dp_group=self.get_data_parallel_group())
                 return policy_loss, metrics

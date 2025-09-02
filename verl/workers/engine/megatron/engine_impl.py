@@ -49,7 +49,6 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-@EngineRegistry.register("megatron")
 class MegatronEngine(BaseEngine):
     def __init__(
         self,
@@ -320,6 +319,9 @@ class MegatronEngine(BaseEngine):
     def get_data_parallel_size(self):
         return mpu.get_data_parallel_world_size()
 
+    def get_data_parallel_group(self):
+        return mpu.get_data_parallel_group()
+
     def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
         """
         Save model, optimizer, and scheduler states to a checkpoint.
@@ -547,6 +549,8 @@ class EngineTrainModeCtx:
         self.engine.mode = None
 
 
+
+@EngineRegistry.register(model_type="language_model", backend="megatron")
 class MegatronEngineWithLMHead(MegatronEngine):
     def forward_step(self, batch_iter: Iterator[TensorDict], model, meta_info: dict, postprocess_micro_batch_func):
         use_fused_kernels = meta_info.get("use_fused_kernels", False)
@@ -656,7 +660,7 @@ class MegatronEngineWithLMHead(MegatronEngine):
 
         # for training
         # note that this loss function can be swapped with other loss functions such as SFT
-        policy_loss, metrics = loss_function(model_output=model_output, data=data)
+        policy_loss, metrics = loss_function(model_output=model_output, data=data, dp_group=self.get_data_parallel_group())
 
         # return loss and stats
         return policy_loss, metrics

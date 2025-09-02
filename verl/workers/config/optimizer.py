@@ -92,7 +92,6 @@ class McoreOptimizerConfig(OptimizerConfig):
     """
 
     optimizer: str = "adam"
-    clip_grad: float = 1.0
     lr_warmup_init: float = 0.0
     lr_decay_steps: Optional[int] = None
     lr_decay_style: str = "linear"

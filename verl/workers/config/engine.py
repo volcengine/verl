@@ -113,3 +113,6 @@ class FSDPEngineConfig(BaseConfig):
     entropy_checkpointing: bool = False
     forward_only: bool = False
     strategy: str = "fsdp"
+
+    def __post_init__(self):
+        assert self.strategy in ["fsdp", "fsdp2"], f"strategy {self.strategy} not supported"

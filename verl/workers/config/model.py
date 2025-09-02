@@ -22,6 +22,7 @@ from verl.base_config import BaseConfig
 from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.fs import copy_to_local
 from verl.utils.model import get_generation_config, update_model_config
+from verl.utils.import_utils import import_external_libs
 
 __all__ = ["HFModelConfig"]
 
@@ -84,6 +85,8 @@ class HFModelConfig(BaseConfig):
     architectures: Optional[list[str]] = None
 
     def __post_init__(self):
+        import_external_libs(self.external_lib)
+
         if self.hf_config_path is None:
             self.hf_config_path = self.path
         if self.tokenizer_path is None:

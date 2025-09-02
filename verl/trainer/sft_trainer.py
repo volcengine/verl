@@ -99,52 +99,23 @@ class SFTTrainer:
         self.device_name = self.config.trainer.device
 
 
-    def _get_actor_config(self):
-        strategy = self.config.strategy
-        model_config = HFModelConfig(path=self.config.model.path)
-
-        if strategy == "megatron":
-            engine_config = McoreEngineConfig(
-                forward_only=False,
-                use_mbridge=False,
-                tensor_model_parallel_size=2,
-                pipeline_model_parallel_size=2,
-                context_parallel_size=2,
-            )
-            optimizer_config = McoreOptimizerConfig(lr_decay_steps=10)
-        elif strategy in ["fsdp", "fsdp2"]:
-            engine_config = FSDPEngineConfig(
-                forward_only=False, fsdp_size=4, strategy=strategy, ulysses_sequence_parallel_size=2
-            )
-            optimizer_config = FSDPOptimizerConfig()
-        else:
-            raise NotImplementedError(f"strategy {strategy} is not supported")
-
-        config = ActorConfig(
-            model_config=model_config,
-            engine=engine_config,
-            strategy=strategy,
-            ppo_micro_batch_size_per_gpu=256,
-            ppo_mini_batch_size=4,
-            optim=optimizer_config,
-            use_dynamic_bsz=True,
-            n=1,
-        )
-
-        return config
-
-
-
     def _build_engine(self):
-        from verl.workers.roles.actor import ActorWorker
+        from verl.workers.engine import EngineRegistry
+        from verl.utils.config import omega_conf_to_dataclass
+        self.model_config = omega_conf_to_dataclass(self.config.model)
+        self.engine_config = omega_conf_to_dataclass(self.config.engine)
+        self.optimizer_config = omega_conf_to_dataclass(self.config.optim)
+        self.checkpoint_config = omega_conf_to_dataclass(self.config.checkpoint)
+
+        self.engine = EngineRegistry.new(model_type="language_model", 
+                                         backend=self.config.strategy,
+                                         model_config=self.model_config,
+                                         engine_config=self.engine_config,
+                                         optimizer_config=self.optimizer_config,
+                                         checkpoint_config=self.checkpoint_config)
+
         from verl.workers.roles.utils.losses import sft_loss
 
-        # construct config
-        config = self._get_actor_config()
-        # construct worker
-        self.actor = ActorWorker(config=config)
-        sft_loss_ = partial(sft_loss, config=self.config)
-        self.actor.set_loss_fn(sft_loss_)
 
     def _build_dataloader(self, train_dataset, val_dataset):
         # build dataset
@@ -157,8 +128,8 @@ class SFTTrainer:
         # Set pin_memory_device when pin_memory is enabled.
         device_name = get_device_name()
 
-        dp_rank = self.actor.engine.get_data_parallel_rank()
-        dp_size = self.actor.engine.get_data_parallel_size()
+        dp_rank = self.engine.get_data_parallel_rank()
+        dp_size = self.engine.get_data_parallel_size()
 
         self.train_sampler = DistributedSampler(
             self.train_dataset, shuffle=True, num_replicas=dp_size, rank=dp_rank, drop_last=True
@@ -461,7 +432,7 @@ def run_sft(config):
     destroy_global_process_group()
 
 
-@hydra.main(config_path="config", config_name="sft_trainer_v1", version_base=None)
+@hydra.main(config_path="config", config_name="sft_trainer_engine", version_base=None)
 def main(config):
     run_sft(config)
 
