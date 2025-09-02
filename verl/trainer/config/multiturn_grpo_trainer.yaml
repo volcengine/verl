@@ -1,0 +1,176 @@
+# Multi-turn GRPO trainer configuration
+# This configuration extends the standard PPO trainer with multi-turn trajectory support
+
+# inherit from the base PPO trainer configuration
+defaults:
+  - ppo_trainer
+  - _self_
+
+# Override algorithm settings for multi-turn GRPO
+algorithm:
+  # Use the multi-turn GRPO advantage estimator
+  adv_estimator: grpo_multiturn
+  
+  # Enable GRPO-specific settings
+  norm_adv_by_std_in_grpo: True
+  
+  # Multi-turn GRPO specific parameters
+  multiturn_grpo:
+    # Number of trajectories to generate per question (GRPO group size)
+    n_trajectories_per_question: 4
+    
+    # Maximum number of turns per trajectory
+    max_turns_per_trajectory: 5
+    
+    # Maximum context length for condensation
+    max_context_length: 2048
+    
+    # Epsilon for numerical stability in advantage computation
+    advantage_epsilon: 1e-6
+
+# Multi-turn trajectory generation settings
+multiturn_trajectory:
+  # Context condensation strategy
+  context_condenser:
+    # Type of context condenser: "simple", "attention_based", "summary_based"
+    type: simple
+    
+    # Number of recent steps to keep in context (for simple condenser)
+    keep_last_n_steps: 2
+    
+    # Maximum tokens to keep in condensed context
+    max_condensed_tokens: 1024
+  
+  # Trajectory generation parameters
+  generation:
+    # Maximum sequence length for generated trajectories
+    max_sequence_length: 2048
+    
+    # Batch size for trajectory generation
+    batch_size: 32
+    
+    # Temperature for generation (if applicable)
+    temperature: 0.7
+    
+    # Top-p sampling parameter (if applicable)
+    top_p: 0.9
+
+# Reward computation settings
+reward_computation:
+  # Type of reward computer: "grpo", "custom"
+  type: grpo
+  
+  # Domain-specific settings: "general", "math", "coding"
+  domain: general
+  
+  # Path to ground truth answers file (optional)
+  ground_truth_file: null
+  
+  # Ground truth answers dictionary (optional)
+  ground_truth_answers: {}
+  
+  # Custom reward function settings (if type is "custom")
+  custom_reward:
+    # Path to custom reward function file
+    path: null
+    
+    # Name of the reward function
+    name: compute_trajectory_reward
+  
+  # Format validation settings
+  format_validation:
+    # Minimum response length
+    min_response_length: 10
+    
+    # Required answer indicators
+    answer_indicators: ["the answer is", "final answer", "therefore", "conclusion"]
+    
+    # Domain-specific validation rules
+    domain_rules:
+      math:
+        # Require numeric content
+        require_numeric: true
+        
+        # Require step-by-step reasoning
+        require_steps: true
+        
+        # Mathematical keywords that should be present
+        required_keywords: ["calculate", "solve", "equation"]
+      
+      coding:
+        # Require code blocks
+        require_code_blocks: true
+        
+        # Programming keywords that should be present
+        required_keywords: ["function", "def", "class", "return"]
+        
+        # Check for balanced parentheses
+        check_syntax: true
+
+# Rollout configuration for multi-turn trajectories
+actor_rollout_ref:
+  rollout:
+    # Enable multi-turn trajectory generation
+    multi_turn_trajectory:
+      enable: true
+      
+      # Use the multi-turn GRPO rollout worker
+      worker_type: multi_turn_grpo
+      
+      # Worker-specific configuration
+      worker_config:
+        # Inherit from multiturn_trajectory and reward_computation sections
+        inherit_config: true
+
+# Data configuration for multi-turn training
+data:
+  # Enable raw chat format for multi-turn processing
+  return_raw_chat: true
+  
+  # Batch size should account for multiple trajectories per question
+  train_batch_size: 128  # This will be divided by n_trajectories_per_question
+  
+  # Longer sequences for multi-turn trajectories
+  max_response_length: 2048
+  
+  # Enable trajectory grouping
+  enable_trajectory_grouping: true
+
+# Trainer configuration adjustments
+trainer:
+  # Project name for multi-turn GRPO experiments
+  project_name: verl_multiturn_grpo
+  
+  # Experiment name
+  experiment_name: multiturn_grpo_experiment
+  
+  # Logging settings
+  logger: ['console', 'wandb']
+  
+  # Log trajectory-specific metrics
+  log_trajectory_metrics: true
+  
+  # Directory for saving trajectory data
+  trajectory_data_dir: outputs/trajectories
+  
+  # Validation settings for multi-turn
+  validation:
+    # Number of trajectory samples to log during validation
+    log_trajectory_samples: 10
+    
+    # Validate trajectory quality metrics
+    validate_trajectory_quality: true
+
+# Profiling configuration for multi-turn trajectories
+trajectory_profiling:
+  # Enable trajectory generation profiling
+  enable: false
+  
+  # Profile trajectory reward computation
+  profile_reward_computation: false
+  
+  # Profile context condensation
+  profile_context_condensation: false
+  
+  # Save profiling results
+  save_path: outputs/trajectory_profiles

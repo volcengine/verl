@@ -102,6 +102,7 @@ class AdvantageEstimator(str, Enum):
     OPO = "opo"
     GRPO_PASSK = "grpo_passk"
     GPG = "gpg"
+    GRPO_MULTITURN = "grpo_multiturn"
 
 
 ADV_ESTIMATOR_REGISTRY: dict[str, Any] = {}
@@ -1435,3 +1436,137 @@ def compute_pf_ppo_reweight_data(
     resampled_data.meta_info = resampled_meta_info
 
     return resampled_data
+
+
+@register_adv_est(AdvantageEstimator.GRPO_MULTITURN)  # or simply: @register_adv_est("grpo_multiturn")
+def compute_grpo_multiturn_advantage(
+    token_level_rewards: torch.Tensor,
+    response_mask: torch.Tensor,
+    index: np.ndarray,
+    trajectory_step_masks: torch.Tensor,
+    trajectory_rewards: torch.Tensor,
+    epsilon: float = 1e-6,
+    norm_adv_by_std_in_grpo: bool = True,
+    config: Optional[AlgoConfig] = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Compute advantage for GRPO with multi-turn trajectories.
+    
+    This function extends the standard GRPO to handle multi-turn trajectories where:
+    1. Each trajectory consists of multiple turns [(c1,o1), (c2,o2), ...]
+    2. A single reward is computed for the entire trajectory
+    3. The same advantage is applied to each step in the trajectory (masking ci)
+    
+    Args:
+        token_level_rewards: `(torch.Tensor)`
+            shape is (bs, response_length) - not used for trajectory-level rewards
+        response_mask: `(torch.Tensor)`
+            shape is (bs, response_length) - mask for response tokens
+        index: `(np.ndarray)`
+            index array for grouping trajectories by question
+        trajectory_step_masks: `(torch.Tensor)`
+            shape is (bs, response_length) - mask indicating which tokens belong to output steps (oi)
+            1 for output tokens, 0 for input context tokens (ci)
+        trajectory_rewards: `(torch.Tensor)`
+            shape is (bs,) - reward for each complete trajectory
+        epsilon: `(float)`
+            small value to avoid division by zero
+        norm_adv_by_std_in_grpo: `(bool)`
+            whether to scale the GRPO advantage by standard deviation
+        config: `(Optional[AlgoConfig])`
+            algorithm configuration object
+    
+    Returns:
+        advantages: `(torch.Tensor)`
+            shape is (bs, response_length) - advantages applied only to output tokens
+        returns: `(torch.Tensor)`
+            shape is (bs, response_length) - same as advantages for GRPO
+    """
+    # Use trajectory-level rewards instead of token-level sum
+    scores = trajectory_rewards  # shape: (bs,)
+    
+    id2score = defaultdict(list)
+    id2mean = {}
+    id2std = {}
+    
+    with torch.no_grad():
+        bsz = scores.shape[0]
+        
+        # Group trajectory rewards by question index (GRPO grouping)
+        for i in range(bsz):
+            id2score[index[i]].append(scores[i])
+        
+        # Compute mean and std for each question group
+        for idx in id2score:
+            if len(id2score[idx]) == 1:
+                id2mean[idx] = torch.tensor(0.0, device=scores.device)
+                id2std[idx] = torch.tensor(1.0, device=scores.device)
+            elif len(id2score[idx]) > 1:
+                scores_tensor = torch.stack(id2score[idx])
+                id2mean[idx] = torch.mean(scores_tensor)
+                id2std[idx] = torch.std(scores_tensor)
+            else:
+                raise ValueError(f"no score in prompt index: {idx}")
+        
+        # Compute normalized advantages for each trajectory
+        trajectory_advantages = torch.zeros_like(scores)
+        for i in range(bsz):
+            if norm_adv_by_std_in_grpo:
+                trajectory_advantages[i] = (scores[i] - id2mean[index[i]]) / (id2std[index[i]] + epsilon)
+            else:
+                trajectory_advantages[i] = scores[i] - id2mean[index[i]]
+        
+        # Apply the same trajectory-level advantage to all output tokens in the trajectory
+        # trajectory_step_masks ensures we only apply advantages to output tokens (oi), not input context (ci)
+        advantages = trajectory_advantages.unsqueeze(-1) * trajectory_step_masks * response_mask
+    
+    return advantages, advantages
+
+
+def prepare_multiturn_trajectory_data(
+    trajectories: List,
+    tokenizer,
+    max_length: int = 2048
+) -> Dict[str, torch.Tensor]:
+    """
+    Prepare multi-turn trajectory data for GRPO training.
+    
+    This function converts multi-turn trajectories into the format expected by
+    the GRPO multi-turn advantage estimator.
+    
+    Args:
+        trajectories: List of MultiTurnTrajectory objects
+        tokenizer: Tokenizer for processing text
+        max_length: Maximum sequence length
+        
+    Returns:
+        Dictionary containing prepared tensors for training
+    """
+    # TODO: This is a skeleton implementation
+    # In practice, this would:
+    # 1. Tokenize all trajectory steps
+    # 2. Create proper masks for input context (ci) vs output (oi) tokens
+    # 3. Compute trajectory-level rewards
+    # 4. Create grouping indices for GRPO
+    
+    batch_size = len(trajectories)
+    
+    # Placeholder tensors - these would be computed from actual trajectories
+    token_level_rewards = torch.zeros(batch_size, max_length)
+    response_mask = torch.ones(batch_size, max_length)
+    trajectory_step_masks = torch.ones(batch_size, max_length)  # 1 for output tokens, 0 for input
+    trajectory_rewards = torch.tensor([traj.trajectory_reward for traj in trajectories])
+    
+    # Create grouping index based on question IDs
+    question_ids = [traj.question_id for traj in trajectories]
+    unique_questions = list(set(question_ids))
+    question_to_idx = {q: i for i, q in enumerate(unique_questions)}
+    index = np.array([question_to_idx[q] for q in question_ids])
+    
+    return {
+        'token_level_rewards': token_level_rewards,
+        'response_mask': response_mask,
+        'trajectory_step_masks': trajectory_step_masks,
+        'trajectory_rewards': trajectory_rewards,
+        'index': index
+    }

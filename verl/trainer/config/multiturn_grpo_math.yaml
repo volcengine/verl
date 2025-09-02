@@ -1,0 +1,137 @@
+# Multi-turn GRPO configuration specialized for math problems
+
+defaults:
+  - multiturn_grpo_trainer
+  - _self_
+
+# Math-specific algorithm settings
+algorithm:
+  multiturn_grpo:
+    # More trajectories for math problems to explore different solution paths
+    n_trajectories_per_question: 6
+    
+    # Allow more turns for complex math reasoning
+    max_turns_per_trajectory: 7
+    
+    # Longer context for mathematical derivations
+    max_context_length: 3072
+
+# Math-specific trajectory settings
+multiturn_trajectory:
+  context_condenser:
+    # Keep more context for mathematical reasoning
+    keep_last_n_steps: 3
+    max_condensed_tokens: 1536
+  
+  generation:
+    # Longer sequences for detailed mathematical solutions
+    max_sequence_length: 3072
+    
+    # Smaller batch size due to longer sequences
+    batch_size: 16
+    
+    # Lower temperature for more focused mathematical reasoning
+    temperature: 0.3
+    
+    # Higher top-p for mathematical diversity
+    top_p: 0.95
+
+# Math-specific reward computation
+reward_computation:
+  # Use math domain specialization
+  domain: math
+  
+  # Math-specific format validation
+  format_validation:
+    min_response_length: 20
+    
+    # Math-specific answer indicators
+    answer_indicators: 
+      - "the answer is"
+      - "final answer"
+      - "therefore"
+      - "solution is"
+      - "result is"
+      - "equals"
+    
+    # Enable math domain rules
+    domain_rules:
+      math:
+        require_numeric: true
+        require_steps: true
+        required_keywords: 
+          - "calculate"
+          - "solve"
+          - "equation"
+          - "step"
+          - "substitute"
+          - "simplify"
+
+# Data configuration for math problems
+data:
+  # Math datasets
+  train_files: ["data/gsm8k/train.parquet", "data/math/train.parquet"]
+  val_files: ["data/gsm8k/test.parquet", "data/math/test.parquet"]
+  
+  # Batch size accounting for multiple trajectories
+  train_batch_size: 96  # 6 trajectories * 16 questions
+  
+  # Math problems can be longer
+  max_prompt_length: 1024
+  max_response_length: 3072
+
+# Model configuration for math
+actor_rollout_ref:
+  model:
+    # Use a math-capable model
+    path: Qwen/Qwen2.5-Math-7B-Instruct
+    
+    # Enable gradient checkpointing for longer sequences
+    enable_gradient_checkpointing: true
+    
+    # Use fused kernels for efficiency
+    use_fused_kernels: true
+  
+  rollout:
+    # VLLM settings for math generation
+    name: vllm
+    tensor_model_parallel_size: 2
+    gpu_memory_utilization: 0.8
+    
+    # Math-specific generation parameters
+    n: 6  # Generate 6 trajectories per question
+    temperature: 0.3
+    top_p: 0.95
+    max_tokens: 2048
+
+# Trainer settings for math experiments
+trainer:
+  project_name: verl_multiturn_grpo_math
+  experiment_name: qwen2_5_math_7b_multiturn
+  
+  # Math problems may need more epochs
+  total_epochs: 20
+  
+  # More frequent validation for math
+  test_freq: 2
+  
+  # Save checkpoints more frequently
+  save_freq: 5
+  
+  # Math-specific logging
+  log_trajectory_metrics: true
+  trajectory_data_dir: outputs/math_trajectories
+
+# Math-specific validation
+validation:
+  # Evaluate mathematical accuracy
+  metrics:
+    - accuracy
+    - trajectory_length
+    - context_efficiency
+    - reasoning_quality
+  
+  # Ground truth evaluation
+  ground_truth_evaluation:
+    enable: true
+    tolerance: 1e-6  # Numerical tolerance for math answers

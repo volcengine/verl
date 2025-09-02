@@ -15,5 +15,29 @@
 from .base import BaseRollout
 from .hf_rollout import HFRollout
 from .naive import NaiveRollout
+from .multi_turn_trajectory import (
+    MultiTurnTrajectory,
+    TrajectoryStep,
+    ContextCondenser,
+    SimpleContextCondenser,
+    MultiTurnTrajectoryRollout,
+    MultiTurnTrajectoryManager
+)
+from .multi_turn_grpo_worker import (
+    MultiTurnGRPORolloutWorker,
+    MultiTurnGRPOWorkerFactory
+)
 
-__all__ = ["BaseRollout", "NaiveRollout", "HFRollout"]
+__all__ = [
+    "BaseRollout", 
+    "NaiveRollout", 
+    "HFRollout",
+    "MultiTurnTrajectory",
+    "TrajectoryStep", 
+    "ContextCondenser",
+    "SimpleContextCondenser",
+    "MultiTurnTrajectoryRollout",
+    "MultiTurnTrajectoryManager",
+    "MultiTurnGRPORolloutWorker",
+    "MultiTurnGRPOWorkerFactory"
+]
