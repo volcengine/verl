@@ -1,0 +1,449 @@
+# Copyright 2024 Bytedance Ltd. and/or its affiliates
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""
+A lightweight one-file FSDP SFT Trainer
+TODO(zhangchi.usc1992)
+- Add calculation of mfu
+- Add validation
+"""
+
+import os
+from functools import partial
+
+os.environ["NCCL_DEBUG"] = "WARN"
+os.environ["TOKENIZERS_PARALLELISM"] = "true"
+
+import logging
+import re
+
+import hydra
+import torch
+import torch.distributed
+from omegaconf import OmegaConf
+from tensordict import TensorDict
+from torch.utils.data import Dataset, DistributedSampler
+from torchdata.stateful_dataloader import StatefulDataLoader
+from tqdm import tqdm
+
+import verl.utils.hdfs_io as hdfs_io
+from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, get_checkpoint_tracker_filename
+from verl.utils.dataset import SFTDataset
+from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
+from verl.utils.device import get_device_name, is_cuda_available, is_npu_available
+from verl.utils.distributed import destroy_global_process_group
+from verl.utils.fs import copy_to_local
+from verl.utils.logger import log_with_rank
+from verl.utils.tracking import Tracking
+
+if is_cuda_available:
+    pass
+elif is_npu_available:
+    pass
+
+logger = logging.getLogger(__file__)
+logger.setLevel(os.getenv("VERL_SFT_LOGGING_LEVEL", "WARN"))
+
+
+def extract_step(path):
+    match = re.search(r"global_step_(\d+)", path)
+    if match:
+        return int(match.group(1))
+    return None
+
+
+class SFTTrainer:
+    def __init__(
+        self,
+        config,
+        tokenizer,
+        train_dataset: Dataset,
+        val_dataset: Dataset,
+    ):
+        self.config = config
+        self.tokenizer = tokenizer
+        if self.config.data.chat_template is not None:
+            raise ValueError("Apply Chat template from config is not supported yet.")
+
+        self._build_engine()
+
+        # normalize dp size
+        self._normalize_config_bsz()
+
+        # Set sequence parallel size
+        self._build_dataloader(train_dataset, val_dataset)
+
+        # Initialize resume-related variables
+        self.resume_global_step = 0
+
+        # build model
+        self._build_model_optimizer()
+
+        # Initialize checkpoint manager
+        self._init_checkpoint_manager()
+
+        self.load_checkpoint()
+
+        if self.device_mesh.get_rank() == 0:
+            print(self.config)
+        self.device_name = self.config.trainer.device
+
+    def _build_engine(self):
+        from verl.workers.config import ActorConfig
+        from verl.workers.roles.actor import ActorWorker
+        from verl.workers.roles.utils.losses import sft_loss
+
+        # construct config
+        config = ActorConfig()
+        # construct worker
+        self.actor = ActorWorker(config=config)
+        sft_loss_ = partial(sft_loss, config=self.config)
+        self.actor.set_loss_fn(sft_loss_)
+
+    def _build_dataloader(self, train_dataset, val_dataset):
+        # build dataset
+        config = self.config
+        self.train_dataset, self.val_dataset = train_dataset, val_dataset
+
+        # build dataloader
+        # Use data parallel rank and size instead of global rank and world size
+
+        # Set pin_memory_device when pin_memory is enabled.
+        device_name = get_device_name()
+
+        rank = self.actor.engine.get_data_parallel_rank()
+        dp_size = self.actor.engine.get_data_parallel_size()
+
+        self.train_sampler = DistributedSampler(
+            self.train_dataset, shuffle=True, num_replicas=dp_size, rank=rank, drop_last=True
+        )
+        self.train_dataloader = StatefulDataLoader(
+            dataset=self.train_dataset,
+            batch_size=config.data.train_batch_size,
+            sampler=self.train_sampler,
+            num_workers=8,
+            pin_memory=True,
+            drop_last=True,
+            pin_memory_device=device_name,
+        )
+
+        self.val_sampler = DistributedSampler(
+            self.val_dataset, shuffle=False, num_replicas=dp_size, rank=rank, drop_last=True
+        )
+        self.val_dataloader = StatefulDataLoader(
+            dataset=self.val_dataset,
+            batch_size=config.data.micro_batch_size_per_gpu,
+            sampler=self.val_sampler,
+            num_workers=8,
+            pin_memory=True,
+            drop_last=True,
+            pin_memory_device=device_name,
+        )
+
+    def validation_step(self, batch: TensorDict):
+        self.fsdp_model.eval()
+        with torch.no_grad():
+            loss = self._compute_loss_and_backward(batch, do_backward=False)
+            if is_cuda_available:
+                torch.distributed.all_reduce(loss, op=torch.distributed.ReduceOp.AVG)
+            elif is_npu_available:
+                torch.distributed.all_reduce(loss)
+                loss /= self.device_mesh.size(0)
+        return loss
+
+    def save_checkpoint(self, step):
+        """Save checkpoint using FSDPCheckpointManager with improved tracking"""
+        from verl.utils.fs import local_mkdir_safe
+
+        # Determine checkpoint path
+        local_global_step_folder = os.path.join(self.config.trainer.default_local_dir, f"global_step_{step}")
+
+        if self.device_mesh.get_rank() == 0:
+            print(f"Saving checkpoint to: {local_global_step_folder}")
+
+        # Get max checkpoints to keep
+        max_ckpt_to_keep = getattr(self.config.trainer, "max_ckpt_to_keep", None)
+
+        # Use checkpoint manager to save
+        self.checkpoint_manager.save_checkpoint(
+            local_path=local_global_step_folder, global_step=step, max_ckpt_to_keep=max_ckpt_to_keep
+        )
+
+        # Save dataloader state
+        if self.device_mesh.get_rank() == 0:
+            local_mkdir_safe(local_global_step_folder)
+            dataloader_local_path = os.path.join(local_global_step_folder, "data.pt")
+
+            # Use StatefulDataLoader's built-in state dict functionality
+            dataloader_state_dict = self.train_dataloader.state_dict()
+            torch.save(dataloader_state_dict, dataloader_local_path)
+            print(f"Saved dataloader state to: {dataloader_local_path}")
+
+            # Update latest checkpoint tracker (atomic write)
+            tracker_file = get_checkpoint_tracker_filename(self.config.trainer.default_local_dir)
+            temp_tracker_file = tracker_file + ".tmp"
+            with open(temp_tracker_file, "w") as f:
+                f.write(str(step))
+            os.rename(temp_tracker_file, tracker_file)
+            print(f"Updated checkpoint tracker: {tracker_file}")
+
+        # Copy to HDFS if configured
+        if self.device_mesh.get_rank() == 0 and getattr(self.config.trainer, "default_hdfs_dir", None):
+            hdfs_io.makedirs(self.config.trainer.default_hdfs_dir, exist_ok=True)
+            hdfs_io.copy(src=local_global_step_folder, dst=self.config.trainer.default_hdfs_dir, dirs_exist_ok=True)
+
+        torch.distributed.barrier()
+
+    def load_checkpoint(self):
+        # Determine resume path based on configuration
+        checkpoint_path = self._determine_resume_path()
+
+        if checkpoint_path is None:
+            return 0
+
+        # extract resume step from checkpoint path
+        resume_step = extract_step(checkpoint_path)
+        if resume_step is None:
+            log_with_rank(
+                f"Warning: Could not extract step number from {checkpoint_path}, starting from step 0",
+                logger=logger,
+                rank=self.device_mesh.get_rank(),
+                level=logging.WARNING,
+                log_only_rank_0=True,
+            )
+            return 0
+        self.resume_global_step = resume_step
+
+        # Use checkpoint manager to load model state
+        self.checkpoint_manager.load_checkpoint(checkpoint_path)
+        log_with_rank(
+            f"Successfully loaded model checkpoint from {checkpoint_path} (step {resume_step})",
+            logger=logger,
+            rank=self.device_mesh.get_rank(),
+            log_only_rank_0=True,
+        )
+
+        # Always load dataloader state for StatefulDataLoader
+        self._load_dataloader_state(checkpoint_path)
+
+        return resume_step
+
+    def _load_dataloader_state(self, checkpoint_path: str):
+        """Load dataloader state from checkpoint"""
+        dataloader_path = os.path.join(checkpoint_path, "data.pt")
+
+        if os.path.exists(dataloader_path):
+            # Use StatefulDataLoader's built-in state dict functionality
+            dataloader_state_dict = torch.load(dataloader_path, map_location="cpu", weights_only=False)
+            self.train_dataloader.load_state_dict(dataloader_state_dict)
+
+            log_with_rank(
+                f"Successfully loaded dataloader state from {dataloader_path}",
+                logger=logger,
+                rank=self.device_mesh.get_rank(),
+                log_only_rank_0=True,
+            )
+
+        else:
+            log_with_rank(
+                f"Warning: No dataloader state found at {dataloader_path}, will start from scratch",
+                logger=logger,
+                rank=self.device_mesh.get_rank(),
+                level=logging.WARNING,
+                log_only_rank_0=True,
+            )
+
+    def _determine_resume_path(self):
+        """Determine the path to resume from based on resume_mode configuration"""
+        resume_mode = getattr(self.config.trainer, "resume_mode", "auto")
+        resume_from_path = getattr(self.config.trainer, "resume_from_path", None)
+
+        if resume_mode == "disable":
+            return None
+        elif resume_mode == "auto":
+            if resume_from_path is not None:
+                assert os.path.exists(resume_from_path), (
+                    "resume_from_path must be null or an existing path when resume_mode is 'auto'"
+                )
+                assert "global_step_" in resume_from_path, "resume_from_path must specify the global_steps"
+                return resume_from_path
+            # Try to find the latest checkpoint in the default directory
+            return self._find_latest_checkpoint()
+        elif resume_mode == "resume_path":
+            assert os.path.exists(resume_from_path), (
+                "resume_from_path must be an existing path when resume_mode is 'resume_path'"
+            )
+            assert "global_step_" in resume_from_path, "resume_from_path must specify the global_steps"
+            return resume_from_path
+        else:
+            raise ValueError(f"Invalid resume_mode: {resume_mode}. Must be 'auto', 'disable', or 'resume_path'")
+
+    def _find_latest_checkpoint(self):
+        """Find the latest checkpoint in the default local directory"""
+        checkpoint_dir = self.config.trainer.default_local_dir
+
+        if not os.path.exists(checkpoint_dir):
+            return None
+
+        latest_checkpoint = find_latest_ckpt_path(checkpoint_dir)
+
+        if latest_checkpoint and self.device_mesh.get_rank() == 0:
+            step_num = extract_step(latest_checkpoint)
+            print(f"Found latest checkpoint: {latest_checkpoint} (step {step_num})")
+
+        return latest_checkpoint
+
+    def fit(self):
+        rank = self.device_mesh.get_rank()
+
+        # TODO: add a unified tracking
+        if rank == 0:
+            tracking = Tracking(
+                project_name=self.config.trainer.project_name,
+                experiment_name=self.config.trainer.experiment_name,
+                default_backend=self.config.trainer.logger,
+                config=OmegaConf.to_container(self.config, resolve=True),
+            )
+
+        global_step = self.resume_global_step  # Start from resumed step
+        last_valid_metric = None
+        # compute the total training steps.
+        # the total training steps in SFT is mainly for early exit
+        total_training_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
+
+        if self.config.trainer.total_training_steps is not None:
+            total_training_steps = self.config.trainer.total_training_steps
+
+        self.total_training_steps = total_training_steps
+        log_with_rank(
+            f"Total training steps: {self.total_training_steps},",
+            logger=logger,
+            rank=self.device_mesh.get_rank(),
+            log_only_rank_0=True,
+        )
+
+        # With StatefulDataLoader, we don't need to manually calculate epochs and steps
+        # The dataloader will automatically resume from where it left off
+        if global_step > 0:
+            log_with_rank(
+                f"StatefulDataLoader will automatically resume from global step: {global_step}",
+                logger=logger,
+                rank=self.device_mesh.get_rank(),
+                log_only_rank_0=True,
+            )
+
+        # Calculate which epoch we're starting from for sampler.set_epoch()
+        start_epoch = global_step // self.steps_per_epoch
+
+        train_time = 0
+        for epoch in range(start_epoch, self.config.trainer.total_epochs):
+            self.train_sampler.set_epoch(epoch=epoch)
+
+            for step_in_epoch, data in enumerate(
+                tqdm(
+                    self.train_dataloader,
+                    initial=global_step % self.steps_per_epoch if epoch == start_epoch else 0,
+                    total=self.steps_per_epoch,
+                    desc=f"Epoch {epoch + 1}/{self.config.trainer.total_epochs}",
+                    disable=rank != 0,
+                )
+            ):
+                global_step += 1
+                data = TensorDict(data, batch_size=self.config.data.train_batch_size).to(self.device_name)
+
+                # TODO: construct dataproto
+
+                metric = self.actor.update_actor(data=data)
+                train_time += metric["train/time(s)"]
+                if rank == 0:
+                    tracking.log(data=metric, step=global_step)
+
+                is_last_step = global_step >= self.total_training_steps
+                is_valid_step = global_step % self.config.trainer.test_freq == 0
+                is_save_step = global_step % self.config.trainer.save_freq == 0
+
+                # early exit or validation step
+                if is_last_step or (self.config.trainer.test_freq > 0 and is_valid_step):
+                    # Perform validation
+                    val_losses = []
+                    for val_data in self.val_dataloader:
+                        val_data = TensorDict(val_data, batch_size=self.config.data.micro_batch_size_per_gpu).to(
+                            self.device_name
+                        )
+                        val_loss = self.validation_step(val_data)
+                        val_losses.append(val_loss)
+                    if rank == 0:
+                        val_loss = torch.mean(torch.stack(val_losses))
+                        metric = {"val/loss": val_loss.detach().item()}
+                        tracking.log(data=metric, step=global_step)
+                        last_valid_metric = metric
+                    torch.distributed.barrier()
+
+                if is_last_step or (self.config.trainer.save_freq > 0 and is_save_step):
+                    self.save_checkpoint(step=global_step)
+
+                if is_last_step:
+                    if rank == 0:
+                        print(f"Total time for train steps: {train_time:.2f}s")
+                        print(f"Final validation metrics: {last_valid_metric}")
+                    return
+
+
+def run_sft(config):
+    # build tokenizer and datasets first
+    from verl.utils import hf_tokenizer
+
+    local_model_path = copy_to_local(src=config.model.partial_pretrain, verbose=True)
+    tokenizer = hf_tokenizer(local_model_path, trust_remote_code=config.model.trust_remote_code)
+    train_dataset = create_sft_dataset(config.data.train_files, config.data, tokenizer)
+    val_dataset = create_sft_dataset(config.data.val_files, config.data, tokenizer)
+
+    trainer = SFTTrainer(
+        config=config,
+        tokenizer=tokenizer,
+        train_dataset=train_dataset,
+        val_dataset=val_dataset,
+    )
+
+    trainer.fit()
+
+    destroy_global_process_group()
+
+
+@hydra.main(config_path="config", config_name="sft_trainer", version_base=None)
+def main(config):
+    run_sft(config)
+
+
+def create_sft_dataset(data_paths, data_config, tokenizer):
+    """Create a dataset."""
+    # build dataset
+    # First check if a custom dataset class is specified
+    if data_config.custom_cls.get("path", None):
+        from verl.utils.import_utils import load_extern_type
+
+        dataset_cls = load_extern_type(data_config.custom_cls.path, data_config.custom_cls.name)
+    # Then check if multi-turn dataset should be used
+    elif data_config.get("multiturn", {}).get("enable", False):
+        dataset_cls = MultiTurnSFTDataset
+    # Default to single-turn dataset
+    else:
+        dataset_cls = SFTDataset
+
+    # Create datasets based on the selected class
+    dataset = dataset_cls(parquet_files=data_paths, tokenizer=tokenizer, config=data_config)
+    return dataset
+
+
+if __name__ == "__main__":
+    main()
