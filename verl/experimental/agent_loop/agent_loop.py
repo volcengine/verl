@@ -16,6 +16,7 @@ import heapq
 import logging
 import os
 import random
+import time
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
@@ -45,7 +46,7 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 class AsyncLLMServerManager:
     """
     A class to manage multiple OpenAI compatible LLM servers. This class provides
-    - Load balance: least requests load balancing
+    - Load balance: least requests load balancing with request completion tracking
     - Sticky session: send multi-turn chat completions to same server for automatic prefix caching
     """
 
@@ -68,14 +69,36 @@ class AsyncLLMServerManager:
         # LRU cache to map request_id to server
         self.request_id_to_server = LRUCache(maxsize=max_cache_size)
 
+    def _find_server_in_heap(self, server_handle) -> Optional[int]:
+        """Find server index in the heap."""
+        for i, (_, (server_hash, server), _) in enumerate(self.weighted_serveres):
+            if server == server_handle:
+                return i
+        return None
+
+    def _update_server_load(self, server_handle, delta: int):
+        """Update server load count and rebalance heap efficiently."""
+        server_idx = self._find_server_in_heap(server_handle)
+        if server_idx is not None:
+            # Update the count
+            self.weighted_serveres[server_idx][0] += delta
+            
+            # Use efficient rebalancing strategy based on position
+            if server_idx == 0:
+                # If modifying heap top, use heapreplace (O(log n)) - more efficient
+                heapq.heapreplace(self.weighted_serveres, self.weighted_serveres[0])
+            else:
+                # If modifying other positions, use heapify (O(n))
+                heapq.heapify(self.weighted_serveres)
+
     def _choose_server(self, request_id: str) -> ray.actor.ActorHandle:
         # TODO: implement server pressure awareness load balancing
         if request_id in self.request_id_to_server:
             return self.request_id_to_server[request_id]
-
+        
+        # Choose server with least active requests
         server = self.weighted_serveres[0][1][1]
-        self.weighted_serveres[0][0] += 1
-        heapq.heapreplace(self.weighted_serveres, self.weighted_serveres[0])
+        self._update_server_load(server, 1)
         self.request_id_to_server[request_id] = server
         return server
 
@@ -88,7 +111,7 @@ class AsyncLLMServerManager:
         sampling_params: dict[str, Any],
         image_data: Optional[list[Any]] = None,
     ) -> TokenOutput:
-        """Generate tokens from prompt ids.
+        """Generate tokens from prompt ids with request completion tracking.
 
         Args:
             request_id (str): request id for sticky session.
@@ -99,13 +122,34 @@ class AsyncLLMServerManager:
             TokenOutput: token output
         """
         server = self._choose_server(request_id)
-        output = await server.generate.remote(
-            request_id=request_id,
-            prompt_ids=prompt_ids,
-            sampling_params=sampling_params,
-            image_data=image_data,
-        )
-        return output
+        
+        try:
+            output = await server.generate.remote(
+                request_id=request_id,
+                prompt_ids=prompt_ids,
+                sampling_params=sampling_params,
+                image_data=image_data,
+            )
+            return output
+        except Exception as e:
+            logger.error(f"Request {request_id} failed on server {hash(server)}: {e}")
+            raise
+        finally:
+            # Always decrease server load count, regardless of success or failure
+            self._update_server_load(server, -1)
+
+    def get_load_balancing_stats(self) -> dict:
+        """Get current load balancing statistics."""
+        stats = {
+            'server_loads': {},
+            'total_active_requests': 0
+        }
+        
+        for active_count, (server_hash, server), _ in self.weighted_serveres:
+            stats['server_loads'][server_hash] = active_count
+            stats['total_active_requests'] += active_count
+        
+        return stats
 
 
 class AgentLoopMetrics(BaseModel):
