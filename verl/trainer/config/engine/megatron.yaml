@@ -1,75 +1,127 @@
-# Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
-_target_: verl.workers.config.McoreEngineConfig
+engine:
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.workers.config.McoreEngineConfig
 
-# Whether to offload model parameters to CPU
-param_offload: False
+  # Whether to offload model parameters to CPU
+  param_offload: False
 
-# Whether to offload gradients to CPU
-grad_offload: False
+  # Whether to offload gradients to CPU
+  grad_offload: False
 
-# Whether to offload optimizer state to CPU
-optimizer_offload: False
+  # Whether to offload optimizer state to CPU
+  optimizer_offload: False
 
-# tensor model parallel size
-tensor_model_parallel_size: 1
+  # tensor model parallel size
+  tensor_model_parallel_size: 1
 
-# expert model parallel size
-expert_model_parallel_size: 1
+  # expert model parallel size
+  expert_model_parallel_size: 1
 
-# expert tensor parallel size
-expert_tensor_parallel_size: null
+  # expert tensor parallel size
+  expert_tensor_parallel_size: null
 
-# pipeline model parallel size
-pipeline_model_parallel_size: 1
+  # pipeline model parallel size
+  pipeline_model_parallel_size: 1
 
-# virtual pipeline model parallel size
-virtual_pipeline_model_parallel_size: null
+  # virtual pipeline model parallel size
+  virtual_pipeline_model_parallel_size: null
 
-# context parallel size
-context_parallel_size: 1
+  # context parallel size
+  context_parallel_size: 1
 
-# sequence parallel
-sequence_parallel: True
+  # sequence parallel
+  sequence_parallel: True
 
-# Whether to use distributed optimizer
-use_distributed_optimizer: True
+  # Whether to use distributed optimizer
+  use_distributed_optimizer: True
 
-# Whether to use distributed checkpointing
-use_dist_checkpointing: False
+  # Whether to use distributed checkpointing
+  use_dist_checkpointing: False
 
-# distributed checkpointing path
-dist_checkpointing_path: null
+  # distributed checkpointing path
+  dist_checkpointing_path: null
 
-# oc.select: default val for ref.megatron.seed
-seed: 42
+  # oc.select: default val for ref.megatron.seed
+  seed: 42
 
-# Allow to override Distributed Data Parallel (DDP) config
-override_ddp_config: {}
+  # Allow to override Distributed Data Parallel (DDP) config
+  override_ddp_config: {}
 
-# additional transformer config like: num_layers_in_first(/last)_pipeline_stage
-# oc.select: default val for ref.megatron.override_transformer_config
-override_transformer_config:
-  # Recompute configuration, same as in megatron.training.arguments
-  # default use minimal performance-interference recompute methods
-  # Recompute granualarity, choices: ["full", "selective"]
-  recompute_granularity: null
+  # additional transformer config like: num_layers_in_first(/last)_pipeline_stage
+  # oc.select: default val for ref.megatron.override_transformer_config
+  override_transformer_config:
+    # Recompute configuration, same as in megatron.training.arguments
+    # default use minimal performance-interference recompute methods
+    # Recompute granualarity, choices: ["full", "selective"]
+    recompute_granularity: null
 
-  # Recompute modules, multiple choices: ["core_attn", "moe_act", "layernorm", "mla_up_proj", "mlp", "moe"]
-  # Please use correct module in matched model
-  recompute_modules: ["core_attn"]
+    # Recompute modules, multiple choices: ["core_attn", "moe_act", "layernorm", "mla_up_proj", "mlp", "moe"]
+    # Please use correct module in matched model
+    recompute_modules: ["core_attn"]
 
-  # 'uniform', 'block'
-  # 'uniform' divides the total number of transformer layers and checkpoints the input activation of each chunk
-  # 'block' checkpoints the specified number of layers per pipeline stage at the specified granularity
-  recompute_method: null
+    # 'uniform', 'block'
+    # 'uniform' divides the total number of transformer layers and checkpoints the input activation of each chunk
+    # 'block' checkpoints the specified number of layers per pipeline stage at the specified granularity
+    recompute_method: null
 
-  # 'full' will checkpoint the entire transformer layer and 'selective' only checkpoints memory intensive part of attention
-  recompute_num_layers: null
+    # 'full' will checkpoint the entire transformer layer and 'selective' only checkpoints memory intensive part of attention
+    recompute_num_layers: null
 
-override_mcore_model_config: {}
+  override_mcore_model_config: {}
 
-# oc.select: default val for ref.megatron.use_mbridge
-use_mbridge: False
+  # oc.select: default val for ref.megatron.use_mbridge
+  use_mbridge: False
 
-# whether to use forward only
-forward_only: False
+  # whether to use forward only
+  forward_only: False
+
+optim:
+  _target_: verl.workers.config.McoreOptimizerConfig
+
+  # Learning rate
+  lr: 1e-3
+
+  # LR warmup steps ratio
+  lr_warmup_steps_ratio: 0.0
+
+  # Total training steps
+  total_training_steps: -1
+
+  # Weight decay
+  weight_decay: 0.01
+
+  # LR warmup steps
+  lr_warmup_steps: -1
+
+  # Betas for Adam optimizer
+  betas: [0.9, 0.999]
+
+  # Clip gradient
+  clip_grad: 1.0
+
+  # optimizer type
+  optimizer: adam
+
+  # initial learning rate for warmup, default to 0.0
+  lr_warmup_init: 0.0
+
+  lr_decay_steps: null
+
+  # select from constant/linear/cosine/inverse_square_root
+  lr_decay_style: constant
+
+  # minimum learning rate, default to 0.0
+  min_lr: 0.0
+
+  # select from constant/linear/cosine
+  weight_decay_incr_style: constant
+
+  # select from constant/exponential/cosine
+  lr_wsd_decay_style: exponential
+
+  lr_wsd_decay_steps: null
+
+  # use checkpoint optimizer parameter scheduler
+  use_checkpoint_opt_param_scheduler: False
+
+  override_optimizer_config: {}

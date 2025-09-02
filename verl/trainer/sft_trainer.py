@@ -75,19 +75,14 @@ class SFTTrainer:
     def __init__(
         self,
         config,
-        tokenizer,
-        train_dataset: Dataset,
-        val_dataset: Dataset,
     ):
         self.config = config
-        self.tokenizer = tokenizer
         if self.config.data.chat_template is not None:
             raise ValueError("Apply Chat template from config is not supported yet.")
 
         self._build_engine()
 
-        # Set sequence parallel size
-        self._build_dataloader(train_dataset, val_dataset)
+        self._build_dataloader()
 
         # Initialize resume-related variables
         self.resume_global_step = 0
@@ -100,26 +95,40 @@ class SFTTrainer:
 
 
     def _build_engine(self):
-        from verl.workers.engine import EngineRegistry
+        from verl.workers.engine import EngineRegistry, BaseEngine
         from verl.utils.config import omega_conf_to_dataclass
         self.model_config = omega_conf_to_dataclass(self.config.model)
-        self.engine_config = omega_conf_to_dataclass(self.config.engine)
-        self.optimizer_config = omega_conf_to_dataclass(self.config.optim)
+        self.engine_config = omega_conf_to_dataclass(self.config.engine.engine)
+        self.optimizer_config = omega_conf_to_dataclass(self.config.engine.optim)
         self.checkpoint_config = omega_conf_to_dataclass(self.config.checkpoint)
 
-        self.engine = EngineRegistry.new(model_type="language_model", 
-                                         backend=self.config.strategy,
+        self.engine: BaseEngine = EngineRegistry.new(model_type="language_model", 
+                                         backend=self.engine_config.strategy,
                                          model_config=self.model_config,
                                          engine_config=self.engine_config,
                                          optimizer_config=self.optimizer_config,
                                          checkpoint_config=self.checkpoint_config)
 
+        self.engine.initialize()
+        
+        if torch.distributed.get_rank() == 0:
+            from IPython import embed
+            embed()
+        torch.distributed.barrier()
+        assert False
+
         from verl.workers.roles.utils.losses import sft_loss
 
 
-    def _build_dataloader(self, train_dataset, val_dataset):
+    def _build_dataloader(self):
         # build dataset
         config = self.config
+
+        tokenizer = self.model_config.tokenizer
+        train_dataset = create_sft_dataset(config.data.train_files, config.data, tokenizer)
+        val_dataset = create_sft_dataset(config.data.val_files, config.data, tokenizer)
+
+
         self.train_dataset, self.val_dataset = train_dataset, val_dataset
 
         # build dataloader
@@ -370,11 +379,6 @@ class SFTTrainer:
 
                 # TODO: construct dataproto
 
-                if torch.distributed.get_rank() == 0:
-                    from IPython import embed
-                    embed()
-                torch.distributed.barrier()
-
                 metric = self.actor.update_actor(data=data)
                 train_time += metric["train/time(s)"]
                 if rank == 0:
@@ -412,23 +416,10 @@ class SFTTrainer:
 
 
 def run_sft(config):
-    # build tokenizer and datasets first
-    from verl.utils import hf_tokenizer
-
-    local_model_path = copy_to_local(src=config.model.partial_pretrain, verbose=True)
-    tokenizer = hf_tokenizer(local_model_path, trust_remote_code=config.model.trust_remote_code)
-    train_dataset = create_sft_dataset(config.data.train_files, config.data, tokenizer)
-    val_dataset = create_sft_dataset(config.data.val_files, config.data, tokenizer)
-
-    trainer = SFTTrainer(
-        config=config,
-        tokenizer=tokenizer,
-        train_dataset=train_dataset,
-        val_dataset=val_dataset,
-    )
-
+    from verl.utils.distributed import initialize_global_process_group
+    initialize_global_process_group()
+    trainer = SFTTrainer(config=config)
     trainer.fit()
-
     destroy_global_process_group()
 
 

@@ -7,9 +7,8 @@
 # <folder_name>@<field_name>.<field_name>: <yaml_file_name>
 
 defaults:
-  - optimizer@optim: fsdp
-  - engine@engine: fsdp
   - model@model: hf_model
+  - engine@engine: fsdp
   - _self_
 
 data:
@@ -36,7 +35,15 @@ data:
   use_shm: False
   apply_chat_template_kwargs: {}
 
-strategy: fsdp
+# Checkpoint configuration
+checkpoint:
+  _target_: verl.trainer.config.CheckpointConfig
+  # What to include in saved checkpoints
+  # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
+  save_contents: ["model", "optimizer", "extra"]
+
+  # For more flexibility, you can specify the contents to load from the checkpoint.
+  load_contents: ${checkpoint.save_contents}
 
 trainer:
   default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}
@@ -60,15 +67,5 @@ trainer:
   resume_mode: auto
 
   # Path to resume training from (used when resume_mode is "resume_path" or "auto")
-  resume_from_path: null
-
-  # Checkpoint configuration
-  checkpoint:
-    __target__: 
-    # What to include in saved checkpoints
-    # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
-    save_contents: ["model", "optimizer", "extra"]
-
-    # For more flexibility, you can specify the contents to load from the checkpoint.
-    load_contents: ${trainer.checkpoint.save_contents}
+  resume_from_path: null  
   device: cuda

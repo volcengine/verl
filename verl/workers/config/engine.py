@@ -70,9 +70,11 @@ class McoreEngineConfig(BaseConfig):
     override_mcore_model_config: dict[str, Any] = field(default_factory=dict)
     use_mbridge: bool = False
     forward_only: bool = False
+    strategy: str = "megatron"
 
     def __post_init__(self) -> None:
         """config validation logics go here"""
+        assert self.strategy == "megatron"
         if self.tensor_model_parallel_size == 1:
             warnings.warn("set sequence parallel to false as TP size is 1", stacklevel=2)
             self.sequence_parallel = False
