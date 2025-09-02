@@ -20,6 +20,7 @@ import torch.nn.functional as F
 import torch_npu
 from torch_npu import npu_rotary_mul as apply_rotary_emb
 from transformers.models.qwen2_5_vl import modeling_qwen2_5_vl
+from transformers.models.qwen3 import modeling_qwen3
 from transformers.models.qwen3_moe import modeling_qwen3_moe
 
 
@@ -45,6 +46,12 @@ def apply_rotary_pos_emb_flashatt_qwen2_5_vl_npu(
 # This api can improve performance on ASCEND NPU
 def rms_norm_forward(self, x):
     return torch_npu.npu_rms_norm(x, self.weight, epsilon=self.variance_epsilon)[0]
+
+
+def silu_forward(self, hidden_state):
+    """NPU optimized silu"""
+    gate_up = torch.cat((self.gate_proj(hidden_state), self.up_proj(hidden_state)), dim=-1)
+    return self.down_proj(torch_npu.npu_swiglu(gate_up, dim=-1))
 
 
 def apply_rotary_pos_emb_qwen3_npu(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
@@ -152,7 +159,10 @@ def moe_block_forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
 
 
 modeling_qwen2_5_vl.Qwen2RMSNorm.forward = rms_norm_forward
+modeling_qwen2_5_vl.Qwen2_5_VLMLP.forward = silu_forward
 modeling_qwen2_5_vl.apply_rotary_pos_emb_flashatt = apply_rotary_pos_emb_flashatt_qwen2_5_vl_npu
 modeling_qwen3_moe.Qwen3MoeRMSNorm.forward = rms_norm_forward
 modeling_qwen3_moe.Qwen3MoeSparseMoeBlock.forward = moe_block_forward
 modeling_qwen3_moe.apply_rotary_pos_emb = apply_rotary_pos_emb_qwen3_npu
+modeling_qwen3.Qwen3RMSNorm.forward = rms_norm_forward
+modeling_qwen3.Qwen3MLP.forward = silu_forward
