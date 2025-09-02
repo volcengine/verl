@@ -24,6 +24,7 @@ from tqdm import tqdm
 from recipe.fully_async_policy.detach_utils import (
     ValidateMetrics,
     assemble_batch_from_rollout_samples,
+    MetricsAggregator,
 )
 from recipe.fully_async_policy.message_queue import MessageQueueClient
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
@@ -120,6 +121,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
         self.required_samples = int(
             self.minimal_bsz * config.actor_rollout_ref.actor.ppo_mini_batch_size / config.actor_rollout_ref.rollout.n
         )
+        self.metrics_aggregator = MetricsAggregator()
 
     def set_message_queue_client(self, message_queue_client: MessageQueueClient):
         """Set message queue client"""
@@ -245,7 +247,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
 
         from verl.utils.tracking import Tracking
 
-        logger = Tracking(
+        self.logger = Tracking(
             project_name=self.config.trainer.project_name,
             experiment_name=self.config.trainer.experiment_name,
             default_backend=self.config.trainer.logger,
@@ -255,11 +257,13 @@ class FullyAsyncTrainer(RayPPOTrainer):
         self.max_steps_duration = 0
 
         # get validate data before training
+        if self.config.trainer.val_before_train and self.reward_fn is not None:
+            ray.get(self.param_synchronizer.wait_last_sync.remote())
         val_data = self.message_queue_client.get_validate_sync()
         if val_data:
             val_data: ValidateMetrics = ray.cloudpickle.loads(val_data)
-            logger.log(data=val_data.metrics, step=val_data.global_steps)
-            logger.log(data=val_data.timing_raw, step=val_data.global_steps)
+            self.logger.log(data=val_data.metrics, step=val_data.param_version)
+            self.logger.log(data=val_data.timing_raw, step=val_data.param_version)
             pprint(f"[FullyAsyncTrainer] Initial validation metrics: {val_data.metrics}")
 
         # Use queue mode, no need for traditional dataloader iterator
@@ -296,7 +300,11 @@ class FullyAsyncTrainer(RayPPOTrainer):
                 self._check_save_checkpoint(False, timing_raw)
 
             self._collect_metrics(batch, 0, metrics, timing_raw)
-            logger.log(data=metrics, step=self.global_steps)
+            self.metrics_aggregator.add_step_metrics(
+                metrics=metrics, 
+                sample_count=self.required_samples,
+                timestamp=time.time()
+            )
             # Trigger parameter synchronization after training step
             time_str = datetime.now().strftime("%H:%M:%S.%f")[:-3]
             print(
@@ -309,8 +317,10 @@ class FullyAsyncTrainer(RayPPOTrainer):
             val_data = self.message_queue_client.get_validate_sync()
             if val_data:
                 val_data: ValidateMetrics = ray.cloudpickle.loads(val_data)
-                logger.log(data=val_data.metrics, step=val_data.global_steps)
-                logger.log(data=val_data.timing_raw, step=val_data.global_steps)
+                self.logger.log(data=val_data.metrics, step=val_data.param_version)
+                self.logger.log(data=val_data.timing_raw, step=val_data.param_version)
+                pprint(f"[FullyAsyncTrainer] parameter version: {val_data.param_version} \
+                      Validation metrics: {val_data.metrics}")
             self.global_steps += 1
 
         # final parameter sync and validate
@@ -319,8 +329,8 @@ class FullyAsyncTrainer(RayPPOTrainer):
             val_data = self.message_queue_client.get_validate_sync()
             if val_data:
                 val_data: ValidateMetrics = ray.cloudpickle.loads(val_data)
-                logger.log(data=val_data.metrics, step=val_data.global_steps)
-                logger.log(data=val_data.timing_raw, step=val_data.global_steps)     
+                self.logger.log(data=val_data.metrics, step=val_data.param_version)
+                self.logger.log(data=val_data.timing_raw, step=val_data.param_version)     
         pprint(f"[FullyAsyncTrainer] Final validation metrics: {val_data.metrics}")
 
         self._check_save_checkpoint(True, timing_raw) # TODO: 检查checkpoint
@@ -339,7 +349,13 @@ class FullyAsyncTrainer(RayPPOTrainer):
 
         self.current_param_version += 1 
         self.local_trigger_step = 1
+        self.logger.log(
+            data=self.metrics_aggregator.get_aggregated_metrics(),
+            step=self.current_param_version,
+            )
+        self.metrics_aggregator.reset()
         ray.get(self.param_synchronizer.wait_last_sync.remote())
         ray.get(self.param_synchronizer.sync_weights.remote(self.current_param_version, 
                                                             validate=validate,
-                                                            global_steps=global_steps))
+                                                            global_steps=global_steps)
+                                                            )

@@ -210,7 +210,8 @@ class FullyAsyncRollouter(RayPPOTrainer):
                     val_metrics: dict = self._validate()
                 data = ValidateMetrics(timing_raw=timing_raw,
                                        metrics=val_metrics,
-                                       global_steps=global_steps)
+                                       global_steps=global_steps,
+                                       param_version=version)
                 await self.message_queue_client.put_validate(ray.cloudpickle.dumps(data))
 
     def _validate_config(self):
