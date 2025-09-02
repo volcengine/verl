@@ -34,7 +34,7 @@ class OptimizerConfig(BaseConfig):
         lr_warmup_steps (Optional[int]): Number of warmup steps; None delegates to lr_warmup_steps_ratio.
     """
 
-    _mutable_fields = {"clip_grad"}
+    _mutable_fields = {"clip_grad", "total_training_steps", "lr_warmup_steps"}
 
     lr: float = 1e-3
     lr_warmup_steps_ratio: float = 0.0

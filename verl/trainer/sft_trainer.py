@@ -77,8 +77,8 @@ class SFTTrainer:
         config,
     ):
         self.config = config
-        if self.config.data.chat_template is not None:
-            raise ValueError("Apply Chat template from config is not supported yet.")
+        self._build_config()
+        self._build_dataset()
 
         self._build_engine()
 
@@ -87,21 +87,33 @@ class SFTTrainer:
         # Initialize resume-related variables
         self.resume_global_step = 0
 
+        self._init_engine()
+
         self.load_checkpoint()
 
         if torch.distributed.get_rank() == 0:
             print(self.config)
+        
         self.device_name = self.config.trainer.device
 
+        # # patch optimizer config
+        # if torch.distributed.get_rank() == 0:
+        #     from IPython import embed
+        #     embed()
+        # torch.distributed.barrier()
+        # assert False
 
-    def _build_engine(self):
-        from verl.workers.engine import EngineRegistry, BaseEngine
+
+    def _build_config(self):
         from verl.utils.config import omega_conf_to_dataclass
         self.model_config = omega_conf_to_dataclass(self.config.model)
         self.engine_config = omega_conf_to_dataclass(self.config.engine.engine)
         self.optimizer_config = omega_conf_to_dataclass(self.config.engine.optim)
         self.checkpoint_config = omega_conf_to_dataclass(self.config.checkpoint)
 
+
+    def _build_engine(self):
+        from verl.workers.engine import EngineRegistry, BaseEngine
         self.engine: BaseEngine = EngineRegistry.new(model_type="language_model", 
                                          backend=self.engine_config.strategy,
                                          model_config=self.model_config,
@@ -109,28 +121,33 @@ class SFTTrainer:
                                          optimizer_config=self.optimizer_config,
                                          checkpoint_config=self.checkpoint_config)
 
-        self.engine.initialize()
         
-        if torch.distributed.get_rank() == 0:
-            from IPython import embed
-            embed()
-        torch.distributed.barrier()
-        assert False
-
         from verl.workers.roles.utils.losses import sft_loss
+
+
+    def _init_engine(self):
+        # patch optimizer config
+        if self.config.trainer.total_training_steps is not None:
+            self.total_training_steps = self.config.trainer.total_training_steps
+        else:
+            self.total_training_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
+        self.optimizer_config.total_training_steps = self.total_training_steps
+
+        self.engine.initialize()
+
+
+    def _build_dataset(self):
+        config = self.config
+        tokenizer = self.model_config.tokenizer
+        train_dataset = create_sft_dataset(config.data.train_files, config.data, tokenizer)
+        val_dataset = create_sft_dataset(config.data.val_files, config.data, tokenizer)
+
+        self.train_dataset, self.val_dataset = train_dataset, val_dataset
 
 
     def _build_dataloader(self):
         # build dataset
         config = self.config
-
-        tokenizer = self.model_config.tokenizer
-        train_dataset = create_sft_dataset(config.data.train_files, config.data, tokenizer)
-        val_dataset = create_sft_dataset(config.data.val_files, config.data, tokenizer)
-
-
-        self.train_dataset, self.val_dataset = train_dataset, val_dataset
-
         # build dataloader
         # Use data parallel rank and size instead of global rank and world size
 
@@ -143,9 +160,12 @@ class SFTTrainer:
         self.train_sampler = DistributedSampler(
             self.train_dataset, shuffle=True, num_replicas=dp_size, rank=dp_rank, drop_last=True
         )
+
+        self.train_batch_size_per_dp = config.data.train_batch_size // dp_size
+
         self.train_dataloader = StatefulDataLoader(
             dataset=self.train_dataset,
-            batch_size=config.data.train_batch_size,
+            batch_size=self.train_batch_size_per_dp,
             sampler=self.train_sampler,
             num_workers=8,
             pin_memory=True,
@@ -158,7 +178,7 @@ class SFTTrainer:
         )
         self.val_dataloader = StatefulDataLoader(
             dataset=self.val_dataset,
-            batch_size=config.data.micro_batch_size_per_gpu,
+            batch_size=self.train_batch_size_per_dp,
             sampler=self.val_sampler,
             num_workers=8,
             pin_memory=True,
@@ -241,14 +261,7 @@ class SFTTrainer:
         self.resume_global_step = resume_step
 
         # Use checkpoint manager to load model state
-        self.checkpoint_manager.load_checkpoint(checkpoint_path)
-        log_with_rank(
-            f"Successfully loaded model checkpoint from {checkpoint_path} (step {resume_step})",
-            logger=logger,
-            rank=self.device_mesh.get_rank(),
-            log_only_rank_0=True,
-        )
-
+        self.engine.load_checkpoint(checkpoint_path)
         # Always load dataloader state for StatefulDataLoader
         self._load_dataloader_state(checkpoint_path)
 
@@ -320,7 +333,7 @@ class SFTTrainer:
         return latest_checkpoint
 
     def fit(self):
-        rank = self.device_mesh.get_rank()
+        rank = torch.distributed.get_rank()
 
         # TODO: add a unified tracking
         if rank == 0:
@@ -333,18 +346,11 @@ class SFTTrainer:
 
         global_step = self.resume_global_step  # Start from resumed step
         last_valid_metric = None
-        # compute the total training steps.
-        # the total training steps in SFT is mainly for early exit
-        total_training_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
-
-        if self.config.trainer.total_training_steps is not None:
-            total_training_steps = self.config.trainer.total_training_steps
-
-        self.total_training_steps = total_training_steps
+      
         log_with_rank(
             f"Total training steps: {self.total_training_steps},",
             logger=logger,
-            rank=self.device_mesh.get_rank(),
+            rank=rank,
             log_only_rank_0=True,
         )
 
@@ -354,7 +360,7 @@ class SFTTrainer:
             log_with_rank(
                 f"StatefulDataLoader will automatically resume from global step: {global_step}",
                 logger=logger,
-                rank=self.device_mesh.get_rank(),
+                rank=rank,
                 log_only_rank_0=True,
             )
 
@@ -379,7 +385,10 @@ class SFTTrainer:
 
                 # TODO: construct dataproto
 
-                metric = self.actor.update_actor(data=data)
+                
+                with self.engine.train_mode():
+                    metric = self.engine.train_batch(data=data)
+
                 train_time += metric["train/time(s)"]
                 if rank == 0:
                     tracking.log(data=metric, step=global_step)

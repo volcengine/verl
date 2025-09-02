@@ -28,7 +28,6 @@ data:
   max_response_length: 512
   truncation: error
   balance_dp_token: False # to be implement
-  chat_template: null
   custom_cls:
     path: null
     name: null
