@@ -58,13 +58,11 @@ class RewardModelWorker(Worker, DistProfilerExtension):
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
         self.reward_model = SGLangReward(
-            "/mnt/hdfs/yyding/models/Skywork-Reward-Llama-3.1-8B-v0.2",
-            None, None, None,
-            # actor_module=self.model_config.local_path,
-            # config=self.config,
-            # processing_class=self.model_config.get_processor(),
-            # model_hf_config=self.model_config.hf_config,
-            # trust_remote_code=self.model_config.trust_remote_code,
+            actor_module=self.model_config.local_path,
+            config=self.config,
+            processing_class=self.model_config.get_processor(),
+            model_hf_config=self.model_config.hf_config,
+            trust_remote_code=self.model_config.trust_remote_code,
         )
 
     def _switch_chat_template(self, data: DataProto):
