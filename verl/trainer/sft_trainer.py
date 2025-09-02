@@ -26,6 +26,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
 import logging
 import re
+from codetiming import Timer
 
 import hydra
 import torch
@@ -45,6 +46,8 @@ from verl.utils.distributed import destroy_global_process_group
 from verl.utils.fs import copy_to_local
 from verl.utils.logger import log_with_rank
 from verl.utils.tracking import Tracking
+from verl.utils.py_functional import append_to_dict
+from verl.utils.flops_counter import FlopsCounter
 
 from verl import DataProto
 
@@ -100,6 +103,8 @@ class SFTTrainer:
 
         from verl.workers.roles.utils.losses import sft_loss
         self.loss_fn = partial(sft_loss, config=None)
+
+        self.flops_counter = FlopsCounter(self.model_config.hf_config)
 
 
     def _build_config(self):
@@ -365,7 +370,7 @@ class SFTTrainer:
         start_epoch = global_step // self.steps_per_epoch
 
         meta_info = {
-            'use_dynamic_bsz': True,
+            'use_dynamic_bsz': self.config.data.use_dynamic_bsz,
             "max_token_len_per_gpu": self.config.data.max_token_len_per_gpu,
             "micro_batch_size_per_gpu": self.config.data.micro_batch_size_per_gpu,
             "temperature": 1.0
@@ -384,24 +389,46 @@ class SFTTrainer:
                     disable=rank != 0,
                 )
             ):
-                
-
-                # if torch.distributed.get_rank() == 0:
-                #     from IPython import embed
-                #     embed()
-                # torch.distributed.barrier()
-                # assert False
-
                 global_step += 1
                 # TODO: construct dataproto
-                data = DataProto.from_dict(tensors=data)
+                data = DataProto.from_dict(tensors=data, meta_info=meta_info)
 
                 with self.engine.train_mode():
-                    metric = self.engine.train_batch(data=data, loss_function=self.loss_fn)
+                    with Timer(name="update_policy", logger=None) as timer:
+                        metrics = self.engine.train_batch(data=data, loss_function=self.loss_fn)
 
-                train_time += metric["train/time(s)"]
+                loss = torch.mean(torch.tensor(metrics['loss'], device=self.device_name))
+
+                # mean over dp group
+                batch_seqlens = data.batch['attention_mask'].sum(dim=-1).to(self.device_name)  # (global_bsz // dp)
+                
+                output_tensor = torch.randint(0, 100, (batch_seqlens.shape[0] * self.engine.get_data_parallel_size(),), 
+                                              device=self.device_name)
+
+                torch.distributed.all_gather_into_tensor(output_tensor=output_tensor, input_tensor=batch_seqlens,
+                                                         group=self.engine.get_data_parallel_group())
+                torch.distributed.all_reduce(loss, op=torch.distributed.ReduceOp.AVG, 
+                                             group=self.engine.get_data_parallel_group())
+                
+                batch_seqlens = batch_seqlens.tolist()
+                loss = loss.item()
+
+                # TODO: we can actual accumulate metrics for N steps and perform aggregate metrics
+                metrics['loss'] = loss
+
+                metrics['train/loss'] = metrics.pop('loss')
+                metrics['train/grad_norm'] = metrics.pop('grad_norm')
+
+                lr = self.engine.lr_scheduler_step()
+                metrics['train/lr'] = lr
+                
+                # mfu
+                delta_time = timer.last
+                estimated_flops, promised_flops = self.flops_counter.estimate_flops(batch_seqlens, delta_time)
+                metrics["train/mfu"] = estimated_flops / promised_flops / torch.distributed.get_world_size()
+
                 if rank == 0:
-                    tracking.log(data=metric, step=global_step)
+                    tracking.log(data=metrics, step=global_step)
 
                 is_last_step = global_step >= self.total_training_steps
                 is_valid_step = global_step % self.config.trainer.test_freq == 0

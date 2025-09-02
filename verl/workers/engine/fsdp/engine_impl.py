@@ -697,7 +697,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
         device_name = get_device_name()
         # actually, we should avoid assigning like this...
         micro_batch = micro_batch.to(get_device_id())
-        micro_batch_tensor = micro_batch.batch.to(device_name)
+        micro_batch_tensor = micro_batch.batch
 
         response_length = micro_batch_tensor["responses"].size(-1)
         multi_modal_inputs = {}

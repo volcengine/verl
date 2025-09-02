@@ -16,10 +16,12 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     data.max_response_length=1024 \
     data.pad_mode=left_right \
     data.truncation=error \
-    model.path=/mnt/hdfs/zhangchi.usc1992_lf_lq/models/Qwen2.5-0.5B-Instruct \
+    data.use_dynamic_bsz=True \
+    data.max_token_len_per_gpu=8192 \
+    model.path=/mnt/hdfs/zhangchi.usc1992_lf_lq/models/Qwen2.5-3B-Instruct \
     engine=fsdp \
     engine.optim.lr=1e-5 \
-    engine.optim.lr_warmup_steps_ratio=0.01 \
+    engine.optim.lr_warmup_steps_ratio=0.05 \
     engine.optim.weight_decay=0.1 \
     engine.optim.betas="[0.9,0.95]" \
     engine.optim.clip_grad=1.0 \
