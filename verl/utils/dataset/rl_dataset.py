@@ -118,6 +118,7 @@ class RLHFDataset(Dataset):
         self.filter_prompts = config.get("filter_prompts", True)
         self.serialize_dataset = False
         self.return_multi_modal_inputs = config.get("return_multi_modal_inputs", True)
+        self.enable_audio = False
 
         self._download()
         self._read_files_and_tokenize()
@@ -136,7 +137,11 @@ class RLHFDataset(Dataset):
             dataframe = datasets.load_dataset("parquet", data_files=parquet_file)["train"]
             dataframes.append(dataframe)
         self.dataframe: datasets.Dataset = datasets.concatenate_datasets(dataframes)
-
+        self.enable_audio = (
+            self.audio_key in self.dataframe.column_names
+            or self.config.use_audio_in_video
+            and self.video_key in self.dataframe.column_names
+        )
         print(f"dataset len: {len(self.dataframe)}")
 
         self.dataframe = self.maybe_filter_out_long_prompts(self.dataframe)
@@ -152,7 +157,8 @@ class RLHFDataset(Dataset):
             audio_key = self.audio_key
 
             if processor is not None:
-                from verl.utils.dataset.audio_utils import process_audio
+                if self.enable_audio:
+                    from verl.utils.dataset.audio_utils import process_audio
                 from verl.utils.dataset.vision_utils import process_image, process_video
 
                 def doc2len(doc) -> int:
@@ -170,10 +176,23 @@ class RLHFDataset(Dataset):
                         if video_key in doc and doc[video_key]
                         else None
                     )
-                    audios = [process_audio(video, True) for video in doc[video_key]] if video_key in doc else []
-                    audios.extend([process_audio(audio, False) for audio in doc[audio_key]] if audio_key in doc else [])
+                    processor_kwargs = dict(
+                        text=[raw_prompt],
+                        images=images,
+                        videos=videos,
+                    )
+                    if self.enable_audio:
+                        audios = (
+                            [process_audio(video, True) for video in doc[video_key]]
+                            if video_key in doc and self.config.use_audio_in_video
+                            else []
+                        )
+                        audios.extend(
+                            [process_audio(audio, False) for audio in doc[audio_key]] if audio_key in doc else []
+                        )
+                        processor_kwargs["audio"] = audios
 
-                    return len(processor(text=[raw_prompt], images=images, videos=videos, audio=audios)["input_ids"][0])
+                    return len(processor(**processor_kwargs)["input_ids"][0])
 
             else:
 
@@ -237,7 +256,8 @@ class RLHFDataset(Dataset):
         model_inputs = {}
 
         if self.processor is not None:
-            from verl.utils.dataset.audio_utils import process_audio
+            if self.enable_audio:
+                from verl.utils.dataset.audio_utils import process_audio
             from verl.utils.dataset.vision_utils import process_image, process_video
 
             raw_prompt = self.processor.apply_chat_template(
@@ -264,10 +284,10 @@ class RLHFDataset(Dataset):
                 # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
                 multi_modal_data["video"] = [video.numpy() for video in videos]
 
-                if self.config.use_audio_in_video:
+                if self.enable_audio and self.config.use_audio_in_video:
                     audios_from_videos = [process_audio(audio, True) for audio in row_dict.pop(self.audio_key)]
                     audios.extend(audios_from_videos)
-            if self.audio_key in row_dict and row_dict.get(self.audio_key, None) is not None:
+            if self.enable_audio and self.audio_key in row_dict and row_dict.get(self.audio_key, None) is not None:
                 audios_from_raw = [process_audio(audio, False) for audio in row_dict.pop(self.audio_key)]
                 audios.extend(audios_from_raw)
             if len(audios) > 0:
