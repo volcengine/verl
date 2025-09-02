@@ -339,6 +339,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
 
         self.current_param_version += 1 
         self.local_trigger_step = 1
+        ray.get(self.param_synchronizer.wait_last_sync.remote())
         ray.get(self.param_synchronizer.sync_weights.remote(self.current_param_version, 
                                                             validate=validate,
                                                             global_steps=global_steps))

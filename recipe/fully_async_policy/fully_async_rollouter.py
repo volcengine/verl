@@ -208,10 +208,10 @@ class FullyAsyncRollouter(RayPPOTrainer):
             ):
                 with marked_timer("testing", timing_raw, color="green"):
                     val_metrics: dict = self._validate()
-                    data = ValidateMetrics(timing_raw=timing_raw, 
-                                           metrics=val_metrics, 
-                                           global_steps=global_steps)
-                    await self.message_queue_client.put_validate(ray.cloudpickle.dumps(data))
+                data = ValidateMetrics(timing_raw=timing_raw,
+                                       metrics=val_metrics,
+                                       global_steps=global_steps)
+                await self.message_queue_client.put_validate(ray.cloudpickle.dumps(data))
 
     def _validate_config(self):
         # Validate asynchronous training configuration

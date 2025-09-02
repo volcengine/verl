@@ -41,6 +41,7 @@ class ParameterSynchronizer:
         self.weights_info = None
         self.sync_group_initialized = False
         self.sync_group_name = "actor_rollout"
+        self.wait_last = None
 
         # Statistics
         self.current_version = 0
@@ -90,9 +91,12 @@ class ParameterSynchronizer:
 
         # Async Update rollout version & validation
         self.rollouter.update_param_version.remote(version, validate, global_steps)
-        ray.get(self.rollouter.resume.remote())
+        self.wait_last = self.rollouter.resume.remote()
 
-        print(f"[ParameterSynchronizer] Update rollout version & validation done. \
-              cost {time.time() - end_time:.2f} seconds")
-
+    def wait_last_sync(self):
+        print(f"[ParameterSynchronizer] waiting last parameter sync and validate...")
+        start_time =  time.time()
+        if self.wait_last:
+            ray.get(self.wait_last)
+        print(f"[ParameterSynchronizer], cost: {time.time() - start_time:.2f} seconds")
 
