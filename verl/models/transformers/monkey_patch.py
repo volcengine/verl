@@ -237,6 +237,7 @@ def patch_forward_with_backends(
         forward_with_triton_backend_function = forward_with_triton_backend
     elif model.config.model_type == "qwen2_5_omni_thinker":
         from verl.models.transformers.qwen2_5_omni import forward_with_torch_backend, forward_with_triton_backend
+
         forward_with_torch_backend_function = forward_with_torch_backend
         forward_with_triton_backend_function = forward_with_triton_backend
     else:

@@ -274,6 +274,8 @@ data:
   truncation: error
   image_key: images
   video_key: videos
+  audio_key: audios
+  use_audio_in_video: false
   trust_remote_code: false
   custom_cls:
     path: null

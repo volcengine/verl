@@ -1143,7 +1143,7 @@ class CriticWorker(Worker, DistProfilerExtension):
                 use_remove_padding=use_remove_padding,
                 ulysses_sp_size=self.ulysses_sequence_parallel_size,
             )
-            
+
             if hasattr(critic_module, "thinker"):
                 from verl.models.transformers.qwen2_5_omni import patch_model_for_thinker_using
 
