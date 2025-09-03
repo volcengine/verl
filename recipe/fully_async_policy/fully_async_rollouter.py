@@ -593,6 +593,8 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 await asyncio.gather(*self.active_tasks, return_exceptions=True)
                 self.active_tasks.clear()
                 print("[FullyAsyncRollouter][Public][Pause] All active tasks completed")
+            self.async_rollout_manager.sleep()
+            self.async_rollout_manager.wake_up()
             self.monitor_loop_trigger = False
 
     async def resume(self):
