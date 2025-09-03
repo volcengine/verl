@@ -663,14 +663,9 @@ class FSDPEngineWithLMHead(FSDPEngine):
         response_length = micro_batch_tensor["responses"].size(-1)
         multi_modal_inputs = {}
         if "multi_modal_inputs" in micro_batch_tensor.keys():
-            if "image_bound" in micro_batch_tensor["multi_modal_inputs"][0]:  # minicpm-o logic
-                for key in micro_batch_tensor["multi_modal_inputs"][0].keys():
-                    multi_modal_inputs[key] = [inputs[key] for inputs in micro_batch_tensor["multi_modal_inputs"]]
-            else:
-                for key in micro_batch_tensor["multi_modal_inputs"][0].keys():
-                    multi_modal_inputs[key] = torch.cat(
-                        [inputs[key] for inputs in micro_batch_tensor["multi_modal_inputs"]], dim=0
-                    )
+            from verl.utils.model import extract_multi_modal_inputs
+
+            multi_modal_inputs = extract_multi_modal_inputs(micro_batch_tensor["multi_modal_inputs"])
 
         with torch.autocast(device_type=device_name, dtype=torch.bfloat16):
             input_ids = micro_batch_tensor["input_ids"]
