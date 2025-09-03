@@ -16,7 +16,6 @@ The concrete Engine implementation using PyTorch FullyShardedDataParallel (FSDP)
 """
 
 import gc
-import itertools
 import logging
 import os
 import warnings
@@ -57,9 +56,7 @@ from verl.utils.fsdp_utils import (
     offload_fsdp_model_to_cpu,
     offload_fsdp_optimizer,
 )
-from verl.utils.import_utils import import_external_libs
-from verl.utils.py_functional import append_to_dict, convert_to_regular_types
-from verl.utils.seqlen_balancing import get_reverse_idx
+from verl.utils.py_functional import convert_to_regular_types
 from verl.utils.torch_functional import logprobs_from_logits
 from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad, ulysses_pad_and_slice_inputs
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
@@ -74,6 +71,7 @@ from verl.utils.seqlen_balancing import prepare_dynamic_batch
 from verl.workers.config import FSDPEngineConfig, FSDPOptimizerConfig, HFModelConfig
 
 from ..base import BaseEngine, EngineRegistry
+from ..utils import postprocess_batch_func
 from .utils import create_device_mesh, get_sharding_strategy
 
 logger = logging.getLogger(__file__)
@@ -82,7 +80,6 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 device_name = get_device_name()
 
 
-@EngineRegistry.register(["fsdp", "fsdp2"])
 class FSDPEngine(BaseEngine):
     """
     Concrete Engine implementation using PyTorch FullyShardedDataParallel (FSDP).
@@ -149,8 +146,6 @@ class FSDPEngine(BaseEngine):
         Sets up checkpoint manager and FLOPs counter.
         """
         # This is used to import external_lib into the huggingface systems
-        import_external_libs(self.model_config.external_lib)
-
         self._build_model_optimizer()
 
         if self._is_offload_param:
@@ -442,6 +437,12 @@ class FSDPEngine(BaseEngine):
     def get_data_parallel_size(self):
         return torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
 
+    def get_data_parallel_group(self):
+        if self.ulysses_device_mesh is not None:
+            return self.ulysses_device_mesh.get_group(mesh_dim="dp")
+        else:
+            return torch.distributed.group.WORLD
+
     def prepare_micro_batches(self, data: DataProto):
         """
         Prepare micro batches from data.
@@ -471,59 +472,22 @@ class FSDPEngine(BaseEngine):
     def forward_backward_batch(self, data: DataProto, loss_function: Callable, forward_only=False) -> list[DataProto]:
         micro_batches, indices = self.prepare_micro_batches(data=data)
 
-        output = []
+        output_lst = []
 
         ctx = torch.no_grad() if forward_only else nullcontext()
 
         for micro_batch in micro_batches:
             with ctx:
                 # note that loss must be scaled in postprocess_micro_batch_func
-                loss, metrics = self.forward_step(micro_batch, loss_function=loss_function, forward_only=forward_only)
+                loss, meta_info = self.forward_step(micro_batch, loss_function=loss_function, forward_only=forward_only)
                 if not forward_only:
                     # metrics contain the output, loss is dummy
                     loss.backward()
 
-            output.append(metrics)
+            output_lst.append(meta_info)
 
         # postprocess and return
-        return self.postprocess_batch_func(output, indices, forward_only, data)
-
-    def postprocess_batch_func(self, losses_reduced, indices, forward_only, data: DataProto):
-        use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", True)
-
-        if forward_only:
-            # losses_reduced is a list of dict containing outputs for each micro-batch
-            # reorder entropy and outputs. Return None for other pp ranks
-            # only on last rank. It should be on every tp rank
-            output = {}
-
-            for o in losses_reduced:
-                for key, val in o.items():
-                    if key not in output:
-                        output[key] = []
-                    output[key].append(val)
-
-            indices = list(itertools.chain.from_iterable(indices))
-            revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
-
-            for key, val in output.items():
-                val = torch.cat(val, dim=0)
-                if use_dynamic_bsz:
-                    assert len(indices) == val.size(0), f"{len(indices)} vs. {val.size()}"
-                    val = val[revert_indices]
-                output[key] = val
-
-            return output
-
-        else:
-            metrics = {}
-            # combine metrics of each micro-batch
-            metric_micro_batch = losses_reduced
-            for metric in metric_micro_batch:
-                # Note that o[0] is metrics, o[1] is entropy, o[2] is response_mask
-                append_to_dict(metrics, metric)  # append the metric from this micro-batch to global metrics.
-
-            return metrics
+        return postprocess_batch_func(output_lst=output_lst, indices=indices, data=data)
 
     def forward_step(self, micro_batch: DataProto, loss_function, forward_only):
         raise NotImplementedError("forward_step must be implemented in subclass")
@@ -683,6 +647,7 @@ class EngineTrainModeCtx:
         self.engine.mode = None
 
 
+@EngineRegistry.register(model_type="language_model", backend=["fsdp", "fsdp2"])
 class FSDPEngineWithLMHead(FSDPEngine):
     def forward_step(self, micro_batch: DataProto, loss_function, forward_only):
         use_remove_padding = micro_batch.meta_info.get("use_remove_padding", True)
@@ -693,7 +658,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
         device_name = get_device_name()
         # actually, we should avoid assigning like this...
         micro_batch = micro_batch.to(get_device_id())
-        micro_batch_tensor = micro_batch.batch.to(device_name)
+        micro_batch_tensor = micro_batch.batch
 
         response_length = micro_batch_tensor["responses"].size(-1)
         multi_modal_inputs = {}
@@ -881,8 +846,21 @@ class FSDPEngineWithLMHead(FSDPEngine):
             if calculate_entropy:
                 output["entropy"] = entropy
 
-            if forward_only:
-                return None, output
+            model_output = output
+
+            if loss_function is not None:
+                loss, metrics = loss_function(
+                    model_output=output, data=micro_batch_tensor, dp_group=self.get_data_parallel_group()
+                )
             else:
-                policy_loss, metrics = loss_function(model_output=output, data=micro_batch_tensor)
-                return policy_loss, metrics
+                assert forward_only, "forward_only must be True when loss_function is None"
+                loss = torch.tensor(1.0, device=device_name)
+                metrics = {}
+
+            output = {
+                "model_output": model_output,
+                "loss": loss,
+                "metrics": metrics,
+            }
+
+            return loss, output
