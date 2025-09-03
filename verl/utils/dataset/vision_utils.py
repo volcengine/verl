@@ -154,17 +154,15 @@ def align_position_ids_for_rmpad(position_ids: torch.Tensor, indices: torch.Tens
     """
     if position_ids.dim() == 3:
         from flash_attn.bert_padding import index_first_axis, rearrange
+
         position_ids_rmpad = (
-            index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices)
-            .transpose(0, 1)
-            .unsqueeze(1)
+            index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices).transpose(0, 1).unsqueeze(1)
         )
         return position_ids_rmpad
     else:
         from flash_attn.bert_padding import index_first_axis, rearrange
-        return index_first_axis(
-            rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices
-        ).transpose(0, 1)
+
+        return index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices).transpose(0, 1)
 
 
 def handle_glm4v_position_ids(model_type_lower: str, use_remove_padding: bool, position_ids_arg):
