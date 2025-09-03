@@ -30,8 +30,10 @@ PPO_RAY_RUNTIME_ENV = {
         # "OOM_SNAPSHOT_ENABLE": "1",
         # "OOM_SNAPSHOT_PATH": "/home/l00878165/sglang/repos/logs/snapshot/launch",
         # "PYTORCH_NPU_ALLOC_CONF": "expandable_segments:True",
-        "HCCL_CONNECT_TIMEOUT": "1500",
-        "HCCL_EXEC_TIMEOUT": "1500",
+        # "HCCL_CONNECT_TIMEOUT": "1500",
+        # "HCCL_EXEC_TIMEOUT": "1500",
+        "TASK_QUEUE_ENABLE": "2",
+        "CPU_AFFINITY_CONF": "1",
     },
 }
 
