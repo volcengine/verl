@@ -843,6 +843,22 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         return output
 
+    def _get_token_ids_meta_info(self):
+        eos_token_id, pad_token_id = None, None
+        if self.model_config.generation_config is not None:
+            eos_token_id, pad_token_id = (
+                self.model_config.generation_config.eos_token_id,
+                self.model_config.generation_config.pad_token_id,
+            )
+        if eos_token_id is None or pad_token_id is None:
+            eos_token_id, pad_token_id = (
+                self.model_config.tokenizer.eos_token_id,
+                self.model_config.tokenizer.pad_token_id,
+            )
+        if eos_token_id is None or pad_token_id is None:
+            eos_token_id, pad_token_id = self.model_config.eos_token_id, self.model_config.pad_token_id
+        return {"eos_token_id": eos_token_id, "pad_token_id": pad_token_id}
+
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="rollout"))
     @DistProfiler.annotate(color="red", role="rollout_generate")
     def generate_sequences(self, prompts: DataProto):
@@ -850,15 +866,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         assert self._is_rollout
         prompts = prompts.to(get_device_id())
 
-        meta_info = {
-            "eos_token_id": self.model_config.generation_config.eos_token_id
-            if self.model_config.generation_config is not None
-            else self.model_config.tokenizer.eos_token_id,
-            "pad_token_id": self.model_config.generation_config.pad_token_id
-            if self.model_config.generation_config is not None
-            else self.model_config.tokenizer.pad_token_id,
-        }
-        prompts.meta_info.update(meta_info)
+        prompts.meta_info.update(self._get_token_ids_meta_info())
 
         timing_generate = {}
         if self._is_actor:  # For rollout only, we do not switch context.
