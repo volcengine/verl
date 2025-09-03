@@ -55,7 +55,7 @@ def test_agent_loop_compute_score_with_model():
         reward_model_config = RewardModelConfig(
             enable=True,
             enable_resource_pool=True,
-            n_gpus_per_node=4,
+            n_gpus_per_node=2,
             nnodes=1,
             model_config=model_config,
             actor_model_config=model_config,

@@ -142,23 +142,23 @@ class TaskRunner:
 
     def add_critic_worker(self, config):
         """Add critic worker to role mapping."""
-        from verl.workers.fsdp_workers import CriticWorker
-        # if config.critic.strategy in {"fsdp", "fsdp2"}:
-        #     use_legacy_worker_impl = config.trainer.get("use_legacy_worker_impl", "auto")
-        #     if use_legacy_worker_impl in ["auto", "enable"]:
-        #         from verl.workers.fsdp_workers import CriticWorker
-        #     elif use_legacy_worker_impl == "disable":
-        #         from verl.workers.roles import CriticWorker
 
-        #         print("Using new worker implementation")
-        #     else:
-        #         raise ValueError(f"Invalid use_legacy_worker_impl: {use_legacy_worker_impl}")
+        if config.critic.strategy in {"fsdp", "fsdp2"}:
+            use_legacy_worker_impl = config.trainer.get("use_legacy_worker_impl", "auto")
+            if use_legacy_worker_impl in ["auto", "enable"]:
+                from verl.workers.fsdp_workers import CriticWorker
+            elif use_legacy_worker_impl == "disable":
+                from verl.workers.roles import CriticWorker
 
-        # elif config.critic.strategy == "megatron":
-        #     from verl.workers.megatron_workers import CriticWorker
+                print("Using new worker implementation")
+            else:
+                raise ValueError(f"Invalid use_legacy_worker_impl: {use_legacy_worker_impl}")
 
-        # else:
-        #     raise NotImplementedError
+        elif config.critic.strategy == "megatron":
+            from verl.workers.megatron_workers import CriticWorker
+
+        else:
+            raise NotImplementedError
 
         from verl.trainer.ppo.ray_trainer import Role
 

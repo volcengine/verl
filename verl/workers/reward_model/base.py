@@ -15,14 +15,46 @@
 The base class for reward model
 """
 
+import importlib
 from abc import ABC, abstractmethod
+from typing import Generator
+
+import torch
+from torch.distributed.device_mesh import DeviceMesh
 
 from verl import DataProto
+from verl.workers.config import RewardModelConfig, HFModelConfig
+
+
+__all__ = ["BasePPORewardModel"]
 
 
 class BasePPORewardModel(ABC):
-    def __init__(self, config):
+    """base class for reward model"""
+
+    def __init__(
+        self,
+        config: RewardModelConfig,
+        model_config: HFModelConfig,
+        device_mesh: DeviceMesh,
+    ):
         self.config = config
+        self.model_config = model_config
+        self.device_mesh = device_mesh
+
+    @abstractmethod
+    async def resume(self, tags: list[str]):
+        """Resume reward model weights or kv cache in GPU memory.
+
+        Args:
+            tags: weights or kv_cache.
+        """
+        pass
+
+    @abstractmethod
+    async def release(self):
+        """Release weights and kv cache in GPU memory."""
+        pass
 
     @abstractmethod
     def compute_reward(self, data: DataProto) -> DataProto:

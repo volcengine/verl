@@ -69,29 +69,30 @@ from verl.workers.rollout.schemas import (
 from verl.workers.rollout.sglang_rollout.http_server_engine import AsyncHttpServerAdapter
 from verl.workers.rollout.sglang_rollout.utils import broadcast_pyobj
 from verl.workers.reward_model import BasePPORewardModel
+from verl.workers.config import RewardModelConfig, HFModelConfig
 
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-class SGLangReward(BasePPORewardModel):
+class SGLangRewardModel(BasePPORewardModel):
     def __init__(
         self,
-        actor_module: str,
-        config,
-        processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
-        model_hf_config,
-        port=None,
-        trust_remote_code: bool = False,
-        device_mesh: DeviceMesh | None = None,
-        **kwargs,
+        config: RewardModelConfig,
+        model_config: HFModelConfig,
+        device_mesh: DeviceMesh,
     ):
-        super().__init__(config)
-        self.config = config
+        super().__init__(config, model_config, device_mesh)
+
+        actor_module = model_config.local_path
+        trust_remote_code = model_config.trust_remote_code
+        port = None
+        kwargs = {}
+
         os.environ.setdefault("SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK", "true")
 
-        self._init_distributed_env(device_mesh_cpu=device_mesh, **kwargs)
+        self._init_distributed_env(device_mesh_cpu=None, **kwargs)
         self._init_inference_engine(trust_remote_code, actor_module, port)
 
     def _init_distributed_env(self, device_mesh_cpu, **kwargs):
@@ -198,6 +199,12 @@ class SGLangReward(BasePPORewardModel):
             args["max_connections"] = self.config.server["max_connections"]
             args["max_start_wait_time"] = self.config.server["max_start_wait_time"]
             self._engine = AsyncHttpServerAdapter(**args)
+
+            # from sglang.srt.server_args import ServerArgs
+            # from sglang.srt.entrypoints.http_server import launch_server
+            # kwargs = {'model_path': 'Qwen/Qwen2.5-1.5B-Instruct', 'dtype': 'bfloat16', 'mem_fraction_static': 0.8, 'enable_memory_saver': True, 'base_gpu_id': 0, 'gpu_id_step': 1, 'tp_size': 2, 'node_rank': 0, 'dist_init_addr': None, 'nnodes': 1, 'trust_remote_code': False, 'max_running_requests': 1024, 'port': 30002, 'log_level': 'info', 'mm_attention_backend': 'fa3', 'attention_backend': 'fa3', 'skip_tokenizer_init': True, 'is_embedding': True}
+            # server_args = ServerArgs(**kwargs)
+            # launch_server(server_args)
         else:
             self._engine = None
 
@@ -206,3 +213,17 @@ class SGLangReward(BasePPORewardModel):
 
     def compute_reward(self, data: DataProto):
         pass
+
+    async def resume(self, tags: list[str]):
+        """Resume rollout weights or kv cache in GPU memory.
+
+        Args:
+            tag: weights or kv_cache.
+        """
+        if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.config.free_cache_engine:
+            await self._engine.resume_memory_occupation(tags=tags)
+
+    async def release(self):
+        """Release weights and kv cache in GPU memory."""
+        if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.config.free_cache_engine:
+            await self._engine.release_memory_occupation(tags=["kv_cache", "weights"])
