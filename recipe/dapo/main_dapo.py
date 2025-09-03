@@ -46,19 +46,23 @@ def run_ppo(config) -> None:
         print(f"ray init kwargs: {ray_init_kwargs}")
         ray.init(**OmegaConf.to_container(ray_init_kwargs))
 
-    if (
-        is_cuda_available
-        and config.global_profiler.tool == "nsys"
-        and OmegaConf.select(config.global_profiler, "steps") is not None
-        and len(OmegaConf.select(config.global_profiler, "steps")) > 0
-    ):
-        nsight_options = OmegaConf.to_container(
-            config.global_profiler.global_tool_config.nsys.controller_nsight_options
-        )
-        runner = TaskRunner.options(runtime_env={"nsight": nsight_options}).remote()
-    else:
-        runner = TaskRunner.remote()
-    ray.get(runner.run.remote(config))
+    try:
+        if (
+            is_cuda_available
+            and config.global_profiler.tool == "nsys"
+            and OmegaConf.select(config.global_profiler, "steps") is not None
+            and len(OmegaConf.select(config.global_profiler, "steps")) > 0
+        ):
+            nsight_options = OmegaConf.to_container(
+                config.global_profiler.global_tool_config.nsys.controller_nsight_options
+            )
+            runner = TaskRunner.options(runtime_env={"nsight": nsight_options}).remote()
+        else:
+            runner = TaskRunner.remote()
+        ray.get(runner.run.remote(config))
+    finally:
+        if ray.is_initialized():
+            ray.shutdown()
 
 
 @ray.remote(num_cpus=1)  # please make sure main_task is not scheduled on head
