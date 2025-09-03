@@ -46,12 +46,13 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 class RewardModelWorker(Worker, DistProfilerExtension):
     def __init__(self, config, model_config: HFModelConfig) -> None:
         self.config = config
+        self.model_config = model_config
         Worker.__init__(self)
-        # self.profiler_config = self.config.profiler
-        # tool_config = self.profiler_config.tool_config
-        # DistProfilerExtension.__init__(
-        #     self, DistProfiler(rank=self.rank, config=self.profiler_config, tool_config=tool_config)
-        # )
+        self.profiler_config = self.config.profiler
+        tool_config = self.profiler_config.tool_config
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=self.rank, config=self.profiler_config, tool_config=tool_config)
+        )
 
         initialize_global_process_group_ray(timeout_second=None)
 
