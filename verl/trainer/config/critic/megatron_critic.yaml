@@ -1,14 +1,14 @@
 # defaults specify the default config from each component
 defaults:
 
-  # dp actor config, inheriting from trainer/config/critic/critic.yaml
-  - critic
-
   # megatron optimizer config
   - ../optim@optim: megatron
 
   # megatron engine config
   - ../engine@megatron: megatron
+
+  # dp actor config, inheriting from trainer/config/critic/critic.yaml
+  - critic
 
   # load the reference default config, then apply the fields in the current yaml
   - _self_

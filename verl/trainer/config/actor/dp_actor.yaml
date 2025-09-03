@@ -7,14 +7,14 @@
 # defaults specify the default config from each component
 defaults:
 
-  # dp actor config, inheriting from trainer/config/actor/actor.yaml
-  - actor
-
   # fsdp optimizer config
   - ../optim@optim: fsdp
 
   # fsdp engine config
   - ../engine@fsdp_config: fsdp
+
+  # dp actor config, inheriting from trainer/config/actor/actor.yaml
+  - actor
 
   # load the reference default config, then apply the fields in the current yaml
   - _self_

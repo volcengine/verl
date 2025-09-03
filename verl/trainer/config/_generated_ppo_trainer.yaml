@@ -5,6 +5,38 @@
 
 actor_rollout_ref:
   actor:
+    optim:
+      _target_: verl.workers.config.FSDPOptimizerConfig
+      lr: 1.0e-06
+      lr_warmup_steps_ratio: 0.0
+      total_training_steps: -1
+      weight_decay: 0.01
+      lr_warmup_steps: -1
+      betas:
+      - 0.9
+      - 0.999
+      clip_grad: 1.0
+      min_lr_ratio: 0.0
+      num_cycles: 0.5
+      warmup_style: constant
+    fsdp_config:
+      _target_: verl.workers.config.FSDPEngineConfig
+      wrap_policy:
+        min_num_params: 0
+      param_offload: false
+      optimizer_offload: false
+      offload_policy: false
+      reshard_after_forward: true
+      fsdp_size: -1
+      forward_prefetch: false
+      model_dtype: fp32
+      use_orig_params: false
+      ulysses_sequence_parallel_size: 1
+      entropy_from_logits_with_chunking: false
+      use_torch_compile: true
+      entropy_checkpointing: false
+      forward_only: false
+      strategy: fsdp
     _target_: verl.workers.config.FSDPActorConfig
     strategy: fsdp
     ppo_mini_batch_size: 256
@@ -41,20 +73,6 @@ actor_rollout_ref:
       - extra
       load_contents: ${.save_contents}
       async_save: false
-    optim:
-      lr: 0.001
-      lr_warmup_steps_ratio: 0.0
-      total_training_steps: -1
-      weight_decay: 0.01
-      lr_warmup_steps: -1
-      _target_: verl.workers.config.FSDPOptimizerConfig
-      betas:
-      - 0.9
-      - 0.999
-      clip_grad: 1.0
-      min_lr_ratio: 0.0
-      num_cycles: 0.5
-      warmup_style: constant
     use_fused_kernels: ${oc.select:actor_rollout_ref.model.use_fused_kernels,false}
     profiler:
       _target_: verl.utils.profiler.ProfilerConfig
@@ -81,24 +99,6 @@ actor_rollout_ref:
           _target_: verl.utils.profiler.config.TorchMemoryToolConfig
           trace_alloc_max_entries: ${oc.select:global_profiler.global_tool_config.torch_memory.trace_alloc_max_entries,100000}
           stack_depth: ${oc.select:global_profiler.global_tool_config.torch_memory.stack_depth,32}
-    fsdp_config:
-      _target_: verl.workers.config.FSDPEngineConfig
-      wrap_policy:
-        min_num_params: 0
-      param_offload: false
-      optimizer_offload: false
-      offload_policy: false
-      reshard_after_forward: true
-      fsdp_size: -1
-      forward_prefetch: false
-      model_dtype: fp32
-      use_orig_params: false
-      ulysses_sequence_parallel_size: 1
-      entropy_from_logits_with_chunking: false
-      use_torch_compile: true
-      entropy_checkpointing: false
-      forward_only: false
-      strategy: fsdp
     grad_clip: 1.0
     ulysses_sequence_parallel_size: 1
     entropy_from_logits_with_chunking: false
@@ -238,7 +238,7 @@ actor_rollout_ref:
     layered_summon: false
   model:
     _target_: verl.workers.config.HFModelConfig
-    path: ~/models/gemma-1.1-7b-it
+    path: ~/models/deepseek-llm-7b-chat
     hf_config_path: null
     tokenizer_path: null
     use_shm: false
@@ -294,17 +294,13 @@ data:
     name: null
   apply_chat_template_kwargs: {}
 critic:
-  _target_: verl.workers.config.FSDPCriticConfig
-  rollout_n: ${oc.select:actor_rollout_ref.rollout.n,1}
-  strategy: fsdp
-  enable: null
   optim:
-    lr: 0.001
+    _target_: verl.workers.config.FSDPOptimizerConfig
+    lr: 1.0e-05
     lr_warmup_steps_ratio: 0.0
     total_training_steps: -1
     weight_decay: 0.01
     lr_warmup_steps: -1
-    _target_: verl.workers.config.FSDPOptimizerConfig
     betas:
     - 0.9
     - 0.999
@@ -313,11 +309,6 @@ critic:
     num_cycles: 0.5
     warmup_style: constant
   model:
-    path: ~/models/deepseek-llm-7b-chat
-    tokenizer_path: ${oc.select:actor_rollout_ref.model.path,"~/models/deepseek-llm-7b-chat"}
-    override_config: {}
-    external_lib: ${oc.select:actor_rollout_ref.model.external_lib,null}
-    trust_remote_code: ${oc.select:actor_rollout_ref.model.trust_remote_code,false}
     fsdp_config:
       _target_: verl.workers.config.FSDPEngineConfig
       wrap_policy:
@@ -336,6 +327,11 @@ critic:
       entropy_checkpointing: false
       forward_only: false
       strategy: fsdp
+    path: ~/models/deepseek-llm-7b-chat
+    tokenizer_path: ${oc.select:actor_rollout_ref.model.path,"~/models/deepseek-llm-7b-chat"}
+    override_config: {}
+    external_lib: ${oc.select:actor_rollout_ref.model.external_lib,null}
+    trust_remote_code: ${oc.select:actor_rollout_ref.model.trust_remote_code,false}
     _target_: verl.workers.config.FSDPCriticModelCfg
     use_shm: false
     enable_gradient_checkpointing: true
@@ -344,6 +340,10 @@ critic:
     lora_rank: 0
     lora_alpha: 16
     target_modules: all-linear
+  _target_: verl.workers.config.FSDPCriticConfig
+  rollout_n: ${oc.select:actor_rollout_ref.rollout.n,1}
+  strategy: fsdp
+  enable: null
   ppo_mini_batch_size: ${oc.select:actor_rollout_ref.actor.ppo_mini_batch_size,256}
   ppo_micro_batch_size: null
   ppo_micro_batch_size_per_gpu: ${oc.select:.ppo_micro_batch_size,null}

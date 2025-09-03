@@ -1,12 +1,12 @@
 # megatron actor config, inheriting from trainer/config/actor/actor.yaml
 defaults:
-  - actor
-
   # megatron optimizer config
   - ../optim@optim: megatron
 
   # megatron engine config
   - ../engine@megatron: megatron
+
+  - actor
 
   # load the reference default config, then apply the fields in the current yaml
   - _self_
