@@ -115,3 +115,63 @@ def process_multi_modal_inputs_for_minicpmo(input_ids, attention_mask, position_
     multi_modal_inputs["attention_mask"] = attention_mask
     multi_modal_inputs["position_ids"] = position_ids
     return {"data": multi_modal_inputs}
+
+
+def aggregate_multi_modal_inputs_for_vlm(mmi_list):
+    """
+    Aggregate list[dict] of multi_modal_inputs across samples by union of keys.
+    """
+    all_keys = set().union(*(set(d.keys()) for d in mmi_list))
+    out = {}
+    visual_keys = {"pixel_values", "pixel_values_videos"}
+    grid_keys = {"image_grid_thw", "video_grid_thw", "second_per_grid_ts"}
+
+    for k in all_keys:
+        vals = []
+        for d in mmi_list:
+            if k in d and d[k] is not None:
+                v = d[k]
+                if hasattr(v, "ndim"):
+                    v = v.squeeze(0) if v.ndim == 3 else v
+                vals.append(v)
+
+        if k in visual_keys:
+            if len(vals) > 0:
+                out[k] = torch.cat(vals, dim=0)
+        elif k in grid_keys:
+            if len(vals) > 0:
+                out[k] = torch.cat(vals, dim=0) if isinstance(vals[0], torch.Tensor) else vals
+        else:
+            if len(vals) > 0:
+                out[k] = torch.cat(vals, dim=0) if isinstance(vals[0], torch.Tensor) else vals
+
+    return out
+
+
+def align_position_ids_for_rmpad(position_ids: torch.Tensor, indices: torch.Tensor):
+    """
+    Align 2D/3D position_ids to rmpad layout using 'indices'.
+    """
+    if position_ids.dim() == 3:
+        from flash_attn.bert_padding import index_first_axis, rearrange
+        position_ids_rmpad = (
+            index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices)
+            .transpose(0, 1)
+            .unsqueeze(1)
+        )
+        return position_ids_rmpad
+    else:
+        from flash_attn.bert_padding import index_first_axis, rearrange
+        return index_first_axis(
+            rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices
+        ).transpose(0, 1)
+
+
+def handle_glm4v_position_ids(model_type_lower: str, use_remove_padding: bool, position_ids_arg):
+    """
+    GLM4V specific handling: set position_ids to None when use_remove_padding is True.
+    """
+    is_glm4v = "glm4v" in (model_type_lower or "")
+    if is_glm4v and use_remove_padding and position_ids_arg is not None and position_ids_arg.dim() == 3:
+        return None
+    return position_ids_arg

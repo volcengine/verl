@@ -27,6 +27,12 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, get_policy_loss_fn, kl_penalty
+from verl.utils.dataset.vision_utils import (
+    process_multi_modal_inputs_for_minicpmo,
+    aggregate_multi_modal_inputs_for_vlm,
+    align_position_ids_for_rmpad,
+    handle_glm4v_position_ids,
+)
 from verl.utils.device import get_device_id, get_device_name, is_cuda_available, is_npu_available
 from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
 from verl.utils.profiler import GPUMemoryLogger
@@ -143,23 +149,11 @@ class DataParallelPPOActor(BasePPOActor):
 
         if self.use_remove_padding:
             input_ids_rmpad, indices, cu_seqlens, *_ = unpad_input(input_ids.unsqueeze(-1), attention_mask)
-            input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
+            input_ids_rmpad = input_ids_rmpad.transpose(0, 1)
 
-            # unpad the position_ids to align the rotary
-            if position_ids.dim() == 3:
-                position_ids_rmpad = (
-                    index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices)
-                    .transpose(0, 1)
-                    .unsqueeze(1)
-                )  # (3, bsz, seqlen) -> (3, 1, bsz * seqlen)
-            else:
-                position_ids_rmpad = index_first_axis(
-                    rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices
-                ).transpose(0, 1)
+            position_ids_rmpad = align_position_ids_for_rmpad(position_ids, indices)
 
             if "image_bound" in multi_modal_inputs:
-                from verl.utils.dataset.vision_utils import process_multi_modal_inputs_for_minicpmo
-
                 multi_modal_inputs = process_multi_modal_inputs_for_minicpmo(
                     input_ids, attention_mask, position_ids, cu_seqlens, multi_modal_inputs
                 )
