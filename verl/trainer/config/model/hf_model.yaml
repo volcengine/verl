@@ -58,4 +58,7 @@ use_liger: False
 use_fused_kernels: False
 
 # fused kernel options.
-fused_kernel_options: {}
+fused_kernel_options:
+
+  # the implementation backend for fused kernels.
+  impl_backend: torch
