@@ -36,6 +36,7 @@ from .config_converter import (
 )
 from .model_forward import (
     gptmodel_forward,
+    gptmodel_forward_qwen2_5_vl,
 )
 from .model_forward_fused import (
     fused_forward_gptmodel,
