@@ -5,6 +5,53 @@
 
 actor_rollout_ref:
   actor:
+    optim:
+      _target_: verl.workers.config.McoreOptimizerConfig
+      lr: 1.0e-06
+      lr_warmup_steps_ratio: 0.0
+      total_training_steps: -1
+      weight_decay: 0.01
+      lr_warmup_steps: -1
+      betas:
+      - 0.9
+      - 0.999
+      clip_grad: 1.0
+      optimizer: adam
+      lr_warmup_init: 0.0
+      lr_decay_steps: null
+      lr_decay_style: constant
+      min_lr: 0.0
+      weight_decay_incr_style: constant
+      lr_wsd_decay_style: exponential
+      lr_wsd_decay_steps: null
+      use_checkpoint_opt_param_scheduler: false
+      override_optimizer_config: {}
+    megatron:
+      _target_: verl.workers.config.McoreEngineConfig
+      param_offload: false
+      grad_offload: false
+      optimizer_offload: false
+      tensor_model_parallel_size: 1
+      expert_model_parallel_size: 1
+      expert_tensor_parallel_size: null
+      pipeline_model_parallel_size: 1
+      virtual_pipeline_model_parallel_size: null
+      context_parallel_size: 1
+      sequence_parallel: true
+      use_distributed_optimizer: true
+      use_dist_checkpointing: false
+      dist_checkpointing_path: null
+      seed: 42
+      override_ddp_config: {}
+      override_transformer_config:
+        recompute_granularity: null
+        recompute_modules:
+        - core_attn
+        recompute_method: null
+        recompute_num_layers: null
+      override_mcore_model_config: {}
+      use_mbridge: false
+      forward_only: false
     _target_: verl.workers.config.McoreActorConfig
     strategy: megatron
     ppo_mini_batch_size: 256
@@ -41,24 +88,6 @@ actor_rollout_ref:
       - extra
       load_contents: ${.save_contents}
       async_save: false
-    optim:
-      lr: 1.0e-06
-      lr_warmup_steps_ratio: 0.0
-      total_training_steps: -1
-      weight_decay: 0.01
-      lr_warmup_steps: -1
-      _target_: verl.workers.config.McoreOptimizerConfig
-      optimizer: adam
-      clip_grad: 1.0
-      lr_warmup_init: 0.0
-      lr_decay_steps: null
-      lr_decay_style: constant
-      min_lr: 0.0
-      weight_decay_incr_style: constant
-      lr_wsd_decay_style: exponential
-      lr_wsd_decay_steps: null
-      use_checkpoint_opt_param_scheduler: false
-      override_optimizer_config: {}
     use_fused_kernels: ${oc.select:actor_rollout_ref.model.use_fused_kernels,false}
     profiler:
       _target_: verl.utils.profiler.ProfilerConfig
@@ -87,30 +116,6 @@ actor_rollout_ref:
           stack_depth: ${oc.select:global_profiler.global_tool_config.torch_memory.stack_depth,32}
     data_loader_seed: null
     load_weight: true
-    megatron:
-      _target_: verl.workers.config.McoreEngineConfig
-      param_offload: false
-      grad_offload: false
-      optimizer_offload: false
-      tensor_model_parallel_size: 1
-      expert_model_parallel_size: 1
-      expert_tensor_parallel_size: null
-      pipeline_model_parallel_size: 1
-      virtual_pipeline_model_parallel_size: null
-      context_parallel_size: 1
-      sequence_parallel: true
-      use_distributed_optimizer: true
-      use_dist_checkpointing: false
-      dist_checkpointing_path: null
-      seed: 42
-      override_ddp_config: {}
-      override_transformer_config:
-        recompute_granularity: null
-        recompute_modules:
-        - core_attn
-        recompute_method: null
-        recompute_num_layers: null
-      use_mbridge: false
   ref:
     strategy: megatron
     use_torch_compile: ${oc.select:actor_rollout_ref.actor.use_torch_compile,true}
@@ -146,19 +151,24 @@ actor_rollout_ref:
     megatron:
       _target_: verl.workers.config.MegatronEngineConfig
       param_offload: false
+      grad_offload: false
+      optimizer_offload: false
       tensor_model_parallel_size: 1
       expert_model_parallel_size: 1
-      expert_tensor_parallel_size: None
+      expert_tensor_parallel_size: null
       pipeline_model_parallel_size: 1
       virtual_pipeline_model_parallel_size: null
       context_parallel_size: 1
       sequence_parallel: true
-      use_distributed_optimizer: false
+      use_distributed_optimizer: true
       use_dist_checkpointing: false
       dist_checkpointing_path: null
       seed: ${oc.select:actor_rollout_ref.actor.megatron.seed,42}
+      override_ddp_config: {}
       override_transformer_config: ${oc.select:actor_rollout_ref.actor.megatron.override_transformer_config,{}}
+      override_mcore_model_config: {}
       use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
+      forward_only: false
     load_weight: true
   rollout:
     _target_: verl.workers.config.RolloutConfig
@@ -287,28 +297,57 @@ data:
     name: null
   apply_chat_template_kwargs: {}
 critic:
-  _target_: verl.workers.config.McoreCriticConfig
-  rollout_n: ${oc.select:actor_rollout_ref.rollout.n,1}
-  strategy: megatron
-  enable: null
   optim:
+    _target_: verl.workers.config.McoreOptimizerConfig
     lr: 1.0e-05
     lr_warmup_steps_ratio: 0.0
     total_training_steps: -1
     weight_decay: 0.01
     lr_warmup_steps: -1
-    _target_: verl.workers.config.McoreOptimizerConfig
-    optimizer: adam
+    betas:
+    - 0.9
+    - 0.999
     clip_grad: 1.0
+    optimizer: adam
     lr_warmup_init: 0.0
     lr_decay_steps: null
-    lr_decay_style: linear
+    lr_decay_style: constant
     min_lr: 0.0
     weight_decay_incr_style: constant
     lr_wsd_decay_style: exponential
     lr_wsd_decay_steps: null
     use_checkpoint_opt_param_scheduler: false
     override_optimizer_config: {}
+  megatron:
+    _target_: verl.workers.config.McoreEngineConfig
+    param_offload: false
+    grad_offload: false
+    optimizer_offload: false
+    tensor_model_parallel_size: 1
+    expert_model_parallel_size: 1
+    expert_tensor_parallel_size: null
+    pipeline_model_parallel_size: 1
+    virtual_pipeline_model_parallel_size: null
+    context_parallel_size: 1
+    sequence_parallel: true
+    use_distributed_optimizer: true
+    use_dist_checkpointing: false
+    dist_checkpointing_path: null
+    seed: 42
+    override_ddp_config: {}
+    override_transformer_config:
+      recompute_granularity: null
+      recompute_modules:
+      - core_attn
+      recompute_method: null
+      recompute_num_layers: null
+    override_mcore_model_config: {}
+    use_mbridge: false
+    forward_only: false
+  _target_: verl.workers.config.McoreCriticConfig
+  rollout_n: ${oc.select:actor_rollout_ref.rollout.n,1}
+  strategy: megatron
+  enable: null
   model:
     path: ~/models/deepseek-llm-7b-chat
     tokenizer_path: ${oc.select:actor_rollout_ref.model.path,"~/models/deepseek-llm-7b-chat"}
@@ -363,25 +402,6 @@ critic:
         trace_alloc_max_entries: ${oc.select:global_profiler.global_tool_config.torch_memory.trace_alloc_max_entries,100000}
         stack_depth: ${oc.select:global_profiler.global_tool_config.torch_memory.stack_depth,32}
   nccl_timeout: 600
-  megatron:
-    _target_: verl.workers.config.McoreEngineConfig
-    param_offload: false
-    grad_offload: false
-    optimizer_offload: false
-    tensor_model_parallel_size: 1
-    expert_model_parallel_size: 1
-    expert_tensor_parallel_size: null
-    pipeline_model_parallel_size: 1
-    virtual_pipeline_model_parallel_size: null
-    context_parallel_size: 1
-    sequence_parallel: true
-    use_distributed_optimizer: true
-    use_dist_checkpointing: false
-    dist_checkpointing_path: null
-    seed: ${oc.select:actor_rollout_ref.actor.megatron.seed,42}
-    override_ddp_config: ${oc.select:actor_rollout_ref.actor.megatron.override_ddp_config,{}}
-    override_transformer_config: ${oc.select:actor_rollout_ref.actor.megatron.override_transformer_config,{}}
-    use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
   load_weight: true
   data_loader_seed: ${oc.select:actor_rollout_ref.actor.data_loader_seed,null}
 reward_model:

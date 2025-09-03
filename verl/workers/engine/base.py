@@ -15,7 +15,9 @@
 The abstract base class defining the interface for model training engines.
 """
 
-from typing import Any, Callable
+from typing import Any, Callable, Optional
+
+import torch
 
 from verl import DataProto
 
@@ -108,7 +110,7 @@ class BaseEngine:
         outputs["grad_norm"] = grad_norm
         return outputs
 
-    def infer_batch(self, data: DataProto) -> Any:
+    def infer_batch(self, data: DataProto, loss_function: Optional[Callable] = None) -> Any:
         """
         Perform inference on a batch of data.
 
@@ -118,12 +120,17 @@ class BaseEngine:
         Returns:
             Any: The output of the inference, which can be used for predictions or other purposes.
         """
-        return self.forward_backward_batch(data, None, forward_only=True)
+        with torch.no_grad():
+            outputs = self.forward_backward_batch(data, loss_function, forward_only=True)
+        return outputs
 
     def get_data_parallel_size(self):
         raise NotImplementedError
 
     def get_data_parallel_rank(self):
+        raise NotImplementedError
+
+    def get_data_parallel_group(self):
         raise NotImplementedError
 
     def to(self, device: str, model: bool = True, optimizer: bool = True):
@@ -179,14 +186,15 @@ class EngineRegistry:
     _engines = {}
 
     @classmethod
-    def register(cls, key: list[str] | str):
+    def register(cls, model_type: str, backend: list[str] | str):
         """
         A class method decorator that registers an engine class with a given key.
 
         This allows for dynamic instantiation of engine classes by their registered key.
 
         Args:
-            key (str): The identifier to associate with the engine class.
+            model_type (str): The type of the model
+            backend (list[str] | str): The backend to use for the model type
 
         Returns:
             A decorator function that takes an engine class and registers it.
@@ -194,23 +202,27 @@ class EngineRegistry:
 
         def decorator(engine_class):
             assert issubclass(engine_class, BaseEngine)
-            if isinstance(key, list):
-                for k in key:
-                    cls._engines[k] = engine_class
+            if model_type not in cls._engines:
+                cls._engines[model_type] = {}
+
+            if isinstance(backend, list):
+                for k in backend:
+                    cls._engines[model_type][k] = engine_class
             else:
-                assert isinstance(key, str)
-                cls._engines[key] = engine_class
+                assert isinstance(backend, str)
+                cls._engines[model_type][backend] = engine_class
             return engine_class
 
         return decorator
 
     @classmethod
-    def get_engine_cls(cls, key):
-        assert key in cls._engines, f"Unknown engine: {key}"
-        return cls._engines[key]
+    def get_engine_cls(cls, model_type: str, backend: str):
+        assert model_type in cls._engines, f"Unknown model_type: {model_type}"
+        assert backend in cls._engines[model_type], f"Unknown backend: {backend}"
+        return cls._engines[model_type][backend]
 
     @classmethod
-    def new(cls, key, *args, **kwargs):
+    def new(cls, model_type, backend, *args, **kwargs):
         """
         Function to create a new training engine instance based on the provided config.
         Args:
@@ -222,7 +234,5 @@ class EngineRegistry:
         Raises:
             NotImplementedError: If the engine key in the config does not match any known engines.
         """
-        if key in cls._engines:
-            return cls._engines[key](*args, **kwargs)
-        else:
-            raise NotImplementedError(f"Unknown engine: {key}")
+        engine_cls = cls.get_engine_cls(model_type, backend)
+        return engine_cls(*args, **kwargs)
