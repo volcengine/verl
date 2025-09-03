@@ -1,6 +1,6 @@
 import os
 from transformers import AutoTokenizer
-from verl.workers.rollout.sglang_rollout.http_server_engine import HttpServerAdapter
+from verl.workers.rollout.sglang_rollout.http_server_engine import AsyncHttpServerAdapter
 
 
 # bash /opt/tiger/mlx_deploy/mlx_launch_cmd.sh
@@ -14,15 +14,20 @@ os.environ["HTTPS_PROXY"] = ""
 
 def main():
     args = {
-        "model_path": "/mnt/hdfs/yyding/models/Skywork-Reward-Llama-3.1-8B-v0.2",
+        "model_path": "Qwen/Qwen2.5-1.5B-Instruct",
         "tp_size": 2,
-        "first_rank_in_node": True,
+        # "first_rank_in_node": True,
         "is_embedding": True,
         "enable_memory_saver": True,
     }
 
-    server = HttpServerAdapter(**args)
-    tokenizer = AutoTokenizer.from_pretrained(args["model_path"])
+    from sglang.srt.server_args import ServerArgs
+    from sglang.srt.entrypoints.http_server import launch_server
+    server_args = ServerArgs(**args)
+    launch_server(server_args)
+    exit()
+    # server = AsyncHttpServerAdapter(**args)
+    # tokenizer = AutoTokenizer.from_pretrained(args["model_path"])
 
     PROMPT = (
         "What is the range of the numeric output of a sigmoid node in a neural network?"
@@ -35,16 +40,19 @@ def main():
         [{"role": "user", "content": PROMPT}, {"role": "assistant", "content": RESPONSE2}],
     ]
 
-    prompt = tokenizer.apply_chat_template(CONVS[0], tokenize=False)
-    print(server.reward_score(prompt))
+    # prompt = tokenizer.apply_chat_template(CONVS[0], tokenize=False)
 
     # prompts = tokenizer.apply_chat_template(CONVS, tokenize=False)
     # print(prompts)
-    server.release_memory_occupation()
-    import pdb; pdb.set_trace()
-    server.resume_memory_occupation()
-    prompt = tokenizer.apply_chat_template(CONVS[0], tokenize=False)
-    print(server.reward_score(prompt))
+    import asyncio
+    prompt = tokenizer.apply_chat_template(CONVS[1], tokenize=False)
+    loop = asyncio.get_event_loop()
+    output = loop.run_until_complete(
+        server.async_reward_score(
+            prompt=prompt,
+        )
+    )
+    print(output)
 
 if __name__ == "__main__":
     main()

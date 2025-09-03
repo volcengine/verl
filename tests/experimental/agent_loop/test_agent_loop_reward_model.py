@@ -40,27 +40,45 @@ def test_agent_loop_compute_score_with_model():
         config = compose("ppo_trainer")
 
     model_path = "Qwen/Qwen2.5-1.5B-Instruct"
+    rm_path = "Qwen/Qwen2.5-1.5B-Instruct"
     config.data.return_raw_chat = True
     config.actor_rollout_ref.model.path = model_path
     config.actor_rollout_ref.actor.use_dynamic_bsz = True
-    config.actor_rollout_ref.rollout.name = os.environ["ROLLOUT_NAME"]
+    config.actor_rollout_ref.rollout.name = "vllm"
     config.actor_rollout_ref.rollout.mode = "async"
     config.actor_rollout_ref.rollout.prompt_length = 1024
     config.actor_rollout_ref.rollout.response_length = 4096
-    config.reward_model.enable = True
-    config.reward_model.model.path = model_path
-    config.reward_model.use_dynamic_bsz = True
-    config.reward_model.forward_max_token_len_per_gpu = 6000
-    config.reward_model.micro_batch_size_per_gpu = 40
-    config.reward_model.enable_resource_pool = True
-    config.reward_model.n_gpus_per_node = 1
-    config.reward_model.nnodes = 1
-    config.reward_model.model.trust_remote_code = True
-    config.reward_model.model.input_tokenizer = None
+
+    if os.environ["LEGACY_IMPL_RM"] == "disable":
+        from verl.workers.config import HFModelConfig, RewardModelConfig
+        model_config = HFModelConfig(path=rm_path)
+        reward_model_config = RewardModelConfig(
+            enable=True,
+            enable_resource_pool=True,
+            n_gpus_per_node=4,
+            nnodes=1,
+            model_config=model_config,
+            actor_model_config=model_config,
+            tensor_model_parallel_size=2,
+            gpu_memory_utilization=0.8,
+        )
+    else:
+        config.reward_model.enable = True
+        config.reward_model.model.path = rm_path
+        config.reward_model.use_dynamic_bsz = True
+        config.reward_model.forward_max_token_len_per_gpu = 6000
+        config.reward_model.micro_batch_size_per_gpu = 40
+        config.reward_model.enable_resource_pool = True
+        config.reward_model.n_gpus_per_node = 4
+        config.reward_model.nnodes = 1
+        config.reward_model.model.trust_remote_code = True
+        config.reward_model.model.input_tokenizer = None
+        reward_model_config = None
+
     config.trainer.n_gpus_per_node = 4
     config.trainer.nnodes = 1
     # 1. init agent loop manager
-    agent_loop_manager = init_agent_loop_manager(config)
+    agent_loop_manager = init_agent_loop_manager(config, reward_model_config)
 
     # 2. init dataset and dataloader
     local_folder = os.path.expanduser("~/verl-data/gsm8k/")
@@ -94,3 +112,6 @@ def test_agent_loop_compute_score_with_model():
     sample_scores = rm_scores.sum(dim=1)
     print(sample_scores)
     ray.shutdown()
+
+if __name__ == "__main__":
+    test_agent_loop_compute_score_with_model()

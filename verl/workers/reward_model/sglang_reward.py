@@ -145,7 +145,6 @@ class SGLangReward(BasePPORewardModel):
         else:
             dist_init_addr = None
 
-        load_format = "dummy" if self.config.load_format.startswith("dummy") else self.config.load_format
         tp_size_per_node = self._tp_size // nnodes
         node_rank = self._tp_rank // tp_size_per_node
         first_rank_in_node = self._tp_rank % tp_size_per_node == 0
@@ -168,7 +167,6 @@ class SGLangReward(BasePPORewardModel):
                 "gpu_id_step": 1,
                 "tp_size": self._tp_size,
                 "node_rank": node_rank,
-                "load_format": load_format,
                 "dist_init_addr": dist_init_addr,
                 "nnodes": nnodes,
                 "trust_remote_code": trust_remote_code,
@@ -179,8 +177,8 @@ class SGLangReward(BasePPORewardModel):
                 # NOTE(Chenyang): if you want to debug the SGLang engine output
                 # please set the following parameters
                 # Otherwise, it will make the engine run too slow
-                "log_level": "info",
-                # "log_level": "error",
+                # "log_level": "info",
+                "log_level": "error",
                 # log_requests=True,
                 # log_requests_level=2,
                 # NOTE(Chenyang): turn on max_running_requests to set the max concurrent running requests
@@ -188,7 +186,8 @@ class SGLangReward(BasePPORewardModel):
                 "mm_attention_backend": "fa3",
                 "attention_backend": attention_backend if attention_backend is not None else "fa3",
                 # In async mode, we want token in token out.
-                "skip_tokenizer_init": self.config.mode == "async",
+                "skip_tokenizer_init": True,
+                "is_embedding": True,
             }
 
             # add server specific args

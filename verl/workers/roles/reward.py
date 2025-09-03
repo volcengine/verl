@@ -36,7 +36,7 @@ from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import masked_mean
 from verl.workers.engine import EngineRegistry
 from verl.workers.reward_model.sglang_reward import SGLangReward
-from verl.workers.config import HFModelConfig
+from verl.workers.config import ActorConfig
 
 
 logger = logging.getLogger(__file__)
@@ -44,9 +44,10 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 class RewardModelWorker(Worker, DistProfilerExtension):
-    def __init__(self, config, model_config: HFModelConfig) -> None:
+    def __init__(self, config: ActorConfig) -> None:
         self.config = config
-        self.model_config = model_config
+        self.model_config = config.model_config
+        self.actor_model_config = config.actor_model_config
         Worker.__init__(self)
         self.profiler_config = self.config.profiler
         tool_config = self.profiler_config.tool_config
@@ -72,4 +73,5 @@ class RewardModelWorker(Worker, DistProfilerExtension):
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="reward"))
     @DistProfiler.annotate(color="brown")
     def compute_rm_score(self, data: DataProto):
+        breakpoint()
         self.reward_model.compute_reward(data)
