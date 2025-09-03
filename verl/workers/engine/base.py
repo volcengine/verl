@@ -15,7 +15,9 @@
 The abstract base class defining the interface for model training engines.
 """
 
-from typing import Any, Callable
+
+import torch
+from typing import Any, Callable, Optional
 
 from verl import DataProto
 
@@ -108,7 +110,7 @@ class BaseEngine:
         outputs["grad_norm"] = grad_norm
         return outputs
 
-    def infer_batch(self, data: DataProto) -> Any:
+    def infer_batch(self, data: DataProto, loss_function: Optional[Callable] = None) -> Any:
         """
         Perform inference on a batch of data.
 
@@ -118,7 +120,9 @@ class BaseEngine:
         Returns:
             Any: The output of the inference, which can be used for predictions or other purposes.
         """
-        return self.forward_backward_batch(data, None, forward_only=True)
+        with torch.no_grad():
+            outputs = self.forward_backward_batch(data, loss_function, forward_only=True)
+        return outputs
 
     def get_data_parallel_size(self):
         raise NotImplementedError

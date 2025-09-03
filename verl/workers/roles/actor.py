@@ -124,6 +124,7 @@ class ActorWorker(Worker, DistProfilerExtension):
 
         with self.engine.eval_mode():
             output = self.engine.infer_batch(data)
+            output = output.get('model_output', {})
 
         if "log_probs" in output and "entropy" in output:
             # in megatron, only last pp contains valid data and returned to the single controller
@@ -188,7 +189,8 @@ class ActorWorker(Worker, DistProfilerExtension):
             dataloader = self._make_minibatch_iterator(data)
             with Timer(name="update_policy", logger=None) as timer:
                 for batch_idx, mini_batch in enumerate(dataloader):
-                    mini_batch_metrics = self.engine.train_batch(mini_batch, self.loss_fn)
+                    output = self.engine.train_batch(mini_batch, self.loss_fn)
+                    mini_batch_metrics = output.get("metrics", {})
                     append_to_dict(metrics, mini_batch_metrics, prefix="actor/")
 
             delta_time = timer.last

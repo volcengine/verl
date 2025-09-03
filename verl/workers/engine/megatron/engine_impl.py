@@ -39,10 +39,11 @@ from verl.utils.megatron_utils import (
 )
 from verl.utils.model import load_mcore_dist_weights, load_megatron_gptmodel_weights
 from verl.utils.py_functional import append_to_dict
-from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
+from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches, restore_dynamic_batch
 from verl.workers.config import HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
 
 from ..base import BaseEngine, EngineRegistry
+from ..utils import postprocess_batch_func
 from .utils import set_random_seed
 
 logger = logging.getLogger(__file__)
@@ -449,48 +450,8 @@ class MegatronEngine(BaseEngine):
             forward_only=forward_only,
         )
         # loss_reduces contains the stats returned from loss_func
-        return self.postprocess_batch_func(
-            losses_reduced=losses_reduced, indices=indices, forward_only=forward_only, data=data
-        )
-
-    def postprocess_batch_func(self, losses_reduced, indices, forward_only, data: DataProto):
-        use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", True)
-
         if mpu.is_pipeline_last_stage(ignore_virtual=True):
-            if forward_only:
-                # losses_reduced is a list of dict containing outputs for each micro-batch
-                # reorder entropy and outputs. Return None for other pp ranks
-                # only on last rank. It should be on every tp rank
-
-                output = {}
-
-                for o in losses_reduced:
-                    for key, val in o.items():
-                        if key not in output:
-                            output[key] = []
-                        output[key].append(val)
-
-                indices = list(itertools.chain.from_iterable(indices))
-                revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
-
-                for key, val in output.items():
-                    val = torch.cat(val, dim=0)
-                    if use_dynamic_bsz:
-                        assert len(indices) == val.size(0), f"{len(indices)} vs. {val.size()}"
-                        val = val[revert_indices]
-                    output[key] = val
-
-                return output
-
-            else:
-                metrics = {}
-                # combine metrics of each micro-batch
-                metric_micro_batch = losses_reduced
-                for metric in metric_micro_batch:
-                    # Note that o[0] is metrics, o[1] is entropy, o[2] is response_mask
-                    append_to_dict(metrics, metric)  # append the metric from this micro-batch to global metrics.
-
-                return metrics
+            return postprocess_batch_func(output_lst=losses_reduced, indices=indices, data=data)
         else:
             return {}
 
@@ -654,16 +615,20 @@ class MegatronEngineWithLMHead(MegatronEngine):
             entropy = output["entropy"][:, -response_length - 1 : -1].contiguous()
             model_output["entropy"] = entropy
 
-        if forward_only:
-            # for inference
-            return torch.tensor(1.0, device=device), model_output
+        if loss_function is not None:
+            loss, metrics = loss_function(model_output=model_output, data=data, dp_group=self.get_data_parallel_group())
+        else:
+            assert forward_only, "forward_only must be True when loss_function is None"
+            loss = torch.tensor(1.0, device=device)
+            metrics = {}
 
-        # for training
-        # note that this loss function can be swapped with other loss functions such as SFT
-        policy_loss, metrics = loss_function(model_output=model_output, data=data, dp_group=self.get_data_parallel_group())
+        output = {"model_output": model_output,
+                    "loss": loss,
+                    "metrics": metrics,
+                    }
 
         # return loss and stats
-        return policy_loss, metrics
+        return loss, output
 
 
 class MegatronEngineWithValueHead(MegatronEngine):

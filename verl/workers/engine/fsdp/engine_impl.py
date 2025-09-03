@@ -59,7 +59,7 @@ from verl.utils.fsdp_utils import (
 )
 
 from verl.utils.py_functional import append_to_dict, convert_to_regular_types
-from verl.utils.seqlen_balancing import get_reverse_idx
+from verl.utils.seqlen_balancing import get_reverse_idx, restore_dynamic_batch
 from verl.utils.torch_functional import logprobs_from_logits
 from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad, ulysses_pad_and_slice_inputs
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
@@ -74,6 +74,7 @@ from verl.utils.seqlen_balancing import prepare_dynamic_batch
 from verl.workers.config import FSDPEngineConfig, FSDPOptimizerConfig, HFModelConfig
 
 from ..base import BaseEngine, EngineRegistry
+from ..utils import postprocess_batch_func
 from .utils import create_device_mesh, get_sharding_strategy
 
 logger = logging.getLogger(__file__)
@@ -474,59 +475,22 @@ class FSDPEngine(BaseEngine):
     def forward_backward_batch(self, data: DataProto, loss_function: Callable, forward_only=False) -> list[DataProto]:
         micro_batches, indices = self.prepare_micro_batches(data=data)
 
-        output = []
+        output_lst = []
 
         ctx = torch.no_grad() if forward_only else nullcontext()
 
         for micro_batch in micro_batches:
             with ctx:
                 # note that loss must be scaled in postprocess_micro_batch_func
-                loss, metrics = self.forward_step(micro_batch, loss_function=loss_function, forward_only=forward_only)
+                loss, meta_info = self.forward_step(micro_batch, loss_function=loss_function, forward_only=forward_only)
                 if not forward_only:
                     # metrics contain the output, loss is dummy
                     loss.backward()
 
-            output.append(metrics)
+            output_lst.append(meta_info)
 
         # postprocess and return
-        return self.postprocess_batch_func(output, indices, forward_only, data)
-
-    def postprocess_batch_func(self, losses_reduced, indices, forward_only, data: DataProto):
-        use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", True)
-
-        if forward_only:
-            # losses_reduced is a list of dict containing outputs for each micro-batch
-            # reorder entropy and outputs. Return None for other pp ranks
-            # only on last rank. It should be on every tp rank
-            output = {}
-
-            for o in losses_reduced:
-                for key, val in o.items():
-                    if key not in output:
-                        output[key] = []
-                    output[key].append(val)
-
-            indices = list(itertools.chain.from_iterable(indices))
-            revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
-
-            for key, val in output.items():
-                val = torch.cat(val, dim=0)
-                if use_dynamic_bsz:
-                    assert len(indices) == val.size(0), f"{len(indices)} vs. {val.size()}"
-                    val = val[revert_indices]
-                output[key] = val
-
-            return output
-
-        else:
-            metrics = {}
-            # combine metrics of each micro-batch
-            metric_micro_batch = losses_reduced
-            for metric in metric_micro_batch:
-                # Note that o[0] is metrics, o[1] is entropy, o[2] is response_mask
-                append_to_dict(metrics, metric)  # append the metric from this micro-batch to global metrics.
-
-            return metrics
+        return postprocess_batch_func(output_lst=output_lst, indices=indices, data=data)
 
     def forward_step(self, micro_batch: DataProto, loss_function, forward_only):
         raise NotImplementedError("forward_step must be implemented in subclass")
@@ -885,8 +849,18 @@ class FSDPEngineWithLMHead(FSDPEngine):
             if calculate_entropy:
                 output["entropy"] = entropy
 
-            if forward_only:
-                return None, output
+            model_output = output
+
+            if loss_function is not None:
+                loss, metrics = loss_function(model_output=output, data=micro_batch_tensor, dp_group=self.get_data_parallel_group())
             else:
-                policy_loss, metrics = loss_function(model_output=output, data=micro_batch_tensor, dp_group=self.get_data_parallel_group())
-                return policy_loss, metrics
+                assert forward_only, "forward_only must be True when loss_function is None"
+                loss = torch.tensor(1.0, device=device_name)
+                metrics = {}
+
+            output = {"model_output": model_output,
+                      "loss": loss,
+                      "metrics": metrics,
+                      }
+
+            return loss, output
