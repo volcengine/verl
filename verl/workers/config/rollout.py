@@ -153,7 +153,7 @@ class RolloutConfig(BaseConfig):
 
     skip_dump_dir: str = "/tmp/rollout_dump"
 
-    profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
+    profiler: Optional[ProfilerConfig] = None
 
     enable_chunked_prefill: bool = True
     load_format: str = "dummy_dtensor"
