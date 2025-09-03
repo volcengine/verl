@@ -233,9 +233,6 @@ class MegatronRewardModel(BasePPORewardModel):
         self.has_multi_modal_inputs = "multi_modal_inputs" in mini_batch.non_tensor_batch.keys()
         if self.has_multi_modal_inputs:
             mini_batch.batch["multi_modal_inputs"] = mini_batch.non_tensor_batch["multi_modal_inputs"]
-            mini_batch.batch["multi_modal_inputs_idx"] = torch.Tensor(
-                list(range(len(mini_batch.non_tensor_batch["multi_modal_inputs"])))
-            ).to(torch.int64)
 
         indices = None
         if use_dynamic_bsz:
@@ -281,11 +278,9 @@ class MegatronRewardModel(BasePPORewardModel):
 
             multi_modal_inputs = {}
             if "multi_modal_inputs" in batch:
-                for key in batch["multi_modal_inputs"][0].keys():
-                    multi_modal_inputs[key] = torch.cat(
-                        [batch["multi_modal_inputs"][i][key] for i in batch["multi_modal_inputs_idx"]], dim=0
-                    )
+                from verl.utils.model import extract_multi_modal_inputs
 
+                multi_modal_inputs = extract_multi_modal_inputs(batch["multi_modal_inputs"])
             output = forward_fn(
                 model,
                 input_ids,
@@ -326,7 +321,6 @@ class MegatronRewardModel(BasePPORewardModel):
 
         if self.has_multi_modal_inputs:
             data.batch.pop("multi_modal_inputs")
-            data.batch.pop("multi_modal_inputs_idx")
             data.non_tensor_batch.pop("multi_modal_inputs")
         # loss_reduces contains the stats returned from loss_func
         losses_reduced = {"output": losses_reduced}
