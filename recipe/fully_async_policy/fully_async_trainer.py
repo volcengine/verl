@@ -326,6 +326,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
         # final parameter sync and validate
         if val_data is None:
             self._trigger_parameter_sync_after_step(validate=True, global_steps=self.global_steps-1)
+            ray.get(self.param_synchronizer.wait_last_sync.remote())
             val_data = self.message_queue_client.get_validate_sync()
             if val_data:
                 val_data: ValidateMetrics = ray.cloudpickle.loads(val_data)
