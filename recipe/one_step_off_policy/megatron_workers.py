@@ -13,21 +13,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import copy
 import logging
 import os
 
 import torch
 import torch.distributed
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig, OmegaConf, open_dict
 
 from verl.single_controller.base.decorator import Dispatch, register
+from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.debug import (
     log_gpu_memory_usage,
 )
 from verl.utils.device import get_device_name, get_torch_device
-from verl.utils.fs import copy_to_local
+from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.megatron_workers import ActorRolloutRefWorker as ARRWorker
 from verl.workers.megatron_workers import CriticWorker, RewardModelWorker
+from verl.workers.rollout import get_rollout_class
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -145,8 +148,6 @@ class RolloutWorker(ActorRolloutRefWorker):
         assert self.config.rollout.name == "vllm"
         assert self.config.rollout.mode == "sync"
 
-        from verl.workers.rollout.vllm_rollout import vLLMRollout
-
         from .vllm_sharding_manager import VLLMShardingManager
 
         # NOTE(sgm): If the QKV and gate_up projection layer are concate together in actor,
@@ -162,17 +163,17 @@ class RolloutWorker(ActorRolloutRefWorker):
         )
         log_gpu_memory_usage("Before building vllm rollout", logger=None)
 
-        local_path = copy_to_local(self.config.model.path, use_shm=self.config.model.get("use_shm", False))
-        from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
+        rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
+        # (vermouth1992). self.config.model in megatron differs from that of fsdp in the override_config.
+        # To workaround this we deepcopy self.config.model and make them compatible
+        omega_model_config = copy.deepcopy(self.config.model)
+        with open_dict(omega_model_config):
+            override_config = omega_model_config.override_config.pop("model_config")
+            omega_model_config.override_config = override_config
 
-        vllm_rollout_cls = vLLMRollout if self.config.rollout.mode == "sync" else vLLMAsyncRollout
-        rollout = vllm_rollout_cls(
-            model_path=local_path,
-            config=self.config.rollout,
-            tokenizer=self.tokenizer,
-            model_hf_config=self.hf_config,
-            device_mesh=rollout_device_mesh,
-            trust_remote_code=trust_remote_code,
+        model_config: HFModelConfig = omega_conf_to_dataclass(omega_model_config, dataclass_type=HFModelConfig)
+        rollout = get_rollout_class(rollout_config.name, rollout_config.mode)(
+            config=rollout_config, model_config=model_config, device_mesh=rollout_device_mesh
         )
         log_gpu_memory_usage("After building vllm rollout", logger=logger)
 

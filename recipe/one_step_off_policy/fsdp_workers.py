@@ -40,8 +40,10 @@ from verl.utils.import_utils import import_external_libs
 from verl.utils.model import get_generation_config, update_model_config
 from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerConfig, log_gpu_memory_usage, simple_timer
 from verl.utils.profiler.performance import reduce_timing, topk_reduce_ratio_min_max
+from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.fsdp_workers import ActorRolloutRefWorker as ARRWorker
 from verl.workers.fsdp_workers import CriticWorker
+from verl.workers.rollout import get_rollout_class
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -204,20 +206,12 @@ class RolloutWorker(ActorRolloutRefWorker):
         rollout_name = self.config.rollout.name
         assert rollout_name == "vllm"
 
-        from verl.workers.rollout.vllm_rollout import vLLMRollout
+        rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
+        model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model, dataclass_type=HFModelConfig)
 
         log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=logger)
-
-        from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
-
-        vllm_rollout_cls = vLLMRollout if self.config.rollout.mode == "sync" else vLLMAsyncRollout
-        rollout = vllm_rollout_cls(
-            model_path=local_path,
-            config=self.config.rollout,
-            tokenizer=self.tokenizer,
-            model_hf_config=actor_model_config,
-            device_mesh=rollout_device_mesh,
-            trust_remote_code=trust_remote_code,
+        rollout = get_rollout_class(rollout_config.name, rollout_config.mode)(
+            config=rollout_config, model_config=model_config, device_mesh=rollout_device_mesh
         )
         log_gpu_memory_usage(f"After building {rollout_name} rollout", logger=logger)
         from .vllm_sharding_manager import VLLMShardingManager
