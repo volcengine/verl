@@ -354,6 +354,9 @@ critic:
   grad_clip: 1.0
 reward_model:
   enable: false
+  enable_resource_pool: false
+  n_gpus_per_node: 0
+  nnodes: 0
   strategy: fsdp
   model:
     input_tokenizer: ${actor_rollout_ref.model.path}

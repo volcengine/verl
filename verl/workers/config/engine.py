@@ -67,7 +67,9 @@ class McoreEngineConfig(BaseConfig):
     seed: int = 42
     override_ddp_config: dict[str, Any] = field(default_factory=dict)
     override_transformer_config: dict[str, Any] = field(default_factory=dict)
+    override_mcore_model_config: dict[str, Any] = field(default_factory=dict)
     use_mbridge: bool = False
+    forward_only: bool = False
 
     def __post_init__(self) -> None:
         """config validation logics go here"""
@@ -105,3 +107,9 @@ class FSDPEngineConfig(BaseConfig):
     model_dtype: str = "fp32"
     use_orig_params: bool = False
     mixed_precision: Optional[dict[str, Any]] = None
+    ulysses_sequence_parallel_size: int = 1
+    entropy_from_logits_with_chunking: bool = False
+    use_torch_compile: bool = True
+    entropy_checkpointing: bool = False
+    forward_only: bool = False
+    strategy: str = "fsdp"
