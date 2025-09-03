@@ -42,12 +42,16 @@ actor_rollout_ref:
       load_contents: ${.save_contents}
       async_save: false
     optim:
-      lr: 1.0e-06
+      lr: 0.001
       lr_warmup_steps_ratio: 0.0
       total_training_steps: -1
       weight_decay: 0.01
       lr_warmup_steps: -1
       _target_: verl.workers.config.FSDPOptimizerConfig
+      betas:
+      - 0.9
+      - 0.999
+      clip_grad: 1.0
       min_lr_ratio: 0.0
       num_cycles: 0.5
       warmup_style: constant
@@ -77,10 +81,6 @@ actor_rollout_ref:
           _target_: verl.utils.profiler.config.TorchMemoryToolConfig
           trace_alloc_max_entries: ${oc.select:global_profiler.global_tool_config.torch_memory.trace_alloc_max_entries,100000}
           stack_depth: ${oc.select:global_profiler.global_tool_config.torch_memory.stack_depth,32}
-    grad_clip: 1.0
-    ulysses_sequence_parallel_size: 1
-    entropy_from_logits_with_chunking: false
-    entropy_checkpointing: false
     fsdp_config:
       _target_: verl.workers.config.FSDPEngineConfig
       wrap_policy:
@@ -91,6 +91,18 @@ actor_rollout_ref:
       reshard_after_forward: true
       fsdp_size: -1
       forward_prefetch: false
+      model_dtype: fp32
+      use_orig_params: false
+      ulysses_sequence_parallel_size: 1
+      entropy_from_logits_with_chunking: false
+      use_torch_compile: true
+      entropy_checkpointing: false
+      forward_only: false
+      strategy: fsdp
+    grad_clip: 1.0
+    ulysses_sequence_parallel_size: 1
+    entropy_from_logits_with_chunking: false
+    entropy_checkpointing: false
     use_remove_padding: ${oc.select:actor_rollout_ref.model.use_remove_padding,false}
   ref:
     strategy: ${actor_rollout_ref.actor.strategy}
@@ -124,14 +136,25 @@ actor_rollout_ref:
           _target_: verl.utils.profiler.config.TorchMemoryToolConfig
           trace_alloc_max_entries: ${oc.select:global_profiler.global_tool_config.torch_memory.trace_alloc_max_entries,100000}
           stack_depth: ${oc.select:global_profiler.global_tool_config.torch_memory.stack_depth,32}
-    model: null
     fsdp_config:
       _target_: verl.workers.config.FSDPEngineConfig
       wrap_policy:
         min_num_params: 0
       param_offload: false
+      optimizer_offload: false
+      offload_policy: false
       reshard_after_forward: true
+      fsdp_size: -1
       forward_prefetch: false
+      model_dtype: fp32
+      use_orig_params: false
+      ulysses_sequence_parallel_size: 1
+      entropy_from_logits_with_chunking: false
+      use_torch_compile: true
+      entropy_checkpointing: false
+      forward_only: false
+      strategy: fsdp
+    model: null
     ulysses_sequence_parallel_size: ${oc.select:actor_rollout_ref.actor.ulysses_sequence_parallel_size,1}
     entropy_from_logits_with_chunking: false
     entropy_checkpointing: false
@@ -213,12 +236,14 @@ actor_rollout_ref:
     enable_chunked_prefill: true
     load_format: dummy_dtensor
     layered_summon: false
-  hybrid_engine: true
-  nccl_timeout: 600
   model:
-    path: ~/models/deepseek-llm-7b-chat
-    custom_chat_template: null
+    _target_: verl.workers.config.HFModelConfig
+    path: ~/models/gemma-1.1-7b-it
+    hf_config_path: null
+    tokenizer_path: null
     use_shm: false
+    trust_remote_code: false
+    custom_chat_template: null
     external_lib: null
     override_config: {}
     enable_gradient_checkpointing: true
@@ -230,9 +255,9 @@ actor_rollout_ref:
     exclude_modules: null
     use_liger: false
     use_fused_kernels: false
-    fused_kernel_options:
-      impl_backend: torch
-    trust_remote_code: false
+    fused_kernel_options: {}
+  hybrid_engine: true
+  nccl_timeout: 600
 data:
   tokenizer: null
   use_shm: false
@@ -273,13 +298,18 @@ critic:
   strategy: fsdp
   enable: null
   optim:
-    lr: 1.0e-05
+    lr: 0.001
     lr_warmup_steps_ratio: 0.0
     total_training_steps: -1
     weight_decay: 0.01
     lr_warmup_steps: -1
     _target_: verl.workers.config.FSDPOptimizerConfig
-    min_lr_ratio: null
+    betas:
+    - 0.9
+    - 0.999
+    clip_grad: 1.0
+    min_lr_ratio: 0.0
+    num_cycles: 0.5
     warmup_style: constant
   model:
     path: ~/models/deepseek-llm-7b-chat
@@ -287,21 +317,29 @@ critic:
     override_config: {}
     external_lib: ${oc.select:actor_rollout_ref.model.external_lib,null}
     trust_remote_code: ${oc.select:actor_rollout_ref.model.trust_remote_code,false}
+    fsdp_config:
+      _target_: verl.workers.config.FSDPEngineConfig
+      wrap_policy:
+        min_num_params: 0
+      param_offload: false
+      optimizer_offload: false
+      offload_policy: false
+      reshard_after_forward: true
+      fsdp_size: -1
+      forward_prefetch: false
+      model_dtype: fp32
+      use_orig_params: false
+      ulysses_sequence_parallel_size: 1
+      entropy_from_logits_with_chunking: false
+      use_torch_compile: true
+      entropy_checkpointing: false
+      forward_only: false
+      strategy: fsdp
     _target_: verl.workers.config.FSDPCriticModelCfg
     use_shm: false
     enable_gradient_checkpointing: true
     enable_activation_offload: false
     use_remove_padding: false
-    fsdp_config:
-      _target_: verl.workers.config.FSDPEngineConfig
-      param_offload: false
-      optimizer_offload: false
-      offload_policy: false
-      reshard_after_forward: true
-      wrap_policy:
-        min_num_params: 0
-      fsdp_size: -1
-      forward_prefetch: false
     lora_rank: 0
     lora_alpha: 16
     target_modules: all-linear
