@@ -65,12 +65,12 @@ gen_tp=1
 sp_size=1
 fsdp_size=2
 
-NNODES=${NNODES:-1}
+# Fully async specific parameters
+NNODES=${NNODES:-2}
 NGPUS_PER_NODE=${NGPUS_PER_NODE:-8}
 
-# Fully async specific parameters
-n_gpus_rollout=8
-n_gpus_training=8
+n_gpus_rollout=2
+n_gpus_training=$((NGPUS_PER_NODE - n_gpus_rollout))
 
 train_prompt_bsz=0
 gen_prompt_bsz=1
@@ -156,6 +156,7 @@ $PYTHON_INTERPRETER -m recipe.fully_async_policy.fully_async_main \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
     trainer.val_before_train=True \
+    trainer.test_freq="${test_freq}" \
     trainer.save_freq=-1 \
     trainer.default_local_dir="${CKPTS_DIR}" \
     trainer.resume_mode=auto \
@@ -165,7 +166,6 @@ $PYTHON_INTERPRETER -m recipe.fully_async_policy.fully_async_main \
     rollout.n_gpus_per_node="${n_gpus_rollout}" \
     rollout.total_rollout_steps="${total_rollout_steps}" \
     rollout.total_epochs=10 \
-    rollout.test_freq="${test_freq}" \
     async_training.staleness_threshold="${staleness_threshold}" \
     async_training.trigger_parameter_sync_step="${trigger_parameter_sync_step}" \
     async_training.partial_rollout="${partial_rollout}"

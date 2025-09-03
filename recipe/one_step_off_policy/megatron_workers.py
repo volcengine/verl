@@ -168,7 +168,7 @@ class DetachRolloutWorker(DetachNcclSync):
         )
         log_gpu_memory_usage("After building vllm rollout", logger=logger)
 
-        from sharding_manager import DetachShardingManager
+        from .detach_sharding_manager import DetachShardingManager
 
         rollout_sharding_manager = DetachShardingManager(
             inference_engine=rollout.inference_engine, device_mesh=rollout_device_mesh
