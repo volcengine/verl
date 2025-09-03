@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .base import BaseRollout
+from .base import BaseRollout, get_rollout_class
 from .hf_rollout import HFRollout
 from .naive import NaiveRollout
 from .multi_turn_trajectory import (
@@ -39,5 +39,7 @@ __all__ = [
     "MultiTurnTrajectoryRollout",
     "MultiTurnTrajectoryManager",
     "MultiTurnGRPORolloutWorker",
-    "MultiTurnGRPOWorkerFactory"
+    "MultiTurnGRPOWorkerFactory",
+    "get_rollout_class"
 ]
+
