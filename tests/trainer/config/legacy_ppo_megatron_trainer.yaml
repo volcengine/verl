@@ -163,7 +163,7 @@ actor_rollout_ref:
     dtype: bfloat16 # should align with FSDP
     gpu_memory_utilization: 0.5
     ignore_eos: False
-    enforce_eager: True
+    enforce_eager: False
     free_cache_engine: True
     load_format: dummy_megatron
     tensor_model_parallel_size: 1
@@ -183,12 +183,9 @@ actor_rollout_ref:
       gate_proj_layer_name: gate_up
     # number of responses (i.e. num sample times)
     n: 1
-    engine_kwargs: # inference engine parameters
-      vllm:
-        swap_space: null # null means "use the engine default value" (usually 4 GB), setting it to, e.g., 32 means 32 GB
-        disable_mm_preprocessor_cache: False # whether to disable the preprocessor cache for multimodel models.
-      sglang:
-        attention_backend: null # null means use the engine default value, available options: flashinfer, triton, flashmla
+    engine_kwargs: # inference engine parameters, please refer vllm/sglang official doc for detail
+      vllm: {}
+      sglang: {}
     val_kwargs:
       # sampling parameters for validation
       top_k: -1 # 0 for hf rollout, -1 for vllm rollout
@@ -460,6 +457,7 @@ trainer:
       with_stack: False
       analysis: True
 
-ray_init:
-  num_cpus: null # `None` means using all CPUs, which might cause hang if limited in systems like SLURM. Please set to a number allowed then.
+ray_kwargs:
+  ray_init:
+    num_cpus: null # `None` means using all CPUs, which might cause hang if limited in systems like SLURM. Please set to a number allowed then.
   timeline_json_file: null

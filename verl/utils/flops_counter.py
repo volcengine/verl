@@ -20,6 +20,7 @@ from verl.utils.device import get_torch_device
 VALID_CONFIG_TYPE = {
     "llama",
     "qwen2",
+    "qwen2_moe",
     "qwen2_vl",
     "qwen2_5_vl",
     "qwen3",
@@ -70,19 +71,29 @@ def get_device_flops(unit="T"):
     if "CPU" in device_name:
         # use a general CPU flops placeholder to make the function CPU compatible
         flops = 448e9
+    elif "GB200" in device_name:
+        flops = 2.5e15
+    elif "B200" in device_name:
+        flops = 2.25e15
     elif "MI300X" in device_name:
         flops = 1336e12
     elif "H100" in device_name or "H800" in device_name or "H200" in device_name:
         flops = 989e12
     elif "A100" in device_name or "A800" in device_name:
         flops = 312e12
+    elif "L40S" in device_name:
+        flops = 362.05e12
     elif "L40" in device_name:
         flops = 181.05e12
+    elif "A40" in device_name:
+        flops = 149.7e12
     elif "L20" in device_name:
         flops = 119.5e12
     elif "H20" in device_name:
         flops = 148e12
     elif "910B" in device_name:
+        flops = 354e12
+    elif "Ascend910" in device_name:
         flops = 354e12
     elif "RTX 3070 Ti" in device_name:
         flops = 21.75e12

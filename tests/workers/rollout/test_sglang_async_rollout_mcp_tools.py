@@ -28,7 +28,10 @@ from utils_sglang import get_rollout_config, prepare_inputs
 
 from verl.protocol import DataProto
 from verl.tools.mcp_search_tool import MCPSearchTool
+from verl.tools.schemas import ToolResponse
 from verl.tools.utils.mcp_clients.McpClientManager import MCPClientManager
+from verl.utils.config import omega_conf_to_dataclass
+from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.schemas import AsyncRolloutRequest, AsyncRolloutRequestStateEnum, Message
 from verl.workers.rollout.sglang_rollout.sglang_rollout import SGLangRollout
 
@@ -114,18 +117,18 @@ def get_search_messages():
 
 
 class TestRolloutWithMCPSearchTools:
+    local_model_path = "Qwen/Qwen2.5-0.5B"
+
     @pytest.fixture
     def qwen_tokenizer(self):
-        local_model_path = "Qwen/Qwen2.5-0.5B"
-        tokenizer = AutoTokenizer.from_pretrained(local_model_path, padding_side="left")
+        tokenizer = AutoTokenizer.from_pretrained(self.local_model_path, padding_side="left")
         tokenizer.pad_token = tokenizer.eos_token
         return tokenizer
 
     # we only need this for tokenizer
     @pytest.fixture
     def qwen_model_config(self):
-        local_model_path = "Qwen/Qwen2.5-0.5B"
-        config = AutoConfig.from_pretrained(local_model_path)
+        config = AutoConfig.from_pretrained(self.local_model_path)
         return config
 
     @pytest.fixture
@@ -137,7 +140,7 @@ class TestRolloutWithMCPSearchTools:
             for turn in expect_turn_array
         ]
         preencode_tool_return_array = [
-            qwen_tokenizer.apply_chat_template([turn], tokenize=False, add_generation_prompt=True)
+            ToolResponse(text=qwen_tokenizer.apply_chat_template([turn], tokenize=False, add_generation_prompt=True))
             for turn in tool_return_array
         ]
         return prompts, preencode_turn_array, preencode_tool_return_array
@@ -268,11 +271,12 @@ class TestRolloutWithMCPSearchTools:
             patch.object(SGLangRollout, "_init_inference_engine", return_value=None),
             patch.object(SGLangRollout, "_init_sampling_params", return_value=None),
         ):
+            rollout_config: RolloutConfig = omega_conf_to_dataclass(search_rollout_config, dataclass_type=RolloutConfig)
+            model_config = HFModelConfig(path=self.local_model_path)
             rollout = SGLangRollout(
-                actor_module="",
-                config=search_rollout_config,
-                processing_class=qwen_tokenizer,
-                model_hf_config=qwen_model_config,
+                config=rollout_config,
+                model_config=model_config,
+                device_mesh=None,
             )
             rollout.sampling_params = {
                 "n": 1,
@@ -393,7 +397,7 @@ class TestRolloutWithMCPSearchTools:
         search_counter = 0
         for msg in output_req.messages:
             if msg.role == "tool":
-                assert msg.content == tool_return_array[search_counter]
+                assert msg.content[0]["text"] == tool_return_array[search_counter].text
                 search_counter += 1
         assert search_counter == 2
 

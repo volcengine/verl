@@ -44,12 +44,12 @@ could do whatever user wants, such as
 
    class AgentLoopBase(ABC):
        @abstractmethod
-       async def run(self, messages: list[dict[str, Any]], sampling_params: dict[str, Any]) -> AgentLoopOutput:
+       async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
            """Run agent loop to interact with LLM server and environment.
 
            Args:
-               messages (List[Dict[str, Any]]): Input messages.
                sampling_params (Dict[str, Any]): LLM sampling params.
+               **kwargs: dataset fields from `verl.utils.dataset.RLHFDataset`.
 
            Returns:
                AgentLoopOutput: Agent loop output.

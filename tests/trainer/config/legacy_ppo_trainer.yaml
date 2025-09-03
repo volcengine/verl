@@ -115,6 +115,9 @@ data:
     # the name of the curriculum class like `MySampler`
     class_name: null
 
+  # Additional kwargs when calling tokenizer.apply_chat_template
+  apply_chat_template_kwargs: {}
+
 # config for actor, rollout and reference model
 actor_rollout_ref:
 
@@ -421,7 +424,7 @@ actor_rollout_ref:
     ignore_eos: False
 
     # Whether to disable CUDA graph. Default True to allow cache freeing.
-    enforce_eager: True
+    enforce_eager: False
 
     # Whether to free engine KVCache after generation. Set enforce_eager=True when enabled.
     free_cache_engine: True
@@ -473,23 +476,14 @@ actor_rollout_ref:
     # Whether to wake up inference engine in multi-stage to reduce peak memory during training-rollout transition.
     multi_stage_wake_up: false
 
-    # Extra inference engine arguments (vllm, sglang).
+    # Extra inference engine arguments, please refer vllm/sglang official doc for detail
     engine_kwargs:
 
-      # for vllm
-      vllm:
+      # vllm engine config
+      vllm: {}
 
-        # Swap space (in GB) used by inference engine. null uses default (e.g., 4 GB).
-        swap_space: null
-
-        # Whether to disable the preprocessor cache for multimodel models.
-        disable_mm_preprocessor_cache: False
-
-      # for sglang
-      sglang:
-
-        # The attention backend for sglang engine. Options: flashinfer, triton, flashmla, null for default.
-        attention_backend: null
+      # sglang engine config
+      sglang: {}
 
     # Sampling parameters used during validation.
     val_kwargs:
@@ -1100,11 +1094,13 @@ trainer:
   # Device to run training on (e.g., "cuda", "cpu")
   device: cuda
 
-# configs related to ray initialization
-ray_init:
+# configs related to ray
+ray_kwargs:
+  # configs related to ray initialization
+  ray_init:
 
-  # Number of CPUs for Ray. Use a fixed number instead of null when using SLURM.
-  num_cpus: null
+    # Number of CPUs for Ray. Use a fixed number instead of null when using SLURM.
+    num_cpus: null
 
   # Path to save Ray timeline JSON for performance profiling
   timeline_json_file: null

@@ -12,7 +12,7 @@
 # - `special_sanity`: a suite of quick sanity tests
 # - `special_standalone`: a set of test that are designed to run in dedicated environments
 
-# Accelerators for tests 
+# Accelerators for tests
 # - By default tests are run with GPU available, except for the ones under `special_npu`, and any test script whose name ends with `on_cpu.py`.
 # - For test scripts with `on_cpu.py` name suffix would be tested on CPU resources in linux environment.
 
@@ -79,7 +79,7 @@ permissions:
 jobs:
   sgl:
     runs-on: [L20x8]
-    timeout-minutes: 20 # Increase this timeout value as needed
+    timeout-minutes: 35 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
@@ -90,7 +90,7 @@ jobs:
       NCCL_SHM_DISABLE: "1"
       NCCL_P2P_DISABLE: "1"
     container:
-      image: verlai/verl:app-verl0.5-sglang0.4.8-mcore0.12.2-te2.2
+      image: verlai/verl:app-verl0.5-transformers4.55.4-sglang0.4.10.post2-mcore0.13.0-te2.2
       options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -99,7 +99,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install hf_transfer fastmcp
-          pip3 install -e .[test,gpu,sglang] --no-deps
+          pip3 install -e .[test]
       - name: Download Model to Use
         run: |
           huggingface-cli download 'Qwen/Qwen2-7B-Instruct'
@@ -136,7 +136,8 @@ jobs:
           pytest -s test_sglang_async_rollout_mcp_tools.py
       - name: Test the latest SGLang Rollout async with agent loop
         run: |
-          ROLLOUT_NAME=sglang pytest -svvv tests/experimental/agent_loop/test_basic_agent_loop.py
+          huggingface-cli download verl-team/gsm8k-v0.4.1 --repo-type dataset --local-dir ~/verl-data/gsm8k
+          ROLLOUT_NAME=sglang pytest -svvv tests/experimental/agent_loop
       # Note(haibin.lin): for any new test, please update gpu_unit_tests.yaml to avoid repeated tests
       - name: Test the latest SGLang Rollout async with multimodal delta
         run: |

@@ -31,6 +31,7 @@ from omegaconf import DictConfig
 import verl.utils.torch_functional as verl_F
 from verl.trainer.config import AlgoConfig
 from verl.utils.import_utils import deprecated
+from verl.workers.config import ActorConfig
 
 PolicyLossFn = Callable[
     [
@@ -40,6 +41,7 @@ PolicyLossFn = Callable[
         torch.Tensor,  # response_mask
         str,  # loss_agg_mode
         Optional[DictConfig | AlgoConfig],  # config
+        torch.Tensor | None,  # rollout_log_probs
     ],
     tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
 ]
@@ -308,8 +310,9 @@ def compute_grpo_outcome_advantage(
                 id2mean[idx] = torch.tensor(0.0)
                 id2std[idx] = torch.tensor(1.0)
             elif len(id2score[idx]) > 1:
-                id2mean[idx] = torch.mean(torch.tensor(id2score[idx]))
-                id2std[idx] = torch.std(torch.tensor([id2score[idx]]))
+                scores_tensor = torch.stack(id2score[idx])
+                id2mean[idx] = torch.mean(scores_tensor)
+                id2std[idx] = torch.std(scores_tensor)
             else:
                 raise ValueError(f"no score in prompt index: {idx}")
         for i in range(bsz):
@@ -426,7 +429,7 @@ def compute_reinforce_plus_plus_baseline_outcome_advantage(
             if len(id2score[idx]) == 1:
                 id2mean[idx] = torch.tensor(0.0)
             elif len(id2score[idx]) > 1:
-                id2mean[idx] = torch.mean(torch.tensor(id2score[idx]))
+                id2mean[idx] = torch.mean(torch.stack(id2score[idx]))
             else:
                 raise ValueError(f"no score in prompt index: {idx}")
         for i in range(bsz):
@@ -476,7 +479,7 @@ def compute_rloo_outcome_advantage(
             if len(id2score[idx]) == 1:
                 id2mean[idx] = torch.tensor(0.0)
             elif len(id2score[idx]) > 1:
-                id2mean[idx] = torch.mean(torch.tensor(id2score[idx]))
+                id2mean[idx] = torch.mean(torch.stack(id2score[idx]))
             else:
                 raise ValueError(f"no score in prompt index: {idx}")
         for i in range(bsz):
@@ -532,8 +535,8 @@ def compute_opo_outcome_advantage(
             if len(id2score[idx]) == 1:
                 id2bsl[idx] = torch.tensor(0.0)
             elif len(id2score[idx]) > 1:
-                score_tensor = torch.tensor(id2score[idx])
-                len_tensor = torch.tensor(id2len[idx])
+                score_tensor = torch.stack(id2score[idx])
+                len_tensor = torch.stack(id2len[idx])
                 id2bsl[idx] = (len_tensor * score_tensor).sum() / len_tensor.sum()
             else:
                 raise ValueError(f"no score in prompt index: {idx}")
@@ -670,8 +673,9 @@ def compute_gpg_outcome_advantage(
                 id2mean[idx] = torch.tensor(0.0)
                 id2std[idx] = torch.tensor(1.0)
             elif len(id2score[idx]) > 1:
-                id2mean[idx] = torch.mean(torch.tensor(id2score[idx]))
-                id2std[idx] = torch.std(torch.tensor([id2score[idx]]))
+                scores_tensor = torch.stack(id2score[idx])
+                id2mean[idx] = torch.mean(scores_tensor)
+                id2std[idx] = torch.std(scores_tensor)
             else:
                 raise ValueError(f"no score in prompt index: {idx}")
         for i in range(bsz):
@@ -817,6 +821,7 @@ def compute_policy_loss_vanilla(
     response_mask: torch.Tensor,
     loss_agg_mode: str = "token-mean",
     config: Optional[DictConfig | AlgoConfig] = None,
+    rollout_log_probs: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Compute the clipped policy objective and related metrics for PPO.
@@ -835,6 +840,10 @@ def compute_policy_loss_vanilla(
             Mask indicating which tokens to include in the loss, shape (batch_size, response_length).
         loss_agg_mode (str, optional):
             Aggregation mode for `agg_loss`. Defaults to "token-mean".
+        config: `(verl.trainer.config.ActorConfig)`:
+            config for the actor.
+        rollout_log_probs: `(torch.Tensor)`:
+            log probabilities of actions under the rollout policy, shape (batch_size, response_length).
     """
 
     assert config is not None
@@ -881,13 +890,94 @@ def compute_policy_loss_vanilla(
     )
 
     pg_losses = torch.where(advantages < 0, clip_pg_losses2, clip_pg_losses1)
+
+    if config.tis_imp_ratio_cap > 0 and rollout_log_probs is not None:
+        # Apply truncated importance sampling -> https://fengyao.notion.site/off-policy-rl
+        tis_imp_ratio = torch.exp(old_log_prob - rollout_log_probs)
+        tis_imp_ratio = torch.clamp(tis_imp_ratio, max=config.tis_imp_ratio_cap)
+        pg_losses = pg_losses * tis_imp_ratio
+
     pg_loss = agg_loss(loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
 
     return pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower
 
 
+@register_policy_loss("gspo")
+def compute_policy_loss_gspo(
+    old_log_prob: torch.Tensor,
+    log_prob: torch.Tensor,
+    advantages: torch.Tensor,
+    response_mask: torch.Tensor,
+    loss_agg_mode: str = "seq-mean-token-mean",
+    config: Optional[DictConfig | ActorConfig] = None,
+    rollout_log_probs: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Compute the clipped policy objective and related metrics for GSPO.
+
+    See https://arxiv.org/pdf/2507.18071 for more details.
+
+    Args:
+        old_log_prob (torch.Tensor):
+            Log-probabilities of actions under the old policy, shape (batch_size, response_length).
+        log_prob (torch.Tensor):
+            Log-probabilities of actions under the current policy, shape (batch_size, response_length).
+        advantages (torch.Tensor):
+            Advantage estimates for each action, shape (batch_size, response_length).
+        response_mask (torch.Tensor):
+            Mask indicating which tokens to include in the loss, shape (batch_size, response_length).
+        loss_agg_mode (str, optional):
+            Aggregation mode for `agg_loss`. For GSPO, it is recommended to use "seq-mean-token-mean".
+    """
+
+    assert config is not None
+    assert isinstance(config, ActorConfig)
+    clip_ratio_low = config.clip_ratio_low if config.clip_ratio_low is not None else config.clip_ratio
+    clip_ratio_high = config.clip_ratio_high if config.clip_ratio_high is not None else config.clip_ratio
+
+    negative_approx_kl = log_prob - old_log_prob
+
+    # compute sequence-level importance ratio:
+    # si(θ) = (π_θ(yi|x)/π_θold(yi|x))^(1/|yi|) =
+    # exp [(1/|y_i|) * Σ_t log(π_θ(y_i,t|x,y_i,<t)/π_θold(y_i,t|x,y_i,<t))]
+    seq_lengths = torch.sum(response_mask, dim=-1).clamp(min=1)
+    negative_approx_kl_seq = torch.sum(negative_approx_kl * response_mask, dim=-1) / seq_lengths
+
+    # Combined ratio at token level:
+    # s_i,t(θ) = sg[s_i(θ)] · π_θ(y_i,t|x, y_i,<t) / sg[π_θ(y_i,t|x, y_i,<t)]
+    # In log space: log(s_i,t(θ)) = sg[log(s_i(θ))] + log_prob - sg[log_prob]
+    log_seq_importance_ratio = log_prob - log_prob.detach() + negative_approx_kl_seq.detach().unsqueeze(-1)
+    log_seq_importance_ratio = torch.clamp(log_seq_importance_ratio, max=10.0)  # clamp for numerical stability
+
+    # finaly exp() to remove log
+    seq_importance_ratio = torch.exp(log_seq_importance_ratio)
+
+    pg_losses1 = -advantages * seq_importance_ratio
+    pg_losses2 = -advantages * torch.clamp(seq_importance_ratio, 1 - clip_ratio_low, 1 + clip_ratio_high)
+    pg_losses = torch.maximum(pg_losses1, pg_losses2)
+
+    # for GSPO, we need to aggregate the loss at the sequence level (seq-mean-token-mean)
+    pg_loss = agg_loss(loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode="seq-mean-token-mean")
+
+    # For compatibility, return zero for pg_clipfrac_lower (not used in standard GSPO)
+    pg_clipfrac = verl_F.masked_mean(torch.gt(pg_losses2, pg_losses1).float(), response_mask)
+    pg_clipfrac_lower = torch.tensor(0.0, device=pg_loss.device)
+
+    ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
+
+    return pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower
+
+
 @register_policy_loss("gpg")
-def compute_policy_loss_gpg(old_log_prob, log_prob, advantages, response_mask, loss_agg_mode="token-mean", config=None):
+def compute_policy_loss_gpg(
+    old_log_prob: torch.Tensor,
+    log_prob: torch.Tensor,
+    advantages: torch.Tensor,
+    response_mask: torch.Tensor,
+    loss_agg_mode: str = "token-mean",
+    config: Optional[DictConfig | AlgoConfig] = None,
+    rollout_log_probs: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Adapted from
     https://github.com/AMAP-ML/GPG/blob/main/VisualThinker-R1-Zero/src/open-r1-multimodal/src/open_r1/trainer/grpo_trainer.py#L495
     Args:
@@ -915,6 +1005,7 @@ def compute_policy_loss_clip_cov(
     response_mask: torch.Tensor,
     loss_agg_mode: str = "token-mean",
     config: Optional[DictConfig | AlgoConfig] = None,
+    rollout_log_probs: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Compute the clipped policy objective and related metrics for Clip-Cov.
@@ -1009,6 +1100,7 @@ def compute_policy_loss_kl_cov(
     response_mask: torch.Tensor,
     loss_agg_mode: str = "token-mean",
     config: Optional[DictConfig | AlgoConfig] = None,
+    rollout_log_probs: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Compute the clipped policy objective and related metrics for Clip-Cov.
@@ -1072,6 +1164,77 @@ def compute_policy_loss_kl_cov(
     return pg_loss, torch.tensor(0.0), ppo_kl_abs, torch.tensor(0.0)
 
 
+@register_policy_loss("geo_mean")
+def compute_policy_loss_geo_mean(
+    old_log_prob: torch.Tensor,
+    log_prob: torch.Tensor,
+    advantages: torch.Tensor,
+    response_mask: torch.Tensor,
+    loss_agg_mode: str = "token-mean",
+    config: Optional[DictConfig | AlgoConfig] = None,
+    rollout_log_probs: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Compute the clipped policy objective and related metrics for GMPO.
+
+    Adapted from paper https://arxiv.org/abs/2507.20673
+    https://github.com/callsys/GMPO/blob/main/train_zero_math_gmpo.py
+
+    Args:
+        old_log_prob (torch.Tensor):
+            Log-probabilities of actions under the old policy, shape (batch_size, response_length).
+        log_prob (torch.Tensor):
+            Log-probabilities of actions under the current policy, shape (batch_size, response_length).
+        advantages (torch.Tensor):
+            Advantage estimates for each action, shape (batch_size, response_length).
+        response_mask (torch.Tensor):
+            Mask indicating which tokens to include in the loss, shape (batch_size, response_length).
+        loss_agg_mode (str, optional):
+            not used
+    """
+
+    assert config is not None
+    assert not isinstance(config, AlgoConfig)
+    clip_ratio = config.clip_ratio  # Clipping parameter. See https://arxiv.org/abs/1707.06347.
+    clip_ratio_low = config.clip_ratio_low if config.clip_ratio_low is not None else clip_ratio
+    clip_ratio_high = config.clip_ratio_high if config.clip_ratio_high is not None else clip_ratio
+
+    cliprange = clip_ratio
+    cliprange_low = clip_ratio_low
+    cliprange_high = clip_ratio_high
+    if cliprange_low is None:
+        cliprange_low = cliprange
+    if cliprange_high is None:
+        cliprange_high = cliprange
+
+    negative_approx_kl = log_prob - old_log_prob
+    # Clamp negative_approx_kl for stability (uncomment it if you like)
+    # negative_approx_kl = torch.clamp(negative_approx_kl, min=-20.0, max=20.0)
+    ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
+
+    # Clipping at token-level & Clipping wider
+    sgn_advantage = torch.sign(advantages)
+    negative_approx_kl_clamp = torch.clamp(negative_approx_kl, -cliprange_low, cliprange_high)
+    negative_approx_kl_min = torch.min(sgn_advantage * negative_approx_kl, sgn_advantage * negative_approx_kl_clamp)
+    negative_approx_kl_min = sgn_advantage * negative_approx_kl_min
+
+    # Geometric-Mean Policy Optimization
+    response_mask_sum = response_mask.sum(dim=-1)
+    ratio = torch.exp((negative_approx_kl_min * response_mask).sum(dim=-1) / (response_mask_sum + 1e-8))
+    # we only support sequence level advantage for now,
+    # otherwise, below would be not consistent with the paper
+    advantage = (advantages * response_mask).sum(dim=-1) / (response_mask_sum + 1e-8)
+    pg_losses = -advantage * ratio
+    pg_loss = torch.mean(pg_losses)
+
+    # higher: ratio is too large that need clamp to clip_high (when adv > 0)
+    clipped = torch.ne(negative_approx_kl, negative_approx_kl_clamp)
+    pg_clipfrac = verl_F.masked_mean((clipped * (advantages > 0)).float(), response_mask)
+    pg_clipfrac_lower = verl_F.masked_mean((clipped * (advantages < 0)).float(), response_mask)
+
+    return pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower
+
+
 def compute_entropy_loss(logits, response_mask, loss_agg_mode: str = "token-mean"):
     """Compute categorical entropy loss (For backward compatibility)
 
@@ -1132,6 +1295,32 @@ def compute_value_loss(
 
 
 def kl_penalty(logprob: torch.FloatTensor, ref_logprob: torch.FloatTensor, kl_penalty) -> torch.FloatTensor:
+    """Compute KL divergence given logprob and ref_logprob. Optionally using straight through to bind k2 on other
+    kl penalty compute method for unbiased KL gradient estimation.
+    See more description in http://joschu.net/blog/kl-approx.html
+
+    Args:
+        logprob:
+        ref_logprob:
+
+    Returns:
+        kl_estimate
+    """
+    forward_score = kl_penalty_forward(logprob, ref_logprob, kl_penalty)
+    if not kl_penalty.endswith("+") or kl_penalty in ("mse", "k2"):
+        return forward_score
+
+    """
+    The expectation of k1 and k3 estimator is the expectaed value of KL, but the expected gradient of k1 and k3
+    estimator is not the expectaed gradient of KL. On the other hand k2 estimator gives right gradient estimator, 
+    so we use a straight through trick here if the kl_penalty method ends with '+', .e.g., k3+. 
+    """
+    backward_score = 0.5 * (logprob - ref_logprob).square()
+
+    return backward_score - backward_score.detach() + forward_score.detach()
+
+
+def kl_penalty_forward(logprob: torch.FloatTensor, ref_logprob: torch.FloatTensor, kl_penalty) -> torch.FloatTensor:
     """Compute KL divergence given logprob and ref_logprob.
     Copied from https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py#L1104
     See more description in http://joschu.net/blog/kl-approx.html
@@ -1141,7 +1330,7 @@ def kl_penalty(logprob: torch.FloatTensor, ref_logprob: torch.FloatTensor, kl_pe
         ref_logprob:
 
     Returns:
-
+        kl_estimate
     """
     if kl_penalty in ("kl", "k1"):
         return logprob - ref_logprob

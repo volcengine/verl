@@ -135,20 +135,13 @@ def get_rollout_config(
         temperature=0,
         top_p=1,
         top_k=-1,
-        max_new_tokens=max_response_length,
-        presence_penalty=0.0,
-        frequency_penalty=0.0,
-        repetition_penalty=1.0,
-        skip_special_tokens=True,
-        spaces_between_special_tokens=True,
-        ignore_eos=False,
     )
 
     rollout_config = OmegaConf.create(
         {
             "name": "sglang",
             "mode": "sync",
-            "load_format": "dummy_dtensor",
+            "load_format": "auto",
             "enforce_eager": False,
             "free_cache_engine": True,
             "dtype": dtype,
@@ -160,6 +153,8 @@ def get_rollout_config(
             "tensor_model_parallel_size": tensor_parallel_size,
             # set to 128MB only for testing
             "update_weights_bucket_megabytes": 128,
+            # do not drop any samples in the test
+            "over_sample_rate": 0.0,
             "multi_turn": {
                 "max_assistant_turns": 4,
                 "max_user_turns": 4,
@@ -169,6 +164,7 @@ def get_rollout_config(
                 "use_inference_chat_template": False,
                 "tokenization_sanity_check_mode": "strict",
             },
+            "calculate_log_probs": False,
             "max_model_len": None,
             **sampling_params,
         }

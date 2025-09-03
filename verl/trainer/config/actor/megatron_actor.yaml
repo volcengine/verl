@@ -40,6 +40,8 @@ optim:
   # use checkpoint optimizer parameter scheduler
   use_checkpoint_opt_param_scheduler: False
 
+  override_optimizer_config: {}
+
 megatron:
 
   # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
@@ -102,21 +104,3 @@ megatron:
 
   # oc.select: default val for ref.megatron.use_mbridge
   use_mbridge: False
-
-# profile the actor model in `update_policy` 
-profile:
-
-  # turn it on when you want to profile the actor model
-  use_profile: False
-
-  # list, you can specify the ranks to profile
-  profile_ranks: null
-
-  # start step in update_policy
-  step_start: -1
-
-  # end step
-  step_end: -1
-
-  # the path to save the profile result
-  save_path: null

@@ -15,30 +15,20 @@
 The abstract base class defining the interface for model training engines.
 """
 
-from typing import Callable
-
-import torch
+from typing import Any, Callable
 
 from verl import DataProto
 
 
 class BaseEngine:
     """
-    Abstract base class defining the interface for model training engines.
+    Abstract base class defining the interface for model training engines. Interface is subject to
+    change before release.
 
     Engine implementations must subclass BaseEngine and provide concrete behavior for all methods.
     """
 
-    def __init__(self, config):
-        """
-        Initialize the BaseEngine.
-
-        Args:
-            config: Configuration object containing parameters for engine setup.
-        """
-        raise NotImplementedError
-
-    def init_model(self):
+    def initialize(self):
         """
         Instantiate or load the model, optimizer, and learning rate scheduler.
 
@@ -66,53 +56,15 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def infer_batch(
-        self,
-        data: DataProto,
-        post_fn: Callable[[DataProto, torch.Tensor], tuple[torch.Tensor, dict[str, torch.Tensor]]],
-    ) -> dict[str, torch.Tensor]:
-        """
-        Perform inference on a mini batch of data.
-
-        Args:
-            data: The input data for inference, typically containing tensors and metadata.
-            post_fn: A post-processing function that takes a micro-batch and predictions as input,
-                     and returns a tuple containing processed predictions and a dictionary of outputs.
-
-        Returns:
-            dict[str, torch.Tensor]: A dictionary containing the predictions for the entire batch.
-        """
-        raise NotImplementedError
-
-    def train_batch(
-        self,
-        data: DataProto,
-        loss_fn: Callable[[DataProto, torch.Tensor], tuple[torch.Tensor, dict[str, torch.Tensor]]],
-    ) -> dict[str, torch.Tensor]:
-        """
-        Perform a training step on a mini-batch of data.
-
-        Args:
-            data (DataProto): The input data for training, typically containing tensors and metadata.
-            loss_fn (Callable): A function that computes the loss and metrics given a micro-batch and predictions.
-
-        Returns:
-            dict[str, torch.Tensor]: A dictionary containing the aggregated training metrics for the mini-batch.
-        """
-        raise NotImplementedError
-
     def optimizer_zero_grad(self):
         """
-        Zero out gradients of all parameters before starting a new backward pass.
+        Zero the gradients of the optimizer.
         """
         raise NotImplementedError
 
     def optimizer_step(self):
         """
-        Perform an optimization step to update model parameters based on accumulated gradients.
-
-        Returns:
-            grad_norm (float): The norm of the gradients before clipping or update.
+        Perform an optimization step using the optimizer.
         """
         raise NotImplementedError
 
@@ -125,28 +77,53 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def shard_data(self, data):
+    def forward_backward_batch(self, data: DataProto, loss_function: Callable, forward_only=False) -> Any:
         """
-        Shard or partition data for distributed training or parallel execution.
+        Perform a forward pass and optionally a backward pass on a batch of data.
 
         Args:
-            data: Data structure to be sharded across devices/workers.
+            data: The input data for the forward pass, typically containing tensors and metadata.
+            loss_function: The loss function to optimize. See `verl.workers.roles.utils.losses` for examples.
+            forward_only: If True, perform only the forward pass. If False, perform forward and backward pass.
 
         Returns:
-            Sharded data in the same format as input.
+            Any: The output of the forward pass, which can be used for loss computation or other purposes.
         """
         raise NotImplementedError
 
-    def unshard_data(self, data):
+    def train_batch(self, data: DataProto, loss_function: Callable) -> Any:
         """
-        Reconstruct or gather sharded data back to a unified format.
+        Perform a training step on a batch of data.
 
         Args:
-            data: Sharded data structure to reconstruct.
+            data: The input data for training, typically containing tensors and metadata.
+            loss_function: A function that computes the loss and metrics given a batch and predictions.
 
         Returns:
-            Unsharded, combined data.
+            dict[str, torch.Tensor]: A dictionary containing the aggregated training metrics for the batch.
         """
+        self.optimizer_zero_grad()
+        outputs = self.forward_backward_batch(data, loss_function, forward_only=False)
+        grad_norm = self.optimizer_step()
+        outputs["grad_norm"] = grad_norm
+        return outputs
+
+    def infer_batch(self, data: DataProto) -> Any:
+        """
+        Perform inference on a batch of data.
+
+        Args:
+            data: The input data for inference, typically containing tensors and metadata.
+
+        Returns:
+            Any: The output of the inference, which can be used for predictions or other purposes.
+        """
+        return self.forward_backward_batch(data, None, forward_only=True)
+
+    def get_data_parallel_size(self):
+        raise NotImplementedError
+
+    def get_data_parallel_rank(self):
         raise NotImplementedError
 
     def to(self, device: str, model: bool = True, optimizer: bool = True):
@@ -183,6 +160,12 @@ class BaseEngine:
         """
         raise NotImplementedError
 
+    def is_collect(self):
+        """
+        Whether the output will be collected by the single controller process
+        """
+        raise NotImplementedError
+
 
 class EngineRegistry:
     """
@@ -196,7 +179,7 @@ class EngineRegistry:
     _engines = {}
 
     @classmethod
-    def register(cls, key):
+    def register(cls, key: list[str] | str):
         """
         A class method decorator that registers an engine class with a given key.
 
@@ -211,10 +194,20 @@ class EngineRegistry:
 
         def decorator(engine_class):
             assert issubclass(engine_class, BaseEngine)
-            cls._engines[key] = engine_class
+            if isinstance(key, list):
+                for k in key:
+                    cls._engines[k] = engine_class
+            else:
+                assert isinstance(key, str)
+                cls._engines[key] = engine_class
             return engine_class
 
         return decorator
+
+    @classmethod
+    def get_engine_cls(cls, key):
+        assert key in cls._engines, f"Unknown engine: {key}"
+        return cls._engines[key]
 
     @classmethod
     def new(cls, key, *args, **kwargs):

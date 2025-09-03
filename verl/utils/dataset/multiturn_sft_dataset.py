@@ -22,6 +22,7 @@ from typing import Any, Optional
 import numpy as np
 import pandas as pd
 import torch
+from omegaconf import ListConfig
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer
 
@@ -57,9 +58,10 @@ class MultiTurnSFTDataset(Dataset):
         self.messages_key = multiturn_config.get("messages_key", "messages")
         self.tools_key = multiturn_config.get("tools_key", "tools")
         self.enable_thinking_key = multiturn_config.get("enable_thinking_key", "enable_thinking")
+        self.apply_chat_template_kwargs = config.get("apply_chat_template_kwargs", {})
         assert self.truncation in ["error", "left", "right"]
 
-        if not isinstance(parquet_files, list):
+        if not isinstance(parquet_files, list | ListConfig):
             parquet_files = [parquet_files]
 
         self.parquet_files = parquet_files
@@ -135,6 +137,7 @@ class MultiTurnSFTDataset(Dataset):
                 add_generation_prompt=False,
                 enable_thinking=enable_thinking,
                 tools=tools,
+                **self.apply_chat_template_kwargs,
             )
             if is_assistant:
                 prev_applied_text_w_generation_prompt = self.tokenizer.apply_chat_template(
@@ -143,6 +146,7 @@ class MultiTurnSFTDataset(Dataset):
                     add_generation_prompt=True,
                     enable_thinking=enable_thinking,
                     tools=tools,
+                    **self.apply_chat_template_kwargs,
                 )
 
         else:
@@ -154,6 +158,7 @@ class MultiTurnSFTDataset(Dataset):
             add_generation_prompt=False,
             enable_thinking=enable_thinking,
             tools=tools,
+            **self.apply_chat_template_kwargs,
         )
         # Get tokens for the current message only
         if is_assistant:
@@ -238,6 +243,7 @@ class MultiTurnSFTDataset(Dataset):
                 return_tensors="pt",
                 add_generation_prompt=False,
                 enable_thinking=enable_thinking,
+                **self.apply_chat_template_kwargs,
             )
         except Exception as e:
             logging.error(
