@@ -16,7 +16,6 @@ import heapq
 import logging
 import os
 import random
-import time
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
@@ -82,7 +81,7 @@ class AsyncLLMServerManager:
         if server_idx is not None:
             # Update the count
             self.weighted_serveres[server_idx][0] += delta
-            
+
             # Use efficient rebalancing strategy based on position
             if server_idx == 0:
                 # If modifying heap top, use heapreplace (O(log n)) - more efficient
@@ -95,7 +94,7 @@ class AsyncLLMServerManager:
         # TODO: implement server pressure awareness load balancing
         if request_id in self.request_id_to_server:
             return self.request_id_to_server[request_id]
-        
+
         # Choose server with least active requests
         server = self.weighted_serveres[0][1][1]
         self._update_server_load(server, 1)
@@ -122,7 +121,7 @@ class AsyncLLMServerManager:
             TokenOutput: token output
         """
         server = self._choose_server(request_id)
-        
+
         try:
             output = await server.generate.remote(
                 request_id=request_id,
@@ -140,15 +139,12 @@ class AsyncLLMServerManager:
 
     def get_load_balancing_stats(self) -> dict:
         """Get current load balancing statistics."""
-        stats = {
-            'server_loads': {},
-            'total_active_requests': 0
-        }
-        
+        stats = {"server_loads": {}, "total_active_requests": 0}
+
         for active_count, (server_hash, server), _ in self.weighted_serveres:
-            stats['server_loads'][server_hash] = active_count
-            stats['total_active_requests'] += active_count
-        
+            stats["server_loads"][server_hash] = active_count
+            stats["total_active_requests"] += active_count
+
         return stats
 
 
