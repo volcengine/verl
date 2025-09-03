@@ -371,5 +371,6 @@ def restore_dynamic_batch(data: torch.Tensor, batch_idx_list: list[list[int]]) -
         torch.Tensor: The restored data.
     """
     indices = list(chain.from_iterable(batch_idx_list))
+    assert len(indices) == data.size(0), f"{len(indices)} vs. {data.size()}"
     revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
     return data[revert_indices]
