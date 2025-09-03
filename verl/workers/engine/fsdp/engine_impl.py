@@ -16,7 +16,6 @@ The concrete Engine implementation using PyTorch FullyShardedDataParallel (FSDP)
 """
 
 import gc
-import itertools
 import logging
 import os
 import warnings
@@ -57,9 +56,7 @@ from verl.utils.fsdp_utils import (
     offload_fsdp_model_to_cpu,
     offload_fsdp_optimizer,
 )
-
-from verl.utils.py_functional import append_to_dict, convert_to_regular_types
-from verl.utils.seqlen_balancing import get_reverse_idx, restore_dynamic_batch
+from verl.utils.py_functional import convert_to_regular_types
 from verl.utils.torch_functional import logprobs_from_logits
 from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad, ulysses_pad_and_slice_inputs
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
@@ -439,7 +436,7 @@ class FSDPEngine(BaseEngine):
 
     def get_data_parallel_size(self):
         return torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
-    
+
     def get_data_parallel_group(self):
         if self.ulysses_device_mesh is not None:
             return self.ulysses_device_mesh.get_group(mesh_dim="dp")
@@ -852,15 +849,18 @@ class FSDPEngineWithLMHead(FSDPEngine):
             model_output = output
 
             if loss_function is not None:
-                loss, metrics = loss_function(model_output=output, data=micro_batch_tensor, dp_group=self.get_data_parallel_group())
+                loss, metrics = loss_function(
+                    model_output=output, data=micro_batch_tensor, dp_group=self.get_data_parallel_group()
+                )
             else:
                 assert forward_only, "forward_only must be True when loss_function is None"
                 loss = torch.tensor(1.0, device=device_name)
                 metrics = {}
 
-            output = {"model_output": model_output,
-                      "loss": loss,
-                      "metrics": metrics,
-                      }
+            output = {
+                "model_output": model_output,
+                "loss": loss,
+                "metrics": metrics,
+            }
 
             return loss, output

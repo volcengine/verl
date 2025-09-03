@@ -15,9 +15,9 @@
 The abstract base class defining the interface for model training engines.
 """
 
+from typing import Any, Callable, Optional
 
 import torch
-from typing import Any, Callable, Optional
 
 from verl import DataProto
 
@@ -129,7 +129,7 @@ class BaseEngine:
 
     def get_data_parallel_rank(self):
         raise NotImplementedError
-    
+
     def get_data_parallel_group(self):
         raise NotImplementedError
 

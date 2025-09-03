@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import itertools
 import logging
 import os
 from functools import partial
@@ -38,8 +37,7 @@ from verl.utils.megatron_utils import (
     offload_megatron_optimizer,
 )
 from verl.utils.model import load_mcore_dist_weights, load_megatron_gptmodel_weights
-from verl.utils.py_functional import append_to_dict
-from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches, restore_dynamic_batch
+from verl.utils.seqlen_balancing import rearrange_micro_batches
 from verl.workers.config import HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
 
 from ..base import BaseEngine, EngineRegistry
@@ -510,7 +508,6 @@ class EngineTrainModeCtx:
         self.engine.mode = None
 
 
-
 @EngineRegistry.register(model_type="language_model", backend="megatron")
 class MegatronEngineWithLMHead(MegatronEngine):
     def forward_step(self, batch_iter: Iterator[TensorDict], model, meta_info: dict, postprocess_micro_batch_func):
@@ -622,10 +619,11 @@ class MegatronEngineWithLMHead(MegatronEngine):
             loss = torch.tensor(1.0, device=device)
             metrics = {}
 
-        output = {"model_output": model_output,
-                    "loss": loss,
-                    "metrics": metrics,
-                    }
+        output = {
+            "model_output": model_output,
+            "loss": loss,
+            "metrics": metrics,
+        }
 
         # return loss and stats
         return loss, output

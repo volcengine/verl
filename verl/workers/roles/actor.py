@@ -124,7 +124,7 @@ class ActorWorker(Worker, DistProfilerExtension):
 
         with self.engine.eval_mode():
             output = self.engine.infer_batch(data)
-            output = output.get('model_output', {})
+            output = output.get("model_output", {})
 
         if "log_probs" in output and "entropy" in output:
             # in megatron, only last pp contains valid data and returned to the single controller
