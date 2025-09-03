@@ -1,4 +1,19 @@
-from recipe.collabllm.utils import parse_messages, extract_json
+# Copyright 2025 collabllm team and/or its affiliates
+# Copyright 2025 Bytedance Ltd. and/or its affiliates
+
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from recipe.collabllm.utils import extract_json, parse_messages
 
 INTERACTIVITY_PROMPT = '''You are a helpful and meticulous conversation evaluator. \
 Your task is to evaluate the *interactivity* of the responses provided by an AI assistant \
@@ -31,41 +46,50 @@ Your evaluation:
 
 
 async def compute_score(data_source, messages, ground_truth, extra_info, **kwargs):
-
     # Check if litellm is available, fallback to openai if not
     try:
         import litellm
+
         use_litellm = True
     except ImportError:
         # litellm not found, falling back to openai
         import openai
+
         use_litellm = False
 
     chat_history = parse_messages(messages, strip_sys_prompt=True)
     prompt = INTERACTIVITY_PROMPT.format(chat_history=chat_history)
-    
+
     if use_litellm:
         full_response = (
-            await litellm.acompletion(
-                messages=[{"role": "user", "content": prompt}],
-                **kwargs,
+            (
+                await litellm.acompletion(
+                    messages=[{"role": "user", "content": prompt}],
+                    **kwargs,
+                )
             )
-        ).choices[0].message.content
+            .choices[0]
+            .message.content
+        )
     else:
         client = openai.AsyncOpenAI()  # Assumes API key is set in environment
         full_response = (
-            await client.chat.completions.create(
-                messages=[{"role": "user", "content": prompt}],
-                **kwargs,
+            (
+                await client.chat.completions.create(
+                    messages=[{"role": "user", "content": prompt}],
+                    **kwargs,
+                )
             )
-        ).choices[0].message.content
+            .choices[0]
+            .message.content
+        )
 
     full_response = extract_json(full_response)
-    
+
     assert isinstance(full_response, dict), f"Expected a dict, got {type(full_response)}"
-    assert {'interactivity', 'thought'}.issubset(full_response.keys()), \
+    assert {"interactivity", "thought"}.issubset(full_response.keys()), (
         f"Expected keys not found from {full_response.keys()}"
+    )
 
-    interactivity = full_response.pop('interactivity')
+    interactivity = full_response.pop("interactivity")
     return float(interactivity)
-

@@ -1,5 +1,21 @@
-from recipe.collabllm.utils import parse_messages, extract_json
+# Copyright 2025 collabllm team and/or its affiliates
+# Copyright 2025 Bytedance Ltd. and/or its affiliates
+
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from nltk.translate.bleu_score import sentence_bleu
+
+from recipe.collabllm.utils import extract_json, parse_messages
 
 EXTRACT_MULTITURN_COMPLETION_PROMPT = '''You are a thorough and diligent conversation analyzer. Your task is to extract the final and complete version of a document that was generated during a multiturn conversation between a user and a chat assistant. The extracted content should reflect the final and comprehensive response provided by the assistant based on the user’s request.
 
@@ -37,43 +53,52 @@ Take a deep breath and carefully follow the instructions and guidelines provided
 
 
 async def compute_score(data_source, messages, ground_truth, extra_info, **kwargs):
+    # Check if litellm is available, fallback to openai if not
+    try:
+        import litellm
 
-   # Check if litellm is available, fallback to openai if not
-   try:
-      import litellm
-      use_litellm = True
-   except ImportError:
-      # litellm not found, falling back to openai
-      import openai
-      use_litellm = False
+        use_litellm = True
+    except ImportError:
+        # litellm not found, falling back to openai
+        import openai
 
-   chat_history = parse_messages(messages, strip_sys_prompt=True)
-   prompt = EXTRACT_MULTITURN_COMPLETION_PROMPT.format(chat_history=chat_history)
-   
-   if use_litellm:
-      full_response = (
-         await litellm.acompletion(
-               messages=[{"role": "user", "content": prompt}],
-               **kwargs,
-         )
-      ).choices[0].message.content
-   else:
-      client = openai.AsyncOpenAI()  # Assumes API key is set in environment
-      full_response = (
-         await client.chat.completions.create(
-               messages=[{"role": "user", "content": prompt}],
-               **kwargs,
-         )
-      ).choices[0].message.content
+        use_litellm = False
 
-   full_response = extract_json(full_response)
-   
-   assert isinstance(full_response, dict), f"Expected a dict, got {type(full_response)}"
-   assert {'final_completion', 'thought'}.issubset(full_response.keys()), \
-      f"Expected keys not found from {full_response.keys()}"
+    chat_history = parse_messages(messages, strip_sys_prompt=True)
+    prompt = EXTRACT_MULTITURN_COMPLETION_PROMPT.format(chat_history=chat_history)
 
-   final_completion = full_response.pop('final_completion')
+    if use_litellm:
+        full_response = (
+            (
+                await litellm.acompletion(
+                    messages=[{"role": "user", "content": prompt}],
+                    **kwargs,
+                )
+            )
+            .choices[0]
+            .message.content
+        )
+    else:
+        client = openai.AsyncOpenAI()  # Assumes API key is set in environment
+        full_response = (
+            (
+                await client.chat.completions.create(
+                    messages=[{"role": "user", "content": prompt}],
+                    **kwargs,
+                )
+            )
+            .choices[0]
+            .message.content
+        )
 
-   bleu = sentence_bleu([ground_truth], final_completion)
-   return float(bleu)
+    full_response = extract_json(full_response)
 
+    assert isinstance(full_response, dict), f"Expected a dict, got {type(full_response)}"
+    assert {"final_completion", "thought"}.issubset(full_response.keys()), (
+        f"Expected keys not found from {full_response.keys()}"
+    )
+
+    final_completion = full_response.pop("final_completion")
+
+    bleu = sentence_bleu([ground_truth], final_completion)
+    return float(bleu)
