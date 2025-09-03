@@ -21,7 +21,7 @@ import torch
 import torch.distributed
 from omegaconf import DictConfig, OmegaConf, open_dict
 
-from verl.single_controller.base.decorator import Dispatch, register
+from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.debug import (
     log_gpu_memory_usage,
@@ -161,6 +161,10 @@ class RolloutWorker(ActorRolloutRefWorker):
         rollout_device_mesh = init_device_mesh(
             get_device_name(), mesh_shape=(dp, infer_tp), mesh_dim_names=["dp", "infer_tp"]
         )
+        is_collect = rollout_device_mesh["infer_tp"].get_local_rank() == 0
+        self._register_dispatch_collect_info(
+            "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
+        )
         log_gpu_memory_usage("Before building vllm rollout", logger=None)
 
         rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
@@ -186,7 +190,7 @@ class RolloutWorker(ActorRolloutRefWorker):
         self.rollout, self.sharding_manager = rollout, sharding_manager
         self.rollout.sharding_manager = sharding_manager
 
-    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO, blocking=False)
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="rollout"), blocking=False)
     def async_generate_sequences(self, *args, **kwargs):
         return super().generate_sequences(*args, **kwargs)
 
