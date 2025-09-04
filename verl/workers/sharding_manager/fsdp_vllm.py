@@ -41,6 +41,7 @@ from verl.utils.fsdp_utils import (
     load_fsdp_model_to_gpu,
     offload_fsdp_model_to_cpu,
 )
+from verl.utils.import_utils import deprecated
 from verl.utils.model import check_exclude_modules, check_target_modules, convert_weight_keys
 from verl.utils.profiler import GPUMemoryLogger, log_gpu_memory_usage, simple_timer
 from verl.utils.torch_functional import check_device_is_available
@@ -52,6 +53,7 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
+@deprecated()
 class FSDPVLLMShardingManager(BaseShardingManager):
     """Sharding manager for FSDP models with vLLM inference engine integration.
 

@@ -7,7 +7,7 @@
 _target_: verl.workers.config.HFModelConfig
 
 # path to the huggingface model
-path: ~/models/gemma-1.1-7b-it
+path: ~/models/deepseek-llm-7b-chat
 
 # config to the huggingface config. In case it is not the same as path
 hf_config_path: null
@@ -58,4 +58,7 @@ use_liger: False
 use_fused_kernels: False
 
 # fused kernel options.
-fused_kernel_options: {}
+fused_kernel_options:
+
+  # the implementation backend for fused kernels.
+  impl_backend: torch

@@ -13,11 +13,12 @@
 # limitations under the License.
 
 
-from verl import DataProto
-from verl.utils.seqlen_balancing import get_reverse_idx, restore_dynamic_batch
-from verl.utils.py_functional import append_to_dict
-
 import torch
+
+from verl import DataProto
+from verl.utils.py_functional import append_to_dict
+from verl.utils.seqlen_balancing import restore_dynamic_batch
+
 
 def postprocess_batch_func(output_lst, indices, data: DataProto):
     """postprocess the output of a forward_backward_batch.
@@ -35,7 +36,7 @@ def postprocess_batch_func(output_lst, indices, data: DataProto):
     # only on last rank. It should be on every tp rank
 
     # losses_reduced contains 1. model_output, 2. loss, 3. metrics.
-    # We perform reverse 
+    # We perform reverse
 
     model_output = {}
     losses = []
@@ -44,7 +45,7 @@ def postprocess_batch_func(output_lst, indices, data: DataProto):
     # model output
     for o in output_lst:
         if "model_output" in o:
-            for key, val in o['model_output'].items():
+            for key, val in o["model_output"].items():
                 if key not in model_output:
                     model_output[key] = []
                 model_output[key].append(val)
@@ -60,7 +61,6 @@ def postprocess_batch_func(output_lst, indices, data: DataProto):
     for o in output_lst:
         if "loss" in o:
             losses.append(o["loss"])
-    
     # metrics
     for o in output_lst:
         if "metrics" in o:
