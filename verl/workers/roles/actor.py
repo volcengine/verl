@@ -89,7 +89,9 @@ class ActorWorker(Worker, DistProfilerExtension):
 
         # build dispatch info
         self._register_dispatch_collect_info(
-            mesh_name="actor", dp_rank=self.engine.get_data_parallel_rank(), is_collect=self.engine.is_collect()
+            mesh_name="actor",
+            dp_rank=self.engine.get_data_parallel_rank(),
+            is_collect=self.engine.is_mp_src_rank_with_outputs(),
         )
 
         # aggregate with bon sampling

@@ -107,7 +107,8 @@ class BaseEngine:
         self.optimizer_zero_grad()
         outputs = self.forward_backward_batch(data, loss_function, forward_only=False)
         grad_norm = self.optimizer_step()
-        outputs["grad_norm"] = grad_norm
+        if self.is_mp_src_rank_with_outputs():
+            outputs["metrics"]["grad_norm"] = grad_norm
         return outputs
 
     def infer_batch(self, data: DataProto, loss_function: Optional[Callable] = None) -> Any:
@@ -167,9 +168,9 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def is_collect(self):
+    def is_mp_src_rank_with_outputs(self):
         """
-        Whether the output will be collected by the single controller process
+        Whether the current rank is the first rank in model parallel group that contains model outputs
         """
         raise NotImplementedError
 

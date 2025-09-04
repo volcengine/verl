@@ -185,7 +185,7 @@ class MegatronEngine(BaseEngine):
         )
         return optimizer_scheduler
 
-    def is_collect(self):
+    def is_mp_src_rank_with_outputs(self):
         return (
             mpu.get_tensor_model_parallel_rank() == 0
             and mpu.get_pipeline_model_parallel_rank() == mpu.get_pipeline_model_parallel_world_size() - 1
