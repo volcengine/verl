@@ -264,7 +264,7 @@ class TestPostDumpAction:
 
         skip.record(new_batch_generator())
         rollout_wg.generate_sequences(MagicMock())
-        assert skip.get_path_dump().exists
+        assert skip.get_path_dump().exists()
 
 
 class TestCompress:
