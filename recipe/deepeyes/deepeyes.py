@@ -78,8 +78,9 @@ class CustomRLHFDataset(RLHFDataset):
             multi_modal_data = {}
 
             images = None
-            if self.image_key in row_dict and row_dict.get(self.image_key, None) is not None:
-                images = [Image.open(io.BytesIO(image["bytes"])) for image in row_dict.pop(self.image_key)]
+            row_dict_images = row_dict.pop(self.image_key, None)
+            if row_dict_images:
+                images = [Image.open(io.BytesIO(image["bytes"])) for image in row_dict_images]
 
                 # due to the image key is "image" instead of "images" in vllm, we need to use "image" here
                 # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205  # noqa: E501

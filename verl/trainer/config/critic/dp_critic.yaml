@@ -7,6 +7,12 @@
 # defaults specify the default config from each component
 defaults:
 
+  # fsdp optimizer config
+  - ../optim@optim: fsdp
+
+  # fsdp engine config
+  - ../engine@model.fsdp_config: fsdp
+
   # dp actor config, inheriting from trainer/config/critic/critic.yaml
   - critic
 
@@ -18,18 +24,6 @@ _target_: verl.workers.config.FSDPCriticConfig
 
 # distribution strategy. Options: fsdp (deprecating), fsdp2
 strategy: fsdp
-
-# optimizer configs
-optim:
-
-  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
-  _target_: verl.workers.config.FSDPOptimizerConfig
-
-  # Minimum LR ratio for cosine schedule
-  min_lr_ratio: null
-
-  # LR warmup style: "constant" or "cosine"
-  warmup_style: constant
 
 # model config for the critic
 model:
@@ -48,37 +42,6 @@ model:
 
   # Use remove padding optimization (saves compute)
   use_remove_padding: False
-
-  # FSDP-specific config
-  fsdp_config:
-
-    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
-    _target_: verl.workers.config.FSDPEngineConfig
-
-    # Whether to offload model parameters to CPU
-    param_offload: False
-
-    # Whether to offload optimizer state to CPU
-    optimizer_offload: False
-
-    # Only for FSDP2: offload param/grad/optimizer during train
-    offload_policy: False
-
-    # Only for FSDP2: Reshard after forward pass to reduce memory footprint
-    reshard_after_forward: True
-
-    # Policy for wrapping layers with FSDP
-    wrap_policy:
-
-      # Minimum number of parameters to trigger wrapping
-      min_num_params: 0
-
-    # Number of GPUs in each FSDP shard group; -1 means auto
-    fsdp_size: -1
-
-    # Only for FSDP1: FSDP1 configuration, prefetch the next forward-pass all-gather
-    # before the current forward computation.
-    forward_prefetch: False
 
   # Set to positive value to enable LoRA (e.g., 32)
   lora_rank: 0

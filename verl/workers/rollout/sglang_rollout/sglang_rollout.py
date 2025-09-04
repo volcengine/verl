@@ -22,7 +22,7 @@ import os
 import time
 from copy import deepcopy
 from json import JSONDecodeError
-from typing import Any, Optional
+from typing import Any, Generator, Optional
 from uuid import uuid4
 
 import numpy as np
@@ -44,6 +44,7 @@ from sglang.srt.utils import (
     set_prometheus_multiproc_dir,
     set_ulimit,
 )
+from sglang.srt.weight_sync.utils import update_weights as sgl_update_weights
 from tensordict import TensorDict
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 from torch.nn.utils.rnn import pad_sequence
@@ -59,7 +60,7 @@ from verl.tools.utils.tool_registry import initialize_tools_from_config
 from verl.utils.net_utils import is_ipv6
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
-from verl.workers.config import RolloutConfig
+from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.async_server import TokenOutput
 from verl.workers.rollout.base import BaseRollout
 from verl.workers.rollout.schemas import (
@@ -68,7 +69,8 @@ from verl.workers.rollout.schemas import (
     FinishReasonTypeEnum,
     Message,
 )
-from verl.workers.rollout.sglang_rollout.utils import broadcast_pyobj
+from verl.workers.rollout.sglang_rollout.http_server_engine import AsyncHttpServerAdapter
+from verl.workers.rollout.sglang_rollout.utils import broadcast_pyobj, get_named_tensor_buckets
 
 try:
     from sglang.srt.function_call.function_call_parser import FunctionCallParser
@@ -128,8 +130,6 @@ sglang.srt.entrypoints.engine._set_envs_and_config = _set_envs_and_config
 class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # default to use dummy load format, which need to reload weights in first time
-        self._need_reload = True
 
     async def release_memory_occupation(self, tags: Optional[list[str]] = None):
         """Release GPU occupation temporarily."""
@@ -141,13 +141,6 @@ class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
 
     async def resume_memory_occupation(self, tags: Optional[list[str]] = None):
         """Resume GPU occupation."""
-        # because __init__ is a sync method, it can not call the async release_memory_occupation
-        # have to move release_memory_occupation from __init__ to here
-        # For multi-stage awake, we run release weight and kv_cache when we resume weights for the first time.
-        if self._need_reload:
-            await self.release_memory_occupation()
-            self._need_reload = False
-
         if tags is None:
             obj = ResumeMemoryOccupationReqInput()
         else:
@@ -256,40 +249,19 @@ def get_tool_call_parser_type(
 class SGLangRollout(BaseRollout):
     def __init__(
         self,
-        actor_module: str,
         config: RolloutConfig,
-        processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
-        model_hf_config,
-        port=None,
-        trust_remote_code: bool = False,
-        device_mesh: DeviceMesh | None = None,
-        **kwargs,
+        model_config: HFModelConfig,
+        device_mesh: DeviceMesh,
     ):
-        """Synchronized SGLang rollout engine.
+        super().__init__(config, model_config, device_mesh)
 
-        Args:
-            actor_module: Huggingface model name or path to the model. The
-                model should be supported by SGLang.
-            config: A DictConfig object containing SGLang-specific operational
-                parameters and rollout settings.
-                Refer to https://docs.sglang.ai/backend/server_arguments.html
-            processing_class: The tokenizer or processor instance compatible with the actor_module.
-            model_hf_config: The Hugging Face model's configuration (e.g.,
-                `transformers.PretrainedConfig`). It provides architectural
-                details and hyperparameters like `max_position_embeddings`,
-                used by SGLang for correct model initialization. This is
-                the model's inherent design, not SGLang's runtime behavior.
-            port: Optional port for multi-node initialization when nnodes > 1.
-            trust_remote_code: Whether or not to allow for custom models
-                defined on the Hub in their own modeling files.
-            device_mesh: Optional `DeviceMesh` object for distributed setup.
-            **kwargs: Additional keyword arguments, primarily `train_tp` for
-                Megatron Backend integration to initialize hybrid engine
-                process groups.
-        """
-        super().__init__()
-        self.config = config
-        self._device_mesh_cpu = device_mesh
+        actor_module = model_config.local_path
+        processing_class = model_config.get_processor()
+        model_hf_config = model_config.hf_config
+        trust_remote_code = model_config.trust_remote_code
+        port = None
+        kwargs = {}
+
         os.environ.setdefault("SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK", "true")
 
         (
@@ -308,7 +280,7 @@ class SGLangRollout(BaseRollout):
             f"{self._function_call_parser}"
         )
 
-        self._init_distributed_env(device_mesh_cpu=device_mesh, **kwargs)
+        self._init_distributed_env(device_mesh_cpu=None, **kwargs)
 
         self._verify_config(model_hf_config=model_hf_config)
         # initialize the inference engine
@@ -445,40 +417,58 @@ class SGLangRollout(BaseRollout):
         attention_backend = engine_kwargs.pop("attention_backend", None)
         max_running_requests = self.config.get("max_num_seqs", None)
 
-        if first_rank_in_node:
+        try:
+            is_server_mode = self.config.sglang_rollout_mode == "server"
+        except Exception:
+            is_server_mode = False
+        effective_first = first_rank_in_node or is_server_mode
+
+        if effective_first:
             rank = dist.get_rank()
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
-            self._engine = AsyncEngine(
-                model_path=actor_module,
-                dtype=self.config.dtype,
-                mem_fraction_static=self.config.gpu_memory_utilization,
-                enable_memory_saver=True,
-                base_gpu_id=0,
-                gpu_id_step=1,
-                tp_size=self._tp_size,
-                node_rank=node_rank,
-                load_format=load_format,
-                dist_init_addr=dist_init_addr,
-                nnodes=nnodes,
-                max_running_requests=max_running_requests,
-                trust_remote_code=trust_remote_code,
+            args = {
+                "model_path": actor_module,
+                "dtype": self.config.dtype,
+                "mem_fraction_static": self.config.gpu_memory_utilization,
+                "enable_memory_saver": True,
+                "base_gpu_id": 0,
+                "gpu_id_step": 1,
+                "tp_size": self._tp_size,
+                "node_rank": node_rank,
+                "load_format": load_format,
+                "dist_init_addr": dist_init_addr,
+                "nnodes": nnodes,
+                "trust_remote_code": trust_remote_code,
+                "max_running_requests": max_running_requests,
                 # NOTE(linjunrong): add rank to prevent SGLang generate same port inside PortArgs.init_new
                 # when random.seed is being set during training
-                port=30000 + rank,
-                # NOTE(Chenyang): turn on log_level to see the decoding speed of SGLang Engine
-                # log_level="INFO"
-                # NOTE(Chenyang): turn the following lines to see the input and output of each request
+                "port": 30000 + rank,
+                # NOTE(Chenyang): if you want to debug the SGLang engine output
+                # please set the following parameters
+                # Otherwise, it will make the engine run too slow
+                "log_level": "info",
+                # "log_level": "error",
                 # log_requests=True,
                 # log_requests_level=2,
                 # NOTE(Chenyang): turn on max_running_requests to set the max concurrent running requests
                 # max_running_requests=1,
-                mm_attention_backend="fa3",
-                attention_backend=attention_backend if attention_backend is not None else "fa3",
-                # In async mode for AgentLoop, SGLang support token in token out to avoid the tokenizer
-                # inconsistency issue.
-                skip_tokenizer_init=self.config.mode == "async",
-                **engine_kwargs,
-            )
+                "mm_attention_backend": "fa3",
+                "attention_backend": attention_backend if attention_backend is not None else "fa3",
+                # In async mode, we want token in token out.
+                "skip_tokenizer_init": self.config.mode == "async",
+            }
+
+            if is_server_mode:
+                # add server specific args
+                args["first_rank_in_node"] = first_rank_in_node
+                args["timeout"] = self.config.server["timeout"]
+                args["max_attempts"] = self.config.server["max_attempts"]
+                args["retry_delay"] = self.config.server["retry_delay"]
+                args["max_connections"] = self.config.server["max_connections"]
+                args["max_start_wait_time"] = self.config.server["max_start_wait_time"]
+                self._engine = AsyncHttpServerAdapter(**args)
+            else:
+                self._engine = AsyncEngine(**args)
         else:
             self._engine = None
 
@@ -1466,6 +1456,45 @@ class SGLangRollout(BaseRollout):
 
         return req_list
 
+    async def resume(self, tags: list[str]):
+        """Resume rollout weights or kv cache in GPU memory.
+
+        Args:
+            tag: weights or kv_cache.
+        """
+        if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.config.free_cache_engine:
+            await self._engine.resume_memory_occupation(tags=tags)
+
+    async def release(self):
+        """Release weights and kv cache in GPU memory."""
+        if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.config.free_cache_engine:
+            await self._engine.release_memory_occupation(tags=["kv_cache", "weights"])
+
+    async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None], **kwargs):
+        """
+        Update model weights using tensor buckets, similar to THUDM/slime's implementation.
+
+        Notes:
+          - For the best performance of `rebuild_cuda_tensor`, it is recommended to:
+              1. Enable `RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES`.
+              2. Manually set `CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7`
+            when using Tensor Parallelism (TP >= 8).
+          - See reference implementations in SLIME:
+            - Main logic: https://github.com/THUDM/slime/blob/fb7605cc5fb09af0f9369d37f7192f12bddee577/slime/ray/ppo_actor.py#L452
+            - runtime envs: https://github.com/THUDM/slime/blob/fb7605cc5fb09af0f9369d37f7192f12bddee577/slime/ray/ppo_actor.py#L39
+        """
+        update_weights_bucket_bytes = int(self.config.update_weights_bucket_megabytes) << 20
+        for params_batch in get_named_tensor_buckets(weights, update_weights_bucket_bytes):
+            await sgl_update_weights(
+                engine=self._engine,
+                params_batch=params_batch,
+                device_mesh_key="infer_tp",
+                device_mesh=self.device_mesh,
+            )
+
+        if self.device_mesh["infer_tp"].get_local_rank() == 0:
+            await self._engine.flush_cache()
+
     # ==================== server mode public methods ====================
 
     async def chat_completion(self, json_request):
@@ -1564,17 +1593,3 @@ class SGLangRollout(BaseRollout):
             token_ids = output["output_ids"]
             log_probs = None
         return TokenOutput(token_ids=token_ids, log_probs=log_probs)
-
-    async def wake_up(self):
-        """Load model weights and build kv cache."""
-        if not self.is_sleep:
-            return
-        await self.sharding_manager.wake_up()  # pylint: disable=C2801
-        self.is_sleep = False
-
-    async def sleep(self):
-        """Offload model weights and discard kv cache."""
-        if self.is_sleep:
-            return
-        await self.sharding_manager.sleep()
-        self.is_sleep = True

@@ -21,6 +21,7 @@ from transformers import AutoConfig
 from verl.base_config import BaseConfig
 from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.fs import copy_to_local
+from verl.utils.import_utils import import_external_libs
 from verl.utils.model import get_generation_config, update_model_config
 
 __all__ = ["HFModelConfig"]
@@ -37,6 +38,7 @@ class HFModelConfig(BaseConfig):
         "tokenizer",
         "processor",
         "local_path",
+        "architectures",
         "local_hf_config_path",
         "local_tokenizer_path",
     }
@@ -80,7 +82,11 @@ class HFModelConfig(BaseConfig):
     use_fused_kernels: bool = False
     fused_kernel_options: dict = field(default_factory=dict)
 
+    architectures: Optional[list[str]] = None
+
     def __post_init__(self):
+        import_external_libs(self.external_lib)
+
         if self.hf_config_path is None:
             self.hf_config_path = self.path
         if self.tokenizer_path is None:
@@ -93,6 +99,12 @@ class HFModelConfig(BaseConfig):
         self.tokenizer = hf_tokenizer(self.local_tokenizer_path, trust_remote_code=self.trust_remote_code)
         self.processor = hf_processor(self.local_tokenizer_path, trust_remote_code=self.trust_remote_code)
 
+        if self.custom_chat_template is not None:
+            if self.processor is not None:
+                self.processor.chat_template = self.custom_chat_template
+            else:
+                self.tokenizer.chat_template = self.custom_chat_template
+
         self.local_hf_config_path = copy_to_local(self.hf_config_path, use_shm=self.use_shm)
         self.generation_config = get_generation_config(
             self.local_hf_config_path, trust_remote_code=self.trust_remote_code
@@ -103,7 +115,6 @@ class HFModelConfig(BaseConfig):
         self.hf_config = AutoConfig.from_pretrained(
             self.local_hf_config_path, trust_remote_code=self.trust_remote_code, attn_implementation=attn_implementation
         )
-
         override_config_kwargs = {
             "bos_token_id": self.tokenizer.bos_token_id,
             "eos_token_id": self.tokenizer.eos_token_id,
@@ -111,6 +122,14 @@ class HFModelConfig(BaseConfig):
         }
         override_config_kwargs.update(self.override_config)
         update_model_config(self.hf_config, override_config_kwargs=override_config_kwargs)
+
+        self.share_embeddings_and_output_weights = getattr(self.hf_config, "tie_word_embeddings", False)
+
+        # get model architectures
+        self.architectures = getattr(self.hf_config, "architectures", None)
+        assert self.architectures is not None and len(self.architectures) == 1, (
+            "Expect only one architecture, got {}".format(self.architectures)
+        )
 
         # per model patch
         if getattr(self.hf_config, "model_type", None) == "kimi_vl":

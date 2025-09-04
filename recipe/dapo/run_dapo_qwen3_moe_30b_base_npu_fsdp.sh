@@ -58,7 +58,6 @@ offload=True
 recompute=True
 max_num_seqs=128
 gen_tp=2
-gen_world_size=$((NNODES * NPUS_PER_NODE)) # nnodes* npus_in_per_node
 
 
 ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
@@ -111,7 +110,6 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=${sp_size} \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=${gen_tp} \
-    +actor_rollout_ref.rollout.rollout_world_size=${gen_world_size} \
     actor_rollout_ref.rollout.enable_chunked_prefill=True \
     actor_rollout_ref.rollout.temperature=${temperature} \
     actor_rollout_ref.rollout.top_p=${top_p} \
