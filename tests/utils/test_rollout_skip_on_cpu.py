@@ -189,9 +189,9 @@ class TestPostDumpAction:
         list_new_batch = []
         list_gen_batch = []
         for _ in range(step):
-            gen_batch = new_batch_generator()
-            skip.record(gen_batch)
-            list_new_batch.append(gen_batch)
+            new_batch = new_batch_generator()
+            skip.record(new_batch)
+            list_new_batch.append(new_batch)
             list_gen_batch.append(rollout_wg.generate_sequences(MagicMock()))
 
         # Check repeat
@@ -216,9 +216,9 @@ class TestPostDumpAction:
         list_new_batch = []
         list_gen_batch = []
         for _ in range(step):
-            gen_batch = new_batch_generator()
-            skip.record(gen_batch)
-            list_new_batch.append(gen_batch)
+            new_batch = new_batch_generator()
+            skip.record(new_batch)
+            list_new_batch.append(new_batch)
             list_gen_batch.append(rollout_wg.generate_sequences(MagicMock()))
 
         # Check repeat_last
@@ -234,14 +234,16 @@ class TestPostDumpAction:
     def test_rollout_with_ROLLOUT(self, mock_rollout_wg, step, capsys):
         config, rollout_wg, new_batch_generator = mock_rollout_wg
         config.actor_rollout_ref.rollout.skip.post_dump_action = "rollout"
+        config.actor_rollout_ref.rollout.skip.dump_step = step
         skip = RolloutSkip(config)
+        skip.wrap_generate_sequences(rollout_wg)
 
         list_new_batch = []
         list_gen_batch = []
         for _ in range(step):
-            gen_batch = new_batch_generator()
-            skip.record(gen_batch)
-            list_new_batch.append(gen_batch)
+            new_batch = new_batch_generator()
+            skip.record(new_batch)
+            list_new_batch.append(new_batch)
             list_gen_batch.append(rollout_wg.generate_sequences(MagicMock()))
 
         skip.record(new_batch_generator())
@@ -252,14 +254,16 @@ class TestPostDumpAction:
     def test_rollout_with_ROLLOUT_WITH_DUMP(self, mock_rollout_wg, step, capsys):
         config, rollout_wg, new_batch_generator = mock_rollout_wg
         config.actor_rollout_ref.rollout.skip.post_dump_action = "rollout_with_dump"
+        config.actor_rollout_ref.rollout.skip.dump_step = step
         skip = RolloutSkip(config)
+        skip.wrap_generate_sequences(rollout_wg)
 
         list_new_batch = []
         list_gen_batch = []
         for _ in range(step):
-            gen_batch = new_batch_generator()
-            skip.record(gen_batch)
-            list_new_batch.append(gen_batch)
+            new_batch = new_batch_generator()
+            skip.record(new_batch)
+            list_new_batch.append(new_batch)
             list_gen_batch.append(rollout_wg.generate_sequences(MagicMock()))
 
         skip.record(new_batch_generator())

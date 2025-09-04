@@ -300,12 +300,12 @@ def wrap_generate_sequences(rolloutskip: RolloutSkip, rollout_wg):
             else:
                 rolloutskip.replace_curr_new_batch(dumped_new_batch)
 
-        elif rolloutskip.post_dump_action == PostDumpAction.ROLLOUT:
-            return_batch = generate_sequences(batch, **kwargs)
-
         elif rolloutskip.post_dump_action == PostDumpAction.ROLLOUT_WITH_DUMP:
             return_batch = generate_sequences(batch, **kwargs)
             rolloutskip.dump(return_batch)
+
+        elif rolloutskip.post_dump_action == PostDumpAction.ROLLOUT:
+            return_batch = generate_sequences(batch, **kwargs)
 
             # clean
         return return_batch
