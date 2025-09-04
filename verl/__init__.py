@@ -30,7 +30,7 @@ with open(os.path.join(version_folder, "version/version")) as f:
     __version__ = f.read().strip()
 
 
-set_basic_config(level=logging.WARNING)
+set_basic_config(level=logging.INFO)
 
 
 __all__ = ["DataProto", "__version__"]

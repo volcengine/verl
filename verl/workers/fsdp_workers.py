@@ -75,7 +75,7 @@ from verl.utils.py_functional import convert_to_regular_types
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 logger = logging.getLogger(__file__)
-logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
+logger.setLevel("DEBUG")
 
 device_name = get_device_name()
 
@@ -112,6 +112,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         Worker.__init__(self)
 
         self.config = config
+        self.eval_only = getattr(self.config, "eval_only", False)
+        if self.eval_only:
+            logger.info("Evaluation only mode: no training will be performed.")
         self.profile_option = kwargs.get("profile_option", None)
         import torch.distributed
 
@@ -227,6 +230,18 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         from verl.utils.model import get_generation_config, print_model_size, update_model_config
         from verl.utils.torch_dtypes import PrecisionType
 
+        # Log system and memory status at init_model entry
+        import os
+        logger.info(
+            "_build_model_optimizer(role_flags is %s, RANK=%s, LOCAL_RANK=%s, CUDA_VISIBLE_DEVICES=%s; pid=%s, self_id=%s)",
+            role,
+            os.environ.get('RANK'),
+            os.environ.get('LOCAL_RANK'),
+            os.environ.get('CUDA_VISIBLE_DEVICES'),
+            os.getpid(),
+            id(self)
+        )
+
         assert role in ["actor", "ref"]
 
         log_gpu_memory_usage(f"Before init {role} from HF AutoModel", logger=logger)
@@ -269,6 +284,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         update_model_config(actor_model_config, override_config_kwargs=override_config_kwargs)
         if self.rank == 0:
             print(f"Model config after override: {actor_model_config}")
+
+        if self.eval_only:
+            return None, None, None, actor_model_config
 
         # NOTE(fix me): tie_word_embedding causes meta_tensor init to hang
         init_context = get_init_weight_context_manager(
@@ -561,6 +579,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
+        
         from verl.workers.actor import DataParallelPPOActor
 
         # This is used to import external_lib into the huggingface systems
@@ -602,16 +621,17 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             )
 
             # get the original unwrapped module
-            if fsdp_version(self.actor_module_fsdp) == 1:
-                self.actor_module = self.actor_module_fsdp._fsdp_wrapped_module
+            if not self.eval_only:
+                if fsdp_version(self.actor_module_fsdp) == 1:
+                    self.actor_module = self.actor_module_fsdp._fsdp_wrapped_module
 
-            if self._is_offload_param:
-                offload_fsdp_model_to_cpu(self.actor_module_fsdp)
-                log_gpu_memory_usage("After offload actor model during init", logger=logger)
+                if self._is_offload_param:
+                    offload_fsdp_model_to_cpu(self.actor_module_fsdp)
+                    log_gpu_memory_usage("After offload actor model during init", logger=logger)
 
-            if self._is_offload_optimizer:
-                offload_fsdp_optimizer(optimizer=self.actor_optimizer)
-                log_gpu_memory_usage("After offload actor optimizer during init", logger=logger)
+                if self._is_offload_optimizer:
+                    offload_fsdp_optimizer(optimizer=self.actor_optimizer)
+                    log_gpu_memory_usage("After offload actor optimizer during init", logger=logger)
 
         if self._is_actor:
             OmegaConf.set_struct(self.config.actor, True)
@@ -656,7 +676,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 checkpoint_config=self.config.actor.checkpoint,
             )
 
-        if not self._is_actor and self._is_rollout:
+        if not self._is_actor and self._is_rollout and not self.eval_only:
             # If ActorRolloutRefWorker is initialized as a standalone rollout,
             # create a checkpoint manager for FSDP model to allow loading FSDP checkpoints for rollout.
 

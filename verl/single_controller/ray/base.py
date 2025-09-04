@@ -32,6 +32,8 @@ from verl.single_controller.base.decorator import MAGIC_ATTR, Dispatch
 
 __all__ = ["Worker"]
 
+logger = logging.getLogger(__name__)
+
 
 def get_random_string(length: int) -> str:
     import random
@@ -412,6 +414,13 @@ class RayWorkerGroup(WorkerGroup):
                 )
                 self._workers.append(worker)
                 self._worker_names.append(name)
+                try:
+                    logger.info(
+                        "Created worker: %s; rank: %s; local_rank: %s; pg_idx: %s",
+                        name, rank, local_rank, pg_idx
+                    )
+                except Exception as _dbg_e:
+                    logger.info("Worker creation debug print failed: %s", _dbg_e)
 
                 if rank == 0:
                     register_center_actor = None
@@ -492,6 +501,15 @@ class RayWorkerGroup(WorkerGroup):
         Returns:
             Dictionary of worker groups keyed by prefix
         """
+        try:
+            logger.info(
+                "RayWorkerGroup.spawn called with prefixes: %s; worker_names: %s; name_prefix: %s",
+                list(prefix_set),
+                getattr(self, "_worker_names", []),
+                getattr(self, "name_prefix", None)
+            )
+        except Exception as _dbg_e:
+            logger.info("Spawn debug print failed: %s", _dbg_e)
         if self.fused_worker_used:
             return self.spawn_fused(prefix_set)
 
@@ -516,6 +534,13 @@ class RayWorkerGroup(WorkerGroup):
 
             _rebind_actor_methods(new_worker_group, prefix)
             new_worker_group_dict[prefix] = new_worker_group
+            try:
+                logger.info(
+                    "Spawned sub-worker-group: %s; worker_names: %s",
+                    prefix, getattr(new_worker_group, "_worker_names", [])
+                )
+            except Exception as _dbg_e:
+                logger.info("Spawn (per-prefix) debug print failed: %s", _dbg_e)
         return new_worker_group_dict
 
     def spawn_fused(self, prefix_set):

@@ -19,6 +19,7 @@ This trainer supports model-agonistic model initialization with huggingface
 """
 
 import json
+import logging
 import os
 import uuid
 from collections import defaultdict
@@ -37,6 +38,8 @@ from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
 
 from verl import DataProto
+
+logger = logging.getLogger(__name__)
 from verl.experimental.dataset.sampler import AbstractCurriculumSampler
 from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
 from verl.single_controller.base import Worker
@@ -609,7 +612,7 @@ class RayPPOTrainer:
             drop_last=False,
             collate_fn=collate_fn,
         )
-
+        
         assert len(self.train_dataloader) >= 1, "Train dataloader is empty!"
         assert len(self.val_dataloader) >= 1, "Validation dataloader is empty!"
 
@@ -840,16 +843,34 @@ class RayPPOTrainer:
 
         self.resource_pool_to_cls = {pool: {} for pool in self.resource_pool_manager.resource_pool_dict.values()}
 
+        # Resource pool mapping and spec
+        try:
+            logger.info("ResourcePool mapping: %s", self.resource_pool_manager.mapping)
+            logger.info("ResourcePool spec: %s", self.resource_pool_manager.resource_pool_spec)
+        except Exception as _dbg_e:
+            logger.info("Failed to print resource pool info: %s", _dbg_e)
+
         # create actor and rollout
         if self.hybrid_engine:
-            resource_pool = self.resource_pool_manager.get_resource_pool(Role.ActorRollout)
-            actor_rollout_cls = RayClassWithInitArgs(
-                cls=self.role_worker_mapping[Role.ActorRollout],
-                config=self.config.actor_rollout_ref,
-                role="actor_rollout",
-                profile_option=self.config.trainer.npu_profile.options,
-            )
-            self.resource_pool_to_cls[resource_pool]["actor_rollout"] = actor_rollout_cls
+            if self.eval_only:
+                print("Warning: total_training_steps is set to 0, no training will be performed. load rollout machine only")
+                resource_pool = self.resource_pool_manager.get_resource_pool(Role.Rollout)
+                rollout_cls = RayClassWithInitArgs(
+                    cls=self.role_worker_mapping[Role.Rollout],
+                    config=self.config.actor_rollout_ref,
+                    role="rollout",
+                    profile_option=self.config.trainer.npu_profile.options,
+                )
+                self.resource_pool_to_cls[resource_pool]["rollout"] = rollout_cls
+            else:
+                resource_pool = self.resource_pool_manager.get_resource_pool(Role.ActorRollout)
+                actor_rollout_cls = RayClassWithInitArgs(
+                    cls=self.role_worker_mapping[Role.ActorRollout],
+                    config=self.config.actor_rollout_ref,
+                    role="actor_rollout",
+                    profile_option=self.config.trainer.npu_profile.options,
+                )
+                self.resource_pool_to_cls[resource_pool]["actor_rollout"] = actor_rollout_cls
         else:
             raise NotImplementedError
 
@@ -860,7 +881,7 @@ class RayPPOTrainer:
             self.resource_pool_to_cls[resource_pool]["critic"] = critic_cls
 
         # create reference policy if needed
-        if self.use_reference_policy:
+        if self.use_reference_policy and not self.eval_only:
             resource_pool = self.resource_pool_manager.get_resource_pool(Role.RefPolicy)
             ref_policy_cls = RayClassWithInitArgs(
                 self.role_worker_mapping[Role.RefPolicy],
@@ -896,6 +917,14 @@ class RayPPOTrainer:
             )
 
         for resource_pool, class_dict in self.resource_pool_to_cls.items():
+            try:
+                logger.info(
+                    "Pre-spawn class_dict keys for pool: %s %s",
+                    getattr(resource_pool, "name_prefix", str(resource_pool)),
+                    list(class_dict.keys())
+                )
+            except Exception as _dbg_e:
+                logger.info("Failed to print class_dict keys: %s", _dbg_e)
             worker_dict_cls = create_colocated_worker_cls(class_dict=class_dict)
             wg_dict = self.ray_worker_group_cls(
                 resource_pool=resource_pool,
@@ -910,7 +939,7 @@ class RayPPOTrainer:
             self.critic_wg = all_wg["critic"]
             self.critic_wg.init_model()
 
-        if self.use_reference_policy and not self.ref_in_actor:
+        if self.use_reference_policy and not self.ref_in_actor and not self.eval_only:
             self.ref_policy_wg = all_wg["ref"]
             self.ref_policy_wg.init_model()
 
@@ -919,8 +948,19 @@ class RayPPOTrainer:
             self.rm_wg.init_model()
 
         # we should create rollout at the end so that vllm can have a better estimation of kv cache memory
-        self.actor_rollout_wg = all_wg["actor_rollout"]
+        if self.eval_only:
+            logger.info("eval_only=True; selecting worker group: 'rollout'")
+            self.actor_rollout_wg = all_wg["rollout"]
+        else:
+            logger.info("eval_only=False; selecting worker group: 'actor_rollout'")
+            self.actor_rollout_wg = all_wg["actor_rollout"]
         self.actor_rollout_wg.init_model()
+
+        # Worker names for actor_rollout/rollout group
+        try:
+            logger.info("actor_rollout_wg worker_names: %s", getattr(self.actor_rollout_wg, "worker_names", []))
+        except Exception as _dbg_e:
+            logger.info("Failed to print actor_rollout_wg worker_names: %s", _dbg_e)
 
         # create async rollout manager and request scheduler
         self.async_rollout_mode = False

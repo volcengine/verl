@@ -1,10 +1,13 @@
 hydra:
   searchpath:
-    - file://verl/trainer/config
+    - file:///fs/ess/PAS1576/qwjian/RL-impression/verl-tool/verl/verl/trainer/config
 
 defaults:
   - ppo_trainer
   - _self_
+
+trainer:
+  do_debug: False
 
 data:
   max_prompt_length: 1024
