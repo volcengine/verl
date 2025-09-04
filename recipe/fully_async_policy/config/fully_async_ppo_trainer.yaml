@@ -22,6 +22,7 @@ rollout:
   n: 4                               # 每个prompt生成的响应数量
   total_rollout_steps: 100
   total_epochs: 10
+  test_freq: 1                       # 测试频率, 每多少次参数更新后进行一次测试
 
 data:
   gen_batch_size: 32

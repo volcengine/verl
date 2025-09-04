@@ -186,7 +186,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
     def get_total_train_steps(self):
         return self.total_train_steps
 
-    async def update_param_version(self, version: int):
+    async def update_param_version(self, version: int, validate: bool = False, global_steps: int = 0):
         """Update current parameter version"""
         async with self.lock:
             old_version = self.current_param_version
@@ -198,16 +198,21 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 f"Parameter version updated from {old_version} to {version}"
             )
             timing_raw = {}
-            is_last_step = self.global_steps >= self.total_training_steps
             if (
                 self.val_reward_fn is not None
-                and self.config.trainer.test_freq > 0
-                and ((self.global_steps > 0 and self.global_steps % self.config.trainer.test_freq == 0) or is_last_step)
+                and self.config.rollout.test_freq > 0
+                and self.current_param_version % self.config.rollout.test_freq == 0
+                and self.current_param_version > 0 # don't test here in the initial parameter sync
+            ) or (
+                validate and self.val_reward_fn is not None
             ):
                 with marked_timer("testing", timing_raw, color="green"):
                     val_metrics: dict = self._validate()
-                    data = ValidateMetrics(timing_raw=timing_raw, metrics=val_metrics)
-                    await self.message_queue_client.put_validate(ray.cloudpickle.dumps(data))
+                data = ValidateMetrics(timing_raw=timing_raw,
+                                       metrics=val_metrics,
+                                       global_steps=global_steps,
+                                       param_version=version)
+                await self.message_queue_client.put_validate(ray.cloudpickle.dumps(data))
 
     def _validate_config(self):
         # Validate asynchronous training configuration
@@ -420,30 +425,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
     async def _streaming_generation_main(self):
         """流式处理的主入口方法，包含初始化和验证逻辑"""
-        from verl.utils.tracking import Tracking
-
-        self.logger = Tracking(
-            project_name=self.config.trainer.project_name,
-            experiment_name=self.config.trainer.experiment_name,
-            default_backend=self.config.trainer.logger,
-            config=OmegaConf.to_container(self.config, resolve=True),
-        )
-
-        # load checkpoint before doing anything
-        self._load_checkpoint()  # TODO: 检查是否需要
-
-        # perform validation before training
-        # currently, we only support validation using the reward_function.
-        async with self.lock:  # TODO: 检查是否需要锁
-            if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
-                print("Initial validation metric")
-                val_metrics = self._validate()
-                assert val_metrics, f"{val_metrics=}"
-                pprint(f"[FullyAsyncRollouter] Initial validation metrics: {val_metrics}")
-                data = ValidateMetrics(timing_raw={}, metrics=val_metrics)
-                await self.message_queue_client.put_validate(ray.cloudpickle.dumps(data))
-                if self.config.trainer.get("val_only", False):
-                    return
 
         # we start from step 1
         self.global_steps += 1
@@ -612,6 +593,8 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 await asyncio.gather(*self.active_tasks, return_exceptions=True)
                 self.active_tasks.clear()
                 print("[FullyAsyncRollouter][Public][Pause] All active tasks completed")
+            self.async_rollout_manager.sleep()
+            self.async_rollout_manager.wake_up()
             self.monitor_loop_trigger = False
 
     async def resume(self):

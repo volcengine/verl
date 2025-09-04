@@ -13,7 +13,8 @@
 # limitations under the License.
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional, Dict, List
+from collections import defaultdict
 
 import numpy as np
 import torch
@@ -52,6 +53,8 @@ class RolloutSample:
 class ValidateMetrics:
     timing_raw: dict[str, Any]
     metrics: dict[str, Any]
+    global_steps: Optional[int] = None
+    param_version: Optional[int] = None
 
 
 def prepare_single_generation_data(batch_dict, global_steps, rollout_n) -> DataProto:
@@ -227,3 +230,216 @@ def assemble_batch_from_rollout_samples(
     print(f"[BatchUtils] Batch assembly completed in {time.time() - start_time:.2f}s")
 
     return final_batch
+
+class MetricsAggregator:
+    """Metrics aggregator, used to combine metrics from multiple training steps"""
+    
+    def __init__(self):
+        # Store all values ​​for each metric
+        self.metric_values: Dict[str, List[float]] = defaultdict(list)
+        # Store the number of samples at each step for weighted averaging
+        self.sample_counts: List[int] = []
+        # Store the timestamp of each step for time-related calculations
+        self.timestamps: List[float] = []
+        # Step Count
+        self.step_count = 0
+        
+        # Metric aggregation rule configuration
+        self.aggregation_rules = self._init_aggregation_rules()
+    
+    def _init_aggregation_rules(self) -> Dict[str, Dict[str, List[str]]]:
+        """Initialize metrics aggregation rules"""
+        return {
+            # # Cumulative metrics - take the last value
+            # 'last': [
+            #     'fully_async/stale_samples_processed',
+            #     'fully_async/current_param_version',
+            #     'global_steps',
+            #     'epoch',
+            # ],
+            
+            # # Weighted average metrics - weighted by sample size
+            # 'weighted_avg': [
+            #     'fully_async/stale_samples_ratio',
+            #     'policy_loss',
+            #     'value_loss',
+            #     'entropy_loss',
+            #     'kl_divergence',
+            #     'advantage_mean',
+            #     'advantage_std',
+            #     'learning_rate',
+            # ],
+            
+            # # Summation type metrics - direct accumulation
+            # 'sum': [
+            #     'fully_async/total_wait_time',
+            #     'processed_samples',
+            #     'total_tokens',
+            # ],
+            
+            # Average metrics - Simple Average
+            # 'avg': [
+            #     'perf/throughput',
+            #     'fully_async/avg_processing_time',
+            #     'fully_async/tp50_processing_time',
+            #     'fully_async/tp95_processing_time',
+            #     'fully_async/tp99_processing_time',
+            #     'grad_norm',
+            # ],
+            
+            # # Maximum value metrics
+            # 'max': [
+            #     'fully_async/max_processing_time',
+            #     'max_grad_norm',
+            #     'peak_memory_usage',
+            # ],
+            
+            # # Minimum value metrics
+            # 'min': [
+            #     'fully_async/min_processing_time',
+            #     'min_learning_rate',
+            # ],
+            
+            # Time-Based metrics - Special Treatment
+            'time_sum': [
+                'timing_s/adv',
+                'timing_s/gen',
+                'timing_s/old_log_prob',
+                'timing_s/reward',
+                'timing_s/step',
+                'timing_s/update_actor',
+            ],
+        }
+    
+    def add_step_metrics(self, metrics: Dict[str, Any], sample_count: int, timestamp: float = None):
+        """Adding a single-step metrics"""
+        if timestamp is None:
+            timestamp = time.time()
+            
+        self.sample_counts.append(sample_count)
+        self.timestamps.append(timestamp)
+        self.step_count += 1
+        
+        # Store all metrics values
+        for key, value in metrics.items():
+            if isinstance(value, (int, float, np.number)):
+                self.metric_values[key].append(float(value))
+            elif isinstance(value, torch.Tensor):
+                self.metric_values[key].append(float(value.item()))
+    
+    def _get_aggregation_type(self, metric_name: str) -> str:
+        """Determine the aggregation type based on the metric name"""
+        for agg_type, metric_list in self.aggregation_rules.items():
+            if metric_name in metric_list:
+                return agg_type
+        import warnings
+        warnings.warn(f"No aggregation rule is matched in init_aggregation_rules. \
+                      For metric {metric_name}, the 'last' method is used")
+        return 'last'
+
+        # raise ValueError(f"No aggregation rule is matched in init_aggregation_rules. \
+        #                 Metric name: {metric_name}")    # TODO: 删除
+
+        
+        # Aggregation rules based on naming patterns
+        if metric_name.startswith('time/'):
+            aggregation_type = 'time_sum'
+        elif metric_name.endswith('_ratio') or metric_name.endswith('_rate'):
+            aggregation_type = 'weighted_avg'
+        elif metric_name.endswith('_count') or metric_name.endswith('_total'):
+            aggregation_type = 'sum'
+        elif metric_name.startswith('max_') or metric_name.endswith('_max'):
+            aggregation_type = 'max'
+        elif metric_name.startswith('min_') or metric_name.endswith('_min'):
+            aggregation_type = 'min'
+        else:
+            # The default is weighted average.
+            aggregation_type = 'weighted_avg'
+        import warnings
+        warnings.simplefilter("always", DeprecationWarning)
+        warnings.warn("No aggregation rule is matched in init_aggregation_rules. \
+                      Aggregation rule is matched based on name prefix:", aggregation_type)
+        return aggregation_type
+    
+    def _aggregate_single_metric(self, metric_name: str, values: List[float]) -> float:
+        """Aggregating a single metric"""
+        if not values:
+            return 0.0
+            
+        agg_type = self._get_aggregation_type(metric_name)
+        
+        if agg_type == 'last':
+            return values[-1]
+        
+        elif agg_type == 'weighted_avg':
+            # Weighted average
+            if len(values) != len(self.sample_counts):
+                # If the lengths do not match, use a simple average
+                return sum(values) / len(values)
+            
+            total_samples = sum(self.sample_counts)
+            if total_samples == 0:
+                return sum(values) / len(values)
+            
+            weighted_sum = sum(v * c for v, c in zip(values, self.sample_counts))
+            return weighted_sum / total_samples
+        
+        elif agg_type == 'sum' or agg_type == 'time_sum':
+            return sum(values)
+        
+        elif agg_type == 'avg':
+            return sum(values) / len(values)
+        
+        elif agg_type == 'max':
+            return max(values)
+        
+        elif agg_type == 'min':
+            return min(values)
+        
+        else:
+            # Default average
+            return sum(values) / len(values)
+    
+    def get_aggregated_metrics(self) -> Dict[str, Any]:
+        """aggregated metrics"""
+        if self.step_count == 0:
+            return {}
+        
+        aggregated = {}
+        
+        # Aggregate all metrics
+        for metric_name, values in self.metric_values.items():
+            aggregated[metric_name] = self._aggregate_single_metric(metric_name, values)
+        
+        # # Adding aggregate statistics
+        # aggregated.update({
+        #     'aggregation/step_count': self.step_count,
+        #     'aggregation/total_samples': sum(self.sample_counts),
+        #     'aggregation/avg_samples_per_step': sum(self.sample_counts) / self.step_count,
+        #     'aggregation/time_span': self.timestamps[-1] - self.timestamps[0] if len(self.timestamps) > 1 else 0,
+        # })
+        
+        # # Add statistics on sample size
+        # if self.sample_counts:
+        #     aggregated.update({
+        #         'aggregation/min_samples_per_step': min(self.sample_counts),
+        #         'aggregation/max_samples_per_step': max(self.sample_counts),
+        #     })
+        
+        return aggregated
+    
+    def reset(self):
+        """Reset Aggregator"""
+        self.metric_values.clear()
+        self.sample_counts.clear()
+        self.timestamps.clear()
+        self.step_count = 0
+    
+    def get_current_stats(self) -> Dict[str, Any]:
+        """Get statistics about the current aggregation state (for debugging)"""
+        return {
+            'step_count': self.step_count,
+            'metric_count': len(self.metric_values),
+            'total_samples': sum(self.sample_counts),
+            'metric_names': list(self.metric_values.keys()),
+        }
