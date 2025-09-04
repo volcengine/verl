@@ -142,7 +142,6 @@ class TaskRunner:
 
     def add_critic_worker(self, config):
         """Add critic worker to role mapping."""
-
         if config.critic.strategy in {"fsdp", "fsdp2"}:
             use_legacy_worker_impl = config.trainer.get("use_legacy_worker_impl", "auto")
             if use_legacy_worker_impl in ["auto", "enable"]:

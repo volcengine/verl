@@ -39,8 +39,8 @@ def test_agent_loop_compute_score_with_model():
     with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config")):
         config = compose("ppo_trainer")
 
-    model_path = "/mnt/hdfs/yyding/models/Llama-3.2-3B-Instruct"
-    rm_path = "/mnt/hdfs/yyding/models/Skywork-Reward-Llama-3.1-8B-v0.2"
+    model_path = "meta-llama/Llama-3.2-3B-Instruct"
+    rm_path = "Skywork/Skywork-Reward-Llama-3.1-8B-v0.2"
     config.data.return_raw_chat = True
     config.actor_rollout_ref.model.path = model_path
     config.actor_rollout_ref.actor.use_dynamic_bsz = True
@@ -114,7 +114,3 @@ def test_agent_loop_compute_score_with_model():
     sample_scores = rm_scores.sum(dim=1)
     print(sample_scores)
     ray.shutdown()
-
-
-if __name__ == "__main__":
-    test_agent_loop_compute_score_with_model()
