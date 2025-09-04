@@ -191,8 +191,8 @@ jobs:
           pip install --upgrade "huggingface_hub[cli]"
       - name: Download model config files
         run: |
-          hf download Qwen/Qwen2.5-0.5B-Instruct config.json --local-dir $HOME/models/Qwen/Qwen2.5-0.5B-Instruct
+          hf download Qwen/Qwen2.5-0.5B-Instruct --local-dir $HOME/models/Qwen/Qwen2.5-0.5B-Instruct
 
       - name: Running mcore engine tests on 8 L20 GPUs
         run: |
-          pytest -s -x tests/models/test_megatron_engine.py
+          pytest -s -x tests/models/test_engine.py
