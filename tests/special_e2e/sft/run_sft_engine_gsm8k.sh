@@ -12,6 +12,9 @@ backend=fsdp
 
 project_name=verl_sft_test
 exp_name=gsm8k
+RESUME_MODE=auto
+
+ckpts_home=/mnt/hdfs/zhangchi.usc1992_lf_lq/verl/test/gsm8k-sft
 
 
 torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
@@ -38,17 +41,16 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     engine.ulysses_sequence_parallel_size=2 \
     engine.strategy=fsdp \
     trainer.test_freq=after_each_epoch \
-    trainer.save_freq=-1 \
+    trainer.save_freq=after_each_epoch \
     trainer.logger=['console'] \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
+    trainer.total_epochs=2 \
+    trainer.default_local_dir="${ckpts_home}" \
+    trainer.resume_mode=${RESUME_MODE} \
 
-    
-    # data.micro_batch_size_per_gpu=${micro_bsz} \
-    # trainer.default_local_dir="${ckpts_home}" \
-    
     # trainer.total_training_steps=${TOTAL_TRAIN_STEP} \
     # trainer.checkpoint.save_contents=[model,optimizer,extra,hf_model] \
     # trainer.max_ckpt_to_keep=1 \
-    # trainer.resume_mode=${RESUME_MODE} \
+    
     

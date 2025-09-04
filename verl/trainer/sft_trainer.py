@@ -82,6 +82,9 @@ class SFTTrainer:
         config,
     ):
         self.config = config
+        
+        self.rank = torch.distributed.get_rank()
+
         self._build_config()
         self._build_dataset()
 
@@ -96,15 +99,15 @@ class SFTTrainer:
 
         self.load_checkpoint()
 
-        if torch.distributed.get_rank() == 0:
-            print(self.config)
-        
         self.device_name = self.config.trainer.device
 
         from verl.workers.roles.utils.losses import sft_loss
         self.loss_fn = partial(sft_loss, config=None)
 
         self.flops_counter = FlopsCounter(self.model_config.hf_config)
+
+        if self.rank == 0:
+            print(self.config)  
 
 
     def _build_config(self):
@@ -197,38 +200,25 @@ class SFTTrainer:
             pin_memory_device=device_name,
         )
 
-    def validation_step(self, batch: TensorDict):
-        
-
-        with torch.no_grad():
-            loss = self._compute_loss_and_backward(batch, do_backward=False)
-            if is_cuda_available:
-                torch.distributed.all_reduce(loss, op=torch.distributed.ReduceOp.AVG)
-            elif is_npu_available:
-                torch.distributed.all_reduce(loss)
-                loss /= self.device_mesh.size(0)
-        return loss
-
     def save_checkpoint(self, step):
         """Save checkpoint using FSDPCheckpointManager with improved tracking"""
         from verl.utils.fs import local_mkdir_safe
 
         # Determine checkpoint path
         local_global_step_folder = os.path.join(self.config.trainer.default_local_dir, f"global_step_{step}")
-
-        if self.device_mesh.get_rank() == 0:
+        if self.rank == 0:
             print(f"Saving checkpoint to: {local_global_step_folder}")
 
         # Get max checkpoints to keep
         max_ckpt_to_keep = getattr(self.config.trainer, "max_ckpt_to_keep", None)
 
         # Use checkpoint manager to save
-        self.checkpoint_manager.save_checkpoint(
-            local_path=local_global_step_folder, global_step=step, max_ckpt_to_keep=max_ckpt_to_keep
-        )
+        self.engine.save_checkpoint(local_path=local_global_step_folder,
+                                    global_step=step,
+                                    max_ckpt_to_keep=max_ckpt_to_keep)
 
-        # Save dataloader state
-        if self.device_mesh.get_rank() == 0:
+        # Save dataloader state. Note that we only save the iterator in the train_dataloader. So it's identical in each dp rank.
+        if self.rank == 0:
             local_mkdir_safe(local_global_step_folder)
             dataloader_local_path = os.path.join(local_global_step_folder, "data.pt")
 
@@ -237,6 +227,7 @@ class SFTTrainer:
             torch.save(dataloader_state_dict, dataloader_local_path)
             print(f"Saved dataloader state to: {dataloader_local_path}")
 
+        if self.rank == 0:
             # Update latest checkpoint tracker (atomic write)
             tracker_file = get_checkpoint_tracker_filename(self.config.trainer.default_local_dir)
             temp_tracker_file = tracker_file + ".tmp"
@@ -246,7 +237,7 @@ class SFTTrainer:
             print(f"Updated checkpoint tracker: {tracker_file}")
 
         # Copy to HDFS if configured
-        if self.device_mesh.get_rank() == 0 and getattr(self.config.trainer, "default_hdfs_dir", None):
+        if self.rank == 0 and getattr(self.config.trainer, "default_hdfs_dir", None):
             hdfs_io.makedirs(self.config.trainer.default_hdfs_dir, exist_ok=True)
             hdfs_io.copy(src=local_global_step_folder, dst=self.config.trainer.default_hdfs_dir, dirs_exist_ok=True)
 
@@ -265,7 +256,7 @@ class SFTTrainer:
             log_with_rank(
                 f"Warning: Could not extract step number from {checkpoint_path}, starting from step 0",
                 logger=logger,
-                rank=self.device_mesh.get_rank(),
+                rank=self.rank,
                 level=logging.WARNING,
                 log_only_rank_0=True,
             )
@@ -291,7 +282,7 @@ class SFTTrainer:
             log_with_rank(
                 f"Successfully loaded dataloader state from {dataloader_path}",
                 logger=logger,
-                rank=self.device_mesh.get_rank(),
+                rank=self.rank,
                 log_only_rank_0=True,
             )
 
@@ -299,7 +290,7 @@ class SFTTrainer:
             log_with_rank(
                 f"Warning: No dataloader state found at {dataloader_path}, will start from scratch",
                 logger=logger,
-                rank=self.device_mesh.get_rank(),
+                rank=self.rank,
                 level=logging.WARNING,
                 log_only_rank_0=True,
             )
@@ -338,14 +329,14 @@ class SFTTrainer:
 
         latest_checkpoint = find_latest_ckpt_path(checkpoint_dir)
 
-        if latest_checkpoint and self.device_mesh.get_rank() == 0:
+        if latest_checkpoint and self.rank == 0:
             step_num = extract_step(latest_checkpoint)
             print(f"Found latest checkpoint: {latest_checkpoint} (step {step_num})")
 
         return latest_checkpoint
 
     def fit(self):
-        rank = torch.distributed.get_rank()
+        rank = self.rank
 
         # TODO: add a unified tracking
         if rank == 0:
