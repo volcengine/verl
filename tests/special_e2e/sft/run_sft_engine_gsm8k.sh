@@ -12,10 +12,9 @@ backend=${BACKEND:-fsdp}
 
 project_name=verl_sft_test
 exp_name=gsm8k-${backend}
-RESUME_MODE=auto
+RESUME_MODE=disable
 
-ckpts_home=/mnt/hdfs/zhangchi.usc1992_lf_lq/verl/test/gsm8k-sft-${backend}
-
+ckpts_home=${ckpts_home:-~/verl/test/gsm8k-sft-${backend}}
 
 FSDP_ENGINE_CONFIG="\
     engine=${backend} \
@@ -55,6 +54,7 @@ else
     echo "Using megatron engine"
 fi
 
+mkdir -p "${ckpts_home}"
 
 torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     data.train_files="${TRAIN_FILES}" \
@@ -70,7 +70,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     model.path=Qwen/Qwen2.5-0.5B-Instruct \
     ${ENGINE_CONFIG} \
     trainer.test_freq=after_each_epoch \
-    trainer.save_freq=after_each_epoch \
+    trainer.save_freq=-1 \
     trainer.logger=['console'] \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
@@ -83,4 +83,4 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     # trainer.checkpoint.save_contents=[model,optimizer,extra,hf_model] \
     # trainer.max_ckpt_to_keep=1 \
     
-    
+rm -rf "${ckpts_home:?}/*"
