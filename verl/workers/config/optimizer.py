@@ -34,7 +34,7 @@ class OptimizerConfig(BaseConfig):
         lr_warmup_steps (Optional[int]): Number of warmup steps; None delegates to lr_warmup_steps_ratio.
     """
 
-    _mutable_fields = {"clip_grad"}
+    _mutable_fields = {"clip_grad", "total_training_steps", "lr_warmup_steps"}
 
     lr: float = 1e-3
     lr_warmup_steps_ratio: float = 0.0
@@ -92,7 +92,6 @@ class McoreOptimizerConfig(OptimizerConfig):
     """
 
     optimizer: str = "adam"
-    clip_grad: float = 1.0
     lr_warmup_init: float = 0.0
     lr_decay_steps: Optional[int] = None
     lr_decay_style: str = "linear"

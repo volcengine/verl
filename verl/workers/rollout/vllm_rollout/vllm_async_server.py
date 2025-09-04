@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import asyncio
 import logging
 import os
 import pickle
@@ -35,7 +36,6 @@ from vllm.v1.engine.async_llm import AsyncLLM
 from vllm.v1.executor.abstract import Executor
 from vllm.worker.worker_base import WorkerWrapperBase
 
-from verl.third_party.vllm import VLLM_SLEEP_LEVEL
 from verl.utils import hf_processor
 from verl.utils.fs import copy_to_local
 from verl.workers.rollout.async_server import AsyncServerBase, TokenOutput
@@ -317,8 +317,8 @@ class AsyncvLLMServer(AsyncServerBase):
 
         # VERL_VLLM_ZMQ_ADDRESSES
         if engine_args.distributed_executor_backend == ExternalZeroMQDistributedExecutor:
-            workers = _get_model_runner_workers(vllm_config=vllm_config, init_ray=False)
-            zmq_addresses = ray.get([worker.get_zeromq_address.remote() for worker in workers])
+            self.workers = _get_model_runner_workers(vllm_config=vllm_config, init_ray=False)
+            zmq_addresses = ray.get([worker.get_zeromq_address.remote() for worker in self.workers])
             print(f"VERL_VLLM_ZMQ_ADDRESSES: {zmq_addresses}")
             os.environ["VERL_VLLM_ZMQ_ADDRESSES"] = ",".join(zmq_addresses)
 
@@ -372,13 +372,13 @@ class AsyncvLLMServer(AsyncServerBase):
 
     async def wake_up(self):
         if self.config.rollout.free_cache_engine:
-            await self.engine.wake_up()
+            await asyncio.gather(*[worker.wake_up.remote() for worker in self.workers])
 
     async def sleep(self):
         # TODO: https://github.com/vllm-project/vllm/issues/17103
         await self.engine.reset_prefix_cache()
         if self.config.rollout.free_cache_engine:
-            await self.engine.sleep(level=VLLM_SLEEP_LEVEL)
+            await asyncio.gather(*[worker.sleep.remote() for worker in self.workers])
 
 
 def _qwen2_5_vl_dedup_image_tokens(prompt_ids: list[int], processor):

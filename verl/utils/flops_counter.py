@@ -30,6 +30,7 @@ VALID_CONFIG_TYPE = {
     "minicpmo",
     "mistral",
     "gemma3_text",
+    "seed_oss",
 }
 
 
@@ -130,6 +131,7 @@ class FlopsCounter:
             "minicpmo": self._estimate_qwen2_flops,
             "mistral": self._estimate_qwen2_flops,
             "gemma3_text": self._estimate_gemma3_flops,
+            "seed_oss": self._estimate_qwen2_flops,
         }
         self.config = config
 
