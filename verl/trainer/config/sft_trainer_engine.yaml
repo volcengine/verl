@@ -58,8 +58,6 @@ trainer:
   seed: 1
   save_freq: -1
   test_freq: -1
-  nnodes: 1
-  n_gpus_per_node: 8
   max_ckpt_to_keep: null  # Maximum number of checkpoints to keep, set to null to keep all
 
   # Resume mode: "auto", "disable", or "resume_path"

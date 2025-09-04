@@ -10,6 +10,10 @@ VAL_FILES=~/data/gsm8k_sft/test.parquet
 
 backend=fsdp
 
+project_name=verl_sft_test
+exp_name=gsm8k
+
+
 torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     data.train_files="${TRAIN_FILES}" \
     data.val_files="${VAL_FILES}" \
@@ -20,6 +24,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     data.truncation=error \
     data.use_dynamic_bsz=True \
     data.max_token_len_per_gpu=8192 \
+    data.messages_key=messages \
     model.path=/mnt/hdfs/zhangchi.usc1992_lf_lq/models/Qwen2.5-3B-Instruct \
     engine=${backend} \
     optim=${backend} \
@@ -31,17 +36,19 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     optim.min_lr_ratio=0.1 \
     optim.warmup_style=cosine \
     engine.ulysses_sequence_parallel_size=2 \
-    engine.strategy=fsdp
+    engine.strategy=fsdp \
+    trainer.test_freq=after_each_epoch \
+    trainer.save_freq=-1 \
+    trainer.logger=['console'] \
+    trainer.project_name="${project_name}" \
+    trainer.experiment_name="${exp_name}" \
 
-
-    # data.multiturn.messages_key=messages \
+    
     # data.micro_batch_size_per_gpu=${micro_bsz} \
     # trainer.default_local_dir="${ckpts_home}" \
-    # trainer.project_name="${project_name}" \
-    # trainer.experiment_name="${exp_name}" \
+    
     # trainer.total_training_steps=${TOTAL_TRAIN_STEP} \
-    # trainer.save_freq=${SAVE_FREQ} \
     # trainer.checkpoint.save_contents=[model,optimizer,extra,hf_model] \
     # trainer.max_ckpt_to_keep=1 \
     # trainer.resume_mode=${RESUME_MODE} \
-    # trainer.logger=['console'] $@
+    

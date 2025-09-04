@@ -135,6 +135,15 @@ class SFTTrainer:
 
         self.steps_per_epoch = len(self.train_dataloader)
 
+        # manage save and test frequency
+        self.save_freq = self.config.trainer.save_freq
+        if self.save_freq == 'after_each_epoch':
+            self.save_freq = self.steps_per_epoch
+
+        self.test_freq = self.config.trainer.test_freq
+        if self.test_freq == 'after_each_epoch':
+            self.test_freq = self.steps_per_epoch
+
         self.engine.initialize()
 
 
@@ -189,7 +198,8 @@ class SFTTrainer:
         )
 
     def validation_step(self, batch: TensorDict):
-        self.fsdp_model.eval()
+        
+
         with torch.no_grad():
             loss = self._compute_loss_and_backward(batch, do_backward=False)
             if is_cuda_available:
@@ -395,7 +405,8 @@ class SFTTrainer:
 
                 with self.engine.train_mode():
                     with Timer(name="update_policy", logger=None) as timer:
-                        metrics = self.engine.train_batch(data=data, loss_function=self.loss_fn)
+                        output = self.engine.train_batch(data=data, loss_function=self.loss_fn)
+                        metrics = output['metrics']
 
                 loss = torch.mean(torch.tensor(metrics['loss'], device=self.device_name))
 
@@ -431,27 +442,32 @@ class SFTTrainer:
                     tracking.log(data=metrics, step=global_step)
 
                 is_last_step = global_step >= self.total_training_steps
-                is_valid_step = global_step % self.config.trainer.test_freq == 0
-                is_save_step = global_step % self.config.trainer.save_freq == 0
+                is_valid_step = global_step % self.test_freq == 0
+                is_save_step = global_step % self.save_freq == 0
 
                 # early exit or validation step
-                if is_last_step or (self.config.trainer.test_freq > 0 and is_valid_step):
+                if is_last_step or (self.test_freq > 0 and is_valid_step):
                     # Perform validation
                     val_losses = []
                     for val_data in self.val_dataloader:
-                        val_data = TensorDict(val_data, batch_size=self.config.data.micro_batch_size_per_gpu).to(
-                            self.device_name
-                        )
-                        val_loss = self.validation_step(val_data)
-                        val_losses.append(val_loss)
+                        with self.engine.eval_mode():
+                            val_data = DataProto.from_dict(tensors=val_data, meta_info=meta_info)
+                            output = self.engine.infer_batch(data=val_data, loss_function=self.loss_fn)
+                            val_losses.extend(output['metrics']['loss'])
+
+                    val_loss = torch.mean(torch.tensor(val_losses, device=self.device_name))
+
+                    # average over data parallel group
+                    torch.distributed.all_reduce(val_loss, op=torch.distributed.ReduceOp.AVG, 
+                                                 group=self.engine.get_data_parallel_group())
+                    
                     if rank == 0:
-                        val_loss = torch.mean(torch.stack(val_losses))
                         metric = {"val/loss": val_loss.detach().item()}
                         tracking.log(data=metric, step=global_step)
                         last_valid_metric = metric
                     torch.distributed.barrier()
 
-                if is_last_step or (self.config.trainer.save_freq > 0 and is_save_step):
+                if is_last_step or (self.save_freq > 0 and is_save_step):
                     self.save_checkpoint(step=global_step)
 
                 if is_last_step:

@@ -107,7 +107,7 @@ class BaseEngine:
         self.optimizer_zero_grad()
         outputs = self.forward_backward_batch(data, loss_function, forward_only=False)
         grad_norm = self.optimizer_step()
-        outputs["grad_norm"] = grad_norm
+        outputs["metrics"]["grad_norm"] = grad_norm
         return outputs
 
     def infer_batch(self, data: DataProto, loss_function: Optional[Callable] = None) -> Any:
