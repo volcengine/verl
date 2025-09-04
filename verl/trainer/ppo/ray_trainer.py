@@ -45,7 +45,7 @@ from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import AdvantageEstimator, agg_loss
 from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
-    compute_reward_metrics,
+    compute_raw_reward_metrics,
     compute_throughout_metrics,
     compute_timing_metrics,
     process_validation_metrics,
@@ -1046,7 +1046,7 @@ class RayPPOTrainer:
                             future_reward = compute_reward_async.remote(data=batch, reward_fn=self.reward_fn)
                         else:
                             reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
-                            # Set token_level_scores immediately for sync case (needed for compute_reward_metrics)
+                            # Set token_level_scores immediately for sync case (needed for compute_raw_reward_metrics)
                             batch.batch["token_level_scores"] = reward_tensor
 
                             if reward_extra_infos_dict:
@@ -1054,13 +1054,18 @@ class RayPPOTrainer:
                                     {k: np.array(v) for k, v in reward_extra_infos_dict.items()}
                                 )
 
-                    # Compute reward metrics
-                    if self.dynamic_filter and self.dynamic_filter.increment_reward_step(self.global_steps):
-                        reward_metrics = compute_reward_metrics(batch)
-                        metrics.update(reward_metrics)
-
                     # Apply dynamic filtering after reward computation
                     if self.dynamic_filter:
+                        # Compute reward metrics from the FIRST generation batch (BEFORE filtering)
+                        # These metrics capture the raw reward distribution of ALL generated responses,
+                        # including those that will be filtered out by dynamic filtering (DAPO).
+                        # This provides insight into the reward signal quality before diversity filtering.
+                        # NOTE: compute_raw_reward_metrics() produces "before_filtering/reward/*" metrics
+                        # to distinguish them from "critic/rewards/*" metrics computed later after filtering.
+                        if self.dynamic_filter.increment_reward_step(self.global_steps):
+                            reward_metrics = compute_raw_reward_metrics(batch)
+                            metrics.update(reward_metrics)
+
                         # Apply dynamic filtering and handle batch accumulation
                         processed_batch, should_continue = self.dynamic_filter.process_batch_with_filtering(
                             batch,
