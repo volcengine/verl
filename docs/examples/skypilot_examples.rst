@@ -1,6 +1,8 @@
 SkyPilot Examples
 =================
 
+Last updated: 09/04/2025.
+
 This guide provides examples of running VERL reinforcement learning training on Kubernetes clusters or cloud platforms with GPU nodes using `SkyPilot <https://github.com/skypilot-org/skypilot>`_.
 
 Installation and Configuration
