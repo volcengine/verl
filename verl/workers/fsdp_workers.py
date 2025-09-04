@@ -712,12 +712,16 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         if self._is_offload_optimizer:
             load_fsdp_optimizer(optimizer=self.actor_optimizer, device_id=get_device_id())
 
+        micro_batch_size = self.config.actor.ppo_micro_batch_size_per_gpu
+        data.meta_info["micro_batch_size"] = micro_batch_size
+        dataloader = self.actor.make_minibatch_iterator(data=data)
+
         with self.ulysses_sharding_manager:
             data = data.to("cpu")  # data will to device with each micro batch on actor.update_policy
 
             # perform training
             with Timer(name="update_policy", logger=None) as timer:
-                metrics = self.actor.update_policy(data=data)
+                metrics = self.actor.update_policy(dataloader=dataloader)
             delta_time = timer.last
             global_num_tokens = data.meta_info["global_token_num"]
             estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
@@ -1303,11 +1307,15 @@ class CriticWorker(Worker, DistProfilerExtension):
         if self._is_offload_optimizer:
             load_fsdp_optimizer(optimizer=self.critic_optimizer, device_id=get_device_id())
 
+        micro_batch_size = self.config.actor.ppo_micro_batch_size_per_gpu
+        data.meta_info["micro_batch_size"] = micro_batch_size
+        dataloader = self.actor.make_minibatch_iterator(data=data)
+
         # perform forward computation
         with self.ulysses_sharding_manager:
             data = data.to("cpu")  # data will to device with each micro batch on critic.update_critic
             with Timer(name="update_critic", logger=None) as timer:
-                metrics = self.critic.update_critic(data=data)
+                metrics = self.critic.update_critic(dataloader=dataloader)
             delta_time = timer.last
 
             global_num_tokens = data.meta_info["global_token_num"]

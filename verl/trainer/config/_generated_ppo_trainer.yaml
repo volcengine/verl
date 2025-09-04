@@ -33,6 +33,7 @@ actor_rollout_ref:
     kl_loss_type: low_var_kl
     ppo_epochs: 1
     shuffle: false
+    data_loader_seed: null
     checkpoint:
       _target_: verl.trainer.config.CheckpointConfig
       save_contents:
@@ -313,6 +314,7 @@ critic:
   forward_max_token_len_per_gpu: ${.ppo_max_token_len_per_gpu}
   ppo_epochs: ${oc.select:actor_rollout_ref.actor.ppo_epochs,1}
   shuffle: ${oc.select:actor_rollout_ref.actor.shuffle,false}
+  data_loader_seed: ${oc.select:actor_rollout_ref.actor.data_loader_seed,null}
   cliprange_value: 0.5
   loss_agg_mode: ${oc.select:actor_rollout_ref.actor.loss_agg_mode,token-mean}
   checkpoint:
