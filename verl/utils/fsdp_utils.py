@@ -32,6 +32,7 @@ from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy, transformer
 from transformers.trainer_pt_utils import get_module_class_from_name
 
 from verl.utils.device import get_device_id, get_device_name, get_torch_device
+from verl.utils.model import check_exclude_modules, check_target_modules
 
 if version.parse(torch.__version__) >= version.parse("2.6"):
     from torch.distributed.fsdp import CPUOffloadPolicy, FSDPModule, MixedPrecisionPolicy, fully_shard
@@ -579,10 +580,12 @@ def layered_summon_lora_params(fsdp_module) -> OrderedDict:
         "_fsdp_wrapped_module.base_model.model.",
         "_fsdp_wrapped_module.base_model.model.model.",
         "_fsdp_wrapped_module.base_model.model.model.layers.",
+        "_fsdp_wrapped_module.base_model.model.model.language_model.layers.",
         # fsdp2
         "base_model.model.",
         "base_model.model.model.",
         "base_model.model.model.layers.",
+        "base_model.model.model.language_model.layers.",
     ]
     peft_model = getattr(fsdp_module, "_fsdp_wrapped_module", fsdp_module)
     for prefix in prefix_list:
@@ -603,3 +606,89 @@ def layered_summon_lora_params(fsdp_module) -> OrderedDict:
                     submodule._is_root = False
                 get_torch_device().empty_cache()
     return lora_params
+
+
+def collect_lora_params(module: FSDP, layered_summon: bool, base_sync_done: bool) -> OrderedDict:
+    """
+    collect lora params or full params if base model is not ready in vllm
+    work with if isinstance(self.module._fsdp_wrapped_module, PeftModel)
+    """
+    from peft.utils.save_and_load import get_peft_model_state_dict
+
+    lora_params = OrderedDict()
+    peft_model = getattr(module, "_fsdp_wrapped_module", module)
+    if fsdp_version(module) > 0:
+        if layered_summon:
+            if not base_sync_done:
+                raise ValueError(
+                    "To use layered_summon, you must make sure base-model is preloaded in vllm, e.g. let "
+                    "rollout.load_format=safetensors"
+                )
+            lora_params = layered_summon_lora_params(module)
+        else:
+            with FSDP.summon_full_params(module, writeback=False):
+                if base_sync_done:
+                    lora_params = get_peft_model_state_dict(peft_model)
+                    lora_params = {
+                        name: param.full_tensor().detach().cpu()
+                        if hasattr(param, "full_tensor")
+                        else param.detach().cpu()
+                        for name, param in lora_params.items()
+                    }
+                else:
+                    model = peft_model.base_model.model
+                    orig_dev = "cpu" if "cpu" in str(next(model.parameters()).device) else get_device_name()
+                    model = model.to("cpu")
+                    for name, param in model.state_dict().items():
+                        if any(x in name for x in ["_flat_param", "lora_"]):
+                            continue
+                        name = name.replace("_fsdp_wrapped_module.", "").replace(".base_layer", "")
+                        lora_params[name] = (
+                            param.full_tensor().detach().cpu()
+                            if hasattr(param, "full_tensor")
+                            else param.detach().cpu()
+                        )
+                    model = model.to(orig_dev)
+            get_torch_device().empty_cache()
+    else:
+        if base_sync_done:
+            lora_params = get_peft_model_state_dict(peft_model)
+        else:
+            model = peft_model.base_model.model
+            orig_dev = "cpu" if "cpu" in str(next(model.parameters()).device) else get_device_name()
+            model = model.to("cpu")
+            for name, param in model.state_dict().items():
+                if any(x in name for x in ["_flat_param", "lora_"]):
+                    continue
+                name = name.replace("_fsdp_wrapped_module.", "").replace(".base_layer", "")
+                lora_params[name] = param.detach().cpu()
+            model = model.to(orig_dev)
+    return lora_params
+
+
+def replace_lora_wrapper(k, peft_config):
+    """Replace LoRA parameter keys with base layer equivalents.
+
+    Transforms LoRA parameter names to their corresponding base layer
+    names for proper weight loading in vLLM when base model sync is not done.
+
+    Args:
+        k (str): Original parameter key name.
+
+    Returns:
+        str: Transformed parameter key for base layer.
+    """
+    stacked_params = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+    if k.endswith(".weight"):
+        module_k = k[: -len(".weight")]
+        if check_exclude_modules(peft_config, module_k):
+            return k
+        elif any([module_k.endswith(s) for s in stacked_params]) or check_target_modules(peft_config, module_k):
+            return f"{module_k}.base_layer.weight"
+    if k.endswith(".bias"):
+        module_k = k[: -len(".bias")]
+        if check_exclude_modules(peft_config, module_k):
+            return k
+        elif any([module_k.endswith(s) for s in stacked_params]) or check_target_modules(peft_config, module_k):
+            return f"{module_k}.base_layer.bias"
+    return k

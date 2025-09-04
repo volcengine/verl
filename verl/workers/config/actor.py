@@ -22,6 +22,7 @@ from verl.trainer.config import CheckpointConfig
 from verl.utils.profiler.config import ProfilerConfig
 
 from .engine import FSDPEngineConfig, McoreEngineConfig
+from .model import HFModelConfig
 from .optimizer import OptimizerConfig
 
 __all__ = ["PolicyLossConfig", "ActorConfig", "FSDPActorConfig", "McoreActorConfig"]
@@ -86,14 +87,17 @@ class ActorConfig(BaseConfig):
         "ppo_mini_batch_size",
         "ppo_micro_batch_size",
         "ppo_micro_batch_size_per_gpu",
+        "ppo_infer_micro_batch_size_per_gpu",
     }
 
     strategy: str = MISSING
     ppo_mini_batch_size: int = 256
-    ppo_micro_batch_size: Optional[int] = None
+    ppo_micro_batch_size: Optional[int] = None  # deprecate
     ppo_micro_batch_size_per_gpu: Optional[int] = None
+    ppo_infer_micro_batch_size_per_gpu: Optional[int] = None
     use_dynamic_bsz: bool = False
     ppo_max_token_len_per_gpu: int = 16384
+    ppo_infer_max_token_len_per_gpu: int = 16384
     clip_ratio: float = 0.2
     clip_ratio_low: float = 0.2
     clip_ratio_high: float = 0.2
@@ -101,6 +105,7 @@ class ActorConfig(BaseConfig):
     clip_ratio_c: float = 3.0
     loss_agg_mode: str = "token-mean"
     entropy_coeff: float = 0
+    tis_imp_ratio_cap: float = -1
     use_kl_loss: bool = False
     use_torch_compile: bool = True
     kl_loss_coef: float = 0.001
@@ -111,10 +116,15 @@ class ActorConfig(BaseConfig):
     optim: OptimizerConfig = field(default_factory=OptimizerConfig)
     use_fused_kernels: bool = False
     profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
+    engine: BaseConfig = field(default_factory=BaseConfig)
+    data_loader_seed = 1
+    n: int = 1  # must be override by sampling config
+    model_config: HFModelConfig = field(default_factory=BaseConfig)
 
     def __post_init__(self):
         """Validate actor configuration parameters."""
         assert self.strategy != MISSING
+        assert self.n != MISSING
         if not self.use_dynamic_bsz:
             if self.ppo_micro_batch_size is not None and self.ppo_micro_batch_size_per_gpu is not None:
                 raise ValueError(
