@@ -236,7 +236,7 @@ def _get_gpu_info():
                 }
             )
         return gpu_count, gpu_info
-    except subprocess.CalledProcessError:
+    except (subprocess.CalledProcessError, FileNotFoundError):
         print("Failed to execute nvidia-smi command.")
         return 0, []
 
