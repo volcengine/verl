@@ -20,11 +20,10 @@ from verl.protocol import DataProto
 
 
 class PostDumpAction(Enum):
-    REPEAT = "repeat"  # 循环使用所有dump的样本
-    REPEAT_LAST = "repeat_last"  # 重复使用最后一个样本
-    ROLLOUT = "rollout"  # 恢复正常推理模式
-    ROLLOUT_WITH_DUMP = "rollout_with_dump"
-    EXIT = "exit"  # 退出程序
+    REPEAT = "repeat"  # Repeat the sample
+    REPEAT_LAST = "repeat_last"  # Repeat the last sample
+    ROLLOUT = "rollout"  # rollout the sample
+    ROLLOUT_WITH_DUMP = "rollout_with_dump"  # rollout the sample and dump
 
 
 class RolloutSkip:
