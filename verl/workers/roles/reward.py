@@ -122,7 +122,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
         src_max_length = data.batch["attention_mask"].shape[-1]
 
         src_tokenizer = self.input_tokenizer
-        target_tokenizer = self.tokenizer
+        target_tokenizer = self.src_tokenizer
 
         rm_input_ids = []
         rm_attention_mask = []

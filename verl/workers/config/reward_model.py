@@ -96,10 +96,11 @@ class RewardModelConfig(BaseConfig):
     max_num_seqs: int = 1024
     dtype: str = "bfloat16"
     gpu_memory_utilization: float = 0.5
+    free_cache_engine: bool = True
 
     sandbox_fusion: SandboxFusionConfig = field(default_factory=SandboxFusionConfig)
     profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
-    input_model_config: HFModelConfig = field(default_factory=BaseConfig)
-    model_config: HFModelConfig = field(default_factory=BaseConfig)
+    input_model_config: HFModelConfig = field(default_factory=HFModelConfig)
+    model_config: HFModelConfig = field(default_factory=HFModelConfig)
     # Server configuration for sglang server mode
     server: ServerConfig = field(default_factory=ServerConfig)

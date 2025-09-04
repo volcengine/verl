@@ -39,20 +39,6 @@ class BasePPORewardModel(ABC):
         self.device_mesh = device_mesh
 
     @abstractmethod
-    async def resume(self, tags: list[str]):
-        """Resume reward model weights or kv cache in GPU memory.
-
-        Args:
-            tags: weights or kv_cache.
-        """
-        pass
-
-    @abstractmethod
-    async def release(self):
-        """Release weights and kv cache in GPU memory."""
-        pass
-
-    @abstractmethod
     def compute_reward(self, data: DataProto) -> DataProto:
         """Computing reward given input_ids. The transformers should output a tensor with shape
            [batch_size, sequence_length], and the value at [EOS] mask should be gathered.
