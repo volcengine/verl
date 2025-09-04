@@ -129,7 +129,7 @@ class BaseEngine:
 
     def get_data_parallel_rank(self):
         raise NotImplementedError
-    
+
     def get_data_parallel_group(self):
         raise NotImplementedError
 

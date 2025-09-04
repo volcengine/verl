@@ -23,7 +23,6 @@ from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.fs import copy_to_local
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import get_generation_config, update_model_config
-from verl.utils.import_utils import import_external_libs
 
 __all__ = ["HFModelConfig"]
 
