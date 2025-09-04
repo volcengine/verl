@@ -61,7 +61,7 @@ class MultiTurnSFTDataset(Dataset):
         # for right padding
         self.max_length = config.get("max_length", 1024)
         # for left right paddding to be consistent with RL
-        self.max_propmt_length = config.get("max_propmt_length", 512)
+        self.max_prompt_length = config.get("max_prompt_length", 512)
         self.max_response_length = config.get("max_response_length", 512)
         # Get messages_key from the new multiturn config structure
         multiturn_config = config.get("multiturn", {})
