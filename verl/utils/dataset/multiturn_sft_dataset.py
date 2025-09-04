@@ -384,7 +384,7 @@ class MultiTurnSFTDataset(Dataset):
             prompt_ids, prompt_attention_mask = postprocess_data(
                 input_ids=prompt_ids,
                 attention_mask=prompt_attention_mask,
-                max_length=self.max_propmt_length,
+                max_length=self.max_prompt_length,
                 pad_token_id=self.tokenizer.pad_token_id,
                 left_pad=True,
                 truncation=self.truncation,
