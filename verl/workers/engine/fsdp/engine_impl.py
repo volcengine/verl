@@ -436,12 +436,6 @@ class FSDPEngine(BaseEngine):
 
     def get_data_parallel_size(self):
         return torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
-    
-    def get_data_parallel_group(self):
-        if self.ulysses_device_mesh is not None:
-            return self.ulysses_device_mesh.get_group(mesh_dim="dp")
-        else:
-            return torch.distributed.group.WORLD
 
     def get_data_parallel_group(self):
         if self.ulysses_device_mesh is not None:

@@ -61,6 +61,7 @@ def postprocess_batch_func(output_lst, indices, data: DataProto):
     for o in output_lst:
         if "loss" in o:
             losses.append(o["loss"])
+
     # metrics
     for o in output_lst:
         if "metrics" in o:

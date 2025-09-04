@@ -133,9 +133,6 @@ class BaseEngine:
     def get_data_parallel_group(self):
         raise NotImplementedError
 
-    def get_data_parallel_group(self):
-        raise NotImplementedError
-
     def to(self, device: str, model: bool = True, optimizer: bool = True):
         """
         Move model parameters, optimizer states, or both to the specified device.
