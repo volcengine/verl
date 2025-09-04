@@ -282,25 +282,30 @@ def wrap_generate_sequences(rolloutskip: RolloutSkip, rollout_wg):
             else:
                 rolloutskip.replace_curr_new_batch(dumped_new_batch)
 
-        else:
-            if rolloutskip.post_dump_action == PostDumpAction.REPEAT:
-                target_step = rolloutskip.list_dumped_steps[(rolloutskip.curr_step - 1) % rolloutskip.num_dumped_step]
-                dumped_new_batch, return_batch = rolloutskip.try_load(step=target_step)
-                if return_batch is not None:
-                    rolloutskip.replace_curr_new_batch(dumped_new_batch)
-
-            elif rolloutskip.post_dump_action == PostDumpAction.REPEAT_LAST:
-                target_step = rolloutskip.list_dumped_steps[-1]
-                dumped_new_batch, return_batch = rolloutskip.try_load(step=target_step)
-                if return_batch is not None:
-                    rolloutskip.replace_curr_new_batch(dumped_new_batch)
-
-            elif rolloutskip.post_dump_action == PostDumpAction.ROLLOUT:
-                return_batch = generate_sequences(batch, **kwargs)
-
-            elif rolloutskip.post_dump_action == PostDumpAction.ROLLOUT_WITH_DUMP:
+        elif rolloutskip.post_dump_action == PostDumpAction.REPEAT:
+            target_step = rolloutskip.list_dumped_steps[(rolloutskip.curr_step - 1) % rolloutskip.num_dumped_step]
+            dumped_new_batch, return_batch = rolloutskip.try_load(step=target_step)
+            if return_batch is None:
                 return_batch = generate_sequences(batch, **kwargs)
                 rolloutskip.dump(return_batch)
+            else:
+                rolloutskip.replace_curr_new_batch(dumped_new_batch)
+
+        elif rolloutskip.post_dump_action == PostDumpAction.REPEAT_LAST:
+            target_step = rolloutskip.list_dumped_steps[-1]
+            dumped_new_batch, return_batch = rolloutskip.try_load(step=target_step)
+            if return_batch is None:
+                return_batch = generate_sequences(batch, **kwargs)
+                rolloutskip.dump(return_batch)
+            else:
+                rolloutskip.replace_curr_new_batch(dumped_new_batch)
+
+        elif rolloutskip.post_dump_action == PostDumpAction.ROLLOUT:
+            return_batch = generate_sequences(batch, **kwargs)
+
+        elif rolloutskip.post_dump_action == PostDumpAction.ROLLOUT_WITH_DUMP:
+            return_batch = generate_sequences(batch, **kwargs)
+            rolloutskip.dump(return_batch)
 
             # clean
         return return_batch
