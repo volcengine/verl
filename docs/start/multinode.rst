@@ -69,6 +69,15 @@ Submit job to ray cluster
 Option 2: Launch via SkyPilot on Kubernetes or clouds
 ------------------------------------------------------
 
+.. note::
+   Ready-to-use SkyPilot example configurations are available in the `examples/skypilot/ <https://github.com/volcengine/verl/tree/main/examples/skypilot>`_ directory:
+   
+   - ``verl-ppo.yaml`` - PPO training with GSM8K dataset
+   - ``verl-grpo.yaml`` - GRPO training with MATH dataset  
+   - ``verl-multiturn-tools.yaml`` - Multi-turn tool usage training
+   
+   See the `SkyPilot examples README <https://github.com/volcengine/verl/tree/main/examples/skypilot>`_ for detailed usage instructions.
+
 Step 1: Setup SkyPilot
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 SkyPilot can support different clouds, here we use GCP as example. `install skypilot <https://docs.skypilot.co/en/latest/getting-started/installation.html>`_
