@@ -183,7 +183,7 @@ def test_multiturn_sft_dataset():
         "truncation": "error",
         "multiturn": {"messages_key": "messages"},
         "pad_mode": "left_right",
-        "max_propmt_length": 64,
+        "max_prompt_length": 64,
         "max_response_length": 64,
     }
     dataset = MultiTurnSFTDataset(parquet_files=test_file, tokenizer=tokenizer, config=config)
