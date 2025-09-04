@@ -15,16 +15,13 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from omegaconf import MISSING
-
 from verl.base_config import BaseConfig
-from verl.trainer.config import BaseModelConfig, CheckpointConfig
 from verl.utils.profiler import ProfilerConfig
 
 from .model import HFModelConfig
 
-
 __all__ = ["ServerConfig", "SandboxFusionConfig", "RewardModelConfig"]
+
 
 @dataclass
 class ServerConfig(BaseConfig):
@@ -42,13 +39,13 @@ class ServerConfig(BaseConfig):
 @dataclass
 class SandboxFusionConfig(BaseConfig):
     """Configuration for cloud/local sandbox fusion.
-    
+
     Args:
         url (Optional[str]): Cloud/local function URL for sandbox execution.
         max_concurrent (int): Max concurrent requests allowed to sandbox.
         memory_limit_mb (int): Max memory limit for each sandbox process in MB.
     """
-    
+
     url: Optional[str] = None
     max_concurrent: int = 64
     memory_limit_mb: int = 1024
@@ -102,7 +99,7 @@ class RewardModelConfig(BaseConfig):
 
     sandbox_fusion: SandboxFusionConfig = field(default_factory=SandboxFusionConfig)
     profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
-    actor_model_config: HFModelConfig = field(default_factory=BaseConfig)
+    input_model_config: HFModelConfig = field(default_factory=BaseConfig)
     model_config: HFModelConfig = field(default_factory=BaseConfig)
     # Server configuration for sglang server mode
     server: ServerConfig = field(default_factory=ServerConfig)

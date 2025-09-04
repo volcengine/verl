@@ -15,16 +15,12 @@
 The base class for reward model
 """
 
-import importlib
 from abc import ABC, abstractmethod
-from typing import Generator
 
-import torch
 from torch.distributed.device_mesh import DeviceMesh
 
 from verl import DataProto
-from verl.workers.config import RewardModelConfig, HFModelConfig
-
+from verl.workers.config import HFModelConfig, RewardModelConfig
 
 __all__ = ["BasePPORewardModel"]
 

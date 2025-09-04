@@ -76,6 +76,23 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
+def _pre_process_inputs(
+    pad_token_id,
+    prompt_token_ids: torch.Tensor,
+) -> torch.Tensor:
+    # remove the left padding in the prompt token_id
+    non_pad_indices = torch.nonzero(prompt_token_ids != pad_token_id, as_tuple=True)[0]
+    start_idx, end_idx = non_pad_indices[0], non_pad_indices[-1]
+    return prompt_token_ids[start_idx: end_idx + 1]
+
+def _post_process_outputs(output):
+    def _map_each_output(output):
+        reward_score = output["embedding"][-1]
+        return torch.tensor(reward_score)
+
+    scores = torch.stack([_map_each_output(output) for output in output])
+    return scores
+
 class SGLangRewardModel(BasePPORewardModel):
     def __init__(
         self,
@@ -178,8 +195,8 @@ class SGLangRewardModel(BasePPORewardModel):
                 # NOTE(Chenyang): if you want to debug the SGLang engine output
                 # please set the following parameters
                 # Otherwise, it will make the engine run too slow
-                # "log_level": "info",
-                "log_level": "error",
+                "log_level": "info",
+                # "log_level": "error",
                 # log_requests=True,
                 # log_requests_level=2,
                 # NOTE(Chenyang): turn on max_running_requests to set the max concurrent running requests
@@ -188,23 +205,17 @@ class SGLangRewardModel(BasePPORewardModel):
                 "attention_backend": attention_backend if attention_backend is not None else "fa3",
                 # In async mode, we want token in token out.
                 "skip_tokenizer_init": True,
+                # For embedding models
                 "is_embedding": True,
+                # server specific args
+                "timeout": self.config.server["timeout"],
+                "max_attempts": self.config.server["max_attempts"],
+                "retry_delay": self.config.server["retry_delay"],
+                "max_connections": self.config.server["max_connections"],
+                "max_start_wait_time": self.config.server["max_start_wait_time"],
+                "first_rank_in_node": first_rank_in_node,
             }
-
-            # add server specific args
-            args["first_rank_in_node"] = first_rank_in_node
-            args["timeout"] = self.config.server["timeout"]
-            args["max_attempts"] = self.config.server["max_attempts"]
-            args["retry_delay"] = self.config.server["retry_delay"]
-            args["max_connections"] = self.config.server["max_connections"]
-            args["max_start_wait_time"] = self.config.server["max_start_wait_time"]
             self._engine = AsyncHttpServerAdapter(**args)
-
-            # from sglang.srt.server_args import ServerArgs
-            # from sglang.srt.entrypoints.http_server import launch_server
-            # kwargs = {'model_path': 'Qwen/Qwen2.5-1.5B-Instruct', 'dtype': 'bfloat16', 'mem_fraction_static': 0.8, 'enable_memory_saver': True, 'base_gpu_id': 0, 'gpu_id_step': 1, 'tp_size': 2, 'node_rank': 0, 'dist_init_addr': None, 'nnodes': 1, 'trust_remote_code': False, 'max_running_requests': 1024, 'port': 30002, 'log_level': 'info', 'mm_attention_backend': 'fa3', 'attention_backend': 'fa3', 'skip_tokenizer_init': True, 'is_embedding': True}
-            # server_args = ServerArgs(**kwargs)
-            # launch_server(server_args)
         else:
             self._engine = None
 
@@ -212,7 +223,39 @@ class SGLangRewardModel(BasePPORewardModel):
         self.is_sleep = True
 
     def compute_reward(self, data: DataProto):
-        pass
+        # input ids: (bs, prompt_length), left-padded
+        idx = data.batch["input_ids"]
+        # attention_mask: (bs, seq_length), left-padded
+        # attention_mask = data.batch["attention_mask"]
+        # position_ids = data.batch["position_ids"]
+
+        pad_token_id = data.meta_info["pad_token_id"]
+
+        batch_size = idx.size(0)
+
+        idx_list = [_pre_process_inputs(pad_token_id, idx[i]).tolist() for i in range(batch_size)]
+
+        if self._tp_rank == 0:
+            loop = asyncio.new_event_loop()
+            output = loop.run_until_complete(
+                self._engine.async_reward_score(
+                    prompt=None,
+                    input_ids=idx_list
+                )
+            )
+        else:
+            output = None
+
+        dist.barrier()
+        [output] = broadcast_pyobj(
+            data=[output],
+            rank=self._rank,
+            dist_group=self._device_mesh_cpu["tp"].get_group(),
+            src=self._device_mesh_cpu["tp"].mesh[0].item(),
+            force_cpu_device=False,
+        )
+        reward_score = _post_process_outputs(output).to(idx.device)
+        return reward_score
 
     async def resume(self, tags: list[str]):
         """Resume rollout weights or kv cache in GPU memory.

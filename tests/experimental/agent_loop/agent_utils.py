@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+
 import ray
 from omegaconf import DictConfig
 
@@ -19,18 +21,18 @@ from verl.experimental.agent_loop import AgentLoopManager
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
+from verl.workers.config import RewardModelConfig
 from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
 
-from verl.workers.config import RewardModelConfig
-
-import os
 if os.environ["LEGACY_IMPL_RM"] == "disable":
     from verl.workers.roles import RewardModelWorker
 else:
     from verl.workers.fsdp_workers import RewardModelWorker
 
 
-def init_agent_loop_manager(config: DictConfig, reward_model_config: RewardModelConfig = None) -> AgentLoopManager | RayWorkerGroup:
+def init_agent_loop_manager(
+    config: DictConfig, reward_model_config: RewardModelConfig = None
+) -> AgentLoopManager | RayWorkerGroup:
     # =========================== 1. Create hybrid ActorRollout workers ===========================
     actor_rollout_cls = (
         AsyncActorRolloutRefWorker if config.actor_rollout_ref.rollout.mode == "async" else ActorRolloutRefWorker
@@ -102,7 +104,7 @@ def init_agent_loop_manager(config: DictConfig, reward_model_config: RewardModel
     return agent_loop_manager
 
 
-'''
+"""
 LEGACY_IMPL_RM=enable python tests/experimental/agent_loop/test_agent_loop_reward_model.py
 tensor([ 0.8672,  0.6016,  0.8086,  0.2051,  0.9141,  1.0234, -0.4727,  0.5703,
          0.4395,  0.3691,  0.9219,  0.5664,  0.9414,  0.7812,  0.7852,  1.0156,
@@ -122,4 +124,4 @@ tensor([ 0.8672,  0.6016,  0.8086,  0.2051,  0.9141,  1.0234, -0.4727,  0.5703,
          1.0469,  1.0391,  0.9219,  0.0131,  0.7305,  1.2031,  1.5859,  0.7930])
 LEGACY_IMPL_RM=disable python tests/experimental/agent_loop/test_agent_loop_reward_model.py
 
-'''
+"""

@@ -51,14 +51,15 @@ def test_agent_loop_compute_score_with_model():
 
     if os.environ["LEGACY_IMPL_RM"] == "disable":
         from verl.workers.config import HFModelConfig, RewardModelConfig
+
         model_config = HFModelConfig(path=rm_path)
         reward_model_config = RewardModelConfig(
             enable=True,
             enable_resource_pool=True,
-            n_gpus_per_node=2,
+            n_gpus_per_node=4,
             nnodes=1,
             model_config=model_config,
-            actor_model_config=model_config,
+            input_model_config=None,
             tensor_model_parallel_size=2,
             gpu_memory_utilization=0.8,
         )
@@ -112,6 +113,7 @@ def test_agent_loop_compute_score_with_model():
     sample_scores = rm_scores.sum(dim=1)
     print(sample_scores)
     ray.shutdown()
+
 
 if __name__ == "__main__":
     test_agent_loop_compute_score_with_model()

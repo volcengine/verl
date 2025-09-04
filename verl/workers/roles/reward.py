@@ -19,27 +19,20 @@ import logging
 import os
 
 import torch
-from codetiming import Timer
+import numpy as np
 
 from verl import DataProto
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
-from verl.trainer.ppo import core_algos
-from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.device import (
     get_device_id,
     get_device_name,
     get_torch_device,
-    get_nccl_backend,
 )
 from verl.utils.distributed import initialize_global_process_group_ray
-from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerConfig, log_gpu_memory_usage, simple_timer
-from verl.utils.py_functional import append_to_dict
-from verl.utils.torch_functional import masked_mean
-from verl.workers.engine import EngineRegistry
-from verl.workers.reward_model.sglang_reward import SGLangRewardModel
-from verl.workers.config import RewardModelConfig, HFModelConfig
-
+from verl.utils.profiler import DistProfiler, DistProfilerExtension, log_gpu_memory_usage
+from verl.workers.config import HFModelConfig, RewardModelConfig
+from verl.workers.reward_model.sglang_reward_model import SGLangRewardModel
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -51,7 +44,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
     def __init__(self, config: RewardModelConfig) -> None:
         self.config = config
         self.model_config = config.model_config
-        self.actor_model_config = config.actor_model_config
+        self.input_model_config = config.input_model_config
         Worker.__init__(self)
         self.profiler_config = self.config.profiler
         tool_config = self.profiler_config.tool_config
@@ -67,6 +60,12 @@ class RewardModelWorker(Worker, DistProfilerExtension):
         # 1. parse reward model and huggingface model config
         reward_model_config: RewardModelConfig = self.config
         model_config: HFModelConfig = self.config.model_config
+        self.tokenizer = self.model_config.get_processor()
+        if self.input_model_config is None:
+            self._do_switch_chat_template = False
+        else:
+            self._do_switch_chat_template = True
+            self.src_tokenizer = self.input_model_config.get_processor()
 
         # 2. build reward model device mesh
         infer_tp = self.config.tensor_model_parallel_size
@@ -90,22 +89,67 @@ class RewardModelWorker(Worker, DistProfilerExtension):
         get_torch_device().set_rng_state(self.torch_random_states)
 
         # 4. build reward model
-        log_gpu_memory_usage(f"Before building sglang reward model", logger=logger)
+        log_gpu_memory_usage("Before building sglang reward model", logger=logger)
         self.reward_model = SGLangRewardModel(
             config=reward_model_config, model_config=model_config, device_mesh=reward_model_device_mesh
         )
-        log_gpu_memory_usage(f"After building sglang reward model", logger=logger)        
-
+        log_gpu_memory_usage("After building sglang reward model", logger=logger)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
         self._build_reward_model()
 
+    def _expand_to_token_level(self, data: DataProto, scores: torch.Tensor):
+        batch_size = data.batch.batch_size[0]
+        # expand as token_level_reward
+        attention_mask = data.batch["attention_mask"]
+        position_ids = data.batch["position_ids"]
+        response_length = data.batch["responses"].shape[-1]
+        if position_ids.dim() == 3:  # qwen2vl mrope [bs, 3, seq_len]
+            position_ids = position_ids[:, 0, :]
+        eos_mask_idx = torch.argmax(position_ids * attention_mask, dim=-1)  # (bsz,)
+        token_level_scores = torch.zeros_like(attention_mask, dtype=scores.dtype)  # (bsz, seqlen)
+        token_level_scores[torch.arange(batch_size), eos_mask_idx] = scores
+
+        # select the response part
+        token_level_scores = token_level_scores[:, -response_length:]
+
+        return token_level_scores
+
     def _switch_chat_template(self, data: DataProto):
         pass
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="reward"))
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="reward_model"))
     @DistProfiler.annotate(color="brown")
     def compute_rm_score(self, data: DataProto):
-        breakpoint()
-        self.reward_model.compute_reward(data)
+        data = data.to(get_device_id())
+
+        if self._do_switch_chat_template:
+            rm_data = self._switch_chat_template(data)
+        else:
+            rm_input_ids = data.batch["input_ids"]
+            rm_attention_mask = data.batch["attention_mask"]
+            rm_position_ids = data.batch["position_ids"]
+            rm_inputs = {
+                "input_ids": rm_input_ids,
+                "attention_mask": rm_attention_mask,
+                "position_ids": rm_position_ids,
+            }
+            rm_data = DataProto.from_dict(rm_inputs)
+
+        meta_info = {
+            "eos_token_id": self.model_config.generation_config.eos_token_id
+            if self.model_config.generation_config is not None
+            else self.model_config.tokenizer.eos_token_id,
+            "pad_token_id": self.model_config.generation_config.pad_token_id
+            if self.model_config.generation_config is not None
+            else self.model_config.tokenizer.pad_token_id,
+        }
+        rm_data.meta_info.update(meta_info)
+
+        scores = self.reward_model.compute_reward(rm_data)
+        token_level_scores = self._expand_to_token_level(data, scores)
+        # Note that this is only the scores, may not be the final rewards used to train RL
+        output = DataProto.from_dict(tensors={"rm_scores": token_level_scores})
+        output = output.to("cpu")
+        return output

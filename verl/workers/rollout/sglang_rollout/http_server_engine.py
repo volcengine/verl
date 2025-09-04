@@ -933,7 +933,6 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
             lora_path=lora_path,
         )
 
-
     async def abort_request(self, rid: str = "", abort_all: bool = False) -> dict[str, Any]:
         """Abort a request asynchronously.
 
