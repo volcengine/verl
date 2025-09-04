@@ -39,13 +39,14 @@ def test_agent_loop_compute_score_with_model():
     with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config")):
         config = compose("ppo_trainer")
 
-    model_path = "Qwen/Qwen2.5-1.5B-Instruct"
-    rm_path = "Qwen/Qwen2.5-1.5B-Instruct"
+    model_path = "/mnt/hdfs/yyding/models/Llama-3.2-3B-Instruct"
+    rm_path = "/mnt/hdfs/yyding/models/Skywork-Reward-Llama-3.1-8B-v0.2"
     config.data.return_raw_chat = True
     config.actor_rollout_ref.model.path = model_path
     config.actor_rollout_ref.actor.use_dynamic_bsz = True
     config.actor_rollout_ref.rollout.name = "vllm"
     config.actor_rollout_ref.rollout.mode = "async"
+    config.actor_rollout_ref.rollout.temperature = 0.0
     config.actor_rollout_ref.rollout.prompt_length = 1024
     config.actor_rollout_ref.rollout.response_length = 4096
 

@@ -18,9 +18,10 @@ The main entry point to run the PPO algorithm
 import logging
 import os
 
-import torch
 import numpy as np
+import torch
 
+import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
@@ -30,6 +31,7 @@ from verl.utils.device import (
     get_torch_device,
 )
 from verl.utils.distributed import initialize_global_process_group_ray
+from verl.utils.model import compute_position_id_with_mask
 from verl.utils.profiler import DistProfiler, DistProfilerExtension, log_gpu_memory_usage
 from verl.workers.config import HFModelConfig, RewardModelConfig
 from verl.workers.reward_model.sglang_reward_model import SGLangRewardModel
@@ -117,7 +119,69 @@ class RewardModelWorker(Worker, DistProfilerExtension):
         return token_level_scores
 
     def _switch_chat_template(self, data: DataProto):
-        pass
+        src_max_length = data.batch["attention_mask"].shape[-1]
+
+        src_tokenizer = self.input_tokenizer
+        target_tokenizer = self.tokenizer
+
+        rm_input_ids = []
+        rm_attention_mask = []
+
+        for i in range(data.batch.batch_size[0]):
+            if not isinstance(data.non_tensor_batch["raw_prompt"][i], list | np.ndarray):
+                raise TypeError(
+                    f"raw_prompt must be a list or numpy array, got {type(data.non_tensor_batch['raw_prompt'][i])}"
+                )
+
+            # extract raw prompt
+            chat: list = list(data.non_tensor_batch["raw_prompt"][i])
+
+            # extract response
+            response_ids = data.batch["responses"][i]
+            response_length = response_ids.shape[-1]
+            valid_response_length = data.batch["attention_mask"][i][-response_length:].sum()
+            valid_response_ids = response_ids[:valid_response_length]
+
+            # decode
+            response = src_tokenizer.decode(valid_response_ids)
+            # remove bos and eos
+            response = response.replace(src_tokenizer.eos_token, "")
+
+            chat.append({"role": "assistant", "content": response})
+
+            prompt_with_chat_template = target_tokenizer.apply_chat_template(
+                chat, add_generation_prompt=False, tokenize=False
+            )
+            if self.rank == 0 and i == 0:
+                # for debugging purpose
+                print(f"Switch template. chat: {prompt_with_chat_template}")
+
+            # the maximum length is actually determined by the reward model itself
+            max_length = self.config.get("max_length", src_max_length)
+            if max_length is None:
+                max_length = src_max_length
+
+            model_inputs = target_tokenizer(prompt_with_chat_template, return_tensors="pt", add_special_tokens=False)
+            input_ids, attention_mask = verl_F.postprocess_data(
+                input_ids=model_inputs["input_ids"],
+                attention_mask=model_inputs["attention_mask"],
+                max_length=max_length,
+                pad_token_id=target_tokenizer.pad_token_id,
+                left_pad=False,  # right padding
+                truncation=self.config.get("truncation", "right"),
+            )  # truncate from the right
+
+            rm_input_ids.append(input_ids)
+            rm_attention_mask.append(attention_mask)
+
+        rm_input_ids = torch.cat(rm_input_ids, dim=0)
+        rm_attention_mask = torch.cat(rm_attention_mask, dim=0)
+
+        rm_position_ids = compute_position_id_with_mask(rm_attention_mask)
+
+        rm_inputs = {"input_ids": rm_input_ids, "attention_mask": rm_attention_mask, "position_ids": rm_position_ids}
+
+        return DataProto.from_dict(rm_inputs)
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="reward_model"))
     @DistProfiler.annotate(color="brown")
@@ -136,16 +200,6 @@ class RewardModelWorker(Worker, DistProfilerExtension):
                 "position_ids": rm_position_ids,
             }
             rm_data = DataProto.from_dict(rm_inputs)
-
-        meta_info = {
-            "eos_token_id": self.model_config.generation_config.eos_token_id
-            if self.model_config.generation_config is not None
-            else self.model_config.tokenizer.eos_token_id,
-            "pad_token_id": self.model_config.generation_config.pad_token_id
-            if self.model_config.generation_config is not None
-            else self.model_config.tokenizer.pad_token_id,
-        }
-        rm_data.meta_info.update(meta_info)
 
         scores = self.reward_model.compute_reward(rm_data)
         token_level_scores = self._expand_to_token_level(data, scores)

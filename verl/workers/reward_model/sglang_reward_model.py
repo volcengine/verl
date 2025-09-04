@@ -15,75 +15,37 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import multiprocessing as mp
 import os
-import time
-from copy import deepcopy
-from json import JSONDecodeError
-from typing import Any, Optional
-from uuid import uuid4
 
-import numpy as np
-import sglang.srt.entrypoints.engine
 import torch
 import torch.distributed as dist
-from sglang.srt.managers.tokenizer_manager import (
-    ReleaseMemoryOccupationReqInput,
-    ResumeMemoryOccupationReqInput,
-    UpdateWeightsFromTensorReqInput,
-)
-from sglang.srt.sampling.sampling_params import SamplingParams
-from sglang.srt.server_args import ServerArgs
 from sglang.srt.utils import (
-    assert_pkg_version,
     get_ip,
     get_open_port,
-    is_cuda,
-    set_prometheus_multiproc_dir,
-    set_ulimit,
 )
-from tensordict import TensorDict
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
-from torch.nn.utils.rnn import pad_sequence
-from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin
 
 from verl import DataProto
-from verl.interactions.base import BaseInteraction
-from verl.interactions.utils.interaction_registry import initialize_interactions_from_config
-from verl.third_party.sglang import parallel_state as sglang_ps
-from verl.tools.base_tool import BaseTool
-from verl.tools.schemas import OpenAIFunctionCallSchema, OpenAIFunctionParsedSchema, OpenAIFunctionToolCall
-from verl.tools.utils.tool_registry import initialize_tools_from_config
 from verl.utils.net_utils import is_ipv6
-from verl.utils.profiler import GPUMemoryLogger
-from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
-# from verl.workers.config import 
-from verl.workers.rollout.async_server import TokenOutput
-from verl.workers.rollout.base import BaseRollout
-from verl.workers.rollout.schemas import (
-    AsyncRolloutRequest,
-    AsyncRolloutRequestStateEnum,
-    FinishReasonTypeEnum,
-    Message,
-)
+from verl.workers.config import HFModelConfig, RewardModelConfig
+from verl.workers.reward_model import BasePPORewardModel
+
+# from verl.workers.config import
 from verl.workers.rollout.sglang_rollout.http_server_engine import AsyncHttpServerAdapter
 from verl.workers.rollout.sglang_rollout.utils import broadcast_pyobj
-from verl.workers.reward_model import BasePPORewardModel
-from verl.workers.config import RewardModelConfig, HFModelConfig
-
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 def _pre_process_inputs(
-    pad_token_id,
+    attention_mask: torch.Tensor,
     prompt_token_ids: torch.Tensor,
 ) -> torch.Tensor:
-    # remove the left padding in the prompt token_id
-    non_pad_indices = torch.nonzero(prompt_token_ids != pad_token_id, as_tuple=True)[0]
+    non_pad_indices = torch.nonzero(attention_mask, as_tuple=True)[0]
     start_idx, end_idx = non_pad_indices[0], non_pad_indices[-1]
-    return prompt_token_ids[start_idx: end_idx + 1]
+    return prompt_token_ids[start_idx : end_idx + 1]
+
 
 def _post_process_outputs(output):
     def _map_each_output(output):
@@ -92,6 +54,7 @@ def _post_process_outputs(output):
 
     scores = torch.stack([_map_each_output(output) for output in output])
     return scores
+
 
 class SGLangRewardModel(BasePPORewardModel):
     def __init__(
@@ -226,23 +189,15 @@ class SGLangRewardModel(BasePPORewardModel):
         # input ids: (bs, prompt_length), left-padded
         idx = data.batch["input_ids"]
         # attention_mask: (bs, seq_length), left-padded
-        # attention_mask = data.batch["attention_mask"]
-        # position_ids = data.batch["position_ids"]
-
-        pad_token_id = data.meta_info["pad_token_id"]
+        attention_mask = data.batch["attention_mask"]
 
         batch_size = idx.size(0)
 
-        idx_list = [_pre_process_inputs(pad_token_id, idx[i]).tolist() for i in range(batch_size)]
+        idx_list = [_pre_process_inputs(attention_mask[i], idx[i]).tolist() for i in range(batch_size)]
 
         if self._tp_rank == 0:
             loop = asyncio.new_event_loop()
-            output = loop.run_until_complete(
-                self._engine.async_reward_score(
-                    prompt=None,
-                    input_ids=idx_list
-                )
-            )
+            output = loop.run_until_complete(self._engine.async_reward_score(prompt=None, input_ids=idx_list))
         else:
             output = None
 

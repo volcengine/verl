@@ -58,7 +58,7 @@ class RewardModelConfig(BaseConfig):
     The inheritance from BaseConfig provides omegaconf.DictConfig-like interface for a dataclass config.
 
     Args:
-        enable (bool): Whether to enable reward model. If False, we compute the reward only with the user-defined reward functions.
+        enable (bool): Whether to enable reward model.
         enable_resource_pool (bool): Whether to deploy the model to a separate resource pool.
         n_gpus_per_node (int): Number of GPUs per node when using resource pool.
         nnodes (int): Number of nodes when using resource pool.
