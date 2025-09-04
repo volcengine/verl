@@ -410,7 +410,7 @@ class SFTTrainer:
                         loss, op=torch.distributed.ReduceOp.AVG, group=self.engine.get_data_parallel_group()
                     )
 
-                    batch_seqlens = batch_seqlens.tolist()
+                    batch_seqlens = output_tensor.tolist()
                     loss = loss.item()
 
                     # TODO: we can actual accumulate metrics for N steps and perform aggregate metrics
