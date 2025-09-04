@@ -28,6 +28,8 @@ from transformers import PreTrainedTokenizer
 
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_local_path_from_hdfs
+from verl.utils.model import compute_position_id_with_mask
+from verl.utils.torch_functional import pad_sequence_to_length, postprocess_data
 
 
 def convert_nested_value_to_list_recursive(data_item):
@@ -51,8 +53,16 @@ class MultiTurnSFTDataset(Dataset):
     def __init__(self, parquet_files: str | list[str], tokenizer, config=None):
         # Set defaults and extract parameters from config if provided
         config = config or {}
+        self.pad_mode = config.get("pad_mode", "right")
+        assert self.pad_mode in ["right", "left_right"], (
+            f"Expect pad_mode to be 'right' or 'left_right'. Got {self.pad_mode}"
+        )
         self.truncation = config.get("truncation", "error")
+        # for right padding
         self.max_length = config.get("max_length", 1024)
+        # for left right paddding to be consistent with RL
+        self.max_prompt_length = config.get("max_prompt_length", 512)
+        self.max_response_length = config.get("max_response_length", 512)
         # Get messages_key from the new multiturn config structure
         multiturn_config = config.get("multiturn", {})
         self.messages_key = multiturn_config.get("messages_key", "messages")
@@ -301,40 +311,114 @@ class MultiTurnSFTDataset(Dataset):
             full_tokens[0], concat_tokens, concat_loss_mask, concat_attention_mask
         )
 
-        # Handle sequence length
+        # encode prompt
+        if messages[0]["role"] == "system":
+            assert messages[1]["role"] == "user"
+            assert messages[2]["role"] == "assistant"
+            prompt_message_length = 2
+        elif messages[0]["role"] == "user":
+            assert messages[1]["role"] == "assistant"
+            prompt_message_length = 1
+        else:
+            raise ValueError(f"Unknown role: {messages[0]['role']}")
+
         sequence_length = input_ids.shape[0]
-        if sequence_length < self.max_length:
-            # Pad sequences
-            pad_token_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else 0
-            padded_input_ids = torch.full((self.max_length - sequence_length,), pad_token_id, dtype=input_ids.dtype)
-            padded_attention_mask = torch.zeros((self.max_length - sequence_length,), dtype=attention_mask.dtype)
-            padded_loss_mask = torch.zeros((self.max_length - sequence_length,), dtype=loss_mask.dtype)
+        # Handle sequence length
+        if self.pad_mode == "right":
+            if sequence_length < self.max_length:
+                # Pad sequences
+                pad_token_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else 0
+                padded_input_ids = torch.full((self.max_length - sequence_length,), pad_token_id, dtype=input_ids.dtype)
+                padded_attention_mask = torch.zeros((self.max_length - sequence_length,), dtype=attention_mask.dtype)
+                padded_loss_mask = torch.zeros((self.max_length - sequence_length,), dtype=loss_mask.dtype)
 
-            input_ids = torch.cat((input_ids, padded_input_ids))
-            attention_mask = torch.cat((attention_mask, padded_attention_mask))
-            loss_mask = torch.cat((loss_mask, padded_loss_mask))
-        elif sequence_length > self.max_length:
-            if self.truncation == "left":
-                input_ids = input_ids[-self.max_length :]
-                attention_mask = attention_mask[-self.max_length :]
-                loss_mask = loss_mask[-self.max_length :]
-            elif self.truncation == "right":
-                input_ids = input_ids[: self.max_length]
-                attention_mask = attention_mask[: self.max_length]
-                loss_mask = loss_mask[: self.max_length]
-            elif self.truncation == "error":
-                raise ValueError(f"{sequence_length=} is larger than {self.max_length=}")
-            else:
-                raise ValueError(f"Unknown truncation method {self.truncation}")
+                input_ids = torch.cat((input_ids, padded_input_ids))
+                attention_mask = torch.cat((attention_mask, padded_attention_mask))
+                loss_mask = torch.cat((loss_mask, padded_loss_mask))
+            elif sequence_length > self.max_length:
+                if self.truncation == "left":
+                    input_ids = input_ids[-self.max_length :]
+                    attention_mask = attention_mask[-self.max_length :]
+                    loss_mask = loss_mask[-self.max_length :]
+                elif self.truncation == "right":
+                    input_ids = input_ids[: self.max_length]
+                    attention_mask = attention_mask[: self.max_length]
+                    loss_mask = loss_mask[: self.max_length]
+                elif self.truncation == "error":
+                    raise ValueError(f"{sequence_length=} is larger than {self.max_length=}")
+                else:
+                    raise ValueError(f"Unknown truncation method {self.truncation}")
 
-        # Create position IDs
-        position_ids = torch.arange(len(input_ids), dtype=torch.long)
-        # Zero out position IDs for padding
-        position_ids = position_ids * attention_mask
+            # Create position IDs
+            position_ids = torch.arange(len(input_ids), dtype=torch.long)
+            # Zero out position IDs for padding
+            position_ids = position_ids * attention_mask
 
-        return {
-            "input_ids": input_ids,
-            "attention_mask": attention_mask,
-            "position_ids": position_ids,
-            "loss_mask": loss_mask,
-        }
+            return {
+                "input_ids": input_ids,
+                "attention_mask": attention_mask,
+                "position_ids": position_ids,
+                "loss_mask": loss_mask,
+            }
+        elif self.pad_mode == "left_right":
+            assert self.truncation == "error", "Only support error truncation for left_right pad mode"
+            prompt_str = self.tokenizer.apply_chat_template(
+                messages[:prompt_message_length],
+                tools=tools,
+                tokenize=False,
+                add_generation_prompt=True,
+                enable_thinking=enable_thinking,
+                **self.apply_chat_template_kwargs,
+            )
+            prompt_ids = self.tokenizer.encode(prompt_str, add_special_tokens=False)
+            prompt_length = len(prompt_ids)
+            prompt_ids = input_ids[:prompt_length].unsqueeze(0)
+            prompt_attention_mask = attention_mask[:prompt_length].unsqueeze(0)
+            prompt_loss_mask = loss_mask[:prompt_length].unsqueeze(0)
+            response_ids = input_ids[prompt_length:].unsqueeze(0)
+            response_attention_mask = attention_mask[prompt_length:].unsqueeze(0)
+            response_loss_mask = loss_mask[prompt_length:].unsqueeze(0)
+
+            assert prompt_loss_mask.sum().item() == 0
+
+            prompt_ids, prompt_attention_mask = postprocess_data(
+                input_ids=prompt_ids,
+                attention_mask=prompt_attention_mask,
+                max_length=self.max_prompt_length,
+                pad_token_id=self.tokenizer.pad_token_id,
+                left_pad=True,
+                truncation=self.truncation,
+            )
+
+            response_ids, response_attention_mask = postprocess_data(
+                input_ids=response_ids,
+                attention_mask=response_attention_mask,
+                max_length=self.max_response_length,
+                pad_token_id=self.tokenizer.pad_token_id,
+                left_pad=False,
+                truncation=self.truncation,
+            )
+            response_loss_mask = pad_sequence_to_length(
+                response_loss_mask, max_seq_len=self.max_response_length, pad_token_id=0, left_pad=False
+            )
+
+            prompt_ids = prompt_ids[0]
+            prompt_attention_mask = prompt_attention_mask[0]
+            response_ids = response_ids[0]
+            response_attention_mask = response_attention_mask[0]
+            response_loss_mask = response_loss_mask[0]
+
+            assert response_attention_mask[0].item() == 1
+            assert response_loss_mask[0].item() == 1
+
+            input_ids = torch.cat((prompt_ids, response_ids), dim=0)
+            attention_mask = torch.cat((prompt_attention_mask, response_attention_mask), dim=0)
+            position_ids = compute_position_id_with_mask(attention_mask)
+
+            return {
+                "input_ids": input_ids,
+                "attention_mask": attention_mask,
+                "position_ids": position_ids,
+                "responses": response_ids,
+                "response_mask": response_loss_mask,
+            }
