@@ -336,10 +336,10 @@ class SFTTrainer:
         return latest_checkpoint
 
     def fit(self):
-        rank = self.rank
+        is_logging = self.engine.is_mp_src_rank_with_outputs() and self.engine.get_data_parallel_rank() == 0
 
         # TODO: add a unified tracking
-        if rank == 0:
+        if is_logging:
             tracking = Tracking(
                 project_name=self.config.trainer.project_name,
                 experiment_name=self.config.trainer.experiment_name,
@@ -353,7 +353,7 @@ class SFTTrainer:
         log_with_rank(
             f"Total training steps: {self.total_training_steps},",
             logger=logger,
-            rank=rank,
+            rank=0,
             log_only_rank_0=True,
         )
 
@@ -363,7 +363,7 @@ class SFTTrainer:
             log_with_rank(
                 f"StatefulDataLoader will automatically resume from global step: {global_step}",
                 logger=logger,
-                rank=rank,
+                rank=0,
                 log_only_rank_0=True,
             )
 
@@ -387,7 +387,7 @@ class SFTTrainer:
                     initial=global_step % self.steps_per_epoch if epoch == start_epoch else 0,
                     total=self.steps_per_epoch,
                     desc=f"Epoch {epoch + 1}/{self.config.trainer.total_epochs}",
-                    disable=rank != 0,
+                    disable=not is_logging,
                 )
             ):
                 global_step += 1
@@ -397,40 +397,39 @@ class SFTTrainer:
                 with self.engine.train_mode():
                     with Timer(name="update_policy", logger=None) as timer:
                         output = self.engine.train_batch(data=data, loss_function=self.loss_fn)
-                        metrics = output['metrics']
-
-                loss = torch.mean(torch.tensor(metrics['loss'], device=self.device_name))
-
-                # mean over dp group
-                batch_seqlens = data.batch['attention_mask'].sum(dim=-1).to(self.device_name)  # (global_bsz // dp)
-                
-                output_tensor = torch.randint(0, 100, (batch_seqlens.shape[0] * self.engine.get_data_parallel_size(),), 
-                                              device=self.device_name)
-
-                torch.distributed.all_gather_into_tensor(output_tensor=output_tensor, input_tensor=batch_seqlens,
-                                                         group=self.engine.get_data_parallel_group())
-                torch.distributed.all_reduce(loss, op=torch.distributed.ReduceOp.AVG, 
-                                             group=self.engine.get_data_parallel_group())
-                
-                batch_seqlens = batch_seqlens.tolist()
-                loss = loss.item()
-
-                # TODO: we can actual accumulate metrics for N steps and perform aggregate metrics
-                metrics['loss'] = loss
-
-                metrics['train/loss'] = metrics.pop('loss')
-                metrics['train/grad_norm'] = metrics.pop('grad_norm')
-
                 lr = self.engine.lr_scheduler_step()
-                metrics['train/lr'] = lr
-                
-                # mfu
-                delta_time = timer.last
-                estimated_flops, promised_flops = self.flops_counter.estimate_flops(batch_seqlens, delta_time)
-                metrics["train/mfu"] = estimated_flops / promised_flops / torch.distributed.get_world_size()
 
-                if rank == 0:
-                    tracking.log(data=metrics, step=global_step)
+                if self.engine.is_mp_src_rank_with_outputs():
+                    metrics = output['metrics']
+
+                    loss = torch.mean(torch.tensor(metrics['loss'], device=self.device_name))
+
+                    # mean over dp group
+                    batch_seqlens = data.batch['attention_mask'].sum(dim=-1).to(self.device_name)  # (global_bsz // dp)
+                    
+                    output_tensor = torch.randint(0, 100, (batch_seqlens.shape[0] * self.engine.get_data_parallel_size(),), 
+                                                device=self.device_name)
+
+                    torch.distributed.all_gather_into_tensor(output_tensor=output_tensor, input_tensor=batch_seqlens,
+                                                            group=self.engine.get_data_parallel_group())
+                    torch.distributed.all_reduce(loss, op=torch.distributed.ReduceOp.AVG, 
+                                                group=self.engine.get_data_parallel_group())
+                    
+                    batch_seqlens = batch_seqlens.tolist()
+                    loss = loss.item()
+
+                    # TODO: we can actual accumulate metrics for N steps and perform aggregate metrics
+                    metrics['loss'] = loss
+                    metrics['train/loss'] = metrics.pop('loss')
+                    metrics['train/grad_norm'] = metrics.pop('grad_norm')
+                    metrics['train/lr'] = lr
+                    # mfu
+                    delta_time = timer.last
+                    estimated_flops, promised_flops = self.flops_counter.estimate_flops(batch_seqlens, delta_time)
+                    metrics["train/mfu"] = estimated_flops / promised_flops / torch.distributed.get_world_size()
+
+                    if self.engine.get_data_parallel_rank() == 0:
+                        tracking.log(data=metrics, step=global_step)
 
                 is_last_step = global_step >= self.total_training_steps
                 is_valid_step = global_step % self.test_freq == 0
@@ -444,15 +443,16 @@ class SFTTrainer:
                         with self.engine.eval_mode():
                             val_data = DataProto.from_dict(tensors=val_data, meta_info=meta_info)
                             output = self.engine.infer_batch(data=val_data, loss_function=self.loss_fn)
-                            val_losses.extend(output['metrics']['loss'])
+                            if self.engine.is_mp_src_rank_with_outputs():
+                                val_losses.extend(output['metrics']['loss'])
 
-                    val_loss = torch.mean(torch.tensor(val_losses, device=self.device_name))
-
-                    # average over data parallel group
-                    torch.distributed.all_reduce(val_loss, op=torch.distributed.ReduceOp.AVG, 
-                                                 group=self.engine.get_data_parallel_group())
+                    if self.engine.is_mp_src_rank_with_outputs():
+                        val_loss = torch.mean(torch.tensor(val_losses, device=self.device_name))
+                        # average over data parallel group
+                        torch.distributed.all_reduce(val_loss, op=torch.distributed.ReduceOp.AVG, 
+                                                    group=self.engine.get_data_parallel_group())
                     
-                    if rank == 0:
+                    if is_logging:
                         metric = {"val/loss": val_loss.detach().item()}
                         tracking.log(data=metric, step=global_step)
                         last_valid_metric = metric
@@ -462,7 +462,7 @@ class SFTTrainer:
                     self.save_checkpoint(step=global_step)
 
                 if is_last_step:
-                    if rank == 0:
+                    if is_logging:
                         print(f"Total time for train steps: {train_time:.2f}s")
                         print(f"Final validation metrics: {last_valid_metric}")
                     return
