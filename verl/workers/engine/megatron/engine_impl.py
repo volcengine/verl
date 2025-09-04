@@ -451,8 +451,7 @@ class MegatronEngine(BaseEngine):
         if mpu.is_pipeline_last_stage(ignore_virtual=True):
             return postprocess_batch_func(output_lst=losses_reduced, indices=indices, data=data)
         else:
-            # to be compatible with pp
-            return {"metrics": {}}
+            return {}
 
     def forward_step(self, batch_iter, model, meta_info: dict, postprocess_micro_batch_func):
         raise NotImplementedError("forward_step must be implemented in subclass")

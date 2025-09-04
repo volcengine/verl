@@ -65,7 +65,7 @@ if __name__ == "__main__":
                     {
                         "role": "assistant",
                         "content": answer_raw,
-                    }
+                    },
                 ],
             }
             return data

@@ -26,39 +26,25 @@ os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
 import logging
 import re
-from codetiming import Timer
 
 import hydra
 import torch
 import torch.distributed
+from codetiming import Timer
 from omegaconf import OmegaConf
-from tensordict import TensorDict
-from torch.utils.data import Dataset, DistributedSampler
+from torch.utils.data import DistributedSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
 
 import verl.utils.hdfs_io as hdfs_io
+from verl import DataProto
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, get_checkpoint_tracker_filename
-from verl.utils.dataset import SFTDataset
 from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
 from verl.utils.device import get_device_name, is_cuda_available, is_npu_available
 from verl.utils.distributed import destroy_global_process_group
-from verl.utils.fs import copy_to_local
+from verl.utils.flops_counter import FlopsCounter
 from verl.utils.logger import log_with_rank
 from verl.utils.tracking import Tracking
-from verl.utils.py_functional import append_to_dict
-from verl.utils.flops_counter import FlopsCounter
-
-from verl import DataProto
-
-from verl.workers.config import (
-    ActorConfig,
-    FSDPEngineConfig,
-    FSDPOptimizerConfig,
-    HFModelConfig,
-    McoreEngineConfig,
-    McoreOptimizerConfig,
-)
 
 if is_cuda_available:
     pass
@@ -82,7 +68,7 @@ class SFTTrainer:
         config,
     ):
         self.config = config
-        
+
         self.rank = torch.distributed.get_rank()
 
         self._build_config()
@@ -102,32 +88,34 @@ class SFTTrainer:
         self.device_name = self.config.trainer.device
 
         from verl.workers.roles.utils.losses import sft_loss
+
         self.loss_fn = partial(sft_loss, config=None)
 
         self.flops_counter = FlopsCounter(self.model_config.hf_config)
 
         if self.rank == 0:
-            print(self.config)  
-
+            print(self.config)
 
     def _build_config(self):
         from verl.utils.config import omega_conf_to_dataclass
+
         self.model_config = omega_conf_to_dataclass(self.config.model)
         self.engine_config = omega_conf_to_dataclass(self.config.engine)
         self.optimizer_config = omega_conf_to_dataclass(self.config.optim)
         self.checkpoint_config = omega_conf_to_dataclass(self.config.checkpoint)
 
-
     def _build_engine(self):
-        from verl.workers.engine import EngineRegistry, BaseEngine
-        self.engine: BaseEngine = EngineRegistry.new(model_type="language_model", 
-                                         backend=self.engine_config.strategy,
-                                         model_config=self.model_config,
-                                         engine_config=self.engine_config,
-                                         optimizer_config=self.optimizer_config,
-                                         checkpoint_config=self.checkpoint_config)
+        from verl.workers.engine import BaseEngine, EngineRegistry
 
-        
+        self.engine: BaseEngine = EngineRegistry.new(
+            model_type="language_model",
+            backend=self.engine_config.strategy,
+            model_config=self.model_config,
+            engine_config=self.engine_config,
+            optimizer_config=self.optimizer_config,
+            checkpoint_config=self.checkpoint_config,
+        )
+
     def _init_engine(self):
         # patch optimizer config
         if self.config.trainer.total_training_steps is not None:
@@ -140,15 +128,14 @@ class SFTTrainer:
 
         # manage save and test frequency
         self.save_freq = self.config.trainer.save_freq
-        if self.save_freq == 'after_each_epoch':
+        if self.save_freq == "after_each_epoch":
             self.save_freq = self.steps_per_epoch
 
         self.test_freq = self.config.trainer.test_freq
-        if self.test_freq == 'after_each_epoch':
+        if self.test_freq == "after_each_epoch":
             self.test_freq = self.steps_per_epoch
 
         self.engine.initialize()
-
 
     def _build_dataset(self):
         config = self.config
@@ -157,7 +144,6 @@ class SFTTrainer:
         val_dataset = create_sft_dataset(config.data.val_files, config.data, tokenizer)
 
         self.train_dataset, self.val_dataset = train_dataset, val_dataset
-
 
     def _build_dataloader(self):
         # build dataset
@@ -213,11 +199,12 @@ class SFTTrainer:
         max_ckpt_to_keep = getattr(self.config.trainer, "max_ckpt_to_keep", None)
 
         # Use checkpoint manager to save
-        self.engine.save_checkpoint(local_path=local_global_step_folder,
-                                    global_step=step,
-                                    max_ckpt_to_keep=max_ckpt_to_keep)
+        self.engine.save_checkpoint(
+            local_path=local_global_step_folder, global_step=step, max_ckpt_to_keep=max_ckpt_to_keep
+        )
 
-        # Save dataloader state. Note that we only save the iterator in the train_dataloader. So it's identical in each dp rank.
+        # Save dataloader state. Note that we only save the iterator in the train_dataloader.
+        # So it's identical in each dp rank.
         if self.rank == 0:
             local_mkdir_safe(local_global_step_folder)
             dataloader_local_path = os.path.join(local_global_step_folder, "data.pt")
@@ -349,7 +336,7 @@ class SFTTrainer:
 
         global_step = self.resume_global_step  # Start from resumed step
         last_valid_metric = None
-      
+
         log_with_rank(
             f"Total training steps: {self.total_training_steps},",
             logger=logger,
@@ -371,10 +358,10 @@ class SFTTrainer:
         start_epoch = global_step // self.steps_per_epoch
 
         meta_info = {
-            'use_dynamic_bsz': self.config.data.use_dynamic_bsz,
+            "use_dynamic_bsz": self.config.data.use_dynamic_bsz,
             "max_token_len_per_gpu": self.config.data.max_token_len_per_gpu,
             "micro_batch_size_per_gpu": self.config.data.micro_batch_size_per_gpu,
-            "temperature": 1.0
+            "temperature": 1.0,
         }
 
         train_time = 0
@@ -400,29 +387,37 @@ class SFTTrainer:
                 lr = self.engine.lr_scheduler_step()
 
                 if self.engine.is_mp_src_rank_with_outputs():
-                    metrics = output['metrics']
+                    metrics = output["metrics"]
 
-                    loss = torch.mean(torch.tensor(metrics['loss'], device=self.device_name))
+                    loss = torch.mean(torch.tensor(metrics["loss"], device=self.device_name))
 
                     # mean over dp group
-                    batch_seqlens = data.batch['attention_mask'].sum(dim=-1).to(self.device_name)  # (global_bsz // dp)
-                    
-                    output_tensor = torch.randint(0, 100, (batch_seqlens.shape[0] * self.engine.get_data_parallel_size(),), 
-                                                device=self.device_name)
+                    batch_seqlens = data.batch["attention_mask"].sum(dim=-1).to(self.device_name)  # (global_bsz // dp)
 
-                    torch.distributed.all_gather_into_tensor(output_tensor=output_tensor, input_tensor=batch_seqlens,
-                                                            group=self.engine.get_data_parallel_group())
-                    torch.distributed.all_reduce(loss, op=torch.distributed.ReduceOp.AVG, 
-                                                group=self.engine.get_data_parallel_group())
-                    
+                    output_tensor = torch.randint(
+                        0,
+                        100,
+                        (batch_seqlens.shape[0] * self.engine.get_data_parallel_size(),),
+                        device=self.device_name,
+                    )
+
+                    torch.distributed.all_gather_into_tensor(
+                        output_tensor=output_tensor,
+                        input_tensor=batch_seqlens,
+                        group=self.engine.get_data_parallel_group(),
+                    )
+                    torch.distributed.all_reduce(
+                        loss, op=torch.distributed.ReduceOp.AVG, group=self.engine.get_data_parallel_group()
+                    )
+
                     batch_seqlens = batch_seqlens.tolist()
                     loss = loss.item()
 
                     # TODO: we can actual accumulate metrics for N steps and perform aggregate metrics
-                    metrics['loss'] = loss
-                    metrics['train/loss'] = metrics.pop('loss')
-                    metrics['train/grad_norm'] = metrics.pop('grad_norm')
-                    metrics['train/lr'] = lr
+                    metrics["loss"] = loss
+                    metrics["train/loss"] = metrics.pop("loss")
+                    metrics["train/grad_norm"] = metrics.pop("grad_norm")
+                    metrics["train/lr"] = lr
                     # mfu
                     delta_time = timer.last
                     estimated_flops, promised_flops = self.flops_counter.estimate_flops(batch_seqlens, delta_time)
@@ -444,14 +439,15 @@ class SFTTrainer:
                             val_data = DataProto.from_dict(tensors=val_data, meta_info=meta_info)
                             output = self.engine.infer_batch(data=val_data, loss_function=self.loss_fn)
                             if self.engine.is_mp_src_rank_with_outputs():
-                                val_losses.extend(output['metrics']['loss'])
+                                val_losses.extend(output["metrics"]["loss"])
 
                     if self.engine.is_mp_src_rank_with_outputs():
                         val_loss = torch.mean(torch.tensor(val_losses, device=self.device_name))
                         # average over data parallel group
-                        torch.distributed.all_reduce(val_loss, op=torch.distributed.ReduceOp.AVG, 
-                                                    group=self.engine.get_data_parallel_group())
-                    
+                        torch.distributed.all_reduce(
+                            val_loss, op=torch.distributed.ReduceOp.AVG, group=self.engine.get_data_parallel_group()
+                        )
+
                     if is_logging:
                         metric = {"val/loss": val_loss.detach().item()}
                         tracking.log(data=metric, step=global_step)
@@ -470,6 +466,7 @@ class SFTTrainer:
 
 def run_sft(config):
     from verl.utils.distributed import initialize_global_process_group
+
     initialize_global_process_group()
     trainer = SFTTrainer(config=config)
     trainer.fit()
