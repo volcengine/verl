@@ -72,7 +72,7 @@ Comparison with baseline models and baseline methods for fine-tuning 7B models. 
 
 Training dynamics of different methods: left two are for fine-tuning 1.5B model and right two are for fine-tuning 7B model. (a), (c) plot the training reward (averaged over generated outputs for questions used in each step) vs the number of training steps; (b), (d) plot the generation entropy vs training steps.
 
-<p align="center"><img alt="Training Dynamics" src="https://github.com/Optimization-AI/DisCO/blob/main/assets/training-dyanmics.png" width="800"/></p>
+<p align="center"><img alt="Training Dynamics" src="https://github.com/Optimization-AI/DisCO/blob/main/assets/training-dynamics.png" width="800"/></p>
 
 
 
