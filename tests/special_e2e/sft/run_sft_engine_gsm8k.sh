@@ -62,11 +62,11 @@ MEGATRON_ENGINE_CONFIG="\
 if [ "$backend" = "fsdp" ]; then
     ENGINE_CONFIG="$FSDP_ENGINE_CONFIG"
     echo "Using fsdp engine"
-    exp_name=gsm8k-${backend}-${SP_SIZE}-${FSDP_SIZE}
+    exp_name=gsm8k-${backend}-sp${SP_SIZE}-fsdp${FSDP_SIZE}
 else
     ENGINE_CONFIG="$MEGATRON_ENGINE_CONFIG"
     echo "Using megatron engine"
-    exp_name=gsm8k-${backend}-${TP_SIZE}-${PP_SIZE}-${VPP_SIZE}-${CP_SIZE}
+    exp_name=gsm8k-${backend}-tp${TP_SIZE}-pp${PP_SIZE}-vpp${VPP_SIZE}-cp${CP_SIZE}
 fi
 
 mkdir -p "${ckpts_home}"

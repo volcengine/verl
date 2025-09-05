@@ -617,9 +617,9 @@ class MegatronEngineWithLMHead(MegatronEngine):
 
         if loss_function is not None:
             loss, metrics = loss_function(model_output=model_output, data=data, dp_group=self.get_data_parallel_group())
-            # scale loss by num_micro_batch because megatron will scale loss by n_micro_batch inside pp schedule
+            # scale loss by num_micro_batch because megatron will scale loss by n_micro_batch and cp size inside pp schedule
             n_micro_batch = meta_info["num_micro_batch"]
-            loss = loss * n_micro_batch
+            loss = loss * n_micro_batch / mpu.get_context_parallel_world_size()
 
             global_bsz = meta_info['global_batch_size']
             local_micro_bsz = responses.shape[0]
