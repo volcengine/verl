@@ -13,6 +13,5 @@
 # limitations under the License.
 
 from .base import BasePPORewardModel
-from .sglang_reward_model import SGLangRewardModel
 
-__all__ = ["BasePPORewardModel", "SGLangRewardModel"]
+__all__ = ["BasePPORewardModel"]
