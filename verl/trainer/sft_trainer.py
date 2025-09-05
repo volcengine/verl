@@ -399,7 +399,7 @@ class SFTTrainer:
                         100,
                         (batch_seqlens.shape[0] * self.engine.get_data_parallel_size(),),
                         device=self.device_name,
-                    )
+                    )  # (global_bsz,)
 
                     torch.distributed.all_gather_into_tensor(
                         output_tensor=output_tensor,
@@ -418,6 +418,7 @@ class SFTTrainer:
                     metrics["train/loss"] = metrics.pop("loss")
                     metrics["train/grad_norm"] = metrics.pop("grad_norm")
                     metrics["train/lr"] = lr
+                    metrics["train/global_tokens"] = output_tensor.sum().item()
                     # mfu
                     delta_time = timer.last
                     estimated_flops, promised_flops = self.flops_counter.estimate_flops(batch_seqlens, delta_time)

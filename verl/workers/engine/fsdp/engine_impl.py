@@ -135,7 +135,10 @@ class FSDPEngine(BaseEngine):
         )
 
     def is_mp_src_rank_with_outputs(self):
-        is_collect = self.ulysses_device_mesh["sp"].get_local_rank() == 0
+        if self.ulysses_device_mesh is not None:
+            is_collect = self.ulysses_device_mesh["sp"].get_local_rank() == 0
+        else:
+            is_collect = True
         return is_collect
 
     def initialize(self):
@@ -522,7 +525,7 @@ class FSDPEngine(BaseEngine):
             self.optimizer.zero_grad()
         else:
             self.optimizer.step()
-        return grad_norm
+        return grad_norm.item()
 
     def lr_scheduler_step(self):
         """

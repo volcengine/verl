@@ -3,7 +3,7 @@ set -xeuo pipefail
 
 ENTRYPOINT=${ENTRYPOINT:-"-m verl.trainer.sft_trainer"}
 
-NUM_GPUS=${NUM_GPUS:-8}
+NUM_GPUS=${NUM_GPUS:-1}
 
 TRAIN_FILES=~/data/gsm8k_sft/train.parquet
 VAL_FILES=~/data/gsm8k_sft/test.parquet
@@ -24,30 +24,30 @@ FSDP_ENGINE_CONFIG="\
     engine=${backend} \
     optim=${backend} \
     optim.lr=1e-5 \
-    optim.lr_warmup_steps_ratio=0.05 \
+    optim.lr_warmup_steps_ratio=0.2 \
     optim.weight_decay=0.1 \
     optim.betas="[0.9,0.95]" \
-    optim.clip_grad=1.0 \
+    optim.clip_grad=100.0 \
     optim.min_lr_ratio=0.1 \
     optim.warmup_style=cosine \
-    engine.ulysses_sequence_parallel_size=2 \
-    engine.strategy=fsdp"
+    engine.ulysses_sequence_parallel_size=1 \
+    engine.strategy=fsdp2"
 
 
 MEGATRON_ENGINE_CONFIG="\
     engine=${backend} \
     optim=${backend} \
     optim.lr=1e-5 \
-    optim.lr_warmup_steps_ratio=0.05 \
+    optim.lr_warmup_steps_ratio=0.2 \
     optim.weight_decay=0.1 \
     optim.betas="[0.9,0.95]" \
-    optim.clip_grad=1.0 \
+    optim.clip_grad=100.0 \
     optim.lr_warmup_init=0 \
     optim.lr_decay_style=cosine \
     optim.min_lr=1e-6 \
-    engine.tensor_model_parallel_size=2 \
-    engine.pipeline_model_parallel_size=2 \
-    engine.virtual_pipeline_model_parallel_size=2 \
+    engine.tensor_model_parallel_size=1 \
+    engine.pipeline_model_parallel_size=1 \
+    engine.virtual_pipeline_model_parallel_size=null \
     engine.context_parallel_size=1"
 
 if [ "$backend" = "fsdp" ]; then
@@ -75,11 +75,11 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     ${ENGINE_CONFIG} \
     trainer.test_freq=after_each_epoch \
     trainer.save_freq=-1 \
-    trainer.logger=['console'] \
+    trainer.logger=['console','wandb'] \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
     trainer.total_epochs=2 \
-    trainer.total_training_steps=2 \
+    trainer.total_training_steps=null \
     trainer.default_local_dir="${ckpts_home}" \
     trainer.resume_mode=${RESUME_MODE} \
 
