@@ -11,7 +11,7 @@ VAL_FILES=~/data/gsm8k_sft/test.parquet
 backend=${BACKEND:-fsdp}
 
 project_name=verl_sft_test
-exp_name=gsm8k-${backend}
+
 RESUME_MODE=disable
 
 ckpts_home=${ckpts_home:-~/verl/test/gsm8k-sft-${backend}}
@@ -19,6 +19,14 @@ ckpts_home=${ckpts_home:-~/verl/test/gsm8k-sft-${backend}}
 MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B-Instruct}
 MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
 huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
+
+SP_SIZE=${SP_SIZE:-1}
+FSDP_SIZE=${FSDP_SIZE:-${NUM_GPUS}}
+
+TP_SIZE=${TP_SIZE:-1}
+PP_SIZE=${PP_SIZE:-1}
+VPP_SIZE=${VPP_SIZE:-null}
+CP_SIZE=${CP_SIZE:-1}
 
 FSDP_ENGINE_CONFIG="\
     engine=${backend} \
@@ -30,8 +38,9 @@ FSDP_ENGINE_CONFIG="\
     optim.clip_grad=1.0 \
     optim.min_lr_ratio=0.1 \
     optim.warmup_style=cosine \
-    engine.ulysses_sequence_parallel_size=1 \
-    engine.strategy=fsdp2"
+    engine.ulysses_sequence_parallel_size=${SP_SIZE} \
+    engine.strategy=fsdp2 \
+    engine.fsdp_size=${FSDP_SIZE}"
 
 
 MEGATRON_ENGINE_CONFIG="\
@@ -45,17 +54,19 @@ MEGATRON_ENGINE_CONFIG="\
     optim.lr_warmup_init=0 \
     optim.lr_decay_style=cosine \
     optim.min_lr=1e-6 \
-    engine.tensor_model_parallel_size=1 \
-    engine.pipeline_model_parallel_size=1 \
-    engine.virtual_pipeline_model_parallel_size=null \
-    engine.context_parallel_size=1"
+    engine.tensor_model_parallel_size=${TP_SIZE} \
+    engine.pipeline_model_parallel_size=${PP_SIZE} \
+    engine.virtual_pipeline_model_parallel_size=${VPP_SIZE} \
+    engine.context_parallel_size=${CP_SIZE}"
 
 if [ "$backend" = "fsdp" ]; then
     ENGINE_CONFIG="$FSDP_ENGINE_CONFIG"
     echo "Using fsdp engine"
+    exp_name=gsm8k-${backend}-${SP_SIZE}-${FSDP_SIZE}
 else
     ENGINE_CONFIG="$MEGATRON_ENGINE_CONFIG"
     echo "Using megatron engine"
+    exp_name=gsm8k-${backend}-${TP_SIZE}-${PP_SIZE}-${VPP_SIZE}-${CP_SIZE}
 fi
 
 mkdir -p "${ckpts_home}"
