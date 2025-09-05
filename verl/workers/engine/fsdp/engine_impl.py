@@ -482,12 +482,12 @@ class FSDPEngine(BaseEngine):
 
         for micro_batch in micro_batches:
             with ctx:
-                local_micro_bsz = micro_batch.batch['input_ids'].shape[0]
+                local_micro_bsz = micro_batch.batch["input_ids"].shape[0]
                 # note that loss must be scaled in postprocess_micro_batch_func
                 loss, meta_info = self.forward_step(micro_batch, loss_function=loss_function, forward_only=forward_only)
 
                 if not forward_only:
-                    global_bsz = data.meta_info['global_batch_size']
+                    global_bsz = data.meta_info["global_batch_size"]
                     # metrics contain the output, loss is dummy
                     loss_scale_factor = local_micro_bsz / (global_bsz / self.get_data_parallel_size())
                     # scale loss
