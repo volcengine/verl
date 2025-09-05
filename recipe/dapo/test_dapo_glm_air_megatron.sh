@@ -147,7 +147,7 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     +actor_rollout_ref.actor.megatron.override_transformer_config.moe_shared_expert_overlap=False \
     +actor_rollout_ref.actor.megatron.override_transformer_config.moe_token_dispatcher_type="flex" \
     +actor_rollout_ref.actor.megatron.override_transformer_config.moe_router_dtype=fp32 \
-    +actor_rollout_ref.actor.megatron.override_transformer_config.moe_enable_deepep=True \
+    +actor_rollout_ref.actor.megatron.override_transformer_config.moe_enable_deepep=False \
     actor_rollout_ref.actor.entropy_coeff=0 \
     actor_rollout_ref.actor.loss_agg_mode=${loss_agg_mode} \
     actor_rollout_ref.rollout.name='vllm' \
