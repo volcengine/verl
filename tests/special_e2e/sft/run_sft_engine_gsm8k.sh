@@ -22,6 +22,7 @@ huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
 
 SP_SIZE=${SP_SIZE:-1}
 FSDP_SIZE=${FSDP_SIZE:-${NUM_GPUS}}
+FSDP_STRATEGY=${FSDP_STRATEGY:-"fsdp"}
 
 TP_SIZE=${TP_SIZE:-1}
 PP_SIZE=${PP_SIZE:-1}
@@ -39,7 +40,7 @@ FSDP_ENGINE_CONFIG="\
     optim.min_lr_ratio=0.1 \
     optim.warmup_style=cosine \
     engine.ulysses_sequence_parallel_size=${SP_SIZE} \
-    engine.strategy=fsdp \
+    engine.strategy=${FSDP_STRATEGY} \
     engine.fsdp_size=${FSDP_SIZE}"
 
 
@@ -62,7 +63,7 @@ MEGATRON_ENGINE_CONFIG="\
 if [ "$backend" = "fsdp" ]; then
     ENGINE_CONFIG="$FSDP_ENGINE_CONFIG"
     echo "Using fsdp engine"
-    exp_name=gsm8k-${backend}-sp${SP_SIZE}-fsdp${FSDP_SIZE}
+    exp_name=gsm8k-${backend}-${FSDP_STRATEGY}-sp${SP_SIZE}-fsdp${FSDP_SIZE}
 else
     ENGINE_CONFIG="$MEGATRON_ENGINE_CONFIG"
     echo "Using megatron engine"
@@ -90,7 +91,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
     trainer.total_epochs=2 \
-    trainer.total_training_steps=5 \
+    trainer.total_training_steps=2 \
     trainer.default_local_dir="${ckpts_home}" \
     trainer.resume_mode=${RESUME_MODE} \
 
