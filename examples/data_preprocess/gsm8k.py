@@ -24,6 +24,19 @@ import datasets
 from verl.utils.hdfs_io import copy, makedirs
 
 
+def load_dataset(local_dir: str, data_source: str):
+    try:
+        dataset = datasets.load_dataset(local_dir, "main")
+        assert "train" in dataset and "test" in dataset
+        assert len(dataset["train"]) > 0 and len(dataset["test"]) > 0
+        assert dataset["train"].info.dataset_name in data_source
+        assert dataset["test"].info.dataset_name in data_source
+        return dataset
+    except Exception:
+        dataset = datasets.load_dataset(data_source, "main")
+        return dataset
+
+
 def extract_solution(solution_str):
     solution = re.search("#### (\\-?[0-9\\.\\,]+)", solution_str)
     assert solution is not None
@@ -38,10 +51,11 @@ if __name__ == "__main__":
     parser.add_argument("--hdfs_dir", default=None)
 
     args = parser.parse_args()
+    local_dir = args.local_dir
 
     data_source = "openai/gsm8k"
 
-    dataset = datasets.load_dataset(data_source, "main")
+    dataset = load_dataset(local_dir, data_source)
 
     train_dataset = dataset["train"]
     test_dataset = dataset["test"]
@@ -81,7 +95,6 @@ if __name__ == "__main__":
     train_dataset = train_dataset.map(function=make_map_fn("train"), with_indices=True)
     test_dataset = test_dataset.map(function=make_map_fn("test"), with_indices=True)
 
-    local_dir = args.local_dir
     hdfs_dir = args.hdfs_dir
 
     train_dataset.to_parquet(os.path.join(local_dir, "train.parquet"))
