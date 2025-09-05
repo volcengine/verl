@@ -6,7 +6,7 @@ export VERL_FILE_LOGGER_ROOT=~/verl/test/log
 
 # test with single gpu as golden
 echo "run with single gpu as golden"
-BACKEND=fsdp SP_SIZE=1 FSDP_SIZE=1 NUM_GPUS=1 FSDP_STRATEGY=fsdp bash tests/special_e2e/sft/run_sft_engine_gsm8k.sh
+BACKEND=fsdp SP_SIZE=1 FSDP_SIZE=1 NUM_GPUS=1 FSDP_STRATEGY=fsdp VERL_FILE_LOGGER_PATH=~/verl/test/log/golden.jsonl bash tests/special_e2e/sft/run_sft_engine_gsm8k.sh
 
 # test with fsdp 1
 echo "run with sp1 fsdp_size2 num_gpus8 fsdp_strategy fsdp"

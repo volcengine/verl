@@ -215,11 +215,14 @@ class FileLogger:
     def __init__(self, project_name: str, experiment_name: str):
         self.project_name = project_name
         self.experiment_name = experiment_name
-        root_path = os.getenv('VERL_FILE_LOGGER_ROOT', os.path.expanduser("~/verl"))
-        directory = os.path.join(root_path, self.project_name)
-        os.makedirs(directory, exist_ok=True)
-        self.filepath = os.path.join(directory, f"{self.experiment_name}.jsonl")
-        print(f'Creating file logger at {self.filepath}')
+
+        self.filepath = os.getenv('VERL_FILE_LOGGER_PATH', None)
+        if self.filepath is None:
+            root_path = os.getenv('VERL_FILE_LOGGER_ROOT', os.path.expanduser("~/verl"))
+            directory = os.path.join(root_path, self.project_name)
+            os.makedirs(directory, exist_ok=True)
+            self.filepath = os.path.join(directory, f"{self.experiment_name}.jsonl")
+            print(f'Creating file logger at {self.filepath}')
         self.fp = open(self.filepath, "w")
     
     def log(self, data, step):
