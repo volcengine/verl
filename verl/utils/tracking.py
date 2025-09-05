@@ -21,6 +21,7 @@ from enum import Enum
 from functools import partial
 from pathlib import Path
 from typing import Any
+import json
 
 
 class Tracking:
@@ -34,7 +35,7 @@ class Tracking:
         logger: Dictionary of initialized logger instances for each backend.
     """
 
-    supported_backend = ["wandb", "mlflow", "swanlab", "vemlp_wandb", "tensorboard", "console", "clearml", "trackio"]
+    supported_backend = ["wandb", "mlflow", "swanlab", "vemlp_wandb", "tensorboard", "console", "clearml", "trackio", "file"]
 
     def __init__(self, project_name, experiment_name, default_backend: str | list[str] = "console", config=None):
         if isinstance(default_backend, str):
@@ -133,6 +134,9 @@ class Tracking:
         if "clearml" in default_backend:
             self.logger["clearml"] = ClearMLLogger(project_name, experiment_name, config)
 
+        if "file" in default_backend:
+            self.logger["file"] = FileLogger(project_name, experiment_name)
+
     def log(self, data, step, backend=None):
         for default_backend, logger_instance in self.logger.items():
             if backend is None or default_backend in backend:
@@ -151,6 +155,8 @@ class Tracking:
             self.logger["clearnml"].finish()
         if "trackio" in self.logger:
             self.logger["trackio"].finish()
+        if "file" in self.logger:
+            self.logger["file"].finish()
 
 
 class ClearMLLogger:
@@ -203,6 +209,25 @@ class ClearMLLogger:
 
     def finish(self):
         self._task.mark_completed()
+
+
+class FileLogger:
+    def __init__(self, project_name: str, experiment_name: str):
+        self.project_name = project_name
+        self.experiment_name = experiment_name
+        root_path = os.getenv('VERL_FILE_LOGGER_ROOT', os.path.expanduser("~/verl"))
+        directory = os.path.join(root_path, self.project_name)
+        os.makedirs(directory, exist_ok=True)
+        self.filepath = os.path.join(directory, f"{self.experiment_name}.jsonl")
+        print(f'Creating file logger at {self.filepath}')
+        self.fp = open(self.filepath, "w")
+    
+    def log(self, data, step):
+        data = {'step': step, 'data': data}
+        self.fp.write(json.dumps(data) + "\n")
+
+    def finish(self):
+        self.fp.close()
 
 
 class _TensorboardAdapter:
