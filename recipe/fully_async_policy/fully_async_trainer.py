@@ -121,7 +121,9 @@ class FullyAsyncTrainer(RayPPOTrainer):
         self.required_samples = int(
             self.minimal_bsz * config.actor_rollout_ref.actor.ppo_mini_batch_size / config.actor_rollout_ref.rollout.n
         )
-        self.metrics_aggregator = MetricsAggregator()
+        total_gpus = config.trainer.nnodes * config.trainer.n_gpus_per_node + \
+            config.rollout.nnodes * config.rollout.n_gpus_per_node
+        self.metrics_aggregator = MetricsAggregator(total_gpus=total_gpus)
 
     def set_message_queue_client(self, message_queue_client: MessageQueueClient):
         """Set message queue client"""

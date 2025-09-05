@@ -234,7 +234,7 @@ def assemble_batch_from_rollout_samples(
 class MetricsAggregator:
     """Metrics aggregator, used to combine metrics from multiple training steps"""
     
-    def __init__(self):
+    def __init__(self, total_gpus: int):
         # Store all values ​​for each metric
         self.metric_values: Dict[str, List[float]] = defaultdict(list)
         # Store the number of samples at each step for weighted averaging
@@ -243,6 +243,8 @@ class MetricsAggregator:
         self.timestamps: List[float] = []
         # Step Count
         self.step_count = 0
+        # total num gpus used
+        self.total_gpus = total_gpus
         
         # Metric aggregation rule configuration
         self.aggregation_rules = self._init_aggregation_rules()
@@ -250,57 +252,7 @@ class MetricsAggregator:
     def _init_aggregation_rules(self) -> Dict[str, Dict[str, List[str]]]:
         """Initialize metrics aggregation rules"""
         return {
-            # # Cumulative metrics - take the last value
-            # 'last': [
-            #     'fully_async/stale_samples_processed',
-            #     'fully_async/current_param_version',
-            #     'global_steps',
-            #     'epoch',
-            # ],
-            
-            # # Weighted average metrics - weighted by sample size
-            # 'weighted_avg': [
-            #     'fully_async/stale_samples_ratio',
-            #     'policy_loss',
-            #     'value_loss',
-            #     'entropy_loss',
-            #     'kl_divergence',
-            #     'advantage_mean',
-            #     'advantage_std',
-            #     'learning_rate',
-            # ],
-            
-            # # Summation type metrics - direct accumulation
-            # 'sum': [
-            #     'fully_async/total_wait_time',
-            #     'processed_samples',
-            #     'total_tokens',
-            # ],
-            
-            # Average metrics - Simple Average
-            # 'avg': [
-            #     'perf/throughput',
-            #     'fully_async/avg_processing_time',
-            #     'fully_async/tp50_processing_time',
-            #     'fully_async/tp95_processing_time',
-            #     'fully_async/tp99_processing_time',
-            #     'grad_norm',
-            # ],
-            
-            # # Maximum value metrics
-            # 'max': [
-            #     'fully_async/max_processing_time',
-            #     'max_grad_norm',
-            #     'peak_memory_usage',
-            # ],
-            
-            # # Minimum value metrics
-            # 'min': [
-            #     'fully_async/min_processing_time',
-            #     'min_learning_rate',
-            # ],
-            
-            # Time-Based metrics - Special Treatment
+            # Time-Based metrics, can add metrics here
             'time_sum': [
                 'timing_s/adv',
                 'timing_s/gen',
@@ -332,35 +284,26 @@ class MetricsAggregator:
         for agg_type, metric_list in self.aggregation_rules.items():
             if metric_name in metric_list:
                 return agg_type
+                
+        metric_lower = metric_name.lower()
+        if any(keyword in metric_lower for keyword in ['timing_s/']):
+            return 'time_sum'
+        if any(keyword in metric_lower for keyword in ['mean', 'avg', 'average']):
+            return 'avg'
+        if any(keyword in metric_lower for keyword in ['max', 'maximum']):
+            return 'max'
+        if any(keyword in metric_lower for keyword in ['min', 'minimum']):
+            return 'min'
+        if any(keyword in metric_lower for keyword in ['sum', 'total']):
+           return 'sum'
+        if any(keyword in metric_lower for keyword in ['weighted_avg']):
+            return 'weighted_avg'
+        
         import warnings
         warnings.warn(f"No aggregation rule is matched in init_aggregation_rules. \
-                      For metric {metric_name}, the 'last' method is used")
-        return 'last'
+                      For metric {metric_name}, the 'avg' method is used")
+        return 'avg'
 
-        # raise ValueError(f"No aggregation rule is matched in init_aggregation_rules. \
-        #                 Metric name: {metric_name}")    # TODO: 删除
-
-        
-        # Aggregation rules based on naming patterns
-        if metric_name.startswith('time/'):
-            aggregation_type = 'time_sum'
-        elif metric_name.endswith('_ratio') or metric_name.endswith('_rate'):
-            aggregation_type = 'weighted_avg'
-        elif metric_name.endswith('_count') or metric_name.endswith('_total'):
-            aggregation_type = 'sum'
-        elif metric_name.startswith('max_') or metric_name.endswith('_max'):
-            aggregation_type = 'max'
-        elif metric_name.startswith('min_') or metric_name.endswith('_min'):
-            aggregation_type = 'min'
-        else:
-            # The default is weighted average.
-            aggregation_type = 'weighted_avg'
-        import warnings
-        warnings.simplefilter("always", DeprecationWarning)
-        warnings.warn("No aggregation rule is matched in init_aggregation_rules. \
-                      Aggregation rule is matched based on name prefix:", aggregation_type)
-        return aggregation_type
-    
     def _aggregate_single_metric(self, metric_name: str, values: List[float]) -> float:
         """Aggregating a single metric"""
         if not values:
@@ -402,6 +345,7 @@ class MetricsAggregator:
     
     def get_aggregated_metrics(self) -> Dict[str, Any]:
         """aggregated metrics"""
+        t = time.time()
         if self.step_count == 0:
             return {}
         
@@ -411,21 +355,24 @@ class MetricsAggregator:
         for metric_name, values in self.metric_values.items():
             aggregated[metric_name] = self._aggregate_single_metric(metric_name, values)
         
-        # # Adding aggregate statistics
-        # aggregated.update({
-        #     'aggregation/step_count': self.step_count,
-        #     'aggregation/total_samples': sum(self.sample_counts),
-        #     'aggregation/avg_samples_per_step': sum(self.sample_counts) / self.step_count,
-        #     'aggregation/time_span': self.timestamps[-1] - self.timestamps[0] if len(self.timestamps) > 1 else 0,
-        # })
+        # Aggregate special metrics  
+        aggregated = self._special_metrics_aggergate(aggregated)
+
+        print(f"******************************aggregated metrics done. cost {time.time() - t}")
         
-        # # Add statistics on sample size
-        # if self.sample_counts:
-        #     aggregated.update({
-        #         'aggregation/min_samples_per_step': min(self.sample_counts),
-        #         'aggregation/max_samples_per_step': max(self.sample_counts),
-        #     })
+        return aggregated
+    
+    def _special_metrics_aggergate(self, aggregated: Dict[str, Any]) -> Dict[str, Any]:
+        """calculate special metrics"""
+
+        if "global_seqlen/minmax_diff" in aggregated.keys():
+            aggregated["global_seqlen/minmax_diff"] = aggregated["global_seqlen/max"] - aggregated["global_seqlen/min"]
         
+        REQUIRED_PERF_KEYS = {"perf/throughput", "perf/total_num_tokens", "perf/time_per_step"}
+        if REQUIRED_PERF_KEYS.issubset(aggregated):
+            aggregated["perf/throughput"] = aggregated['perf/total_num_tokens'] / \
+                (aggregated["perf/time_per_step"] * self.total_gpus)
+            
         return aggregated
     
     def reset(self):
