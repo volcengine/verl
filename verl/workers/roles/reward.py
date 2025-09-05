@@ -34,7 +34,7 @@ from verl.utils.distributed import initialize_global_process_group_ray
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.profiler import DistProfiler, DistProfilerExtension, log_gpu_memory_usage
 from verl.workers.config import HFModelConfig, RewardModelConfig
-from verl.workers.reward_model.sglang_reward_model import SGLangRewardModel
+from verl.workers.reward_model import SGLangRewardModel
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))

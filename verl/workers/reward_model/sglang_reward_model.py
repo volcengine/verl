@@ -29,8 +29,6 @@ from verl import DataProto
 from verl.utils.net_utils import is_ipv6
 from verl.workers.config import HFModelConfig, RewardModelConfig
 from verl.workers.reward_model import BasePPORewardModel
-
-# from verl.workers.config import
 from verl.workers.rollout.sglang_rollout.http_server_engine import AsyncHttpServerAdapter
 from verl.workers.rollout.sglang_rollout.utils import broadcast_pyobj
 
