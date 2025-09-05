@@ -423,7 +423,8 @@ class DataParallelPPOActor(BasePPOActor):
         # make sure we are in training mode
         self.actor_module.train()
         metrics = {}
-        for batch_idx, mini_batch in dataloader:
+        batch_idx = 0
+        for mini_batch in dataloader:
             self.actor_optimizer.zero_grad()
             if self.config.use_dynamic_bsz:
                 max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
@@ -436,6 +437,7 @@ class DataParallelPPOActor(BasePPOActor):
                 on_policy = True
             else:
                 on_policy = False
+            batch_idx += 1
 
             for micro_batch in micro_batches:
                 micro_batch = micro_batch.to(get_device_id())
