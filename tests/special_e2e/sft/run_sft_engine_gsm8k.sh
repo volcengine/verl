@@ -16,7 +16,7 @@ RESUME_MODE=disable
 
 ckpts_home=${ckpts_home:-~/verl/test/gsm8k-sft-${backend}}
 
-MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B-Instruct}
+MODEL_ID=${MODEL_ID:-Qwen/Qwen3-0.6B}
 MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
 huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
 
@@ -39,7 +39,7 @@ FSDP_ENGINE_CONFIG="\
     optim.min_lr_ratio=0.1 \
     optim.warmup_style=cosine \
     engine.ulysses_sequence_parallel_size=${SP_SIZE} \
-    engine.strategy=fsdp2 \
+    engine.strategy=fsdp \
     engine.fsdp_size=${FSDP_SIZE}"
 
 
@@ -90,7 +90,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
     trainer.total_epochs=2 \
-    trainer.total_training_steps=null \
+    trainer.total_training_steps=5 \
     trainer.default_local_dir="${ckpts_home}" \
     trainer.resume_mode=${RESUME_MODE} \
 
