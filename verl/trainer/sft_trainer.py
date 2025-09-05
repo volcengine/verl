@@ -161,7 +161,8 @@ class SFTTrainer:
             self.train_dataset, shuffle=True, num_replicas=dp_size, rank=dp_rank, drop_last=True
         )
 
-        self.train_batch_size_per_dp = config.data.train_batch_size // dp_size
+        self.global_batch_size = config.data.train_batch_size
+        self.train_batch_size_per_dp = self.global_batch_size // dp_size
 
         self.train_dataloader = StatefulDataLoader(
             dataset=self.train_dataset,
@@ -362,6 +363,7 @@ class SFTTrainer:
             "max_token_len_per_gpu": self.config.data.max_token_len_per_gpu,
             "micro_batch_size_per_gpu": self.config.data.micro_batch_size_per_gpu,
             "temperature": 1.0,
+            "global_batch_size": self.global_batch_size,
         }
 
         train_time = 0
