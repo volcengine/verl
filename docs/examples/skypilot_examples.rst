@@ -127,7 +127,7 @@ SSH into Head Node
 
 .. code-block:: bash
 
-   sky ssh verl-ppo
+   ssh verl-ppo
 
 Access Ray Dashboard
 ~~~~~~~~~~~~~~~~~~~~
