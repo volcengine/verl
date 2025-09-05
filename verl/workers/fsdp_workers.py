@@ -163,7 +163,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         self._is_actor = self.role in ["actor", "actor_rollout", "actor_rollout_ref"]
         self._is_rollout = self.role in ["rollout", "actor_rollout", "actor_rollout_ref"]
         self._is_ref = self.role in ["ref", "actor_rollout_ref"]
-        self.use_orig_params = False
+        self.use_orig_params = self.config.actor.fsdp_config.get("use_orig_params", False)
 
         # TODO(haibin.lin):
         # As of now the type of config is DictConfig, if we assign config.profiler with ProfilerConfig,
