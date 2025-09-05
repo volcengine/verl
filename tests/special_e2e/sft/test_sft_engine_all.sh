@@ -34,3 +34,7 @@ BACKEND=megatron TP_SIZE=2 PP_SIZE=2 VPP_SIZE=2 CP_SIZE=1 NUM_GPUS=8 bash tests/
 
 # TODO: toggle with following test when cp is fixed
 # BACKEND=megatron TP_SIZE=2 PP_SIZE=2 VPP_SIZE=2 CP_SIZE=1 NUM_GPUS=8 bash tests/special_e2e/sft/run_sft_engine_gsm8k.sh >& ~/verl/test/log/gsm8k-tp2_pp2_vpp2_cp1_num_gpus8.log
+
+python3 tests/special_e2e/sft/compare_sft_engine_results.py
+
+rm -rf ~/verl/test/log
