@@ -474,7 +474,6 @@ class FSDPEngine(BaseEngine):
 
     def forward_backward_batch(self, data: DataProto, loss_function: Callable, forward_only=False) -> list[DataProto]:
         # note that the global_batch_size should include data on all the dp
-        global_bsz = data.meta_info['global_batch_size']
         micro_batches, indices = self.prepare_micro_batches(data=data)
 
         output_lst = []
@@ -484,14 +483,15 @@ class FSDPEngine(BaseEngine):
         for micro_batch in micro_batches:
             with ctx:
                 local_micro_bsz = micro_batch.batch['input_ids'].shape[0]
-                loss_scale_factor = local_micro_bsz / (global_bsz / self.get_data_parallel_size())
                 # note that loss must be scaled in postprocess_micro_batch_func
                 loss, meta_info = self.forward_step(micro_batch, loss_function=loss_function, forward_only=forward_only)
-                # scale loss
-                loss = loss * loss_scale_factor
 
                 if not forward_only:
+                    global_bsz = data.meta_info['global_batch_size']
                     # metrics contain the output, loss is dummy
+                    loss_scale_factor = local_micro_bsz / (global_bsz / self.get_data_parallel_size())
+                    # scale loss
+                    loss = loss * loss_scale_factor
                     loss.backward()
 
             output_lst.append(meta_info)
