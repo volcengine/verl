@@ -39,6 +39,7 @@ def test_agent_loop_compute_score_with_model():
     with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config")):
         config = compose("ppo_trainer")
 
+    os.environ["LEGACY_IMPL_RM"] == "disable"
     rm_path = "Skywork/Skywork-Reward-Llama-3.1-8B-v0.2"
 
     if os.environ["LEGACY_IMPL_RM"] == "disable":
