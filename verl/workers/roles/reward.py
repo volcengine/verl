@@ -121,8 +121,8 @@ class RewardModelWorker(Worker, DistProfilerExtension):
     def _switch_chat_template(self, data: DataProto):
         src_max_length = data.batch["attention_mask"].shape[-1]
 
-        src_tokenizer = self.input_tokenizer
-        target_tokenizer = self.src_tokenizer
+        src_tokenizer = self.src_tokenizer
+        target_tokenizer = self.tokenizer
 
         rm_input_ids = []
         rm_attention_mask = []
