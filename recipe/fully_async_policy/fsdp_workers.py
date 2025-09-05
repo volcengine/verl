@@ -39,27 +39,43 @@ from verl.utils.fsdp_utils import (
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import get_generation_config, update_model_config
 from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
-from verl.workers.fsdp_workers import ActorRolloutRefWorker as ARRWorker
-from verl.workers.fsdp_workers import CriticWorker
+from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 device_name = get_device_name()
 
-__all__ = ["ActorRolloutRefWorker", "AsyncActorRolloutRefWorker", "CriticWorker", "RolloutWorker"]
+__all__ = ["DetachActorWorker", "DetachRolloutWorker", "DetachAsyncRolloutWorker", "CriticWorker"]
 
 
-class ActorRolloutRefWorker(ARRWorker):
-    def _get_actor_params(self):
-        assert self._is_actor
-        params = self.actor_module_fsdp.state_dict()
-        from verl.utils.model import convert_weight_keys
-
-        params = convert_weight_keys(
-            params, getattr(self.actor_module_fsdp, "_fsdp_wrapped_module", self.actor_module_fsdp)
+def get_inference_model(rollout):
+    """
+    根据不同类型的inference_engine获取模型对象
+    Args:
+        rollout: rollout对象，包含inference_engine
+    Returns:
+        model: 模型对象
+    """
+    inference_engine = rollout.inference_engine
+    # 判断inference_engine的类型
+    if hasattr(inference_engine, "llm_engine"):
+        # LLM类型 - vLLMRollout
+        inference_model = inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
+    elif hasattr(inference_engine, "worker"):
+        # WorkerWrapperBase类型 - vLLMAsyncRollout
+        inference_model = inference_engine.worker.model_runner.model
+    else:
+        raise AttributeError(
+            f"Unsupported inference_engine type: {type(inference_engine)}. "
+            f"Expected LLM (with llm_engine attribute) or WorkerWrapperBase (with worker attribute)."
         )
-        return params
+    return inference_model
+
+
+class DetachNcclSync(ActorRolloutRefWorker):
+    def _get_actor_params(self):
+        pass
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
     def sync_rollout_weights(self):
@@ -68,9 +84,7 @@ class ActorRolloutRefWorker(ARRWorker):
 
         params = self._get_actor_params() if self._is_actor else None
         if self._is_rollout:
-            inference_model = (
-                self.rollout.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
-            )
+            inference_model = get_inference_model(self.rollout)
             patch_vllm_moe_model_weight_loader(inference_model)
         for key, shape, dtype in self._weights_info:
             tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
@@ -108,7 +122,19 @@ class ActorRolloutRefWorker(ARRWorker):
         return ret
 
 
-class RolloutWorker(ActorRolloutRefWorker):
+class DetachActorWorker(DetachNcclSync):
+    def _get_actor_params(self):
+        assert self._is_actor
+        params = self.actor_module_fsdp.state_dict()
+        from verl.utils.model import convert_weight_keys
+
+        params = convert_weight_keys(
+            params, getattr(self.actor_module_fsdp, "_fsdp_wrapped_module", self.actor_module_fsdp)
+        )
+        return params
+
+
+class DetachRolloutWorker(DetachNcclSync):
     def __init__(self, config: DictConfig, role: str):
         Worker.__init__(self)
         assert role == "rollout"
@@ -202,16 +228,17 @@ class RolloutWorker(ActorRolloutRefWorker):
             trust_remote_code=trust_remote_code,
         )
         log_gpu_memory_usage(f"After building {rollout_name} rollout", logger=logger)
-        from .vllm_sharding_manager import VLLMShardingManager
 
-        rollout_sharding_manager = VLLMShardingManager(
+        from .detach_sharding_manager import DetachShardingManager
+
+        sharding_manager = DetachShardingManager(
             inference_engine=rollout.inference_engine, device_mesh=rollout_device_mesh
         )
 
         log_gpu_memory_usage("After building sharding manager", logger=logger)
 
         self.rollout = rollout
-        self.rollout_sharding_manager = rollout_sharding_manager
+        self.rollout_sharding_manager = sharding_manager
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO, blocking=False)
     def async_generate_sequences(self, *args, **kwargs):
@@ -223,6 +250,19 @@ class RolloutWorker(ActorRolloutRefWorker):
         self._weights_info = weights_info
 
 
-class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
-    def __init__(self, *args, **kwargs):
-        raise NotImplementedError
+class DetachAsyncRolloutWorker(AsyncActorRolloutRefWorker, DetachRolloutWorker):
+    def __init__(self, config: DictConfig, role: str):
+        print(f"[DetachAsyncRolloutWorker] {DetachAsyncRolloutWorker.__mro__}")
+        DetachRolloutWorker.__init__(self, config, role)
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def init_model(self):
+        print("[DetachAsyncRolloutWorker] init_model")
+        DetachRolloutWorker.init_model(self)
+
+        self.vllm_tp_size = self.config.rollout.tensor_model_parallel_size
+        self.vllm_dp_rank = int(os.environ["RANK"]) // self.vllm_tp_size
+        self.vllm_tp_rank = int(os.environ["RANK"]) % self.vllm_tp_size
+
+        # used for sleep/wake_up
+        self.rollout.sharding_manager = self.rollout_sharding_manager

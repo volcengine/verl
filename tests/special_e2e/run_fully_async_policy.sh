@@ -59,7 +59,7 @@ train_prompt_mini_bsz=32
 total_rollout_steps=$(((128*2)))
 test_freq=10
 staleness_threshold=1
-trigger_parameter_sync_step=1
+trigger_parameter_sync_step=16
 partial_rollout=True
 
 exp_name="$(basename "${MODEL_ID,,}")-fully-async-policy-${ACTOR_STRATEGY}-minimal"
