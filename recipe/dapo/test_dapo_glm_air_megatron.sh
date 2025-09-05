@@ -94,6 +94,9 @@ RM_ETP=${RM_ETP:-$COMMON_ETP}
 USE_MBRIDGE=True
 USE_DIST_CKPT=False
 
+# Install the latest mbridge
+# pip install --no-cache-dir git+https://github.com/ISEEKYAN/mbridge.git
+
 python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megatron_trainer'\
     data.train_files="${TRAIN_FILE}" \
     data.val_files="${TEST_FILE}" \
