@@ -110,7 +110,7 @@ class DataParallelPPOActor(BasePPOActor):
                     multi_modal_inputs[key] = torch.cat(
                         [inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0
                     )
-        temperature = micro_batch.meta_info["temperature"]
+        temperature = micro_batch["temperature"]
         with torch.autocast(device_type=self.device_name, dtype=torch.bfloat16):
             input_ids = micro_batch["input_ids"]
             batch_size, seqlen = input_ids.shape
@@ -399,7 +399,7 @@ class DataParallelPPOActor(BasePPOActor):
         entropy_lst = []
         for micro_batch in micro_batches:
             micro_batch = micro_batch.to(get_device_id())
-            model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch}
+            model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch, **micro_batch.meta_info}
             with torch.no_grad():
                 entropy, log_probs = self._forward_micro_batch(model_inputs, calculate_entropy=calculate_entropy)
             log_probs_lst.append(log_probs)
@@ -442,7 +442,7 @@ class DataParallelPPOActor(BasePPOActor):
             for micro_batch in micro_batches:
                 micro_batch = micro_batch.to(get_device_id())
                 micro_batch_metrics = {}
-                model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch}
+                model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch, **micro_batch.meta_info}
                 response_mask = model_inputs["response_mask"]
                 old_log_prob = model_inputs["old_log_probs"]
                 rollout_log_probs = model_inputs["rollout_log_probs"] if self.config.tis_imp_ratio_cap > 0 else None
