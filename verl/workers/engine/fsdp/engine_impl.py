@@ -604,7 +604,7 @@ class FSDPEngine(BaseEngine):
 
 
 class EngineEvalModeCtx:
-    def __init__(self, engine):
+    def __init__(self, engine: FSDPEngine):
         self.engine = engine
 
     def __enter__(self):
@@ -620,8 +620,7 @@ class EngineEvalModeCtx:
 
         # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
         # unshard the root FSDP module
-        world_size = torch.distributed.get_world_size()
-        if world_size > 1:
+        if self.engine.engine_config.fsdp_size > 1:
             if fsdp_version(self.engine.module) == 1:
                 self.engine.module._handle.reshard(True)
             elif fsdp_version(self.engine.module) == 2:
