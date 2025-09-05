@@ -1247,9 +1247,11 @@ class RayPPOTrainer:
                 reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
         # recompute old_log_probs
         with marked_timer("old_log_prob", timing_raw, color="blue"):
-            if self.config.async_training and self.config.async_training.use_rollout_log_probs:
+            async_training = self.config.get("async_training", None)
+            if async_training and async_training.use_rollout_log_prob:
                 batch.batch["old_log_probs"] = batch.batch["rollout_log_probs"]
-                del actor_old_log_probs
+                batch.meta_info["temperature"] = self.config.actor_rollout_ref.rollout.temperature
+
             else:
 
                 old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)

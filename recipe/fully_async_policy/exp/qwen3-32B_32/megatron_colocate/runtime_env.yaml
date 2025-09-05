@@ -1,0 +1,5 @@
+env_vars:
+  TENSORBOARD_DIR: "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-friday-studio/FTI/houzhenggang/expeirments/qwen3-32B-32/dapo_qwen3-32B_32k_fsdp2_colocate_32_mbs32"
+  HYDRA_FULL_ERROR: "1"
+  TORCH_NCCL_AVOID_RECORD_STREAMS: "1"
+  CUDA_DEVICE_MAX_CONNECTIONS: "1"
