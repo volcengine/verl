@@ -481,7 +481,7 @@ class SGLangRollout(BaseRollout):
             max_new_tokens=self.config.response_length,
             presence_penalty=0.0,
             frequency_penalty=0.0,
-            repetition_penalty=1.0,
+            repetition_penalty=self.config.get("repetition_penalty", 1.0),
         )
         # supporting adding any sampling params from the config file
         for k in self.config.keys():

@@ -61,7 +61,6 @@ from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.ray_utils import ray_noset_visible_devices
 from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
 from verl.utils.vllm import TensorLoRARequest, VLLMHijack, is_version_ge
-from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
 
@@ -207,6 +206,7 @@ class vLLMRollout(BaseRollout):
             n=1,
             logprobs=0,  # can be set to 0 and let actor to recompute
             max_tokens=config.response_length,
+            repetition_penalty=config.get("repetition_penalty", 1.0),
         )
 
         kwargs["detokenize"] = False
@@ -432,6 +432,8 @@ class vLLMRollout(BaseRollout):
             self.inference_engine.llm_engine.add_lora(lora_reqest)
             logger.info(f"vLLM load weights, loaded_params: {len(weights)}")
         else:
+            from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
+
             model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
             patch_vllm_moe_model_weight_loader(model)
             model.load_weights(weights)
@@ -550,6 +552,8 @@ class vLLMAsyncRollout(BaseRollout):
         Args:
             weights: A generator that yields the name of the weight tensor and the tensor itself.
         """
+        from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
+
         model = self.inference_engine.worker.model_runner.model
         patch_vllm_moe_model_weight_loader(model)
         model.load_weights(weights)
