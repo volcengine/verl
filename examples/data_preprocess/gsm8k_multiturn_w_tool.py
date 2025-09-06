@@ -21,7 +21,7 @@ import argparse
 import os
 import re
 
-import datasets
+from gsm8k import load_dataset
 
 from verl.utils.hdfs_io import copy, makedirs
 
@@ -40,9 +40,10 @@ if __name__ == "__main__":
     parser.add_argument("--hdfs_dir", default=None)
 
     args = parser.parse_args()
+    local_dir = args.local_dir
 
     data_source = "openai/gsm8k"
-    dataset = datasets.load_dataset(data_source, "main")
+    dataset = load_dataset(local_dir, data_source)
 
     train_dataset = dataset["train"]
     test_dataset = dataset["test"]
@@ -105,7 +106,6 @@ if __name__ == "__main__":
     train_dataset = train_dataset.map(function=make_map_fn("train"), with_indices=True)
     test_dataset = test_dataset.map(function=make_map_fn("test"), with_indices=True)
 
-    local_dir = args.local_dir
     hdfs_dir = args.hdfs_dir
 
     train_dataset.to_parquet(os.path.join(local_dir, "train.parquet"))
