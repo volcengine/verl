@@ -51,6 +51,7 @@ class CriticConfig(BaseConfig):
         checkpoint (Dict[str, Any]): Checkpoint configuration.
         profiler (Dict[str, Any]): Profiler configuration.
         enable (Optional[bool]): Whether to enable the critic.
+        data_loader_seed (Optional[int]): Seed for data loader.
     """
 
     _mutable_fields = BaseConfig._mutable_fields | {
@@ -76,6 +77,7 @@ class CriticConfig(BaseConfig):
     model: BaseModelConfig = field(default_factory=BaseModelConfig)
     checkpoint: CheckpointConfig = field(default_factory=CheckpointConfig)
     profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
+    data_loader_seed: Optional[int] = None
 
     def __post_init__(self):
         """Validate critic configuration parameters."""
@@ -142,14 +144,12 @@ class McoreCriticConfig(CriticConfig):
         nccl_timeout (int): NCCL timeout in seconds for distributed operations.
         megatron (Dict[str, Any]): Megatron-specific parallelism settings.
         load_weight (bool): Whether to load initial weights.
-        data_loader_seed (Optional[int]): Seed for data loader.
     """
 
     strategy: str = "megatron"
     nccl_timeout: int = 600
     megatron: McoreEngineConfig = field(default_factory=McoreEngineConfig)
     load_weight: bool = True
-    data_loader_seed: Optional[int] = None
 
     def validate(self, n_gpus: int, train_batch_size: int):
         """Validate Megatron critic configuration with runtime parameters."""

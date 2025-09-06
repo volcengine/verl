@@ -17,6 +17,7 @@ Implement a multiprocess PPOCritic
 
 import logging
 import os
+from typing import Iterable
 
 import torch
 import torch.distributed
@@ -46,6 +47,7 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 class DataParallelPPOCritic(BasePPOCritic):
     def __init__(self, config, critic_module: nn.Module, critic_optimizer: optim.Optimizer):
         super().__init__(config=config)
+        self._validate_config(config)
         self.critic_module = critic_module
         self.critic_optimizer = critic_optimizer
         self.use_remove_padding = self.config.model.get("use_remove_padding", False)
@@ -53,6 +55,10 @@ class DataParallelPPOCritic(BasePPOCritic):
 
         self.ulysses_sequence_parallel_size = self.config.get("ulysses_sequence_parallel_size", 1)
         self.device_name = get_device_name()
+
+    def _validate_config(self, config) -> None:
+        if config.shuffle:
+            assert config.data_loader_seed is not None, "If shuffle dataloader, seed must be manually set"
 
     def _forward_micro_batch(self, micro_batch):
         response_length = micro_batch["responses"].size(-1)
@@ -193,74 +199,73 @@ class DataParallelPPOCritic(BasePPOCritic):
             values = values * response_mask  # Only action tokens have values
         return values
 
+    def make_minibatch_iterator(self, data: DataProto) -> Iterable[DataProto]:
+        select_keys = ["input_ids", "responses", "attention_mask", "position_ids", "values", "returns"]
+        has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
+        non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
+        data = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
+
+        data = data.select(batch_keys=select_keys)
+        return data.make_iterator(
+            mini_batch_size=self.config.ppo_mini_batch_size,
+            epochs=self.config.ppo_epochs,
+            seed=self.config.data_loader_seed,
+            dataloader_kwargs={"shuffle": self.config.shuffle},
+        )
+
     @GPUMemoryLogger(role="dp critic", logger=logger)
-    def update_critic(self, data: DataProto):
+    def update_critic(self, dataloader: Iterable[DataProto]):
         # make sure we are in training mode
         self.critic_module.train()
         metrics = {}
+        for mini_batch in dataloader:
+            self.critic_optimizer.zero_grad()
+            if self.config.use_dynamic_bsz:
+                max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
+                micro_batches, _ = prepare_dynamic_batch(mini_batch, max_token_len=max_token_len)
+            else:
+                self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
+                micro_batches = mini_batch.split(self.config.ppo_micro_batch_size_per_gpu)
 
-        select_keys = ["input_ids", "responses", "response_mask", "attention_mask", "position_ids", "values", "returns"]
-        has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
-        non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
+            for micro_batch in micro_batches:
+                micro_batch = micro_batch.to(get_device_id())
+                micro_batch_metrics = {}
+                model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch}
+                response_mask = model_inputs["response_mask"]
+                values = model_inputs["values"]
+                returns = model_inputs["returns"]
 
-        data = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
-
-        # Split to make minibatch iterator for updating the actor
-        # See PPO paper for details. https://arxiv.org/abs/1707.06347
-        mini_batches = data.split(self.config.ppo_mini_batch_size)
-
-        for _ in range(self.config.ppo_epochs):
-            for batch_idx, mini_batch in enumerate(mini_batches):
+                vpreds = self._forward_micro_batch(model_inputs)
+                vf_loss, vf_clipfrac = core_algos.compute_value_loss(
+                    vpreds=vpreds,
+                    values=values,
+                    returns=returns,
+                    response_mask=response_mask,
+                    cliprange_value=self.config.cliprange_value,
+                    loss_agg_mode=self.config.loss_agg_mode,
+                )
                 if self.config.use_dynamic_bsz:
-                    max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
-                    micro_batches, _ = prepare_dynamic_batch(mini_batch, max_token_len=max_token_len)
+                    # relative to the dynamic bsz
+                    loss_scale_factor = response_mask.shape[0] / self.config.ppo_mini_batch_size
+                    loss = vf_loss * loss_scale_factor
                 else:
-                    self.gradient_accumulation = (
-                        self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
-                    )
-                    micro_batches = mini_batch.split(self.config.ppo_micro_batch_size_per_gpu)
+                    loss_scale_factor = 1 / self.gradient_accumulation
+                    loss = vf_loss * loss_scale_factor
 
-                self.critic_optimizer.zero_grad()
+                loss.backward()
 
-                for micro_batch in micro_batches:
-                    micro_batch = micro_batch.to(get_device_id())
-                    micro_batch_metrics = {}
-                    model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch}
-                    response_mask = model_inputs["response_mask"]
-                    values = model_inputs["values"]
-                    returns = model_inputs["returns"]
+                micro_batch_metrics.update(
+                    {
+                        "critic/vf_loss": vf_loss.detach().item() * loss_scale_factor,
+                        "critic/vf_clipfrac": vf_clipfrac.detach().item(),
+                        "critic/vpred_mean": masked_mean(vpreds, response_mask).detach().item(),
+                    }
+                )
 
-                    vpreds = self._forward_micro_batch(model_inputs)
-                    vf_loss, vf_clipfrac = core_algos.compute_value_loss(
-                        vpreds=vpreds,
-                        values=values,
-                        returns=returns,
-                        response_mask=response_mask,
-                        cliprange_value=self.config.cliprange_value,
-                        loss_agg_mode=self.config.loss_agg_mode,
-                    )
-                    if self.config.use_dynamic_bsz:
-                        # relative to the dynamic bsz
-                        loss_scale_factor = response_mask.shape[0] / self.config.ppo_mini_batch_size
-                        loss = vf_loss * loss_scale_factor
-                    else:
-                        loss_scale_factor = 1 / self.gradient_accumulation
-                        loss = vf_loss * loss_scale_factor
+                append_to_dict(metrics, micro_batch_metrics)
 
-                    loss.backward()
+            grad_norm = self._optimizer_step()
+            mini_batch_metrics = {"critic/grad_norm": grad_norm.detach().item()}
+            append_to_dict(metrics, mini_batch_metrics)
 
-                    micro_batch_metrics.update(
-                        {
-                            "critic/vf_loss": vf_loss.detach().item() * loss_scale_factor,
-                            "critic/vf_clipfrac": vf_clipfrac.detach().item(),
-                            "critic/vpred_mean": masked_mean(vpreds, response_mask).detach().item(),
-                        }
-                    )
-
-                    append_to_dict(metrics, micro_batch_metrics)
-
-                grad_norm = self._optimizer_step()
-                mini_batch_metrics = {"critic/grad_norm": grad_norm.detach().item()}
-                append_to_dict(metrics, mini_batch_metrics)
-        self.critic_optimizer.zero_grad()
         return metrics
