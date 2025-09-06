@@ -429,6 +429,9 @@ class MegatronEngine(BaseEngine):
             forward_only=forward_only,
             loss_function=loss_function,
         )
+
+        data.meta_info["num_micro_batch"] = n_micro_batch
+
         forward_step = partial(
             self.forward_step, meta_info=data.meta_info, postprocess_micro_batch_func=postprocess_micro_batch_func
         )
@@ -614,6 +617,15 @@ class MegatronEngineWithLMHead(MegatronEngine):
 
         if loss_function is not None:
             loss, metrics = loss_function(model_output=model_output, data=data, dp_group=self.get_data_parallel_group())
+            # scale loss by num_micro_batch because megatron will scale loss
+            # by n_micro_batch and cp size inside pp schedule
+            n_micro_batch = meta_info["num_micro_batch"]
+            loss = loss * n_micro_batch / mpu.get_context_parallel_world_size()
+
+            global_bsz = meta_info["global_batch_size"]
+            local_micro_bsz = responses.shape[0]
+            loss_scale_factor = local_micro_bsz / (global_bsz / self.get_data_parallel_size())
+            loss = loss * loss_scale_factor
         else:
             assert forward_only, "forward_only must be True when loss_function is None"
             loss = torch.tensor(1.0, device=device)

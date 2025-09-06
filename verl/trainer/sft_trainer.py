@@ -161,7 +161,8 @@ class SFTTrainer:
             self.train_dataset, shuffle=True, num_replicas=dp_size, rank=dp_rank, drop_last=True
         )
 
-        self.train_batch_size_per_dp = config.data.train_batch_size // dp_size
+        self.global_batch_size = config.data.train_batch_size
+        self.train_batch_size_per_dp = self.global_batch_size // dp_size
 
         self.train_dataloader = StatefulDataLoader(
             dataset=self.train_dataset,
@@ -362,6 +363,7 @@ class SFTTrainer:
             "max_token_len_per_gpu": self.config.data.max_token_len_per_gpu,
             "micro_batch_size_per_gpu": self.config.data.micro_batch_size_per_gpu,
             "temperature": 1.0,
+            "global_batch_size": self.global_batch_size,
         }
 
         train_time = 0
@@ -399,7 +401,7 @@ class SFTTrainer:
                         100,
                         (batch_seqlens.shape[0] * self.engine.get_data_parallel_size(),),
                         device=self.device_name,
-                    )
+                    )  # (global_bsz,)
 
                     torch.distributed.all_gather_into_tensor(
                         output_tensor=output_tensor,
@@ -418,6 +420,7 @@ class SFTTrainer:
                     metrics["train/loss"] = metrics.pop("loss")
                     metrics["train/grad_norm"] = metrics.pop("grad_norm")
                     metrics["train/lr"] = lr
+                    metrics["train/global_tokens"] = output_tensor.sum().item()
                     # mfu
                     delta_time = timer.last
                     estimated_flops, promised_flops = self.flops_counter.estimate_flops(batch_seqlens, delta_time)
