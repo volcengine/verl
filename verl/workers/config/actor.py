@@ -101,6 +101,7 @@ class ActorConfig(BaseConfig):
     clip_ratio: float = 0.2
     clip_ratio_low: float = 0.2
     clip_ratio_high: float = 0.2
+    freeze_vision_tower: bool = False
     policy_loss: PolicyLossConfig = field(default_factory=PolicyLossConfig)
     clip_ratio_c: float = 3.0
     loss_agg_mode: str = "token-mean"
