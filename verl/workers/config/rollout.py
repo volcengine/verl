@@ -76,6 +76,19 @@ class TraceConfig(BaseConfig):
 
 
 @dataclass
+class ServerConfig(BaseConfig):
+    """
+    Configuration for SGLang server when running in server mode
+    """
+
+    timeout: float = 60.0
+    max_attempts: int = 3
+    retry_delay: float = 2.0
+    max_connections: int = 1000
+    max_start_wait_time: float = 300.0
+
+
+@dataclass
 class RolloutConfig(BaseConfig):
     _mutable_fields = {"max_model_len"}
 
@@ -131,13 +144,16 @@ class RolloutConfig(BaseConfig):
 
     multi_turn: MultiTurnConfig = field(default_factory=MultiTurnConfig)
 
+    # Server configuration for sglang server mode
+    server: ServerConfig = field(default_factory=ServerConfig)
+
     update_weights_bucket_megabytes: int = 512
 
     skip_rollout: bool = False
 
     skip_dump_dir: str = "/tmp/rollout_dump"
 
-    profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
+    profiler: Optional[ProfilerConfig] = None
 
     enable_chunked_prefill: bool = True
     load_format: str = "dummy_dtensor"
@@ -145,3 +161,7 @@ class RolloutConfig(BaseConfig):
     layered_summon: bool = False
 
     layer_name_map: dict = field(default_factory=dict)
+
+    sglang_engine_mode: str = "local"
+
+    limit_images: Optional[int] = None

@@ -28,7 +28,8 @@ from torch import nn
 from torch.distributed.device_mesh import DeviceMesh
 
 from verl.protocol import DataProto, all_gather_data_proto
-from verl.utils.device import get_torch_device
+from verl.utils.device import get_torch_device, set_expandable_segments
+from verl.utils.import_utils import deprecated
 from verl.utils.megatron_utils import (
     load_megatron_model_to_gpu,
     offload_megatron_model_to_cpu,
@@ -55,6 +56,7 @@ Megatron Hybrid Engine:
 """
 
 
+@deprecated()
 class MegatronSGLangShardingManager(BaseShardingManager):
     """A sharding manager for Megatron-style training & inference with SGLang.
 
@@ -178,6 +180,9 @@ class MegatronSGLangShardingManager(BaseShardingManager):
                 self.transformer_config,
                 self.layer_name_mapping,
             )
+
+        set_expandable_segments(False)
+
         await self.update_weights(per_tensor_param)
         if self.offload_param:
             offload_megatron_model_to_cpu(self.actor_module)
@@ -198,6 +203,8 @@ class MegatronSGLangShardingManager(BaseShardingManager):
             model.train()
         # add empty cache after each compute
         aggressive_empty_cache(force_sync=True)
+
+        set_expandable_segments(True)
 
         # restore random states
         if self.device_mesh is not None:

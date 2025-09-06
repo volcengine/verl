@@ -149,8 +149,9 @@ class TestNPUProfilerAnnotate(unittest.TestCase):
             mock_start_patch.return_value = mock_mark_range
 
             with patch("verl.utils.profiler.mstx_profile.get_npu_profiler") as mock_get_profiler:
+                decorator = mock_worker.profiler.annotate(message="test")
 
-                @NPUProfiler.annotate(message="test")
+                @decorator
                 def test_func(self, *args, **kwargs):
                     return "result"
 
@@ -171,8 +172,9 @@ class TestNPUProfilerAnnotate(unittest.TestCase):
             patch("verl.utils.profiler.mstx_profile.mark_end_range") as mock_end_patch,
             patch("verl.utils.profiler.mstx_profile.get_npu_profiler") as mock_get_profiler,
         ):
+            decorator = mock_worker.profiler.annotate(message="test")
 
-            @NPUProfiler.annotate(message="test")
+            @decorator
             def test_func(self, *args, **kwargs):
                 return "result"
 
@@ -193,8 +195,9 @@ class TestNPUProfilerAnnotate(unittest.TestCase):
             patch("verl.utils.profiler.mstx_profile.mark_end_range") as mock_end_patch,
             patch("verl.utils.profiler.mstx_profile.get_npu_profiler") as mock_get_profiler,
         ):
+            decorator = mock_worker.profiler.annotate(message="test")
 
-            @NPUProfiler.annotate(message="test")
+            @decorator
             def test_func(self, *args, **kwargs):
                 return "result"
 
@@ -221,8 +224,9 @@ class TestNPUProfilerAnnotate(unittest.TestCase):
         ):
             mock_start_patch.return_value = mock_mark_range
             mock_get_profiler.return_value = mock_profile_npu
+            decorator = mock_worker.profiler.annotate(message="test", role="test_role")
 
-            @NPUProfiler.annotate(message="test", role="test_role")
+            @decorator
             def test_func(self, *args, **kwargs):
                 return "result"
 
@@ -253,8 +257,9 @@ class TestNPUProfilerAnnotate(unittest.TestCase):
             patch("verl.utils.profiler.mstx_profile.mark_end_range") as mock_end_patch,
         ):
             mock_start_patch.return_value = mock_mark_range
+            decorator = mock_worker.profiler.annotate()
 
-            @NPUProfiler.annotate()
+            @decorator
             def test_func(self, *args, **kwargs):
                 return "result"
 
