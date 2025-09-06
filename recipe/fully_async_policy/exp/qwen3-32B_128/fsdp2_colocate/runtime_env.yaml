@@ -1,0 +1,3 @@
+env_vars:
+  TENSORBOARD_DIR: "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-friday-studio/FTI/houzhenggang/expeirments/dapo_qwen3-32B/dapo_qwen3-32B-math_32k_fsdp2_colocate_128_mbs32"
+  HYDRA_FULL_ERROR: "1"
