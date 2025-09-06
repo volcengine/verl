@@ -69,7 +69,8 @@ class SupportedModel(Enum):
     QWEN2_5_VL = "Qwen2_5_VLForConditionalGeneration"  # not supported
     LLAMA4 = "Llama4ForConditionalGeneration"  # not tested
     QWEN3 = "Qwen3ForCausalLM"  # tested
-    QWEN3_MOE = "Qwen3MoeForCausalLM"  # not tested
+    QWEN3_MOE = "Qwen3MoeForCausalLM"  # tested
+    GLM4_MOE = "Glm4MoeForCausalLM"
 
 
 # Registry for model configuration converters
@@ -113,6 +114,7 @@ MODEL_FORWARD_REGISTRY: dict[SupportedModel, Callable] = {
     SupportedModel.QWEN3_MOE: gptmodel_forward,
     SupportedModel.QWEN2_5_VL: gptmodel_forward_qwen2_5_vl,
     SupportedModel.DEEPSEEK_V3: gptmodel_forward,
+    SupportedModel.GLM4_MOE: gptmodel_forward,
 }
 
 # Registry for model forward functions
@@ -128,6 +130,7 @@ MODEL_FORWARD_FUSED_REGISTRY: dict[SupportedModel, Callable] = {
     SupportedModel.QWEN3_MOE: fused_forward_gptmodel,
     SupportedModel.QWEN2_5_VL: fused_forward_qwen2_5_vl,
     SupportedModel.DEEPSEEK_V3: fused_forward_gptmodel,
+    SupportedModel.GLM4_MOE: fused_forward_gptmodel,
 }
 
 # Registry for model weight converters
