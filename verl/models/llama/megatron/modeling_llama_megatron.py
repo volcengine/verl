@@ -217,7 +217,7 @@ class ParallelLlamaForCausalLM(nn.Module):
         )
 
 
-from flash_attn.bert_padding import index_first_axis, pad_input, unpad_input  # noqa
+from verl.utils.kernel.flash_attn import index_first_axis, pad_input, unpad_input  # noqa
 
 
 class ParallelLlamaModelRmPad(nn.Module):

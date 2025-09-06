@@ -19,13 +19,13 @@ import itertools
 
 import torch
 import torch.distributed
-from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
 from torch import nn, optim
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.utils.device import get_device_name
+from verl.utils.kernel.flash_attn import index_first_axis, pad_input, rearrange, unpad_input
 from verl.utils.py_functional import append_to_dict
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad_and_slice_inputs
