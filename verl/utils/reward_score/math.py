@@ -29,6 +29,13 @@ def compute_score(solution_str, ground_truth) -> float:
 
 
 # string normalization from https://github.com/EleutherAI/lm-evaluation-harness/blob/master/lm_eval/tasks/hendrycks_math.py
+import re
+
+def _canonical_int_if_safe(s: str) -> str:
+    if re.fullmatch(r'[-+]?\d+', s):
+        return str(int(s))
+    return s
+
 def is_equiv(str1, str2, verbose=False):
     if str1 is None and str2 is None:
         print("WARNING: Both None")
@@ -37,8 +44,8 @@ def is_equiv(str1, str2, verbose=False):
         return False
 
     try:
-        ss1 = strip_string(str1)
-        ss2 = strip_string(str2)
+        ss1 = _canonical_int_if_safe(strip_string(str1))
+        ss2 = _canonical_int_if_safe(strip_string(str2))
         if verbose:
             print(ss1, ss2)
         return ss1 == ss2
