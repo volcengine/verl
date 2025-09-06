@@ -32,7 +32,6 @@ from verl.utils.config import validate_config
 
 from .ray_trainer import OneStepOffRayTrainer
 
-
 @hydra.main(config_path="config", config_name="one_step_off_ppo_trainer", version_base=None)
 def main(config):
     run_ppo(config)
