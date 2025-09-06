@@ -565,9 +565,13 @@ class RaySPINTrainer:
         # dump generations
         val_data_dir = self.config.trainer.get("validation_data_dir", None)
         if val_data_dir:
+            sample_gts = [
+                item.non_tensor_batch.get("reward_model", {}).get("ground_truth", None) for item in test_batch
+            ]
             self._dump_generations(
                 inputs=sample_inputs,
                 outputs=sample_outputs,
+                gts=sample_gts,
                 scores=sample_scores,
                 reward_extra_infos_dict=reward_extra_infos_dict,
                 dump_path=val_data_dir,
