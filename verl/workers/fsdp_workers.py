@@ -269,7 +269,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     ):
         from torch import optim
         from torch.distributed.fsdp import CPUOffload, MixedPrecision
-        from transformers import AutoConfig, AutoModel, AutoModelForCausalLM, AutoModelForVision2Seq
+        from transformers import AutoConfig, AutoModel, AutoModelForCausalLM, AutoModelForImageTextToText
 
         from verl.utils.model import get_generation_config, print_model_size, update_model_config
         from verl.utils.torch_dtypes import PrecisionType
@@ -344,8 +344,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                     case _:
                         actor_module_class = AutoModel
             else:
-                if type(actor_model_config) in AutoModelForVision2Seq._model_mapping.keys():
-                    actor_module_class = AutoModelForVision2Seq
+                if type(actor_model_config) in AutoModelForImageTextToText._model_mapping.keys():
+                    actor_module_class = AutoModelForImageTextToText
                 elif type(actor_model_config) in AutoModelForCausalLM._model_mapping.keys():
                     actor_module_class = AutoModelForCausalLM
                 else:
