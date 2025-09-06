@@ -135,7 +135,10 @@ class FSDPEngine(BaseEngine):
         )
 
     def is_mp_src_rank_with_outputs(self):
-        is_collect = self.ulysses_device_mesh["sp"].get_local_rank() == 0
+        if self.ulysses_device_mesh is not None:
+            is_collect = self.ulysses_device_mesh["sp"].get_local_rank() == 0
+        else:
+            is_collect = True
         return is_collect
 
     def initialize(self):
@@ -470,6 +473,7 @@ class FSDPEngine(BaseEngine):
         return micro_batches, batch_idx_list
 
     def forward_backward_batch(self, data: DataProto, loss_function: Callable, forward_only=False) -> list[DataProto]:
+        # note that the global_batch_size should include data on all the dp
         micro_batches, indices = self.prepare_micro_batches(data=data)
 
         output_lst = []
@@ -478,10 +482,15 @@ class FSDPEngine(BaseEngine):
 
         for micro_batch in micro_batches:
             with ctx:
-                # note that loss must be scaled in postprocess_micro_batch_func
                 loss, meta_info = self.forward_step(micro_batch, loss_function=loss_function, forward_only=forward_only)
+
                 if not forward_only:
+                    global_bsz = data.meta_info["global_batch_size"]
+                    local_micro_bsz = micro_batch.batch["input_ids"].shape[0]
                     # metrics contain the output, loss is dummy
+                    loss_scale_factor = local_micro_bsz / (global_bsz / self.get_data_parallel_size())
+                    # scale loss
+                    loss = loss * loss_scale_factor
                     loss.backward()
 
             output_lst.append(meta_info)
@@ -522,7 +531,7 @@ class FSDPEngine(BaseEngine):
             self.optimizer.zero_grad()
         else:
             self.optimizer.step()
-        return grad_norm
+        return grad_norm.item()
 
     def lr_scheduler_step(self):
         """
@@ -594,7 +603,7 @@ class FSDPEngine(BaseEngine):
 
 
 class EngineEvalModeCtx:
-    def __init__(self, engine):
+    def __init__(self, engine: FSDPEngine):
         self.engine = engine
 
     def __enter__(self):
@@ -610,8 +619,7 @@ class EngineEvalModeCtx:
 
         # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
         # unshard the root FSDP module
-        world_size = torch.distributed.get_world_size()
-        if world_size > 1:
+        if self.engine.engine_config.fsdp_size > 1:
             if fsdp_version(self.engine.module) == 1:
                 self.engine.module._handle.reshard(True)
             elif fsdp_version(self.engine.module) == 2:

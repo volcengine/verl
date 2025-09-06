@@ -191,6 +191,7 @@ class ActorWorker(Worker, DistProfilerExtension):
             dataloader = self._make_minibatch_iterator(data)
             with Timer(name="update_policy", logger=None) as timer:
                 for batch_idx, mini_batch in enumerate(dataloader):
+                    mini_batch.meta_info["global_batch_size"] = self.config.ppo_mini_batch_size
                     output = self.engine.train_batch(mini_batch, self.loss_fn)
                     mini_batch_metrics = output.get("metrics", {})
                     append_to_dict(metrics, mini_batch_metrics, prefix="actor/")
