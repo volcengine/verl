@@ -365,7 +365,8 @@ class FSDPSFTTrainer:
 
         # Context manager for sequence parallel if needed
         context = self.sharding_manager if use_sp else nullcontext()
-        # If last micro-batch in an accumulation step, then implicit grad all reduce in loss backward else use no_sync to avoid communication overhead
+        # If last micro-batch in an accumulation step, then implicit grad all-reduce happens in loss backward.
+        # Otherwise, use no_sync() to avoid communication overhead during intermediate accumulation steps.
         sync_context = nullcontext() if last_micro_in_accum else self.fsdp_model.no_sync()
         with context, sync_context, torch.autocast(device_type=self.device_name, dtype=torch.bfloat16):
             if not use_sp:
@@ -470,8 +471,10 @@ class FSDPSFTTrainer:
         n_micro_batches = len(micro_batches)
         step_loss = 0
         for micro_idx, micro_batch in enumerate(micro_batches):
-            last_micro_in_accum = ((micro_idx + 1) == n_micro_batches)
-            loss = self._compute_loss_and_backward(batch=micro_batch, n_micro_batches=n_micro_batches, last_micro_in_accum=last_micro_in_accum)
+            last_micro_in_accum = (micro_idx + 1) == n_micro_batches
+            loss = self._compute_loss_and_backward(
+                batch=micro_batch, n_micro_batches=n_micro_batches, last_micro_in_accum=last_micro_in_accum
+            )
             step_loss += loss.item()
 
         if self.config.model.strategy == "fsdp":
