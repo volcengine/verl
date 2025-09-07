@@ -65,7 +65,6 @@ class SGLangRewardModel(BasePPORewardModel):
 
         actor_module = model_config.local_path
         trust_remote_code = model_config.trust_remote_code
-        self.reward_mode = self.config.mode  # discriminative or generative
         port = None
 
         os.environ.setdefault("SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK", "true")
