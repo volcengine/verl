@@ -354,7 +354,9 @@ class RaySPPOTrainer(RayPPOTrainer):
             if is_last_step:
                 pprint(f"Final validation metrics: {last_val_metrics}")
                 progress_bar.close()
+                logger.finish()
                 return
 
             progress_bar.update(1)
             self.global_steps += 1
+        logger.finish()
