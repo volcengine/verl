@@ -48,11 +48,16 @@ use_dynamic_bsz=True
 actor_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 1))
 infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 3))
 
+use_kl_in_reward=False
+kl_coef=0.0
+use_kl_loss=True
+kl_loss_coef=0.001
+
 # RAY_ADDRESS='auto' ray job submit --working-dir . --
 python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megatron_trainer'\
     algorithm.adv_estimator=grpo \
-    algorithm.use_kl_in_reward=False \
-    algorithm.kl_ctrl.kl_coef=0.0 \
+    algorithm.use_kl_in_reward=${use_kl_in_reward} \
+    algorithm.kl_ctrl.kl_coef=${kl_coef} \
     data.train_files="$train_files" \
     data.val_files="$test_files" \
     data.train_batch_size=512 \
@@ -65,8 +70,8 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     actor_rollout_ref.actor.ppo_mini_batch_size=128 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.actor.use_torch_compile=False \
-    actor_rollout_ref.actor.use_kl_loss=True \
-    actor_rollout_ref.actor.kl_loss_coef=0.001 \
+    actor_rollout_ref.actor.use_kl_loss=${use_kl_loss} \
+    actor_rollout_ref.actor.kl_loss_coef=${kl_loss_coef} \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
