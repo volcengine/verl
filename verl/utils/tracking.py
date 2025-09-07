@@ -202,7 +202,7 @@ class ClearMLLogger:
                 )
 
     def finish(self):
-        self._task.close()
+        self._task.mark_completed()
 
 
 class _TensorboardAdapter:
