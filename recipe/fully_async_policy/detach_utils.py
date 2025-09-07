@@ -358,7 +358,7 @@ class MetricsAggregator:
         # Aggregate special metrics  
         aggregated = self._special_metrics_aggergate(aggregated)
 
-        print(f"******************************aggregated metrics done. cost {time.time() - t}")
+        print(f"aggregated metrics done. cost {time.time() - t}")
         
         return aggregated
     
