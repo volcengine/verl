@@ -46,18 +46,17 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from datasets import load_dataset  # noqa: E402
-from tensordict import TensorDict  # noqa: E402
 from torch.utils.data import DataLoader, Dataset
 from transformers import AutoTokenizer  # noqa: E402
 
+from verl import DataProto  # noqa: E402
 from verl.trainer.config import CheckpointConfig  # noqa: E402
-from verl.utils import tensordict_utils as tu  # noqa: E402
 from verl.workers.config import (  # noqa: E402
     FSDPEngineConfig,
     FSDPOptimizerConfig,
     HFModelConfig,
 )
-from verl.workers.engine.fsdp import FSDPEngineWithLMHead  # noqa: E402
+from verl.workers.engine.fsdp.engine_impl import FSDPEngineWithLMHead  # noqa: E402
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, "..", ".."))
@@ -314,23 +313,31 @@ def train_fsdp(engine, dataloader, num_steps: int, tokenizer):
                 batch[k] = v.to(device)
 
             batch = _build_batch_fields(batch, tokenizer)
-            bsz = batch["input_ids"].size(0)
 
-            tensor_batch = TensorDict(batch, batch_size=[bsz])
-            tu.assign_non_tensor(
-                tensor_batch,
-                use_dynamic_bsz=False,
-                micro_batch_size_per_gpu=bsz,
-                global_batch_size=bsz,
-                temperature=1.0,
-                top_p=1.0,
-                top_k=0,
-                max_new_tokens=0,
-                do_sample=False,
-                task_type="sft",
+            batch_proto = DataProto.from_single_dict(batch)
+            # Ensure position_ids persist
+            for attr in ("tensor", "data", "td"):
+                td = getattr(batch_proto, attr, None)
+                if td is not None and "position_ids" not in td.keys():
+                    td["position_ids"] = batch["position_ids"]
+                    break
+
+            bsz = batch["input_ids"].size(0)
+            batch_proto.meta_info.update(
+                {
+                    "use_dynamic_bsz": False,
+                    "micro_batch_size_per_gpu": bsz,
+                    "global_batch_size": bsz,
+                    "temperature": 1.0,
+                    "top_p": 1.0,
+                    "top_k": 0,
+                    "max_new_tokens": 0,
+                    "do_sample": False,
+                    "task_type": "sft",
+                }
             )
 
-            metrics = engine.forward_backward_batch(tensor_batch, loss_function)
+            metrics = engine.forward_backward_batch(batch_proto, loss_function)
 
             if not isinstance(metrics, dict):
                 raise RuntimeError(f"Engine expected to return metrics dict, got {type(metrics)}")

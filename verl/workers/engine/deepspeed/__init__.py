@@ -16,7 +16,7 @@
 DeepSpeed engine implementation for VERL
 """
 
-from .transformer_impl import DeepSpeedEngine, DeepSpeedEngineWithLMHead
+from .engine_impl import DeepSpeedEngine, DeepSpeedEngineWithLMHead
 
 __all__ = ["DeepSpeedEngine", "DeepSpeedEngineWithLMHead"]
 

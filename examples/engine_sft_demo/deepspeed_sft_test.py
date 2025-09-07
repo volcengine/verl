@@ -57,7 +57,7 @@ from verl.workers.config import (  # noqa: E402
     DeepSpeedOptimizerConfig,
     HFModelConfig,
 )
-from verl.workers.engine.deepspeed import DeepSpeedEngineWithLMHead  # noqa: E402
+from verl.workers.engine.deepspeed.engine_impl import DeepSpeedEngineWithLMHead  # noqa: E402
 
 # NOTE: We intentionally modify sys.path early to allow running this example
 # without installing the package. Ruff E402 is suppressed for this file.

@@ -45,15 +45,14 @@ def get_deepspeed_config(
     betas: Optional[Sequence[float]] = None,
     eps: float = 1e-8,
     weight_decay: float = 0.01,
-    warmup_min_lr: float = None,
-    warmup_max_lr: float = None,
-    warmup_num_steps: int = 0,
+    warmup_min_lr: float = 0,
+    warmup_max_lr: float = 1e-5,
+    warmup_num_steps: int = 100,
     fp16_enabled: bool = True,
     bf16_enabled: bool = False,
     cpu_offload: bool = False,
     offload_optimizer: bool = False,
     disable_scheduler: bool = False,
-    gradient_clipping: Optional[float] = None,
     **kwargs,
 ) -> dict[str, Any]:
     """
@@ -77,7 +76,6 @@ def get_deepspeed_config(
         cpu_offload: Whether to offload parameters to CPU
         offload_optimizer: Whether to offload optimizer to CPU
         disable_scheduler: If True, removes the scheduler from the config
-        gradient_clipping: Gradient clipping value (None to disable)
         **kwargs: Additional configuration options
 
     Returns:
@@ -85,12 +83,6 @@ def get_deepspeed_config(
     """
     if betas is None:
         betas = (0.9, 0.999)
-    # Set warmup defaults to match the target learning rate
-    if warmup_min_lr is None:
-        warmup_min_lr = lr
-    if warmup_max_lr is None:
-        warmup_max_lr = lr
-
     config = {
         "train_batch_size": train_batch_size,
         "train_micro_batch_size_per_gpu": train_micro_batch_size_per_gpu,
@@ -111,12 +103,7 @@ def get_deepspeed_config(
                 "warmup_num_steps": warmup_num_steps,
             },
         },
-        "steps_per_print": 1,  # Match test script configuration
-    }
-
-    # Only add zero_optimization if zero_stage > 0
-    if zero_stage > 0:
-        config["zero_optimization"] = {
+        "zero_optimization": {
             "stage": zero_stage,
             "allgather_partitions": True,
             "allgather_bucket_size": 2e7,  # Match test script: 20M instead of 200M
@@ -124,14 +111,12 @@ def get_deepspeed_config(
             "reduce_scatter": True,
             "reduce_bucket_size": 2e7,  # Match test script: 20M instead of 200M
             "contiguous_gradients": True,
-        }
+        },
+        "steps_per_print": 1,  # Match test script configuration
+    }
 
     if disable_scheduler:
         del config["scheduler"]
-
-    # Configure gradient clipping
-    if gradient_clipping is not None and gradient_clipping > 0:
-        config["gradient_clipping"] = gradient_clipping
 
     # Configure precision
     if bf16_enabled:
@@ -177,7 +162,6 @@ def initialize_deepspeed_engine(
     mpu: Optional[Any] = None,
     dist_init_required: Optional[bool] = None,
     config_params: Optional[str] = None,
-    optimizer: Optional[Any] = None,
 ) -> tuple:
     """
     Initialize DeepSpeed engine.
@@ -219,8 +203,6 @@ def initialize_deepspeed_engine(
         init_kwargs["dist_init_required"] = dist_init_required
     if config_params is not None:
         init_kwargs["config_params"] = config_params
-    if optimizer is not None:
-        init_kwargs["optimizer"] = optimizer
 
     return deepspeed.initialize(**init_kwargs)
 

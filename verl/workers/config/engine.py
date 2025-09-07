@@ -162,16 +162,11 @@ class DeepSpeedEngineConfig(BaseConfig):
 class DeepSpeedOptimizerConfig(BaseConfig):
     """Optimizer config for DeepSpeed wrapper."""
 
-    _mutable_fields = BaseConfig._mutable_fields | {"total_training_steps", "lr_warmup_steps"}
-
     optimizer: str = "AdamW"
     lr: float = 1e-5
     betas: tuple[float, float] = (0.9, 0.999)
     weight_decay: float = 0.0
     eps: float = 1e-8
-    lr_warmup_steps_ratio: float = 0.0
-    total_training_steps: int = -1
-    lr_warmup_steps: int = -1
 
     def __post_init__(self):
         if self.lr <= 0:
