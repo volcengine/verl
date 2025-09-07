@@ -111,3 +111,12 @@ verl = [
   "trainer/config/*.yaml",
   "trainer/config/*/*.yaml",
 ]
+
+[project.optional-dependencies]
+# Existing extras are defined in setup.py; replicate key ones needed for PEP 621 installers.
+# Minimal exposure for new deepspeed extra; other extras can be ported later.
+# NOTE: Keep in sync with setup.py extras_require.
+deepspeed = [
+  "deepspeed>=0.14.0",
+  "triton"
+]

@@ -18,7 +18,12 @@ from typing import Any, Optional
 
 from verl.base_config import BaseConfig
 
-__all__ = ["FSDPEngineConfig", "McoreEngineConfig"]
+__all__ = [
+    "FSDPEngineConfig",
+    "McoreEngineConfig",
+    "DeepSpeedEngineConfig",
+    "DeepSpeedOptimizerConfig",
+]
 
 
 @dataclass
@@ -118,3 +123,55 @@ class FSDPEngineConfig(BaseConfig):
 
     def __post_init__(self):
         assert self.strategy in ["fsdp", "fsdp2"], f"strategy {self.strategy} not supported"
+
+
+# ---------------- DeepSpeed Configs -----------------
+@dataclass
+class DeepSpeedEngineConfig(BaseConfig):
+    """Configuration for DeepSpeed engine (minimal subset)."""
+
+    # offload & parallel
+    param_offload: bool = False
+    optimizer_offload: bool = False
+    ulysses_sequence_parallel_size: int = 1
+
+    # dtype / precision controls
+    model_dtype: str = "fp32"  # initial parameter dtype
+    mixed_precision: Optional[dict[str, Any]] = None  # e.g. {"param_dtype": "bf16"}
+    forward_only: bool = False
+
+    # features
+    use_torch_compile: bool = False
+    entropy_from_logits_with_chunking: bool = False
+
+    # placeholder for parity with FSDP config fields accessed in engine_impl
+    strategy: str = field(default="deepspeed", init=False)
+
+    def __post_init__(self):
+        # basic field validation
+        if self.ulysses_sequence_parallel_size < 1:
+            raise ValueError("ulysses_sequence_parallel_size must be >= 1")
+        if self.model_dtype not in ("fp32", "bf16", "fp16"):
+            raise ValueError(f"Unsupported model_dtype {self.model_dtype}")
+        # mixed_precision can be: None | str ("fp16"/"bf16") | dict
+        if self.mixed_precision is not None and not isinstance(self.mixed_precision, dict | str):
+            raise ValueError("mixed_precision must be a dict, str, or None")
+
+
+@dataclass
+class DeepSpeedOptimizerConfig(BaseConfig):
+    """Optimizer config for DeepSpeed wrapper."""
+
+    optimizer: str = "AdamW"
+    lr: float = 1e-5
+    betas: tuple[float, float] = (0.9, 0.999)
+    weight_decay: float = 0.0
+    eps: float = 1e-8
+
+    def __post_init__(self):
+        if self.lr <= 0:
+            raise ValueError("lr must be > 0")
+        if not (0 < self.betas[0] < 1 and 0 < self.betas[1] < 1):
+            raise ValueError("betas must each be in (0,1)")
+        if self.weight_decay < 0:
+            raise ValueError("weight_decay must be >= 0")
