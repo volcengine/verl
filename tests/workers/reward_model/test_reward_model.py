@@ -97,7 +97,7 @@ def _create_data_samples(tokenizer) -> DataProto:
 def test_reward_model():
     ray.init()
 
-    rm_path = os.path.expanduser("~/models/Qwen/Qwen2.5-0.5B-Instruct")
+    rm_path = os.path.expanduser("~/models/Skywork/Skywork-Reward-V2-Llama-3.2-1B")
     model_config = HFModelConfig(path=rm_path)
     config = RewardModelConfig(
         enable=True,
