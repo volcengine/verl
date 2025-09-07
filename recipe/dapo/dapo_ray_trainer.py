@@ -61,15 +61,12 @@ class RayDAPOTrainer(RayPPOTrainer):
 
         from verl.utils.tracking import Tracking
 
-        with Tracking(
+        logger = Tracking(
             project_name=self.config.trainer.project_name,
             experiment_name=self.config.trainer.experiment_name,
             default_backend=self.config.trainer.logger,
             config=OmegaConf.to_container(self.config, resolve=True),
-        ) as logger:
-            self._fit(logger)
-
-    def _fit(self, logger):
+        )
         self.global_steps = 0
         self.gen_steps = 0
 
@@ -84,6 +81,7 @@ class RayDAPOTrainer(RayPPOTrainer):
             pprint(f"Initial validation metrics: {val_metrics}")
             logger.log(data=val_metrics, step=self.global_steps)
             if self.config.trainer.get("val_only", False):
+                logger.finish()
                 return
 
         if self.config.actor_rollout_ref.rollout.get("skip_rollout", False):
@@ -385,6 +383,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                 if is_last_step:
                     pprint(f"Final validation metrics: {last_val_metrics}")
                     progress_bar.close()
+                    logger.finish()
                     return
 
                 progress_bar.update(1)
@@ -399,3 +398,4 @@ class RayDAPOTrainer(RayPPOTrainer):
                 self._save_checkpoint()
             metrics = {f"timing/{k}": v for k, v in timing_raw.items()}
             logger.log(data=metrics, step=self.global_steps)
+        logger.finish()

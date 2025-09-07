@@ -58,15 +58,12 @@ class RayEntropyTrainer(RayPPOTrainer):
 
         from verl.utils.tracking import Tracking
 
-        with Tracking(
+        logger = Tracking(
             project_name=self.config.trainer.project_name,
             experiment_name=self.config.trainer.experiment_name,
             default_backend=self.config.trainer.logger,
             config=OmegaConf.to_container(self.config, resolve=True),
-        ) as logger:
-            self._fit(logger)
-
-    def _fit(self, logger):
+        )
         self.global_steps = 0
 
         # load checkpoint before doing anything
@@ -80,6 +77,7 @@ class RayEntropyTrainer(RayPPOTrainer):
             pprint(f"Initial validation metrics: {val_metrics}")
             logger.log(data=val_metrics, step=self.global_steps)
             if self.config.trainer.get("val_only", False):
+                logger.finish()
                 return
 
         # add tqdm
@@ -343,7 +341,9 @@ class RayEntropyTrainer(RayPPOTrainer):
                 if is_last_step:
                     pprint(f"Final validation metrics: {last_val_metrics}")
                     progress_bar.close()
+                    logger.finish()
                     return
 
                 progress_bar.update(1)
                 self.global_steps += 1
+        logger.finish()

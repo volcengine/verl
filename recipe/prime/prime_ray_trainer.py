@@ -339,15 +339,13 @@ class RayPRIMETrainer(RayPPOTrainer):
 
         from verl.utils.tracking import Tracking
 
-        with Tracking(
+        logger = Tracking(
             project_name=self.config.trainer.project_name,
             experiment_name=self.config.trainer.experiment_name,
             default_backend=self.config.trainer.logger,
             config=OmegaConf.to_container(self.config, resolve=True),
-        ) as logger:
-            self._fit(logger)
+        )
 
-    def _fit(self, logger):
         self.global_steps = 0
 
         # load checkpoint before doing anything

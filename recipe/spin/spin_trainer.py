@@ -17,7 +17,7 @@ import os
 import traceback
 import uuid
 from collections import defaultdict
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pprint import pprint
 from typing import Any, Optional
@@ -823,20 +823,15 @@ class RaySPINTrainer:
 
         # Initialize logger
         try:
-            logger_context = Tracking(
+            logger = Tracking(
                 project_name=self.config.trainer.project_name,
                 experiment_name=self.config.trainer.experiment_name,
                 default_backend=self.config.trainer.logger,
                 config=OmegaConf.to_container(self.config, resolve=True, throw_on_missing=False),
             )
         except Exception as e:
-            logger_context = nullcontext()
             print(f"Warning: Failed to initialize logger: {e}")
 
-        with logger_context as logger:
-            self._fit_dpo(logger)
-
-    def _fit_dpo(self, logger):
         self.global_steps = 0
         # Load checkpoint before doing anything
         loaded_step = self._load_checkpoint()
@@ -866,6 +861,8 @@ class RaySPINTrainer:
                 logger.log(data=val_metrics, step=max(0, self.global_steps - 1))
             if self.config.trainer.get("val_only", False):
                 print("Validation only mode enabled. Exiting training.")
+                if logger:
+                    logger.finish()
                 return
 
         # Add tqdm progress bar
@@ -1297,5 +1294,7 @@ class RaySPINTrainer:
                 except Exception as e:
                     print(f"[Final Val Metrics Log Error]: {e}")
 
+        if logger:
+            logger.finish()
         pprint(f"Final validation metrics: {last_val_metrics}")
         print("Online DPO Training Run Complete.")
