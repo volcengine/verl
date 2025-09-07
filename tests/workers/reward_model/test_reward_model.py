@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+
 import ray
 import torch
 from transformers import AutoModelForSequenceClassification
@@ -95,7 +97,7 @@ def _create_data_samples(tokenizer) -> DataProto:
 def test_reward_model():
     ray.init()
 
-    rm_path = "Skywork/Skywork-Reward-V2-Llama-3.2-1B"
+    rm_path = os.path.expanduser("~/models/Qwen/Qwen2.5-0.5B-Instruct")
     model_config = HFModelConfig(path=rm_path)
     config = RewardModelConfig(
         enable=True,

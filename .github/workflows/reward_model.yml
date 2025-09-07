@@ -81,7 +81,7 @@ jobs:
           pip install --upgrade "huggingface_hub[cli]"
       - name: Download model config files
         run: |
-          hf download Qwen/Qwen2.5-0.5B-Instruct --local-dir $HOME/models/Qwen/Qwen2.5-0.5B-Instruct
+          hf download Skywork/Skywork-Reward-V2-Llama-3.2-1B --local-dir $HOME/models/Skywork/Skywork-Reward-V2-Llama-3.2-1B
 
       - name: Running discriminative reward model tests on 8 L20 GPUs
         run: |
