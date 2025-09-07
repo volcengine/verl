@@ -147,8 +147,8 @@ class Tracking:
             self.logger["vemlp_wandb"].finish(exit_code=0)
         if "tensorboard" in self.logger:
             self.logger["tensorboard"].finish()
-        if "clearml" in self.logger:
-            self.logger["clearml"].finish()
+        if "clearnml" in self.logger:
+            self.logger["clearnml"].finish()
         if "trackio" in self.logger:
             self.logger["trackio"].finish()
 
