@@ -218,7 +218,7 @@ class ClearMLLogger:
                 )
 
     def finish(self):
-        self._task.mark_completed()
+        self._task.close()
 
 
 class FileLogger:
