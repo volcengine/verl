@@ -254,12 +254,7 @@ class MetricsAggregator:
         return {
             # Time-Based metrics, can add metrics here
             'time_sum': [
-                'timing_s/adv',
-                'timing_s/gen',
-                'timing_s/old_log_prob',
-                'timing_s/reward',
-                'timing_s/step',
-                'timing_s/update_actor',
+                'perf/time_per_step'
             ],
         }
     
