@@ -161,8 +161,8 @@ class Tracking:
             self.logger["vemlp_wandb"].finish(exit_code=0)
         if "tensorboard" in self.logger:
             self.logger["tensorboard"].finish()
-        if "clearnml" in self.logger:
-            self.logger["clearnml"].finish()
+        if "clearml" in self.logger:
+            self.logger["clearml"].finish()
         if "trackio" in self.logger:
             self.logger["trackio"].finish()
         if "file" in self.logger:
@@ -218,7 +218,7 @@ class ClearMLLogger:
                 )
 
     def finish(self):
-        self._task.mark_completed()
+        self._task.close()
 
 
 class FileLogger:
