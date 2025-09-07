@@ -822,6 +822,7 @@ class RaySPINTrainer:
         from verl.utils.tracking import Tracking
 
         # Initialize logger
+        logger = None
         try:
             logger = Tracking(
                 project_name=self.config.trainer.project_name,
@@ -1294,7 +1295,7 @@ class RaySPINTrainer:
                 except Exception as e:
                     print(f"[Final Val Metrics Log Error]: {e}")
 
+        pprint(f"Final validation metrics: {last_val_metrics}")
         if logger:
             logger.finish()
-        pprint(f"Final validation metrics: {last_val_metrics}")
         print("Online DPO Training Run Complete.")
