@@ -94,8 +94,14 @@ This logic is largely copied from the Hendrycks' MATH release (math_equivalence)
 
 import contextlib
 import math
+import multiprocessing
+import os
+import queue
 import re
+import signal
+from functools import wraps
 from math import isclose
+from typing import Any, Callable
 
 # sympy related
 from sympy import N, simplify
@@ -379,14 +385,6 @@ def format_intervals(prediction):
                 return f"({inner_content})"
 
     return prediction
-
-
-import os
-import signal
-import queue
-import multiprocessing
-from functools import wraps
-from typing import Callable, Any
 
 
 def _mp_target_wrapper(target_func: Callable, mp_queue: multiprocessing.Queue, args: tuple, kwargs: dict[str, Any]):

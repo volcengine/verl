@@ -1,19 +1,19 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
+import json
 from functools import partial
 from typing import Any, Optional
 from uuid import uuid4
 
 import aiohttp
-import json
 
-from verl.utils.rollout_trace import rollout_trace_op
 from verl.tools.base_tool import BaseTool
 from verl.tools.schemas import OpenAIFunctionToolSchema, ToolResponse
+from verl.utils.rollout_trace import rollout_trace_op
 
+from .code_judge_utils import generate_tool_call_code, generate_tool_call_input, run_tool_calls_on_server_async
 from .request_processor import RequestProcessor
-from .code_judge_utils import run_tool_calls_on_server_async, generate_tool_call_code, generate_tool_call_input
 
 
 class CodeJudgeTool(BaseTool):
@@ -33,7 +33,9 @@ class CodeJudgeTool(BaseTool):
         request_processor_batch_size = self.config.get("request_processor_batch_size", 1)
         request_processor_concurrency = self.config.get("request_processor_concurrency", 1)
         request_processor_batch_timeout_seconds = self.config.get("request_processor_batch_timeout_seconds", 30)
-        tool_connector = aiohttp.TCPConnector(limit=request_processor_concurrency, force_close=True, enable_cleanup_closed=True)
+        tool_connector = aiohttp.TCPConnector(
+            limit=request_processor_concurrency, force_close=True, enable_cleanup_closed=True
+        )
         tool_timeout = aiohttp.ClientTimeout(total=60)
         tool_session = aiohttp.ClientSession(connector=tool_connector, timeout=tool_timeout)
         self.request_processor = RequestProcessor(
@@ -71,13 +73,15 @@ class SimJupyterTool(CodeJudgeTool):
                 try:
                     arguments = json.loads(history_tool_call.arguments)
                     assert len(arguments) == 1 and "code" in arguments
-                    history_tool_calls.append({
-                        "name": "jupyter_code",
-                        "arguments": {
-                            "code": arguments["code"],
+                    history_tool_calls.append(
+                        {
+                            "name": "jupyter_code",
+                            "arguments": {
+                                "code": arguments["code"],
+                            },
                         }
-                    })
-                except Exception as e:
+                    )
+                except Exception:
                     pass
 
         self._instance_dict[instance_id] = {
@@ -95,7 +99,7 @@ class SimJupyterTool(CodeJudgeTool):
             "arguments": {
                 "code": code,
             },
-            "history_tool_calls": self._instance_dict[instance_id]["history_tool_calls"]
+            "history_tool_calls": self._instance_dict[instance_id]["history_tool_calls"],
         }
         result_text = await self.request_processor.send_request(tool_call)
         return ToolResponse(text=result_text), 0.0, {}

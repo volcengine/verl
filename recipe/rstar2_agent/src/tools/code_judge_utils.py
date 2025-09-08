@@ -1,14 +1,14 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-import json
-import aiohttp
 import asyncio
-import traceback
-import os
 import datetime
+import json
+import os
+import traceback
+from typing import Callable, Literal, Optional
 
-from typing import Dict, List, Literal, Callable, Optional
+import aiohttp
 
 # Global variable to store the path for failed submissions
 _failed_submissions_path = os.path.expanduser("~")
@@ -39,12 +39,8 @@ def get_failed_submissions_path() -> str:
 
 
 async def call_long_batch(
-                        url: str,
-                        submissions: List[Dict],
-                        session: aiohttp.ClientSession,
-                        max_retries: int = 4,
-                        backoff_factor: float = 0.5):
-
+    url: str, submissions: list[dict], session: aiohttp.ClientSession, max_retries: int = 4, backoff_factor: float = 0.5
+):
     sub_num = len(submissions)
     results = [None] * sub_num
     sub_ids = list(range(sub_num))
@@ -52,16 +48,13 @@ async def call_long_batch(
     while submissions and attempt_count < max_retries:
         attempt_count += 1
         try:
-            data = {
-                "type": "batch",
-                "submissions": submissions
-            }
+            data = {"type": "batch", "submissions": submissions}
             queue_timeouts = []
             async with session.post(url, json=data) as response:
                 response.raise_for_status()
                 response_json = await response.json()
-                for sub_id, result in zip(sub_ids, response_json['results']):
-                    if result['reason'] != 'queue_timeout':
+                for sub_id, result in zip(sub_ids, response_json["results"], strict=False):
+                    if result["reason"] != "queue_timeout":
                         results[sub_id] = result
                     else:
                         queue_timeouts.append((sub_id, submissions[sub_id]))
@@ -82,21 +75,13 @@ async def call_long_batch(
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         failed_file = os.path.join(_failed_submissions_path, f"failed_submissions_{timestamp}.json")
 
-        failed_data = {
-            "timestamp": timestamp,
-            "url": url,
-            "max_retries": max_retries,
-            "failed_submissions": []
-        }
+        failed_data = {"timestamp": timestamp, "url": url, "max_retries": max_retries, "failed_submissions": []}
 
-        for sub_id, submission in zip(sub_ids, submissions):
-            failed_data["failed_submissions"].append({
-                "original_index": sub_id,
-                "submission": submission
-            })
+        for sub_id, submission in zip(sub_ids, submissions, strict=False):
+            failed_data["failed_submissions"].append({"original_index": sub_id, "submission": submission})
 
         try:
-            with open(failed_file, 'w', encoding='utf-8') as f:
+            with open(failed_file, "w", encoding="utf-8") as f:
                 json.dump(failed_data, f, indent=2, ensure_ascii=False)
             print(f"Saved {len(submissions)} failed submissions to: {failed_file}")
         except Exception as e:
@@ -106,22 +91,25 @@ async def call_long_batch(
 
 
 async def run_tool_calls_on_server_async(
-                                    tool_calls: List,
-                                    session: aiohttp.ClientSession,
-                                    language: Literal["python", "cpp"] = "python",
-                                    max_retries: int = 4,
-                                    backoff_factor: float = 0.5,
-                                    generate_tool_call_code: Callable = None,
-                                    generate_tool_call_input: Callable = None,
-                                    host_addr: str = "localhost",
-                                    host_port: str = "8088"):
+    tool_calls: list,
+    session: aiohttp.ClientSession,
+    language: Literal["python", "cpp"] = "python",
+    max_retries: int = 4,
+    backoff_factor: float = 0.5,
+    generate_tool_call_code: Callable = None,
+    generate_tool_call_input: Callable = None,
+    host_addr: str = "localhost",
+    host_port: str = "8088",
+):
     submissions = []
     for tool_call in tool_calls:
-        submissions.append({
-            "type": language,
-            "solution": generate_tool_call_code(tool_call),
-            "input": generate_tool_call_input(tool_call),
-        })
+        submissions.append(
+            {
+                "type": language,
+                "solution": generate_tool_call_code(tool_call),
+                "input": generate_tool_call_input(tool_call),
+            }
+        )
 
     url = f"http://{host_addr}:{host_port}/run/long-batch"
     results = await call_long_batch(url, submissions, session, max_retries, backoff_factor)
@@ -130,28 +118,31 @@ async def run_tool_calls_on_server_async(
         failed_indices = [i for i, result in enumerate(results) if result is None]
         # throw an error if any tool call failed after max retries
         if len(failed_indices) > 0:
-            raise RuntimeError(f"run_tool_calls_on_server_async failed for {len(failed_indices)} tool calls after {max_retries} attempts.")
-        
+            raise RuntimeError(
+                "run_tool_calls_on_server_async failed for"
+                + f"{len(failed_indices)} tool calls after {max_retries} attempts."
+            )
+
     for i in range(len(results)):
-        if results[i]['run_success'] and results[i]['success']:
+        if results[i]["run_success"] and results[i]["success"]:
             output_parts = []
-            output_parts.append('Tool call success')
+            output_parts.append("Tool call success")
             if results[i]["stdout"]:
-                output_parts.append(f'stdout: {results[i]["stdout"]}')
+                output_parts.append(f"stdout: {results[i]['stdout']}")
             if results[i]["stderr"]:
-                output_parts.append(f'stderr: {results[i]["stderr"]}')
-            output_parts.append(f'execution time: {results[i]["cost"]:.2f}s')
-            results[i] = '\n'.join(output_parts)
+                output_parts.append(f"stderr: {results[i]['stderr']}")
+            output_parts.append(f"execution time: {results[i]['cost']:.2f}s")
+            results[i] = "\n".join(output_parts)
         else:
             output_parts = []
-            output_parts.append('Tool call failure')
-            output_parts.append(f'reason: {results[i]["reason"]}')
+            output_parts.append("Tool call failure")
+            output_parts.append(f"reason: {results[i]['reason']}")
             if results[i]["stdout"]:
-                output_parts.append(f'stdout: {results[i]["stdout"]}')
+                output_parts.append(f"stdout: {results[i]['stdout']}")
             if results[i]["stderr"]:
-                output_parts.append(f'stderr: {results[i]["stderr"]}')
-            output_parts.append(f'execution time: {results[i]["cost"]:.2f}s')
-            results[i] = '\n'.join(output_parts)
+                output_parts.append(f"stderr: {results[i]['stderr']}")
+            output_parts.append(f"execution time: {results[i]['cost']:.2f}s")
+            results[i] = "\n".join(output_parts)
 
     return results
 
@@ -316,12 +307,13 @@ class PersistentExecutor:
 persistent_executor = PersistentExecutor()
 '''
 
-code_template_exec = '''
+code_template_exec = """
 code_to_execute = base64.b64decode("{}".encode()).decode()
 persistent_executor.execute_code(code_to_execute, replay_history_code={})
-'''
+"""
 
-def combine_code_template(code_to_execute: str, history_code_to_execute: Optional[List[str]] = None) -> str:
+
+def combine_code_template(code_to_execute: str, history_code_to_execute: Optional[list[str]] = None) -> str:
     history_code_to_execute = history_code_to_execute or []
     final_code = code_template_setup
     for history_code in history_code_to_execute:
@@ -330,18 +322,19 @@ def combine_code_template(code_to_execute: str, history_code_to_execute: Optiona
     return final_code
 
 
-def generate_tool_call_code(tool_call: Dict) -> str:
+def generate_tool_call_code(tool_call: dict) -> str:
     import base64
 
-    def jupyter_code_gencode(json_format_data: Dict) -> str:
+    def jupyter_code_gencode(json_format_data: dict) -> str:
         code_to_execute = base64.b64encode(json_format_data["arguments"]["code"].encode()).decode()
         history_code_to_execute = [
             base64.b64encode(tool_call_json["arguments"]["code"].encode()).decode()
-            for tool_call_json in json_format_data.get("history_tool_calls", []) if tool_call_json["name"] == "jupyter_code"
+            for tool_call_json in json_format_data.get("history_tool_calls", [])
+            if tool_call_json["name"] == "jupyter_code"
         ]
         return combine_code_template(code_to_execute, history_code_to_execute)
 
-    def python_code_with_standard_io_gencode(json_format_data: Dict) -> str:
+    def python_code_with_standard_io_gencode(json_format_data: dict) -> str:
         code_to_execute = base64.b64encode(json_format_data["arguments"]["code"].encode()).decode()
         return combine_code_template(code_to_execute)
 
@@ -353,7 +346,7 @@ def generate_tool_call_code(tool_call: Dict) -> str:
         raise ValueError(f"Unsupported tool call name: {tool_call['name']}")
 
 
-def generate_tool_call_input(tool_call: Dict) -> str:
+def generate_tool_call_input(tool_call: dict) -> str:
     if tool_call["name"] == "jupyter_code":
         return None
     elif tool_call["name"] == "python_code_with_standard_io":

@@ -14,26 +14,26 @@ vllm serve /path/to/your/model \
 
 curl http://localhost:8000/v1/models
 """
-import aiohttp
+
 import argparse
 import asyncio
 import json
-import requests
-import yaml
-
 from pathlib import Path
 
+import aiohttp
+import requests
+import yaml
 from transformers import AutoTokenizer, PreTrainedTokenizer
-from verl.tools.schemas import ToolResponse
 
 from recipe.rstar2_agent.src.tools.code_judge_utils import (
-    run_tool_calls_on_server_async,
     generate_tool_call_code,
     generate_tool_call_input,
+    run_tool_calls_on_server_async,
 )
 from recipe.rstar2_agent.src.tools.tool_parser import (
     RStar2AgentHermesToolParser,
 )
+from verl.tools.schemas import ToolResponse
 
 
 async def run_tool_calls(tool_calls):
@@ -65,7 +65,11 @@ if __name__ == "__main__":
     tools = [python_tool_schema]
     url = "http://localhost:8000/v1/completions"
     budget = int(args.max_tokens)
-    prompt = f"You must put your answer inside <answer> </answer> tags, i.e., <answer> answer here </answer>. And your final answer will be extracted automatically by the \\boxed{{}} tag.\nThis is the problem:\n{args.prompt}"
+    prompt = (
+        "You must put your answer inside <answer> </answer> tags,"
+        + " i.e., <answer> answer here </answer>. And your final answer will be extracted automatically"
+        + f" by the \\boxed{{}} tag. \nThis is the problem:\n{args.prompt}"
+    )
 
     messages = [{"role": "user", "content": prompt}]
     tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=True)
@@ -83,7 +87,7 @@ if __name__ == "__main__":
         "temperature": 1.0,
         "max_tokens": budget,
         "skip_special_tokens": False,
-        "include_stop_str_in_output": True
+        "include_stop_str_in_output": True,
     }
 
     response = requests.post(url, json=payload).json()
@@ -103,12 +107,15 @@ if __name__ == "__main__":
                 filtered_tool_calls.append(tool_call)
 
         if filtered_tool_calls:
-            filtered_tool_calls = [{
-                "name": tool_call.name,
-                "arguments": json.loads(tool_call.arguments),
-            } for tool_call in filtered_tool_calls]
+            filtered_tool_calls = [
+                {
+                    "name": tool_call.name,
+                    "arguments": json.loads(tool_call.arguments),
+                }
+                for tool_call in filtered_tool_calls
+            ]
             filtered_tool_responses = asyncio.run(run_tool_calls(filtered_tool_calls))
-            for i, tool_response in zip(pending_pos, filtered_tool_responses):
+            for i, tool_response in zip(pending_pos, filtered_tool_responses, strict=False):
                 total_tool_responses[i] = tool_response
 
         # append assistant response to messages
@@ -124,7 +131,7 @@ if __name__ == "__main__":
             messages.append({"role": "tool", "content": tool_response})
 
         entire_text = tokenizer.apply_chat_template(messages, tools=tools, tokenize=False, add_generation_prompt=True)
-        print(entire_text[len(prefix_text):])
+        print(entire_text[len(prefix_text) :])
 
         # next turn generation
         input_ids = tokenizer.apply_chat_template(messages, tools=tools, tokenize=True, add_generation_prompt=True)
@@ -135,7 +142,7 @@ if __name__ == "__main__":
                 "temperature": 1.0,
                 "max_tokens": budget - (len(input_ids) - prompt_len),
                 "skip_special_tokens": False,
-                "include_stop_str_in_output": True
+                "include_stop_str_in_output": True,
             }
 
             response = requests.post(url, json=payload).json()

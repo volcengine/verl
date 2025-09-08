@@ -1,20 +1,19 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
+import asyncio
+import base64
+import re
 from collections import defaultdict
 from typing import Any
 
 import aiohttp
-import asyncio
-import base64
-import re
 import torch
 
+from recipe.rstar2_agent.src.tools.code_judge_utils import run_tool_calls_on_server_async
 from verl import DataProto
 from verl.workers.reward_manager import register
 from verl.workers.reward_manager.abstract import AbstractRewardManager
-
-from recipe.rstar2_agent.src.tools.code_judge_utils import run_tool_calls_on_server_async
 
 verify_math_prefix = """
 from recipe.rstar2_agent.fused_compute_score import compute_score
@@ -60,7 +59,10 @@ class CodeJudgeRewardManager(AbstractRewardManager):
             for j in range(len(batch_data)):
                 data_item = batch_data[j]  # DataProtoItem
 
-                if "response_text" in data_item.non_tensor_batch and data_item.non_tensor_batch["response_text"] is not None:
+                if (
+                    "response_text" in data_item.non_tensor_batch
+                    and data_item.non_tensor_batch["response_text"] is not None
+                ):
                     response_str = data_item.non_tensor_batch["response_text"]
                 else:
                     response_ids = data_item.batch["responses"]
@@ -89,17 +91,12 @@ class CodeJudgeRewardManager(AbstractRewardManager):
         a = base64.b64encode(solution_str.encode()).decode()
         b = base64.b64encode(ground_truth.encode()).decode()
         code = verify_math_prefix.format(a, b) + verify_math_suffix
-        return {
-            "name": "compute_score",
-            "arguments": {
-                "code": code
-            }
-        }
+        return {"name": "compute_score", "arguments": {"code": code}}
 
     def extract_tool_call_result(self, result: str):
         if result is None:
             return 0.0
-        match = re.search(r'<result>(.*?)</result>', result)
+        match = re.search(r"<result>(.*?)</result>", result)
         return float(match.group(1)) if match else 0.0
 
     def execute_tool_calls(self, tool_calls):

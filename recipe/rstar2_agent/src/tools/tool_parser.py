@@ -8,7 +8,7 @@ import os
 
 import regex as re
 
-from verl.experimental.agent_loop.tool_parser import ToolParser, FunctionCall
+from verl.experimental.agent_loop.tool_parser import FunctionCall, ToolParser
 from verl.utils.rollout_trace import rollout_trace_op
 
 logger = logging.getLogger(__file__)
@@ -45,6 +45,7 @@ class RStar2AgentHermesToolParser(ToolParser):
                 ################################### rStar ###################################
                 # keep the error msg as tool response
                 from verl.tools.schemas import ToolResponse
+
                 function_calls.append(ToolResponse(text=f"Failed to decode tool call: {e}"))
                 #############################################################################
 

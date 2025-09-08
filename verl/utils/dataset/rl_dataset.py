@@ -155,7 +155,11 @@ class RLHFDataset(Dataset):
                 def doc2len(doc) -> int:
                     messages = self._build_messages(doc)
                     raw_prompt = self.processor.apply_chat_template(
-                        messages, add_generation_prompt=True, tokenize=False, tools=tools, **self.apply_chat_template_kwargs
+                        messages,
+                        add_generation_prompt=True,
+                        tokenize=False,
+                        tools=tools,
+                        **self.apply_chat_template_kwargs,
                     )
                     images = (
                         [process_image(image) for image in doc[image_key]]

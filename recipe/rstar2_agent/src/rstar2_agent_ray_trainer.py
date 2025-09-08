@@ -38,7 +38,9 @@ class RStar2AgentRayTrainer(RayPPOTrainer):
         do_down_sampling = self.config.augmentation.do_down_sampling
         down_sampling_config = self.config.augmentation.down_sampling_config
         world_size = self.actor_rollout_wg.world_size
-        metrics = {"down_sampling/before_sampling_trace_num": len(batch),}
+        metrics = {
+            "down_sampling/before_sampling_trace_num": len(batch),
+        }
 
         def check_batch_is_empty(batch: DataProto, down_sampling_stage: str):
             if batch is None or len(batch) == 0:
@@ -204,15 +206,19 @@ class RStar2AgentRayTrainer(RayPPOTrainer):
                             reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
                             batch.batch["token_level_scores"] = reward_tensor
                             if reward_extra_infos_dict:
-                                batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
+                                batch.non_tensor_batch.update(
+                                    {k: np.array(v) for k, v in reward_extra_infos_dict.items()}
+                                )
                             reward_extra_infos_dict_keys = list(reward_extra_infos_dict.keys())
 
                     ################################### rStar ###################################
                     # Need to refactor the launch_reward_fn_async to support down sampling,
                     # only forbid combine launch_reward_fn_async and down sampling for now.
                     with marked_timer("down_sample", timing_raw, color="yellow"):
-                        assert not (self.config.reward_model.launch_reward_fn_async and self.config.augmentation.do_down_sampling), \
-                            "down sampling cannot combine with async reward function for now"
+                        assert not (
+                            self.config.reward_model.launch_reward_fn_async
+                            and self.config.augmentation.do_down_sampling
+                        ), "down sampling cannot combine with async reward function for now"
                         batch, down_sampling_metrics = self._down_sample_batch(batch)
                         metrics.update(down_sampling_metrics)
                         if batch is None:
@@ -273,9 +279,13 @@ class RStar2AgentRayTrainer(RayPPOTrainer):
                             reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
                             batch.batch["token_level_scores"] = reward_tensor
                             if reward_extra_infos_dict:
-                                batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
+                                batch.non_tensor_batch.update(
+                                    {k: np.array(v) for k, v in reward_extra_infos_dict.items()}
+                                )
                             reward_extra_infos_dict_keys = list(reward_extra_infos_dict.keys())
-                        reward_extra_infos_dict = {key: batch.non_tensor_batch[key].tolist() for key in reward_extra_infos_dict_keys}
+                        reward_extra_infos_dict = {
+                            key: batch.non_tensor_batch[key].tolist() for key in reward_extra_infos_dict_keys
+                        }
                         ################################################################################
 
                         # compute rewards. apply_kl_penalty if available

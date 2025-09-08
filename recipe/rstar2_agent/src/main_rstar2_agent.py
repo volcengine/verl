@@ -2,7 +2,8 @@
 # Licensed under the MIT license.
 
 """
-The different of this file and the verl/trainer/main_ppo.py is the usage of RStar2AgentRayTrainer instead of RayPPOTrainer.
+The difference between this file and the verl/trainer/main_ppo.py is
+the usage of RStar2AgentRayTrainer instead of RayPPOTrainer.
 """
 
 import os
@@ -246,7 +247,6 @@ class TaskRunner:
         # Used for multimodal LLM, could be None
         processor = hf_processor(local_path, trust_remote_code=trust_remote_code, use_fast=True)
 
-
         ################################### rStar ###################################
         # support data.filter_overlong_prompts
         if config.actor_rollout_ref.model.get("custom_chat_template", None) is not None:
@@ -257,7 +257,8 @@ class TaskRunner:
         tool_config_path = config.actor_rollout_ref.rollout.multi_turn.tool_config_path
         tool_list = []
         if tool_config_path is not None:
-            from verl.tools.utils.tool_registry import ToolType, get_tool_class, OpenAIFunctionToolSchema
+            from verl.tools.utils.tool_registry import OpenAIFunctionToolSchema, ToolType
+
             tools_config = OmegaConf.load(tool_config_path)
             for tool_config in tools_config.tools:
                 tool_type = ToolType(tool_config.config.type)
@@ -266,7 +267,9 @@ class TaskRunner:
                     tool_schema = None
                 else:
                     tool_schema_dict = OmegaConf.to_container(tool_config.tool_schema, resolve=True)
-                    tool_schema = OpenAIFunctionToolSchema.model_validate(tool_schema_dict).model_dump(exclude_unset=True, exclude_none=True)
+                    tool_schema = OpenAIFunctionToolSchema.model_validate(tool_schema_dict).model_dump(
+                        exclude_unset=True, exclude_none=True
+                    )
                 tool_list.append(tool_schema)
         #############################################################################
 
