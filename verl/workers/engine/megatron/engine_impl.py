@@ -22,7 +22,6 @@ import torch.distributed
 from megatron.core import parallel_state as mpu
 from megatron.core.pipeline_parallel import get_forward_backward_func
 from omegaconf import OmegaConf
-from tensordict import TensorDict
 
 from verl import DataProto
 from verl.trainer.config import CheckpointConfig
@@ -37,7 +36,6 @@ from verl.utils.megatron_utils import (
     offload_megatron_optimizer,
 )
 from verl.utils.model import load_mcore_dist_weights, load_megatron_gptmodel_weights
-from verl.utils.seqlen_balancing import rearrange_micro_batches
 from verl.workers.config import HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
 
 from ..base import BaseEngine, EngineRegistry
@@ -360,30 +358,32 @@ class MegatronEngine(BaseEngine):
             offload_megatron_optimizer(self.optimizer)
 
     def forward_backward_batch(self, data: DataProto, loss_function: Callable, forward_only=False) -> Any:
-        data.meta_info['sp_size'] = self.engine_config.context_parallel_size
+        data.meta_info["sp_size"] = self.engine_config.context_parallel_size
         vpp_size = mpu.get_virtual_pipeline_model_parallel_world_size()
         if vpp_size is not None and vpp_size > 1:
             num_batches_divided_by = self.tf_config.microbatch_group_size_per_vp_stage
         else:
             num_batches_divided_by = None
 
-        micro_batches, indices = prepare_micro_batches(data=data,
-                                                       dp_group=self.get_data_parallel_group(),
-                                                       num_batches_divided_by=num_batches_divided_by,
-                                                       same_micro_num_in_dp=False,
-                                                       min_num_micro_batch=None)
+        micro_batches, indices = prepare_micro_batches(
+            data=data,
+            dp_group=self.get_data_parallel_group(),
+            num_batches_divided_by=num_batches_divided_by,
+            same_micro_num_in_dp=False,
+            min_num_micro_batch=None,
+        )
 
         if num_batches_divided_by is not None:
             assert len(micro_batches) % num_batches_divided_by == 0, (
-                    f"micro_batches {micro_batches} must be divisible by num_batches_divided_by "
-                    f"{num_batches_divided_by} for megatron backend"
-                )
+                f"micro_batches {micro_batches} must be divisible by num_batches_divided_by "
+                f"{num_batches_divided_by} for megatron backend"
+            )
 
         # compute input shapes for pp stages
         n_micro_batch = len(micro_batches)
 
         for micro_batch in micro_batches:
-            micro_batch.meta_info['num_micro_batch'] = n_micro_batch
+            micro_batch.meta_info["num_micro_batch"] = n_micro_batch
 
         forward_backward_func = get_forward_backward_func()
 
@@ -395,9 +395,7 @@ class MegatronEngine(BaseEngine):
 
         data.meta_info["num_micro_batch"] = n_micro_batch
 
-        forward_step = partial(
-            self.forward_step, postprocess_micro_batch_func=postprocess_micro_batch_func
-        )
+        forward_step = partial(self.forward_step, postprocess_micro_batch_func=postprocess_micro_batch_func)
 
         # batch should be a list of batches inside micro-batches
         batch_generator = make_batch_generator(micro_batches, vpp_size=len(self.module))
@@ -422,9 +420,7 @@ class MegatronEngine(BaseEngine):
     def forward_step(self, batch_iter, model, postprocess_micro_batch_func):
         raise NotImplementedError("forward_step must be implemented in subclass")
 
-    def postprocess_micro_batch_func(
-        self, output, data: DataProto, forward_only: bool, loss_function
-    ):
+    def postprocess_micro_batch_func(self, output, data: DataProto, forward_only: bool, loss_function):
         raise NotImplementedError("postprocess_micro_batch_func must be implemented in subclass")
 
 
@@ -574,9 +570,7 @@ class MegatronEngineWithLMHead(MegatronEngine):
 
         return output, partial(postprocess_micro_batch_func, data=batch)
 
-    def postprocess_micro_batch_func(
-        self, output, data: DataProto, forward_only: bool, loss_function
-    ):
+    def postprocess_micro_batch_func(self, output, data: DataProto, forward_only: bool, loss_function):
         # For memory efficiency
         # We move calculation of entropy to compute_log_probs, forward_only == True
         meta_info = data.meta_info

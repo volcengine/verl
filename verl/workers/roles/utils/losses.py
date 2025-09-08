@@ -15,9 +15,9 @@
 
 import torch
 
+from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, get_policy_loss_fn, kl_penalty
 from verl.workers.config import ActorConfig
-from verl import DataProto
 
 
 def sft_loss(config: ActorConfig, model_output, data: DataProto, dp_group=None):
