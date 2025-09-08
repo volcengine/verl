@@ -500,10 +500,10 @@ class MegatronEngineWithLMHead(MegatronEngine):
             ]  # mcore patch recompute qwen2vl's pos ids during forward
 
         multi_modal_inputs = {}
-        if "multi_modal_inputs" in batch.non_tensor_batch:
-            for key in batch.non_tensor_batch["multi_modal_inputs"][0].keys():
-                idxs = batch.non_tensor_batch["multi_modal_inputs_idx"]
-                mmi = batch.non_tensor_batch["multi_modal_inputs"]
+        if "multi_modal_inputs" in batch.batch:
+            for key in batch.batch["multi_modal_inputs"][0].keys():
+                idxs = batch.batch["multi_modal_inputs_idx"]
+                mmi = batch.batch["multi_modal_inputs"]
                 multi_modal_inputs[key] = torch.cat(
                     [mmi[idx].get(key) for idx in idxs if mmi[idx].get(key) is not None], dim=0
                 )
