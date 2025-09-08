@@ -22,7 +22,7 @@ import hydra
 import ray
 from omegaconf import OmegaConf
 
-from verl.trainer.ppo.reward import get_custom_reward_fn
+from verl.trainer.ppo.reward import load_reward_manager
 from verl.utils.device import is_cuda_available
 
 from .dapo_ray_trainer import RayDAPOTrainer
@@ -36,23 +36,33 @@ def main(config):
 def run_ppo(config) -> None:
     if not ray.is_initialized():
         # this is for local ray cluster
-        ray.init(
-            runtime_env={
-                "env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN", "VLLM_LOGGING_LEVEL": "WARN"}
-            },
-            num_cpus=config.ray_init.num_cpus,
-        )
+        default_runtime_env = {
+            "env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN", "VLLM_LOGGING_LEVEL": "WARN"}
+        }
+        ray_init_kwargs = config.ray_kwargs.get("ray_init", {})
+        runtime_env_kwargs = ray_init_kwargs.get("runtime_env", {})
+        runtime_env = OmegaConf.merge(default_runtime_env, runtime_env_kwargs)
+        ray_init_kwargs = OmegaConf.create({**ray_init_kwargs, "runtime_env": runtime_env})
+        print(f"ray init kwargs: {ray_init_kwargs}")
+        ray.init(**OmegaConf.to_container(ray_init_kwargs))
 
-    if (
-        is_cuda_available
-        and OmegaConf.select(config.trainer, "profile_steps") is not None
-        and len(OmegaConf.select(config.trainer, "profile_steps")) > 0
-    ):
-        nsight_options = OmegaConf.to_container(config.trainer.controller_nsight_options)
-        runner = TaskRunner.options(runtime_env={"nsight": nsight_options}).remote()
-    else:
-        runner = TaskRunner.remote()
-    ray.get(runner.run.remote(config))
+    try:
+        if (
+            is_cuda_available
+            and config.global_profiler.tool == "nsys"
+            and OmegaConf.select(config.global_profiler, "steps") is not None
+            and len(OmegaConf.select(config.global_profiler, "steps")) > 0
+        ):
+            nsight_options = OmegaConf.to_container(
+                config.global_profiler.global_tool_config.nsys.controller_nsight_options
+            )
+            runner = TaskRunner.options(runtime_env={"nsight": nsight_options}).remote()
+        else:
+            runner = TaskRunner.remote()
+        ray.get(runner.run.remote(config))
+    finally:
+        if ray.is_initialized():
+            ray.shutdown()
 
 
 @ray.remote(num_cpus=1)  # please make sure main_task is not scheduled on head
@@ -79,20 +89,21 @@ class TaskRunner:
         tokenizer = hf_tokenizer(local_path)
         processor = hf_processor(local_path, use_fast=True)  # used for multimodal LLM, could be none
 
+        from verl.single_controller.ray import RayWorkerGroup
+
         # define worker classes
-        if config.actor_rollout_ref.actor.strategy == "fsdp":
-            assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
-            from verl.single_controller.ray import RayWorkerGroup
+        if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
+            assert config.critic.strategy in {"fsdp", "fsdp2"}
+
             from verl.workers.fsdp_workers import ActorRolloutRefWorker, CriticWorker
 
             ray_worker_group_cls = RayWorkerGroup
 
         elif config.actor_rollout_ref.actor.strategy == "megatron":
             assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
-            from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
             from verl.workers.megatron_workers import ActorRolloutRefWorker, CriticWorker
 
-            ray_worker_group_cls = NVMegatronRayWorkerGroup
+            ray_worker_group_cls = RayWorkerGroup
 
         else:
             raise NotImplementedError
@@ -120,7 +131,7 @@ class TaskRunner:
         # - finally, we combine all the rewards together
         # - The reward type depends on the tag of the data
         if config.reward_model.enable:
-            if config.reward_model.strategy == "fsdp":
+            if config.reward_model.strategy in {"fsdp", "fsdp2"}:
                 from verl.workers.fsdp_workers import RewardModelWorker
             elif config.reward_model.strategy == "megatron":
                 from verl.workers.megatron_workers import RewardModelWorker
@@ -134,29 +145,19 @@ class TaskRunner:
             role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
             mapping[Role.RefPolicy] = global_pool_id
 
-        from verl.workers.reward_manager import get_reward_manager_cls
-
-        # Note(haibin.lin): please make sure custom reward managers are imported and
-        # registered via `verl.workers.reward_manager.register`
-        reward_manager_name = config.reward_model.get("reward_manager", "naive")
-        reward_manager_cls = get_reward_manager_cls(reward_manager_name)
-
-        compute_score = get_custom_reward_fn(config)
-        reward_fn = reward_manager_cls(
-            tokenizer=tokenizer,
-            num_examine=0,
-            compute_score=compute_score,
-            reward_fn_key=config.data.reward_fn_key,
+        reward_fn = load_reward_manager(
+            config,
+            tokenizer,
+            0,
             max_resp_len=config.data.max_response_length,
             overlong_buffer_cfg=config.reward_model.overlong_buffer,
         )
 
         # Note that we always use function-based RM for validation
-        val_reward_fn = reward_manager_cls(
-            tokenizer=tokenizer,
-            num_examine=1,
-            compute_score=compute_score,
-            reward_fn_key=config.data.reward_fn_key,
+        val_reward_fn = load_reward_manager(
+            config,
+            tokenizer,
+            1,
             max_resp_len=config.data.max_response_length,
             overlong_buffer_cfg=config.reward_model.overlong_buffer,
         )
@@ -171,7 +172,6 @@ class TaskRunner:
             ray_worker_group_cls=ray_worker_group_cls,
             reward_fn=reward_fn,
             val_reward_fn=val_reward_fn,
-            device_name=config.trainer.device,
         )
         trainer.init_workers()
         trainer.fit()

@@ -17,7 +17,7 @@ DeepSpeed Ulysses Paper: https://arxiv.org/abs/2309.14509
 Inspired from: https://github.com/deepspeedai/DeepSpeed/blob/master/deepspeed/sequence/layer.py
 """
 
-from typing import Any, Optional, Tuple
+from typing import Any, Optional
 
 import torch
 import torch.distributed as dist
@@ -111,7 +111,7 @@ def _pad_tensor(x: Tensor, dim: int, padding_size: int) -> Tensor:
 def _unpad_tensor(x: Tensor, dim: int, padding_size: int) -> Tensor:
     slc = [slice(None)] * len(x.shape)
     slc[dim] = slice(0, -padding_size)
-    return x[slc]
+    return x[tuple(slc)]
 
 
 def slice_input_tensor(x: Tensor, dim: int, padding: bool = True, group: ProcessGroup = None) -> Tensor:
@@ -127,7 +127,7 @@ def slice_input_tensor(x: Tensor, dim: int, padding: bool = True, group: Process
     parts = x.size(dim) // sp_world_size
     slc = [slice(None)] * len(x.shape)
     slc[dim] = slice(sp_rank * parts, (sp_rank + 1) * parts)
-    return x[slc].contiguous()
+    return x[tuple(slc)].contiguous()
 
 
 def all_to_all_tensor(
@@ -179,7 +179,7 @@ class SeqAllToAll(torch.autograd.Function):
         return all_to_all_tensor(local_input, scatter_dim, gather_dim, group, async_op)
 
     @staticmethod
-    def backward(ctx: Any, *grad_output: Tensor) -> Tuple[None, Tensor, None, None]:
+    def backward(ctx: Any, *grad_output: Tensor) -> tuple[None, Tensor, None, None]:
         input_t = torch.cat(grad_output[1:], dim=ctx.gather_dim).contiguous() if ctx.async_op else grad_output[0]
         return (
             None,
@@ -234,7 +234,13 @@ class Gather(torch.autograd.Function):
         )
 
 
-def gather_outpus_and_unpad(
+def gather_outpus_and_unpad(*args, **kwargs):
+    raise RuntimeError(
+        "please use verl.utils.ulysses.gather_outputs_and_unpad instead of verl.utils.ulysses.gather_outpus_and_unpad"
+    )
+
+
+def gather_outputs_and_unpad(
     x: Tensor,
     gather_dim: int,
     unpad_dim: int = None,

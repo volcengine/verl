@@ -17,8 +17,8 @@ the class for Worker
 
 import os
 import socket
+import warnings
 from dataclasses import dataclass
-from typing import Dict
 
 import ray
 
@@ -44,33 +44,28 @@ class DistGlobalInfo:
 
 
 class WorkerHelper:
-    def _get_node_ip(self):
-        def get_node_ip_by_sdk():
-            if os.getenv("WG_BACKEND", None) == "ray":
-                import ray
+    @staticmethod
+    def _get_node_ip():
+        if os.getenv("WG_BACKEND", None) == "ray":
+            return ray.util.get_node_ip_address()
+        else:
+            raise NotImplementedError("WG_BACKEND now just support ray mode.")
 
-                return ray._private.services.get_node_ip_address()
-            else:
-                raise NotImplementedError("WG_BACKEND now just support ray mode.")
-
-        host_ipv4 = os.getenv("MY_HOST_IP", None)
-        host_ipv6 = os.getenv("MY_HOST_IPV6", None)
-        host_ip_by_env = host_ipv4 or host_ipv6
-        host_ip_by_sdk = get_node_ip_by_sdk()
-
-        host_ip = host_ip_by_env or host_ip_by_sdk
-        return host_ip
-
-    def _get_free_port(self):
+    @staticmethod
+    def _get_free_port():
         with socket.socket() as sock:
             sock.bind(("", 0))
             return sock.getsockname()[1]
 
     def get_availale_master_addr_port(self):
-        return self._get_node_ip(), str(self._get_free_port())
+        warnings.warn(
+            "This function is deprecated due to typo in name; Please use `get_available_master_addr_port` instead",
+            stacklevel=2,
+        )
+        return self.get_available_master_addr_port()
 
-    def _get_pid(self):
-        return os.getpid()
+    def get_available_master_addr_port(self):
+        return self._get_node_ip().strip("[]"), str(self._get_free_port())
 
 
 # we assume that in each WorkerGroup, there is a Master Worker
@@ -84,55 +79,52 @@ class Worker(WorkerHelper):
 
     fused_worker_attr_name = "fused_worker_dict"
 
-    def __new__(cls, *args, **kwargs):
-        """Create a new Worker instance with proper initialization based on environment settings."""
-        instance = super().__new__(cls)
-
-        # note that here we use int to distinguish
-        disable_worker_init = int(os.environ.get("DISABLE_WORKER_INIT", 0))
-        if disable_worker_init:
-            return instance
-
-        rank = os.environ.get("RANK", None)
-        worker_group_prefix = os.environ.get("WG_PREFIX", None)
-
-        # when decorator @ray.remote applies, __new__ will be called while we don't want to apply _configure_before_init
-        if None not in [rank, worker_group_prefix] and "ActorClass(" not in cls.__name__:
-            instance._configure_before_init(f"{worker_group_prefix}_register_center", int(rank))
-
-        return instance
-
-    def _configure_before_init(self, register_center_name: str, rank: int):
-        """Configure worker settings before initialization.
+    def _register_dispatch_collect_info(self, mesh_name: str, dp_rank: int, is_collect: bool):
+        """Register the dp_rank for a given mesh name. This function is meant to be called by the worker
 
         Args:
-            register_center_name (str):
-                Name of the register center Ray actor for worker coordination
-            rank (int):
-                Rank of the worker in the distributed setup
+            mesh_name (str):
+                Name of the mesh to register dp_rank for.
+            dp_rank (int):
+                dp_rank to register for the given mesh name.
+            is_collect (bool):
+                Whether the dp_rank is used for collect.
         """
-        assert isinstance(rank, int), f"rank must be int, instead of {type(rank)}"
+        if mesh_name in self.__dispatch_dp_rank or mesh_name in self.__collect_dp_rank:
+            raise ValueError(f"mesh_name {mesh_name} has been registered")
+        self.__dispatch_dp_rank[mesh_name] = dp_rank
+        self.__collect_dp_rank[mesh_name] = is_collect
 
-        if rank == 0:
-            master_addr, master_port = self.get_availale_master_addr_port()
-            rank_zero_info = {
-                "MASTER_ADDR": master_addr,
-                "MASTER_PORT": master_port,
-            }
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def _query_dispatch_info(self, mesh_name: str):
+        """Query the dispatch info for a given mesh name.
 
-            if os.getenv("WG_BACKEND", None) == "ray":
-                from verl.single_controller.base.register_center.ray import create_worker_group_register_center
+        Args:
+            mesh_name (str):
+                Name of the mesh to query dispatch info for.
 
-                self.register_center = create_worker_group_register_center(
-                    name=register_center_name, info=rank_zero_info
-                )
+        Returns:
+            int:
+                The dp_rank for the given mesh name.
+        """
+        assert mesh_name in self.__dispatch_dp_rank, f"{mesh_name} is not registered in {self.__class__.__name__}"
+        # note that each rank store its own dp_rank
+        return self.__dispatch_dp_rank[mesh_name]
 
-            os.environ.update(rank_zero_info)
-        else:
-            self.register_center = ray.get_actor(register_center_name)
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def _query_collect_info(self, mesh_name: str):
+        """Query the collect info for a given mesh name.
 
-        # set worker info for node affinity scheduling
-        ray.get(self.register_center.set_worker_info.remote(rank, ray.get_runtime_context().get_node_id()))
+        Args:
+            mesh_name (str):
+                Name of the mesh to query collect info for.
+
+        Returns:
+            bool:
+                Whether the dp_rank is used for collect.
+        """
+        assert mesh_name in self.__collect_dp_rank, f"{mesh_name} is not registered in {self.__class__.__name__}"
+        return self.__collect_dp_rank[mesh_name]
 
     @classmethod
     def env_keys(cls):
@@ -185,6 +177,8 @@ class Worker(WorkerHelper):
         self._configure_with_store(store=store)
 
         self.fused_worker_dict = {}
+        self.__dispatch_dp_rank = {}
+        self.__collect_dp_rank = {}
 
     def get_fused_worker_by_name(self, worker_name: str):
         """Get a fused worker by its name.
@@ -246,7 +240,7 @@ class Worker(WorkerHelper):
             os.environ["LOCAL_RANK"] = local_rank
             get_torch_device().set_device(int(local_rank))
 
-    def _configure_with_store(self, store: Dict):
+    def _configure_with_store(self, store: dict):
         """
         This function should only be called inside by WorkerGroup
         """

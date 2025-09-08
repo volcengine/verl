@@ -19,7 +19,7 @@ import threading
 import time
 import traceback
 import uuid
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import requests
 
@@ -33,11 +33,11 @@ logger = logging.getLogger(__name__)
 
 def call_search_api(
     retrieval_service_url: str,
-    query_list: List[str],
+    query_list: list[str],
     topk: int = 3,
     return_scores: bool = True,
     timeout: int = DEFAULT_TIMEOUT,
-) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+) -> tuple[Optional[dict[str, Any]], Optional[str]]:
     """
     Calls the remote search API to perform retrieval with retry logic for various errors,
     using increasing delay between retries. Logs internal calls with a unique ID.
@@ -140,11 +140,11 @@ def _passages2string(retrieval_result):
 
 def perform_single_search_batch(
     retrieval_service_url: str,
-    query_list: List[str],
+    query_list: list[str],
     topk: int = 3,
     concurrent_semaphore: Optional[threading.Semaphore] = None,
     timeout: int = DEFAULT_TIMEOUT,
-) -> Tuple[str, Dict[str, Any]]:
+) -> tuple[str, dict[str, Any]]:
     """
     Performs a single batch search for multiple queries (original search tool behavior).
 
@@ -198,11 +198,11 @@ def perform_single_search_batch(
         "formatted_result": None,
     }
 
-    result_text = json.dumps({"result": "Search request failed or timed out after retries."})
+    result_text = json.dumps({"result": "Search request failed or timed out after retries."}, ensure_ascii=False)
 
     if error_msg:
         metadata["status"] = "api_error"
-        result_text = json.dumps({"result": f"Search error: {error_msg}"})
+        result_text = json.dumps({"result": f"Search error: {error_msg}"}, ensure_ascii=False)
         logger.error(f"Batch search: API error occurred: {error_msg}")
     elif api_response:
         logger.debug(f"Batch search: API Response: {api_response}")
@@ -220,24 +220,26 @@ def perform_single_search_batch(
                     total_results += len(retrieval) if isinstance(retrieval, list) else 1
 
                 final_result = "\n---\n".join(pretty_results)
-                result_text = json.dumps({"result": final_result})
+                result_text = json.dumps({"result": final_result}, ensure_ascii=False)
                 metadata["status"] = "success"
                 metadata["total_results"] = total_results
                 metadata["formatted_result"] = final_result
                 logger.info(f"Batch search: Successful, got {total_results} total results")
             else:
-                result_text = json.dumps({"result": "No search results found."})
+                result_text = json.dumps({"result": "No search results found."}, ensure_ascii=False)
                 metadata["status"] = "no_results"
                 metadata["total_results"] = 0
                 logger.info("Batch search: No results found")
         except Exception as e:
             error_msg = f"Error processing search results: {e}"
-            result_text = json.dumps({"result": error_msg})
+            result_text = json.dumps({"result": error_msg}, ensure_ascii=False)
             metadata["status"] = "processing_error"
             logger.error(f"Batch search: {error_msg}")
     else:
         metadata["status"] = "unknown_api_state"
-        result_text = json.dumps({"result": "Unknown API state (no response and no error message)."})
+        result_text = json.dumps(
+            {"result": "Unknown API state (no response and no error message)."}, ensure_ascii=False
+        )
         logger.error("Batch search: Unknown API state.")
 
     return result_text, metadata

@@ -11,24 +11,21 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 import inspect
 import logging
-import os
-import time
+import socket
 from copy import deepcopy
-from typing import Any, Dict, List, Optional, Tuple
-from unittest.mock import patch
+from typing import Any, Optional
 
 import ray
 from ray.experimental.state.api import get_actor
-from ray.util import list_named_actors
 from ray.util.placement_group import PlacementGroup, placement_group
 from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy, PlacementGroupSchedulingStrategy
 
 from verl.protocol import DataProto, _padding_size_key
 from verl.single_controller.base import ClassWithInitArgs, ResourcePool, Worker, WorkerGroup
 from verl.single_controller.base.decorator import MAGIC_ATTR, Dispatch
+from verl.utils.py_functional import temp_env_var
 
 __all__ = ["Worker"]
 
@@ -62,7 +59,7 @@ def func_generator(self, method_name, dispatch_fn, collect_fn, execute_fn, block
     return type(method_name, (Functor,), {})()
 
 
-def sort_placement_group_by_node_ip(pgs: List[PlacementGroup]) -> List[PlacementGroup]:
+def sort_placement_group_by_node_ip(pgs: list[PlacementGroup]) -> list[PlacementGroup]:
     """
     Sort the placement groups by node ip, all bundles in a single placement group should be on the same node.
 
@@ -82,10 +79,19 @@ def sort_placement_group_by_node_ip(pgs: List[PlacementGroup]) -> List[Placement
     return sorted(pgs, key=lambda pg: pg_ip[pg.id])
 
 
+@ray.remote
+def get_master_addr_port() -> tuple[str, str]:
+    addr = ray.util.get_node_ip_address().strip("[]")
+    with socket.socket() as sock:
+        sock.bind(("", 0))
+        port = sock.getsockname()[1]
+    return addr, str(port)
+
+
 class RayResourcePool(ResourcePool):
     def __init__(
         self,
-        process_on_nodes: Optional[List[int]] = None,
+        process_on_nodes: Optional[list[int]] = None,
         use_gpu: bool = True,
         name_prefix: str = None,
         max_colocate_count: int = 10,
@@ -134,8 +140,8 @@ class RayResourcePool(ResourcePool):
 
 
 def extract_pg_from_exist(
-    resource_pools: Dict[str, RayResourcePool], src_role_names: List[str], resource_pool: RayResourcePool
-) -> List:
+    resource_pools: dict[str, RayResourcePool], src_role_names: list[str], resource_pool: RayResourcePool
+) -> list:
     src_pgs = [
         pg
         for role_name, resource_pool in resource_pools.items()
@@ -146,7 +152,7 @@ def extract_pg_from_exist(
     sorted_src_pgs = sorted(src_pgs, key=lambda pg: pg.bundle_count, reverse=True)
     sorted_process_on_nodes = sorted([(val, idx) for idx, val in enumerate(resource_pool.store)], reverse=True)
 
-    unsorted_pgs: List[Tuple[int, PlacementGroup]] = []
+    unsorted_pgs: list[tuple[int, PlacementGroup]] = []
     searching_idx = 0
     for request_process, original_idx in sorted_process_on_nodes:
         assert searching_idx < len(sorted_src_pgs), f"no enough nodes for request: searching {searching_idx} th node"
@@ -195,7 +201,7 @@ class RayClassWithInitArgs(ClassWithInitArgs):
         """
         self._additional_resource = additional_resource
 
-    def update_options(self, options: Dict):
+    def update_options(self, options: dict):
         """Update the Ray actor creation options.
 
         Args:
@@ -269,9 +275,8 @@ class RayWorkerGroup(WorkerGroup):
         name_prefix: str = None,
         detached=False,
         worker_names=None,
-        worker_handles: List[ray.actor.ActorHandle] = None,
+        worker_handles: list[ray.actor.ActorHandle] = None,
         ray_wait_register_center_timeout: int = 300,
-        device_name="cuda",
         **kwargs,
     ) -> None:
         """Initialize a RayWorkerGroup.
@@ -295,9 +300,10 @@ class RayWorkerGroup(WorkerGroup):
         # if a WorkerGroup is spawned from Colocate WorkerGroup, this indicates which sub-class is binded to
         # this WorkerGroup.
         self.sub_cls_name = ""
-        self.device_name = device_name
+        self.device_name = kwargs.get("device_name", "cuda")
         self.profile_steps = kwargs.get("profile_steps", None)
         self.worker_nsight_options = kwargs.get("worker_nsight_options", None)
+        self.customized_worker_env = kwargs.get("worker_env", {})
         if self.worker_nsight_options is not None and self.worker_nsight_options["capture-range-end"] is None:
             self.worker_nsight_options["capture-range-end"] = f"repeat-shutdown:{6 * len(self.profile_steps)}"
 
@@ -309,7 +315,11 @@ class RayWorkerGroup(WorkerGroup):
             self._init_with_detached_workers(worker_names=worker_names, worker_handles=worker_handles)
         else:
             self._init_with_resource_pool(
-                resource_pool=resource_pool, ray_cls_with_init=ray_cls_with_init, bin_pack=bin_pack, detached=detached
+                resource_pool=resource_pool,
+                ray_cls_with_init=ray_cls_with_init,
+                bin_pack=bin_pack,
+                detached=detached,
+                worker_env=self.customized_worker_env,
             )
 
         if ray_cls_with_init is not None:
@@ -339,7 +349,17 @@ class RayWorkerGroup(WorkerGroup):
         self._workers = workers
         self._world_size = len(worker_names)
 
-    def _init_with_resource_pool(self, resource_pool, ray_cls_with_init, bin_pack, detached):
+    def _get_master_addr_port(self, pg):
+        """Get master addr and port for this worker group"""
+        self._master_addr, self._master_port = ray.get(
+            get_master_addr_port.options(
+                scheduling_strategy=PlacementGroupSchedulingStrategy(
+                    placement_group=pg, placement_group_bundle_index=0
+                ),
+            ).remote()
+        )
+
+    def _init_with_resource_pool(self, resource_pool, ray_cls_with_init, bin_pack, detached, worker_env=None):
         """Initialize the worker group by creating new workers from a resource pool.
 
         Args:
@@ -363,6 +383,9 @@ class RayWorkerGroup(WorkerGroup):
         local_world_size = resource_pool.store[0]
         for pg_idx, pg in enumerate(sort_placement_group_by_node_ip(pgs)):
             assert local_world_size <= pg.bundle_count, f"when generating for {self.name_prefix}, for the "
+            if pg_idx == 0:
+                self._get_master_addr_port(pg)
+
             for local_rank in range(local_world_size):
                 rank += 1
 
@@ -374,11 +397,19 @@ class RayWorkerGroup(WorkerGroup):
                     "WG_BACKEND": "ray",
                     "RAY_LOCAL_WORLD_SIZE": str(local_world_size),
                     "RAY_LOCAL_RANK": str(local_rank),
+                    "MASTER_ADDR": self._master_addr,
+                    "MASTER_PORT": self._master_port,
                 }
-                if rank != 0:
-                    env_vars["MASTER_ADDR"] = self._master_addr
-                    env_vars["MASTER_PORT"] = self._master_port
-
+                if worker_env is not None:
+                    logging.debug(f"Appending ray class env, origin: {env_vars}, customized env: {worker_env}")
+                    conflict_env_vars = set(env_vars.keys()) & set(worker_env.keys())
+                    if len(conflict_env_vars) > 0:
+                        logging.error(
+                            f"User customized env vars conflict with system env: {conflict_env_vars} "
+                            f"Overriding may cause unexpected behavior."
+                        )
+                        raise ValueError(f"Cannot override protected system env: {conflict_env_vars}")
+                    env_vars.update(worker_env)
                 import re
 
                 cia_name = type(ray_cls_with_init.cls).__name__
@@ -412,43 +443,6 @@ class RayWorkerGroup(WorkerGroup):
                 )
                 self._workers.append(worker)
                 self._worker_names.append(name)
-
-                if rank == 0:
-                    register_center_actor = None
-                    actor_name = f"{self.name_prefix}_register_center"
-                    start_time = time.time()
-
-                    while time.time() - start_time < self._ray_wait_register_center_timeout:
-                        if actor_name in list_named_actors():
-                            register_center_actor = ray.get_actor(actor_name)
-                            break
-
-                        elapsed = int(time.time() - start_time)
-                        if elapsed % 30 == 0:
-                            logging.warning(
-                                "Waiting for register center actor %s to be ready. Elapsed time: %s seconds out of "
-                                "%s seconds.",
-                                actor_name,
-                                elapsed,
-                                self._ray_wait_register_center_timeout,
-                            )
-                        time.sleep(1)
-
-                    if register_center_actor is None:
-                        raise TimeoutError(
-                            f"Failed to get register_center_actor {actor_name} "
-                            f"in {list_named_actors(all_namespaces=True)} "
-                            f"for {self._ray_wait_register_center_timeout} seconds. "
-                            "Ensure that any lingering Ray resources from previous "
-                            "runs are cleaned up (e.g., by restarting the Ray cluster), "
-                            "or adjust the waiting time by modifying the config "
-                            "`trainer.ray_wait_register_center_timeout`."
-                        )
-
-                    rank_zero_info = ray.get(register_center_actor.get_rank_zero_info.remote())
-                    self._master_addr, self._master_port = rank_zero_info["MASTER_ADDR"], rank_zero_info["MASTER_PORT"]
-                    # print(f"rank_zero_info: {rank_zero_info}")
-                    # print(f"master_addr: {self._master_addr}, master_port: {self._master_port}")
 
     @property
     def worker_names(self):
@@ -499,7 +493,6 @@ class RayWorkerGroup(WorkerGroup):
             prefix: str = actor_name + "_"
             for method_name in dir(worker_group):
                 if method_name.startswith(prefix):
-                    # only valid when Python >= 3.9
                     original_method_name = method_name.removeprefix(prefix)
                     method = getattr(worker_group, method_name)
                     setattr(worker_group, original_method_name, method)
@@ -740,7 +733,7 @@ def _unwrap_ray_remote(cls):
     return cls
 
 
-def _determine_fsdp_megatron_base_class(mros: List):
+def _determine_fsdp_megatron_base_class(mros: list):
     """
     - megatron: base class should be MegatronWorker
     - fsdp: base class should be Worker
@@ -783,7 +776,7 @@ def create_colocated_worker_cls(class_dict: dict[str, RayClassWithInitArgs]):
                 # directly instantiate the class without remote
                 # in worker class, e.g. <verl.single_controller.base.worker.Worker>
                 # when DISABLE_WORKER_INIT == 1 it will return immediately
-                with patch.dict(os.environ, {"DISABLE_WORKER_INIT": "1"}):
+                with temp_env_var("DISABLE_WORKER_INIT", "1"):
                     self.worker_dict[key] = user_defined_cls(
                         *init_args_dict[key].get("args", ()), **init_args_dict[key].get("kwargs", {})
                     )
@@ -836,9 +829,13 @@ def create_colocated_worker_raw_cls(class_dict: dict[str, RayClassWithInitArgs])
             self.init_kwargs_dict = init_kwargs_dict
 
             for cls_name, udc, ud_args, ud_kwargs in zip(
-                self.cls_names, self.raw_cls_dict.values(), self.init_args_dict.values(), self.init_kwargs_dict.values()
+                self.cls_names,
+                self.raw_cls_dict.values(),
+                self.init_args_dict.values(),
+                self.init_kwargs_dict.values(),
+                strict=True,
             ):
-                with patch.dict(os.environ, {"DISABLE_WORKER_INIT": "1"}):
+                with temp_env_var("DISABLE_WORKER_INIT", "1"):
                     udc._get_ray_actor_cls_name = lambda x, name_renamed=class_name_renamed: name_renamed
                     udc._get_ray_method_prefix = lambda x, name_prefixed=cls_name: f"{name_prefixed}_"
                     # cls_name = "actor", "critic", udc = ActorWorker, CriticWorker

@@ -18,18 +18,19 @@ Note that we don't combine the main with ray_trainer as ray_trainer is used by o
 import hydra
 import ray
 import torch
+from omegaconf import OmegaConf
 from split_monkey_patch import fit
 
 from verl import DataProto
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
-from verl.utils.reward_score import gsm8k, math
+from verl.utils.reward_score import gsm8k, math_reward
 
 
 def _select_rm_score_fn(data_source):
     if data_source == "openai/gsm8k":
         return gsm8k.compute_score
     elif data_source == "lighteval/MATH":
-        return math.compute_score
+        return math_reward.compute_score
     else:
         raise NotImplementedError
 
@@ -94,10 +95,13 @@ class RewardManager:
 def main(config):
     if not ray.is_initialized():
         # this is for local ray cluster
-        ray.init(
-            runtime_env={"env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN"}},
-            num_cpus=config.ray_init.num_cpus,
-        )
+        default_runtime_env = {"env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN"}}
+        ray_init_kwargs = config.ray_kwargs.get("ray_init", {})
+        runtime_env_kwargs = ray_init_kwargs.get("runtime_env", {})
+        runtime_env = OmegaConf.merge(default_runtime_env, runtime_env_kwargs)
+        ray_init_kwargs = OmegaConf.create({**ray_init_kwargs, "runtime_env": runtime_env})
+        print(f"ray init kwargs: {ray_init_kwargs}")
+        ray.init(**OmegaConf.to_container(ray_init_kwargs))
 
     ray.get(main_task.remote(config))
 
@@ -123,8 +127,8 @@ def main_task(config):
     tokenizer = hf_tokenizer(local_path)
 
     # define worker classes
-    if config.actor_rollout_ref.actor.strategy == "fsdp":
-        assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
+    if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
+        assert config.critic.strategy in {"fsdp", "fsdp2"}
         from verl.single_controller.ray import RayWorkerGroup
         from verl.workers.fsdp_workers import ActorRolloutRefWorker, CriticWorker
 
@@ -132,10 +136,10 @@ def main_task(config):
 
     elif config.actor_rollout_ref.actor.strategy == "megatron":
         assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
-        from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
+        from verl.single_controller.ray import RayWorkerGroup
         from verl.workers.megatron_workers import ActorRolloutRefWorker, CriticWorker
 
-        ray_worker_group_cls = NVMegatronRayWorkerGroup
+        ray_worker_group_cls = RayWorkerGroup
 
     else:
         raise NotImplementedError
@@ -178,7 +182,7 @@ def main_task(config):
     # - finally, we combine all the rewards together
     # - The reward type depends on the tag of the data
     if config.reward_model.enable:
-        if config.reward_model.strategy == "fsdp":
+        if config.reward_model.strategy in {"fsdp", "fsdp2"}:
             from verl.workers.fsdp_workers import RewardModelWorker
         elif config.reward_model.strategy == "megatron":
             from verl.workers.megatron_workers import RewardModelWorker
@@ -203,7 +207,6 @@ def main_task(config):
         ray_worker_group_cls=ray_worker_group_cls,
         reward_fn=reward_fn,
         val_reward_fn=val_reward_fn,
-        device_name=config.trainer.device,
     )
     trainer.init_workers()
     trainer.fit()

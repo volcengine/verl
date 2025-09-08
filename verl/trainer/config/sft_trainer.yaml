@@ -23,6 +23,7 @@ data:
     path: null
     name: null
   use_shm: False
+  apply_chat_template_kwargs: {}
 model:
   partial_pretrain: ~/models/gemma-1.1-7b-it
   use_shm: False
@@ -52,16 +53,33 @@ use_remove_padding: False
 trainer:
   default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}
   default_hdfs_dir: null
-  resume_path: null
   project_name: gsm8k-sft
   experiment_name: test
   total_epochs: 4
   total_training_steps: null
   logger: [ 'console', 'wandb' ]
   seed: 1
-
   save_freq: -1
   test_freq: -1
   nnodes: 1
   n_gpus_per_node: 8
-  max_ckpt_to_keep: null # TODO
+  max_ckpt_to_keep: null  # Maximum number of checkpoints to keep, set to null to keep all
+
+  # Resume mode: "auto", "disable", or "resume_path"
+  # "auto": resume from last checkpoint if available
+  # "disable": start from scratch
+  # "resume_path": resume from a user-defined path
+  resume_mode: auto
+
+  # Path to resume training from (used when resume_mode is "resume_path" or "auto")
+  resume_from_path: null
+
+  # Checkpoint configuration
+  checkpoint:
+    # What to include in saved checkpoints
+    # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
+    save_contents: ["model", "optimizer", "extra"]
+
+    # For more flexibility, you can specify the contents to load from the checkpoint.
+    load_contents: ${trainer.checkpoint.save_contents}
+  device: cuda

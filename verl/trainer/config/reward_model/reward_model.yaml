@@ -6,14 +6,20 @@
 # If False, the following parameters are not effective
 enable: False
 
+# Whether to deploy the model to a separate resource pool.
+# If true, n_gpus_per_node & nnodes will be used to determine the resource node.
+enable_resource_pool: False
+n_gpus_per_node: 0
+nnodes: 0
+
 # FSDP strategy: "fsdp" or "fsdp2"
 strategy: ???
 
 # model config for reward scoring
 model:
 
-  # Input tokenizer. If the reward model’s chat template is inconsistent with the policy,
-  # we need to first decode to plaintext, then apply the rm’s chat_template.
+  # Input tokenizer. If the reward model's chat template is inconsistent with the policy,
+  # we need to first decode to plaintext, then apply the rm's chat_template.
   # Then score with RM. If chat_templates are consistent, it can be set to null.
   # set this to null if the chat template is identical
   input_tokenizer: ${actor_rollout_ref.model.path}
@@ -65,17 +71,27 @@ sandbox_fusion:
   # Max memory limit for each sandbox process in MB
   memory_limit_mb: 1024
 
-# profiler configs
+# profile the reward model in `compute_reward` 
 profiler:
 
-  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.utils.profiler.ProfilerConfig
 
-  # True for each task has its own database, False for all tasks in one training step share one database.
-  discrete: False
+  # profiler tool, default same as profiler.tool in global config
+  # choices: nsys, npu, torch
+  tool: ${oc.select:global_profiler.tool,null}
 
+  # whether enable profile on ref
+  enable: False
+  
   # Whether to profile all ranks.
   all_ranks: False
 
   # The ranks that will be profiled. [] or [0,1,...]
   ranks: []
+
+  # profile results saving path
+  save_path: ${oc.select:global_profiler.save_path,null}
+
+  # specific tool config
+  tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}

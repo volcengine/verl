@@ -17,17 +17,19 @@
 """Pretrain utilities."""
 
 import gc
+import inspect
 import os
 import warnings
-from typing import Any, Dict
+from dataclasses import dataclass
+from typing import Any
 
 import torch
 import torch.nn.functional as F
-from megatron.core import ModelParallelConfig, mpu, tensor_parallel
+from megatron.core import ModelParallelConfig, mpu, parallel_state, tensor_parallel
 from megatron.core.distributed import DistributedDataParallel as DDP
 from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.enums import ModelType
-from megatron.core.optimizer import ChainedOptimizer, OptimizerConfig
+from megatron.core.optimizer import ChainedOptimizer
 from megatron.core.transformer import TransformerConfig
 from megatron.core.transformer.module import Float16Module
 from megatron.core.utils import get_attr_wrapped_model
@@ -50,6 +52,7 @@ def get_model(
     wrap_with_ddp=True,
     use_distributed_optimizer=True,
     transformer_config=None,
+    override_ddp_config=None,
 ):
     """Build the model."""
     # Build model.
@@ -61,12 +64,14 @@ def get_model(
             "Interleaved schedule not supported for model with both encoder and decoder"
         )
         model = []
+        has_vp_stage = inspect.signature(mpu.is_pipeline_first_stage).parameters.get("vp_stage", None) is not None
         for i in range(mpu.get_virtual_pipeline_model_parallel_world_size()):
             mpu.set_virtual_pipeline_model_parallel_rank(i)
             # Set pre_process and post_process only after virtual rank is set.
-            pre_process = mpu.is_pipeline_first_stage()
-            post_process = mpu.is_pipeline_last_stage()
-            this_model = model_provider_func(pre_process=pre_process, post_process=post_process)
+            extra_kwargs = {} if not has_vp_stage else {"ignore_virtual": False, "vp_stage": i}
+            pre_process = mpu.is_pipeline_first_stage(**extra_kwargs)
+            post_process = mpu.is_pipeline_last_stage(**extra_kwargs)
+            this_model = model_provider_func(pre_process=pre_process, post_process=post_process, vp_stage=i)
             this_model.model_type = model_type
             model.append(this_model)
         mpu.set_virtual_pipeline_model_parallel_rank(0)
@@ -130,16 +135,20 @@ def get_model(
 
     if wrap_with_ddp:
         ddp_models = []
+        ddp_config_dict = {
+            "use_distributed_optimizer": use_distributed_optimizer,
+            "grad_reduce_in_fp32": True,
+            "overlap_grad_reduce": False,
+        }
+        if override_ddp_config is not None:
+            ddp_config_dict.update(override_ddp_config)
+        ddp_config = DistributedDataParallelConfig(**ddp_config_dict)
         for model_chunk_idx, model_chunk in enumerate(model):
             ddp_model = DDP(
                 config=tfconfig,
                 module=model_chunk,
                 disable_bucketing=(model_chunk_idx > 0),
-                ddp_config=DistributedDataParallelConfig(
-                    overlap_grad_reduce=False,
-                    use_distributed_optimizer=use_distributed_optimizer,
-                    grad_reduce_in_fp32=True,  # [old] accumulate_allreduce_grads_in_fp32=True,
-                ),
+                ddp_config=ddp_config,
             )
             ddp_models.append(ddp_model)
         model = ddp_models
@@ -148,6 +157,65 @@ def get_model(
         for model_module in model:
             model_module.broadcast_params()
     return model
+
+
+@dataclass
+class McoreModuleWrapperConfig:
+    """Configuration for Mcore module wrapper."""
+
+    is_value_model: bool = False
+    share_embeddings_and_output_weights: bool = False
+    wrap_with_ddp: bool = True
+    use_distributed_optimizer: bool = True
+
+
+def make_megatron_module(
+    wrap_config: McoreModuleWrapperConfig,
+    tf_config: TransformerConfig,
+    hf_config: PretrainedConfig,
+    bridge: Any = None,
+    override_model_config: dict[str, Any] = None,
+    override_ddp_config: dict[str, Any] = None,
+):
+    if override_model_config is None:
+        override_model_config = {}
+
+    if bridge is not None:
+        from verl.models.mcore.mbridge import freeze_moe_router, make_value_model
+
+        post_model_creation_callbacks = []
+        if wrap_config.is_value_model:
+            post_model_creation_callbacks.append(make_value_model)
+        if override_model_config.get("moe_config", {}).get("freeze_moe_router", False):
+            post_model_creation_callbacks.append(freeze_moe_router)
+        return bridge.get_model(
+            post_model_creation_callbacks=post_model_creation_callbacks,
+            wrap_with_ddp=wrap_config.wrap_with_ddp,
+        )
+    else:
+
+        def megatron_model_provider(pre_process, post_process, vp_stage=None):
+            from verl.models.mcore import init_mcore_model
+
+            parallel_model = init_mcore_model(
+                tf_config,
+                hf_config,
+                pre_process,
+                post_process,
+                share_embeddings_and_output_weights=wrap_config.share_embeddings_and_output_weights,
+                value=wrap_config.is_value_model,
+                freeze_moe_router=override_model_config.get("moe_config", {}).get("freeze_moe_router", False),
+                vp_stage=vp_stage,
+            )
+            parallel_model.to(get_device_name())
+            return parallel_model
+
+        return get_model(
+            megatron_model_provider,
+            wrap_with_ddp=wrap_config.wrap_with_ddp,
+            use_distributed_optimizer=wrap_config.use_distributed_optimizer,
+            override_ddp_config=override_ddp_config,
+        )
 
 
 ALL_MODULE_WRAPPER_CLASSNAMES = (DDP, Float16Module)
@@ -169,6 +237,17 @@ def unwrap_model(model, module_instances=ALL_MODULE_WRAPPER_CLASSNAMES):
 
 
 def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerConfig:
+    """[Deprecated] convert config
+
+    Args:
+        hf_config (PretrainedConfig): _description_
+        megatron_config (_type_): _description_
+
+    Returns:
+        TransformerConfig: _description_
+    """
+
+    warnings.warn("[deprecated] use config converter for more model support", stacklevel=2)
     print(f"megatron config {megatron_config}")
     dt = PrecisionType.to_dtype(megatron_config.params_dtype)
     print(f"pipeline_dtype=megatron_config {dt}")
@@ -211,20 +290,6 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
     )
 
     return transformer_config
-
-
-def init_megatron_optim_config(optim_config: Dict) -> OptimizerConfig:
-    config = OptimizerConfig(
-        optimizer=optim_config.get("optimizer", "adam"),
-        lr=optim_config.get("lr"),
-        min_lr=optim_config.get("min_lr", None),
-        clip_grad=optim_config.get("clip_grad", 1.0),
-        weight_decay=optim_config.get("weight_decay", 0.01),
-        bf16=True,
-        params_dtype=torch.bfloat16,
-        use_distributed_optimizer=True,
-    )
-    return config
 
 
 def mcore_model_parallel_config(
@@ -426,12 +491,16 @@ def load_megatron_optimizer(optimizers):
 
     for _opt in _iter_opts(optimizers):
         load_megatron_copy_params(_opt)
-        opt_state_dict_values = _opt.optimizer.state.values()
-        for v in opt_state_dict_values:
-            if "exp_avg" in v:
-                v["exp_avg"] = v["exp_avg"].to(get_device_id(), non_blocking=True)
-            if "exp_avg_sq" in v:
-                v["exp_avg_sq"] = v["exp_avg_sq"].to(get_device_id(), non_blocking=True)
+        # if we are using HybridDeviceOptimizer, we need to only move gpu optimizer state to gpu
+        if hasattr(_opt.optimizer, "_move_new_state_to_right_device"):
+            _opt.optimizer._move_new_state_to_right_device()
+        else:
+            opt_state_dict_values = _opt.optimizer.state.values()
+            for v in opt_state_dict_values:
+                if "exp_avg" in v:
+                    v["exp_avg"] = v["exp_avg"].to(get_device_id(), non_blocking=True)
+                if "exp_avg_sq" in v:
+                    v["exp_avg_sq"] = v["exp_avg_sq"].to(get_device_id(), non_blocking=True)
         gc.collect()
         get_torch_device().empty_cache()
 
@@ -831,7 +900,7 @@ def per_tensor_generator(
             global_expert_ids = [num_experts_per_rank * ep_rank + local_expert_id for ep_rank in range(ep_size)]
             global_expert_names = [f"{name_prefix}.weight{expert_id}" for expert_id in global_expert_ids]
 
-            for name, param in zip(global_expert_names, infer_params):
+            for name, param in zip(global_expert_names, infer_params, strict=True):
                 if etp_size > 1:
                     # gather etp
                     etp_params = [torch.empty_like(param) for _ in range(etp_size)]
@@ -853,7 +922,7 @@ def per_tensor_generator(
                     merge_params = [merge_params]
                 converted_names, converted_params = weight_converter.convert_param(name, merge_params)
 
-                yield from zip(converted_names, converted_params)
+                yield from zip(converted_names, [param.detach() for param in converted_params], strict=True)
             continue
 
         # tp all gather
@@ -880,21 +949,37 @@ def per_tensor_generator(
             infer_params = [infer_params]
         converted_names, converted_params = weight_converter.convert_param(cur_name, infer_params)
 
-        yield from zip(converted_names, converted_params)
+        yield from zip(converted_names, [param.detach() for param in converted_params], strict=True)
 
 
-def get_transformer_layer_offset(pipeline_rank, vp_rank, config: TransformerConfig):
-    '''
+def get_transformer_layer_offset(pipeline_rank, vp_stage, config: TransformerConfig):
+    """
     Get the index offset of any pipeline stage, given the level of pipelining.
 
-    Make pp_rank and vpp_rank as two arguments to make it more flexible,
+    Make pipeline_rank and vp_stage as two arguments to make it more flexible,
     which is able to fetch layer offset for any pipeline stage.
     The original function only returns the layer offset for current pipeline stage.
 
-    Extension to https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/transformer/transformer_layer.py::get_transformer_layer_offset"""
-    '''
+    Extension to https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/transformer/transformer_layer.py::get_transformer_layer_offset
+    """
+
+    has_vp_stage = (
+        inspect.signature(parallel_state.is_pipeline_first_stage).parameters.get("vp_stage", None) is not None
+    )
+    extra_kwargs = {} if not has_vp_stage else {"ignore_virtual": False, "vp_stage": vp_stage}
+    if not parallel_state.is_inside_encoder():
+        pp_decoder_start = parallel_state.get_pipeline_model_parallel_decoder_start()
+        if pp_decoder_start is not None:
+            pipeline_rank = pipeline_rank - pp_decoder_start
+
     if config.pipeline_model_parallel_size > 1:
-        if (
+        if hasattr(config, "pipeline_model_parallel_layout") and config.pipeline_model_parallel_layout:
+            from megatron.core.transformer.enums import LayerType
+
+            offset = config.pipeline_model_parallel_layout.get_layer_offset(
+                layer_type=LayerType.decoder, vp_stage=vp_stage
+            )
+        elif (
             config.num_layers_in_first_pipeline_stage is not None
             or config.num_layers_in_last_pipeline_stage is not None
         ):
@@ -926,8 +1011,8 @@ def get_transformer_layer_offset(pipeline_rank, vp_rank, config: TransformerConf
                 config.num_layers - num_layers_in_first_pipeline_stage - num_layers_in_last_pipeline_stage
             )
 
-            if mpu.get_virtual_pipeline_model_parallel_world_size() is not None:
-                vp_size = mpu.get_virtual_pipeline_model_parallel_world_size()
+            if (vp_size := config.virtual_pipeline_model_parallel_size) is not None:
+                assert vp_stage is not None, "vp_stage must be provided if virtual pipeline model parallel size is set"
 
                 # Calculate number of layers in each virtual model chunk
                 # If the num_layers_in_first_pipeline_stage and
@@ -956,10 +1041,10 @@ def get_transformer_layer_offset(pipeline_rank, vp_rank, config: TransformerConf
 
                 # Calculate the layer offset with interleaved uneven pipeline parallelism
                 if pipeline_rank == 0:
-                    offset = vp_rank * total_virtual_chunks
+                    offset = vp_stage * total_virtual_chunks
                 else:
                     offset = (
-                        vp_rank * total_virtual_chunks
+                        vp_stage * total_virtual_chunks
                         + num_layers_per_virtual_model_chunk_in_first_pipeline_stage
                         + (pipeline_rank - 1)
                         * (num_layers_per_vritual_model_chunk_in_middle_pipeline_stage // middle_pipeline_stages)
@@ -991,21 +1076,25 @@ def get_transformer_layer_offset(pipeline_rank, vp_rank, config: TransformerConf
 
             num_layers_per_pipeline_rank = num_layers // config.pipeline_model_parallel_size
 
-            if mpu.get_virtual_pipeline_model_parallel_world_size() is not None:
-                vp_size = mpu.get_virtual_pipeline_model_parallel_world_size()
+            if (vp_size := config.virtual_pipeline_model_parallel_size) is not None:
+                assert vp_stage is not None, "vp_stage must be provided if virtual pipeline model parallel size is set"
 
                 num_layers_per_virtual_rank = num_layers_per_pipeline_rank // vp_size
                 total_virtual_chunks = num_layers // vp_size
-                offset = vp_rank * total_virtual_chunks + (pipeline_rank * num_layers_per_virtual_rank)
+                offset = vp_stage * total_virtual_chunks + (pipeline_rank * num_layers_per_virtual_rank)
 
                 # Reduce the offset of embedding layer from the total layer number
-                if config.account_for_embedding_in_pipeline_split and not mpu.is_pipeline_first_stage():
+                if config.account_for_embedding_in_pipeline_split and not parallel_state.is_pipeline_first_stage(
+                    **extra_kwargs
+                ):
                     offset -= 1
             else:
                 offset = pipeline_rank * num_layers_per_pipeline_rank
 
                 # Reduce the offset of embedding layer from the total layer number
-                if config.account_for_embedding_in_pipeline_split and not mpu.is_pipeline_first_stage():
+                if config.account_for_embedding_in_pipeline_split and not parallel_state.is_pipeline_first_stage(
+                    **extra_kwargs
+                ):
                     offset -= 1
     else:
         offset = 0

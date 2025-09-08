@@ -13,17 +13,29 @@
 # limitations under the License.
 
 import collections
-from dataclasses import fields  # Import the fields function to inspect dataclass fields
+from dataclasses import FrozenInstanceError, dataclass, fields
 from typing import Any
 
 
 # BaseConfig class inherits from collections.abc.Mapping, which means it can act like a dictionary
+@dataclass
 class BaseConfig(collections.abc.Mapping):
-    """The BaseConfig provides omegaconf DictConfig-like interface for a dataclass config.
+    """The BaseConfig provides dict-like interface for a dataclass config.
 
-    The BaseConfig class implements the Mapping Abstract Base Class.
+    By default all fields in the config is not mutable, unless specified in
+    "_mutable_fields". The BaseConfig class implements the Mapping Abstract Base Class.
     This allows instances of this class to be used like dictionaries.
     """
+
+    _mutable_fields = set()
+    _target_: str = ""
+
+    def __setattr__(self, name: str, value):
+        """Set the value of an attribute. Check if the attr is mutable before setting the value."""
+        # If the field already exists, it's considered frozen unless it's in _mutable_fields
+        if name in self.__dict__ and name not in getattr(self, "_mutable_fields", set()):
+            raise FrozenInstanceError(f"Field '{name}' is frozen and cannot be modified")
+        super().__setattr__(name, value)
 
     def get(self, key: str, default: Any = None) -> Any:
         """Get the value associated with the given key. If the key does not exist, return the default value.

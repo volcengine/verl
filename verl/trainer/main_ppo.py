@@ -23,9 +23,11 @@ import ray
 from omegaconf import OmegaConf
 
 from verl.experimental.dataset.sampler import AbstractSampler
-from verl.trainer.constants_ppo import PPO_RAY_RUNTIME_ENV
+from verl.trainer.constants_ppo import get_ppo_ray_runtime_env
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
+from verl.trainer.ppo.utils import need_critic, need_reference_policy
+from verl.utils.config import validate_config
 from verl.utils.device import is_cuda_available
 from verl.utils.import_utils import load_extern_type
 
@@ -55,20 +57,28 @@ def run_ppo(config) -> None:
         # Set environment variables in the runtime environment to control tokenizer parallelism,
         # NCCL debug level, VLLM logging level, and allow runtime LoRA updating
         # `num_cpus` specifies the number of CPU cores Ray can use, obtained from the configuration
-        ray.init(
-            runtime_env=PPO_RAY_RUNTIME_ENV,
-            num_cpus=config.ray_init.num_cpus,
-            num_gpus=config.ray_init.num_gpus,
-        )
+        default_runtime_env = get_ppo_ray_runtime_env()
+        ray_init_kwargs = config.ray_kwargs.get("ray_init", {})
+        runtime_env_kwargs = ray_init_kwargs.get("runtime_env", {})
+        runtime_env = OmegaConf.merge(default_runtime_env, runtime_env_kwargs)
+        ray_init_kwargs = OmegaConf.create({**ray_init_kwargs, "runtime_env": runtime_env})
+        print(f"ray init kwargs: {ray_init_kwargs}")
+        ray.init(**OmegaConf.to_container(ray_init_kwargs))
 
     # Create a remote instance of the TaskRunner class, and
     # Execute the `run` method of the TaskRunner instance remotely and wait for it to complete
     if (
         is_cuda_available
-        and OmegaConf.select(config.trainer, "profile_steps") is not None
-        and len(OmegaConf.select(config.trainer, "profile_steps")) > 0
+        and config.global_profiler.tool == "nsys"
+        and config.global_profiler.get("steps") is not None
+        and len(config.global_profiler.get("steps", [])) > 0
     ):
-        nsight_options = OmegaConf.to_container(config.trainer.controller_nsight_options)
+        from verl.utils.import_utils import is_nvtx_available
+
+        assert is_nvtx_available(), "nvtx is not available in CUDA platform. Please 'pip3 install nvtx'"
+        nsight_options = OmegaConf.to_container(
+            config.global_profiler.global_tool_config.nsys.controller_nsight_options
+        )
         runner = TaskRunner.options(runtime_env={"nsight": nsight_options}).remote()
     else:
         runner = TaskRunner.remote()
@@ -76,7 +86,7 @@ def run_ppo(config) -> None:
 
     # [Optional] get the path of the timeline trace file from the configuration, default to None
     # This file is used for performance analysis
-    timeline_json_file = config.ray_init.get("timeline_json_file", None)
+    timeline_json_file = config.ray_kwargs.get("timeline_json_file", None)
     if timeline_json_file:
         ray.timeline(filename=timeline_json_file)
 
@@ -87,7 +97,130 @@ class TaskRunner:
 
     This class encapsulates the main training logic and runs as a Ray remote actor
     to enable distributed execution across multiple nodes and GPUs.
+
+    Attributes:
+        role_worker_mapping: Dictionary mapping Role enums to Ray remote worker classes
+        mapping: Dictionary mapping Role enums to resource pool IDs for GPU allocation
     """
+
+    def __init__(self):
+        self.role_worker_mapping = {}
+        self.mapping = {}
+
+    def add_actor_rollout_worker(self, config):
+        """Add actor rollout worker based on the actor strategy."""
+        from verl.single_controller.ray import RayWorkerGroup
+
+        if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
+            from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
+
+            actor_rollout_cls = (
+                AsyncActorRolloutRefWorker
+                if config.actor_rollout_ref.rollout.mode == "async"
+                else ActorRolloutRefWorker
+            )
+            ray_worker_group_cls = RayWorkerGroup
+
+        elif config.actor_rollout_ref.actor.strategy == "megatron":
+            from verl.workers.megatron_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
+
+            actor_rollout_cls = (
+                AsyncActorRolloutRefWorker
+                if config.actor_rollout_ref.rollout.mode == "async"
+                else ActorRolloutRefWorker
+            )
+            ray_worker_group_cls = RayWorkerGroup
+
+        else:
+            raise NotImplementedError
+
+        from verl.trainer.ppo.ray_trainer import Role
+
+        self.role_worker_mapping[Role.ActorRollout] = ray.remote(actor_rollout_cls)
+
+        return actor_rollout_cls, ray_worker_group_cls
+
+    def add_critic_worker(self, config):
+        """Add critic worker to role mapping."""
+        if config.critic.strategy in {"fsdp", "fsdp2"}:
+            use_legacy_worker_impl = config.trainer.get("use_legacy_worker_impl", "auto")
+            if use_legacy_worker_impl in ["auto", "enable"]:
+                from verl.workers.fsdp_workers import CriticWorker
+            elif use_legacy_worker_impl == "disable":
+                from verl.workers.roles import CriticWorker
+
+                print("Using new worker implementation")
+            else:
+                raise ValueError(f"Invalid use_legacy_worker_impl: {use_legacy_worker_impl}")
+
+        elif config.critic.strategy == "megatron":
+            from verl.workers.megatron_workers import CriticWorker
+
+        else:
+            raise NotImplementedError
+
+        from verl.trainer.ppo.ray_trainer import Role
+
+        self.role_worker_mapping[Role.Critic] = ray.remote(CriticWorker)
+
+    def init_resource_pool_mgr(self, config):
+        """Initialize resource pool manager."""
+        from verl.trainer.ppo.ray_trainer import Role
+
+        global_pool_id = "global_pool"
+        resource_pool_spec = {
+            global_pool_id: [config.trainer.n_gpus_per_node] * config.trainer.nnodes,
+        }
+        # TODO Here you can use the new registration method to support dynamic registration of roles
+        if config.reward_model.enable_resource_pool:
+            if config.reward_model.n_gpus_per_node <= 0:
+                raise ValueError("config.reward_model.n_gpus_per_node must be greater than 0")
+            if config.reward_model.nnodes <= 0:
+                raise ValueError("config.reward_model.nnodes must be greater than 0")
+
+            reward_pool = [config.reward_model.n_gpus_per_node] * config.reward_model.nnodes
+            resource_pool_spec["reward_pool"] = reward_pool
+
+        self.mapping[Role.ActorRollout] = global_pool_id
+        self.mapping[Role.Critic] = global_pool_id
+        from verl.trainer.ppo.ray_trainer import ResourcePoolManager
+
+        resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=self.mapping)
+        return resource_pool_manager
+
+    def add_reward_model_worker(self, config):
+        """Add reward model worker if enabled."""
+        from verl.trainer.ppo.ray_trainer import Role
+
+        if config.reward_model.enable:
+            use_legacy_worker_impl = config.trainer.get("use_legacy_worker_impl", "auto")
+            if use_legacy_worker_impl in ["auto", "enable"]:
+                if config.reward_model.strategy in {"fsdp", "fsdp2"}:
+                    from verl.workers.fsdp_workers import RewardModelWorker
+                elif config.reward_model.strategy == "megatron":
+                    from verl.workers.megatron_workers import RewardModelWorker
+                else:
+                    raise NotImplementedError
+            elif use_legacy_worker_impl == "disable":
+                from verl.workers.roles import RewardModelWorker
+
+                print("Using new worker implementation")
+            else:
+                raise ValueError(f"Invalid use_legacy_worker_impl: {use_legacy_worker_impl}")
+
+            self.role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
+            if config.reward_model.enable_resource_pool:
+                self.mapping[Role.RewardModel] = "reward_pool"
+            else:
+                self.mapping[Role.RewardModel] = "global_pool"
+
+    def add_ref_policy_worker(self, config, ref_policy_cls):
+        """Add reference policy worker if KL loss or KL reward is used."""
+        from verl.trainer.ppo.ray_trainer import Role
+
+        if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
+            self.role_worker_mapping[Role.RefPolicy] = ray.remote(ref_policy_cls)
+            self.mapping[Role.RefPolicy] = "global_pool"
 
     def run(self, config):
         """Execute the main PPO training workflow.
@@ -107,10 +240,29 @@ class TaskRunner:
         from verl.utils.fs import copy_to_local
 
         print(f"TaskRunner hostname: {socket.gethostname()}, PID: {os.getpid()}")
-
         pprint(OmegaConf.to_container(config, resolve=True))
-
         OmegaConf.resolve(config)
+
+        actor_rollout_cls, ray_worker_group_cls = self.add_actor_rollout_worker(config)
+        self.add_critic_worker(config)
+
+        # We should adopt a multi-source reward function here:
+        # - for rule-based rm, we directly call a reward score
+        # - for model-based rm, we call a model
+        # - for code related prompt, we send to a sandbox if there are test cases
+        # finally, we combine all the rewards together
+        # The reward type depends on the tag of the data
+        self.add_reward_model_worker(config)
+
+        # Add a reference policy worker if KL loss or KL reward is used.
+        self.add_ref_policy_worker(config, actor_rollout_cls)
+
+        # validate config
+        validate_config(
+            config=config,
+            use_reference_policy=need_reference_policy(self.role_worker_mapping),
+            use_critic=need_critic(config),
+        )
 
         # Download the checkpoint from HDFS to the local machine.
         # `use_shm` determines whether to use shared memory, which could lead to faster model loading if turned on
@@ -126,82 +278,6 @@ class TaskRunner:
         # Used for multimodal LLM, could be None
         processor = hf_processor(local_path, trust_remote_code=trust_remote_code, use_fast=True)
 
-        # Version validation for vllm.
-        if config.actor_rollout_ref.rollout.name in ["vllm"]:
-            from verl.utils.vllm_utils import is_version_ge
-
-            if config.actor_rollout_ref.model.get("lora_rank", 0) > 0:
-                if not is_version_ge(pkg="vllm", minver="0.7.3"):
-                    raise NotImplementedError("PPO LoRA is not supported before vllm 0.7.3")
-
-        # Define worker classes based on the actor strategy.
-        if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
-            assert config.critic.strategy in {"fsdp", "fsdp2"}
-            from verl.single_controller.ray import RayWorkerGroup
-            from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
-
-            actor_rollout_cls = (
-                AsyncActorRolloutRefWorker
-                if config.actor_rollout_ref.rollout.mode == "async"
-                else ActorRolloutRefWorker
-            )
-            ray_worker_group_cls = RayWorkerGroup
-
-        elif config.actor_rollout_ref.actor.strategy == "megatron":
-            assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
-            from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
-            from verl.workers.megatron_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
-
-            actor_rollout_cls = (
-                AsyncActorRolloutRefWorker
-                if config.actor_rollout_ref.rollout.mode == "async"
-                else ActorRolloutRefWorker
-            )
-            ray_worker_group_cls = NVMegatronRayWorkerGroup
-
-        else:
-            raise NotImplementedError
-
-        from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
-
-        # Map roles to their corresponding remote worker classes.
-        role_worker_mapping = {
-            Role.ActorRollout: ray.remote(actor_rollout_cls),
-            Role.Critic: ray.remote(CriticWorker),
-        }
-
-        # Define the resource pool specification.
-        # Map roles to the resource pool.
-        global_pool_id = "global_pool"
-        resource_pool_spec = {
-            global_pool_id: [config.trainer.n_gpus_per_node] * config.trainer.nnodes,
-        }
-        mapping = {
-            Role.ActorRollout: global_pool_id,
-            Role.Critic: global_pool_id,
-        }
-
-        # We should adopt a multi-source reward function here:
-        # - for rule-based rm, we directly call a reward score
-        # - for model-based rm, we call a model
-        # - for code related prompt, we send to a sandbox if there are test cases
-        # finally, we combine all the rewards together
-        # The reward type depends on the tag of the data
-        if config.reward_model.enable:
-            if config.reward_model.strategy in {"fsdp", "fsdp2"}:
-                from verl.workers.fsdp_workers import RewardModelWorker
-            elif config.reward_model.strategy == "megatron":
-                from verl.workers.megatron_workers import RewardModelWorker
-            else:
-                raise NotImplementedError
-            role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
-            mapping[Role.RewardModel] = global_pool_id
-
-        # Add a reference policy worker if KL loss or KL reward is used.
-        if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
-            role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
-            mapping[Role.RefPolicy] = global_pool_id
-
         # Load the reward manager for training and validation.
         reward_fn = load_reward_manager(
             config, tokenizer, num_examine=0, **config.reward_model.get("reward_kwargs", {})
@@ -209,7 +285,8 @@ class TaskRunner:
         val_reward_fn = load_reward_manager(
             config, tokenizer, num_examine=1, **config.reward_model.get("reward_kwargs", {})
         )
-        resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
+
+        resource_pool_manager = self.init_resource_pool_mgr(config)
 
         from verl.utils.dataset.rl_dataset import collate_fn
 
@@ -223,7 +300,7 @@ class TaskRunner:
             config=config,
             tokenizer=tokenizer,
             processor=processor,
-            role_worker_mapping=role_worker_mapping,
+            role_worker_mapping=self.role_worker_mapping,
             resource_pool_manager=resource_pool_manager,
             ray_worker_group_cls=ray_worker_group_cls,
             reward_fn=reward_fn,
@@ -232,7 +309,6 @@ class TaskRunner:
             val_dataset=val_dataset,
             collate_fn=collate_fn,
             train_sampler=train_sampler,
-            device_name=config.trainer.device,
         )
         # Initialize the workers of the trainer.
         trainer.init_workers()

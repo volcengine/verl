@@ -14,20 +14,20 @@
 # limitations under the License.
 import asyncio
 import logging
-from typing import Any, Dict, List
+from typing import Any, Optional
 
 import ray
 from omegaconf import DictConfig
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from verl.workers.rollout.async_server import AsyncServerBase
+from verl.workers.rollout.async_server import AsyncServerBase, TokenOutput
 
 logger = logging.getLogger(__file__)
 
 
 @ray.remote(num_cpus=1)
-class AsyncSglangServer(AsyncServerBase):
+class AsyncSGLangServer(AsyncServerBase):
     def __init__(self, config: DictConfig, dp_size: int, dp_rank: int, wg_prefix: str):
         super().__init__()
         self.config = config.actor_rollout_ref
@@ -47,15 +47,24 @@ class AsyncSglangServer(AsyncServerBase):
             actor for actor in all_actors if actor.get("name", None).startswith(self.wg_prefix + "WorkerDict_")
         ]
 
+        gpu_per_node = len(set([actor["name"].split(":")[1] for actor in matched_actors]))
+        # total gpu num
+        assert len(matched_actors) == self._dp_size * self._tp_size
+
         for matched_actor in matched_actors:
             fields = matched_actor["name"].split(":")
             assert len(fields) == 2, f"invalid actor name: {matched_actor['name']}"
             pg_index, local_rank = int(fields[0].split("_")[-1]), int(fields[1])
 
-            if (self._dp_size * pg_index + local_rank) // self._tp_size == self._dp_rank:
+            current_global_rank = gpu_per_node * pg_index + local_rank
+            worker_dp_rank = current_global_rank // self._tp_size
+            worker_tp_rank = current_global_rank % self._tp_size
+
+            if worker_dp_rank == self._dp_rank:
                 worker = ray.get_actor(**matched_actor)
                 self.workers.append(worker)
-                if (self._dp_size * pg_index + local_rank) / self._tp_size == self._dp_rank:
+
+                if worker_tp_rank == 0:
                     self.master_worker = worker
 
     async def chat_completion(self, raw_request: Request):
@@ -66,21 +75,20 @@ class AsyncSglangServer(AsyncServerBase):
         [outputs] = await asyncio.gather(output_future)
         return JSONResponse(outputs)
 
-    async def generate(self, prompt_ids: List[int], sampling_params: Dict[str, Any], request_id: str) -> List[int]:
-        return await self.master_worker.generate.remote(prompt_ids, sampling_params, request_id)
+    async def generate(
+        self,
+        prompt_ids: list[int],
+        sampling_params: dict[str, Any],
+        request_id: str,
+        image_data: Optional[list[Any]] = None,
+    ) -> TokenOutput:
+        sampling_params.setdefault("repetition_penalty", self.config.rollout.get("repetition_penalty", 1.0))
+        return await self.master_worker.generate.remote(prompt_ids, sampling_params, request_id, image_data=image_data)
 
     async def wake_up(self):
-        if not self.config.rollout.free_cache_engine:
-            return
-
-        tasks = [worker.wake_up.remote() for worker in self.workers]
-        if tasks:
-            await asyncio.gather(*tasks)
+        if self.config.rollout.free_cache_engine:
+            await asyncio.gather(*[worker.wake_up.remote() for worker in self.workers])
 
     async def sleep(self):
-        if not self.config.rollout.free_cache_engine:
-            return
-
-        tasks = [worker.sleep.remote() for worker in self.workers]
-        if tasks:
-            await asyncio.gather(*tasks)
+        if self.config.rollout.free_cache_engine:
+            await asyncio.gather(*[worker.sleep.remote() for worker in self.workers])

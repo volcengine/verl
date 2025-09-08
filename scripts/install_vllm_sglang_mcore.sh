@@ -15,7 +15,7 @@ echo "2. install basic packages"
 pip install "transformers[hf_xet]>=4.51.0" accelerate datasets peft hf-transfer \
     "numpy<2.0.0" "pyarrow>=15.0.0" pandas \
     ray[default] codetiming hydra-core pylatexenc qwen-vl-utils wandb dill pybind11 liger-kernel mathruler \
-    pytest py-spy pyext pre-commit ruff
+    pytest py-spy pyext pre-commit ruff tensorboard 
 
 pip install "nvidia-ml-py>=12.560.30" "fastapi[standard]>=0.115.0" "optree>=0.13.0" "pydantic>=2.9" "grpcio>=1.62.1"
 
@@ -35,8 +35,8 @@ wget -nv https://github.com/flashinfer-ai/flashinfer/releases/download/v0.2.2.po
 if [ $USE_MEGATRON -eq 1 ]; then
     echo "4. install TransformerEngine and Megatron"
     echo "Notice that TransformerEngine installation can take very long time, please be patient"
-    NVTE_FRAMEWORK=pytorch pip3 install --no-deps git+https://github.com/NVIDIA/TransformerEngine.git@v2.2
-    pip3 install --no-deps git+https://github.com/NVIDIA/Megatron-LM.git@core_v0.12.0rc3
+    NVTE_FRAMEWORK=pytorch pip3 install --no-deps git+https://github.com/NVIDIA/TransformerEngine.git@v2.2.1
+    pip3 install --no-deps git+https://github.com/NVIDIA/Megatron-LM.git@core_v0.12.2
 fi
 
 

@@ -48,14 +48,21 @@ _ALLOW_LIST = [
     "verl.utils.profiler.mark_start_range",
     "verl.models.mcore.qwen2_5_vl.get_vision_model_config",
     "verl.models.mcore.qwen2_5_vl.get_vision_projection_config",
+    "verl.models.mcore.mbridge.freeze_moe_router",
+    "verl.models.mcore.mbridge.make_value_model",
+    "verl.utils.transformers_compat.flash_attn_supports_top_left_mask",
 ]
 
 
 def iter_submodules(root: ModuleType) -> Iterable[ModuleType]:
     """Yield *root* and every sub-module inside it."""
     yield root
+
+    def print_pkg_error(pkg_name):
+        print(f"[warn] Skipping {pkg_name!r}", file=sys.stderr)
+
     if getattr(root, "__path__", None):  # only packages have __path__
-        for mod_info in pkgutil.walk_packages(root.__path__, prefix=f"{root.__name__}."):
+        for mod_info in pkgutil.walk_packages(root.__path__, prefix=f"{root.__name__}.", onerror=print_pkg_error):
             try:
                 yield importlib.import_module(mod_info.name)
             except Exception as exc:  # noqa: BLE001

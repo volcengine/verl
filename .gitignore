@@ -58,6 +58,8 @@ nosetests.xml
 coverage.xml
 *,cover
 .hypothesis/
+pytest.ini
+output.txt
 
 # Translations
 *.mo

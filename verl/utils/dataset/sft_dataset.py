@@ -18,8 +18,6 @@ SFT dataset
 Each parquet file contains
 """
 
-from typing import Union
-
 import pandas as pd
 import torch
 from omegaconf.listconfig import ListConfig
@@ -39,7 +37,7 @@ class SFTDataset(Dataset):
         config (OmegaConf): the data config
     """
 
-    def __init__(self, parquet_files: Union[str, ListConfig], tokenizer, config):
+    def __init__(self, parquet_files: str | ListConfig, tokenizer, config):
         prompt_key = config.get("prompt_key", "prompt")
         prompt_dict_keys = config.get("prompt_dict_keys", None)
         response_key = config.get("response_key", "response")
@@ -47,6 +45,7 @@ class SFTDataset(Dataset):
         max_length = config.get("max_length", 1024)
         truncation = config.get("truncation", "error")
         use_shm = config.get("use_shm", False)
+        self.apply_chat_template_kwargs = config.get("apply_chat_template_kwargs", {})
 
         assert truncation in ["error", "left", "right"]
         self.truncation = truncation
@@ -60,8 +59,8 @@ class SFTDataset(Dataset):
             tokenizer = hf_tokenizer(tokenizer)
         self.tokenizer: PreTrainedTokenizer = tokenizer
 
-        self.prompt_key = prompt_key if isinstance(prompt_key, (tuple, list)) else [prompt_key]
-        self.response_key = response_key if isinstance(response_key, (tuple, list)) else [response_key]
+        self.prompt_key = prompt_key if isinstance(prompt_key, tuple | list) else [prompt_key]
+        self.response_key = response_key if isinstance(response_key, tuple | list) else [response_key]
         self.prompt_dict_keys = prompt_dict_keys if prompt_dict_keys else []
         self.response_dict_keys = response_dict_keys if response_dict_keys else []
 
@@ -79,7 +78,7 @@ class SFTDataset(Dataset):
             import numpy
             import pandas
 
-            while isinstance(ls, (pandas.core.series.Series, numpy.ndarray)) and len(ls) == 1:
+            while isinstance(ls, pandas.core.series.Series | numpy.ndarray) and len(ls) == 1:
                 ls = ls[0]
             return ls
 
@@ -126,7 +125,9 @@ class SFTDataset(Dataset):
         prompt_chat = [{"role": "user", "content": prompt}]
 
         # string
-        prompt_chat_str = tokenizer.apply_chat_template(prompt_chat, add_generation_prompt=True, tokenize=False)
+        prompt_chat_str = tokenizer.apply_chat_template(
+            prompt_chat, add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
+        )
         response_chat_str = response + tokenizer.eos_token
 
         # tokenize

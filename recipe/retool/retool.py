@@ -13,7 +13,7 @@
 # limitations under the License.
 import logging
 import re
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import datasets
 
@@ -32,7 +32,7 @@ class CustomSandboxFusionTool(SandboxFusionTool):
         self.code_pattern = re.compile(r"```python(.*?)```", re.DOTALL)
 
     @rollout_trace_op
-    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> Tuple[str, float, dict]:
+    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[str, float, dict]:
         code = parameters["code"]
         matches = self.code_pattern.findall(code)
         if matches:
@@ -81,7 +81,7 @@ class CustomRLHFDataset(RLHFDataset):
 
         print(f"dataset len: {len(self.dataframe)}")
 
-    def map_fn(self, row: Dict, *, data_source: str = None):
+    def map_fn(self, row: dict, *, data_source: str = None):
         if data_source == "Maxwell-Jia/AIME_2024":
             problem, answer = row["Problem"], row["Answer"]
         elif data_source == "yentinglin/aime_2025":
@@ -97,7 +97,7 @@ class CustomRLHFDataset(RLHFDataset):
         }
         return data
 
-    def map_fn2(self, row: Dict):
+    def map_fn2(self, row: dict):
         content = row["prompt"][0]["content"]
         row["prompt"][0]["content"] = content + answer_format
         row["agent_name"] = "tool_agent"
@@ -112,7 +112,7 @@ def compute_score(data_source, solution_str, ground_truth, extra_info):
     num_turns = extra_info["num_turns"]
     if result["score"] < 0:
         tool_call_reward = (num_turns - 2) / 2 * 0.1
-        result["score"] = min(0, result["score"] + tool_call_reward)
+        result["score"] = min(-0.6, result["score"] + tool_call_reward)
 
     if result["pred"] is None:
         result["pred"] = ""

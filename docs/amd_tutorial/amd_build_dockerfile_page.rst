@@ -16,7 +16,7 @@ docker/Dockerfile.rocm
 
 .. code-block:: bash
 
-    FROM "rlfoundation.azurecr.io/rocm6.3.4:vllm-0.8.5-numa-patch-ubuntu-22.04"
+    FROM "rlsys/rocm-6.3.4-patch:rocm6.3.4-numa-patch_ubuntu-22.04"
 
     SHELL ["/bin/bash", "-ceuxo", "pipefail"]
 
@@ -321,9 +321,9 @@ Pull the image:
 
 .. code-block:: bash
 
-    docker pull yushengsuthu/verl:verl-0.4.1_ubuntu-22.04_rocm6.3.4-numa-patch_vllm0.8.5_sglang0.4.6.post4
+    docker pull rlsys/verl:verl-0.4.1_ubuntu-22.04_rocm6.3.4-numa-patch_vllm0.8.5_sglang0.4.6.post4
 
-    docker tag yushengsuthu/verl:verl-0.4.1_ubuntu-22.04_rocm6.3.4-numa-patch_vllm0.8.5_sglang0.4.6.post4 verl-rocm:latest
+    docker tag rlsys/verl:verl-0.4.1_ubuntu-22.04_rocm6.3.4-numa-patch_vllm0.8.5_sglang0.4.6.post4 verl-rocm:latest
 
 Run the container
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -405,7 +405,7 @@ PPO
      critic.model.path=$MODEL_PATH \
      critic.ppo_micro_batch_size_per_gpu=4 \
      algorithm.kl_ctrl.kl_coef=0.001 \
-     trainer.logger=['console'] \
+     trainer.logger=console \
      trainer.project_name=$YOUR_PROJECT_NAME \
      trainer.experiment_name=$YOUR_RUN_NAME \
      trainer.val_before_train=False \
@@ -467,7 +467,7 @@ GRPO
         actor_rollout_ref.ref.fsdp_config.param_offload=False \
         algorithm.kl_ctrl.kl_coef=0.001 \
         trainer.critic_warmup=0 \
-        trainer.logger=['console'] \
+        trainer.logger=console \
         trainer.project_name=$YOUR_PROJECT_NAME \
         trainer.experiment_name=$YOUR_RUN_NAME \
         trainer.n_gpus_per_node=$GPUS_PER_NODE \
@@ -573,7 +573,7 @@ slurm_script.sh
         docker image prune -f
 
         # Need to pull the docker first
-        docker pull docker.io/rocm/vllm:rocm6.2_mi300_ubuntu20.04_py3.9_vllm_0.6.4
+        docker pull rlsys/verl:verl-0.4.1_ubuntu-22.04_rocm6.3.4-numa-patch_vllm0.8.5_sglang0.4.6.post4
         
         if ! docker images --format "{{.Repository}}:{{.Tag}}" | grep -q "${IMG}"; then
             echo \"Building ${IMG} image...\"
@@ -775,7 +775,7 @@ slurm_script.sh
         critic.model.fsdp_config.optimizer_offload=False \
         algorithm.kl_ctrl.kl_coef=0.0001 \
         trainer.critic_warmup=0 \
-        trainer.logger=['console','wandb'] \
+        trainer.logger='["console","wandb"]' \
         trainer.project_name='verl_example' \
         trainer.experiment_name='Qwen2.5-32B-Instruct_function_rm' \
         trainer.n_gpus_per_node=${SLURM_GPUS_PER_NODE} \

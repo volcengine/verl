@@ -37,10 +37,36 @@ from dataclasses import dataclass
 
 import torch
 import torch.distributed as dist
-import triton
-import triton.language as tl
+
+try:
+    import triton
+    import triton.language as tl
+
+    HAVE_TRITON = True
+except ImportError:
+    HAVE_TRITON = False
 
 from verl.utils.device import get_torch_device
+
+if not HAVE_TRITON:
+    from contextlib import contextmanager
+    from unittest.mock import MagicMock
+
+    @contextmanager
+    def null_decorator(*args, **kwargs):
+        if len(kwargs) == 0 and len(args) == 1 and callable(args[0]):
+            return args[0]
+        else:
+
+            def inner(func):
+                return func
+
+            return inner
+
+    triton = MagicMock()
+    triton.jit = null_decorator
+    triton.autotune = null_decorator
+    tl = MagicMock()
 
 
 @dataclass
@@ -102,6 +128,13 @@ class BackwardEnum:
 
 @dataclass
 class Config:
+    """Configuration for efficient entropy kernel operations.
+
+    Args:
+        _backward (BackwardEnum): Backward computation method. Defaults to BackwardEnum._Split_Dlogits_N.
+        _use_triton (bool): Whether to use Triton kernels for computation. Defaults to True.
+    """
+
     _backward: BackwardEnum = BackwardEnum._Split_Dlogits_N
     _use_triton: bool = True
 
@@ -478,7 +511,7 @@ def efficient_entropy_forward(
     reduction: typing.Optional[int] = 2,
     temperature: typing.Optional[float] = 1.0,
     dist_process_group: typing.Optional[dist.ProcessGroup] = None,
-) -> typing.List[torch.Tensor]:
+) -> list[torch.Tensor]:
     """
     forward host function
     """
@@ -1355,7 +1388,7 @@ def efficient_entropy_backward(
     should_return_fp32_grad: bool = False,
     temperature: typing.Optional[float] = 1.0,
     dist_process_group: typing.Optional[dist.ProcessGroup] = None,
-) -> typing.List[torch.Tensor]:
+) -> list[torch.Tensor]:
     """
     backward host function
     """
