@@ -149,7 +149,6 @@ class MegatronWorker(Worker):
         self.architectures = getattr(hf_config, "architectures", None)
         if self.rank == 0:
             print(f"Model config after override: {hf_config}")
-        tf_config = hf_to_mcore_config(hf_config, dtype, **override_transformer_config)
 
         if use_mbridge:
             from verl.models.mcore.mbridge import AutoBridge
@@ -159,6 +158,7 @@ class MegatronWorker(Worker):
             tf_config = bridge.config
             self.bridge = bridge
         else:
+            tf_config = hf_to_mcore_config(hf_config, dtype, **override_transformer_config)
             self.bridge = None
 
         print(f"TF config: {tf_config}")
@@ -433,7 +433,9 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             "qkv_layer_name": "self_attention.linear_qkv.",
             "gate_proj_layer_name": "linear_fc1.",
         }
-        self.weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
+        self.weight_converter = None
+        if not self.bridge:
+            self.weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
 
         # 5. switch to trainer mode
         # NOTE: It's critical that hybrid engine in trainer mode initially to load checkpoint.
