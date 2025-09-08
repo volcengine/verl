@@ -447,6 +447,7 @@ class FSDPEngine(BaseEngine):
 
     def forward_backward_batch(self, data: DataProto, loss_function: Callable, forward_only=False) -> list[DataProto]:
         # note that the global_batch_size should include data on all the dp
+        data.meta_info["sp_size"] = self.ulysses_sequence_parallel_size
         micro_batches, indices = prepare_micro_batches(data=data)
 
         output_lst = []
