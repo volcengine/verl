@@ -2,8 +2,8 @@ tools:
   - class_name: "recipe.rstar2_agent.src.tools.code_judge_tool.PythonTool"
     config: 
       type: native
-      request_processor_concurrency: 8
-      request_processor_batch_size: 32
+      request_processor_concurrency: 16
+      request_processor_batch_size: 24
       request_processor_batch_timeout_seconds: 30
       host_addr: "localhost"
       host_port: "8088"

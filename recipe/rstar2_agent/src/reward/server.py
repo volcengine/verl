@@ -17,7 +17,7 @@ from verl.workers.reward_manager.abstract import AbstractRewardManager
 from recipe.rstar2_agent.src.tools.code_judge_utils import run_tool_calls_on_server_async
 
 verify_math_prefix = """
-from recipe.rstar2_agent.src.reward.compute_score import compute_score
+from recipe.rstar2_agent.fused_compute_score import compute_score
 import base64
 solution_str = base64.b64decode("{}".encode()).decode()
 ground_truth = base64.b64decode("{}".encode()).decode()

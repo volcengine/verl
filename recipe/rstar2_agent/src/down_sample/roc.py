@@ -54,7 +54,6 @@ def resample_of_correct(batch: DataProto, tokenizer: PreTrainedTokenizerFast, co
             uid_rewards = batch.batch['token_level_scores'][uid_mask].sum(-1)
             
             zero_reward_pairs = [(indice, penalty_weight) for indice, uid_reward, penalty_weight in zip(indices, uid_rewards, penalty_weights[uid_mask]) if uid_reward <= 0]
-            zero_reward_pairs.sort(key=lambda x: x[1])
             non_zero_reward_pairs = [(indice, penalty_weight) for indice, uid_reward, penalty_weight in zip(indices, uid_rewards, penalty_weights[uid_mask]) if uid_reward > 0]
             non_zero_reward_pairs.sort(key=lambda x: x[1])
             zero_reward_trace_num = round(len(zero_reward_pairs) * down_sample_to_n / len(indices))

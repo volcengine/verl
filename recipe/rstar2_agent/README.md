@@ -62,7 +62,7 @@ cd ../..
 #### Option 2: Automated Installation
 
 ```bash
-cd recipe/rstar2_agent && bash install.sh && cd ../..
+bash recipe/rstar2_agent/install.sh
 ```
 
 ### Code Judge Server Setup
