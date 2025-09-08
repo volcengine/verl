@@ -108,7 +108,7 @@ class RStar2AgentLoop(ToolAgentLoop):
             tasks = []
             for tool_call in tool_calls[: self.max_parallel_calls]:
                 ################################### rStar ###################################
-                tools_kwargs_copy = dict(tools_kwargs)  # Copy to avoid modifying original
+                tools_kwargs_copy = copy.deepcopy(tools_kwargs)  # Use deepcopy to avoid sharing mutable state
                 tools_kwargs_copy["history_tool_calls"] = list(history_tool_calls)  # Pass history tool calls
                 tasks.append(self._call_tool(tool_call, tools_kwargs_copy))
                 history_tool_calls.append(tool_call)
