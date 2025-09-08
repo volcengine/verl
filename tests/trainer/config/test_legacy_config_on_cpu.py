@@ -45,6 +45,7 @@ class TestConfigComparison(unittest.TestCase):
         "profile_steps",
         "worker_nsight_options",
         "controller_nsight_options",
+        "expert_tensor_parallel_size",
     ]
 
     def _compare_configs_recursively(
