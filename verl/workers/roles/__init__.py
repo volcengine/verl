@@ -15,11 +15,12 @@
 from .actor import ActorWorker
 from .critic import CriticWorker
 
-__all__ = ["CriticWorker", "ActorWorker"]
-
 try:
     from .reward import RewardModelWorker
-
-    __all__.append("RewardModelWorker")
 except ImportError:
-    pass
+    RewardModelWorker = None
+
+__all__ = ["CriticWorker", "ActorWorker"]
+
+if RewardModelWorker is not None:
+    __all__.append("RewardModelWorker")
