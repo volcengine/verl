@@ -58,7 +58,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     project_dir = Path(__file__).parent.parent
-    python_tool_yaml_path = project_dir / "rstar2_agent/config/tool_config/python_tool_config.yaml"
+    python_tool_yaml_path = project_dir / "src/config/tool_config/python_tool_config.yaml"
     with python_tool_yaml_path.open() as file:
         python_tool_schema = yaml.safe_load(file)["tools"][0]["tool_schema"]
 
