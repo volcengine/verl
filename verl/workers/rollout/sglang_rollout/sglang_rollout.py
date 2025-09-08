@@ -438,6 +438,7 @@ class SGLangRollout(BaseRollout):
         # todo: 支持torch_memory_saver后移除这个限制
         # if get_device_name() == "npu":
         #     enable_memory_saver = False
+        print(f"11111111111 self._tp_size {self._tp_size} ", flush=True)
         backend = "fa3" if self.attention_backend != "ascend" else "ascend"
         if first_rank_in_node:
             rank = dist.get_rank()
@@ -461,7 +462,7 @@ class SGLangRollout(BaseRollout):
                 # NOTE(Chenyang): if you want to debug the SGLang engine output
                 # please set the following parameters
                 # Otherwise, it will make the engine run too slow
-                # log_level="debug",
+                log_level="debug",
                 # log_requests=True,
                 # log_requests_level=2,
                 # max_running_requests=1,

@@ -1142,6 +1142,11 @@ class RayPPOTrainer:
                             gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
                         else:
                             gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
+                        
+                        # torch.save(dict({"responses": gen_batch_output.batch["responses"]}), "/home/l00878165/sglang/data/generate_data/patch_response.pth")
+                        
+                        # torch.laod("/home/l00878165/sglang/data/generate_data/patch_response.pth")["responses"]
+                        
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)
 
