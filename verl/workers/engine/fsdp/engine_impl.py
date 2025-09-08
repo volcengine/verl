@@ -448,7 +448,9 @@ class FSDPEngine(BaseEngine):
     def forward_backward_batch(self, data: DataProto, loss_function: Callable, forward_only=False) -> list[DataProto]:
         # note that the global_batch_size should include data on all the dp
         data.meta_info["sp_size"] = self.ulysses_sequence_parallel_size
-        micro_batches, indices = prepare_micro_batches(data=data)
+        micro_batches, indices = prepare_micro_batches(
+            data=data, dp_group=self.get_data_parallel_group(), same_micro_num_in_dp=True
+        )
 
         output_lst = []
 
@@ -861,7 +863,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
             if loss_function is not None:
                 loss, metrics = loss_function(
-                    model_output=model_output, data=micro_batch.batch, dp_group=self.get_data_parallel_group()
+                    model_output=model_output, data=micro_batch, dp_group=self.get_data_parallel_group()
                 )
             else:
                 assert forward_only, "forward_only must be True when loss_function is None"
