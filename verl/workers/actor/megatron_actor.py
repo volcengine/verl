@@ -309,6 +309,7 @@ class MegatronPPOActor(BasePPOActor):
         response_mask = data["response_mask"].to(bool)
         n_samples, _ = response_mask.shape
         loss_scale_factor = n_samples / self.config.ppo_mini_batch_size
+        loss_scale_factor *= self.n_micro_batch  # for megatron backend
 
         # compute policy loss
         old_log_prob = data["old_log_probs"]
@@ -422,6 +423,7 @@ class MegatronPPOActor(BasePPOActor):
             micro_batches = mini_batch.batch.split(micro_batch_size)
         # compute input shapes for pp stages
         n_micro_batch = len(micro_batches)
+        self.n_micro_batch = n_micro_batch
 
         forward_backward_func = get_forward_backward_func()
 
