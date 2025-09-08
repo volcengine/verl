@@ -165,7 +165,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
             # 单次最多扔一次更新需要的样本
             self.max_concurrent_samples = int(self.config.actor_rollout_ref.actor.ppo_mini_batch_size / \
-                self.config.actor_rollout_ref.rollout.n * self.async_rollout_manager.rollout_dp_size * 4)
+                self.config.actor_rollout_ref.rollout.n * self.async_rollout_manager.rollout_dp_size * 8)
             self.max_concurrent_samples = min(self.max_concurrent_samples, self.max_required_samples)
             self.max_queue_size = self.max_required_samples
 

@@ -2,7 +2,7 @@
 set -xeuo pipefail
 
 project_name='DAPO'
-exp_name='dapo_qwen2-7B-math_28k_fsdp2_fully-async_64-64_mbs32_tpf4'
+exp_name='dapo_qwen2-7B-math_28k_fsdp2_fully-async_64-64_mbs32_tpf4_fixmcs'
 
 # Ray
 # RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
