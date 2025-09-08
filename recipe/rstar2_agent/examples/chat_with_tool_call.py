@@ -115,7 +115,7 @@ if __name__ == "__main__":
                 for tool_call in filtered_tool_calls
             ]
             filtered_tool_responses = asyncio.run(run_tool_calls(filtered_tool_calls))
-            for i, tool_response in zip(pending_pos, filtered_tool_responses, strict=False):
+            for i, tool_response in zip(pending_pos, filtered_tool_responses, strict=True):
                 total_tool_responses[i] = tool_response
 
         # append assistant response to messages
