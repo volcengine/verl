@@ -337,7 +337,15 @@ def get_reverse_idx(idx_map):
     return reverse_idx_map
 
 
-def prepare_dynamic_batch(data: DataProto, max_token_len: int) -> tuple[list[DataProto], list[list[int]]]:
+def prepare_dynamic_batch(
+    data: DataProto,
+    max_token_len: int,
+    dp_group=None,
+    num_batches_divided_by=None,
+    same_micro_num_in_dp=True,
+    min_num_micro_batch=None,
+    use_dynamic_bsz_balance=True,
+) -> tuple[list[DataProto], list[list[int]]]:
     """
     Prepare a batch for dynamic batching.
 
@@ -349,12 +357,21 @@ def prepare_dynamic_batch(data: DataProto, max_token_len: int) -> tuple[list[Dat
         Tuple[List[DataProto], List[List[int]]]: A tuple containing a list of DataProto objects
         and a list of index lists.
     """
-    batch, batch_idx_list = rearrange_micro_batches(data.batch, max_token_len=max_token_len)
+    batch, batch_idx_list = rearrange_micro_batches(
+        data.batch,
+        max_token_len=max_token_len,
+        dp_group=dp_group,
+        num_batches_divided_by=num_batches_divided_by,
+        same_micro_num_in_dp=same_micro_num_in_dp,
+        min_num_micro_batch=min_num_micro_batch,
+        use_dynamic_bsz_balance=use_dynamic_bsz_balance,
+    )
     micro_batches = []
     for i, batch_idx in enumerate(batch_idx_list):
         tensors = dict(batch[i])
         non_tensors = {key: value[batch_idx] for key, value in data.non_tensor_batch.items()}
-        micro_batches.append(DataProto.from_dict(tensors, non_tensors, meta_info=data.meta_info))
+        meta_info = copy.deepcopy(data.meta_info)
+        micro_batches.append(DataProto.from_dict(tensors, non_tensors, meta_info=meta_info))
 
     return micro_batches, batch_idx_list
 

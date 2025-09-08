@@ -22,7 +22,6 @@ import torch.distributed
 from megatron.core import parallel_state as mpu
 from megatron.core.pipeline_parallel import get_forward_backward_func
 from omegaconf import OmegaConf
-from tensordict import TensorDict
 
 from verl import DataProto
 from verl.trainer.config import CheckpointConfig
@@ -37,11 +36,10 @@ from verl.utils.megatron_utils import (
     offload_megatron_optimizer,
 )
 from verl.utils.model import load_mcore_dist_weights, load_megatron_gptmodel_weights
-from verl.utils.seqlen_balancing import rearrange_micro_batches
 from verl.workers.config import HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
 
 from ..base import BaseEngine, EngineRegistry
-from ..utils import postprocess_batch_func
+from ..utils import postprocess_batch_func, prepare_micro_batches
 from .utils import set_random_seed
 
 logger = logging.getLogger(__file__)
@@ -359,82 +357,45 @@ class MegatronEngine(BaseEngine):
         if self._is_offload_optimizer:
             offload_megatron_optimizer(self.optimizer)
 
-    def prepare_micro_batches(self, data: DataProto) -> list[TensorDict]:
-        use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", True)
-
-        if use_dynamic_bsz:
-            assert "max_token_len_per_gpu" in data.meta_info, (
-                "max_token_len_per_gpu must be set when use_dynamic_bsz is True"
-            )
-            max_token_len_per_gpu = data.meta_info.get("max_token_len_per_gpu")
-            max_token_len = max_token_len_per_gpu * self.engine_config.context_parallel_size
-        else:
-            micro_batch_size_per_gpu = data.meta_info.get("micro_batch_size_per_gpu")
-
-        # step 1: split batch data into micro-batches
-        data = data.to(get_device_id())
-        data.batch = data.batch.contiguous()
-        mini_batch = data
-        mini_batch.to("cpu")
-        # split into micro-batches
-        mini_batch.batch["attention_mask"] = mini_batch.batch["attention_mask"].to(bool)
-        has_multi_modal_inputs = "multi_modal_inputs" in mini_batch.non_tensor_batch.keys()
-        if has_multi_modal_inputs:
-            mini_batch.batch["multi_modal_inputs"] = mini_batch.non_tensor_batch["multi_modal_inputs"]
-            mini_batch.batch["multi_modal_inputs_idx"] = torch.Tensor(
-                list(range(len(mini_batch.non_tensor_batch["multi_modal_inputs"])))
-            ).to(torch.int64)
-
-        if mini_batch.batch["position_ids"].dim() == 3:  # qwen2vl mrope [bs, 3, seq_len]
-            mini_batch.batch["position_ids"] = mini_batch.batch["position_ids"][
-                :, 0
-            ]  # mcore patch recompute qwen2vl's pos ids during forward
-
-        indices = None
-        if use_dynamic_bsz:
-            assert max_token_len is not None, "max_token_len must be set when use_dynamic_bsz is True"
-            vpp_size = mpu.get_virtual_pipeline_model_parallel_world_size()
-            if vpp_size is not None and vpp_size > 1:
-                microbatch_group_size_per_vp_stage = self.tf_config.microbatch_group_size_per_vp_stage
-                micro_batches, indices = rearrange_micro_batches(
-                    batch=mini_batch.batch,
-                    num_batches_divided_by=microbatch_group_size_per_vp_stage,
-                    max_token_len=max_token_len,
-                )
-                assert len(micro_batches) % self.tf_config.microbatch_group_size_per_vp_stage == 0, (
-                    f"micro_batches {micro_batches} must be divisible by microbatch_group_size_per_vp_stage "
-                    f"{microbatch_group_size_per_vp_stage} for megatron backend"
-                )
-            else:
-                micro_batches, indices = rearrange_micro_batches(batch=mini_batch.batch, max_token_len=max_token_len)
-        else:
-            assert micro_batch_size_per_gpu is not None, (
-                "micro_batch_size is needed to be passed in when not using dynamic batch size"
-            )
-            micro_batches = mini_batch.batch.split(micro_batch_size_per_gpu)
-
-        return micro_batches, indices
-
     def forward_backward_batch(self, data: DataProto, loss_function: Callable, forward_only=False) -> Any:
-        micro_batches, indices = self.prepare_micro_batches(data=data)
+        data.meta_info["sp_size"] = self.engine_config.context_parallel_size
+        vpp_size = mpu.get_virtual_pipeline_model_parallel_world_size()
+        if vpp_size is not None and vpp_size > 1:
+            num_batches_divided_by = self.tf_config.microbatch_group_size_per_vp_stage
+        else:
+            num_batches_divided_by = None
+
+        micro_batches, indices = prepare_micro_batches(
+            data=data,
+            dp_group=self.get_data_parallel_group(),
+            num_batches_divided_by=num_batches_divided_by,
+            same_micro_num_in_dp=False,
+            min_num_micro_batch=None,
+        )
+
+        if num_batches_divided_by is not None:
+            assert len(micro_batches) % num_batches_divided_by == 0, (
+                f"micro_batches {micro_batches} must be divisible by num_batches_divided_by "
+                f"{num_batches_divided_by} for megatron backend"
+            )
 
         # compute input shapes for pp stages
         n_micro_batch = len(micro_batches)
+
+        for micro_batch in micro_batches:
+            micro_batch.meta_info["num_micro_batch"] = n_micro_batch
 
         forward_backward_func = get_forward_backward_func()
 
         postprocess_micro_batch_func = partial(
             self.postprocess_micro_batch_func,
-            meta_info=data.meta_info,
             forward_only=forward_only,
             loss_function=loss_function,
         )
 
         data.meta_info["num_micro_batch"] = n_micro_batch
 
-        forward_step = partial(
-            self.forward_step, meta_info=data.meta_info, postprocess_micro_batch_func=postprocess_micro_batch_func
-        )
+        forward_step = partial(self.forward_step, postprocess_micro_batch_func=postprocess_micro_batch_func)
 
         # batch should be a list of batches inside micro-batches
         batch_generator = make_batch_generator(micro_batches, vpp_size=len(self.module))
@@ -456,12 +417,10 @@ class MegatronEngine(BaseEngine):
         else:
             return {}
 
-    def forward_step(self, batch_iter, model, meta_info: dict, postprocess_micro_batch_func):
+    def forward_step(self, batch_iter, model, postprocess_micro_batch_func):
         raise NotImplementedError("forward_step must be implemented in subclass")
 
-    def postprocess_micro_batch_func(
-        self, output, data: TensorDict, meta_info: dict, forward_only: bool, loss_function
-    ):
+    def postprocess_micro_batch_func(self, output, data: DataProto, forward_only: bool, loss_function):
         raise NotImplementedError("postprocess_micro_batch_func must be implemented in subclass")
 
 
@@ -513,28 +472,45 @@ class EngineTrainModeCtx:
 
 @EngineRegistry.register(model_type="language_model", backend="megatron")
 class MegatronEngineWithLMHead(MegatronEngine):
-    def forward_step(self, batch_iter: Iterator[TensorDict], model, meta_info: dict, postprocess_micro_batch_func):
+    def forward_step(self, batch_iter: Iterator[DataProto], model, postprocess_micro_batch_func):
+        batch: DataProto = next(batch_iter)
+        batch.to(get_device_id())
+
+        if batch.batch is not None:
+            batch.batch = batch.batch.contiguous()
+
+        meta_info = batch.meta_info
         use_fused_kernels = meta_info.get("use_fused_kernels", False)
         calculate_entropy = meta_info.get("calculate_entropy", False)
         temperature = meta_info["temperature"]
 
-        batch = next(batch_iter)
-        batch = batch.to(get_device_id())
-        batch = batch.contiguous()
+        input_ids = batch.batch["input_ids"]
+        attention_mask = batch.batch["attention_mask"].to(bool)
+        position_ids = batch.batch["position_ids"]
 
-        input_ids = batch["input_ids"]
-        attention_mask = batch["attention_mask"].to(bool)
-        position_ids = batch["position_ids"]
+        # process vlm inputs
+        batch.batch["attention_mask"] = batch.batch["attention_mask"].to(bool)
+        has_multi_modal_inputs = "multi_modal_inputs" in batch.non_tensor_batch.keys()
+        if has_multi_modal_inputs:
+            batch.batch["multi_modal_inputs"] = batch.non_tensor_batch["multi_modal_inputs"]
+            batch.batch["multi_modal_inputs_idx"] = torch.Tensor(
+                list(range(len(batch.non_tensor_batch["multi_modal_inputs"])))
+            ).to(torch.int64)
+
+        if batch.batch["position_ids"].dim() == 3:  # qwen2vl mrope [bs, 3, seq_len]
+            batch.batch["position_ids"] = batch.batch["position_ids"][
+                :, 0
+            ]  # mcore patch recompute qwen2vl's pos ids during forward
 
         multi_modal_inputs = {}
-        if "multi_modal_inputs" in batch:
-            for key in batch["multi_modal_inputs"][0].keys():
-                idxs = batch["multi_modal_inputs_idx"]
-                mmi = batch["multi_modal_inputs"]
+        if "multi_modal_inputs" in batch.batch:
+            for key in batch.batch["multi_modal_inputs"][0].keys():
+                idxs = batch.batch["multi_modal_inputs_idx"]
+                mmi = batch.batch["multi_modal_inputs"]
                 multi_modal_inputs[key] = torch.cat(
-                    [mmi[idx].get(key) for idx in idxs if mmi[idx].get(key) is not None], dim=0
+                    [mmi[idx].get(key).to(input_ids.device) for idx in idxs if mmi[idx].get(key) is not None], dim=0
                 )
-        responses = batch["responses"]
+        responses = batch.batch["responses"]
         response_length = responses.size(1)
         label = position_ids.clone()
         label[:, -response_length - 1 : -1] = responses
@@ -597,16 +573,15 @@ class MegatronEngineWithLMHead(MegatronEngine):
 
         return output, partial(postprocess_micro_batch_func, data=batch)
 
-    def postprocess_micro_batch_func(
-        self, output, data: TensorDict, meta_info: dict, forward_only: bool, loss_function
-    ):
+    def postprocess_micro_batch_func(self, output, data: DataProto, forward_only: bool, loss_function):
         # For memory efficiency
         # We move calculation of entropy to compute_log_probs, forward_only == True
+        meta_info = data.meta_info
         calculate_entropy = meta_info.get("calculate_entropy", False)
 
         device = output["log_probs"].device
 
-        responses = data["responses"]
+        responses = data.batch["responses"]
         response_length = responses.size(1)
 
         log_prob = output["log_probs"][:, -response_length - 1 : -1].contiguous()
