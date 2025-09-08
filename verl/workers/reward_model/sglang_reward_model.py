@@ -66,13 +66,14 @@ class SGLangRewardModel(BasePPORewardModel):
         actor_module = model_config.local_path
         trust_remote_code = model_config.trust_remote_code
         port = None
+        kwargs = {}
 
         os.environ.setdefault("SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK", "true")
 
-        self._init_distributed_env(device_mesh_cpu=None)
+        self._init_distributed_env(device_mesh_cpu=None, **kwargs)
         self._init_inference_engine(trust_remote_code, actor_module, port)
 
-    def _init_distributed_env(self, device_mesh_cpu):
+    def _init_distributed_env(self, device_mesh_cpu, **kwargs):
         self._device_mesh_cpu = device_mesh_cpu
         os.environ.setdefault("SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK", "true")
         self.tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)

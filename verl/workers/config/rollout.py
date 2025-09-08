@@ -26,7 +26,6 @@ __all__ = [
     "CustomAsyncServerConfig",
     "AgentLoopConfig",
     "TraceConfig",
-    "ServerConfig",
     "RolloutConfig",
 ]
 
