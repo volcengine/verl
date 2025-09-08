@@ -86,4 +86,5 @@ jobs:
           hf download Skywork/Skywork-Reward-V2-Llama-3.2-1B --local-dir $HOME/models/Skywork/Skywork-Reward-V2-Llama-3.2-1B
       - name: Running discriminative reward model tests on 8 L20 GPUs
         run: |
+          unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
           pytest -s -x tests/workers/reward_model/test_reward_model.py
