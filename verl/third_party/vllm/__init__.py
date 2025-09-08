@@ -16,6 +16,7 @@ from importlib.metadata import PackageNotFoundError, version
 
 from packaging import version as vs
 
+from verl.utils.device import is_npu_available
 from verl.utils.import_utils import is_sglang_available
 
 
@@ -37,6 +38,11 @@ if package_version is None:
             f"vllm version {package_version} not supported and SGLang also not Found. Currently supported "
             f"vllm versions are 0.7.0+"
         )
+elif is_npu_available:
+    # sleep_mode=2 is not supported on vllm-ascend for now, will remove this restriction when this ability is ready.
+    VLLM_SLEEP_LEVEL = 1
+    from vllm import LLM
+    from vllm.distributed import parallel_state
 elif vs.parse(package_version) >= vs.parse("0.7.0"):
     vllm_version = package_version
     if vs.parse(package_version) >= vs.parse("0.8.5"):
