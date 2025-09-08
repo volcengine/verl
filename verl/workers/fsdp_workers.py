@@ -376,7 +376,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         cpu_offload = None if role == "actor" else CPUOffload(offload_params=True)
         fsdp_strategy = self.config.actor.strategy
         if self.device_name in ["mps", "cpu"]:
-            print(f"[Warning] FSDP not supported on device '{self.device_name}'. Falling back to normal module.")
+            warnings.warn(
+                f"FSDP not supported on device '{self.device_name}'. Falling back to normal module.", stacklevel=2
+            )
             actor_module_fsdp = actor_module.to(self.device_name)
         elif fsdp_strategy == "fsdp":
             actor_module_fsdp = FSDP(
@@ -956,9 +958,7 @@ class CriticWorker(Worker, DistProfilerExtension):
         import torch.distributed
 
         if not torch.distributed.is_initialized():
-            torch.distributed.init_process_group(
-                backend=backend, init_method=os.environ.get("DIST_INIT_METHOD", None)
-            )
+            torch.distributed.init_process_group(backend=backend, init_method=os.environ.get("DIST_INIT_METHOD", None))
         self.config = config
 
         # build device mesh for Ulysses Sequence Parallel
@@ -1130,7 +1130,9 @@ class CriticWorker(Worker, DistProfilerExtension):
 
         # Note: We force turn off CPUOffload for critic because it causes incorrect results when using grad accumulation
         if self.device_name in ["mps", "cpu"]:
-            print(f"[Warning] FSDP not supported on device '{self.device_name}'. Falling back to normal module.")
+            warnings.warn(
+                f"FSDP not supported on device '{self.device_name}'. Falling back to normal module.", stacklevel=2
+            )
             critic_module = critic_module.to(self.device_name)
         elif config.strategy == "fsdp":
             critic_module = FSDP(
@@ -1356,9 +1358,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
         import torch.distributed
 
         if not torch.distributed.is_initialized():
-            torch.distributed.init_process_group(
-                backend=backend, init_method=os.environ.get("DIST_INIT_METHOD", None)
-            )
+            torch.distributed.init_process_group(backend=backend, init_method=os.environ.get("DIST_INIT_METHOD", None))
         self.config = config
 
         # build device mesh for Ulysses Sequence Parallel
@@ -1438,7 +1438,9 @@ class RewardModelWorker(Worker, DistProfilerExtension):
         sharding_strategy = get_sharding_strategy(fsdp_mesh)
 
         if self.device_name in ["mps", "cpu"]:
-            print(f"[Warning] FSDP not supported on device '{self.device_name}'. Falling back to normal module.")
+            warnings.warn(
+                f"FSDP not supported on device '{self.device_name}'. Falling back to normal module.", stacklevel=2
+            )
             reward_module = reward_module.to(self.device_name)
         elif config.strategy == "fsdp":
             reward_module = FSDP(
