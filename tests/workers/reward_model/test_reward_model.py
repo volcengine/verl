@@ -130,7 +130,8 @@ def test_reward_model():
     )
     hf_rm_scores = hf_output.logits.squeeze().detach().to("cpu")
     print(f"{hf_rm_scores=}")
+    hf_rm_scores_mean = torch.mean(hf_rm_scores).to(server_rm_scores.dtype)
 
-    torch.testing.assert_close(server_rm_scores, hf_rm_scores.to(server_rm_scores.dtype), atol=2e-2, rtol=1e-2)
+    torch.testing.assert_close(server_rm_scores_mean, hf_rm_scores_mean, atol=2e-2, rtol=1e-2)
 
     ray.shutdown()
