@@ -17,7 +17,28 @@ import torch
 
 from verl import DataProto
 from verl.utils.py_functional import append_to_dict
-from verl.utils.seqlen_balancing import restore_dynamic_batch
+from verl.utils.seqlen_balancing import prepare_dynamic_batch, restore_dynamic_batch
+
+
+def prepare_micro_batches(data: DataProto):
+    """
+    Prepare micro batches from data.
+    """
+    use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", True)
+    sp_size = data.meta_info.get("sp_size", 1)
+
+    if use_dynamic_bsz:
+        assert "max_token_len_per_gpu" in data.meta_info, (
+            "max_token_len_per_gpu must be set when use_dynamic_bsz is True"
+        )
+        max_token_len_per_gpu = data.meta_info.get("max_token_len_per_gpu")
+        max_token_len = max_token_len_per_gpu * sp_size
+        micro_batches, batch_idx_list = prepare_dynamic_batch(data, max_token_len=max_token_len)
+    else:
+        micro_batch_size_per_gpu = data.meta_info.get("micro_batch_size_per_gpu")
+        micro_batches = data.split(micro_batch_size_per_gpu)
+        batch_idx_list = None
+    return micro_batches, batch_idx_list
 
 
 def postprocess_batch_func(output_lst, indices, data: DataProto):
