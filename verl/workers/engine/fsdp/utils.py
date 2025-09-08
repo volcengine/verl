@@ -14,6 +14,24 @@
 from torch.distributed.device_mesh import init_device_mesh
 
 from verl.utils.device import get_device_name
+from verl import DataProto
+
+from transformers import PretrainedConfig
+
+import torch
+
+from verl.utils.device import (
+    get_device_id,
+    get_device_name,
+    get_torch_device,
+    is_cuda_available,
+    is_npu_available,
+)
+
+if is_cuda_available:
+    from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
+elif is_npu_available:
+    from transformers.integrations.npu_flash_attention import index_first_axis, pad_input, rearrange, unpad_input
 
 
 def create_device_mesh(world_size, fsdp_size):
