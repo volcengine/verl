@@ -14,6 +14,13 @@
 
 from .actor import ActorWorker
 from .critic import CriticWorker
-from .reward import RewardModelWorker
 
-__all__ = ["CriticWorker", "ActorWorker", "RewardModelWorker"]
+try:
+    from .reward import RewardModelWorker
+except ImportError:
+    RewardModelWorker = None
+
+__all__ = ["CriticWorker", "ActorWorker"]
+
+if RewardModelWorker is not None:
+    __all__.append("RewardModelWorker")
