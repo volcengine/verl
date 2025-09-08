@@ -1394,9 +1394,9 @@ class CriticWorker(Worker, DistProfilerExtension):
         if self._is_offload_optimizer:
             load_fsdp_optimizer(optimizer=self.critic_optimizer, device_id=get_device_id())
 
-        micro_batch_size = self.config.actor.ppo_micro_batch_size_per_gpu
+        micro_batch_size = self.config.ppo_micro_batch_size_per_gpu
         data.meta_info["micro_batch_size"] = micro_batch_size
-        dataloader = self.actor.make_minibatch_iterator(data=data)
+        dataloader = self.critic.make_minibatch_iterator(data=data)
 
         # perform forward computation
         with self.ulysses_sharding_manager:
