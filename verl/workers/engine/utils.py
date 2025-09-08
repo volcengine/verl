@@ -17,7 +17,7 @@ import torch
 
 from verl import DataProto
 from verl.utils.py_functional import append_to_dict
-from verl.utils.seqlen_balancing import restore_dynamic_batch, prepare_dynamic_batch
+from verl.utils.seqlen_balancing import prepare_dynamic_batch, restore_dynamic_batch
 
 
 def prepare_micro_batches(data: DataProto):

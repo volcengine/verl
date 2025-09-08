@@ -67,7 +67,6 @@ elif is_npu_available:
     from transformers.integrations.npu_flash_attention import index_first_axis, pad_input, rearrange, unpad_input
 
 from verl.trainer.config import CheckpointConfig
-from verl.utils.seqlen_balancing import prepare_dynamic_batch
 from verl.workers.config import FSDPEngineConfig, FSDPOptimizerConfig, HFModelConfig
 
 from ..base import BaseEngine, EngineRegistry
@@ -650,7 +649,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
                     multi_modal_inputs[key] = torch.cat(
                         [inputs[key] for inputs in micro_batch_non_tensor["multi_modal_inputs"]], dim=0
                     )
-        
+
         input_ids = micro_batch_tensor["input_ids"]
         batch_size, seqlen = input_ids.shape
         attention_mask = micro_batch_tensor["attention_mask"]
@@ -712,15 +711,14 @@ class FSDPEngineWithLMHead(FSDPEngine):
                     sp_size=self.ulysses_sequence_parallel_size,
                 )
 
-                output_args['pad_size'] = pad_size
+                output_args["pad_size"] = pad_size
 
             input_ids_rmpad_rolled = input_ids_rmpad_rolled.squeeze(0)  # ((total_nnz / sp) + pad)
 
-            output_args['input_ids_rmpad_rolled'] = input_ids_rmpad_rolled
-            output_args['indices'] = indices
+            output_args["input_ids_rmpad_rolled"] = input_ids_rmpad_rolled
+            output_args["indices"] = indices
 
             # only pass input_ids and position_ids to enable flash_attn_varlen
-            
 
             model_inputs = {
                 "input_ids": input_ids_rmpad,
@@ -734,7 +732,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
                 "attention_mask": attention_mask,
                 "position_ids": position_ids,
             }
-        
+
         extra_args = {}
         if use_fused_kernels:
             extra_args["temperature"] = temperature
@@ -744,7 +742,6 @@ class FSDPEngineWithLMHead(FSDPEngine):
         model_inputs.update(extra_args)
 
         return model_inputs, output_args
-    
 
     def prepare_model_outputs(self, output, output_args, micro_batch: DataProto):
         use_remove_padding = micro_batch.meta_info.get("use_remove_padding", True)
@@ -758,8 +755,8 @@ class FSDPEngineWithLMHead(FSDPEngine):
         response_length = micro_batch.batch["responses"].size(-1)
 
         if use_remove_padding:
-            input_ids_rmpad_rolled = output_args['input_ids_rmpad_rolled']
-            indices = output_args['indices']
+            input_ids_rmpad_rolled = output_args["input_ids_rmpad_rolled"]
+            indices = output_args["indices"]
 
             if use_fused_kernels:
                 log_probs = output.log_probs.squeeze(0)  # (total_nnz,)
@@ -789,7 +786,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
             # gather log_prob if sp > 1
             if self.use_ulysses_sp:
-                pad_size = output_args['pad_size']
+                pad_size = output_args["pad_size"]
 
                 # gather and unpad for the ulysses sp
                 log_probs = gather_outputs_and_unpad(
@@ -848,7 +845,6 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
         return model_output
 
-
     def forward_step(self, micro_batch: DataProto, loss_function, forward_only):
         device_name = get_device_name()
         # actually, we should avoid assigning like this...
@@ -861,7 +857,9 @@ class FSDPEngineWithLMHead(FSDPEngine):
                 use_cache=False,
             )  # prevent model thinks we are generating
 
-            model_output = self.prepare_model_outputs(output=raw_output, output_args=output_args, micro_batch=micro_batch)
+            model_output = self.prepare_model_outputs(
+                output=raw_output, output_args=output_args, micro_batch=micro_batch
+            )
 
             if loss_function is not None:
                 loss, metrics = loss_function(
