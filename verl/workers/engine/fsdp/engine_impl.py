@@ -634,7 +634,6 @@ class FSDPEngineWithLMHead(FSDPEngine):
         use_remove_padding = micro_batch.meta_info.get("use_remove_padding", True)
         use_fused_kernels = micro_batch.meta_info.get("use_fused_kernels", False)
         temperature = micro_batch.meta_info["temperature"]
-        calculate_entropy = micro_batch.meta_info.get("calculate_entropy", False)
 
         micro_batch_tensor = micro_batch.batch
         micro_batch_non_tensor = micro_batch.non_tensor_batch
@@ -651,10 +650,8 @@ class FSDPEngineWithLMHead(FSDPEngine):
                     )
 
         input_ids = micro_batch_tensor["input_ids"]
-        batch_size, seqlen = input_ids.shape
         attention_mask = micro_batch_tensor["attention_mask"]
         position_ids = micro_batch_tensor["position_ids"]
-        entropy = None
         if position_ids.dim() == 3:  # qwen2vl mrope
             position_ids = position_ids.transpose(0, 1)  # (bsz, 3, seqlen) -> (3, bsz, seqlen)
 
