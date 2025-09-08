@@ -474,7 +474,7 @@ class EngineTrainModeCtx:
 class MegatronEngineWithLMHead(MegatronEngine):
     def forward_step(self, batch_iter: Iterator[DataProto], model, postprocess_micro_batch_func):
         batch: DataProto = next(batch_iter)
-        batch = batch.to(get_device_id())
+        batch.to(get_device_id()); batch.batch = batch.batch.contiguous() if batch.batch is not None else None
 
         meta_info = batch.meta_info
         use_fused_kernels = meta_info.get("use_fused_kernels", False)
