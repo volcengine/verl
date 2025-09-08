@@ -712,10 +712,11 @@ class FSDPEngineWithLMHead(FSDPEngine):
                     sp_size=self.ulysses_sequence_parallel_size,
                 )
 
+                output_args['pad_size'] = pad_size
+
             input_ids_rmpad_rolled = input_ids_rmpad_rolled.squeeze(0)  # ((total_nnz / sp) + pad)
 
             output_args['input_ids_rmpad_rolled'] = input_ids_rmpad_rolled
-            output_args['pad_size'] = pad_size
             output_args['indices'] = indices
 
             # only pass input_ids and position_ids to enable flash_attn_varlen
@@ -758,7 +759,6 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
         if use_remove_padding:
             input_ids_rmpad_rolled = output_args['input_ids_rmpad_rolled']
-            pad_size = output_args['pad_size']
             indices = output_args['indices']
 
             if use_fused_kernels:
@@ -789,6 +789,8 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
             # gather log_prob if sp > 1
             if self.use_ulysses_sp:
+                pad_size = output_args['pad_size']
+
                 # gather and unpad for the ulysses sp
                 log_probs = gather_outputs_and_unpad(
                     log_probs,
