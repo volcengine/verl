@@ -25,7 +25,7 @@ from verl.workers.config import HFModelConfig, RewardModelConfig
 from verl.workers.roles import RewardModelWorker
 
 
-def _create_data_samples(tokenizer) -> DataProto:
+def create_data_samples(tokenizer) -> DataProto:
     convs = [
         [
             {
@@ -115,7 +115,7 @@ def test_reward_model():
 
     # create data samples
     tokenizer = model_config.get_processor()
-    data = _create_data_samples(tokenizer)
+    data = create_data_samples(tokenizer)
 
     gen_batch = rm_wg.compute_rm_score(data)
     server_rm_scores = gen_batch.batch["rm_scores"].sum(dim=-1)

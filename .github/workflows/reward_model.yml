@@ -72,7 +72,7 @@ jobs:
       NCCL_SHM_DISABLE: "1"
       NCCL_P2P_DISABLE: "1"
     container:
-      image: verlai/verl:app-verl0.4-sglang0.4.6.post5-vllm0.8.5-mcore0.12.2-te2.2
+      image: verlai/verl:app-verl0.5-transformers4.55.4-sglang0.4.10.post2-mcore0.13.0-te2.2
       options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -80,12 +80,10 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install --no-deps -e .[test]
-          pip install --upgrade "huggingface_hub[cli]"
+          pip3 install -e .[test]
       - name: Download model config files
         run: |
           hf download Skywork/Skywork-Reward-V2-Llama-3.2-1B --local-dir $HOME/models/Skywork/Skywork-Reward-V2-Llama-3.2-1B
-
       - name: Running discriminative reward model tests on 8 L20 GPUs
         run: |
           pytest -s -x tests/workers/reward_model/test_reward_model.py
