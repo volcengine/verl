@@ -79,6 +79,14 @@ _REWARD_MODEL_REGISTRY = {
 
 
 def get_reward_model_class(reward_model_name: str) -> type[BaseRewardModel]:
+    """Get the reward model class by name.
+
+    Args:
+        reward_model_name: The name of the reward model.
+
+    Returns:
+        The reward model class.
+    """
     assert reward_model_name in _REWARD_MODEL_REGISTRY, f"Reward Model {reward_model_name} with mode not found"
     fqdn = _REWARD_MODEL_REGISTRY[reward_model_name]
     module_name, class_name = fqdn.rsplit(".", 1)
