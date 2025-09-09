@@ -78,13 +78,6 @@ class MessageQueue:
             bool: Whether the sample was successfully put into the queue
         """
         async with self._lock:
-            # Check freshness
-            staleness = self.current_param_version - param_version
-            if staleness > self.staleness_threshold:
-                self.dropped_samples += 1
-                print(f"Dropped stale sample: staleness={staleness}, threshold={self.staleness_threshold}")
-                return False
-
             # If queue is full, remove the oldest sample (rarely happens)
             if len(self.queue) >= self.max_queue_size:
                 self.queue.popleft()

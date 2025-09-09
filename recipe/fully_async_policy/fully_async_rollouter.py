@@ -113,7 +113,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
         self.async_rollout_manager = None
 
         # Config
-        self.staleness_threshold: int = config.async_training.get("staleness_threshold", 1)
+        self.staleness_threshold: float = config.async_training.get("staleness_threshold", 1)
         self.required_samples = None
         self.max_required_samples = None
         # 单次最多扔一次更新需要的样本
@@ -153,7 +153,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
     async def set_required_samples(self, required_samples: int):
         async with self.lock:
             self.required_samples = int(required_samples)
-            self.max_required_samples = (
+            self.max_required_samples = int(
                 self.required_samples
                 * (self.staleness_threshold + 1)
                 * self.config.async_training.trigger_parameter_sync_step
@@ -164,7 +164,12 @@ class FullyAsyncRollouter(RayPPOTrainer):
             )
 
             # 单次最多扔一次更新需要的样本
-            self.max_concurrent_samples = self.required_samples
+            self.max_concurrent_samples = int(
+                self.config.actor_rollout_ref.actor.ppo_mini_batch_size 
+                / self.config.actor_rollout_ref.rollout.n 
+                * self.async_rollout_manager.rollout_dp_size * 8
+                )
+            self.max_concurrent_samples = min(self.max_concurrent_samples, self.max_required_samples)
             self.max_queue_size = self.max_required_samples
 
             print(
@@ -546,19 +551,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
         """Determine whether the build should be paused"""
         queue_stats = self.message_queue_client.get_statistics_sync()
         queue_size = queue_stats["queue_size"]
-        current_trainer_version = queue_stats["current_param_version"]
-
-        version_diff = self.current_param_version - current_trainer_version
-
-        if version_diff > self.staleness_threshold:
-            if not self.paused:
-                print(
-                    "[FullyAsyncRollouter][ShouldPause] "
-                    f"due to version_diff > self.staleness_threshold: "
-                    f"rollout_version={self.current_param_version}, "
-                    f"trainer_version={current_trainer_version}, diff={version_diff}"
-                )
-            return True
 
         if queue_size >= self.max_queue_size:
             if not self.paused:

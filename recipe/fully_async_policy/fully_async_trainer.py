@@ -121,7 +121,9 @@ class FullyAsyncTrainer(RayPPOTrainer):
         self.required_samples = int(
             self.minimal_bsz * config.actor_rollout_ref.actor.ppo_mini_batch_size / config.actor_rollout_ref.rollout.n
         )
-        self.metrics_aggregator = MetricsAggregator()
+        total_gpus = config.trainer.nnodes * config.trainer.n_gpus_per_node + \
+            config.rollout.nnodes * config.rollout.n_gpus_per_node
+        self.metrics_aggregator = MetricsAggregator(total_gpus=total_gpus)
 
     def set_message_queue_client(self, message_queue_client: MessageQueueClient):
         """Set message queue client"""
@@ -333,6 +335,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
                 self.logger.log(data=val_data.metrics, step=val_data.param_version)
                 self.logger.log(data=val_data.timing_raw, step=val_data.param_version)     
         pprint(f"[FullyAsyncTrainer] Final validation metrics: {val_data.metrics}")
+        self.progress_bar.close()
 
         self._check_save_checkpoint(True, timing_raw) # TODO: 检查checkpoint
 
@@ -354,6 +357,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
             data=self.metrics_aggregator.get_aggregated_metrics(),
             step=self.current_param_version,
             )
+        self.progress_bar.update(1)
         self.metrics_aggregator.reset()
         ray.get(self.param_synchronizer.wait_last_sync.remote())
         ray.get(self.param_synchronizer.sync_weights.remote(self.current_param_version, 
