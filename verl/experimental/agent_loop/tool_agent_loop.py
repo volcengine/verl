@@ -285,7 +285,6 @@ class ToolAgentLoop(AgentLoopBase):
                     content.append({"type": "video"})
                 if tool_response.text:
                     content.append({"type": "text", "text": tool_response.text})
-                content = json.dumps(content, ensure_ascii=False)
                 message = {"role": "tool", "content": content}
             else:
                 # Text-only content
