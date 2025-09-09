@@ -34,7 +34,7 @@ from verl.utils.distributed import initialize_global_process_group_ray
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.profiler import DistProfiler, DistProfilerExtension, log_gpu_memory_usage
 from verl.workers.config import HFModelConfig, RewardModelConfig
-from verl.workers.reward_model.sglang_reward_model import SGLangRewardModel
+from verl.workers.roles.reward_model_engine import get_reward_model_class
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -92,7 +92,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
 
         # 4. build reward model
         log_gpu_memory_usage("Before building sglang reward model", logger=logger)
-        self.reward_model = SGLangRewardModel(
+        self.reward_model = get_reward_model_class(reward_model_config.name)(
             config=reward_model_config, model_config=model_config, device_mesh=reward_model_device_mesh
         )
         log_gpu_memory_usage("After building sglang reward model", logger=logger)
