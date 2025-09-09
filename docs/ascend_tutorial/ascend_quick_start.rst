@@ -100,7 +100,7 @@ vllm & vllm-ascend
 
 .. code-block:: bash
 
-    python3 examples/data_preprocess/gsm8k.py --local_dir ~/data/gsm8k
+    python3 examples/data_preprocess/gsm8k.py --local_save_dir ~/data/gsm8k
 
 2.执行训练
 

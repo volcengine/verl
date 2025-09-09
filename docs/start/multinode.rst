@@ -107,7 +107,7 @@ Step 2: Prepare dataset
 
    git clone https://github.com/volcengine/verl.git
    cd examples/data_preprocess
-   python3 gsm8k.py --local_dir ~/data/gsm8k
+   python3 gsm8k.py --local_save_dir ~/data/gsm8k
 
 
 Step 3: Submit a job with SkyPilot
@@ -342,7 +342,7 @@ Once the fleet is created, define a Ray cluster task, e.g. in ``ray-cluster.dsta
         - pip install hf_transfer hf_xet
         - |
         if [ $DSTACK_NODE_RANK = 0 ]; then
-            python3 examples/data_preprocess/gsm8k.py --local_dir ~/data/gsm8k
+            python3 examples/data_preprocess/gsm8k.py --local_save_dir ~/data/gsm8k
             python3 -c "import transformers; transformers.pipeline('text-generation', model='Qwen/Qwen2.5-7B-Instruct')" 
             ray start --head --port=6379;
         else
@@ -741,7 +741,7 @@ slurm_script.sh
 
     echo "Starting data preprocessing..."
     docker exec "${CONTAINER_NAME}" \
-        python3 "examples/data_preprocess/gsm8k.py" "--local_dir" "../data/gsm8k"
+        python3 "examples/data_preprocess/gsm8k.py" "--local_save_dir" "../data/gsm8k"
 
     echo "Starting data preprocessing..."
     docker exec "${CONTAINER_NAME}" \
