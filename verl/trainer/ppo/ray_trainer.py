@@ -1287,7 +1287,6 @@ class RayPPOTrainer:
                         }
                     )
 
-
         if self.use_reference_policy:
             # compute reference log_prob
             with marked_timer("ref", timing_raw, color="olive"):

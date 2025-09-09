@@ -72,7 +72,7 @@ class ParameterSynchronizer:
             group_name=self.sync_group_name,
         )
 
-    def sync_weights(self, version, validate = False, global_steps = 0):
+    def sync_weights(self, version, validate=False, global_steps=0):
         start_time = time.time()
 
         self.current_version = version
@@ -94,9 +94,8 @@ class ParameterSynchronizer:
         self.wait_last = self.rollouter.resume.remote()
 
     def wait_last_sync(self):
-        print(f"[ParameterSynchronizer] waiting last parameter sync and validate...")
-        start_time =  time.time()
+        print("[ParameterSynchronizer] waiting last parameter sync and validate...")
+        start_time = time.time()
         if self.wait_last:
             ray.get(self.wait_last)
         print(f"[ParameterSynchronizer], cost: {time.time() - start_time:.2f} seconds")
-

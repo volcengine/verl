@@ -13,10 +13,9 @@
 # limitations under the License.
 import asyncio
 import time
-from pprint import pformat, pprint
+from pprint import pformat
 
 import ray
-from omegaconf import OmegaConf
 
 from recipe.fully_async_policy.detach_utils import (
     RolloutSample,
@@ -165,10 +164,11 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
             # 单次最多扔一次更新需要的样本
             self.max_concurrent_samples = int(
-                self.config.actor_rollout_ref.actor.ppo_mini_batch_size 
-                / self.config.actor_rollout_ref.rollout.n 
-                * self.async_rollout_manager.rollout_dp_size * 8
-                )
+                self.config.actor_rollout_ref.actor.ppo_mini_batch_size
+                / self.config.actor_rollout_ref.rollout.n
+                * self.async_rollout_manager.rollout_dp_size
+                * 8
+            )
             self.max_concurrent_samples = min(self.max_concurrent_samples, self.max_required_samples)
             self.max_queue_size = self.max_required_samples
 
@@ -207,16 +207,13 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 self.val_reward_fn is not None
                 and self.config.rollout.test_freq > 0
                 and self.current_param_version % self.config.rollout.test_freq == 0
-                and self.current_param_version > 0 # don't test here in the initial parameter sync
-            ) or (
-                validate and self.val_reward_fn is not None
-            ):
+                and self.current_param_version > 0  # don't test here in the initial parameter sync
+            ) or (validate and self.val_reward_fn is not None):
                 with marked_timer("testing", timing_raw, color="green"):
                     val_metrics: dict = self._validate()
-                data = ValidateMetrics(timing_raw=timing_raw,
-                                       metrics=val_metrics,
-                                       global_steps=global_steps,
-                                       param_version=version)
+                data = ValidateMetrics(
+                    timing_raw=timing_raw, metrics=val_metrics, global_steps=global_steps, param_version=version
+                )
                 await self.message_queue_client.put_validate(ray.cloudpickle.dumps(data))
 
     def _validate_config(self):

@@ -469,7 +469,10 @@ class AgentLoopWorker:
                 server_manager=self.server_manager,
                 tokenizer=self.tokenizer,
             )
-            output = await agent_loop.run(messages, sampling_params, partial_output)
+            if agent_name == "partial_single_turn_agent":
+                output = await agent_loop.run(messages, sampling_params, partial_output)
+            else:
+                output = await agent_loop.run(messages, sampling_params)
             return output
 
 

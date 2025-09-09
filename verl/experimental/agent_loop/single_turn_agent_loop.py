@@ -13,7 +13,7 @@
 # limitations under the License.
 import logging
 import os
-from typing import Any, Optional
+from typing import Any
 from uuid import uuid4
 
 from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput, register
@@ -32,9 +32,7 @@ class SingleTurnAgentLoop(AgentLoopBase):
         self.prompt_length = self.config.actor_rollout_ref.rollout.prompt_length
         self.response_length = self.config.actor_rollout_ref.rollout.response_length
 
-    async def run(
-        self, messages: list[dict[str, Any]], sampling_params: dict[str, Any], output: Optional[AgentLoopOutput]
-    ) -> AgentLoopOutput:
+    async def run(self, messages: list[dict[str, Any]], sampling_params: dict[str, Any]) -> AgentLoopOutput:
         metrics = {}
         request_id = uuid4().hex
         prompt_ids = await self.loop.run_in_executor(
