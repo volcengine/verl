@@ -103,3 +103,5 @@ jobs:
         run: python3 tests/special_sanity/check_docs_time_info.py
       - name: Check docstrings for specified files
         run: python3 tests/special_sanity/check_docstrings.py
+      - name: Check DataProto for specified folders
+        run: python3 tests/special_sanity/check_dataproto_usage.py -d ./verl/workers/engine
