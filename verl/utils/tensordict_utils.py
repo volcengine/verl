@@ -152,16 +152,16 @@ def pop(tensordict: TensorDict, keys: Iterator[str]) -> TensorDict:
 
 
 def pad_to_divisor(data: TensorDict, size_divisor: int):
-    """Pad a DataProto to size divisible by size_divisor
+    """Pad a TensorDict to size divisible by size_divisor
 
     Args:
         size_divisor (int): size divisor
 
     Returns:
-        data: (DataProto): the padded DataProto
+        data: (TensorDict): the padded TensorDict
         pad_size (int)
     """
-    assert isinstance(data, TensorDict), "data must be a DataProto"
+    assert isinstance(data, TensorDict), "data must be a TensorDict"
     if len(data) % size_divisor != 0:
         pad_size = size_divisor - len(data) % size_divisor
         padding_protos = []
