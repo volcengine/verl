@@ -278,6 +278,12 @@ class ToolAgentLoop(AgentLoopBase):
             # Create message from tool response
             if tool_response.image or tool_response.video:
                 # Multi-modal content with structured format
+                if not getattr(self.processor, "image_processor", None):
+                    raise ValueError(
+                        "Multimedia data can only be processed by `processor`, but the processor is None. "
+                        "This error is often caused if you are using a LLM model but your tool returns multimodal "
+                        "data. Plase use a vlm as the base model."
+                    )
                 content = []
                 if tool_response.image:
                     content.append({"type": "image"})
