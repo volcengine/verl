@@ -47,6 +47,9 @@ actor_rollout_ref:
     # may get higher throughput when set to True. When activated, Please increase max_num_batched_tokens or decrease max_model_len.
     enable_chunked_prefill: False
 
+    # Prefix caching kv-cache blocks is a popular optimization in LLM inference to avoid redundant prompt computations.
+    enable_prefix_caching: True
+
     load_format: dummy_megatron
 
     tensor_model_parallel_size: 1
@@ -118,7 +121,7 @@ global_profiler:
   save_path: "outputs/profile"   # profiler saving path
   # Specific tool configs, can use +profiler.tool_config.[tool].xxx to config
   global_tool_config:
-  
+
     # nsys config
     nsys:
 
