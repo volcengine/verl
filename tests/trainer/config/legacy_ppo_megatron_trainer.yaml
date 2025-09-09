@@ -129,12 +129,12 @@ actor_rollout_ref:
       param_offload: False
       tensor_model_parallel_size: 1
       expert_model_parallel_size: 1
-      expert_tensor_parallel_size: None
+      expert_tensor_parallel_size: null
       pipeline_model_parallel_size: 1
       virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
       context_parallel_size: 1
       sequence_parallel: True
-      use_distributed_optimizer: False
+      use_distributed_optimizer: True
       use_dist_checkpointing: False
       dist_checkpointing_path: null
       seed: ${actor_rollout_ref.actor.megatron.seed}
@@ -163,7 +163,7 @@ actor_rollout_ref:
     dtype: bfloat16 # should align with FSDP
     gpu_memory_utilization: 0.5
     ignore_eos: False
-    enforce_eager: True
+    enforce_eager: False
     free_cache_engine: True
     load_format: dummy_megatron
     tensor_model_parallel_size: 1
@@ -183,12 +183,9 @@ actor_rollout_ref:
       gate_proj_layer_name: gate_up
     # number of responses (i.e. num sample times)
     n: 1
-    engine_kwargs: # inference engine parameters
-      vllm:
-        swap_space: null # null means "use the engine default value" (usually 4 GB), setting it to, e.g., 32 means 32 GB
-        disable_mm_preprocessor_cache: False # whether to disable the preprocessor cache for multimodel models.
-      sglang:
-        attention_backend: null # null means use the engine default value, available options: flashinfer, triton, flashmla
+    engine_kwargs: # inference engine parameters, please refer vllm/sglang official doc for detail
+      vllm: {}
+      sglang: {}
     val_kwargs:
       # sampling parameters for validation
       top_k: -1 # 0 for hf rollout, -1 for vllm rollout
@@ -223,9 +220,6 @@ actor_rollout_ref:
       # null for no interaction
       interaction_config_path: null
 
-      # null for default callback
-      completion_callback: null
-
       # - When set to True, the model's default chat template is used for multi-turn rollout, which typically matches production behavior.
       # - When set to False, the token ids recorded for training are used instead; unlike the default chat template, these always include the model's full output,
       #   which may contain additional content such as reasoning content. This maintains the consistency between training and rollout, but it will lead to longer prompts.
@@ -258,7 +252,7 @@ actor_rollout_ref:
     calculate_log_probs: False
     # Nsight system profiler configs
   profiler:
-    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
     _target_: verl.utils.profiler.ProfilerConfig
     discrete: False
     all_ranks: False
@@ -277,7 +271,7 @@ critic:
     lr_warmup_steps: null # Prioritized. None, 0 or Negative values mean delegating to lr_warmup_steps_ratio.
     lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
     lr_decay_steps: null
-    lr_decay_style: linear # select from constant/linear/cosine/inverse_square_root
+    lr_decay_style: constant # select from constant/linear/cosine/inverse_square_root
     min_lr: 0.0 # minimum learning rate, default to 0.0
     weight_decay: 0.01
     weight_decay_incr_style: constant # select from constant/linear/cosine
@@ -336,7 +330,7 @@ critic:
     load_contents: ${critic.checkpoint.save_contents}
   # Nsight system profiler configs
   profiler:
-    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
     _target_: verl.utils.profiler.ProfilerConfig
     discrete: False
     all_ranks: False
@@ -379,7 +373,7 @@ reward_model:
     memory_limit_mb: 1024 # Max memory limit for each sandbox process in MB
   # Nsight system profiler configs
   profiler:
-    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
     _target_: verl.utils.profiler.ProfilerConfig
     discrete: False
     all_ranks: False
@@ -390,7 +384,7 @@ custom_reward_function:
   name: compute_score
 
 algorithm:
-  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.trainer.config.AlgoConfig
   gamma: 1.0
   lam: 1.0
@@ -399,7 +393,7 @@ algorithm:
   use_kl_in_reward: False
   kl_penalty: kl  # how to estimate kl divergence
   kl_ctrl:
-    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
     _target_: verl.trainer.config.KLControlConfig
     type: fixed
     kl_coef: 0.001
@@ -407,8 +401,6 @@ algorithm:
     target_kl: 0.1
   use_pf_ppo: False
   pf_ppo:
-    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
-    _target_: verl.trainer.config.PFPPOConfig
     reweight_method: pow  # ["pow", "max_min", "max_random"]
     weight_pow: 2.0
 
@@ -455,6 +447,7 @@ trainer:
   npu_profile:
     options:
       save_path: ./profiler_data
+      roles: ["all"]
       level: level1
       with_memory: False
       record_shapes: False
@@ -464,6 +457,7 @@ trainer:
       with_stack: False
       analysis: True
 
-ray_init:
-  num_cpus: null # `None` means using all CPUs, which might cause hang if limited in systems like SLURM. Please set to a number allowed then.
+ray_kwargs:
+  ray_init:
+    num_cpus: null # `None` means using all CPUs, which might cause hang if limited in systems like SLURM. Please set to a number allowed then.
   timeline_json_file: null

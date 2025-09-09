@@ -33,16 +33,15 @@ from transformers import LlamaConfig
 
 from verl import DataProto
 from verl.models.llama.megatron import ParallelLlamaForCausalLMRmPadPP
-from verl.single_controller.base.decorator import Dispatch, register
-from verl.single_controller.base.megatron.worker import MegatronWorker
-from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool
-from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
-from verl.utils.megatron.optimizer import get_megatron_optimizer
-from verl.utils.megatron_utils import get_model, init_megatron_optim_config, mcore_model_parallel_config
+from verl.single_controller.base import Worker
+from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
+from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
+from verl.utils.megatron.optimizer import get_megatron_optimizer, init_megatron_optim_config
+from verl.utils.megatron_utils import get_model, mcore_model_parallel_config
 
 
 @ray.remote
-class Trainer(MegatronWorker):
+class Trainer(Worker):
     def __init__(self):
         super().__init__()
 
@@ -51,7 +50,6 @@ class Trainer(MegatronWorker):
             torch.distributed.init_process_group(backend="nccl")
             torch.cuda.set_device(rank)
 
-            os.environ["CUDA_DEVICE_MAX_CONNECTIONS"] = "1"
             mpu.initialize_model_parallel(
                 tensor_model_parallel_size=2,
                 pipeline_model_parallel_size=1,
@@ -63,6 +61,15 @@ class Trainer(MegatronWorker):
                 nccl_communicator_config_path=None,
             )
             tensor_parallel.model_parallel_cuda_manual_seed(10)
+
+            is_collect = (
+                mpu.get_tensor_model_parallel_rank() == 0
+                and mpu.get_pipeline_model_parallel_rank() == mpu.get_pipeline_model_parallel_world_size() - 1
+                and mpu.get_context_parallel_rank() == 0
+            )
+            self._register_dispatch_collect_info(
+                mesh_name="train", dp_rank=mpu.get_data_parallel_rank(), is_collect=is_collect
+            )
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
@@ -107,7 +114,7 @@ class Trainer(MegatronWorker):
         self.model = actor_module[0]
         self.optimizer = actor_optimizer
 
-    @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"))
     def train_model(self, data: DataProto) -> DataProto:
         input_ids = data.batch["input_ids"]
         attention_mask = data.batch["attention_mask"]
@@ -133,7 +140,7 @@ if __name__ == "__main__":
 
     resource_pool = RayResourcePool(process_on_nodes=[2], detached=True)
     cls_with_init_args = RayClassWithInitArgs(cls=Trainer)
-    worker_group = NVMegatronRayWorkerGroup(
+    worker_group = RayWorkerGroup(
         resource_pool=resource_pool,
         ray_cls_with_init=cls_with_init_args,
         name_prefix="trainer",

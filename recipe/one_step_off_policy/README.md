@@ -35,6 +35,7 @@ policy.
 https://raw.githubusercontent.com/eric-haibin-lin/verl-community/refs/heads/main/docs/one_step_off_policy.png)
 > reference: [AReaL: A Large-Scale Asynchronous Reinforcement Learning System for Language Reasoning](
 > https://arxiv.org/abs/2505.24298)
+> original work: [Asynchronous RLHF: Faster and More Efficient Off-Policy RL for Language Models](https://arxiv.org/abs/2410.18252)
 
 Our core contributions include:
 
@@ -192,6 +193,7 @@ def sync_rollout_weights(self):
         inference_model = (
             self.rollout.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
         )
+        from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
         patch_vllm_moe_model_weight_loader(inference_model)
     # Model parameters are broadcast tensor-by-tensor from actor to rollout
     for key, shape, dtype in self._weights_info:

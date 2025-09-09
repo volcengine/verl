@@ -70,7 +70,7 @@ permissions:
   contents: read
 
 env:
-  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:base-verl0.4-cu124-cudnn9.8-torch2.6-fa2.7.4"
+  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:app-verl0.5-transformers4.55.4-sglang0.4.10.post2-mcore0.13.0-te2.2"
   DYNAMIC_RUNNER_ENDPOINT: "https://sd10g3clalm04ug7alq90.apigateway-cn-beijing.volceapi.com/runner"
 
 jobs:
@@ -134,7 +134,19 @@ jobs:
         run: |
           ray stop --force
           LORA_RANK=32 bash tests/special_e2e/sft/run_sft.sh
+      - name: Run GSM8K E2E training and resume tests resuming from the checkpoint manager
+        run: |
+          ray stop --force
+          LORA_RANK=32 RESUME_MODE=auto TOTAL_TRAIN_STEP=2 bash tests/special_e2e/sft/run_sft.sh
       # TODO: multiturn
+      - name: Prepare gsm8k dataset
+        run: |
+          ray stop --force
+          python3 examples/data_preprocess/gsm8k_multiturn_sft.py
+      - name: Running GSM8K E2E training tests with multiturn and various configs and compare results
+        run: |
+          bash tests/special_e2e/sft/test_sft_engine_all.sh
+
   
   cleanup:
     runs-on: ubuntu-latest

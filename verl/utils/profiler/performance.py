@@ -27,8 +27,24 @@ from verl.utils.logger import DecoratorLoggerBase
 
 
 def _get_current_mem_info(unit: str = "GB", precision: int = 2) -> tuple[str]:
-    """Get current memory usage."""
+    """Get current memory usage.
+
+    Note that CPU device memory info is always 0.
+
+    Args:
+        unit (str, optional): The unit of memory measurement. Defaults to "GB".
+        precision (int, optional): The number of decimal places to round memory values. Defaults to 2.
+
+    Returns:
+        tuple[str]: A tuple containing memory allocated, memory reserved, memory used, and memory total
+        in the specified unit.
+    """
     assert unit in ["GB", "MB", "KB"]
+    device = get_torch_device()
+    # torch.cpu.memory_allocated() does not exist
+    if device == torch.cpu:
+        return "0.00", "0.00", "0.00", "0.00"
+
     divisor = 1024**3 if unit == "GB" else 1024**2 if unit == "MB" else 1024
     mem_allocated = get_torch_device().memory_allocated()
     mem_reserved = get_torch_device().memory_reserved()
@@ -179,7 +195,9 @@ def marked_timer(
     yield from _timer(name, timing_raw)
 
 
-def reduce_timing(timing_raw: dict[str, float]) -> dict[str, float]:
+def reduce_timing(
+    timing_raw: dict[str, float], reduce_op: torch.distributed.ReduceOp = torch.distributed.ReduceOp.AVG
+) -> dict[str, float]:
     """Reduce timing information across all processes.
 
     This function uses distributed communication to gather and sum the timing
@@ -199,7 +217,24 @@ def reduce_timing(timing_raw: dict[str, float]) -> dict[str, float]:
         key_list.append(key)
         timing_list.append(timing_raw[key])
     timing_list = torch.tensor(timing_list, dtype=torch.float32, device=get_device_id())
-    torch.distributed.all_reduce(timing_list, op=torch.distributed.ReduceOp.AVG)
+    torch.distributed.all_reduce(timing_list, op=reduce_op)
     timing_list = [tensor.item() for tensor in timing_list.to("cpu")]
     timing_generate = {key_list[i]: timing_list[i] for i in range(len(key_list))}
     return timing_generate
+
+
+def topk_reduce_ratio_min_max(timing: float, k: int = 10) -> tuple[float, float, float]:
+    """Calculate topk items take-up ratio, and min/max timing across all ranks."""
+    if not dist.is_initialized():
+        return -1.0, -1.0, -1.0
+
+    world_size = dist.get_world_size()
+    timing_tensor = torch.tensor(timing, dtype=torch.float32, device=get_device_id())
+    tensor_list = [torch.zeros(1, dtype=torch.float32, device=get_device_id()) for _ in range(world_size)]
+    torch.distributed.all_gather(tensor_list, timing_tensor)
+    tensor_stack = torch.stack(tensor_list)
+    timing_min = tensor_stack.min().cpu().item()
+    timing_max = tensor_stack.max().cpu().item()
+    top_k_percentile = torch.quantile(tensor_stack, 1 - k / 100)
+    tail_ratio = torch.mean((tensor_stack > top_k_percentile).float()).cpu().item()
+    return tail_ratio, timing_min, timing_max

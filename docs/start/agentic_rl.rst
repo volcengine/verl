@@ -28,6 +28,8 @@ System Architecture
 
 .. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/agent_loop.png?raw=true
 
+For more detail on internal design, please refer to :doc:`Agent Loop<../advance/agent_loop>`.
+
 System Components
 ~~~~~~~~~~~~~~~~~
 
@@ -57,6 +59,12 @@ Usage Example
 ~~~~~~~~~~~~~
 
 Follow :doc:`GSM8K example<../examples/gsm8k_example>` to prepare the dataset and model checkpoints.
+
+There are two options required to use agent loop:
+
+- `data.return_raw_chat=True`
+- `actor_rollout_ref.rollout.mode=async`
+
 This example uses the sglang inference engine by default, and you can also modify rollout_name to use vllm.
 
 .. code-block:: bash
@@ -80,7 +88,7 @@ Usage Example
     pip install mlflow
 
     # This will download and preprocess the GSM8K dataset into ~/data/gsm8k/ and add the "agent_name" field.
-    bash examples/data_preprocess/gsm8k_tool_agent_loop.py
+    python examples/data_preprocess/gsm8k_tool_agent_loop.py
 
     # Start training with tool calls and enabled mlflow based trace helping to debug the rollout details
     bash examples/sglang_multiturn/run_qwen2.5-3b_gsm8k_tool_agent_mlflow.sh
