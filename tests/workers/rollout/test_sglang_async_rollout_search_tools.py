@@ -16,7 +16,6 @@
 
 
 import asyncio
-import json
 from copy import deepcopy
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -354,7 +353,7 @@ class TestRolloutWithSearchTools:
         search_counter = 0
         for msg in output_req.messages:
             if msg.role == "tool":
-                assert json.loads(msg.content)[0]["text"] == tool_return_array[search_counter].text
+                assert msg.content[0]["text"] == tool_return_array[search_counter].text
                 search_counter += 1
         assert search_counter == 2
 
