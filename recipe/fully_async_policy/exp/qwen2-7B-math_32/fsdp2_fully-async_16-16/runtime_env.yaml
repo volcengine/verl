@@ -1,0 +1,4 @@
+env_vars:
+  VLLM_USE_V1: "1"
+  TENSORBOARD_DIR: "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-friday-studio/FTI/houzhenggang/expeirments/qwen2-7B-math/dapo_qwen2-7B-math_28k_fsdp2_fully-async_16-16_mbs32_tpf16_fixmcs"
+  HYDRA_FULL_ERROR: "1"
