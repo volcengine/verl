@@ -21,7 +21,7 @@ from verl.utils.profiler import ProfilerConfig
 from .model import HFModelConfig
 from .rollout import SamplingConfig, ServerConfig
 
-__all__ = ["SandboxFusionConfig", "RewardModelConfig"]
+__all__ = ["SandboxFusionConfig", "RouterConfig", "RewardModelConfig"]
 
 
 @dataclass

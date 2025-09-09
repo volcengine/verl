@@ -110,14 +110,13 @@ class SGLangRewardModel(BaseRewardModel):
         config: RewardModelConfig,
         model_config: HFModelConfig,
         device_mesh: DeviceMesh,
-        **kwargs,
     ):
         super().__init__(config, model_config, device_mesh)
 
         actor_module = model_config.local_path
         trust_remote_code = model_config.trust_remote_code
         port = None
-        kwargs = self.kwargs
+        kwargs = {}
 
         os.environ.setdefault("SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK", "true")
 
@@ -158,7 +157,7 @@ class SGLangRewardModel(BaseRewardModel):
         self.visible_devices_set = set(",".join(visible_devices).split(","))
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(sorted(list(self.visible_devices_set)))
 
-    def _init_inference_engine(self, trust_remote_code, actor_module, port, router_ip, router_port):
+    def _init_inference_engine(self, trust_remote_code, actor_module, port):
         # initialize the inference engine
         nnodes = -(-self._tp_size // len(self.visible_devices_set))
         if nnodes > 1:
@@ -225,9 +224,6 @@ class SGLangRewardModel(BaseRewardModel):
                 "retry_delay": self.config.server["retry_delay"],
                 "max_connections": self.config.server["max_connections"],
                 "max_start_wait_time": self.config.server["max_start_wait_time"],
-                # router ip and port
-                "router_ip": self.kwargs.get("router_ip", None),
-                "router_port": self.kwargs.get("router_port", None),
                 "first_rank_in_node": first_rank_in_node,
             }
             self._engine = AsyncHttpServerAdapter(**args)

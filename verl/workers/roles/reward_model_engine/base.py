@@ -82,4 +82,4 @@ def get_reward_model_class(reward_model_name: str) -> type[BaseRewardModel]:
     fqdn = _REWARD_MODEL_REGISTRY[reward_model_name]
     module_name, class_name = fqdn.rsplit(".", 1)
     reward_model_module = importlib.import_module(module_name)
-    return getattr(reward_model_name, class_name)
+    return getattr(reward_model_module, class_name)

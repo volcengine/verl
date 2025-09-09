@@ -18,7 +18,7 @@ The main entry point to run the PPO algorithm
 import logging
 import os
 import socket
-
+import asyncio
 import numpy as np
 import ray
 import torch
@@ -35,23 +35,20 @@ from verl.utils.device import (
 from verl.utils.distributed import initialize_global_process_group_ray
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.profiler import DistProfiler, DistProfilerExtension, log_gpu_memory_usage
-from verl.workers.config import HFModelConfig, RewardModelConfig
-from verl.workers.roles.reward_model_engine import get_reward_model_class
+from verl.workers.config import HFModelConfig, RewardModelConfig, RouterConfig
+from verl.workers.roles.reward_model_engine import get_reward_model_class, get_launch_router_fn
 
-from .reward_model_engine import SGLangRewardModel
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 device_name = get_device_name()
 
-
-class RewardModelRouter(Worker, DistProfilerExtension):
+class RewardModelWorker(Worker, DistProfilerExtension):
     def __init__(self, config: RewardModelConfig) -> None:
         self.config = config
         self.model_config = config.model_config
         self.input_model_config = config.input_model_config
-        self.router_ip, self.router_port = self._get_free_port()
         Worker.__init__(self)
         self.profiler_config = self.config.profiler
         tool_config = self.profiler_config.tool_config
