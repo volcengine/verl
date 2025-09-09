@@ -19,6 +19,8 @@ from itertools import chain
 import torch
 from torch import distributed as dist
 
+from tensordict import TensorDict
+
 from verl.protocol import DataProto
 from verl.utils.device import get_device_name
 

@@ -26,9 +26,9 @@ import torch
 import torch.distributed
 from peft import LoraConfig, TaskType, get_peft_model
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from tensordict import TensorDict
 
 import verl.utils.torch_functional as verl_F
-from verl import DataProto
 from verl.models.transformers.monkey_patch import apply_monkey_patch
 from verl.utils.activation_offload import enable_activation_offloading
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
@@ -59,6 +59,7 @@ from verl.utils.fsdp_utils import (
 from verl.utils.py_functional import convert_to_regular_types
 from verl.utils.torch_functional import logprobs_from_logits
 from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad, ulysses_pad_and_slice_inputs
+from verl.utils import tensordict_utils as tu
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 if is_cuda_available:
@@ -445,9 +446,10 @@ class FSDPEngine(BaseEngine):
         else:
             return torch.distributed.group.WORLD
 
-    def forward_backward_batch(self, data: DataProto, loss_function: Callable, forward_only=False) -> list[DataProto]:
+    def forward_backward_batch(self, data: TensorDict, loss_function: Callable, forward_only=False) -> list[TensorDict]:
         # note that the global_batch_size should include data on all the dp
-        data.meta_info["sp_size"] = self.ulysses_sequence_parallel_size
+        tu.assign_non_tensor(data, sp_size=self.ulysses_sequence_parallel_size)
+
         micro_batches, indices = prepare_micro_batches(
             data=data, dp_group=self.get_data_parallel_group(), same_micro_num_in_dp=True
         )
@@ -461,8 +463,8 @@ class FSDPEngine(BaseEngine):
                 loss, meta_info = self.forward_step(micro_batch, loss_function=loss_function, forward_only=forward_only)
 
                 if not forward_only:
-                    global_bsz = data.meta_info["global_batch_size"]
-                    local_micro_bsz = micro_batch.batch["input_ids"].shape[0]
+                    global_bsz = data["global_batch_size"]
+                    local_micro_bsz = micro_batch["input_ids"].shape[0]
                     # metrics contain the output, loss is dummy
                     loss_scale_factor = local_micro_bsz / (global_bsz / self.get_data_parallel_size())
                     # scale loss
@@ -474,7 +476,7 @@ class FSDPEngine(BaseEngine):
         # postprocess and return
         return postprocess_batch_func(output_lst=output_lst, indices=indices, data=data)
 
-    def forward_step(self, micro_batch: DataProto, loss_function, forward_only):
+    def forward_step(self, micro_batch: TensorDict, loss_function, forward_only):
         raise NotImplementedError("forward_step must be implemented in subclass")
 
     def optimizer_zero_grad(self):
@@ -633,28 +635,25 @@ class EngineTrainModeCtx:
 
 @EngineRegistry.register(model_type="language_model", backend=["fsdp", "fsdp2"])
 class FSDPEngineWithLMHead(FSDPEngine):
-    def prepare_model_inputs(self, micro_batch: DataProto):
-        use_remove_padding = micro_batch.meta_info.get("use_remove_padding", True)
-        use_fused_kernels = micro_batch.meta_info.get("use_fused_kernels", False)
-        temperature = micro_batch.meta_info["temperature"]
-
-        micro_batch_tensor = micro_batch.batch
-        micro_batch_non_tensor = micro_batch.non_tensor_batch
+    def prepare_model_inputs(self, micro_batch: TensorDict):
+        use_remove_padding = tu.get_non_tensor_data(data=micro_batch, key="use_remove_padding", default=True)
+        use_fused_kernels = tu.get_non_tensor_data(data=micro_batch, key="use_fused_kernels", default=False)
+        temperature = micro_batch["temperature"]
 
         multi_modal_inputs = {}
-        if "multi_modal_inputs" in micro_batch_non_tensor.keys():
-            if "image_bound" in micro_batch_non_tensor["multi_modal_inputs"][0]:  # minicpm-o logic
-                for key in micro_batch_non_tensor["multi_modal_inputs"][0].keys():
-                    multi_modal_inputs[key] = [inputs[key] for inputs in micro_batch_non_tensor["multi_modal_inputs"]]
+        if "multi_modal_inputs" in micro_batch.keys():
+            if "image_bound" in micro_batch["multi_modal_inputs"][0]:  # minicpm-o logic
+                for key in micro_batch["multi_modal_inputs"][0].keys():
+                    multi_modal_inputs[key] = [inputs[key] for inputs in micro_batch["multi_modal_inputs"]]
             else:
-                for key in micro_batch_non_tensor["multi_modal_inputs"][0].keys():
+                for key in micro_batch["multi_modal_inputs"][0].keys():
                     multi_modal_inputs[key] = torch.cat(
-                        [inputs[key] for inputs in micro_batch_non_tensor["multi_modal_inputs"]], dim=0
+                        [inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0
                     )
 
-        input_ids = micro_batch_tensor["input_ids"]
-        attention_mask = micro_batch_tensor["attention_mask"]
-        position_ids = micro_batch_tensor["position_ids"]
+        input_ids = micro_batch["input_ids"]
+        attention_mask = micro_batch["attention_mask"]
+        position_ids = micro_batch["position_ids"]
         if position_ids.dim() == 3:  # qwen2vl mrope
             position_ids = position_ids.transpose(0, 1)  # (bsz, 3, seqlen) -> (3, bsz, seqlen)
 
@@ -691,7 +690,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
             # pad and slice the inputs if sp > 1
             if self.use_ulysses_sp:
-                is_vlm_model = "multi_modal_inputs" in micro_batch_non_tensor.keys()
+                is_vlm_model = "multi_modal_inputs" in micro_batch.keys()
                 if is_vlm_model:
                     # vlm model's inputs will be sliced after embedding
                     input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad(
@@ -743,16 +742,16 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
         return model_inputs, output_args
 
-    def prepare_model_outputs(self, output, output_args, micro_batch: DataProto):
-        use_remove_padding = micro_batch.meta_info.get("use_remove_padding", True)
-        use_fused_kernels = micro_batch.meta_info.get("use_fused_kernels", False)
-        temperature = micro_batch.meta_info["temperature"]
-        calculate_entropy = micro_batch.meta_info.get("calculate_entropy", False)
+    def prepare_model_outputs(self, output, output_args, micro_batch: TensorDict):
+        use_remove_padding = tu.get_non_tensor_data(data=micro_batch, key="use_remove_padding", default=True)
+        use_fused_kernels = tu.get_non_tensor_data(data=micro_batch, key="use_fused_kernels", default=False)
+        temperature = micro_batch["temperature"]
+        calculate_entropy = tu.get_non_tensor_data(data=micro_batch, key="calculate_entropy", default=False)
 
-        input_ids = micro_batch.batch["input_ids"]
+        input_ids = micro_batch["input_ids"]
         batch_size, seqlen = input_ids.shape
 
-        response_length = micro_batch.batch["responses"].size(-1)
+        response_length = micro_batch["responses"].size(-1)
 
         if use_remove_padding:
             input_ids_rmpad_rolled = output_args["input_ids_rmpad_rolled"]
@@ -845,7 +844,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
         return model_output
 
-    def forward_step(self, micro_batch: DataProto, loss_function, forward_only):
+    def forward_step(self, micro_batch: TensorDict, loss_function, forward_only):
         device_name = get_device_name()
         # actually, we should avoid assigning like this...
         micro_batch = micro_batch.to(get_device_id())
