@@ -26,6 +26,7 @@ __all__ = [
     "CustomAsyncServerConfig",
     "AgentLoopConfig",
     "TraceConfig",
+    "ServerConfig",
     "RolloutConfig",
 ]
 
@@ -92,7 +93,7 @@ class ServerConfig(BaseConfig):
 class RolloutConfig(BaseConfig):
     _mutable_fields = {"max_model_len"}
 
-    name: Optional[str] = MISSING
+    name: Optional[str] = "sglang"
     mode: str = "sync"
 
     temperature: float = 1.0

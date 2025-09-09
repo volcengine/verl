@@ -17,8 +17,10 @@ The main entry point to run the PPO algorithm
 
 import logging
 import os
+import socket
 
 import numpy as np
+import ray
 import torch
 
 import verl.utils.torch_functional as verl_F
@@ -34,7 +36,9 @@ from verl.utils.distributed import initialize_global_process_group_ray
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.profiler import DistProfiler, DistProfilerExtension, log_gpu_memory_usage
 from verl.workers.config import HFModelConfig, RewardModelConfig
-from verl.workers.reward_model.sglang_reward_model import SGLangRewardModel
+from verl.workers.roles.reward_model_engine import get_reward_model_class
+
+from .reward_model_engine import SGLangRewardModel
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -42,11 +46,12 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 device_name = get_device_name()
 
 
-class RewardModelWorker(Worker, DistProfilerExtension):
+class RewardModelRouter(Worker, DistProfilerExtension):
     def __init__(self, config: RewardModelConfig) -> None:
         self.config = config
         self.model_config = config.model_config
         self.input_model_config = config.input_model_config
+        self.router_ip, self.router_port = self._get_free_port()
         Worker.__init__(self)
         self.profiler_config = self.config.profiler
         tool_config = self.profiler_config.tool_config
@@ -92,10 +97,17 @@ class RewardModelWorker(Worker, DistProfilerExtension):
 
         # 4. build reward model
         log_gpu_memory_usage("Before building sglang reward model", logger=logger)
-        self.reward_model = SGLangRewardModel(
+        self.reward_model = get_reward_model_class(reward_model_config.name)(
             config=reward_model_config, model_config=model_config, device_mesh=reward_model_device_mesh
         )
         log_gpu_memory_usage("After building sglang reward model", logger=logger)
+
+    def _get_free_port(self):
+        ip = ray.util.get_node_ip_address()
+        with socket.socket() as sock:
+            sock.bind(("", 0))
+            port = sock.getsockname()[1]
+        return ip, port
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
