@@ -14,14 +14,15 @@
 
 
 import torch
+from tensordict import TensorDict
 
-from verl import DataProto
+from verl.utils import tensordict_utils as tu
 from verl.utils.py_functional import append_to_dict
-from verl.utils.seqlen_balancing import prepare_dynamic_batch, restore_dynamic_batch
+from verl.utils.seqlen_balancing import rearrange_micro_batches, restore_dynamic_batch
 
 
 def prepare_micro_batches(
-    data: DataProto,
+    data: TensorDict,
     dp_group=None,
     num_batches_divided_by=None,
     same_micro_num_in_dp=True,
@@ -31,16 +32,14 @@ def prepare_micro_batches(
     """
     Prepare micro batches from data.
     """
-    use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", True)
-    sp_size = data.meta_info.get("sp_size", 1)
+    use_dynamic_bsz = tu.get_non_tensor_data(data=data, key="use_dynamic_bsz", default=True)
+    sp_size = tu.get_non_tensor_data(data=data, key="sp_size", default=1)
 
     if use_dynamic_bsz:
-        assert "max_token_len_per_gpu" in data.meta_info, (
-            "max_token_len_per_gpu must be set when use_dynamic_bsz is True"
-        )
-        max_token_len_per_gpu = data.meta_info.get("max_token_len_per_gpu")
+        assert "max_token_len_per_gpu" in data.keys(), "max_token_len_per_gpu must be set when use_dynamic_bsz is True"
+        max_token_len_per_gpu = data["max_token_len_per_gpu"]
         max_token_len = max_token_len_per_gpu * sp_size
-        micro_batches, batch_idx_list = prepare_dynamic_batch(
+        micro_batches, batch_idx_list = rearrange_micro_batches(
             data,
             max_token_len=max_token_len,
             dp_group=dp_group,
@@ -50,13 +49,13 @@ def prepare_micro_batches(
             use_dynamic_bsz_balance=use_dynamic_bsz_balance,
         )
     else:
-        micro_batch_size_per_gpu = data.meta_info.get("micro_batch_size_per_gpu")
+        micro_batch_size_per_gpu = data["micro_batch_size_per_gpu"]
         micro_batches = data.split(micro_batch_size_per_gpu)
         batch_idx_list = None
     return micro_batches, batch_idx_list
 
 
-def postprocess_batch_func(output_lst, indices, data: DataProto):
+def postprocess_batch_func(output_lst, indices, data: TensorDict):
     """postprocess the output of a forward_backward_batch.
     output_lst is a list of dict containing outputs for each micro-batch
     reorder entropy and outputs. Return None for other pp ranks
@@ -65,7 +64,7 @@ def postprocess_batch_func(output_lst, indices, data: DataProto):
     each losses_reduced contains 1. model_output, 2. loss, 3. metrics.
     """
 
-    use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", True)
+    use_dynamic_bsz = tu.get_non_tensor_data(data=data, key="use_dynamic_bsz", default=True)
 
     # losses_reduced is a list of dict containing outputs for each micro-batch
     # reorder entropy and outputs. Return None for other pp ranks

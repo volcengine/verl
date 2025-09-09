@@ -13,42 +13,16 @@
 # limitations under the License.
 
 """
-This CI test is used for checking whether device api usage is irregular, suggest using api in `verl/utils/device.py`.
-Search targets include .py files in verl/recipe and verl/verl.
-Some files that must contain ".cuda", "cuda" or "nccl" keyword is pre-defined in whitelist below.
+This CI test is used for checking whether DataProto is used in the code of some directory
 """
 
 import os
 from argparse import ArgumentParser
 from pathlib import Path
 
-# directory or file path must contain keyword ".cuda" or "cuda"
-CUDA_KEYWORD_CHECK_WHITELIST = [
-    "verl/utils/device.py",
-    "recipe/prime/prime_ray_trainer.py",  # appear in default device_name
-    "recipe/spin/spin_trainer.py",  # appear in default device_name
-    "recipe/sppo/sppo_ray_trainer.py",  # appear in default device_name
-    "recipe/one_step_off_policy/ray_trainer.py",  # appear in default device_name
-    "verl/utils/profiler/nvtx_profile.py",  # appear in NsightSystemsProfiler
-    "verl/utils/kernel/linear_cross_entropy.py",  # appear in nvidia nvtx
-    "verl/utils/rendezvous/ray_backend.py",  # appear in cupy importance
-    "verl/single_controller/ray/base.py",  # appear in default device_name
-    "verl/trainer/ppo/ray_trainer.py",  # appear in default device_name
-    "verl/utils/reward_score/sandbox_fusion/utils.py",  # appear in sandbox language type
-    "verl/workers/reward_model/megatron/reward_model.py",  # appear in default device_name
-    "verl/third_party/torch/distributed/_state_dict_utils.py",  # torch monkey patch fixes
-    "verl/third_party/torch/distributed/checkpoint/state_dict.py",  # torch monkey patch fixes
-]
+SEARCH_WHITELIST = []
 
-# directory or file path must contain keyword "nccl"
-NCCL_KEYWORD_CHECK_WHITELIST = [
-    "verl/utils/device.py",
-    "verl/third_party/sglang/parallel_state.py",  # appear in default backend
-]
-
-SEARCH_WHITELIST = CUDA_KEYWORD_CHECK_WHITELIST + NCCL_KEYWORD_CHECK_WHITELIST
-
-SEARCH_KEYWORDS = [".cuda", '"cuda"', '"nccl"']
+SEARCH_KEYWORDS = ["DataProto"]
 
 
 if __name__ == "__main__":
@@ -86,11 +60,10 @@ if __name__ == "__main__":
                     break
 
             print(
-                f"[CHECK] File {path_in_str} is detected for device api usage check, check result: "
+                f"[CHECK] File {path_in_str} is detected for DataProto usage check, check result: "
                 f"{'success' if not find_invalid_device_management else f'failed, because detect {sk}'}."
             )
 
             assert not find_invalid_device_management, (
-                f'file {path_in_str} contains .cuda/"cuda"/"nccl" usage, please use api in '
-                f"verl/utils/device.py directly."
+                f"file {path_in_str} contains DataProto usage, please use TensorDict directly!"
             )
