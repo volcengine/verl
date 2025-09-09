@@ -370,7 +370,7 @@ class AsyncvLLMServer(AsyncServerBase):
             token_ids = self.req_output[request_id].outputs[0].token_ids
             log_probs: list[float] = []
             for i, x in enumerate(self.req_output[request_id].outputs[0].logprobs):
-                # sampling_params 中 logprobs 设置为1，只返回1个
+                # sampling_params 中 logprobs 设置为1，应该返回1个, 但是实测会有多个，取token_id所对应的log_prob
                 token_id = self.req_output[request_id].outputs[0].token_ids[i]
                 log_probs.append(x[token_id].logprob)
             is_cancel = generation_handle not in done

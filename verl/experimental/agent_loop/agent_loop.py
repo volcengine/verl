@@ -188,6 +188,7 @@ class AgentLoopBase(ABC):
         Args:
             messages (List[Dict[str, Any]]): Input messages.
             sampling_params (Dict[str, Any]): LLM sampling params.
+
         Returns:
             AgentLoopOutput: Agent loop output.
         """
