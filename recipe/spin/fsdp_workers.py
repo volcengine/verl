@@ -406,8 +406,7 @@ class RewardModelWorker(Worker):
         self.reward_module = self._build_model(config=self.config)
 
     def _forward_micro_batch(self, micro_batch):
-        from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
-
+        from verl.utils.kernel.flash_attn import index_first_axis, pad_input, rearrange, unpad_input
         from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad_and_slice_inputs
 
         with torch.no_grad(), torch.autocast(device_type=get_device_name(), dtype=torch.bfloat16):

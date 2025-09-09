@@ -74,10 +74,8 @@ from verl.utils.ulysses import (
 )
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
-if is_cuda_available:
-    from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
-elif is_npu_available:
-    from transformers.integrations.npu_flash_attention import index_first_axis, pad_input, rearrange, unpad_input
+if is_cuda_available or is_npu_available:
+    from verl.utils.kernel.flash_attn import index_first_axis, pad_input, rearrange, unpad_input
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_SFT_LOGGING_LEVEL", "WARN"))
