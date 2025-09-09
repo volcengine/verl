@@ -67,7 +67,7 @@ class ActorWorker(Worker, DistProfilerExtension):
         checkpoint_config = self.config.checkpoint
 
         if self.config.strategy == "megatron":
-            from verl.workers.engine.megatron.engine_impl import MegatronEngineWithLMHead
+            from verl.workers.engine.megatron.transformer_impl import MegatronEngineWithLMHead
 
             self.engine = MegatronEngineWithLMHead(
                 model_config=model_config,
@@ -76,7 +76,7 @@ class ActorWorker(Worker, DistProfilerExtension):
                 checkpoint_config=checkpoint_config,
             )
         elif self.config.strategy in ["fsdp", "fsdp2"]:
-            from verl.workers.engine.fsdp.engine_impl import FSDPEngineWithLMHead
+            from verl.workers.engine.fsdp.transformer_impl import FSDPEngineWithLMHead
 
             self.engine = FSDPEngineWithLMHead(
                 model_config=model_config,
@@ -125,6 +125,8 @@ class ActorWorker(Worker, DistProfilerExtension):
             data.meta_info["micro_batch_size_per_gpu"] = self.config.ppo_infer_micro_batch_size_per_gpu
 
         with self.engine.eval_mode():
+            # TODO: make worker API to accept TensorDict as well
+            data = data.to_tensordict()
             output = self.engine.infer_batch(data)
             output = output.get("model_output", {})
 
@@ -192,6 +194,8 @@ class ActorWorker(Worker, DistProfilerExtension):
             with Timer(name="update_policy", logger=None) as timer:
                 for batch_idx, mini_batch in enumerate(dataloader):
                     mini_batch.meta_info["global_batch_size"] = self.config.ppo_mini_batch_size
+                    # TODO: make worker API to accept TensorDict as well
+                    mini_batch = mini_batch.to_tensordict()
                     output = self.engine.train_batch(mini_batch, self.loss_fn)
                     mini_batch_metrics = output.get("metrics", {})
                     append_to_dict(metrics, mini_batch_metrics, prefix="actor/")

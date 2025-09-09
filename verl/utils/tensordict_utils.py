@@ -30,6 +30,23 @@ def assign_non_tensor_data(tensor_dict: TensorDict, key, val):
     tensor_dict[key] = NonTensorData(val)
 
 
+def assign_non_tensor(tensordict: TensorDict, **kwargs):
+    for key, val in kwargs.items():
+        assign_non_tensor_data(tensor_dict=tensordict, key=key, val=val)
+    return tensordict
+
+
+def unwrap_non_tensor_data(data):
+    if isinstance(data, NonTensorData):
+        return data.data
+    return data
+
+
+def get_non_tensor_data(data: TensorDict, key: str, default):
+    output = data.get(key, default)
+    return unwrap_non_tensor_data(output)
+
+
 def get_tensordict(tensor_dict: dict[str, torch.Tensor | list], non_tensor_dict: dict = None) -> TensorDict:
     """
 

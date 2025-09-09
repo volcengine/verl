@@ -14,29 +14,29 @@
 
 
 import torch
+from tensordict import TensorDict
 
-from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, get_policy_loss_fn, kl_penalty
 from verl.workers.config import ActorConfig
 
 
-def sft_loss(config: ActorConfig, model_output, data: DataProto, dp_group=None):
+def sft_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None):
     log_prob = model_output["log_probs"]  # [bsz, response_length]
-    response_mask = data.batch["response_mask"].to(bool)
+    response_mask = data["response_mask"].to(bool)
     loss = -torch.mean(log_prob * response_mask)
     return loss, {"loss": loss.detach().item()}
 
 
-def ppo_loss(config: ActorConfig, model_output, data: DataProto, dp_group=None):
+def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None):
     log_prob = model_output["log_probs"]
     entropy = model_output.get("entropy", None)
 
     metrics = {}
 
-    response_mask = data.batch["response_mask"].to(bool)
+    response_mask = data["response_mask"].to(bool)
     # compute policy loss
-    old_log_prob = data.batch["old_log_probs"]
-    advantages = data.batch["advantages"]
+    old_log_prob = data["old_log_probs"]
+    advantages = data["advantages"]
 
     loss_agg_mode = config.loss_agg_mode
 
@@ -70,7 +70,7 @@ def ppo_loss(config: ActorConfig, model_output, data: DataProto, dp_group=None):
 
     # add kl loss
     if config.use_kl_loss:
-        ref_log_prob = data.batch["ref_log_prob"]
+        ref_log_prob = data["ref_log_prob"]
         # compute kl loss
         kld = kl_penalty(logprob=log_prob, ref_logprob=ref_log_prob, kl_penalty=config.kl_loss_type)
         kl_loss = agg_loss(loss_mat=kld, loss_mask=response_mask, loss_agg_mode=config.loss_agg_mode)
