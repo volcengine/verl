@@ -58,6 +58,16 @@ max_model_len: null
 # max length of sequences
 max_num_seqs: 1024
 
+# may get higher throughput when set to True. When activated, Please increase max_num_batched_tokens or decrease max_model_len.
+enable_chunked_prefill: True
+
+# Prefix caching kv-cache blocks is a popular optimization in LLM inference to avoid redundant prompt computations.
+enable_prefix_caching: True
+
+# Which loader to use for rollout model weights: dummy, hf, megatron, etc.
+# safetensors (for huge model, and set use_shm=True); dummy: randomly init model weight
+load_format: dummy
+
 # [Will be deprecated, use log_prob_micro_batch_size_per_gpu] The batch size for one forward pass in the computation of log_prob. Global batch size.
 log_prob_micro_batch_size: null
 
@@ -93,7 +103,6 @@ multi_stage_wake_up: false
 
 # Extra inference engine arguments (vllm, sglang), please refer vllm/sglang official doc for detail
 engine_kwargs:
-
   # vllm engine config
   vllm: {}
 
@@ -102,7 +111,6 @@ engine_kwargs:
 
 # Sampling parameters used during validation.
 val_kwargs:
-
   # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.workers.config.SamplingConfig
 
@@ -124,7 +132,6 @@ val_kwargs:
 
 # Multi-turn interaction config for tools or chat.
 multi_turn:
-
   # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.workers.config.MultiTurnConfig
 
@@ -172,11 +179,10 @@ multi_turn:
 
 # support logging rollout prob for debugging purpose
 # "Truncated importance sampling" requires rollout log probs, set to True when turning on Truncated importance sampling
-calculate_log_probs: False 
+calculate_log_probs: False
 
 # [Experimental] agent loop based rollout configs
 agent:
-
   # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.workers.config.AgentLoopConfig
 
@@ -197,7 +203,6 @@ agent:
 
   # custom async server configs
   custom_async_server:
-
     # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
     _target_: verl.workers.config.CustomAsyncServerConfig
 
@@ -223,7 +228,6 @@ update_weights_bucket_megabytes: 512
 
 # trace rollout data
 trace:
-
   # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.workers.config.TraceConfig
 
@@ -248,7 +252,6 @@ skip_tokenizer_init: False
 
 # profile the rollout model in `generate_sequence` 
 profiler:
-
   # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.utils.profiler.ProfilerConfig
 
@@ -258,7 +261,7 @@ profiler:
 
   # whether enable profile on ref
   enable: ${oc.select:actor_rollout_ref.actor.profiler.enable,false}
-  
+
   # Whether to profile all ranks.
   all_ranks: ${oc.select:actor_rollout_ref.actor.profiler.all_ranks,false}
 
