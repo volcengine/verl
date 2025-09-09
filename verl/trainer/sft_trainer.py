@@ -32,6 +32,7 @@ from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
 
 import verl.utils.hdfs_io as hdfs_io
+from verl.utils import tensordict_utils as tu
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, get_checkpoint_tracker_filename
 from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
 from verl.utils.device import get_device_name, is_cuda_available, is_npu_available
@@ -39,8 +40,6 @@ from verl.utils.distributed import destroy_global_process_group
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.logger import log_with_rank
 from verl.utils.tracking import Tracking
-
-from verl.utils import tensordict_utils as tu
 
 if is_cuda_available:
     pass

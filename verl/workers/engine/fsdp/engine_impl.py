@@ -25,11 +25,12 @@ from typing import Callable
 import torch
 import torch.distributed
 from peft import LoraConfig, TaskType, get_peft_model
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from tensordict import TensorDict
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 import verl.utils.torch_functional as verl_F
 from verl.models.transformers.monkey_patch import apply_monkey_patch
+from verl.utils import tensordict_utils as tu
 from verl.utils.activation_offload import enable_activation_offloading
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.utils.debug import log_gpu_memory_usage
@@ -59,7 +60,6 @@ from verl.utils.fsdp_utils import (
 from verl.utils.py_functional import convert_to_regular_types
 from verl.utils.torch_functional import logprobs_from_logits
 from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad, ulysses_pad_and_slice_inputs
-from verl.utils import tensordict_utils as tu
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 if is_cuda_available:

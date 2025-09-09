@@ -22,11 +22,10 @@ import torch.distributed
 from megatron.core import parallel_state as mpu
 from megatron.core.pipeline_parallel import get_forward_backward_func
 from omegaconf import OmegaConf
-
 from tensordict import TensorDict
-from verl.utils import tensordict_utils as tu
 
 from verl.trainer.config import CheckpointConfig
+from verl.utils import tensordict_utils as tu
 from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpointManager
 from verl.utils.device import get_device_id, get_device_name
 from verl.utils.megatron.pipeline_parallel import make_batch_generator
@@ -492,9 +491,9 @@ class MegatronEngineWithLMHead(MegatronEngine):
         has_multi_modal_inputs = "multi_modal_inputs" in batch.keys()
         if has_multi_modal_inputs:
             batch["multi_modal_inputs"] = batch["multi_modal_inputs"]
-            batch["multi_modal_inputs_idx"] = torch.Tensor(
-                list(range(len(batch["multi_modal_inputs"])))
-            ).to(torch.int64)
+            batch["multi_modal_inputs_idx"] = torch.Tensor(list(range(len(batch["multi_modal_inputs"])))).to(
+                torch.int64
+            )
 
         if batch["position_ids"].dim() == 3:  # qwen2vl mrope [bs, 3, seq_len]
             batch["position_ids"] = batch["position_ids"][

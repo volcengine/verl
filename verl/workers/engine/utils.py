@@ -14,12 +14,11 @@
 
 
 import torch
-
 from tensordict import TensorDict
-from verl.utils.py_functional import append_to_dict
-from verl.utils.seqlen_balancing import rearrange_micro_batches, restore_dynamic_batch
 
 from verl.utils import tensordict_utils as tu
+from verl.utils.py_functional import append_to_dict
+from verl.utils.seqlen_balancing import rearrange_micro_batches, restore_dynamic_batch
 
 
 def prepare_micro_batches(
@@ -37,9 +36,7 @@ def prepare_micro_batches(
     sp_size = tu.get_non_tensor_data(data=data, key="sp_size", default=1)
 
     if use_dynamic_bsz:
-        assert "max_token_len_per_gpu" in data.keys(), (
-            "max_token_len_per_gpu must be set when use_dynamic_bsz is True"
-        )
+        assert "max_token_len_per_gpu" in data.keys(), "max_token_len_per_gpu must be set when use_dynamic_bsz is True"
         max_token_len_per_gpu = data["max_token_len_per_gpu"]
         max_token_len = max_token_len_per_gpu * sp_size
         micro_batches, batch_idx_list = rearrange_micro_batches(

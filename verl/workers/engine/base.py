@@ -18,7 +18,6 @@ The abstract base class defining the interface for model training engines.
 from typing import Any, Callable, Optional
 
 import torch
-
 from tensordict import TensorDict
 
 
