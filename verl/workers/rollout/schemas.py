@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import difflib
-import json
 import logging
 import os
 from enum import Enum
@@ -429,7 +428,6 @@ class AsyncRolloutRequest(BaseModel):
                 delta_multi_modal_data["video"].extend(content.video)
             if content.text:
                 content_list.append({"type": "text", "text": content.text})
-            content_list = json.dumps(content_list, ensure_ascii=False)
             self.messages.append(Message(role="tool", content=content_list))
 
         messages = [*BASE_CHAT_HISTORY, *self.messages[-len(contents) :]]
