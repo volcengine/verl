@@ -46,7 +46,7 @@ We preprocess the dataset in parquet format so that (1) it contains necessary fi
 
 .. code-block:: bash
 
-   python3 examples/data_preprocess/gsm8k.py --local_dir ~/data/gsm8k
+   python3 examples/data_preprocess/gsm8k.py --local_save_dir ~/data/gsm8k
 
 Step 2: Download a model for post-training
 -------------------------------------------
