@@ -20,10 +20,7 @@ import os
 from argparse import ArgumentParser
 from pathlib import Path
 
-
-SEARCH_WHITELIST = [
-
-]
+SEARCH_WHITELIST = []
 
 SEARCH_KEYWORDS = ["DataProto"]
 
@@ -68,5 +65,5 @@ if __name__ == "__main__":
             )
 
             assert not find_invalid_device_management, (
-                f'file {path_in_str} contains DataProto usage, please use TensorDict directly!'
+                f"file {path_in_str} contains DataProto usage, please use TensorDict directly!"
             )
