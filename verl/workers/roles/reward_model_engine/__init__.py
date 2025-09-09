@@ -12,15 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .actor import ActorWorker
-from .critic import CriticWorker
+from .base import get_reward_model_class
 
-try:
-    from .reward_model import RewardModelWorker
-except ImportError:
-    RewardModelWorker = None
-
-__all__ = ["CriticWorker", "ActorWorker"]
-
-if RewardModelWorker is not None:
-    __all__.append("RewardModelWorker")
+__all__ = ["get_reward_model_class"]

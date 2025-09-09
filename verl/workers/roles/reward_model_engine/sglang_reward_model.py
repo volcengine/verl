@@ -15,25 +15,70 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import multiprocessing as mp
 import os
 
+import sglang.srt.entrypoints.engine
 import torch
 import torch.distributed as dist
+from sglang.srt.server_args import ServerArgs
 from sglang.srt.utils import (
+    assert_pkg_version,
     get_ip,
     get_open_port,
+    is_cuda,
+    set_prometheus_multiproc_dir,
+    set_ulimit,
 )
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 
 from verl import DataProto
 from verl.utils.net_utils import is_ipv6
 from verl.workers.config import HFModelConfig, RewardModelConfig
-from verl.workers.reward_model import BasePPORewardModel
+from verl.workers.roles.reward_model_engine.base import BaseRewardModel
 from verl.workers.rollout.sglang_rollout.http_server_engine import AsyncHttpServerAdapter
 from verl.workers.rollout.sglang_rollout.utils import broadcast_pyobj
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
+
+
+# patch to avoid issue https://github.com/sgl-project/sglang/issues/6723
+def _set_envs_and_config(server_args: ServerArgs):
+    # Set global environments
+    os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+    os.environ["NCCL_CUMEM_ENABLE"] = "0"
+    os.environ["NCCL_NVLS_ENABLE"] = str(int(server_args.enable_nccl_nvls))
+    os.environ["TORCH_NCCL_AVOID_RECORD_STREAMS"] = "1"
+    os.environ["CUDA_DEVICE_MAX_CONNECTIONS"] = "4"
+    os.environ["CUDA_MODULE_LOADING"] = "AUTO"
+
+    # Set prometheus env vars
+    if server_args.enable_metrics:
+        set_prometheus_multiproc_dir()
+
+    # Set ulimit
+    set_ulimit()
+
+    # Check flashinfer version
+    if server_args.attention_backend == "flashinfer":
+        assert_pkg_version(
+            "flashinfer_python",
+            "0.2.5",
+            "Please uninstall the old version and reinstall the latest version by following the instructions at https://docs.flashinfer.ai/installation.html.",
+        )
+    if is_cuda():
+        assert_pkg_version(
+            "sgl-kernel",
+            "0.1.1",
+            "Please reinstall the latest version with `pip install sgl-kernel --force-reinstall`",
+        )
+
+    # Set mp start method
+    mp.set_start_method("spawn", force=True)
+
+
+sglang.srt.entrypoints.engine._set_envs_and_config = _set_envs_and_config
 
 
 def _pre_process_inputs(
@@ -54,7 +99,7 @@ def _post_process_outputs(output):
     return scores
 
 
-class SGLangRewardModel(BasePPORewardModel):
+class SGLangRewardModel(BaseRewardModel):
     def __init__(
         self,
         config: RewardModelConfig,
@@ -66,14 +111,13 @@ class SGLangRewardModel(BasePPORewardModel):
         actor_module = model_config.local_path
         trust_remote_code = model_config.trust_remote_code
         port = None
-        kwargs = {}
 
         os.environ.setdefault("SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK", "true")
 
-        self._init_distributed_env(device_mesh_cpu=None, **kwargs)
+        self._init_distributed_env(device_mesh_cpu=None)
         self._init_inference_engine(trust_remote_code, actor_module, port)
 
-    def _init_distributed_env(self, device_mesh_cpu, **kwargs):
+    def _init_distributed_env(self, device_mesh_cpu):
         self._device_mesh_cpu = device_mesh_cpu
         os.environ.setdefault("SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK", "true")
         self.tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
@@ -211,7 +255,7 @@ class SGLangRewardModel(BasePPORewardModel):
         return reward_score
 
     async def resume(self, tags: list[str]):
-        """Resume rollout weights or kv cache in GPU memory.
+        """Resume reward model weights or kv cache in GPU memory.
 
         Args:
             tag: weights or kv_cache.
