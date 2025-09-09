@@ -14,15 +14,23 @@
 
 import importlib
 from abc import ABC, abstractmethod
-from typing import Generator
+from typing import Generator, Optional
 
 import torch
+from pydantic import BaseModel
 from torch.distributed.device_mesh import DeviceMesh
 
 from verl import DataProto
 from verl.workers.config import HFModelConfig, RolloutConfig
 
-__all__ = ["BaseRollout"]
+__all__ = ["BaseRollout", "TokenOutput"]
+
+
+class TokenOutput(BaseModel):
+    token_ids: list[int]
+    """response token ids"""
+    log_probs: Optional[list[float]] = None
+    """logprobs of response token ids"""
 
 
 class BaseRollout(ABC):
@@ -65,7 +73,6 @@ class BaseRollout(ABC):
         """Release weights and kv cache in GPU memory."""
         pass
 
-    @abstractmethod
     def generate_sequences(self, prompts: DataProto) -> DataProto:
         """Batch generate sequences in sync mode.
 
@@ -75,14 +82,14 @@ class BaseRollout(ABC):
         Returns:
             The output sequences.
         """
-        pass
+        raise NotImplementedError
 
 
 _ROLLOUT_REGISTRY = {
     ("vllm", "sync"): "verl.workers.rollout.vllm_rollout.vLLMRollout",
     ("vllm", "async"): "verl.workers.rollout.vllm_rollout.vLLMAsyncRollout",
     ("sglang", "sync"): "verl.workers.rollout.sglang_rollout.sglang_rollout.SGLangRollout",
-    ("sglang", "async"): "verl.workers.rollout.sglang_rollout.sglang_rollout.SGLangRollout",
+    ("sglang", "async"): "verl.workers.rollout.sglang_rollout.sglang_rollout.ServerAdapter",
 }
 
 
