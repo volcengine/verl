@@ -49,6 +49,9 @@ actor_rollout_ref:
     # may get higher throughput when set to True. When activated, Please increase max_num_batched_tokens or decrease max_model_len.
     enable_chunked_prefill: True
 
+    # Prefix caching kv-cache blocks is a popular optimization in LLM inference to avoid redundant prompt computations.
+    enable_prefix_caching: True
+
     # Which loader to use for rollout model weights: dummy_dtensor, hf, megatron, etc.
     # safetensors (for huge model, and set use_shm=True); dummy_dtensor: randomly init model weight
     load_format: dummy_dtensor
@@ -235,7 +238,7 @@ global_profiler:
 
   # Specific tool configs, can use +profiler.tool_config.[tool].xxx to config
   global_tool_config:
-  
+
     # nsys config
     nsys:
 
@@ -302,13 +305,13 @@ global_profiler:
 
       # devices, record_context etc.
       kw_args: {}
-  
+
 # configs related to ray
 ray_kwargs:
 
   # configs related to ray initialization
   ray_init:
-  
+
     # Number of CPUs for Ray. Use a fixed number instead of null when using SLURM.
     num_cpus: null
 
