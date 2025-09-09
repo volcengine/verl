@@ -61,6 +61,7 @@ class Execute(DynamicEnum):
 def init_predefined_execute_mode():
     Execute.register("ALL")
     Execute.register("RANK_ZERO")
+    Execute.register("ALL_MULTITHREAD")
 
 
 # Initialize the two Dynamic Enum Classes
@@ -362,9 +363,16 @@ def get_predefined_execute_fn(execute_mode):
     Note that here we only asks execute_all and execute_rank_zero to be implemented
     Leave the choice of how these two functions handle argument 'blocking' to users
     """
+    if isinstance(execute_mode, str):
+        try:
+            execute_mode = Execute[execute_mode.upper()]
+        except KeyError:
+            raise ValueError(f"Unknown execute_mode: {execute_mode}")
+
     predefined_execute_mode_fn = {
         Execute.ALL: {"execute_fn_name": "execute_all"},
         Execute.RANK_ZERO: {"execute_fn_name": "execute_rank_zero"},
+        Execute.ALL_MULTITHREAD: {"execute_fn_name": "execute_all_multithread_submit"},
     }
     return predefined_execute_mode_fn[execute_mode]
 
