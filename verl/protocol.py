@@ -198,6 +198,14 @@ def union_numpy_dict(tensor_dict1: dict[str, np.ndarray], tensor_dict2: dict[str
     return tensor_dict1
 
 
+def numpy_dict_to_tensor_dict(numpy_dict: dict[str, np.ndarray]) -> TensorDict:
+    """Convert a dictionary of numpy arrays to a tensordict"""
+    tensor_dict = tensordict.TensorDict()
+    for key, val in numpy_dict.items():
+        tensor_dict[key] = torch.from_numpy(val)
+    return tensor_dict
+
+
 def list_of_dict_to_dict_of_list(list_of_dict: list[dict]):
     if len(list_of_dict) == 0:
         return {}
@@ -331,28 +339,13 @@ class DataProto:
             raise TypeError(f"Indexing with {type(item)} is not supported")
 
     def __getstate__(self):
-        import io
-
-        buffer = io.BytesIO()
-        if version.parse(tensordict.__version__) >= version.parse("0.5.0") and self.batch is not None:
-            batch_to_save = self.batch.contiguous().consolidate()
-        else:
-            batch_to_save = self.batch
-        torch.save(batch_to_save, buffer)
-        buffer_bytes = buffer.getvalue()
-        return buffer_bytes, self.non_tensor_batch, self.meta_info
+        return pickle.dumps(self.batch.numpy()), self.non_tensor_batch, self.meta_info
 
     def __setstate__(self, data):
-        import io
-
         batch_deserialized_bytes, non_tensor_batch, meta_info = data
-        batch_deserialized = io.BytesIO(initial_bytes=batch_deserialized_bytes)
-        batch = torch.load(
-            batch_deserialized,
-            weights_only=False,
-            map_location="cpu" if not get_torch_device().is_available() else None,
-        )
-        self.batch = batch
+        batch_deserialized_bytes = pickle.loads(batch_deserialized_bytes)
+        
+        self.batch = numpy_dict_to_tensor_dict(batch_deserialized_bytes)
         self.non_tensor_batch = non_tensor_batch
         self.meta_info = meta_info
 
