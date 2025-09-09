@@ -182,16 +182,12 @@ class AgentLoopBase(ABC):
         cls._class_initialized = True
 
     @abstractmethod
-    async def run(
-        self, messages: list[dict[str, Any]], sampling_params: dict[str, Any], partial_output: Optional[AgentLoopOutput]
-    ) -> AgentLoopOutput:
+    async def run(self, messages: list[dict[str, Any]], sampling_params: dict[str, Any]) -> AgentLoopOutput:
         """Run agent loop to interact with LLM server and environment.
 
         Args:
             messages (List[Dict[str, Any]]): Input messages.
             sampling_params (Dict[str, Any]): LLM sampling params.
-            partial_output: Optional[AgentLoopOutput]: already rollout result.
-
         Returns:
             AgentLoopOutput: Agent loop output.
         """
@@ -567,17 +563,10 @@ class AgentLoopManager:
 
     def _init_agent_loop_workers(self):
         self.agent_loop_workers = []
-        # 获取建议的资源配置
-        agent_config = self.config.actor_rollout_ref.rollout.agent
-        max_concurrency = agent_config.get("max_concurrency", 10)
-        num_cpus = agent_config.get("num_cpus", 2)  # 默认2个CPU核心
-
-        for i in range(agent_config.num_workers):
+        for i in range(self.config.actor_rollout_ref.rollout.agent.num_workers):
             self.agent_loop_workers.append(
                 AgentLoopWorker.options(
                     name=f"agent_loop_worker_{i}",
-                    max_concurrency=max_concurrency,  # 设置最大并发数
-                    num_cpus=num_cpus,  # 设置CPU资源需求
                 ).remote(self.config, self.async_llm_servers)
             )
 

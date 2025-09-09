@@ -58,7 +58,6 @@ from verl.workers.rollout.base import BaseRollout
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
-
 # TODO
 # 1. support pp in vllm
 # 2. passing tokenizer is not necessary? no encoding/decoding is happending here
@@ -459,7 +458,6 @@ class vLLMAsyncRollout:
 
     def init_worker(self, all_kwargs: list[dict[str, Any]]):
         """Initialize worker engine."""
-
         all_kwargs[0]["rank"] = int(os.environ["RANK"])
         all_kwargs[0]["local_rank"] = 0
 

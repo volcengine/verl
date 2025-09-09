@@ -74,6 +74,7 @@ def _get_model_runner_workers(vllm_config, init_ray: bool = True):
     actor_names = sorted(actor_names, key=get_pg_index_and_local_rank)
     actor_names = actor_names[vllm_dp_rank * vllm_tp_size : (vllm_dp_rank + 1) * vllm_tp_size]
     workers: list[WorkerWrapperBase] = [ray.get_actor(actor_name) for actor_name in actor_names]
+    print(f"instance_id: {vllm_config.instance_id} initializes with external actors: {actor_names}")
 
     return workers
 
@@ -205,8 +206,8 @@ class AsyncvLLMServer(AsyncServerBase):
         self.vllm_dp_rank = vllm_dp_rank
         self.wg_prefix = wg_prefix
         self.engine: AsyncLLM = None
-        # for cancel
 
+        # for cancel LLMServer
         self.paused = False
         self.lock = asyncio.Lock()
         self.cancel_event: dict[str, asyncio.Event] = {}
