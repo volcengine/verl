@@ -527,8 +527,10 @@ class FSDPEngine(BaseEngine):
             # force cpu_offload
             return
 
-        assert device in ("cuda", "cpu")
-        if device == "cuda":
+        device_name = get_device_name()
+
+        assert device in (device_name, "cpu")
+        if device == device_name:
             if not self.engine_config.param_offload:
                 if model:
                     load_fsdp_model_to_gpu(self.module)
