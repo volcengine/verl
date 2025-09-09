@@ -77,6 +77,7 @@ _REWARD_MODEL_REGISTRY = {
     "sglang": "verl.workers.roles.reward_model_engine.sglang_reward_model.SGLangRewardModel",
 }
 
+
 def get_reward_model_class(reward_model_name: str) -> type[BaseRewardModel]:
     assert reward_model_name in _REWARD_MODEL_REGISTRY, f"Reward Model {reward_model_name} with mode not found"
     fqdn = _REWARD_MODEL_REGISTRY[reward_model_name]

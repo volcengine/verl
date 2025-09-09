@@ -17,10 +17,8 @@ The main entry point to run the PPO algorithm
 
 import logging
 import os
-import socket
-import asyncio
+
 import numpy as np
-import ray
 import torch
 
 import verl.utils.torch_functional as verl_F
@@ -35,14 +33,14 @@ from verl.utils.device import (
 from verl.utils.distributed import initialize_global_process_group_ray
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.profiler import DistProfiler, DistProfilerExtension, log_gpu_memory_usage
-from verl.workers.config import HFModelConfig, RewardModelConfig, RouterConfig
-from verl.workers.roles.reward_model_engine import get_reward_model_class, get_launch_router_fn
-
+from verl.workers.config import HFModelConfig, RewardModelConfig
+from verl.workers.roles.reward_model_engine import get_reward_model_class
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 device_name = get_device_name()
+
 
 class RewardModelWorker(Worker, DistProfilerExtension):
     def __init__(self, config: RewardModelConfig) -> None:
@@ -98,13 +96,6 @@ class RewardModelWorker(Worker, DistProfilerExtension):
             config=reward_model_config, model_config=model_config, device_mesh=reward_model_device_mesh
         )
         log_gpu_memory_usage("After building sglang reward model", logger=logger)
-
-    def _get_free_port(self):
-        ip = ray.util.get_node_ip_address()
-        with socket.socket() as sock:
-            sock.bind(("", 0))
-            port = sock.getsockname()[1]
-        return ip, port
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):

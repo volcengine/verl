@@ -93,7 +93,7 @@ class ServerConfig(BaseConfig):
 class RolloutConfig(BaseConfig):
     _mutable_fields = {"max_model_len"}
 
-    name: Optional[str] = "sglang"
+    name: Optional[str] = MISSING
     mode: str = "sync"
 
     temperature: float = 1.0

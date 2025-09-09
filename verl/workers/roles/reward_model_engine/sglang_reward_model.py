@@ -21,12 +21,6 @@ import os
 import sglang.srt.entrypoints.engine
 import torch
 import torch.distributed as dist
-from sglang.srt.utils import (
-    get_ip,
-    get_open_port,
-)
-from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
-
 from sglang.srt.server_args import ServerArgs
 from sglang.srt.utils import (
     assert_pkg_version,
@@ -36,6 +30,7 @@ from sglang.srt.utils import (
     set_prometheus_multiproc_dir,
     set_ulimit,
 )
+from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 
 from verl import DataProto
 from verl.utils.net_utils import is_ipv6
@@ -116,7 +111,6 @@ class SGLangRewardModel(BaseRewardModel):
         actor_module = model_config.local_path
         trust_remote_code = model_config.trust_remote_code
         port = None
-        kwargs = {}
 
         os.environ.setdefault("SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK", "true")
 
