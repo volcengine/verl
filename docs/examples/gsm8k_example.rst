@@ -46,7 +46,7 @@ Step 1: Prepare dataset
 .. code:: bash
 
    cd examples/data_preprocess
-   python3 gsm8k.py --local_dir ~/data/gsm8k
+   python3 gsm8k.py --local_save_dir ~/data/gsm8k
 
 Step 2: Download Model
 ----------------------
