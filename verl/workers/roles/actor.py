@@ -67,7 +67,7 @@ class ActorWorker(Worker, DistProfilerExtension):
         checkpoint_config = self.config.checkpoint
 
         if self.config.strategy == "megatron":
-            from verl.workers.engine.megatron.engine_impl import MegatronEngineWithLMHead
+            from verl.workers.engine.megatron.transformer_impl import MegatronEngineWithLMHead
 
             self.engine = MegatronEngineWithLMHead(
                 model_config=model_config,
@@ -76,7 +76,7 @@ class ActorWorker(Worker, DistProfilerExtension):
                 checkpoint_config=checkpoint_config,
             )
         elif self.config.strategy in ["fsdp", "fsdp2"]:
-            from verl.workers.engine.fsdp.engine_impl import FSDPEngineWithLMHead
+            from verl.workers.engine.fsdp.transformer_impl import FSDPEngineWithLMHead
 
             self.engine = FSDPEngineWithLMHead(
                 model_config=model_config,
