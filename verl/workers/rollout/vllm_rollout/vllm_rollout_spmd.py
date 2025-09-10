@@ -168,7 +168,7 @@ class vLLMRollout(BaseRollout):
         if self.config.get("limit_images", None) is not None:
             multimodal_quota_per_prompt["image"] = self.config.get("limit_images")
         if self.config.get("limit_audios", None) is not None:
-            multimodal_quota_per_prompt["image"] = self.config.get("limit_audios")
+            multimodal_quota_per_prompt["audio"] = self.config.get("limit_audios")
         if self.config.get("limit_videos", None) is not None:
             multimodal_quota_per_prompt["video"] = self.config.get("limit_videos")
         if len(multimodal_quota_per_prompt) > 0:
