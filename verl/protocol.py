@@ -364,7 +364,7 @@ class DataProto:
         batch_size = batch_deserialized["batch_size"]
         dtypes = batch_deserialized["dtypes"]
         tensor_dict = {}
-        for k, v in numpy_dict:
+        for k, v in numpy_dict.items():
             dtype = dtypes[k]
             if dtype == "bfloat16":
                 tensor_dict[k] = torch.from_numpy(v).view(getattr(torch, dtype))
