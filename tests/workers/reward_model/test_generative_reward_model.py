@@ -21,7 +21,7 @@ from transformers import AutoModelForSequenceClassification
 from verl import DataProto
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 from verl.utils.model import compute_position_id_with_mask
-from verl.workers.config import HFModelConfig, SamplingConfig, RewardModelConfig
+from verl.workers.config import HFModelConfig, RewardModelConfig, RewardModelDataProcessorConfig, SamplingConfig
 from verl.workers.roles import RewardModelWorker
 
 
@@ -100,6 +100,11 @@ def test_reward_model():
     rm_path = os.path.expanduser("~/models/verl-team/GenRM-CI-Test-1.5B")
     model_config = HFModelConfig(path=rm_path)
     sampling_config = SamplingConfig(temperature=0.0)
+    data_processor_config = RewardModelDataProcessorConfig(
+        path="tests/workers/reward_model/process_fn.py",
+        preprocess_fn_name="construct_genrm_inputs_from_rollouts",
+        postprocess_fn_name="convert_genrm_responses_to_rewards",
+    )
     config = RewardModelConfig(
         enable=True,
         model_type="generative",
@@ -109,6 +114,7 @@ def test_reward_model():
         input_model_config=None,
         tensor_model_parallel_size=2,
         sampling_config=sampling_config,
+        data_processor_config=data_processor_config,
     )
     ray_cls_with_init = RayClassWithInitArgs(cls=ray.remote(RewardModelWorker), config=config)
     resource_pool = RayResourcePool(process_on_nodes=[8])
@@ -125,20 +131,4 @@ def test_reward_model():
     print(f"{server_rm_scores=}")
     server_rm_scores_mean = torch.mean(server_rm_scores)
 
-    hf_model = AutoModelForSequenceClassification.from_pretrained(rm_path, torch_dtype=torch.bfloat16)
-    hf_model.pad_token_id = tokenizer.pad_token_id
-    hf_output = hf_model(
-        input_ids=data.batch["input_ids"],
-        attention_mask=data.batch["attention_mask"],
-    )
-    hf_rm_scores = hf_output.logits.squeeze().detach().to("cpu")
-    print(f"{hf_rm_scores=}")
-    hf_rm_scores_mean = torch.mean(hf_rm_scores).to(server_rm_scores.dtype)
-
-    torch.testing.assert_close(server_rm_scores_mean, hf_rm_scores_mean, atol=2e-2, rtol=1e-2)
-
     ray.shutdown()
-
-
-if __name__ == "__main__":
-    test_reward_model()

@@ -33,7 +33,6 @@ from sglang.srt.utils import (
 )
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 
-from verl import DataProto
 from verl.utils.net_utils import is_ipv6
 from verl.workers.config import HFModelConfig, RewardModelConfig
 from verl.workers.roles.reward_model_engine.base import BaseRewardModel
@@ -82,22 +81,13 @@ def _set_envs_and_config(server_args: ServerArgs):
 sglang.srt.entrypoints.engine._set_envs_and_config = _set_envs_and_config
 
 
-def _pre_process_inputs(
-    attention_mask: torch.Tensor,
-    prompt_token_ids: torch.Tensor,
-) -> torch.Tensor:
-    non_pad_indices = torch.nonzero(attention_mask, as_tuple=True)[0]
-    start_idx, end_idx = non_pad_indices[0], non_pad_indices[-1]
-    return prompt_token_ids[start_idx : end_idx + 1]
-
-
-def _post_process_outputs(output):
-    def _map_each_output(output):
-        reward_score = output["embedding"][-1]
-        return torch.tensor(reward_score)
-
-    scores = torch.stack([_map_each_output(output) for output in output])
-    return scores
+def _post_process_outputs(output, is_embedding):
+    if is_embedding:
+        scores = [o["embedding"][-1] for o in output]
+        return scores
+    else:
+        texts = [o["text"] for o in output]
+        return texts
 
 
 class SGLangRewardModel(BaseRewardModel):
@@ -113,10 +103,6 @@ class SGLangRewardModel(BaseRewardModel):
         trust_remote_code = model_config.trust_remote_code
         port = None
 
-        os.environ.setdefault("SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK", "true")
-
-        self._init_distributed_env(device_mesh_cpu=None)
-        self._init_inference_engine(trust_remote_code, actor_module, port)
         reward_type = self.config.model_type
         if reward_type == "discriminative":
             self.is_embedding = True
@@ -125,6 +111,11 @@ class SGLangRewardModel(BaseRewardModel):
             self._init_sampling_params()
         else:
             raise ValueError(f"reward type {reward_type} not supported")
+
+        os.environ.setdefault("SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK", "true")
+
+        self._init_distributed_env(device_mesh_cpu=None)
+        self._init_inference_engine(trust_remote_code, actor_module, port)
 
     def _init_distributed_env(self, device_mesh_cpu):
         self._device_mesh_cpu = device_mesh_cpu
@@ -218,15 +209,15 @@ class SGLangRewardModel(BaseRewardModel):
                 "mm_attention_backend": "fa3",
                 "attention_backend": attention_backend if attention_backend is not None else "fa3",
                 # In async mode, we want token in token out.
-                "skip_tokenizer_init": True,
+                "skip_tokenizer_init": False,
                 # For embedding models
                 "is_embedding": self.is_embedding,
                 # server specific args
-                "timeout": self.config.server["timeout"],
-                "max_attempts": self.config.server["max_attempts"],
-                "retry_delay": self.config.server["retry_delay"],
-                "max_connections": self.config.server["max_connections"],
-                "max_start_wait_time": self.config.server["max_start_wait_time"],
+                "timeout": self.config.server_config["timeout"],
+                "max_attempts": self.config.server_config["max_attempts"],
+                "retry_delay": self.config.server_config["retry_delay"],
+                "max_connections": self.config.server_config["max_connections"],
+                "max_start_wait_time": self.config.server_config["max_start_wait_time"],
                 "first_rank_in_node": first_rank_in_node,
             }
             self._engine = AsyncHttpServerAdapter(**args)
@@ -251,24 +242,14 @@ class SGLangRewardModel(BaseRewardModel):
         kwargs["n"] = 1  # already repeat in ray_trainer
         self.sampling_params = kwargs
 
-    def compute_reward(self, data: DataProto):
-        # input ids: (bs, prompt_length), left-padded
-        idx = data.batch["input_ids"]
-        # attention_mask: (bs, seq_length), left-padded
-        attention_mask = data.batch["attention_mask"]
-
-        batch_size = idx.size(0)
-
-        idx_list = [_pre_process_inputs(attention_mask[i], idx[i]).tolist() for i in range(batch_size)]
-
-        breakpoint()
+    def compute_reward(self, rm_input_ids):
         if self._tp_rank == 0:
             loop = asyncio.new_event_loop()
             if self.is_embedding:
-                output = loop.run_until_complete(self._engine.async_reward_score(prompt=None, input_ids=idx_list))
+                output = loop.run_until_complete(self._engine.async_reward_score(prompt=None, input_ids=rm_input_ids))
             else:
                 output = loop.run_until_complete(
-                    self._engine.async_generate(prompt=None, sampling_params=self.sampling_params, input_ids=idx_list)
+                    self._engine.async_generate(prompt=None, sampling_params=self.sampling_params, input_ids=rm_input_ids)
                 )
         else:
             output = None
@@ -281,9 +262,9 @@ class SGLangRewardModel(BaseRewardModel):
             src=self._device_mesh_cpu["tp"].mesh[0].item(),
             force_cpu_device=False,
         )
-        breakpoint()
-        reward_score = _post_process_outputs(output).to(idx.device)
-        return reward_score
+
+        output = _post_process_outputs(output, self.is_embedding)
+        return output
 
     async def resume(self, tags: list[str]):
         """Resume reward model weights or kv cache in GPU memory.
