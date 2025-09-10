@@ -61,31 +61,21 @@ class ActorWorker(Worker, DistProfilerExtension):
         self.loss_fn = partial(ppo_loss, config=self.config)
 
     def _build_engine(self):
-        model_config = self.config.model_config
-        engine_config = self.config.engine
-        optimizer_config = self.config.optim
-        checkpoint_config = self.config.checkpoint
+        self.model_config = self.config.model_config
+        self.engine_config = self.config.engine
+        self.optimizer_config = self.config.optim
+        self.checkpoint_config = self.config.checkpoint
 
-        if self.config.strategy == "megatron":
-            from verl.workers.engine.megatron.transformer_impl import MegatronEngineWithLMHead
+        from verl.workers.engine import BaseEngine, EngineRegistry
 
-            self.engine = MegatronEngineWithLMHead(
-                model_config=model_config,
-                engine_config=engine_config,
-                optimizer_config=optimizer_config,
-                checkpoint_config=checkpoint_config,
-            )
-        elif self.config.strategy in ["fsdp", "fsdp2"]:
-            from verl.workers.engine.fsdp.transformer_impl import FSDPEngineWithLMHead
-
-            self.engine = FSDPEngineWithLMHead(
-                model_config=model_config,
-                engine_config=engine_config,
-                optimizer_config=optimizer_config,
-                checkpoint_config=checkpoint_config,
-            )
-        else:
-            raise ValueError(f"Unknown strategy {self.config.strategy}")
+        self.engine: BaseEngine = EngineRegistry.new(
+            model_type="language_model",
+            backend=self.config.strategy,
+            model_config=self.model_config,
+            engine_config=self.engine_config,
+            optimizer_config=self.optimizer_config,
+            checkpoint_config=self.checkpoint_config,
+        )
 
         # build dispatch info
         self._register_dispatch_collect_info(
@@ -102,7 +92,7 @@ class ActorWorker(Worker, DistProfilerExtension):
         self.ppo_mini_batch_size_per_dp = self.ppo_mini_batch_size // self.engine.get_data_parallel_size()
 
         # setup flops counter
-        self.flops_counter = FlopsCounter(model_config.hf_config)
+        self.flops_counter = FlopsCounter(self.model_config.hf_config)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):

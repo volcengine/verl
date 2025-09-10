@@ -878,3 +878,10 @@ class FSDPEngineWithLMHead(FSDPEngine):
             }
 
             return loss, output
+
+
+@EngineRegistry.register(model_type="value_model", backend=["fsdp", "fsdp2"])
+class FSDPEngineWithValueHead(FSDPEngineWithLMHead):
+    """
+    The only difference between
+    """
