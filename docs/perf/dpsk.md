@@ -59,17 +59,17 @@ To train your project, configure the following environment variables based on th
 ### Benchmark
 Here are some benchmark results for DeepSeek / Qwen3-235B. All configurations match the recommended settings based on the number of GPUs.
 
-| model | num gpus | mean response length | rollout time(s) | GPU memory(GB) | CPU memory(GB) | mfu | step time(s) |
+| model | num gpus | mean response length | rollout time(s) | GPU memory(GB) | CPU memory(GB) | MFU | step time(s) |
 | -- | -- | -- | -- | -- | -- | -- | -- |
 | DeepSeek 671b | 96 | 1960 | 1050 | 66 | 1500 | 0.19 | 1700 |
 
 ### Qwen3-30B-A3B MOE
 
-For Qwen3-30b, please refer to [examples/grpo_trainer/run_qwen3moe-30b_megatron_96gb.sh](https://github.com/volcengine/verl/blob/main/examples/grpo_trainer/run_qwen3moe-30b_megatron_96gb.sh]).
+For Qwen3-30b, please refer to [examples/grpo_trainer/run_qwen3moe-30b_megatron_96gb.sh](https://github.com/volcengine/verl/blob/main/examples/grpo_trainer/run_qwen3moe-30b_megatron_96gb.sh).
 
 To train your project, configure the following environment variables based on the number of available GPUs. These are recommended settings and can be adjusted based on your specific hardware.
-| num gpus | NNODES | TP | PP | EP | OFFLOAD_FRACTION | MFU |
-| -- | -- | -- | -- | -- | -- | -- | 
+| num gpus | NNODES | TP | PP | EP | OFFLOAD_FRACTION | OFFLOAD_OPTIM | MFU |
+| -- | -- | -- | -- | -- | -- | -- | -- | 
 | 8 | 1 | 1 | 1 | 8 | 1. | True | 0.4 |
 | 16 | 2 | 1 | 1 | 8 | 1. | True | 0.37 |
 | 32 | 4 | 1 | 1 | 8 | 1. | True | 0.31 |
