@@ -56,7 +56,10 @@ class RewardModelConfig(BaseConfig):
     gpu_memory_utilization: float = 0.5
     free_cache_engine: bool = True
     tensor_model_parallel_size: int = 2
+
+    # for generative reward model
     sampling_config: SamplingConfig = field(default_factory=SamplingConfig)
+    max_new_tokens: int = 4096
 
     engine_kwargs: dict = field(default_factory=dict)
     max_num_seqs: int = 1024

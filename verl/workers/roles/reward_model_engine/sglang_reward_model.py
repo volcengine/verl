@@ -21,6 +21,7 @@ import os
 import sglang.srt.entrypoints.engine
 import torch
 import torch.distributed as dist
+from sglang.srt.sampling.sampling_params import SamplingParams
 from sglang.srt.server_args import ServerArgs
 from sglang.srt.utils import (
     assert_pkg_version,
@@ -116,6 +117,14 @@ class SGLangRewardModel(BaseRewardModel):
 
         self._init_distributed_env(device_mesh_cpu=None)
         self._init_inference_engine(trust_remote_code, actor_module, port)
+        reward_type = self.config.model_type
+        if reward_type == "discriminative":
+            self.is_embedding = True
+        elif reward_type == "generative":
+            self.is_embedding = False
+            self._init_sampling_params()
+        else:
+            raise ValueError(f"reward type {reward_type} not supported")
 
     def _init_distributed_env(self, device_mesh_cpu):
         self._device_mesh_cpu = device_mesh_cpu
@@ -211,7 +220,7 @@ class SGLangRewardModel(BaseRewardModel):
                 # In async mode, we want token in token out.
                 "skip_tokenizer_init": True,
                 # For embedding models
-                "is_embedding": True,
+                "is_embedding": self.is_embedding,
                 # server specific args
                 "timeout": self.config.server["timeout"],
                 "max_attempts": self.config.server["max_attempts"],
@@ -227,6 +236,21 @@ class SGLangRewardModel(BaseRewardModel):
         self.sharding_manager = None
         self.is_sleep = True
 
+    def _init_sampling_params(self):
+        kwargs = dict(
+            n=1,
+            max_new_tokens=self.config.max_new_tokens,
+            presence_penalty=0.0,
+            frequency_penalty=0.0,
+            repetition_penalty=self.config.get("repetition_penalty", 1.0),
+        )
+        # supporting adding any sampling params from the config file
+        for k in self.config.keys():
+            if hasattr(SamplingParams(), str(k)) or "stop" in str(k):
+                kwargs[k] = self.config.get(k)
+        kwargs["n"] = 1  # already repeat in ray_trainer
+        self.sampling_params = kwargs
+
     def compute_reward(self, data: DataProto):
         # input ids: (bs, prompt_length), left-padded
         idx = data.batch["input_ids"]
@@ -237,9 +261,15 @@ class SGLangRewardModel(BaseRewardModel):
 
         idx_list = [_pre_process_inputs(attention_mask[i], idx[i]).tolist() for i in range(batch_size)]
 
+        breakpoint()
         if self._tp_rank == 0:
             loop = asyncio.new_event_loop()
-            output = loop.run_until_complete(self._engine.async_reward_score(prompt=None, input_ids=idx_list))
+            if self.is_embedding:
+                output = loop.run_until_complete(self._engine.async_reward_score(prompt=None, input_ids=idx_list))
+            else:
+                output = loop.run_until_complete(
+                    self._engine.async_generate(prompt=None, sampling_params=self.sampling_params, input_ids=idx_list)
+                )
         else:
             output = None
 
@@ -251,6 +281,7 @@ class SGLangRewardModel(BaseRewardModel):
             src=self._device_mesh_cpu["tp"].mesh[0].item(),
             force_cpu_device=False,
         )
+        breakpoint()
         reward_score = _post_process_outputs(output).to(idx.device)
         return reward_score
 
