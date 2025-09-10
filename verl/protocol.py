@@ -337,17 +337,21 @@ class DataProto:
             batch = self.batch
         dtypes = {}
         batch_to_serialize = {}
-        for k, v in batch.items():
-            dtypes[k] = str(v.dtype).removeprefix("torch.")
-            if v.dtype == torch.bfloat16:
-                batch_to_serialize[k] = v.view(torch.uint8).numpy()
-            else:
-                batch_to_serialize[k] = v.numpy()
+        if batch is not None:
+            for k, v in batch.items():
+                dtypes[k] = str(v.dtype).removeprefix("torch.")
+                if v.dtype == torch.bfloat16:
+                    batch_to_serialize[k] = v.view(torch.uint8).numpy()
+                else:
+                    batch_to_serialize[k] = v.numpy()
+            batch_size = batch.batch_size
+        else:
+            batch_size = None
 
         return (
             pickle.dumps(
                 {
-                    "batch_size": batch.batch_size,
+                    "batch_size": batch_size,
                     "dtypes": dtypes,
                     "data": batch_to_serialize,
                 }
@@ -364,16 +368,19 @@ class DataProto:
         batch_size = batch_deserialized["batch_size"]
         dtypes = batch_deserialized["dtypes"]
         tensor_dict = {}
-        for k, v in numpy_dict.items():
-            dtype = dtypes[k]
-            if dtype == "bfloat16":
-                tensor_dict[k] = torch.from_numpy(v).view(getattr(torch, dtype))
-            else:
-                tensor_dict[k] = torch.from_numpy(v)
-        self.batch = TensorDict(
-            tensor_dict,
-            batch_size=batch_size,
-        )
+        if numpy_dict is not None:
+            for k, v in numpy_dict.items():
+                dtype = dtypes[k]
+                if dtype == "bfloat16":
+                    tensor_dict[k] = torch.from_numpy(v).view(getattr(torch, dtype))
+                else:
+                    tensor_dict[k] = torch.from_numpy(v)
+            self.batch = TensorDict(
+                tensor_dict,
+                batch_size=batch_size,
+            )
+        else:
+            self.batch = None
         self.non_tensor_batch = non_tensor_batch
         self.meta_info = meta_info
 
