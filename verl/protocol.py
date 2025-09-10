@@ -332,17 +332,46 @@ class DataProto:
 
     def __getstate__(self):
         if version.parse(tensordict.__version__) >= version.parse("0.5.0") and self.batch is not None:
-            batch_to_save = self.batch.contiguous().consolidate()
+            batch = self.batch.contiguous().consolidate()
         else:
-            batch_to_save = self.batch
-        return pickle.dumps(batch_to_save.numpy()), batch_to_save.batch_size, self.non_tensor_batch, self.meta_info
+            batch = self.batch
+        dtypes = {}
+        batch_to_serialize = {}
+        for k, v in batch.items():
+            dtypes[k] = str(v.dtype).removeprefix("torch.")
+            if v.dtype == torch.bfloat16:
+                batch_to_serialize[k] = v.view(torch.uint8).numpy()
+            else:
+                batch_to_serialize[k] = v.numpy()
+
+        return (
+            pickle.dumps(
+                {
+                    "batch_size": batch.batch_size,
+                    "dtypes": dtypes,
+                    "data": batch_to_serialize,
+                }
+            ),
+            self.non_tensor_batch,
+            self.meta_info,
+        )
 
     def __setstate__(self, data):
-        batch_deserialized_bytes, batch_size, non_tensor_batch, meta_info = data
+        batch_deserialized_bytes, non_tensor_batch, meta_info = data
         batch_deserialized = pickle.loads(batch_deserialized_bytes)
 
+        numpy_dict = batch_deserialized["data"]
+        batch_size = batch_deserialized["batch_size"]
+        dtypes = batch_deserialized["dtypes"]
+        tensor_dict = {}
+        for k, v in numpy_dict:
+            dtype = dtypes[k]
+            if dtype == "bfloat16":
+                tensor_dict[k] = torch.from_numpy(v).view(getattr(torch, dtype))
+            else:
+                tensor_dict[k] = torch.from_numpy(v)
         self.batch = TensorDict(
-            {k: torch.from_numpy(v) if isinstance(v, np.ndarray) else v for k, v in batch_deserialized.items()},
+            tensor_dict,
             batch_size=batch_size,
         )
         self.non_tensor_batch = non_tensor_batch
