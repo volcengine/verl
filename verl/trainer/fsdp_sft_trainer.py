@@ -467,10 +467,8 @@ class FSDPSFTTrainer:
         micro_batches = batch.split(self.config.data.micro_batch_size_per_gpu)
         n_micro_batches = len(micro_batches)
         step_loss = 0
-        for micro_idx, micro_batch in enumerate(micro_batches):            
-            loss = self._compute_loss_and_backward(
-                batch=micro_batch, n_micro_batches=n_micro_batches
-            )
+        for micro_batch in micro_batches:
+            loss = self._compute_loss_and_backward(batch=micro_batch, n_micro_batches=n_micro_batches)
             step_loss += loss.item()
 
         if self.config.model.strategy == "fsdp":
