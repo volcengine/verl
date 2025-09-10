@@ -883,5 +883,41 @@ class FSDPEngineWithLMHead(FSDPEngine):
 @EngineRegistry.register(model_type="value_model", backend=["fsdp", "fsdp2"])
 class FSDPEngineWithValueHead(FSDPEngineWithLMHead):
     """
-    The only difference between
+    The only difference between critic and actor is how the raw model output is processed
     """
+    def prepare_model_outputs(self, output, output_args, micro_batch: TensorDict):
+        use_remove_padding = tu.get_non_tensor_data(data=micro_batch, key="use_remove_padding", default=True)
+
+        if use_remove_padding:
+            input_ids = micro_batch["input_ids"]
+            batch_size, seqlen = input_ids.shape
+            response_length = micro_batch["responses"].size(-1)
+
+            if hasattr(self.module, "v_head"):
+                # For trl.AutoModelForCausalLMWithValueHead
+                values_rmpad = output[2].squeeze(0).unsqueeze(-1)
+            else:
+                values_rmpad = output.logits
+                values_rmpad = values_rmpad.squeeze(0)  # (total_nnz)
+
+            indices = output_args["indices"]
+
+            # gather output if sp > 1
+            if self.use_ulysses_sp:
+                pad_size = output_args["pad_size"]
+                values_rmpad = gather_outputs_and_unpad(
+                    values_rmpad, gather_dim=0, unpad_dim=0, padding_size=pad_size
+                )
+
+            # pad it back
+            values = pad_input(values_rmpad, indices=indices, batch=batch_size, seqlen=seqlen).squeeze(-1)
+            values = values[:, -response_length - 1 : -1]
+        else:
+            if hasattr(self.module, "v_head"):
+                # For trl.AutoModelForCausalLMWithValueHead
+                values = output[2]
+            else:
+                values = output.logits
+            values = values[:, -response_length - 1 : -1].squeeze(-1)
+
+        return {"values": values}

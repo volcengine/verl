@@ -193,6 +193,7 @@ jobs:
       - name: Download model config files
         run: |
           hf download Qwen/Qwen2.5-0.5B-Instruct --local-dir $HOME/models/Qwen/Qwen2.5-0.5B-Instruct
+          hf download Skywork/Skywork-Reward-V2-Qwen3-0.6B --local-dir $HOME/models/Skywork/Skywork-Reward-V2-Qwen3-0.6B
 
       - name: Running mcore engine tests on 8 L20 GPUs
         run: |

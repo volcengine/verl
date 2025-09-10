@@ -68,6 +68,15 @@ class CriticWorker(Worker, DistProfilerExtension):
 
         from verl.workers.engine import BaseEngine, EngineRegistry
 
+        # replace AutoModelForSequenceClassification to AutoModelForTokenClassification
+        hf_config = self.model_config.hf_config
+
+        model_name, model_type = hf_config.architectures[0].split("For")
+        hf_config.architectures[0] = f"{model_name}ForTokenClassification"
+
+        # make sure output dropout is 0
+        hf_config.classifier_dropout = 0
+
         self.engine: BaseEngine = EngineRegistry.new(
             model_type="value_model",
             backend=self.config.strategy,
@@ -85,7 +94,7 @@ class CriticWorker(Worker, DistProfilerExtension):
         )
 
         # aggregate with bon sampling
-        self.ppo_mini_batch_size = self.config.ppo_mini_batch_size * self.config.n
+        self.ppo_mini_batch_size = self.config.ppo_mini_batch_size * self.config.rollout_n
         assert self.ppo_mini_batch_size % self.engine.get_data_parallel_size() == 0, (
             f"{self.ppo_mini_batch_size=} is not divisible by {self.engine.get_data_parallel_size()=}"
         )
@@ -105,7 +114,7 @@ class CriticWorker(Worker, DistProfilerExtension):
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="critic"))
     @DistProfiler.annotate(color="blue", role="critic_compute_values")
-    def compute_log_prob(self, data: DataProto):
+    def compute_values(self, data: DataProto):
         data.meta_info["use_dynamic_bsz"] = self.config.use_dynamic_bsz
         if self.config.use_dynamic_bsz:
             data.meta_info["max_token_len_per_gpu"] = self.config.ppo_infer_max_token_len_per_gpu
@@ -116,12 +125,12 @@ class CriticWorker(Worker, DistProfilerExtension):
             # TODO: make worker API to accept TensorDict as well
             data = data.to_tensordict()
             output = self.engine.infer_batch(data)
-            output = output.get("model_output", {})
-
-        if "log_probs" in output and "entropy" in output:
+            
+        if self.engine.is_mp_src_rank_with_outputs():
             # in megatron, only last pp contains valid data and returned to the single controller
+            output = output["model_output"]
             output = DataProto.from_dict(
-                tensors={"old_log_probs": output["log_probs"].float(), "entropy": output["entropy"].float()},
+                tensors={"values": output["values"].float()},
             )
             output = output.to("cpu")
 
@@ -162,9 +171,9 @@ class CriticWorker(Worker, DistProfilerExtension):
             dataloader_kwargs={"shuffle": self.config.shuffle},
         )
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
-    @DistProfiler.annotate(color="red", role="actor_update")
-    def update_actor(self, data: DataProto):
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="critic"))
+    @DistProfiler.annotate(color="red", role="critic_update")
+    def update_critic(self, data: DataProto):
         data.meta_info["use_dynamic_bsz"] = self.config.use_dynamic_bsz
         if self.config.use_dynamic_bsz:
             data.meta_info["max_token_len_per_gpu"] = self.config.ppo_max_token_len_per_gpu
@@ -190,7 +199,7 @@ class CriticWorker(Worker, DistProfilerExtension):
 
             global_num_tokens = data.meta_info["global_token_num"]
             estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
-            metrics["perf/mfu/actor"] = estimated_flops * self.config.ppo_epochs / promised_flops / self.world_size
+            metrics["perf/mfu/critic"] = estimated_flops * self.config.ppo_epochs / promised_flops / self.world_size
             metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024**3)
             metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024**3)
             metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024**3)

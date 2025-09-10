@@ -85,7 +85,7 @@ class ActorWorker(Worker, DistProfilerExtension):
         )
 
         # aggregate with bon sampling
-        self.ppo_mini_batch_size = self.config.ppo_mini_batch_size * self.config.n
+        self.ppo_mini_batch_size = self.config.ppo_mini_batch_size * self.config.rollout_n
         assert self.ppo_mini_batch_size % self.engine.get_data_parallel_size() == 0, (
             f"{self.ppo_mini_batch_size=} is not divisible by {self.engine.get_data_parallel_size()=}"
         )
@@ -118,9 +118,9 @@ class ActorWorker(Worker, DistProfilerExtension):
             # TODO: make worker API to accept TensorDict as well
             data = data.to_tensordict()
             output = self.engine.infer_batch(data)
-            output = output.get("model_output", {})
 
-        if "log_probs" in output and "entropy" in output:
+        if self.engine.is_mp_src_rank_with_outputs():
+            output = output["model_output"]
             # in megatron, only last pp contains valid data and returned to the single controller
             output = DataProto.from_dict(
                 tensors={"old_log_probs": output["log_probs"].float(), "entropy": output["entropy"].float()},
