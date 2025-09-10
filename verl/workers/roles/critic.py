@@ -125,7 +125,7 @@ class CriticWorker(Worker, DistProfilerExtension):
             # TODO: make worker API to accept TensorDict as well
             data = data.to_tensordict()
             output = self.engine.infer_batch(data)
-            
+
         if self.engine.is_mp_src_rank_with_outputs():
             # in megatron, only last pp contains valid data and returned to the single controller
             output = output["model_output"]

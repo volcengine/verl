@@ -885,6 +885,7 @@ class FSDPEngineWithValueHead(FSDPEngineWithLMHead):
     """
     The only difference between critic and actor is how the raw model output is processed
     """
+
     def prepare_model_outputs(self, output, output_args, micro_batch: TensorDict):
         use_remove_padding = tu.get_non_tensor_data(data=micro_batch, key="use_remove_padding", default=True)
 
@@ -905,9 +906,7 @@ class FSDPEngineWithValueHead(FSDPEngineWithLMHead):
             # gather output if sp > 1
             if self.use_ulysses_sp:
                 pad_size = output_args["pad_size"]
-                values_rmpad = gather_outputs_and_unpad(
-                    values_rmpad, gather_dim=0, unpad_dim=0, padding_size=pad_size
-                )
+                values_rmpad = gather_outputs_and_unpad(values_rmpad, gather_dim=0, unpad_dim=0, padding_size=pad_size)
 
             # pad it back
             values = pad_input(values_rmpad, indices=indices, batch=batch_size, seqlen=seqlen).squeeze(-1)
