@@ -80,7 +80,7 @@ n_resp_per_prompt=16
 train_prompt_mini_bsz=32
 total_rollout_steps=$(((512*400)))
 test_freq=20
-staleness_threshold=1
+staleness_threshold=0.1
 trigger_parameter_sync_step=16
 partial_rollout=True
 

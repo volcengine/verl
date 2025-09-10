@@ -2,8 +2,36 @@
 set -xeuo pipefail
 
 project_name='DAPO'
-exp_name='dapo_qwen3-30BA3B_8k_fsdp2_async_32-32_mbs32_tpf8'
+exp_name='dapo_qwen2-7B-math_28k_fsdp2_fully-async_64-64_mbs32_tpf4_fixmcs'
 
+# Ray
+# RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
+# WORKING_DIR=${WORKING_DIR:-"${PWD}"}
+# RUNTIME_ENV=${RUNTIME_ENV:-"${WORKING_DIR}/verl/trainer/runtime_env.yaml"}
+# Paths
+RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
+# very important! please modify the max_position_embeddings in config.json to 32768 after downloading from huggingface
+MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen2.5-Math-7B"}
+CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/ckpts/${project_name}/${exp_name}"}
+TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/dapo-math-17k.parquet"}
+TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/aime-2024.parquet"}
+
+# MODEL_PATH=/mnt/dolphinfs/hdd_pool/docker/user/hadoop-djst-algoplat/houzhenggang/modelscope/hub/models/Qwen/Qwen2___5-Math-7B
+MODEL_PATH=/mnt/dolphinfs/ssd_pool/docker/user/hadoop-friday-studio/FTI/houzhenggang/model/Qwen2___5-Math-7B
+CKPTS_DIR=./ckpts/${project_name}/${exp_name}
+# TRAIN_FILE=/mnt/dolphinfs/hdd_pool/docker/user/hadoop-djst-algoplat/houzhenggang/data/dapo/dapo-math-17k.parquet
+# TEST_FILE=/mnt/dolphinfs/hdd_pool/docker/user/hadoop-djst-algoplat/houzhenggang/data/dapo/aime-2024.parquet
+TRAIN_FILE=/mnt/dolphinfs/ssd_pool/docker/user/hadoop-friday-studio/FTI/houzhenggang/data/dapo/dapo-math-17k.parquet
+TEST_FILE=/mnt/dolphinfs/ssd_pool/docker/user/hadoop-friday-studio/FTI/houzhenggang/data/dapo/aime-2024.parquet
+
+rollout_mode="async"
+rollout_name="vllm" # sglang or vllm
+if [ "$rollout_mode" = "async" ]; then
+    export VLLM_USE_V1=1
+    return_raw_chat="True"
+fi
+
+# Algorithm parameters
 adv_estimator=grpo
 
 use_kl_in_reward=False
@@ -14,19 +42,15 @@ kl_loss_coef=0.0
 clip_ratio_low=0.2
 clip_ratio_high=0.28
 
+# Response length parameters
 max_prompt_length=$((1024 * 2))
-max_response_length=$((1024 * 8))
+max_response_length=$((1024 * 28))
 enable_overlong_buffer=True
 overlong_buffer_len=$((1024 * 4))
 overlong_penalty_factor=1.0
 
+# Training parameters
 loss_agg_mode="token-mean"
-
-# Paths
-MODEL_PATH=/mnt/dolphinfs/ssd_pool/docker/user/hadoop-friday-studio/.friday/models/basemodel/Qwen/Qwen3-30B-A3B
-CKPTS_DIR=./ckpts/${project_name}/${exp_name}
-TRAIN_FILE=/mnt/dolphinfs/ssd_pool/docker/user/hadoop-friday-studio/FTI/houzhenggang/data/dapo/dapo-math-17k.parquet
-TEST_FILE=/mnt/dolphinfs/ssd_pool/docker/user/hadoop-friday-studio/FTI/houzhenggang/data/dapo/aime-2024.parquet
 
 # Algorithm
 temperature=1.0
@@ -35,19 +59,20 @@ top_k=-1 # 0 for HF rollout, -1 for vLLM rollout
 val_top_p=0.7
 
 # Performance Related Parameter
-sp_size=4
 use_dynamic_bsz=True
 actor_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 2))
 infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 3))
 ref_offload=True
 actor_offload=False
 gen_tp=4
-fsdp_size=32
+sp_size=4
+fsdp_size=2
 
 # Fully async specific parameters
-NNODES_ROLLOUT=${NNODES_ROLLOUT:-4}
-NNODES_TRAIN=${NNODES_TRAIN:-4}
+NNODES_ROLLOUT=${NNODES_ROLLOUT:-8}
+NNODES_TRAIN=${NNODES_TRAIN:-8}
 NGPUS_PER_NODE=${NGPUS_PER_NODE:-8}
+
 
 train_prompt_bsz=0
 gen_prompt_bsz=1
@@ -56,15 +81,8 @@ train_prompt_mini_bsz=32
 total_rollout_steps=$(((512*400)))
 test_freq=20
 staleness_threshold=0.1
-trigger_parameter_sync_step=8
+trigger_parameter_sync_step=4
 partial_rollout=True
-
-rollout_mode="async"
-rollout_name="vllm" # sglang or vllm
-if [ "$rollout_mode" = "async" ]; then
-    export VLLM_USE_V1=1
-    return_raw_chat="True"
-fi
 
 python -m recipe.fully_async_policy.fully_async_main \
     data.train_files="${TRAIN_FILE}" \
