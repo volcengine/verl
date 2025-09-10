@@ -21,6 +21,8 @@ import os
 from typing import Any, Optional
 from uuid import uuid4
 
+from verl.utils.rollout_trace import rollout_trace_op
+
 from .base import BaseInteraction
 
 logger = logging.getLogger(__name__)
@@ -75,7 +77,7 @@ You should output a JSON object with three entries:
 - Completion Signal: Use "{termination_signal}" as your response when you believe your goal has been solved or if you determine the AI cannot help further.
 - Double check if the JSON object is formatted correctly. Ensure that all fields are present and properly structured.
 
-Remember to stay in character as a user throughout your response, and follow the instructions and guidelines carefully."""
+Remember to stay in character as a user throughout your response, and follow the instructions and guidelines carefully.""" # noqa
 
 
 class CollabLLMInteraction(BaseInteraction):
@@ -115,6 +117,7 @@ class CollabLLMInteraction(BaseInteraction):
         assert "single_turn_prompt" in kwargs, "single_turn_prompt is required in interaction_kwargs"
         return instance_id
 
+    @rollout_trace_op
     async def generate_response(
         self, instance_id: str, messages: list[dict[str, Any]], **kwargs
     ) -> tuple[bool, str, float, dict]:
@@ -123,13 +126,7 @@ class CollabLLMInteraction(BaseInteraction):
         )
 
         # Check if litellm is available, fallback to openai if not
-        try:
-            import litellm
-
-            use_litellm = True
-        except ImportError:
-            # litellm not found, falling back to openai
-            use_litellm = False
+        import litellm
 
         chat_history = self._parse_messages(messages, strip_sys_prompt=True)
         prompt = USER_PROMPT_TEMPLATE.format(

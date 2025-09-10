@@ -62,15 +62,25 @@ class CollabLLMAgentLoop(ToolAgentLoop):
         # for collabllm, firstly generate model reponses
         await self._handle_pending_state(agent_data, sampling_params)
 
-        await self._handle_generating_state(agent_data, sampling_params, ignore_termination=True)
+        status = await self._handle_generating_state(agent_data, sampling_params)
 
-        # then, collect interaction rollouts
-        num_repeats = self.config.actor_rollout_ref.rollout.multi_turn.num_repeat_rollouts
+        if status == AgentState.TERMINATED:
+            # tell reward manager to score -1 and skip future interaction
+            # to avoid reward hacking with incompleted message
+            num_repeats = 0
+        else:
+            # then, collect interaction rollouts
+            num_repeats = self.config.actor_rollout_ref.rollout.multi_turn.num_repeat_rollouts
 
         interaction_requests = [deepcopy(agent_data) for _ in range(num_repeats)]
         # messages are only used in collabllm reward manager
         messages_lst = []
         for _agent_data in interaction_requests:
+            # remove <think> before user interaction
+            msg = self._clean_messages(_agent_data.messages[-1])
+            if not msg["content"] or msg["content"].strip() == "<|im_end|>":
+                # skip empty message to avoid reward hacking with "<think></think>""
+                break
             await self.run_agent_data_loop(_agent_data, sampling_params, AgentState.INTERACTING)
             messages_lst.append([Message(**self._clean_messages(msg)) for msg in _agent_data.messages])
 
