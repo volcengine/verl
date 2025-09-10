@@ -97,7 +97,8 @@ class ParameterSynchronizer:
     def wait_last_sync(self):
         print("[ParameterSynchronizer] waiting last parameter sync and validate...")
         start_time = time.time()
-        if self.wait_last0 or self.wait_last1 :
+        if self.wait_last0:
             ray.get(self.wait_last0)
+        if self.wait_last1:
             ray.get(self.wait_last1)
         print(f"[ParameterSynchronizer], cost: {time.time() - start_time:.2f} seconds")
