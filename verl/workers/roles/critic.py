@@ -62,6 +62,7 @@ class CriticWorker(Worker, DistProfilerExtension):
 
     def _build_engine(self):
         from copy import copy, deepcopy
+
         self.model_config = copy(self.config.model_config)
         self.model_config.hf_config = deepcopy(self.config.model_config.hf_config)
         self.engine_config = self.config.engine
