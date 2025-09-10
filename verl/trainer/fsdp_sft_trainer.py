@@ -365,7 +365,7 @@ class FSDPSFTTrainer:
 
         # Context manager for sequence parallel if needed
         context = self.sharding_manager if use_sp else nullcontext()
-        with context, sync_context, torch.autocast(device_type=self.device_name, dtype=torch.bfloat16):
+        with context, torch.autocast(device_type=self.device_name, dtype=torch.bfloat16):
             if not use_sp:
                 # Standard forward pass without sequence parallel
                 labels = input_ids[:, 1:].contiguous()
