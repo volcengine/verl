@@ -198,7 +198,7 @@ def copy_to_local(
     """Copy files/directories from HDFS to local cache with validation.
 
     Args:
-        src (str): Source path - HDFS path (hdfs://...) or local filesystem path
+        src (str): Source path - HDFS path (hdfs://...) or local filesystem path or HuggingFace model name
         cache_dir (str, optional): Local directory for cached files. Uses system tempdir if None
         filelock (str): Base name for file lock. Defaults to ".file.lock"
         verbose (bool): Enable copy operation logging. Defaults to False
@@ -208,8 +208,39 @@ def copy_to_local(
     Returns:
         str: Local filesystem path to copied resource
     """
-    # Save to a local path for persistence.
-    local_path = copy_local_path_from_hdfs(src, cache_dir, filelock, verbose, always_recopy)
+    # Check if this is a HuggingFace model name (contains '/' but not a local path or HDFS path)
+    if "/" in src and not os.path.exists(src) and not is_non_local(src):
+        # This is likely a HuggingFace model name, download it using huggingface_hub
+        if verbose:
+            print(f"Detected HuggingFace model name: {src}, ensuring it is cached locally...")
+
+        # Import here to avoid circular imports and add huggingface_hub
+        from huggingface_hub import snapshot_download
+        from huggingface_hub.utils import HfFolder
+
+        # Use HF_HOME or default cache directory if not provided
+        if cache_dir is None:
+            cache_dir = os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface"))
+
+        try:
+            # snapshot_download handles caching efficiently. It will download the model
+            # files and return the path to the cached directory. It avoids loading the
+            # model into memory and re-saving it.
+            local_path = snapshot_download(
+                repo_id=src,
+                cache_dir=cache_dir,
+                force_download=always_recopy,
+                token=HfFolder.get_token(),  # Use cached token for private models
+            )
+            if verbose:
+                print(f"Model {src} is available at {local_path}")
+        except Exception as e:
+            print(f"Failed to download model {src}: {e}")
+            raise
+    else:
+        # Save to a local path for persistence.
+        local_path = copy_local_path_from_hdfs(src, cache_dir, filelock, verbose, always_recopy)
+
     # Load into shm to improve efficiency.
     if use_shm:
         return copy_to_shm(local_path)
