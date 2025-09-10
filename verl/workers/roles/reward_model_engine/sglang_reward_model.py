@@ -209,7 +209,7 @@ class SGLangRewardModel(BaseRewardModel):
                 "mm_attention_backend": "fa3",
                 "attention_backend": attention_backend if attention_backend is not None else "fa3",
                 # In async mode, we want token in token out.
-                "skip_tokenizer_init": False,
+                "skip_tokenizer_init": True,
                 # For embedding models
                 "is_embedding": self.is_embedding,
                 # server specific args
