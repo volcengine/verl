@@ -61,7 +61,9 @@ class CriticWorker(Worker, DistProfilerExtension):
         self.loss_fn = partial(value_loss, config=self.config)
 
     def _build_engine(self):
-        self.model_config = self.config.model_config
+        from copy import copy, deepcopy
+        self.model_config = copy(self.config.model_config)
+        self.model_config.hf_config = deepcopy(self.config.model_config.hf_config)
         self.engine_config = self.config.engine
         self.optimizer_config = self.config.optim
         self.checkpoint_config = self.config.checkpoint
