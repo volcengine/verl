@@ -86,8 +86,8 @@ def _post_process_outputs(output, is_embedding):
         scores = [o["embedding"][-1] for o in output]
         return scores
     else:
-        texts = [o["text"] for o in output]
-        return texts
+        output_ids = [o["output_ids"] for o in output]
+        return output_ids
 
 
 class SGLangRewardModel(BaseRewardModel):

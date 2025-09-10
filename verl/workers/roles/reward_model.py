@@ -177,13 +177,14 @@ class RewardModelWorker(Worker, DistProfilerExtension):
 
         return rm_inputs
 
-    def _postprocess_reward_outputs(self, data: DataProto, output: list[float] | list[str]):
+    def _postprocess_reward_outputs(self, data: DataProto, output: list[float] | list[list[int]]):
         if self.model_type == "discriminative":
             scores = torch.tensor(output)
         else:
             assert self.postprocess_fn is not None, "generative reward model must have postprocess_fn"
+            output_text = [self.tokenizer.decode(o) for o in output]
             # postprocess genrm responses to scores
-            scores = [self.postprocess_fn(o) for o in output]
+            scores = [self.postprocess_fn(o) for o in output_text]
             scores = torch.tensor(scores)
 
         token_level_scores = self._expand_to_token_level(data, scores)
