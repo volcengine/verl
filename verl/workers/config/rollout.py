@@ -165,3 +165,5 @@ class RolloutConfig(BaseConfig):
     sglang_engine_mode: str = "local"
 
     limit_images: Optional[int] = None
+    limit_audios: Optional[int] = None
+    limit_videos: Optional[int] = None

@@ -163,8 +163,17 @@ class vLLMRollout(BaseRollout):
         #    (which can vary across different vLLM versions);
         # - Otherwise it's the desired value we want to explicitly set.
         engine_kwargs = {key: val for key, val in engine_kwargs.items() if val is not None}
-        if config.get("limit_images", None):  # support for multi-image data
-            engine_kwargs["limit_mm_per_prompt"] = {"image": config.get("limit_images")}
+
+        multimodal_quota_per_prompt = {}
+        if self.config.get("limit_images", None) is not None:
+            multimodal_quota_per_prompt["image"] = self.config.get("limit_images")
+        if self.config.get("limit_audios", None) is not None:
+            multimodal_quota_per_prompt["image"] = self.config.get("limit_audios")
+        if self.config.get("limit_videos", None) is not None:
+            multimodal_quota_per_prompt["video"] = self.config.get("limit_videos")
+        if len(multimodal_quota_per_prompt) > 0:
+            engine_kwargs["limit_mm_per_prompt"] = multimodal_quota_per_prompt
+            logger.warning(f"multimodal quota per prompt updated: {repr(multimodal_quota_per_prompt)}")
 
         compilation_config = {}
 
