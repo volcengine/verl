@@ -352,7 +352,7 @@ class FSDPSFTTrainer:
         else:
             raise ValueError(f"Unknown lr scheduler: {self.config.optim.lr_scheduler}")
 
-    def _compute_loss_and_backward(self, batch, do_backward=True, n_micro_batches=1, last_micro_in_accum=True):
+    def _compute_loss_and_backward(self, batch, do_backward=True, n_micro_batches=1):
         """Compute loss with optional sequence parallelism and remove padding features"""
         use_sp = self.use_remove_padding and self.config.ulysses_sequence_parallel_size > 1
 
@@ -365,9 +365,6 @@ class FSDPSFTTrainer:
 
         # Context manager for sequence parallel if needed
         context = self.sharding_manager if use_sp else nullcontext()
-        # If last micro-batch in an accumulation step, then implicit grad all-reduce happens in loss backward.
-        # Otherwise, use no_sync() to avoid communication overhead during intermediate accumulation steps.
-        sync_context = nullcontext() if last_micro_in_accum else self.fsdp_model.no_sync()
         with context, sync_context, torch.autocast(device_type=self.device_name, dtype=torch.bfloat16):
             if not use_sp:
                 # Standard forward pass without sequence parallel
@@ -470,10 +467,9 @@ class FSDPSFTTrainer:
         micro_batches = batch.split(self.config.data.micro_batch_size_per_gpu)
         n_micro_batches = len(micro_batches)
         step_loss = 0
-        for micro_idx, micro_batch in enumerate(micro_batches):
-            last_micro_in_accum = (micro_idx + 1) == n_micro_batches
+        for micro_idx, micro_batch in enumerate(micro_batches):            
             loss = self._compute_loss_and_backward(
-                batch=micro_batch, n_micro_batches=n_micro_batches, last_micro_in_accum=last_micro_in_accum
+                batch=micro_batch, n_micro_batches=n_micro_batches
             )
             step_loss += loss.item()
 
