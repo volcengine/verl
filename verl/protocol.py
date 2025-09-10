@@ -343,9 +343,14 @@ class DataProto:
 
     def __setstate__(self, data):
         batch_deserialized_bytes, non_tensor_batch, meta_info = data
-        batch_deserialized_bytes = pickle.loads(batch_deserialized_bytes)
-        
-        self.batch = numpy_dict_to_tensor_dict(batch_deserialized_bytes)
+        batch_deserialized = pickle.loads(batch_deserialized_bytes)
+
+        tensor_dict = torch.utils._pytree.tree_map(
+            lambda x: torch.from_numpy(x) if isinstance(x, np.ndarray) else x,
+            batch_deserialized
+        )
+
+        self.batch = TensorDict.from_dict(tensor_dict)
         self.non_tensor_batch = non_tensor_batch
         self.meta_info = meta_info
 
