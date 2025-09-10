@@ -79,6 +79,7 @@ class CriticConfig(BaseConfig):
     ppo_micro_batch_size: Optional[int] = None
     engine: BaseConfig = field(default_factory=BaseConfig)
     optim: OptimizerConfig = field(default_factory=OptimizerConfig)
+    model: BaseModelConfig = field(default_factory=BaseModelConfig)
     model_config: HFModelConfig = field(default_factory=BaseConfig)
     checkpoint: CheckpointConfig = field(default_factory=CheckpointConfig)
     profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
