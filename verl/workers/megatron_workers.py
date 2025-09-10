@@ -574,12 +574,14 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         set_expandable_segments(False)
 
-        await self.rollout.resume(tags=["weights"])
+        if self.config.rollout.free_cache_engine:
+            await self.rollout.resume(tags=["weights"])
         await self.rollout.update_weights(per_tensor_param)
         if self._is_offload_param:
             offload_megatron_model_to_cpu(self.actor.actor_module)
         aggressive_empty_cache(force_sync=True)
-        await self.rollout.resume(tags=["kv_cache"])
+        if self.config.rollout.free_cache_engine:
+            await self.rollout.resume(tags=["kv_cache"])
 
         # important: need to manually set the random states of each tp to be identical.
         self.torch_random_states = get_torch_device().get_rng_state()

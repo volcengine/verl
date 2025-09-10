@@ -403,6 +403,9 @@ class vLLMRollout(BaseRollout):
         Args:
             tags: weights or kv_cache.
         """
+        if not self.config.free_cache_engine:
+            return
+
         if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
             self.inference_engine.wake_up(tags=tags)
         else:
@@ -411,6 +414,10 @@ class vLLMRollout(BaseRollout):
     async def release(self):
         """Release weights and kv cache in GPU memory."""
         self.inference_engine.reset_prefix_cache()
+
+        if not self.config.free_cache_engine:
+            return
+
         self.inference_engine.sleep(level=VLLM_SLEEP_LEVEL)
 
     async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None], **kwargs):
@@ -540,11 +547,13 @@ class vLLMAsyncRollout(BaseRollout):
         Args:
             tags: weights or kv_cache.
         """
-        self.inference_engine.wake_up(tags=tags)
+        if self.config.free_cache_engine:
+            self.inference_engine.wake_up(tags=tags)
 
     async def release(self):
         """Release weights and kv cache in GPU memory."""
-        self.inference_engine.sleep(level=VLLM_SLEEP_LEVEL)
+        if self.config.free_cache_engine:
+            self.inference_engine.sleep(level=VLLM_SLEEP_LEVEL)
 
     async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None], **kwargs):
         """Update the weights of the rollout model.
