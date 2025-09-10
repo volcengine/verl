@@ -16,7 +16,6 @@ import os
 
 import ray
 import torch
-from transformers import AutoModelForSequenceClassification
 
 from verl import DataProto
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
@@ -129,6 +128,5 @@ def test_reward_model():
     gen_batch = rm_wg.compute_rm_score(data)
     server_rm_scores = gen_batch.batch["rm_scores"].sum(dim=-1)
     print(f"{server_rm_scores=}")
-    server_rm_scores_mean = torch.mean(server_rm_scores)
 
     ray.shutdown()

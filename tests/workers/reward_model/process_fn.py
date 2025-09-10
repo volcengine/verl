@@ -14,7 +14,6 @@
 
 from verl.utils.reward_score.math_reward import last_boxed_only_string, remove_boxed
 
-
 GENRM_PROMPT_TEMPLATE = """
 The following is a math problem and an AI solution:
 
@@ -36,6 +35,7 @@ def construct_genrm_inputs_from_rollouts(rollout_question, rollout_response, gro
     prompt = GENRM_PROMPT_TEMPLATE.format(problem=rollout_question, solution=rollout_response)
     return prompt
 
+
 def _compute_reward_score(response: str) -> float:
     reward_score = 0.0
     try:
@@ -46,6 +46,7 @@ def _compute_reward_score(response: str) -> float:
     except Exception as e:
         print(e)
     return reward_score
+
 
 def convert_genrm_responses_to_rewards(output: str) -> float:
     return _compute_reward_score(output)

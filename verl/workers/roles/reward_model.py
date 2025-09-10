@@ -24,7 +24,6 @@ from verl import DataProto
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
 from verl.utils.device import (
-    get_device_id,
     get_device_name,
     get_torch_device,
 )

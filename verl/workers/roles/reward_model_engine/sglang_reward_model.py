@@ -249,7 +249,9 @@ class SGLangRewardModel(BaseRewardModel):
                 output = loop.run_until_complete(self._engine.async_reward_score(prompt=None, input_ids=rm_input_ids))
             else:
                 output = loop.run_until_complete(
-                    self._engine.async_generate(prompt=None, sampling_params=self.sampling_params, input_ids=rm_input_ids)
+                    self._engine.async_generate(
+                        prompt=None, sampling_params=self.sampling_params, input_ids=rm_input_ids
+                    )
                 )
         else:
             output = None
