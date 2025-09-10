@@ -161,8 +161,6 @@ def test_critic_engine(strategy):
     path = os.path.expanduser("~/models/Skywork/Skywork-Reward-V2-Qwen3-0.6B")
     model_config = HFModelConfig(path=path)
 
-    strategy = "fsdp"
-
     if strategy == "megatron":
         engine_config = McoreEngineConfig(
             forward_only=False,

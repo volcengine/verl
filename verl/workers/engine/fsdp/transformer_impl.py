@@ -888,11 +888,11 @@ class FSDPEngineWithValueHead(FSDPEngineWithLMHead):
 
     def prepare_model_outputs(self, output, output_args, micro_batch: TensorDict):
         use_remove_padding = tu.get_non_tensor_data(data=micro_batch, key="use_remove_padding", default=True)
+        response_length = micro_batch["responses"].size(-1)
 
         if use_remove_padding:
             input_ids = micro_batch["input_ids"]
             batch_size, seqlen = input_ids.shape
-            response_length = micro_batch["responses"].size(-1)
 
             if hasattr(self.module, "v_head"):
                 # For trl.AutoModelForCausalLMWithValueHead
