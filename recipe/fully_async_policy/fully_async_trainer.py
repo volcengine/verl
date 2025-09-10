@@ -337,7 +337,9 @@ class FullyAsyncTrainer(RayPPOTrainer):
                 val_data: ValidateMetrics = ray.cloudpickle.loads(val_data)
                 self.logger.log(data=val_data.metrics, step=val_data.param_version)
                 self.logger.log(data=val_data.timing_raw, step=val_data.param_version)
-        pprint(f"[FullyAsyncTrainer] Final validation metrics: {val_data.metrics}")
+                pprint(f"[FullyAsyncTrainer] Final validation metrics: {val_data.metrics}")
+        else:
+            pprint(f"[FullyAsyncTrainer] Final validation metrics: {val_data.metrics}")
         self.progress_bar.close()
 
         self._check_save_checkpoint(True, timing_raw)  # TODO: 检查checkpoint
