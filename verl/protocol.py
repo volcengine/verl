@@ -35,7 +35,7 @@ from packaging.version import parse as parse_version
 from tensordict import TensorDict
 from torch.utils.data import DataLoader
 
-from verl.utils.device import get_device_id
+from verl.utils.device import get_device_id, get_torch_device
 from verl.utils.py_functional import union_two_dict
 from verl.utils.torch_functional import allgather_dict_tensors
 
@@ -335,55 +335,76 @@ class DataProto:
             batch = self.batch.contiguous().consolidate()
         else:
             batch = self.batch
+        
+        if os.getenv("VERL_DATAPROTO_SERIALIZATION_METHOD") == "numpy":
+            if batch is not None:
+                dtypes = {}
+                batch_to_serialize = {}
+                for k, v in batch.items():
+                    dtypes[k] = str(v.dtype).removeprefix("torch.")
+                    if v.dtype == torch.bfloat16:
+                        batch_to_serialize[k] = v.view(torch.uint8).numpy()
+                    else:
+                        batch_to_serialize[k] = v.numpy()
+                batch_size = batch.batch_size
+            else:
+                dtypes = None
+                batch_to_serialize = None
+                batch_size = None
 
-        if batch is not None:
-            dtypes = {}
-            batch_to_serialize = {}
-            for k, v in batch.items():
-                dtypes[k] = str(v.dtype).removeprefix("torch.")
-                if v.dtype == torch.bfloat16:
-                    batch_to_serialize[k] = v.view(torch.uint8).numpy()
-                else:
-                    batch_to_serialize[k] = v.numpy()
-            batch_size = batch.batch_size
+            return (
+                pickle.dumps(
+                    {
+                        "batch_size": batch_size,
+                        "dtypes": dtypes,
+                        "data": batch_to_serialize,
+                    }
+                ),
+                self.non_tensor_batch,
+                self.meta_info,
+            )
         else:
-            dtypes = None
-            batch_to_serialize = None
-            batch_size = None
+            import io
 
-        return (
-            pickle.dumps(
-                {
-                    "batch_size": batch_size,
-                    "dtypes": dtypes,
-                    "data": batch_to_serialize,
-                }
-            ),
-            self.non_tensor_batch,
-            self.meta_info,
-        )
+            buffer = io.BytesIO()
+            torch.save(batch, buffer)
+            buffer_bytes = buffer.getvalue()
+            return buffer_bytes, self.non_tensor_batch, self.meta_info
 
     def __setstate__(self, data):
         batch_deserialized_bytes, non_tensor_batch, meta_info = data
-        batch_deserialized = pickle.loads(batch_deserialized_bytes)
 
-        numpy_dict = batch_deserialized["data"]
-        batch_size = batch_deserialized["batch_size"]
-        dtypes = batch_deserialized["dtypes"]
-        if numpy_dict is not None:
-            tensor_dict = {}
-            for k, v in numpy_dict.items():
-                dtype = dtypes[k]
-                if dtype == "bfloat16":
-                    tensor_dict[k] = torch.from_numpy(v).view(getattr(torch, dtype))
-                else:
-                    tensor_dict[k] = torch.from_numpy(v)
-            self.batch = TensorDict(
-                tensor_dict,
-                batch_size=batch_size,
-            )
+        if os.getenv("VERL_DATAPROTO_SERIALIZATION_METHOD") == "numpy":
+            batch_deserialized = pickle.loads(batch_deserialized_bytes)
+
+            numpy_dict = batch_deserialized["data"]
+            batch_size = batch_deserialized["batch_size"]
+            dtypes = batch_deserialized["dtypes"]
+            if numpy_dict is not None:
+                tensor_dict = {}
+                for k, v in numpy_dict.items():
+                    dtype = dtypes[k]
+                    if dtype == "bfloat16":
+                        tensor_dict[k] = torch.from_numpy(v).view(getattr(torch, dtype))
+                    else:
+                        tensor_dict[k] = torch.from_numpy(v)
+                self.batch = TensorDict(
+                    tensor_dict,
+                    batch_size=batch_size,
+                )
+            else:
+                self.batch = None
         else:
-            self.batch = None
+            import io
+
+            batch_deserialized = io.BytesIO(initial_bytes=batch_deserialized_bytes)
+            batch = torch.load(
+                batch_deserialized,
+                weights_only=False,
+                map_location="cpu" if not get_torch_device().is_available() else None,
+            )
+            self.batch = batch
+        
         self.non_tensor_batch = non_tensor_batch
         self.meta_info = meta_info
 
