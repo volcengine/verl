@@ -197,10 +197,16 @@ class FullyAsyncRollouter(RayPPOTrainer):
             old_version = self.current_param_version
             self.current_param_version = version
             # every time param change, reset staleness_samples
-            self.staleness_samples = 0
+            self.staleness_samples = (
+                len(self.active_tasks)
+                + self.result_queue.qsize()
+                + self.cancel_queue.qsize()
+                + await self.message_queue_client.get_queue_size()
+            )
             print(
                 f"[FullyAsyncRollouter][Public][update_param_version] "
-                f"Parameter version updated from {old_version} to {version}"
+                f"Parameter version updated from {old_version} to {version} "
+                f",reset staleness_samples to: {self.staleness_samples}"
             )
             timing_raw = {}
             if (
@@ -412,7 +418,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
             rollout_sample = await self.result_queue.get()
             rollout_sample = merge_rollout_sample(self.config, self.tokenizer, rollout_sample)
 
-            # 直接将 RolloutSample 放入消息队列
+            # 将 RolloutSample 放入消息队列
             success = await self.message_queue_client.put_sample(
                 sample=ray.cloudpickle.dumps(rollout_sample),
                 param_version=rollout_sample.param_version,
