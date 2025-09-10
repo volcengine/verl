@@ -335,9 +335,10 @@ class DataProto:
             batch = self.batch.contiguous().consolidate()
         else:
             batch = self.batch
-        dtypes = {}
-        batch_to_serialize = {}
+
         if batch is not None:
+            dtypes = {}
+            batch_to_serialize = {}
             for k, v in batch.items():
                 dtypes[k] = str(v.dtype).removeprefix("torch.")
                 if v.dtype == torch.bfloat16:
@@ -346,6 +347,8 @@ class DataProto:
                     batch_to_serialize[k] = v.numpy()
             batch_size = batch.batch_size
         else:
+            dtypes = None
+            batch_to_serialize = None
             batch_size = None
 
         return (
@@ -367,8 +370,8 @@ class DataProto:
         numpy_dict = batch_deserialized["data"]
         batch_size = batch_deserialized["batch_size"]
         dtypes = batch_deserialized["dtypes"]
-        tensor_dict = {}
         if numpy_dict is not None:
+            tensor_dict = {}
             for k, v in numpy_dict.items():
                 dtype = dtypes[k]
                 if dtype == "bfloat16":
