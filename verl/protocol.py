@@ -335,15 +335,14 @@ class DataProto:
             batch_to_save = self.batch.contiguous().consolidate()
         else:
             batch_to_save = self.batch
-        return pickle.dumps(self.batch.numpy()), self.batch.batch_size, self.non_tensor_batch, self.meta_info
+        return pickle.dumps(batch_to_save.numpy()), batch_to_save.batch_size, self.non_tensor_batch, self.meta_info
 
     def __setstate__(self, data):
         batch_deserialized_bytes, batch_size, non_tensor_batch, meta_info = data
         batch_deserialized = pickle.loads(batch_deserialized_bytes)
-        
+
         self.batch = TensorDict(
-            {k, torch.from_numpy(v) if isinstance(v, np.ndarray) else v
-             for k, v in batch_deserialized.items()},
+            {k: torch.from_numpy(v) if isinstance(v, np.ndarray) else v for k, v in batch_deserialized.items()},
             batch_size=batch_size,
         )
         self.non_tensor_batch = non_tensor_batch
