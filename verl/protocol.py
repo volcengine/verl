@@ -335,7 +335,7 @@ class DataProto:
             batch = self.batch.contiguous().consolidate()
         else:
             batch = self.batch
-        
+
         if os.getenv("VERL_DATAPROTO_SERIALIZATION_METHOD") == "numpy":
             if batch is not None:
                 dtypes = {}
@@ -404,7 +404,7 @@ class DataProto:
                 map_location="cpu" if not get_torch_device().is_available() else None,
             )
             self.batch = batch
-        
+
         self.non_tensor_batch = non_tensor_batch
         self.meta_info = meta_info
 
