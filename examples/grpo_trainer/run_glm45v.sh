@@ -13,9 +13,9 @@ python3 -m verl.trainer.main_ppo \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     data.image_key=images \
-    actor_rollout_ref.model.path=GLM/GLM-4.1V-9B-Thinking \
+    actor_rollout_ref.model.path=/mnt/GLM-4.1V-9B-Thinking \
     actor_rollout_ref.model.use_fused_kernels=True \
-    actor_rollout_ref.model.fused_kernel_options.impl_backend=triton \
+    actor_rollout_ref.model.fused_kernel_options.impl_backend=torch \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=32 \
@@ -42,11 +42,13 @@ python3 -m verl.trainer.main_ppo \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
     trainer.logger=[console,wandb] \
-    trainer.project_name='verl_grpo_example_geo3k' \
+    trainer.project_name='torch_verl_grpo_example_geo3k' \
     trainer.experiment_name='glm45v_function_rm' \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
-    trainer.save_freq=-1 \
+    trainer.save_freq=20 \
     trainer.test_freq=-1 \
     trainer.total_epochs=15 \
+    trainer.max_actor_ckpt_to_keep=3 \
+    actor_rollout_ref.actor.checkpoint.save_contents="['model','optimizer','extra','hf_model']" \
     trainer.device=cuda "$@"

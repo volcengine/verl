@@ -1541,8 +1541,30 @@ class RewardModelWorker(Worker, DistProfilerExtension):
             batch_size, seqlen = input_ids.shape
             attention_mask = micro_batch["attention_mask"]
             position_ids = micro_batch["position_ids"]
-            if position_ids.dim() == 3:  # qwen2vl mrope
+            
+            # 🔥🔥🔥 强化GLM4V防护 - 彻底阻止3D position_ids 🔥🔥🔥
+            is_glm4v = (hasattr(self.reward_module.config, 'model_type') and 
+                       self.reward_module.config.model_type == 'glm4v')
+            
+            print(f"🚨🚨 RewardModelWorker DEBUG: model_type={getattr(self.reward_module.config, 'model_type', 'unknown')} 🚨🚨")
+            print(f"🚨🚨 RewardModelWorker DEBUG: is_glm4v={is_glm4v} 🚨🚨")
+            print(f"🚨🚨 RewardModelWorker DEBUG: position_ids shape={position_ids.shape if position_ids is not None else 'None'} 🚨🚨")
+            
+            if is_glm4v:
+                if position_ids is not None and position_ids.dim() == 3:
+                    print(f"🚨🚨 RewardModelWorker: GLM4V 3D position_ids detected! Shape: {position_ids.shape} 🚨🚨")
+                    print(f"🚨🚨 FORCING position_ids to None to prevent masking_utils error 🚨🚨")
+                    position_ids = None
+                # 对GLM4V，强制设为None，不管原来是什么
+                print(f"🚨🚨 RewardModelWorker: GLM4V detected, forcing position_ids=None 🚨🚨")
+                position_ids = None
+            elif position_ids is not None and position_ids.dim() == 3:  # 只有非GLM4V才执行转置
+                print(f"📝📝 Non-GLM4V 3D position_ids processing: {position_ids.shape} 📝📝")
                 position_ids = position_ids.transpose(0, 1)  # (bsz, 3, seqlen) -> (3, bsz, seqlen)
+            
+            print(f"🚨🚨 RewardModelWorker FINAL: position_ids={position_ids.shape if position_ids is not None else 'None'} 🚨🚨")
+            
+
 
             if self.use_remove_padding:
                 input_ids_rmpad, indices, *_ = unpad_input(
@@ -1551,22 +1573,31 @@ class RewardModelWorker(Worker, DistProfilerExtension):
                 input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
 
                 # unpad the position_ids to align the rotary
-                if position_ids.dim() == 3:
-                    position_ids_rmpad = (
-                        index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices)
-                        .transpose(0, 1)
-                        .unsqueeze(1)
-                    )  # (3, bsz, seqlen) -> (3, 1, bsz * seqlen)
+                if position_ids is not None:
+                    if position_ids.dim() == 3:
+                        position_ids_rmpad = (
+                            index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices)
+                            .transpose(0, 1)
+                            .unsqueeze(1)
+                        )  # (3, bsz, seqlen) -> (3, 1, bsz * seqlen)
+                    else:
+                        position_ids_rmpad = index_first_axis(
+                            rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices
+                        ).transpose(0, 1)
                 else:
-                    position_ids_rmpad = index_first_axis(
-                        rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices
-                    ).transpose(0, 1)
+                    position_ids_rmpad = None
 
                 # pad and slice the inputs if sp > 1
                 if self.ulysses_sequence_parallel_size > 1:
-                    input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(
-                        input_ids_rmpad, position_ids_rmpad, sp_size=self.ulysses_sequence_parallel_size
-                    )
+                    if position_ids_rmpad is not None:
+                        input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(
+                            input_ids_rmpad, position_ids_rmpad, sp_size=self.ulysses_sequence_parallel_size
+                        )
+                    else:
+                        # Handle case where position_ids is None
+                        input_ids_rmpad, _, pad_size = ulysses_pad_and_slice_inputs(
+                            input_ids_rmpad, None, sp_size=self.ulysses_sequence_parallel_size
+                        )
 
                 # only pass input_ids and position_ids to enable flash_attn_varlen
                 output = self.reward_module(
@@ -1591,7 +1622,11 @@ class RewardModelWorker(Worker, DistProfilerExtension):
                 rm_score = rm_score.squeeze(-1)
 
             # extract the result of the last valid token
-            eos_mask_idx = torch.argmax(position_ids * attention_mask, dim=-1)  # (bsz,)
+            if position_ids is not None:
+                eos_mask_idx = torch.argmax(position_ids * attention_mask, dim=-1)  # (bsz,)
+            else:
+                # Fallback: use attention_mask to find last valid token
+                eos_mask_idx = attention_mask.sum(dim=-1) - 1  # (bsz,)
             rm_score = rm_score[torch.arange(batch_size), eos_mask_idx]
             return rm_score
 

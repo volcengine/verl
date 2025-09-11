@@ -196,11 +196,42 @@ class DataParallelPPOActor(BasePPOActor):
                         lm = getattr(_m, "language_model", None)
                         if lm is not None:
                             mt = getattr(getattr(lm, "config", None), "model_type", None)
+                print(f"\n======== MODEL TYPE DEBUG ========")
+                # 修复：直接访问属性而不是使用get方法
+                config_obj = getattr(getattr(self, 'actor_module', None), 'config', None)
+                raw_model_type = getattr(config_obj, 'model_type', 'NOT_FOUND') if config_obj else 'NO_CONFIG'
+                print(f"Raw model_type from config: {raw_model_type}")
+                print(f"Lowercased model_type: {str(mt).lower() if mt is not None else 'None'}")
+                actor_module = getattr(self, 'actor_module', None)
+                print(f"Actor module class: {actor_module.__class__.__name__ if actor_module else 'None'}")
+                print(f"Config class: {config_obj.__class__.__name__ if config_obj else 'None'}")
+                print(f"======== END MODEL TYPE DEBUG ========\n")
                 return str(mt).lower() if mt is not None else ""
 
             _model_type_lower = _get_model_type_lower()
             _is_glm4v = _model_type_lower == "glm4v"
             position_ids_arg = position_ids_rmpad
+            
+            print(f"\n======== GLM4V DEBUG INFO ========")
+            print(f"Model type detected: {_model_type_lower}")
+            print(f"Is GLM4V: {_is_glm4v}")
+            print(f"Position IDs shape: {position_ids_arg.shape if hasattr(position_ids_arg, 'shape') else 'No shape attr'}")
+            print(f"Position IDs type: {type(position_ids_arg)}")
+            if hasattr(position_ids_arg, 'shape'):
+                print(f"Position IDs ndim: {position_ids_arg.ndim}")
+                if position_ids_arg.ndim == 3:
+                    print(f"🔥🔥🔥 3D POSITION_IDS DETECTED! Shape: {position_ids_arg.shape} 🔥🔥🔥")
+                    print(f"GLM4V check result: _is_glm4v={_is_glm4v}")
+                    if _is_glm4v:
+                        print(f"✅✅ Setting position_ids to None for GLM4V ✅✅")
+                        position_ids_arg = None
+                    else:
+                        print(f"❌❌ NOT GLM4V - 3D position_ids will be passed through! ❌❌")
+                else:
+                    print(f"Position IDs is {position_ids_arg.ndim}D - no special handling needed")
+            print(f"Final position_ids_arg: {position_ids_arg}")
+            print(f"======== END GLM4V DEBUG ========\n")
+            
             if _is_glm4v and position_ids_arg is not None and position_ids_arg.dim() == 3:
                 position_ids_arg = None
 
