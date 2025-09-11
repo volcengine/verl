@@ -327,51 +327,27 @@ class RewardManagerWorker:
             config, tokenizer, num_examine=0, **config.reward_model.get("reward_kwargs", {})
         )
         self.rm_executor = rm_executor
-        self.loop = asyncio.get_event_loop()
 
-    async def compute_score(
+    def compute_score(
         self,
         data: DataProto,
     ) -> dict:
         """Compute reward score for agent loop output.
 
-        NOTE: Since `reward_manager.__call__` is blocking function, we run it in thread pool to
-        compute multiple samples in parallel.
-
         Args:
             data: reward function input
 
-
         Returns:
             dict: Reward score and reward extra info.
-        """
-        result = await self.loop.run_in_executor(
-            None,
-            self.reward_wrapper,
-            data,
-            True,  # return_dict
-        )
-
-        reward_score = result["reward_tensor"].sum(dim=-1).item()
-        reward_extra_info = {k: v[0] for k, v in result.get("reward_extra_info", {}).items()}
-        return {"reward_score": reward_score, "reward_extra_info": reward_extra_info}
-
-    def reward_wrapper(self, data: DataProto, return_dict=False) -> torch.Tensor:
-        """Assemble reward functions and reward model into one function and expose it to the event loop
-
-
-        Args:
-            return_dict: whether return as dict
-            data: DataProto from compute reward score
-
-        Returns:
-            torch.Tensor: Reward score tensor.
         """
         if self.rm_executor is not None:
             res = ray.get(self.rm_executor.submit_task.remote(data))
             data = data.union(res)
 
-        return self.reward_manager(data, return_dict)
+        result = self.reward_manager(data, return_dict=True)
+        reward_score = result["reward_tensor"].sum(dim=-1).item()
+        reward_extra_info = {k: v[0] for k, v in result.get("reward_extra_info", {}).items()}
+        return {"reward_score": reward_score, "reward_extra_info": reward_extra_info}
 
 
 @ray.remote
