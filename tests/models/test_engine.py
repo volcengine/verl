@@ -38,7 +38,7 @@ from verl.workers.config import (
     McoreOptimizerConfig,
 )
 from verl.workers.roles import ActorWorker, CriticWorker
-from verl.workers.roles.utils.losses import ppo_loss, sft_loss, value_loss
+from verl.workers.roles.utils.losses import ppo_loss, sft_loss
 
 
 @pytest.mark.parametrize("strategy", ["megatron", "fsdp", "fsdp2"])
@@ -173,8 +173,6 @@ def test_critic_engine(strategy):
     path = create_model()
     model_config = HFModelConfig(path=path, load_tokenizer=False)
 
-    strategy = 'fsdp'
-
     if strategy == "megatron":
         engine_config = McoreEngineConfig(
             forward_only=False,
@@ -251,7 +249,7 @@ def test_critic_engine(strategy):
     hf_values = hf_output.logits[:, -response_length - 1 : -1, :].float().squeeze(-1)
     hf_values_mean = torch.mean(hf_values * response_mask)
 
-    engine_values = torch.mean(output.batch['values'] * response_mask)
+    engine_values = torch.mean(output.batch["values"] * response_mask)
 
     torch.testing.assert_close(hf_values_mean, engine_values, atol=5e-3, rtol=1e-2)
 

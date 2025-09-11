@@ -26,7 +26,11 @@ import torch
 from torch import nn
 from transformers import (
     AutoConfig,
+    AutoModel,
     AutoModelForCausalLM,
+    AutoModelForSequenceClassification,
+    AutoModelForTokenClassification,
+    AutoModelForVision2Seq,
     GenerationConfig,
     MistralForSequenceClassification,
     PretrainedConfig,
@@ -658,21 +662,12 @@ def load_valuehead_model(local_path, torch_dtype, model_config, trust_remote_cod
     return model
 
 
-from transformers import (
-    AutoModel,
-    AutoModelForCausalLM,
-    AutoModelForVision2Seq,
-    AutoModelForTokenClassification,
-    AutoModelForSequenceClassification,
-)
-
 _architecture_to_auto_class = {
     "ForCausalLM": AutoModelForCausalLM,
     "ForVision2Seq": AutoModelForVision2Seq,
     "ForTokenClassification": AutoModelForTokenClassification,
     "ForSequenceClassification": AutoModelForSequenceClassification,
 }
-
 
 
 def get_hf_auto_model_class(hf_config):

@@ -61,7 +61,10 @@ class CriticWorker(Worker, DistProfilerExtension):
         self.loss_fn = partial(value_loss, config=self.config)
 
     def _build_engine(self):
-        self.model_config = self.config.model_config
+        from copy import copy, deepcopy
+
+        self.model_config = copy(self.config.model_config)
+        self.model_config.hf_config = deepcopy(self.config.model_config.hf_config)
         self.engine_config = self.config.engine
         self.optimizer_config = self.config.optim
         self.checkpoint_config = self.config.checkpoint
@@ -125,7 +128,7 @@ class CriticWorker(Worker, DistProfilerExtension):
             # TODO: make worker API to accept TensorDict as well
             data = data.to_tensordict()
             output = self.engine.infer_batch(data)
-            
+
         if self.engine.is_mp_src_rank_with_outputs():
             # in megatron, only last pp contains valid data and returned to the single controller
             output = output["model_output"]

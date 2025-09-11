@@ -16,7 +16,7 @@
 import torch
 from tensordict import TensorDict
 
-from verl.trainer.ppo.core_algos import agg_loss, get_policy_loss_fn, kl_penalty, compute_value_loss
+from verl.trainer.ppo.core_algos import agg_loss, compute_value_loss, get_policy_loss_fn, kl_penalty
 from verl.utils.torch_functional import masked_mean
 from verl.workers.config import ActorConfig, CriticConfig
 
