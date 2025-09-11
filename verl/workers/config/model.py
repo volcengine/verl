@@ -123,11 +123,13 @@ class HFModelConfig(BaseConfig):
         override_config_kwargs = {}
 
         if self.tokenizer is not None:
-            override_config_kwargs.update({
-                "bos_token_id": self.tokenizer.bos_token_id,
-                "eos_token_id": self.tokenizer.eos_token_id,
-                "pad_token_id": self.tokenizer.pad_token_id,
-            })
+            override_config_kwargs.update(
+                {
+                    "bos_token_id": self.tokenizer.bos_token_id,
+                    "eos_token_id": self.tokenizer.eos_token_id,
+                    "pad_token_id": self.tokenizer.pad_token_id,
+                }
+            )
         override_config_kwargs.update(self.override_config)
         update_model_config(self.hf_config, override_config_kwargs=override_config_kwargs)
 

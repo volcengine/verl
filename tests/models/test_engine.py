@@ -154,9 +154,9 @@ def test_actor_engine(strategy):
     ray.shutdown()
 
 
-
 def create_model():
     from transformers import Qwen3Config
+
     config = Qwen3Config(num_hidden_layers=1, num_labels=1)
     model = AutoModelForTokenClassification.from_config(config)
     assert model.config.num_labels == 1
