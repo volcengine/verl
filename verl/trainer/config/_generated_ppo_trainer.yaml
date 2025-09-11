@@ -47,6 +47,7 @@ actor_rollout_ref:
     clip_ratio: 0.2
     clip_ratio_low: 0.2
     clip_ratio_high: 0.2
+    freeze_vision_tower: false
     policy_loss:
       _target_: verl.workers.config.PolicyLossConfig
       loss_mode: vanilla
