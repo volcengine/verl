@@ -13,15 +13,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import re
+import logging
+import os
 from copy import deepcopy
 from typing import Any
 from uuid import uuid4
 
+from recipe.collabllm.utils import is_valid_messages
 from verl.experimental.agent_loop.agent_loop import AgentLoopOutput, register
 from verl.experimental.agent_loop.tool_agent_loop import AgentData, AgentState, ToolAgentLoop
 from verl.utils.rollout_trace import rollout_trace_op
 from verl.workers.rollout.schemas import Message
+
+logger = logging.getLogger(__file__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 @register("collabllm_agent")
@@ -76,13 +81,10 @@ class CollabLLMAgentLoop(ToolAgentLoop):
         # messages are only used in collabllm reward manager
         messages_lst = []
         for _agent_data in interaction_requests:
-            # remove <think> before user interaction
-            msg = self._clean_messages(_agent_data.messages[-1])
-            if not msg["content"] or msg["content"].strip() == "<|im_end|>":
-                # skip empty message to avoid reward hacking with "<think></think>""
+            if not is_valid_messages(_agent_data.messages[-1]):
                 break
             await self.run_agent_data_loop(_agent_data, sampling_params, AgentState.INTERACTING)
-            messages_lst.append([Message(**self._clean_messages(msg)) for msg in _agent_data.messages])
+            messages_lst.append([Message(**msg) for msg in _agent_data.messages])
 
         # Finalize output
         response_ids = agent_data.prompt_ids[-len(agent_data.response_mask) :]
@@ -105,15 +107,6 @@ class CollabLLMAgentLoop(ToolAgentLoop):
             },
         )
         return output
-
-    def _clean_messages(self, msg: dict):
-        """
-        messages_lst is only used in collabllm reward manager, need to remove <think>.*?</think>
-        to save tokens
-        """
-        if "content" in msg and isinstance(msg["content"], str):
-            msg["content"] = re.sub(r"<think>.*?</think>", "", msg["content"], flags=re.DOTALL).strip()
-        return msg
 
     async def run_agent_data_loop(self, agent_data: AgentData, sampling_params: dict[str, Any], state: AgentState):
         """

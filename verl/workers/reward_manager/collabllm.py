@@ -117,8 +117,8 @@ class CollabLLMRewardManager(AbstractRewardManager):
             weighted_scores_by_metrics = {
                 metric: torch.clamp(
                     scores_by_metrics[metric] * self.metric_weights[metric] / num_repeat_rollouts,
-                    min=-1 / num_repeat_rollouts,
-                    max=1 / num_repeat_rollouts,
+                    min=0.0 / num_repeat_rollouts,
+                    max=1.0 / num_repeat_rollouts,
                 )
                 for metric in self.metrics
             }
@@ -132,8 +132,8 @@ class CollabLLMRewardManager(AbstractRewardManager):
             scores = torch.stack([weighted_scores_by_metrics[metric] for metric in self.metrics]).sum(dim=0)
         else:
             score_dicts = []
-            scores = torch.full((batch_size,), -1.0, dtype=torch.float32, device=prompt_ids.device)
-            mean_weighted_scores_by_metrics = {metric: -1.0 for metric in self.metrics}
+            scores = torch.full((batch_size,), 0.0, dtype=torch.float32, device=prompt_ids.device)
+            mean_weighted_scores_by_metrics = {metric: 0.0 for metric in self.metrics}
 
         print("Scores:", scores, mean_weighted_scores_by_metrics)
 

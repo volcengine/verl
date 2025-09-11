@@ -21,6 +21,7 @@ import os
 from typing import Any, Optional
 from uuid import uuid4
 
+from recipe.collabllm.utils import remove_think_block
 from verl.utils.rollout_trace import rollout_trace_op
 
 from .base import BaseInteraction
@@ -77,7 +78,7 @@ You should output a JSON object with three entries:
 - Completion Signal: Use "{termination_signal}" as your response when you believe your goal has been solved or if you determine the AI cannot help further.
 - Double check if the JSON object is formatted correctly. Ensure that all fields are present and properly structured.
 
-Remember to stay in character as a user throughout your response, and follow the instructions and guidelines carefully.""" # noqa
+Remember to stay in character as a user throughout your response, and follow the instructions and guidelines carefully."""  # noqa
 
 
 class CollabLLMInteraction(BaseInteraction):
@@ -173,7 +174,8 @@ class CollabLLMInteraction(BaseInteraction):
                         break
                     else:
                         logger.warning(
-                            f"[CollabLLMInteraction] got an invaild response {response} full_response {full_response}. Retrying..."
+                            f"[CollabLLMInteraction] got an invaild response {response} full_response {full_response}. \
+                                Retrying..."
                         )
                         continue
                 else:
@@ -196,6 +198,8 @@ class CollabLLMInteraction(BaseInteraction):
 
         if strip_sys_prompt:
             messages = [msg for msg in messages if msg["role"] != "system"]
+
+        messages = [remove_think_block(msg) for msg in messages]
 
         chat = "\n".join(f"**{m['role'].capitalize()}**: {m['content']}" for m in messages)
 
@@ -227,7 +231,8 @@ def extract_json(s):
             else:
                 return int(num_str), pos
         except ValueError:
-            raise ValueError(f"Invalid number at position {start}: {num_str}")
+            logger.error(f"Invalid number at position {start}: {num_str}")
+            raise
 
     def skip_whitespace(s, pos):
         while pos < len(s) and s[pos] in " \t\n\r":

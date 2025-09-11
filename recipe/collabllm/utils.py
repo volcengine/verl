@@ -12,6 +12,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import logging
+import os
+import re
+
+logger = logging.getLogger(__file__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 def parse_messages(messages, strip_sys_prompt=True):
@@ -69,7 +75,8 @@ def extract_json(s):
             else:
                 return int(num_str), pos
         except ValueError:
-            raise ValueError(f"Invalid number at position {start}: {num_str}")
+            logger.error(f"Invalid number at position {start}: {num_str}")
+            raise
 
     def skip_whitespace(s, pos):
         while pos < len(s) and s[pos] in " \t\n\r":
@@ -210,3 +217,64 @@ def extract_json(s):
     if pos != len(s):
         raise ValueError(f"Unexpected content at position {pos}")
     return result
+
+
+def remove_think_block(msg: dict):
+    """
+    remove <think>.*?</think> from content
+    """
+    if "content" in msg and isinstance(msg["content"], str):
+        msg["content"] = re.sub(r"<think>.*?</think>", "", msg["content"], flags=re.DOTALL).strip()
+    return msg
+
+
+def is_valid_messages(msg: dict) -> bool:
+    """
+    check if is valid messages, including:
+    1. <think> is paried with </think>
+    2. is not empty inside and outside <think>
+    3. is not nested, and at most one <think> block is allowed.
+    4. can not be empty if remove ending "<|im_end|>"
+    """
+    content = msg.get("content")
+    if not isinstance(content, str):
+        return True
+
+    # Base case: empty or whitespace-only content is invalid.
+    if not content.strip():
+        return False
+
+    num_think_open = content.count("<think>")
+    num_think_close = content.count("</think>")
+
+    # Rule 1: Check for paired tags.
+    if num_think_open != num_think_close:
+        return False
+
+    # Rule 3: Allow at most one think block.
+    if num_think_open > 1:
+        return False
+
+    # Case 1: No <think> blocks.
+    if num_think_open == 0:
+        visible_content = content
+    # Case 2: Exactly one <think> block.
+    else:
+        # Rule 2: Check for empty content inside the think block.
+        match = re.search(r"<think>(.*?)</think>", content, re.DOTALL)
+        if not match or not match.group(1).strip():
+            return False
+
+        # The "visible" content is what's outside the think block.
+        visible_content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
+
+    visible_content = visible_content.strip()
+
+    # Rule 4 & 2 (outside): Check if visible content is empty after handling <|im_end|>.
+    if visible_content.endswith("<|im_end|>"):
+        visible_content = visible_content[: -len("<|im_end|>")]
+
+    if not visible_content.strip():
+        return False
+
+    return True
