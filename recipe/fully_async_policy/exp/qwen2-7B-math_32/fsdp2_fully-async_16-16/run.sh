@@ -5,22 +5,8 @@ project_name='DAPO'
 exp_name='dapo_qwen2-7B-math_28k_fsdp2_fully-async_16-16_mbs32_tpf16_fixmcs'
 
 # Ray
-# RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
-# WORKING_DIR=${WORKING_DIR:-"${PWD}"}
-# RUNTIME_ENV=${RUNTIME_ENV:-"${WORKING_DIR}/verl/trainer/runtime_env.yaml"}
-# Paths
-RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
-# very important! please modify the max_position_embeddings in config.json to 32768 after downloading from huggingface
-MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen2.5-Math-7B"}
-CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/ckpts/${project_name}/${exp_name}"}
-TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/dapo-math-17k.parquet"}
-TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/aime-2024.parquet"}
-
-# MODEL_PATH=/mnt/dolphinfs/hdd_pool/docker/user/hadoop-djst-algoplat/houzhenggang/modelscope/hub/models/Qwen/Qwen2___5-Math-7B
 MODEL_PATH=/mnt/dolphinfs/ssd_pool/docker/user/hadoop-friday-studio/FTI/houzhenggang/model/Qwen2___5-Math-7B
 CKPTS_DIR=./ckpts/${project_name}/${exp_name}
-# TRAIN_FILE=/mnt/dolphinfs/hdd_pool/docker/user/hadoop-djst-algoplat/houzhenggang/data/dapo/dapo-math-17k.parquet
-# TEST_FILE=/mnt/dolphinfs/hdd_pool/docker/user/hadoop-djst-algoplat/houzhenggang/data/dapo/aime-2024.parquet
 TRAIN_FILE=/mnt/dolphinfs/ssd_pool/docker/user/hadoop-friday-studio/FTI/houzhenggang/data/dapo/dapo-math-17k.parquet
 TEST_FILE=/mnt/dolphinfs/ssd_pool/docker/user/hadoop-friday-studio/FTI/houzhenggang/data/dapo/aime-2024.parquet
 
