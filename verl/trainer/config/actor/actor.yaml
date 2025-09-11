@@ -93,6 +93,8 @@ ppo_epochs: 1
 
 # Shuffle training data across PPO epochs
 shuffle: false
+
+# Seed for data loader
 data_loader_seed: null
 
 # checkpoint configs

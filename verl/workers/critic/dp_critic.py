@@ -200,7 +200,12 @@ class DataParallelPPOCritic(BasePPOCritic):
         return values
 
     def make_minibatch_iterator(self, data: DataProto) -> Iterable[DataProto]:
-        select_keys = ["input_ids", "responses", "attention_mask", "position_ids", "values", "returns"]
+        select_keys = (
+            ["responses", "input_ids", "response_mask", "attention_mask", "position_ids"]
+            if "response_mask" in data.batch
+            else ["responses", "input_ids", "attention_mask", "position_ids"]
+        )
+
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
         non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
         data = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)

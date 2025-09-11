@@ -77,7 +77,7 @@ class CriticConfig(BaseConfig):
     model: BaseModelConfig = field(default_factory=BaseModelConfig)
     checkpoint: CheckpointConfig = field(default_factory=CheckpointConfig)
     profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
-    data_loader_seed: Optional[int] = None
+    data_loader_seed: Optional[int] = 1
 
     def __post_init__(self):
         """Validate critic configuration parameters."""
