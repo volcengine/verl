@@ -18,22 +18,18 @@ The main entry point to run the PPO algorithm
 import logging
 import os
 
-import numpy as np
 import torch
 
-import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
 from verl.utils.device import (
-    get_device_id,
     get_device_name,
     get_torch_device,
 )
 from verl.utils.distributed import initialize_global_process_group_ray
-from verl.utils.model import compute_position_id_with_mask
 from verl.utils.profiler import DistProfiler, DistProfilerExtension, log_gpu_memory_usage
-from verl.workers.config import HFModelConfig, RewardModelConfig
+from verl.workers.config import HFModelConfig, RewardModelConfig, RewardModelDataProcessorConfig
 from verl.workers.roles.reward_model_engine import get_reward_model_class
 
 logger = logging.getLogger(__file__)
@@ -47,6 +43,8 @@ class RewardModelWorker(Worker, DistProfilerExtension):
         self.config = config
         self.model_config = config.model_config
         self.input_model_config = config.input_model_config
+        self.model_type = config.model_type
+        assert self.model_type in ["discriminative", "generative"], f"model_type: {self.model_type} is not supported"
         Worker.__init__(self)
         self.profiler_config = self.config.profiler
         tool_config = self.profiler_config.tool_config
@@ -62,12 +60,19 @@ class RewardModelWorker(Worker, DistProfilerExtension):
         # 1. parse reward model and huggingface model config
         reward_model_config: RewardModelConfig = self.config
         model_config: HFModelConfig = self.config.model_config
+        data_processor_config: RewardModelDataProcessorConfig = self.config.data_processor_config
         self.tokenizer = self.model_config.get_processor()
         if self.input_model_config is None:
             self._do_switch_chat_template = False
+            self.src_tokenizer = self.tokenizer
         else:
             self._do_switch_chat_template = True
             self.src_tokenizer = self.input_model_config.get_processor()
+        self.preprocess_fn, self.postprocess_fn = data_processor_config.get_process_fn()
+        if self.model_type == "generative":
+            assert self.preprocess_fn is not None and self.postprocess_fn is not None, (
+                "generative reward model must have preprocess_fn and postprocess_fn"
+            )
 
         # 2. build reward model device mesh
         infer_tp = self.config.tensor_model_parallel_size
@@ -118,92 +123,81 @@ class RewardModelWorker(Worker, DistProfilerExtension):
 
         return token_level_scores
 
-    def _switch_chat_template(self, data: DataProto):
-        src_max_length = data.batch["attention_mask"].shape[-1]
-
+    def _preprocess_reward_inputs(self, data: DataProto):
         src_tokenizer = self.src_tokenizer
-        target_tokenizer = self.tokenizer
+        tokenizer = self.tokenizer
+        rm_inputs = []
+        for i in range(len(data)):
+            data_item = data[i]
 
-        rm_input_ids = []
-        rm_attention_mask = []
+            # get rollout question
+            if "extra_infos" in data_item.non_tensor_batch and "question" in data_item.non_tensor_batch["extra_infos"]:
+                rollout_question = data_item.non_tensor_batch["extra_infos"]["question"]
+            else:
+                # use prompt_str as a substitute for question
+                prompt_ids = data_item.batch["prompts"]
+                prompt_length = prompt_ids.shape[-1]
+                valid_prompt_length = data_item.batch["attention_mask"][:prompt_length].sum()
+                valid_prompt_ids = prompt_ids[-valid_prompt_length:]
+                rollout_question = src_tokenizer.decode(valid_prompt_ids, skip_special_tokens=True)
 
-        for i in range(data.batch.batch_size[0]):
-            if not isinstance(data.non_tensor_batch["raw_prompt"][i], list | np.ndarray):
-                raise TypeError(
-                    f"raw_prompt must be a list or numpy array, got {type(data.non_tensor_batch['raw_prompt'][i])}"
-                )
-
-            # extract raw prompt
-            chat: list = list(data.non_tensor_batch["raw_prompt"][i])
-
-            # extract response
-            response_ids = data.batch["responses"][i]
+            # get rollout response
+            response_ids = data_item.batch["responses"]
             response_length = response_ids.shape[-1]
-            valid_response_length = data.batch["attention_mask"][i][-response_length:].sum()
+            valid_response_length = data_item.batch["attention_mask"][-response_length:].sum()
             valid_response_ids = response_ids[:valid_response_length]
+            rollout_response = src_tokenizer.decode(valid_response_ids, skip_special_tokens=True)
 
-            # decode
-            response = src_tokenizer.decode(valid_response_ids)
-            # remove bos and eos
-            response = response.replace(src_tokenizer.eos_token, "")
+            # get ground truth
+            ground_truth = data_item.non_tensor_batch.get("reward_model", {}).get("ground_truth", None)
 
-            chat.append({"role": "assistant", "content": response})
+            if self.model_type == "discriminative":
+                if self._do_switch_chat_template:
+                    chats = [
+                        {"role": "user", "content": rollout_question},
+                        {"role": "assistant", "content": rollout_response},
+                    ]
+                    rm_input = tokenizer.apply_chat_template(chats, tokenize=True)
+                else:
+                    non_pad_indices = torch.nonzero(data_item.batch["attention_mask"], as_tuple=True)[0]
+                    start_idx, end_idx = non_pad_indices[0], non_pad_indices[-1]
+                    rm_input = data_item.batch["input_ids"][start_idx : end_idx + 1].tolist()
+            else:
+                assert self.preprocess_fn is not None, "generative reward model must have preprocess_fn"
 
-            prompt_with_chat_template = target_tokenizer.apply_chat_template(
-                chat, add_generation_prompt=False, tokenize=False
-            )
-            if self.rank == 0 and i == 0:
-                # for debugging purpose
-                print(f"Switch template. chat: {prompt_with_chat_template}")
+                input_str = self.preprocess_fn(
+                    rollout_question=rollout_question,
+                    rollout_response=rollout_response,
+                    ground_truth=ground_truth,
+                )
+                chats = [{"role": "user", "content": input_str}]
+                rm_input = tokenizer.apply_chat_template(chats, add_generation_prompt=True, tokenize=True)
 
-            # the maximum length is actually determined by the reward model itself
-            max_length = self.config.get("max_length", src_max_length)
-            if max_length is None:
-                max_length = src_max_length
+            rm_inputs.append(rm_input)
 
-            model_inputs = target_tokenizer(prompt_with_chat_template, return_tensors="pt", add_special_tokens=False)
-            input_ids, attention_mask = verl_F.postprocess_data(
-                input_ids=model_inputs["input_ids"],
-                attention_mask=model_inputs["attention_mask"],
-                max_length=max_length,
-                pad_token_id=target_tokenizer.pad_token_id,
-                left_pad=False,  # right padding
-                truncation=self.config.get("truncation", "right"),
-            )  # truncate from the right
+        return rm_inputs
 
-            rm_input_ids.append(input_ids)
-            rm_attention_mask.append(attention_mask)
+    def _postprocess_reward_outputs(self, data: DataProto, output: list[float] | list[list[int]]):
+        if self.model_type == "discriminative":
+            scores = torch.tensor(output)
+        else:
+            assert self.postprocess_fn is not None, "generative reward model must have postprocess_fn"
+            output_text = [self.tokenizer.decode(o) for o in output]
+            # postprocess genrm responses to scores
+            scores = [self.postprocess_fn(o) for o in output_text]
+            scores = torch.tensor(scores)
 
-        rm_input_ids = torch.cat(rm_input_ids, dim=0)
-        rm_attention_mask = torch.cat(rm_attention_mask, dim=0)
-
-        rm_position_ids = compute_position_id_with_mask(rm_attention_mask)
-
-        rm_inputs = {"input_ids": rm_input_ids, "attention_mask": rm_attention_mask, "position_ids": rm_position_ids}
-
-        return DataProto.from_dict(rm_inputs)
+        token_level_scores = self._expand_to_token_level(data, scores)
+        return token_level_scores
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="reward_model"))
     @DistProfiler.annotate(color="brown")
     def compute_rm_score(self, data: DataProto):
-        data = data.to(get_device_id())
+        data = data.to("cpu")
+        rm_data = self._preprocess_reward_inputs(data)
 
-        if self._do_switch_chat_template:
-            rm_data = self._switch_chat_template(data)
-        else:
-            rm_input_ids = data.batch["input_ids"]
-            rm_attention_mask = data.batch["attention_mask"]
-            rm_position_ids = data.batch["position_ids"]
-            rm_inputs = {
-                "input_ids": rm_input_ids,
-                "attention_mask": rm_attention_mask,
-                "position_ids": rm_position_ids,
-            }
-            rm_data = DataProto.from_dict(rm_inputs)
-
-        scores = self.reward_model.compute_reward(rm_data)
-        token_level_scores = self._expand_to_token_level(data, scores)
+        output = self.reward_model.compute_reward(rm_data)
+        token_level_scores = self._postprocess_reward_outputs(data, output)
         # Note that this is only the scores, may not be the final rewards used to train RL
         output = DataProto.from_dict(tensors={"rm_scores": token_level_scores})
-        output = output.to("cpu")
         return output

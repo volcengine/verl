@@ -59,7 +59,7 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  discriminative_reward_model:
+  reward_model:
     runs-on: [L20x8]
     timeout-minutes: 20 # Increase this timeout value as needed
     env:
@@ -84,7 +84,12 @@ jobs:
       - name: Download model config files
         run: |
           hf download Skywork/Skywork-Reward-V2-Llama-3.2-1B --local-dir $HOME/models/Skywork/Skywork-Reward-V2-Llama-3.2-1B
+          hf download verl-team/GenRM-CI-Test-1.5B --local-dir $HOME/models/verl-team/GenRM-CI-Test-1.5B
       - name: Running discriminative reward model tests on 8 L20 GPUs
         run: |
           unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
-          pytest -s -x tests/workers/reward_model/test_reward_model.py
+          pytest -s -x tests/workers/reward_model/test_discriminative_reward_model.py
+      - name: Running generative reward model tests on 8 L20 GPUs
+        run: |
+          unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
+          pytest -s -x tests/workers/reward_model/test_generative_reward_model.py
