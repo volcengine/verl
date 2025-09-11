@@ -141,12 +141,7 @@ class TestCriticWorker(unittest.TestCase):
             meta_info={"global_token_num": [response_len] * batch_size, "batch_seqlens": [response_len] * batch_size},
         )
 
-        return data.make_iterator(
-            mini_batch_size=self.config.ppo_mini_batch_size,
-            epochs=self.config.ppo_epochs,
-            seed=self.config.data_loader_seed,
-            dataloader_kwargs={"shuffle": self.config.shuffle},
-        )
+        return data
 
     def test_init_model(self):
         """Test CriticWorker.init_model() method"""
@@ -181,9 +176,9 @@ class TestCriticWorker(unittest.TestCase):
         worker = CriticWorker(self.config)
         worker.init_model()
 
-        dataloader = self._create_test_data_for_update_critic()
+        data = self._create_test_data_for_update_critic()
 
-        result = worker.update_critic(dataloader)
+        result = worker.update_critic(data)
 
         self.assertIsInstance(result, DataProto)
         self.assertIn("metrics", result.meta_info)
