@@ -772,7 +772,8 @@ class AgentLoopManager:
         self._init_agent_loop_workers()
 
         # Initially we're in sleep mode.
-        self.sleep()
+        if self.config.actor_rollout_ref.rollout.free_cache_engine:
+            self.sleep()
 
     def _initialize_llm_servers(self):
         self.rollout_tp_size = self.config.actor_rollout_ref.rollout.tensor_model_parallel_size
