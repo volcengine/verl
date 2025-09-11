@@ -101,6 +101,7 @@ def test_reward_model():
     model_config = HFModelConfig(path=rm_path)
     config = RewardModelConfig(
         enable=True,
+        model_type="discriminative",
         dtype="bfloat16",
         model_config=model_config,
         input_model_config=None,
