@@ -118,3 +118,6 @@ class ToolResponse(BaseModel):
 
     def is_empty(self) -> bool:
         return self.text is None and self.image is None and self.video is None
+
+    def is_text_only(self) -> bool:
+        return self.text is not None and self.image is None and self.video is None
