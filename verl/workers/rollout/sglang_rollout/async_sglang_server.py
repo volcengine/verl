@@ -84,6 +84,10 @@ class SGLangHttpServer:
         self.node_rank = node_rank
         self.nnodes = nnodes
 
+        if self.rollout_mode != RolloutMode.HYBRID and self.config.load_format == "dummy":
+            logger.warning(f"rollout mode is {self.rollout_mode}, load_format is dummy, set to auto")
+            self.config.load_format = "auto"
+
         # used for http server
         self._server_address = ray.util.get_node_ip_address().strip("[]")
         self._server_port = None
@@ -155,21 +159,26 @@ class SGLangHttpServer:
         self._server_port, self._server_task = await run_unvicorn(app, server_args)
 
     async def wake_up(self):
-        # NOTE: If it's hybrid mode, we have to call all workers to switch between trainer mode and rollout mode;
-        # otherwise, we directly call the engine to release or resume GPU memory.
         if self.rollout_mode == RolloutMode.HYBRID:
+            # Call all workers to switch between trainer mode and rollout mode.
             await asyncio.gather(*[worker.wake_up.remote() for worker in self.workers])
-        else:
+        elif self.rollout_mode == RolloutMode.COLOCATED:
+            # Directly call engine to wake up without sync weights.
             # FIXME(@wuxibin): sglang seems resume with random weights.
             obj = ResumeMemoryOccupationReqInput(tags=["kv_cache", "weights"])
             await self.tokenizer_manager.resume_memory_occupation(obj, None)
+            await self.tokenizer_manager.flush_cache()
+        elif self.rollout_mode == RolloutMode.STANDALONE:
+            logger.info("skip wake_up in standalone mode")
 
     async def sleep(self):
         if self.rollout_mode == RolloutMode.HYBRID:
             await asyncio.gather(*[worker.sleep.remote() for worker in self.workers])
-        else:
+        elif self.rollout_mode == RolloutMode.COLOCATED:
             obj = ReleaseMemoryOccupationReqInput(tags=["kv_cache", "weights"])
             await self.tokenizer_manager.release_memory_occupation(obj, None)
+        elif self.rollout_mode == RolloutMode.STANDALONE:
+            logger.info("skip sleep in standalone mode")
 
     async def generate(
         self,

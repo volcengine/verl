@@ -139,6 +139,10 @@ class vLLMHttpServer:
         self.gpus_per_node = gpus_per_node
         self.nnodes = nnodes
 
+        if self.rollout_mode != RolloutMode.HYBRID and self.config.load_format == "dummy":
+            logger.warning(f"rollout mode is {self.rollout_mode}, load_format is dummy, set to auto")
+            self.config.load_format = "auto"
+
         # used for http server
         self._server_address = ray.util.get_node_ip_address().strip("[]")
         self._server_port = None
@@ -298,13 +302,24 @@ class vLLMHttpServer:
         return TokenOutput(token_ids=token_ids, log_probs=log_probs)
 
     async def wake_up(self):
-        if self.config.free_cache_engine:
+        if self.rollout_mode == RolloutMode.HYBRID:
+            # Call all workers to switch between trainer mode and rollout mode.
             await asyncio.gather(*[worker.wake_up.remote() for worker in self.workers])
+        elif self.rollout_mode == RolloutMode.COLOCATED:
+            # Directly call engine to wake up without sync weights.
+            await self.engine.wake_up(tags=["kv_cache", "weights"])
+        elif self.rollout_mode == RolloutMode.STANDALONE:
+            logger.info("skip wake_up in standalone mode")
 
     async def sleep(self):
-        await self.engine.reset_prefix_cache()
-        if self.config.free_cache_engine:
+        if self.rollout_mode == RolloutMode.HYBRID:
+            await self.engine.reset_prefix_cache()
             await asyncio.gather(*[worker.sleep.remote() for worker in self.workers])
+        elif self.rollout_mode == RolloutMode.COLOCATED:
+            await self.engine.reset_prefix_cache()
+            await self.engine.sleep(level=1)
+        elif self.rollout_mode == RolloutMode.STANDALONE:
+            logger.info("skip sleep in standalone mode")
 
 
 _rollout_worker_actor_cls = ray.remote(vLLMAsyncRollout)

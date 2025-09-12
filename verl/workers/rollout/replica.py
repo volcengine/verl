@@ -87,13 +87,12 @@ class RolloutReplica(ABC):
         self.rollout_config: RolloutConfig = omega_conf_to_dataclass(config.actor_rollout_ref.rollout)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(config.actor_rollout_ref.model)
 
-        # TODO: support DPxTPxEP
-        self.world_size = self.rollout_config.tensor_model_parallel_size
-        self.gpus_per_node = gpus_per_node
-        assert (self.gpus_per_node % self.world_size) == 0 or (self.world_size % self.gpus_per_node) == 0, (
-            f"gpus_per_node({self.gpus_per_node}) should be divisible by world_size({self.world_size}) or vice versa."
+        self.world_size = self.rollout_config.tensor_model_parallel_size * self.rollout_config.data_parallel_size
+        self.gpus_per_node = min(gpus_per_node, self.world_size)
+        assert self.world_size % self.gpus_per_node == 0, (
+            f"world_size {self.world_size} must be divisible by gpus_per_node {self.gpus_per_node}"
         )
-        self.nnodes = (self.world_size + self.gpus_per_node - 1) // self.gpus_per_node
+        self.nnodes = self.world_size // self.gpus_per_node
 
         self.rollout_mode: RolloutMode = None
         self.workers: list[ActorHandle] = []
@@ -127,8 +126,6 @@ class RolloutReplica(ABC):
     async def init_standalone(self):
         """Init standalone rollout server, create new resource pool for this rollout."""
         # create resource pool for this rollout
-        assert self.rollout_config.load_format == "auto", "standalone rollout load_format should be auto."
-
         self.rollout_mode = RolloutMode.STANDALONE
         resource_pool_spec = {
             f"rollout_pool_{self.replica_rank}": [self.gpus_per_node] * self.nnodes,
