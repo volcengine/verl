@@ -735,12 +735,12 @@ async def get_trajectory_info(step, index, validate):
 class AgentLoopManager:
     """Agent loop manager that manages a group of agent loop workers."""
 
-    def __init__(self, config: DictConfig, worker_group: RayWorkerGroup, rm_wg: RayWorkerGroup = None):
+    def __init__(self, config: DictConfig, worker_group: RayWorkerGroup = None, rm_wg: RayWorkerGroup = None):
         """Initialize agent loop manager.
 
         Args:
             config (DictConfig): trainer config.
-            worker_group (RayWorkerGroup): ActorRolloutRef worker group.
+            worker_group (RayWorkerGroup): ActorRolloutRef worker group for hybrid mode; None for standalone mode.
         """
         self.config = config
         self.worker_group = worker_group
@@ -777,7 +777,12 @@ class AgentLoopManager:
 
     def _initialize_llm_servers(self):
         rollout_world_size = self.config.actor_rollout_ref.rollout.tensor_model_parallel_size
-        num_replicas = self.worker_group.world_size // rollout_world_size
+        world_size = (
+            self.worker_group.world_size
+            if self.worker_group
+            else self.config.trainer.n_gpus_per_node * self.config.trainer.nnodes
+        )
+        num_replicas = world_size // rollout_world_size
 
         rollout_replica_class = get_rollout_replica_class(self.config.actor_rollout_ref.rollout.name)
         self.rollout_replicas = [
@@ -786,7 +791,10 @@ class AgentLoopManager:
             )
             for replica_rank in range(num_replicas)
         ]
-        self._run_all([server.init_hybrid(self.worker_group) for server in self.rollout_replicas])
+        if self.worker_group:
+            self._run_all([server.init_hybrid(self.worker_group) for server in self.rollout_replicas])
+        else:
+            self._run_all([server.init_standalone() for server in self.rollout_replicas])
         self.server_handles = [server._server_handle for server in self.rollout_replicas]
         self.server_addresses = [server._server_address for server in self.rollout_replicas]
 
