@@ -150,6 +150,9 @@ class DynamicFilter:
         if self.num_prompt_in_batch < train_batch_size and self.num_gen_batches < max_num_gen_batches:
             return None, True  # Continue collecting more batches
 
+        num_trajs_target = train_batch_size * rollout_n
+        num_trajs_available = len(self.accumulated_batch)
+
         # If we reached max generation batches but still don't have enough prompts,
         # repeat batch content to fill the deficit.
         if self.num_gen_batches >= max_num_gen_batches and self.num_prompt_in_batch < train_batch_size:
@@ -157,8 +160,7 @@ class DynamicFilter:
                 raise ValueError(
                     "No prompts collected in the generation batch,consider increasing max_num_gen_batches or rollout.n"
                 )
-            num_trajs_target = train_batch_size * rollout_n
-            num_trajs_available = len(self.accumulated_batch)
+            
             # Repeat the accumulated batch enough times to meet the target.
             # The final batch will be truncated to the exact size by the alignment step later.
             repeat_factor = (num_trajs_target + num_trajs_available - 1) // num_trajs_available
@@ -167,8 +169,7 @@ class DynamicFilter:
             final_batch = self.accumulated_batch
 
         # Align the batch to the expected trajectory batch size
-        traj_bsz = train_batch_size * rollout_n
-        aligned_batch = final_batch[:traj_bsz]
+        aligned_batch = final_batch[:num_trajs_target]
 
         return aligned_batch, False  # Ready for training
 
