@@ -114,7 +114,7 @@ jobs:
           pip install tensordict==0.6.2
       - name: Download Model to Use
         run: |
-          huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct --local-dir ${HOME}/models/Qwen/Qwen2.5-0.5B
+          huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct --local-dir ${HOME}/models/Qwen/Qwen2.5-0.5B-Instruct
           huggingface-cli download Qwen/Qwen2.5-1.5B-Instruct --local-dir ${HOME}/models/Qwen/Qwen2.5-1.5B-Instruct
           huggingface-cli download 'Qwen/Qwen2-7B-Instruct' --local-dir ${HOME}/models/Qwen/Qwen2-7B-Instruct
           huggingface-cli download 'deepseek-ai/deepseek-llm-7b-chat' --local-dir ${HOME}/models/deepseek-ai/deepseek-llm-7b-chat
