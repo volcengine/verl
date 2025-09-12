@@ -20,6 +20,8 @@ from enum import Enum
 from typing import Any, Optional
 from uuid import uuid4
 
+from qwen_agent.tools import MCPManager
+
 from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput, register
 from verl.experimental.agent_loop.tool_parser import FunctionCall, ToolParser
 from verl.interactions.base import BaseInteraction
@@ -31,6 +33,17 @@ from verl.utils.rollout_trace import rollout_trace_op
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
+
+
+def get_tool_schema(tool: MCPManager):
+    return {
+        type: "function",
+        "function": {
+            "name": tool.name,
+            "description": tool.description,
+            "parameters": tool.parameters,
+        }
+    }
 
 
 class AgentState(Enum):
@@ -53,6 +66,8 @@ class AgentData:
         tools_kwargs: dict[str, Any],
         interaction: Optional[BaseInteraction] = None,
         interaction_kwargs: Optional[dict[str, Any]] = None,
+        involved_class: Optional[str] = None,
+        initial_config: Optional[dict[str, Any]] = None,
     ):
         self.messages = messages
         self.image_data = image_data
@@ -74,6 +89,10 @@ class AgentData:
         # Temporary state for tool calls
         self.tool_calls: list[FunctionCall] = []
 
+        # Extra information such as involved_class, initial_config, etc.
+        self.involved_class = involved_class
+        self.initial_config = initial_config
+
 
 @register("tool_agent")
 class ToolAgentLoop(AgentLoopBase):
@@ -93,9 +112,14 @@ class ToolAgentLoop(AgentLoopBase):
         cls.max_tool_response_length = config.actor_rollout_ref.rollout.multi_turn.max_tool_response_length
         cls.tool_response_truncate_side = config.actor_rollout_ref.rollout.multi_turn.tool_response_truncate_side
         tool_config_path = config.actor_rollout_ref.rollout.multi_turn.tool_config_path
-        tool_list = initialize_tools_from_config(tool_config_path) if tool_config_path else []
+        # tool_list = initialize_tools_from_config(tool_config_path) if tool_config_path else []
+        # cls.tools = {tool.name: tool for tool in tool_list}
+        # cls.tool_schemas = [tool.tool_schema.model_dump(exclude_unset=True, exclude_none=True) for tool in tool_list]
+        with open(tool_config_path, 'r') as f:
+            tool_config = json.load(f)
+        tool_list = MCPManager().initConfig(tool_config)
         cls.tools = {tool.name: tool for tool in tool_list}
-        cls.tool_schemas = [tool.tool_schema.model_dump(exclude_unset=True, exclude_none=True) for tool in tool_list]
+        cls.tool_schemas = [get_tool_schema(tool) for tool in tool_list]
         cls.tool_parser = ToolParser.get_tool_parser(config.actor_rollout_ref.rollout.multi_turn.format, cls.tokenizer)
         print(f"Initialized tools: {cls.tools}")
 
@@ -110,6 +134,23 @@ class ToolAgentLoop(AgentLoopBase):
         if cls.interaction_config_file:
             cls.interaction_map: dict[str, BaseInteraction] = cls._initialize_interactions(cls.interaction_config_file)
 
+    def filter_tools(self, involved_class: list[str] | None) -> list:
+        if involved_class is None:
+            return self.tool_schemas
+
+        filtered_tools = []
+
+        # Only keep the tools that belongs to the involved classes
+        # Remove the load_scenario and save_scenario tools from
+        for tool_class in involved_class:
+            for tool_name, tool in self.tools.items():
+                if tool_class in tool_name \
+                and 'load_scenario' not in tool_name \
+                and 'save_scenario' not in tool_name:
+                    filtered_tools.append(tool)
+
+        return [tool.tool_schema.model_dump(exclude_unset=True, exclude_none=True) for tool in filtered_tools]
+
     @rollout_trace_op
     async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
         messages = list(kwargs["raw_prompt"])
@@ -117,6 +158,8 @@ class ToolAgentLoop(AgentLoopBase):
         metrics = {}
         request_id = uuid4().hex
         tools_kwargs = kwargs.get("tools_kwargs", {})
+        involved_class = kwargs.get("involved_class", None)
+        initial_config = kwargs.get("initial_config", None)
 
         # Initialize interaction if needed
         interaction = None
@@ -143,6 +186,8 @@ class ToolAgentLoop(AgentLoopBase):
             tools_kwargs=tools_kwargs,
             interaction=interaction,
             interaction_kwargs=interaction_kwargs,
+            involved_class=involved_class,
+            initial_config=initial_config,
         )
 
         # State machine loop

@@ -18,6 +18,7 @@ import copy
 import logging
 import os
 import re
+import json
 from collections import defaultdict
 from typing import Optional
 
@@ -348,9 +349,15 @@ class RLHFDataset(Dataset):
         need_tools_kwargs = row_dict.get("extra_info", {}).get("need_tools_kwargs", self.need_tools_kwargs)
         if need_tools_kwargs and not tools_kwargs:
             logger.warning("tools_kwargs is empty for index {}, data source: {}", index, row_dict["data_source"])
+        involved_class = row_dict.get("extra_info", {}).get("involved_class", None)
+        initial_config = row_dict.get("extra_info", {}).get("initial_config", None)
+        if isinstance(initial_config, str):
+            initial_config = json.loads(initial_config)
         row_dict["index"] = index
         row_dict["tools_kwargs"] = tools_kwargs
         row_dict["interaction_kwargs"] = interaction_kwargs
+        row_dict["involved_class"] = involved_class
+        row_dict["initial_config"] = initial_config
         return row_dict
 
     def __getstate__(self):
