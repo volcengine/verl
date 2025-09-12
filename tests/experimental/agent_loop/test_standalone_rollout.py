@@ -31,7 +31,7 @@ def init_config() -> DictConfig:
 
     config.trainer.n_gpus_per_node = 4
     config.trainer.nnodes = 2
-    config.actor_rollout_ref.model.path = os.path.expanduser("~/models/Qwen/Qwen2.5-0.5B-Instruct")
+    config.actor_rollout_ref.model.path = os.path.expanduser("~/models/Qwen/Qwen2.5-1.5B-Instruct")
     config.actor_rollout_ref.rollout.name = os.environ["ROLLOUT_NAME"]
     config.actor_rollout_ref.rollout.load_format = "auto"
     config.actor_rollout_ref.rollout.enforce_eager = True
