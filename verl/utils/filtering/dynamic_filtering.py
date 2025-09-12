@@ -117,7 +117,7 @@ class DynamicFilter:
 
         # Group by prompt UID and collect metric values
         prompt_uid_to_metric_vals = defaultdict(list)
-        for uid, metric_val in zip(uids, batch.non_tensor_batch[self.metric], strict=False):
+        for uid, metric_val in zip(uids, batch.non_tensor_batch[self.metric], strict=True):
             prompt_uid_to_metric_vals[uid].append(metric_val)
 
         # Apply filtering
@@ -151,15 +151,21 @@ class DynamicFilter:
             return None, True  # Continue collecting more batches
 
         # If we reached max generation batches but still don't have enough prompts,
-        # repeat batch content to fill the deficit
-        if self.num_gen_batches >= max_num_gen_batches:
+        # repeat batch content to fill the deficit.
+        if self.num_gen_batches >= max_num_gen_batches and self.num_prompt_in_batch < train_batch_size:
             if self.num_prompt_in_batch == 0:
                 raise ValueError(
                     "No prompts collected in the generation batch,consider increasing max_num_gen_batches or rollout.n"
                 )
-            prompt_deficit = train_batch_size - self.num_prompt_in_batch
-            repeated_batch = self.accumulated_batch[: prompt_deficit * rollout_n]
-            final_batch = DataProto.concat([self.accumulated_batch, repeated_batch])
+            num_trajs_target = train_batch_size * rollout_n
+            num_trajs_available = len(self.accumulated_batch)
+            # Repeat the accumulated batch enough times to meet the target.
+            # The final batch will be truncated to the exact size by the alignment step later.
+            if num_trajs_available < num_trajs_target:
+                repeat_factor = (num_trajs_target + num_trajs_available - 1) // num_trajs_available
+                final_batch = DataProto.concat([self.accumulated_batch] * repeat_factor)
+            else:
+                final_batch = self.accumulated_batch
         else:
             final_batch = self.accumulated_batch
 
