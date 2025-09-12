@@ -70,6 +70,10 @@ async def test_standalone_(init_config, tp_size):
     assert len(server_handles) == num_replicas
     assert len(server_addresses) == num_replicas
 
+    os.environ.pop("HTTPS_PROXY", None)
+    os.environ.pop("HTTP_PROXY", None)
+    os.environ.pop("NO_PROXY", None)
+
     client = AsyncOpenAI(
         api_key="123-abc",
         base_url=f"http://{server_addresses[0]}/v1",
