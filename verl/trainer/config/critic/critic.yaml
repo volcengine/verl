@@ -1,15 +1,3 @@
-# Format checks enforced on CI:
-# 1. Comments must appear above each field.
-# 2. There must be a blank line between each field.
-# 3. Inline comments (after a field on the same line) are not allowed.
-# 4. Indentation level is respected for nested fields.
-
-# defaults specify the default config from each component
-defaults:
-
-  # fsdp optimizer config
-  - ../model@model: hf_model
-
 # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
 _target_: verl.workers.config.CriticConfig
 
@@ -24,6 +12,42 @@ strategy: ???
 # set it to True manually if you always want to enable critic worker
 enable: null
 
+# optimizer configs
+optim:
+
+  # Learning rate
+  lr: 1e-5
+
+  # Warmup steps ratio; total steps will be injected at runtime
+  lr_warmup_steps_ratio: 0.0
+
+  # Total training steps (must be overridden at runtime)
+  total_training_steps: -1
+
+  # Weight decay
+  weight_decay: 0.01
+
+  # Prioritized. None, 0 or Negative values mean delegating to lr_warmup_steps_ratio.
+  lr_warmup_steps: -1
+
+
+# model config for the critic
+model:
+
+  # Path to pretrained model weights
+  path: ~/models/deepseek-llm-7b-chat
+
+  # Tokenizer path (defaults to actor's model path)
+  tokenizer_path: ${oc.select:actor_rollout_ref.model.path,"~/models/deepseek-llm-7b-chat"}
+
+  # Hugging Face config override
+  override_config: {}
+
+  # External model implementation (optional)
+  external_lib: ${oc.select:actor_rollout_ref.model.external_lib,null}
+
+  # Whether to trust remote code from Hugging Face models
+  trust_remote_code: ${oc.select:actor_rollout_ref.model.trust_remote_code,false}
 
 # PPO mini-batch size per update
 ppo_mini_batch_size: ${oc.select:actor_rollout_ref.actor.ppo_mini_batch_size,256}
