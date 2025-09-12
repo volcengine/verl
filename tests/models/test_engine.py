@@ -156,8 +156,7 @@ def test_actor_engine(strategy):
 
 def create_model():
     from transformers import Qwen3Config
-
-    config = Qwen3Config(num_hidden_layers=1, num_labels=1)
+    config = Qwen3Config(num_hidden_layers=2, num_labels=1)
     model = AutoModelForTokenClassification.from_config(config)
     assert model.config.num_labels == 1
     path = os.path.expanduser("~/models/test_model")
@@ -166,7 +165,7 @@ def create_model():
     return path
 
 
-@pytest.mark.parametrize("strategy", ["fsdp", "fsdp2"])
+@pytest.mark.parametrize("strategy", ["megatron"])
 def test_critic_engine(strategy):
     ray.init()
 

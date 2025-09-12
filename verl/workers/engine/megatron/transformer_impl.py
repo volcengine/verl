@@ -138,7 +138,7 @@ class MegatronEngine(BaseEngine):
             override_model_config=self.engine_config.override_mcore_model_config,
             override_ddp_config=self.engine_config.override_ddp_config,
         )
-        print(f"actor_module: {len(module)}")
+        print(f"module: {len(module)}")
 
         if self.engine_config.use_dist_checkpointing:
             load_mcore_dist_weights(module, self.engine_config.dist_checkpointing_path, is_value_model=is_value_model)
