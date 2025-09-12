@@ -245,8 +245,9 @@ def test_critic_engine(strategy):
 
     # load hf model and compare results with hf model
     with torch.device("cuda"):
-        hf_model = AutoModelForTokenClassification.from_pretrained(path, torch_dtype=torch.bfloat16,
-                                                                attn_implementation="flash_attention_2")
+        hf_model = AutoModelForTokenClassification.from_pretrained(
+            path, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2"
+        )
         hf_output = hf_model(input_ids.cuda(), attention_mask=attention_mask.cuda())
         hf_values = hf_output.logits[:, -response_length - 1 : -1, :].float().squeeze(-1).cpu()
     hf_values_mean = torch.mean(hf_values * response_mask)
