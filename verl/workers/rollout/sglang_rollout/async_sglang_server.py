@@ -118,6 +118,7 @@ class SGLangHttpServer:
             "model_path": self.model_config.local_path,
             "dtype": self.config.dtype,
             "mem_fraction_static": self.config.gpu_memory_utilization,
+            "disable_cuda_graph": self.config.enforce_eager,
             "enable_memory_saver": True,
             "base_gpu_id": 0,
             "gpu_id_step": 1,
@@ -128,17 +129,9 @@ class SGLangHttpServer:
             "nnodes": self.nnodes,
             "trust_remote_code": self.model_config.trust_remote_code,
             "max_running_requests": self.config.get("max_num_seqs", None),
-            # NOTE(Chenyang): if you want to debug the SGLang engine output
-            # please set the following parameters
-            # Otherwise, it will make the engine run too slow
             "log_level": "error",
-            # log_requests=True,
-            # log_requests_level=2,
-            # NOTE(Chenyang): turn on max_running_requests to set the max concurrent running requests
-            # max_running_requests=1,
             "mm_attention_backend": "fa3",
             "attention_backend": attention_backend if attention_backend is not None else "fa3",
-            # In async mode, we want token in token out.
             "skip_tokenizer_init": self.config.skip_tokenizer_init,
         }
 

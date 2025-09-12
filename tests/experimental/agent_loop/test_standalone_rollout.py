@@ -34,6 +34,7 @@ def init_config() -> DictConfig:
     config.actor_rollout_ref.model.path = "Qwen/Qwen2.5-1.5B-Instruct"
     config.actor_rollout_ref.rollout.name = os.environ["ROLLOUT_NAME"]
     config.actor_rollout_ref.rollout.load_format = "auto"
+    config.actor_rollout_ref.rollout.enforce_eager = True
 
     return config
 
