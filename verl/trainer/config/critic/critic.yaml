@@ -8,7 +8,7 @@
 defaults:
 
   # fsdp optimizer config
-  - ../model@model_config: hf_model
+  - ../model@model: hf_model
 
 # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
 _target_: verl.workers.config.CriticConfig
@@ -24,8 +24,6 @@ strategy: ???
 # set it to True manually if you always want to enable critic worker
 enable: null
 
-# we deprecate model to favor model_config from HF
-model: ${model_config}
 
 # PPO mini-batch size per update
 ppo_mini_batch_size: ${oc.select:actor_rollout_ref.actor.ppo_mini_batch_size,256}

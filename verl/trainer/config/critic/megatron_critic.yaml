@@ -21,20 +21,6 @@ strategy: megatron
 # seconds, default is 10 minutes for torch, you can set it to a larger value if you have long-running operations like 32B or 72B model using megatron
 nccl_timeout: 600
 
-# model config for the critic
-model:
-
-  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
-  _target_: verl.trainer.config.BaseModelConfig
-
-  # override default empty mapping
-  override_config:
-
-    model_config: {}
-
-    moe_config:
-
-      freeze_moe_router: False
 
 # Whether to load initial weights
 load_weight: True

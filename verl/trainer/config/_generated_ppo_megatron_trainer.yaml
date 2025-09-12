@@ -346,7 +346,7 @@ critic:
     override_mcore_model_config: {}
     use_mbridge: false
     forward_only: false
-  model_config:
+  model:
     _target_: verl.workers.config.HFModelConfig
     path: ~/models/deepseek-llm-7b-chat
     hf_config_path: null
@@ -371,12 +371,6 @@ critic:
   rollout_n: ${oc.select:actor_rollout_ref.rollout.n,1}
   strategy: megatron
   enable: null
-  model:
-    _target_: verl.trainer.config.BaseModelConfig
-    override_config:
-      model_config: {}
-      moe_config:
-        freeze_moe_router: false
   ppo_mini_batch_size: ${oc.select:actor_rollout_ref.actor.ppo_mini_batch_size,256}
   ppo_micro_batch_size: null
   ppo_micro_batch_size_per_gpu: ${oc.select:.ppo_micro_batch_size,null}

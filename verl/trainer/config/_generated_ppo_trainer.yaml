@@ -311,15 +311,24 @@ critic:
     num_cycles: 0.5
     warmup_style: constant
   model:
-    _target_: verl.workers.config.FSDPCriticModelCfg
-    use_shm: false
-    enable_gradient_checkpointing: true
-    enable_activation_offload: false
-    use_remove_padding: false
-    lora_rank: 0
-    lora_alpha: 16
-    target_modules: all-linear
-  model_config:
+    fsdp_config:
+      _target_: verl.workers.config.FSDPEngineConfig
+      wrap_policy:
+        min_num_params: 0
+      param_offload: false
+      optimizer_offload: false
+      offload_policy: false
+      reshard_after_forward: true
+      fsdp_size: -1
+      forward_prefetch: false
+      model_dtype: fp32
+      use_orig_params: false
+      ulysses_sequence_parallel_size: 1
+      entropy_from_logits_with_chunking: false
+      use_torch_compile: true
+      entropy_checkpointing: false
+      forward_only: false
+      strategy: fsdp
     _target_: verl.workers.config.HFModelConfig
     path: ~/models/deepseek-llm-7b-chat
     hf_config_path: null
