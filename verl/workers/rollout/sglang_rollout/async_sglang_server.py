@@ -34,6 +34,7 @@ from sglang.srt.managers.tokenizer_manager import ReleaseMemoryOccupationReqInpu
 
 from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
+from verl.utils.device import is_cuda_available
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
 from verl.workers.rollout.sglang_rollout.sglang_rollout import ServerAdapter, _set_envs_and_config
@@ -71,7 +72,7 @@ class SGLangHttpServer:
     ):
         print(f"SGLang http server: {rollout_mode=}, {replica_rank=}, {node_rank=}, {nnodes=}, {cuda_visible_devices=}")
         os.environ["CUDA_VISIBLE_DEVICES"] = cuda_visible_devices
-        assert torch.cuda.is_available(), "SGLang http server should run on GPU node"
+        assert is_cuda_available, "SGLang http server should run on GPU node"
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config.actor_rollout_ref.rollout)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(config.actor_rollout_ref.model)
