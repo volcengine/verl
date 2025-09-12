@@ -418,17 +418,20 @@ class AsyncRolloutRequest(BaseModel):
         # We require the processing of the image and video to be done at tool.execute() level
         delta_multi_modal_data = {key: [] for key in self.multi_modal_keys}
         for content in contents:
-            content_list = []
-            # When we update multi_model_keys, we also need to update this logic
-            if content.image:
-                content_list.extend([{"type": "image"} for _ in content.image])
-                delta_multi_modal_data["image"].extend(content.image)
-            if content.video:
-                content_list.extend([{"type": "video"} for _ in content.video])
-                delta_multi_modal_data["video"].extend(content.video)
-            if content.text:
-                content_list.append({"type": "text", "text": content.text})
-            self.messages.append(Message(role="tool", content=content_list))
+            if content.is_text_only():
+                self.messages.append(Message(role="tool", content=content.text))
+            else:
+                content_list = []
+                # When we update multi_model_keys, we also need to update this logic
+                if content.image:
+                    content_list.extend([{"type": "image"} for _ in content.image])
+                    delta_multi_modal_data["image"].extend(content.image)
+                if content.video:
+                    content_list.extend([{"type": "video"} for _ in content.video])
+                    delta_multi_modal_data["video"].extend(content.video)
+                if content.text:
+                    content_list.append({"type": "text", "text": content.text})
+                self.messages.append(Message(role="tool", content=content_list))
 
         messages = [*BASE_CHAT_HISTORY, *self.messages[-len(contents) :]]
         tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None

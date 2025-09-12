@@ -39,7 +39,7 @@ def test_agent_loop_compute_score():
     with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config")):
         config = compose("ppo_trainer")
 
-    model_path = "Qwen/Qwen2.5-1.5B-Instruct"
+    model_path = os.path.expanduser("~/models/Qwen/Qwen2.5-1.5B-Instruct")
     config.data.return_raw_chat = True
     config.actor_rollout_ref.model.path = model_path
     config.actor_rollout_ref.actor.use_dynamic_bsz = True

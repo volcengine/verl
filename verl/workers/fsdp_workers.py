@@ -48,6 +48,7 @@ from verl import DataProto
 from verl.models.transformers.monkey_patch import apply_monkey_patch
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
+from verl.third_party.vllm import VLLM_SLEEP_LEVEL
 from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.activation_offload import enable_activation_offloading
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
@@ -610,6 +611,12 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         # used for LoRA
         self.base_sync_done: bool = "dummy" not in self.config.rollout.load_format
+        self.layered_summon = self.config.rollout.get("layered_summon", False)
+        if VLLM_SLEEP_LEVEL == 2 and not self.layered_summon:
+            self.force_reload = True
+            self.base_sync_done = False
+        else:
+            self.force_reload = False
 
         # 5. switch to trainer mode
         # NOTE: It's critical that hybrid engine in trainer mode initially to load checkpoint.
@@ -673,7 +680,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             await self.rollout.resume(tags=["kv_cache"])
         log_gpu_memory_usage("After resume kv_cache", logger=logger)
 
-        self.base_sync_done = True
+        self.base_sync_done = not self.force_reload
         # important: need to manually set the random states of each tp to be identical.
         self.torch_random_states = get_torch_device().get_rng_state()
         get_torch_device().set_rng_state(self.gen_random_states)

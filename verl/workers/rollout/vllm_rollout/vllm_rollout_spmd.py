@@ -57,6 +57,7 @@ from vllm.worker.worker_base import WorkerWrapperBase
 
 from verl import DataProto
 from verl.third_party.vllm import VLLM_SLEEP_LEVEL
+from verl.utils.device import is_npu_available
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.ray_utils import ray_noset_visible_devices
 from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
@@ -95,6 +96,11 @@ class vLLMRollout(BaseRollout):
         device_mesh: DeviceMesh,
     ):
         super().__init__(config, model_config, device_mesh)
+
+        if config.layered_summon:
+            self.sleep_level = 1
+        else:
+            self.sleep_level = VLLM_SLEEP_LEVEL
 
         model_path = model_config.local_path
         tokenizer = model_config.tokenizer
@@ -418,7 +424,7 @@ class vLLMRollout(BaseRollout):
         if not self.config.free_cache_engine:
             return
 
-        self.inference_engine.sleep(level=VLLM_SLEEP_LEVEL)
+        self.inference_engine.sleep(level=self.sleep_level)
 
     async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None], **kwargs):
         """Update the weights of the rollout model.
@@ -477,6 +483,11 @@ class vLLMAsyncRollout(BaseRollout):
         self.inference_engine: WorkerWrapperBase = None
         self.address = self._init_zeromq()
 
+        if config.layered_summon:
+            self.sleep_level = 1
+        else:
+            self.sleep_level = VLLM_SLEEP_LEVEL
+
     def _init_zeromq(self) -> str:
         tensor_parallel_size = self.config.tensor_model_parallel_size
 
@@ -522,7 +533,12 @@ class vLLMAsyncRollout(BaseRollout):
     def _init_worker(self, all_kwargs: list[dict[str, Any]]):
         """Initialize worker engine."""
         all_kwargs[0]["rank"] = int(os.environ["RANK"])
-        all_kwargs[0]["local_rank"] = 0 if not ray_noset_visible_devices() else int(os.environ.get("RAY_LOCAL_RANK", 0))
+        device_name = "NPU" if is_npu_available else "GPU"
+        all_kwargs[0]["local_rank"] = (
+            0
+            if not ray_noset_visible_devices()
+            else int(ray.get_runtime_context().get_accelerator_ids()[device_name][0])
+        )
         self.vllm_config = all_kwargs[0]["vllm_config"]
         self.inference_engine = WorkerWrapperBase(vllm_config=self.vllm_config)
         self.inference_engine.init_worker(all_kwargs)
@@ -553,7 +569,7 @@ class vLLMAsyncRollout(BaseRollout):
     async def release(self):
         """Release weights and kv cache in GPU memory."""
         if self.config.free_cache_engine:
-            self.inference_engine.sleep(level=VLLM_SLEEP_LEVEL)
+            self.inference_engine.sleep(level=self.sleep_level)
 
     async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None], **kwargs):
         """Update the weights of the rollout model.
