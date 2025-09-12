@@ -482,7 +482,7 @@ class vLLMAsyncRollout(BaseRollout):
         self.inference_engine: WorkerWrapperBase = None
         self.address = self._init_zeromq()
 
-        if model_config.rollout.get("layered_summon", True):
+        if config.layered_summon:
             self.sleep_level = 1
         else:
             self.sleep_level = VLLM_SLEEP_LEVEL
