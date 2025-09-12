@@ -59,7 +59,7 @@ class CriticConfig(BaseConfig):
         "ppo_micro_batch_size_per_gpu",
         "ppo_mini_batch_size",
         "ppo_micro_batch_size",
-        "model_config"
+        "model_config",
     }
 
     strategy: str = MISSING
@@ -92,7 +92,7 @@ class CriticConfig(BaseConfig):
         assert self.strategy != MISSING
 
         if self.model_config is None:
-            warnings.warn("using config.model in Critic Config is deprecated, please use model_config instead")
+            warnings.warn("using model in Critic Config is deprecated, please use model_config instead", stacklevel=2)
             self.model_config = self.model
 
         if not self.use_dynamic_bsz:

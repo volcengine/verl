@@ -406,7 +406,7 @@ def _load_hf_model(config, model_config, is_value_model, local_cache_path):
     architectures = getattr(model_config, "architectures", [])
     local_cache_path = os.path.expanduser(local_cache_path)
 
-    # get auto class    
+    # get auto class
     auto_cls = get_hf_auto_model_class(model_config)
 
     if config.model.path.startswith("hdfs:"):

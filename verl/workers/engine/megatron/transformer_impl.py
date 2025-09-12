@@ -504,12 +504,12 @@ class MegatronEngineWithLMHead(MegatronEngine):
                 )
 
         return {
-            'input_ids': input_ids,
-            'attention_mask': attention_mask,
-            'position_ids': position_ids,
-            'multi_modal_inputs': multi_modal_inputs,
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "position_ids": position_ids,
+            "multi_modal_inputs": multi_modal_inputs,
         }
-    
+
     def prepare_model_outputs(self, output: dict, data: TensorDict):
         calculate_entropy = tu.get_non_tensor_data(data, key="calculate_entropy", default=False)
         responses = data["responses"]
@@ -520,9 +520,8 @@ class MegatronEngineWithLMHead(MegatronEngine):
         if calculate_entropy:
             entropy = output["entropy"][:, -response_length - 1 : -1].contiguous()
             model_output["entropy"] = entropy
-        
-        return model_output
 
+        return model_output
 
     def forward_step(self, batch_iter: Iterator[TensorDict], model, postprocess_micro_batch_func):
         batch: TensorDict = next(batch_iter)
@@ -535,7 +534,7 @@ class MegatronEngineWithLMHead(MegatronEngine):
         attention_mask = model_inputs["attention_mask"]
         position_ids = model_inputs["position_ids"]
         multi_modal_inputs = model_inputs["multi_modal_inputs"]
-        
+
         responses = batch["responses"]
         response_length = responses.size(1)
         label = position_ids.clone()
@@ -642,6 +641,7 @@ class MegatronEngineWithValueHead(MegatronEngineWithLMHead):
         multi_modal_inputs = model_inputs["multi_modal_inputs"]
 
         from verl.models.mcore import get_mcore_forward_fn
+
         forward_fn = get_mcore_forward_fn(self.model_config.hf_config)
 
         output = forward_fn(
@@ -655,7 +655,7 @@ class MegatronEngineWithValueHead(MegatronEngineWithLMHead):
         )
 
         return output, partial(postprocess_micro_batch_func, data=batch)
-    
+
     def prepare_model_outputs(self, output: dict | torch.Tensor, data: TensorDict):
         responses = data["responses"]
         response_length = responses.size(1)
