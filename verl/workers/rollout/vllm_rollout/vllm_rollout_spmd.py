@@ -57,6 +57,7 @@ from vllm.worker.worker_base import WorkerWrapperBase
 
 from verl import DataProto
 from verl.third_party.vllm import VLLM_SLEEP_LEVEL
+from verl.utils.device import is_npu_available
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.ray_utils import ray_noset_visible_devices
 from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
@@ -522,7 +523,12 @@ class vLLMAsyncRollout(BaseRollout):
     def _init_worker(self, all_kwargs: list[dict[str, Any]]):
         """Initialize worker engine."""
         all_kwargs[0]["rank"] = int(os.environ["RANK"])
-        all_kwargs[0]["local_rank"] = 0 if not ray_noset_visible_devices() else int(os.environ.get("RAY_LOCAL_RANK", 0))
+        device_name = "NPU" if is_npu_available else "GPU"
+        all_kwargs[0]["local_rank"] = (
+            0
+            if not ray_noset_visible_devices()
+            else int(ray.get_runtime_context().get_accelerator_ids()[device_name][0])
+        )
         self.vllm_config = all_kwargs[0]["vllm_config"]
         self.inference_engine = WorkerWrapperBase(vllm_config=self.vllm_config)
         self.inference_engine.init_worker(all_kwargs)
