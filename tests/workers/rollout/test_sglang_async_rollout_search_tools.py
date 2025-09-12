@@ -16,6 +16,7 @@
 
 
 import asyncio
+import os
 from copy import deepcopy
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -89,7 +90,7 @@ def get_search_messages():
 
 
 class TestRolloutWithSearchTools:
-    local_model_path = "Qwen/Qwen2.5-0.5B"
+    local_model_path = os.path.expanduser("~/models/Qwen/Qwen2.5-0.5B")
 
     @pytest.fixture
     def qwen_tokenizer(self):

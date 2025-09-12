@@ -13,6 +13,8 @@
 # limitations under the License.
 
 # noqa
+
+import os
 import asyncio
 import time
 from copy import deepcopy
@@ -150,7 +152,7 @@ def skip_if_valid_sandbox(url):
 
 
 class TestRolloutWithTools:
-    local_model_path = "Qwen/Qwen2.5-0.5B"
+    local_model_path = os.path.expanduser("~/models/Qwen/Qwen2.5-0.5B")
 
     @pytest.fixture
     def qwen_tokenizer(self):
