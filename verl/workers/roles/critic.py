@@ -12,8 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 import logging
 import os
+import warnings
 from functools import partial
 from typing import Iterable
 
@@ -80,10 +82,10 @@ class CriticWorker(Worker, DistProfilerExtension):
         if "ForCausalLM" in arch:
             model_name = arch.split("ForCausalLM")[0]
             new_arch = f"{model_name}ForTokenClassification"
-            warnings.warn(f"Implicitly changing critic architecture from '{arch}' to '{new_arch}'")
+            warnings.warn(f"Implicitly changing critic architecture from '{arch}' to '{new_arch}'", stacklevel=2)
             hf_config.architectures[0] = new_arch
         elif "ForTokenClassification" not in arch and "ForSequenceClassification" not in arch:
-             raise ValueError(
+            raise ValueError(
                 f"Unsupported critic architecture: {arch}. "
                 f"Critic worker expects an architecture suitable for value function estimation, "
                 f"such as '...ForTokenClassification' or '...ForSequenceClassification'."
