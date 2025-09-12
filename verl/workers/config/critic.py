@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import warnings
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -58,6 +59,7 @@ class CriticConfig(BaseConfig):
         "ppo_micro_batch_size_per_gpu",
         "ppo_mini_batch_size",
         "ppo_micro_batch_size",
+        "model_config"
     }
 
     strategy: str = MISSING
@@ -79,14 +81,20 @@ class CriticConfig(BaseConfig):
     ppo_micro_batch_size: Optional[int] = None
     engine: BaseConfig = field(default_factory=BaseConfig)
     optim: OptimizerConfig = field(default_factory=OptimizerConfig)
+    # deprecate model to favor model_config
     model: BaseModelConfig = field(default_factory=BaseModelConfig)
-    model_config: HFModelConfig = field(default_factory=BaseConfig)
+    model_config: HFModelConfig = None
     checkpoint: CheckpointConfig = field(default_factory=CheckpointConfig)
     profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
 
     def __post_init__(self):
         """Validate critic configuration parameters."""
         assert self.strategy != MISSING
+
+        if self.model_config is None:
+            warnings.warn("using config.model in Critic Config is deprecated, please use model_config instead")
+            self.model_config = self.model
+
         if not self.use_dynamic_bsz:
             self._check_mutually_exclusive(self.ppo_micro_batch_size, self.ppo_micro_batch_size_per_gpu, "critic")
 
