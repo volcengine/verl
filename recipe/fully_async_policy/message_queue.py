@@ -27,12 +27,10 @@ logger = logging.getLogger(__name__)
 class MessageQueue:
     """
     Simplified Ray-based asynchronous message queue for communication between Rollouter and Trainer
-    使用 asyncio 实现异步消息队列
     """
 
     def __init__(self, config: DictConfig, max_queue_size: int = 1000):
         self.config = config
-        # 确保 max_queue_size 不为 None
         if max_queue_size is None:
             raise ValueError(f"max_queue_size cannot be None, got: {max_queue_size}")
         self.max_queue_size = int(max_queue_size)
@@ -52,7 +50,7 @@ class MessageQueue:
         # Asyncio for message handling
         self.running = True
 
-        # async safe - 在第一次使用时初始化
+        # async safe
         self._lock = asyncio.Lock()
         self._consumer_condition = asyncio.Condition(self._lock)
 
@@ -249,7 +247,7 @@ class MessageQueueClient:
         future = self.queue_actor.get_memory_usage.remote()
         return await asyncio.wrap_future(future.future())
 
-    # 为了兼容性，保留同步版本的方法（但标记为deprecated）
+    # Synchronous version of the method (deprecated)
     def put_sample_sync(self, sample: Any, param_version: int) -> bool:
         """Put batch into queue (sync - deprecated, use put_sample instead)"""
         return ray.get(self.queue_actor.put_sample.remote(sample, param_version))
