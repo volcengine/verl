@@ -462,6 +462,8 @@ def compute_policy_loss(
     cliprange_high=None,
     clip_ratio_c=3.0,
     loss_agg_mode: str = "token-mean",
+    rollout_log_probs=None,
+    tis_imp_ratio_cap=-1,
 ):
     """
     Compute the clipped policy objective and related metrics for PPO.
@@ -511,6 +513,11 @@ def compute_policy_loss(
     pg_clipfrac_lower = verl_F.masked_mean(torch.gt(clip_pg_losses1, pg_losses3) * (advantages < 0).float(), response_mask)
 
     pg_losses = torch.where(advantages < 0, clip_pg_losses2, clip_pg_losses1)
+    if tis_imp_ratio_cap > 0 and rollout_log_probs is not None:
+        print("tis_imp_ratio_cap:", tis_imp_ratio_cap)
+        tis_imp_ratio = torch.exp(old_log_prob - rollout_log_probs)
+        tis_imp_ratio = torch.clamp(tis_imp_ratio, max=tis_imp_ratio_cap)
+        pg_losses = pg_losses * tis_imp_ratio
     pg_loss = agg_loss(loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
 
     return pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower
@@ -578,8 +585,15 @@ def kl_penalty(logprob: torch.FloatTensor, ref_logprob: torch.FloatTensor, kl_pe
         ref_logprob:
 
     Returns:
-
+        kl_estimate
     """
+    forward_score = kl_penalty_forward(logprob, ref_logprob, kl_penalty)
+    if not kl_penalty.endswith('+') or kl_penalty in ("mse", "k2"):
+        return forward_score
+    backward_score = 0.5 * (logprob - ref_logprob).square()
+    return backward_score - backward_score.detach() + forward_score.detach()
+
+def kl_penalty_forward(logprob: torch.FloatTensor, ref_logprob: torch.FloatTensor, kl_penalty)-> torch.FloatTensor:
     if kl_penalty in ("kl", "k1"):
         return logprob - ref_logprob
 
@@ -668,3 +682,95 @@ def compute_pf_ppo_reweight_data(
     resampled_data.meta_info = resampled_meta_info
 
     return resampled_data
+
+def compute_scores(data, metric = "response length", metric_name = "seq_final_reward", adaptive = False):
+    """Implementation of computing scores.
+    Args:
+        data(DataProto): The data containing batched model outputs and inputs.
+        metric: The metric aimed at reducing response length inflation.(e.g.,response length, token efficiency).Defaults to seq_final_reward.
+        metric_name: The metric for the reward(e.g., seq_final_reward, seq_reward).Defaults to seq_final_reward.
+        adaptive(bool, optional): adaptive difficulty to allocate more training signal to harder questions. Defaults to False.
+    Returns:
+        id2response_and_score: The score of the corresponding set of responses for each prompt.
+        id2average_reward: The average reward of the corresponding set of responses for each prompt.
+    """
+    response_mask = data.batch["response_mask"]
+    response_length = response_mask.sum(dim=-1)
+    index = data.non_tensor_batch["uid"]
+    id2response_and_score = defaultdict(list)
+    bsz = response_mask.shape[0]
+
+    if metric == "token efficiency" or adaptive:
+        if metric_name == "seq_final_reward":
+            reward_value = data.batch["token_level_rewards"].sum(dim=-1).numpy()
+        elif metric_name == "seq_reward":
+            reward_value = data.batch["token_level_scores"].sum(dim=-1).numpy()
+        else:
+            reward_value = data.batch["token_level_scores"].sum(dim=-1).numpy()
+    if metric == "response length":
+        for i in range(bsz):
+            id2response_and_score[index[i]].append((i, response_length[i]))
+    elif metric == "token efficiency":
+        for i in range(bsz):
+            id2response_and_score[index[i]].append((i, -reward_value[i]/response_length[i]))
+    else:
+        raise NotImplementedError
+
+    for id in id2response_and_score.keys():
+        id2response_and_score[id] = sorted(id2response_and_score[id], key=lambda x: x[1])
+
+    if adaptive:
+        id2average_reward = {}
+        id2reward = defaultdict(list)
+        for i in range(bsz):
+            id2reward[index[i]].append(reward_value[i])
+        import statistics
+        for id in id2reward:
+            id2average_reward[id] = statistics.mean(id2reward[id])
+
+        return id2response_and_score, id2average_reward
+    return id2response_and_score, None
+
+def filtering_sampling(data, metric = "response length", metric_name = "seq_final_reward", retain_count = 8, adaptive = False, t_digest = None, easy_count = None, medium_count = None, hard_count = None, very_hard_count = None):
+    """Implementation of filtering sampling strategy for GFPO.
+    Args:
+        data(DataProto): The data containing batched model outputs and inputs.
+        metric: The metric aimed at reducing response length inflation.(e.g.,response length, token efficiency).Defaults to seq_final_reward.
+        metric_name: The metric for the reward(e.g., seq_final_reward, seq_reward).Defaults to seq_final_reward.
+        retain_count(int, optional): The size of most desirable responses to tain on.Defaults to 8.
+        adaptive(bool, optional): adaptive difficulty to allocate more training signal to harder questions. Defaults to False.
+        t_digest(TDigest, optional): TDigest is a data structure designed for efficient and accurate estimation of percentiles, quantiles, and other statistical metrics from streaming or distributed data. Defaults to None.
+        easy_count(int, optional): A target number of retained responses for easy question.Defaults to None.
+        medium_count(int, optional): A target number of retained responses for medium question. Defaults to None.
+        hard_count(int, optional): A target number of retained responses for hard question. Defaults to None.
+        very_hard_count(int, optional): A target number of retained responses for very hard question. Defaults to None.
+    Returns:
+        kept_traj_idxs: the desirable responses to train on.
+    """
+    print("filtering_sampling starting")
+    id2response_and_score, id2average_reward = compute_scores(data, metric, adaptive, metric_name)
+    kept_traj_idxs = []
+    if adaptive:
+        mean_rewards = [id2average_reward[id] for id in id2average_reward]
+        # todo 安装TDigest
+        t_digest.batch_update(mean_rewards)
+        p_25, p_50, p_75 = t_digest.percentile(0.25), t_digest.percentile(0.5), t_digest.percentile(0.75)
+        for id in id2response_and_score.keys():
+            mean_reward = id2average_reward[id]
+            id_score = id2response_and_score[id]
+            if mean_reward < p_25:
+                count = very_hard_count
+            elif mean_reward < p_50:
+                count = hard_count
+            elif mean_reward < p_75:
+                count = medium_count
+            else:
+                count = easy_count
+            for i in range(count):
+                kept_traj_idxs.append(id_score[i][0])
+    else:
+        for id in id2response_and_score.keys():
+            for i in range(retain_count):
+                id_score = id2response_and_score[id]
+                kept_traj_idxs.append(id_score[i][0])
+    return kept_traj_idxs

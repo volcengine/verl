@@ -26,7 +26,7 @@ import torch
 from tqdm import tqdm
 
 from verl import DataProto
-from verl.trainer.ppo.core_algos import agg_loss
+from verl.trainer.ppo.core_algos import agg_loss, filtering_sampling
 from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
     compute_throughout_metrics,
@@ -85,6 +85,9 @@ class RayDAPOTrainer(RayPPOTrainer):
         batch = None
         num_prompt_in_batch = 0
         num_gen_batches = 0
+        if self.config.algorithm.filter_sample.enable:
+            from tdigest import TDigest
+            tdigest = TDigest()
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
                 metrics = {}
@@ -163,7 +166,21 @@ class RayDAPOTrainer(RayPPOTrainer):
                             metrics.update(kl_metrics)  # TODO: This will be cleared if we use multiple genenration batches
                         else:
                             new_batch.batch["token_level_rewards"] = new_batch.batch["token_level_scores"]
-
+                    if self.config.algorithm.filter_samples:
+                        new_batch.batch["response_mask"] = compute_response_mask(new_batch)
+                        print('metric_name:',self.config.algorithm.filter_groups.metric)
+                        filtering_sampling_kept_traj_idxs = filtering_sampling(new_batch,
+                                                                               metric=self.config.algorithm.filter_sample.metric,
+                                                                               metric_name=self.config.algorithm.filter_groups.metric,
+                                                                               retain_count=self.config.algorithm.filter_sample.retain_count,
+                                                                               adaptive=self.config.algorithm.filter_sample.adaptive,
+                                                                               t_digest=t_digest,
+                                                                               easy_count=self.config.algorithm.filter_sample.easy_count,
+                                                                               medium_count=self.config.algorithm.filter_sample.medium_count,
+                                                                               hard_count=self.config.algorithm.filter_sample.hard_count,
+                                                                               very_hard_count=self.config.algorithm.filter_sample.hard_count,
+                                                                               )
+                        new_batch = new_batch[filtering_sampling_kept_traj_idxs]
                     if not self.config.algorithm.filter_groups.enable:
                         batch = new_batch
                     else:  # NOTE: When prompts after filtering is less than train batch size,
@@ -237,6 +254,36 @@ class RayDAPOTrainer(RayPPOTrainer):
                         old_log_prob.batch.pop("entropys")
                         batch = batch.union(old_log_prob)
 
+                        with torch.no_grad():
+                            log_prob_mask = torch.logical_not(batch.batch["rollout_log_probs"] == 1.)
+                            log_prob_diff = batch.batch["rollout_log_probs"][log_prob_mask].float() - batch.batch["old_log_probs"][log_prob_mask].float()
+                            vllm_kl = log_prob_diff.sum() / log_prob_mask.float().sum()
+
+                            if "rollout_log_probs" in batch.batch.keys():
+                                rollout_old_log_probs = batch.batch["rollout_log_probs"]
+                                actor_old_log_probs = batch.batch["old_log_probs"]
+                                attention_mask = batch.batch["attention_mask"]
+                                responses = batch.batch["responses"]
+                                response_length = responses.size(1)
+                                response_mask = attention_mask[:, -response_length:]
+                                rollout_probs = torch.exp(rollout_old_log_probs)
+                                actor_probs = torch.exp(actor_old_log_probs)
+                                rollout_probs_diff = rollout_probs - actor_probs
+                                rollout_probs_diff = torch.masked_select(rollout_probs_diff, response_mask.bool())
+                                rollout_probs_diff_max = torch.max(rollout_probs_diff)
+                                rollout_probs_diff_min = torch.min(rollout_probs_diff)
+                                rollout_probs_diff = torch.aba(rollout_probs_diff)
+                                rollout_probs_diff_mean = torch.mean(rollout_probs_diff)
+                                rollout_probs_diff_std = torch.std(rollout_probs_diff)
+                                metrics.update(
+                                    {
+                                        "training/rollout_probs_diff_min": rollout_probs_diff_min.detach().item(),
+                                        "training/rollout_probs_diff_max": rollout_probs_diff_max.detach().item(),
+                                        "training/rollout_probs_diff_mean": rollout_probs_diff_mean.detach().item(),
+                                        "training/rollout_probs_diff_std": rollout_probs_diff_std.detach().item(),
+                                    }
+                                )
+
                     if self.use_reference_policy:
                         # compute reference log_prob
                         with _timer("ref", timing_raw):
@@ -297,6 +344,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                 timing_raw = defaultdict(float)  # clear timing
 
                 metrics["train/num_gen_batches"] = num_gen_batches
+                metrics["train/vllm_kl"] = vllm_kl
                 batch = None
                 num_prompt_in_batch = 0
                 num_gen_batches = 0
