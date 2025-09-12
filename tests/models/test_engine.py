@@ -244,9 +244,11 @@ def test_critic_engine(strategy):
     output = wg.compute_values(data)
 
     # load hf model and compare results with hf model
-    hf_model = AutoModelForTokenClassification.from_pretrained(path, torch_dtype=torch.bfloat16)
-    hf_output = hf_model(input_ids, attention_mask=attention_mask)
-    hf_values = hf_output.logits[:, -response_length - 1 : -1, :].float().squeeze(-1)
+    with torch.device("cuda"):
+        hf_model = AutoModelForTokenClassification.from_pretrained(path, torch_dtype=torch.bfloat16,
+                                                                attn_implementation="flash_attention_2")
+        hf_output = hf_model(input_ids.cuda(), attention_mask=attention_mask.cuda())
+        hf_values = hf_output.logits[:, -response_length - 1 : -1, :].float().squeeze(-1).cpu()
     hf_values_mean = torch.mean(hf_values * response_mask)
 
     engine_values = torch.mean(output.batch["values"] * response_mask)
