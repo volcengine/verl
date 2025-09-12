@@ -161,11 +161,8 @@ class DynamicFilter:
             num_trajs_available = len(self.accumulated_batch)
             # Repeat the accumulated batch enough times to meet the target.
             # The final batch will be truncated to the exact size by the alignment step later.
-            if num_trajs_available < num_trajs_target:
-                repeat_factor = (num_trajs_target + num_trajs_available - 1) // num_trajs_available
-                final_batch = DataProto.concat([self.accumulated_batch] * repeat_factor)
-            else:
-                final_batch = self.accumulated_batch
+            repeat_factor = (num_trajs_target + num_trajs_available - 1) // num_trajs_available
+            final_batch = DataProto.concat([self.accumulated_batch] * repeat_factor)
         else:
             final_batch = self.accumulated_batch
 
