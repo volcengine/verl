@@ -118,11 +118,7 @@ class CollabLLMAgentLoop(ToolAgentLoop):
             state (AgentState, optional): The initial state of the agent. Defaults to None.
         """
 
-        while (
-            state != AgentState.TERMINATED
-            and agent_data.user_turns < self.max_user_turns
-            and agent_data.assistant_turns < self.max_assistant_turns
-        ):
+        while state != AgentState.TERMINATED:
             if state == AgentState.PENDING:
                 state = await self._handle_pending_state(agent_data, sampling_params)
             elif state == AgentState.GENERATING:
