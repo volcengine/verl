@@ -135,13 +135,13 @@ jobs:
         run: |
           cd tests/special_e2e/generation
           export OUTPUT_PATH="${HOME}/data/gen/qwen_05_gen_test.parquet"
-          MODEL_ID=Qwen/Qwen2.5-0.5B-Instruct NGPUS_PER_NODE=4 GEN_TP=2 bash ./run_gen_qwen05.sh
+          MODEL_ID=${HOME}/models/Qwen/Qwen2.5-0.5B-Instruct NGPUS_PER_NODE=4 GEN_TP=2 bash ./run_gen_qwen05.sh
           rm -rf "${OUTPUT_PATH}"
       - name: Run Qwen 0.5B generation test when world_size == 1
         run: |
           cd tests/special_e2e/generation
           export OUTPUT_PATH="${HOME}/data/gen/qwen_05_gen_test.parquet"
-          MODEL_ID=Qwen/Qwen2.5-0.5B-Instruct NGPUS_PER_NODE=1 GEN_TP=1 bash ./run_gen_qwen05.sh
+          MODEL_ID=${HOME}/models/Qwen/Qwen2.5-0.5B-Instruct NGPUS_PER_NODE=1 GEN_TP=1 bash ./run_gen_qwen05.sh
           rm -rf "${OUTPUT_PATH}"
       - name: Test the latest vLLM Rollout async with agent loop
         run: |
