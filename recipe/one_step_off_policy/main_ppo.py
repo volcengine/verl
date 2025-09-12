@@ -100,18 +100,18 @@ class TaskRunner:
                 AsyncActorRolloutRefWorker,
                 CriticWorker,
                 RolloutWorker,
+                AsyncRolloutWorker,
             )
 
-            actor_rollout_cls = (
-                AsyncActorRolloutRefWorker
-                if config.actor_rollout_ref.rollout.mode == "async"
-                else ActorRolloutRefWorker
-            )
+            actor_rollout_cls = ActorRolloutRefWorker
             ray_worker_group_cls = RayWorkerGroup
 
         elif config.actor_rollout_ref.actor.strategy == "megatron":
             assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
             from verl.single_controller.ray import RayWorkerGroup
+
+            if config.actor_rollout_ref.rollout.mode == "async":
+                raise NotImplementedError("async rollout backend is currently not supported when training with megatron. Change to FSDP2 if necessary.")
 
             from .megatron_workers import (
                 ActorRolloutRefWorker,
@@ -134,7 +134,7 @@ class TaskRunner:
 
         role_worker_mapping = {
             Role.Actor: ray.remote(actor_rollout_cls),
-            Role.Rollout: ray.remote(RolloutWorker),
+            Role.Rollout: ray.remote(AsyncRolloutWorker) if config.actor_rollout_ref.rollout.mode == "async" else ray.remote(RolloutWorker),
             Role.Critic: ray.remote(CriticWorker),
         }
 

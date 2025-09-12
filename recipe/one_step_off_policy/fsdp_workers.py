@@ -15,6 +15,8 @@
 
 import logging
 import os
+import asyncio
+from typing import Any, Optional
 
 import torch
 import torch.distributed
@@ -23,6 +25,7 @@ from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from transformers import AutoConfig
 
+from verl import DataProto
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
 from verl.utils import hf_processor, hf_tokenizer, omega_conf_to_dataclass
@@ -65,18 +68,25 @@ class ActorRolloutRefWorker(ARRWorker):
         return params
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
-    def sync_rollout_weights(self):
+    async def sync_rollout_weights(self):
         assert (self._is_actor or self._is_rollout) and not self.config.hybrid_engine
         assert hasattr(self, "_weights_info") and self._weights_info is not None
 
         params = self._get_actor_params() if self._is_actor else None
         if self._is_rollout:
-            inference_model = (
-                self.rollout.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
-            )
-            from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
+            is_async = getattr(self.config.rollout, "mode", "sync") == "async"
+            if not is_async:
+                # SYNC path: local engine exists here, load directly
+                inference_model = (
+                    self.rollout.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
+                )
+        
+                from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 
-            patch_vllm_moe_model_weight_loader(inference_model)
+                patch_vllm_moe_model_weight_loader(inference_model)
+
+        # Accumulate pairs in async rollout to send once at the end
+        async_pairs = [] if (self._is_rollout and is_async) else None
         for key, shape, dtype in self._weights_info:
             tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
             if self._is_actor:
@@ -90,7 +100,15 @@ class ActorRolloutRefWorker(ARRWorker):
 
             collective.broadcast(tensor, src_rank=0, group_name="actor_rollout")
             if self._is_rollout:
-                inference_model.load_weights([(key, tensor)])
+                if is_async:
+                    async_pairs.append((key, tensor.detach().to("cpu", copy=False)))
+                else:
+                    inference_model.load_weights([(key, tensor)])
+        
+        if self._is_rollout and is_async:
+            await asyncio.to_thread(
+                self.rollout.execute_method, "load_weights_from_tensors", pairs=async_pairs
+            )
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def get_actor_weights_info(self):
@@ -210,9 +228,21 @@ class RolloutWorker(ActorRolloutRefWorker):
         model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model, dataclass_type=HFModelConfig)
 
         log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=logger)
-        rollout = get_rollout_class(rollout_config.name, rollout_config.mode)(
-            config=rollout_config, model_config=model_config, device_mesh=rollout_device_mesh
-        )
+        if self.config.rollout.mode == "sync":
+            rollout = get_rollout_class(rollout_config.name, rollout_config.mode)(
+                config=rollout_config, model_config=model_config, device_mesh=rollout_device_mesh
+            )
+        else:
+            from recipe.one_step_off_policy.vllm_rollout_spmd_recipe import RecipevLLMAsyncRollout as vLLMAsyncRollout
+            rollout = vLLMAsyncRollout(
+                model_path=local_path,
+                config=self.config.rollout,
+                tokenizer=self.tokenizer,
+                model_hf_config=actor_model_config,
+                device_mesh=rollout_device_mesh,
+                trust_remote_code=trust_remote_code,
+            )
+            
         log_gpu_memory_usage(f"After building {rollout_name} rollout", logger=logger)
         from .vllm_sharding_manager import VLLMShardingManager
 
@@ -280,3 +310,68 @@ class RolloutWorker(ActorRolloutRefWorker):
 class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
     def __init__(self, *args, **kwargs):
         raise NotImplementedError
+
+class AsyncRolloutWorker(RolloutWorker):
+
+    # TODO NOTE THAT THIS CLASSS NOW DOESN"T HAVE THE _build_rollout func and its content is moved inside the init_model function
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def init_model(self):
+        # Build rollout & sharding using the existing recipe logic
+        super().init_model()   # sets self.rollout, self.rollout_sharding_manager, tokenizer, mesh, etc.
+
+        # --- vanilla’s async extras ---
+        self.vllm_tp_size = self.config.rollout.tensor_model_parallel_size
+        rank = int(os.environ.get("RANK", "0"))
+        self.vllm_dp_rank = rank // self.vllm_tp_size
+        self.vllm_tp_rank = rank % self.vllm_tp_size
+
+        # attach sharding manager onto backend rollout (for wake/sleep)
+        self.rollout.sharding_manager = self.rollout_sharding_manager
+    
+    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    def generate_sequences(self, prompts: DataProto):
+        assert self.config.rollout.mode == "async"
+        raise NotImplementedError("AsyncActorRolloutRefWorker does not support generate_sequences")
+
+    # ============================ vLLM related ============================
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
+    def execute_method(self, method: str | bytes, *args, **kwargs):
+        """Called by ExternalRayDistributedExecutor collective_rpc."""
+        return self.rollout._execute_method(method, *args, **kwargs)
+
+        # return await asyncio.to_thread(self.rollout.execute_method, method, *args, **kwargs)
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
+    def get_zeromq_address(self):
+        return self.rollout.get_zeromq_address()
+
+    # ============================ SGLang related ============================
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
+    async def chat_completion(self, json_request):
+        ret = await self.rollout.chat_completion(json_request)
+        return ret
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
+    async def generate(
+        self,
+        prompt_ids: list[int],
+        sampling_params: dict[str, Any],
+        request_id: str,
+        image_data: Optional[list[Any]] = None,
+    ) -> list[int]:
+        ret = await self.rollout.generate(prompt_ids, sampling_params, request_id, image_data=image_data)
+        return ret
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
+    async def wake_up(self):
+        await self.rollout.wake_up()
+        # return something to block the caller
+        return True
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
+    async def sleep(self):
+        await self.rollout.sleep()
+        # return something to block the caller
+        return True
