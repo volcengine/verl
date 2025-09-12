@@ -119,9 +119,9 @@ jobs:
           pip3 install -e .[test]
       - name: Download Model to Use
         run: |
-          huggingface-cli download 'Qwen/Qwen2-7B-Instruct'
-          huggingface-cli download 'Qwen/Qwen2.5-0.5B'
-          huggingface-cli download Qwen/Qwen2.5-1.5B-Instruct
+          huggingface-cli download 'Qwen/Qwen2-7B-Instruct' --local-dir ${HOME}/models/Qwen/Qwen2-7B-Instruct
+          huggingface-cli download 'Qwen/Qwen2.5-0.5B' --local-dir ${HOME}/models/Qwen/Qwen2.5-0.5B
+          huggingface-cli download Qwen/Qwen2.5-1.5B-Instruct --local-dir ${HOME}/models/Qwen/Qwen2.5-1.5B-Instruct
           export HF_HUB_OFFLINE=1
       - name: Test the latest SGLang
         run: |
