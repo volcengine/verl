@@ -104,7 +104,11 @@ class DynamicFilter:
         uids = batch.non_tensor_batch["uid"]
         token_level_scores = batch.batch["token_level_scores"]
         train_batch_size = config.data.train_batch_size
-        max_num_gen_batches = config.algorithm.filter_groups.max_num_gen_batches
+        max_num_gen_batches = (
+            config.algorithm.filter_groups.max_num_gen_batches
+            if config.algorithm.filter_groups.max_num_gen_batches > 0
+            else float("inf")
+        )
         rollout_n = config.actor_rollout_ref.rollout.n
 
         # Handle metric calculation
@@ -160,7 +164,7 @@ class DynamicFilter:
                 raise ValueError(
                     "No prompts collected in the generation batch,consider increasing max_num_gen_batches or rollout.n"
                 )
-            
+
             # Repeat the accumulated batch enough times to meet the target.
             # The final batch will be truncated to the exact size by the alignment step later.
             repeat_factor = (num_trajs_target + num_trajs_available - 1) // num_trajs_available
