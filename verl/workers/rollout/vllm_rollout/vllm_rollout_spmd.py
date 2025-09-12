@@ -97,6 +97,11 @@ class vLLMRollout(BaseRollout):
     ):
         super().__init__(config, model_config, device_mesh)
 
+        if config.layered_summon:
+            self.sleep_level = 1
+        else:
+            self.sleep_level = VLLM_SLEEP_LEVEL
+
         model_path = model_config.local_path
         tokenizer = model_config.tokenizer
         model_hf_config = model_config.hf_config
@@ -419,7 +424,7 @@ class vLLMRollout(BaseRollout):
         if not self.config.free_cache_engine:
             return
 
-        self.inference_engine.sleep(level=VLLM_SLEEP_LEVEL)
+        self.inference_engine.sleep(level=self.sleep_level)
 
     async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None], **kwargs):
         """Update the weights of the rollout model.
@@ -477,6 +482,11 @@ class vLLMAsyncRollout(BaseRollout):
         self.tokenizer = model_config.tokenizer
         self.inference_engine: WorkerWrapperBase = None
         self.address = self._init_zeromq()
+
+        if config.layered_summon:
+            self.sleep_level = 1
+        else:
+            self.sleep_level = VLLM_SLEEP_LEVEL
 
     def _init_zeromq(self) -> str:
         tensor_parallel_size = self.config.tensor_model_parallel_size
@@ -559,7 +569,7 @@ class vLLMAsyncRollout(BaseRollout):
     async def release(self):
         """Release weights and kv cache in GPU memory."""
         if self.config.free_cache_engine:
-            self.inference_engine.sleep(level=VLLM_SLEEP_LEVEL)
+            self.inference_engine.sleep(level=self.sleep_level)
 
     async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None], **kwargs):
         """Update the weights of the rollout model.
