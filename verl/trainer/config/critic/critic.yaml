@@ -18,6 +18,7 @@ strategy: ???
 # set it to True manually if you always want to enable critic worker
 enable: null
 
+# we deprecate model to favor model_config from HF
 model: ${model_config}
 
 # PPO mini-batch size per update
