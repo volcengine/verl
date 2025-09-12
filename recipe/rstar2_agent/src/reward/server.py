@@ -76,6 +76,8 @@ class CodeJudgeRewardManager(AbstractRewardManager):
 
             results = self.execute_tool_calls(tool_calls)
             for j in range(len(results)):
+                prompt_length = batch_data[j].batch["prompts"].shape[-1]
+                valid_response_length = batch_data[j].batch["attention_mask"][prompt_length:].sum()
                 reward_tensor[i + j, valid_response_length - 1] = results[j]
 
         if return_dict:
