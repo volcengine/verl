@@ -165,7 +165,7 @@ def create_model():
     return path
 
 
-@pytest.mark.parametrize("strategy", ["megatron"])
+@pytest.mark.parametrize("strategy", ["megatron", "fsdp", "fsdp2"])
 def test_critic_engine(strategy):
     ray.init()
 

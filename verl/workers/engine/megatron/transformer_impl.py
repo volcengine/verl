@@ -602,8 +602,8 @@ class MegatronEngineWithLMHead(MegatronEngine):
     def postprocess_micro_batch_func(self, output, data: TensorDict, forward_only: bool, loss_function):
         # For memory efficiency
         # We move calculation of entropy to compute_log_probs, forward_only == True
-        device = output["input_ids"].device
-        local_micro_bsz = output["input_ids"].shape[0]
+        device = data["input_ids"].device
+        local_micro_bsz = data["input_ids"].shape[0]
         model_output = self.prepare_model_outputs(output, data)
 
         if loss_function is not None:
@@ -657,4 +657,7 @@ class MegatronEngineWithValueHead(MegatronEngineWithLMHead):
         return output, partial(postprocess_micro_batch_func, data=batch)
     
     def prepare_model_outputs(self, output: dict | torch.Tensor, data: TensorDict):
+        responses = data["responses"]
+        response_length = responses.size(1)
+        output = output[:, -response_length - 1 : -1].contiguous()
         return {"values": output}
