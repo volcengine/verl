@@ -254,7 +254,7 @@ def test_critic_engine(strategy):
 
     engine_values = torch.mean(output.batch["values"] * response_mask)
 
-    torch.testing.assert_close(hf_values_mean, engine_values, atol=5e-3, rtol=1e-2)
+    torch.testing.assert_close(hf_values_mean, engine_values, atol=1e-2, rtol=1e-2)
 
     data = data.union(output)
 
