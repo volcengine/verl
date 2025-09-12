@@ -74,8 +74,20 @@ class CriticWorker(Worker, DistProfilerExtension):
         # replace AutoModelForSequenceClassification to AutoModelForTokenClassification
         hf_config = self.model_config.hf_config
 
-        model_name, model_type = hf_config.architectures[0].split("For")
-        hf_config.architectures[0] = f"{model_name}ForTokenClassification"
+        arch = hf_config.architectures[0]
+        # This logic assumes the critic is a token classification model.
+        # If the provided model is a CausalLM, we adapt it.
+        if "ForCausalLM" in arch:
+            model_name = arch.split("ForCausalLM")[0]
+            new_arch = f"{model_name}ForTokenClassification"
+            warnings.warn(f"Implicitly changing critic architecture from '{arch}' to '{new_arch}'")
+            hf_config.architectures[0] = new_arch
+        elif "ForTokenClassification" not in arch and "ForSequenceClassification" not in arch:
+             raise ValueError(
+                f"Unsupported critic architecture: {arch}. "
+                f"Critic worker expects an architecture suitable for value function estimation, "
+                f"such as '...ForTokenClassification' or '...ForSequenceClassification'."
+            )
 
         # make sure output dropout is 0
         hf_config.classifier_dropout = 0
