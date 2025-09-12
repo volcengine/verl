@@ -37,7 +37,7 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 def get_tool_schema(tool: MCPManager):
     return {
-        type: "function",
+        "type": "function",
         "function": {
             "name": tool.name,
             "description": tool.description,
@@ -121,7 +121,7 @@ class ToolAgentLoop(AgentLoopBase):
         cls.tools = {tool.name: tool for tool in tool_list}
         cls.tool_schemas = [get_tool_schema(tool) for tool in tool_list]
         cls.tool_parser = ToolParser.get_tool_parser(config.actor_rollout_ref.rollout.multi_turn.format, cls.tokenizer)
-        print(f"Initialized tools: {cls.tools}")
+        # print(f"Initialized tools: {cls.tools}")
 
         cls.apply_chat_template_kwargs = config.data.get("apply_chat_template_kwargs", {})
         cls.prompt_length = config.actor_rollout_ref.rollout.prompt_length
@@ -134,7 +134,7 @@ class ToolAgentLoop(AgentLoopBase):
         if cls.interaction_config_file:
             cls.interaction_map: dict[str, BaseInteraction] = cls._initialize_interactions(cls.interaction_config_file)
 
-    def filter_tools(self, involved_class: list[str] | None) -> list:
+    def filter_tools(self, involved_class: list[str] | None, num: int | None = None) -> list:
         if involved_class is None:
             return self.tool_schemas
 
@@ -148,8 +148,10 @@ class ToolAgentLoop(AgentLoopBase):
                 and 'load_scenario' not in tool_name \
                 and 'save_scenario' not in tool_name:
                     filtered_tools.append(tool)
-
-        return [tool.tool_schema.model_dump(exclude_unset=True, exclude_none=True) for tool in filtered_tools]
+        
+        if num is not None:
+                return [get_tool_schema(tool) for tool in filtered_tools][:num]
+        return [get_tool_schema(tool) for tool in filtered_tools]
 
     @rollout_trace_op
     async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
@@ -233,7 +235,7 @@ class ToolAgentLoop(AgentLoopBase):
                 None,
                 lambda: self.processor.apply_chat_template(
                     agent_data.messages,
-                    tools=self.tool_schemas,
+                    tools=self.filter_tools(agent_data.involved_class),
                     add_generation_prompt=True,
                     tokenize=False,
                     **self.apply_chat_template_kwargs,
@@ -246,7 +248,7 @@ class ToolAgentLoop(AgentLoopBase):
                 None,
                 lambda: self.tokenizer.apply_chat_template(
                     agent_data.messages,
-                    tools=self.tool_schemas,
+                    tools=self.filter_tools(agent_data.involved_class, 10),
                     add_generation_prompt=True,
                     tokenize=True,
                     **self.apply_chat_template_kwargs,

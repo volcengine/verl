@@ -16,7 +16,7 @@ python3 -m verl.trainer.main_ppo \
     --config-name='gsm8k_multiturn_grpo' \
     algorithm.adv_estimator=grpo \
     data.train_batch_size=1 \
-    data.max_prompt_length=1024 \
+    data.max_prompt_length=2048 \
     data.max_response_length=512 \
     data.filter_overlong_prompts=False \
     data.truncation='left' \
@@ -53,8 +53,8 @@ python3 -m verl.trainer.main_ppo \
     trainer.save_freq=-1 \
     trainer.test_freq=20 \
     trainer.total_training_steps=2 \
-    data.train_files=$PROJECT_DIR/data/BFCL/multiturn/test.parquet \
-    data.val_files=$PROJECT_DIR/data/BFCL/multiturn/test.parquet \
+    data.train_files=$PROJECT_DIR/data/BFCL/test.parquet \
+    data.val_files=$PROJECT_DIR/data/BFCL/train.parquet \
     actor_rollout_ref.rollout.multi_turn.tool_config_path="$PROJECT_DIR/tools/configs/mcp_tools/bfcl_mcp_tools.json" \
     trainer.total_epochs=15 $@
 
