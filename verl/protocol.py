@@ -249,6 +249,61 @@ def unfold_batch_dim(data: "DataProto", batch_dims=2):
     return type(data)(batch=tensor, non_tensor_batch=non_tensor_new, meta_info=data.meta_info)
 
 
+def serialize_single_tensor(obj: torch.Tensor) -> tuple[str, tuple[int, ...], int | memoryview]:
+    data = obj.flatten().contiguous().view(torch.uint8).numpy()
+    dtype = str(obj.dtype).removeprefix("torch.")
+    return dtype, obj.shape, data
+
+
+def serialize_tensordict(batch: TensorDict) -> tuple[tuple[int, ...], Optional[str], dict[str, tuple[str, Any]]]:
+    encoded_items: dict[str, tuple[Any]] = {}
+    for k, v in batch.items():
+        if not v.is_nested:
+            encoded_items[k] = serialize_single_tensor(v)
+        else:
+            layout = str(v.layout).removeprefix("torch.")
+            data = [serialize_single_tensor(tensor) for tensor in v.unbind()]
+            encoded_items[k] = (layout, data)
+
+    batch_size = tuple(batch.batch_size)
+    device = str(batch.device) if batch.device is not None else None
+    return batch_size, device, encoded_items
+
+
+def deserialize_single_tensor(arr: Any) -> torch.Tensor:
+    dtype, shape, data = arr
+
+    torch_dtype = getattr(torch, dtype)
+    assert isinstance(torch_dtype, torch.dtype)
+
+    buffer = bytearray(data)
+    # Create uint8 array
+    arr = torch.frombuffer(buffer, dtype=torch.uint8)
+    # Convert back to proper shape & type
+    return arr.view(torch_dtype).view(shape)
+
+
+def deserialize_tensordict(arr: Any) -> TensorDict:
+    batch_size, device, encoded_items = arr
+    decoded_items: dict[str, Any] = {}
+
+    for k, v in encoded_items.items():
+        if len(v) == 3:
+            # decode single tensor
+            decoded_items[k] = deserialize_single_tensor(v)
+        elif len(v) == 2:
+            # decode nested tensor
+            layout, data = v
+            torch_layout = getattr(torch, layout)
+            decoded_items[k] = torch.nested.as_nested_tensor(
+                [deserialize_single_tensor(tensor) for tensor in data], layout=torch_layout
+            )
+        else:
+            raise ValueError(f"Invalid tensor encoding format, expected length 2 or 3, got {len(v)}")
+
+    return TensorDict(source=decoded_items, batch_size=batch_size, device=device)
+
+
 def collate_fn(x: list["DataProtoItem"]):
     batch = []
     non_tensor_batch = []
@@ -338,28 +393,10 @@ class DataProto:
 
         if os.getenv("VERL_DATAPROTO_SERIALIZATION_METHOD") == "numpy":
             if batch is not None:
-                dtypes = {}
-                batch_to_serialize = {}
-                for k, v in batch.items():
-                    dtypes[k] = str(v.dtype).removeprefix("torch.")
-                    if v.dtype == torch.bfloat16:
-                        batch_to_serialize[k] = v.view(torch.uint8).numpy()
-                    else:
-                        batch_to_serialize[k] = v.numpy()
-                batch_size = batch.batch_size
-            else:
-                dtypes = None
-                batch_to_serialize = None
-                batch_size = None
+                batch = serialize_tensordict(self.batch)
 
             return (
-                pickle.dumps(
-                    {
-                        "batch_size": batch_size,
-                        "dtypes": dtypes,
-                        "data": batch_to_serialize,
-                    }
-                ),
+                batch,
                 self.non_tensor_batch,
                 self.meta_info,
             )
@@ -375,23 +412,8 @@ class DataProto:
         batch_deserialized_bytes, non_tensor_batch, meta_info = data
 
         if os.getenv("VERL_DATAPROTO_SERIALIZATION_METHOD") == "numpy":
-            batch_deserialized = pickle.loads(batch_deserialized_bytes)
-
-            numpy_dict = batch_deserialized["data"]
-            batch_size = batch_deserialized["batch_size"]
-            dtypes = batch_deserialized["dtypes"]
-            if numpy_dict is not None:
-                tensor_dict = {}
-                for k, v in numpy_dict.items():
-                    dtype = dtypes[k]
-                    if dtype == "bfloat16":
-                        tensor_dict[k] = torch.from_numpy(v).view(getattr(torch, dtype))
-                    else:
-                        tensor_dict[k] = torch.from_numpy(v)
-                self.batch = TensorDict(
-                    tensor_dict,
-                    batch_size=batch_size,
-                )
+            if batch_deserialized_bytes is not None:
+                self.batch = deserialize_tensordict(batch_deserialized_bytes)
             else:
                 self.batch = None
         else:

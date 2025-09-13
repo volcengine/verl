@@ -22,7 +22,14 @@ from packaging.version import parse as parse_version
 from tensordict import TensorDict
 
 from verl import DataProto
-from verl.protocol import union_numpy_dict, union_tensor_dict
+from verl.protocol import (
+    deserialize_single_tensor,
+    deserialize_tensordict,
+    serialize_single_tensor,
+    serialize_tensordict,
+    union_numpy_dict,
+    union_tensor_dict,
+)
 
 
 def test_union_tensor_dict():
@@ -614,3 +621,194 @@ def test_to_tensordict():
     assert torch.all(torch.eq(output["obs"], obs)).item()
     assert output["labels"] == labels
     assert output["name"] == "abdce"
+
+
+def test_serialize_deserialize_single_tensor():
+    """Test serialization and deserialization of a single tensor"""
+    # Create test tensor
+    original_tensor = torch.randn(3, 4, 5)
+
+    # Serialize
+    dtype, shape, data = serialize_single_tensor(original_tensor)
+
+    # Deserialize
+    reconstructed_tensor = deserialize_single_tensor((dtype, shape, data))
+
+    # Verify results
+    assert torch.allclose(original_tensor, reconstructed_tensor)
+    assert original_tensor.shape == reconstructed_tensor.shape
+    assert original_tensor.dtype == reconstructed_tensor.dtype
+
+
+def test_serialize_deserialize_tensordict_regular_tensors():
+    """Test serialization and deserialization of TensorDict with regular tensors"""
+    # Create test data
+    batch_size = (5, 3)
+    tensor1 = torch.randn(*batch_size, 4)
+    tensor2 = torch.randint(0, 10, (*batch_size, 2))
+
+    # Create TensorDict
+    original_tensordict = TensorDict({"tensor1": tensor1, "tensor2": tensor2}, batch_size=batch_size)
+
+    # Serialize
+    batch_size_serialized, device, encoded_items = serialize_tensordict(original_tensordict)
+
+    # Deserialize
+    reconstructed_tensordict = deserialize_tensordict((batch_size_serialized, device, encoded_items))
+
+    # Verify results
+    assert original_tensordict.batch_size == reconstructed_tensordict.batch_size
+    assert set(original_tensordict.keys()) == set(reconstructed_tensordict.keys())
+
+    for key in original_tensordict.keys():
+        original_tensor = original_tensordict[key]
+        reconstructed_tensor = reconstructed_tensordict[key]
+
+        assert torch.allclose(original_tensor, reconstructed_tensor)
+        assert original_tensor.shape == reconstructed_tensor.shape
+        assert original_tensor.dtype == reconstructed_tensor.dtype
+
+
+def test_serialize_deserialize_tensordict_nested_tensors():
+    """Test serialization and deserialization of TensorDict with nested tensors"""
+    # Create nested tensor
+    tensor_list = [torch.randn(2, 3), torch.randn(3, 4), torch.randn(1, 5)]
+    nested_tensor = torch.nested.as_nested_tensor(tensor_list)
+
+    # Create regular tensor for comparison
+    regular_tensor = torch.randn(3, 4, 5)
+
+    # Create TensorDict
+    original_tensordict = TensorDict({"nested": nested_tensor, "regular": regular_tensor}, batch_size=(3,))
+
+    # Serialize
+    batch_size_serialized, device, encoded_items = serialize_tensordict(original_tensordict)
+
+    # Deserialize
+    reconstructed_tensordict = deserialize_tensordict((batch_size_serialized, device, encoded_items))
+
+    # Verify results
+    assert original_tensordict.batch_size == reconstructed_tensordict.batch_size
+    assert set(original_tensordict.keys()) == set(reconstructed_tensordict.keys())
+
+    # Verify regular tensor
+    original_regular = original_tensordict["regular"]
+    reconstructed_regular = reconstructed_tensordict["regular"]
+
+    assert torch.allclose(original_regular, reconstructed_regular)
+    assert original_regular.shape == reconstructed_regular.shape
+    assert original_regular.dtype == reconstructed_regular.dtype
+
+    # Verify nested tensor
+    original_nested = original_tensordict["nested"]
+    reconstructed_nested = reconstructed_tensordict["nested"]
+
+    # Check if it's a nested tensor
+    assert original_nested.is_nested
+    assert reconstructed_nested.is_nested
+
+    # Check layout
+    assert original_nested.layout == reconstructed_nested.layout
+
+    # Check each tensor after unbinding
+    original_unbind = original_nested.unbind()
+    reconstructed_unbind = reconstructed_nested.unbind()
+
+    assert len(original_unbind) == len(reconstructed_unbind)
+
+    for orig, recon in zip(original_unbind, reconstructed_unbind, strict=False):
+        assert torch.allclose(orig, recon)
+        assert orig.shape == recon.shape
+        assert orig.dtype == recon.dtype
+
+
+def test_serialize_deserialize_tensordict_mixed_types():
+    """Test serialization and deserialization of TensorDict with mixed tensor types"""
+    # Create tensors with different data types
+    float_tensor = torch.randn(2, 3).float()
+    double_tensor = torch.randn(2, 3).double()
+    int_tensor = torch.randint(0, 10, (2, 3)).int()
+    long_tensor = torch.randint(0, 10, (2, 3)).long()
+    bool_tensor = torch.tensor([[True, False], [False, True]])
+
+    # Create nested tensor
+    tensor_list = [
+        torch.randn(2, 3),
+        torch.randn(3, 4),
+    ]
+    nested_tensor = torch.nested.as_nested_tensor(tensor_list)
+
+    # Create TensorDict
+    original_tensordict = TensorDict(
+        {
+            "float": float_tensor,
+            "double": double_tensor,
+            "int": int_tensor,
+            "long": long_tensor,
+            "bool": bool_tensor,
+            "nested": nested_tensor,
+        },
+        batch_size=(2,),
+    )
+
+    # Serialize
+    batch_size_serialized, device, encoded_items = serialize_tensordict(original_tensordict)
+
+    # Deserialize
+    reconstructed_tensordict = deserialize_tensordict((batch_size_serialized, device, encoded_items))
+
+    # Verify results
+    assert original_tensordict.batch_size == reconstructed_tensordict.batch_size
+    assert set(original_tensordict.keys()) == set(reconstructed_tensordict.keys())
+
+    for key in original_tensordict.keys():
+        original_tensor = original_tensordict[key]
+        reconstructed_tensor = reconstructed_tensordict[key]
+
+        if original_tensor.is_nested:
+            # For nested tensors, check each tensor after unbinding
+            original_unbind = original_tensor.unbind()
+            reconstructed_unbind = reconstructed_tensor.unbind()
+
+            assert len(original_unbind) == len(reconstructed_unbind)
+
+            for orig, recon in zip(original_unbind, reconstructed_unbind, strict=False):
+                assert torch.allclose(orig, recon, equal_nan=True)
+                assert orig.shape == recon.shape
+                assert orig.dtype == recon.dtype
+        else:
+            # For regular tensors, compare directly
+            assert torch.allclose(original_tensor, reconstructed_tensor, equal_nan=True)
+            assert original_tensor.shape == reconstructed_tensor.shape
+            assert original_tensor.dtype == reconstructed_tensor.dtype
+
+
+def test_serialize_deserialize_tensordict_with_device():
+    """Test serialization and deserialization of TensorDict with device information"""
+    # Create test data
+    batch_size = (2, 3)
+    tensor1 = torch.randn(*batch_size, 4)
+    tensor2 = torch.randint(0, 10, (*batch_size, 2))
+
+    # Create TensorDict with device information
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    original_tensordict = TensorDict({"tensor1": tensor1, "tensor2": tensor2}, batch_size=batch_size, device=device)
+
+    # Serialize
+    batch_size_serialized, device_serialized, encoded_items = serialize_tensordict(original_tensordict)
+
+    # Deserialize
+    reconstructed_tensordict = deserialize_tensordict((batch_size_serialized, device_serialized, encoded_items))
+
+    # Verify results
+    assert original_tensordict.batch_size == reconstructed_tensordict.batch_size
+    assert str(original_tensordict.device) == str(reconstructed_tensordict.device)
+    assert set(original_tensordict.keys()) == set(reconstructed_tensordict.keys())
+
+    for key in original_tensordict.keys():
+        original_tensor = original_tensordict[key]
+        reconstructed_tensor = reconstructed_tensordict[key]
+
+        assert torch.allclose(original_tensor.cpu(), reconstructed_tensor.cpu())
+        assert original_tensor.shape == reconstructed_tensor.shape
+        assert original_tensor.dtype == reconstructed_tensor.dtype
