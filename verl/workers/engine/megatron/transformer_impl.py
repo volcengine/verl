@@ -491,9 +491,6 @@ class MegatronEngineWithLMHead(MegatronEngine):
         has_multi_modal_inputs = "multi_modal_inputs" in batch.keys()
         if has_multi_modal_inputs:
             batch["multi_modal_inputs"] = batch["multi_modal_inputs"]
-            batch["multi_modal_inputs_idx"] = torch.Tensor(list(range(len(batch["multi_modal_inputs"])))).to(
-                torch.int64
-            )
 
         if batch["position_ids"].dim() == 3:  # qwen2vl mrope [bs, 3, seq_len]
             batch["position_ids"] = batch["position_ids"][
@@ -501,13 +498,10 @@ class MegatronEngineWithLMHead(MegatronEngine):
             ]  # mcore patch recompute qwen2vl's pos ids during forward
 
         multi_modal_inputs = {}
-        if "multi_modal_inputs" in batch.keys():
-            for key in batch["multi_modal_inputs"][0].keys():
-                idxs = batch["multi_modal_inputs_idx"]
-                mmi = batch["multi_modal_inputs"]
-                multi_modal_inputs[key] = torch.cat(
-                    [mmi[idx].get(key).to(input_ids.device) for idx in idxs if mmi[idx].get(key) is not None], dim=0
-                )
+        if "multi_modal_inputs" in batch:
+            from verl.utils.model import extract_multi_modal_inputs
+
+            multi_modal_inputs = extract_multi_modal_inputs(batch["multi_modal_inputs"])
         responses = batch["responses"]
         response_length = responses.size(1)
         label = position_ids.clone()
