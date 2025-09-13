@@ -43,6 +43,9 @@ actor_rollout_ref:
 
     trust_remote_code: False
 
+    # Whether to remove padding tokens in inputs during training
+    use_remove_padding: false
+
   rollout:
     # may get higher throughput when set to True. When activated, Please increase max_num_batched_tokens or decrease max_model_len.
     enable_chunked_prefill: False
