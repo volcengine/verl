@@ -172,7 +172,7 @@ multi_turn:
 
 # support logging rollout prob for debugging purpose
 # "Truncated importance sampling" requires rollout log probs, set to True when turning on Truncated importance sampling
-calculate_log_probs: False 
+calculate_log_probs: False
 
 # [Experimental] agent loop based rollout configs
 agent:
@@ -233,16 +233,37 @@ trace:
   # whether translate token id to text in output
   token2text: False
 
-# When enabled (True), the trainer will attempt to load previously generated rollout data from the specified directory instead of computing new rollouts.
-# If no cached data is found or loading fails, new rollouts will be generated and automatically saved.
-# This feature is useful for debugging or when you want to reuse computation results across multiple runs.
-skip_rollout: False
+skip:
 
-# Specifies the filesystem path where rollout data should be cached when skip_rollout is enabled.
-# Note: Giving path under /tmp/ray/session* is not recommended as these are temporary Ray cluster directories.
-skip_dump_dir: /tmp/rollout_dump
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.workers.config.SkipConfig
 
-# profile the rollout model in `generate_sequence` 
+  # When enabled (True), the trainer will attempt to load previously generated rollout data from the specified directory instead of computing new rollouts.
+  # If no cached data is found or loading fails, new rollouts will be generated and automatically saved.
+  # This feature is useful for debugging or when you want to reuse computation results across multiple runs.
+  enable: False
+  # Specifies the filesystem path where rollout data should be cached when skip_rollout is enabled.
+  # Note: Giving path under /tmp/ray/session* is not recommended as these are temporary Ray cluster directories.
+  dump_dir: /tmp/rollout_dump
+
+  # Specifies the rollout step from which to start dumping data.
+  dump_step: 1
+
+  # Action after dump_step
+  # 1. "REPEAT": repeat using previous dump content
+  # 2. "REPEAT_LAST": repeat using the last dump content
+  # 3. "ROLLOUT": resume normal rollout, not using dump, not dumping
+  # 4. "ROLLOUT_WITH_DUMP": resume normal rollout, dumping
+  post_dump_action: "repeat"
+
+
+  # When enabled, the dumped data will be compressed using `zlib` to save disk space.
+  # The compression ratio is typically between 0.1% to 10%.
+  # 3rd module `pyzstd` is strongly recommended over zlib for better performance.
+  # refer to https://github.com/volcengine/verl/pull/3283
+  compress: False
+
+# profile the rollout model in `generate_sequence`
 profiler:
 
   # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
@@ -254,7 +275,7 @@ profiler:
 
   # whether enable profile on ref
   enable: ${oc.select:actor_rollout_ref.actor.profiler.enable,false}
-  
+
   # Whether to profile all ranks.
   all_ranks: ${oc.select:actor_rollout_ref.actor.profiler.all_ranks,false}
 
