@@ -46,16 +46,6 @@ actor_rollout_ref:
   # Rollout model config.
   rollout:
 
-    # may get higher throughput when set to True. When activated, Please increase max_num_batched_tokens or decrease max_model_len.
-    enable_chunked_prefill: True
-
-    # Prefix caching kv-cache blocks is a popular optimization in LLM inference to avoid redundant prompt computations.
-    enable_prefix_caching: True
-
-    # Which loader to use for rollout model weights: dummy_dtensor, hf, megatron, etc.
-    # safetensors (for huge model, and set use_shm=True); dummy_dtensor: randomly init model weight
-    load_format: dummy_dtensor
-
     # for huge model, layered summon can save memory (prevent OOM) but make it slower
     layered_summon: False
 
@@ -142,7 +132,7 @@ trainer:
   experiment_name: gsm8k
 
   # Logging backends to use: "console", "wandb", etc.
-  logger: [ 'console', 'wandb' ]
+  logger: ["console", "wandb"]
 
   # Number of generations to log during validation
   log_val_generations: 0
@@ -214,7 +204,6 @@ trainer:
   # whether to use legacy worker implementation
   #  mode: "auto", "enable", or "disable"
   use_legacy_worker_impl: auto
-
 
 # profiler configs
 global_profiler:

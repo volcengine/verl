@@ -25,6 +25,11 @@ allowed_modules += ["ray", "worker", "single_controller", "misc", "docker", "ci"
 allowed_modules += ["perf", "model", "algo", "env", "tool", "ckpt", "doc", "data", "cfg"]
 allowed_types = ["feat", "fix", "refactor", "chore", "test"]
 
+# Check for [1/N] prefix and extract the rest of the title
+progress_match = re.match(r"^\[\d/[\dNn]\]\s*(.+)$", pr_title, re.IGNORECASE)
+if progress_match:
+    pr_title = progress_match.group(1).strip()
+
 # Check for [BREAKING] prefix and extract the rest of the title
 breaking_match = re.match(r"^\[BREAKING\]\s*(.+)$", pr_title, re.IGNORECASE)
 if breaking_match:

@@ -726,7 +726,6 @@ class TestAsyncHttpServerEngineAdapter:
         adapter = AsyncHttpServerAdapter(max_connections=50, **basic_adapter_kwargs)
 
         assert adapter.max_connections == 50
-        assert adapter._need_reload is True
 
     @pytest.mark.asyncio
     async def test_make_async_request_success(self, mock_launch_server_process, basic_adapter_kwargs):
@@ -834,7 +833,7 @@ class TestAsyncHttpServerEngineAdapter:
             assert result == {"status": "success"}
             mock_request.assert_called_with("resume_memory_occupation", {"tags": ["weights"]})
             assert (
-                mock_request.call_count == 3
+                mock_request.call_count == 2
             )  # resume memory occupation will also call release memory occupation once
 
 
