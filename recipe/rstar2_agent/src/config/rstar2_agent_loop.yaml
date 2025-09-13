@@ -1,0 +1,2 @@
+- name: rstar2_agent
+  _target_: recipe.rstar2_agent.src.rollout.rstar2_agent_loop.RStar2AgentLoop
