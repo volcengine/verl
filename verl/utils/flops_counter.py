@@ -31,6 +31,7 @@ VALID_CONFIG_TYPE = {
     "mistral",
     "gemma3_text",
     "seed_oss",
+    "apertus",
 }
 
 
@@ -132,6 +133,7 @@ class FlopsCounter:
             "mistral": self._estimate_qwen2_flops,
             "gemma3_text": self._estimate_gemma3_flops,
             "seed_oss": self._estimate_qwen2_flops,
+            "apertus": self._estimate_apertus_flops,
         }
         self.config = config
 
@@ -323,6 +325,45 @@ class FlopsCounter:
             seqlen_square_sum *= num_hidden_layers
 
         attn_qkv_flops = 12 * seqlen_square_sum * head_dim * num_attention_heads
+
+        # all_layer & all_token fwd & bwd flops
+        flops_all_token = dense_N_flops + attn_qkv_flops
+        flops_achieved = flops_all_token * (1.0 / delta_time) / 1e12
+        return flops_achieved
+
+    def _estimate_apertus_flops(self, tokens_sum, batch_seqlens, delta_time):
+        hidden_size = self.config.hidden_size
+        vocab_size = self.config.vocab_size
+        num_hidden_layers = self.config.num_hidden_layers
+        num_key_value_heads = self.config.num_key_value_heads
+        num_attention_heads = self.config.num_attention_heads
+        intermediate_size = self.config.intermediate_size
+
+        head_dim = getattr(self.config, "head_dim", self.config.hidden_size // self.config.num_attention_heads)
+        q_size = num_attention_heads * head_dim
+        k_size = num_key_value_heads * head_dim
+        v_size = num_key_value_heads * head_dim
+
+        # Apertus MLP with XIELU activation uses only 2 linear layers (up_proj, down_proj)
+        # No gate_proj for XIELU, unlike SwiGLU which has 3 layers
+        mlp_N = hidden_size * intermediate_size * 2
+        attn_linear_N = hidden_size * (q_size + k_size + v_size + num_attention_heads * head_dim)
+
+        # ApertusConfig has qk_norm defaulting to True.
+        # This adds params for q_norm (on H) and k_norm (on num_kv_heads * head_dim)
+        qk_norm_params_per_layer = hidden_size + num_key_value_heads * head_dim  # q_norm + k_norm
+
+        emd_and_lm_head_N = vocab_size * hidden_size * 2
+        # non-attn all_layer params
+        dense_N = (mlp_N + attn_linear_N + qk_norm_params_per_layer) * num_hidden_layers + emd_and_lm_head_N
+        # non-attn all_layer & all_token fwd & bwd flops
+        dense_N_flops = 6 * dense_N * tokens_sum
+
+        # attn all_layer & all_token fwd & bwd flops
+        seqlen_square_sum = 0
+        for seqlen in batch_seqlens:
+            seqlen_square_sum += seqlen * seqlen
+        attn_qkv_flops = 12 * seqlen_square_sum * head_dim * num_attention_heads * num_hidden_layers
 
         # all_layer & all_token fwd & bwd flops
         flops_all_token = dense_N_flops + attn_qkv_flops
