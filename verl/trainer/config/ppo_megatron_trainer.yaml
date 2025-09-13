@@ -16,6 +16,8 @@ defaults:
   - critic@critic: megatron_critic
   # Reward model config.
   - reward_model@reward_model: megatron_reward_model
+  # Algorithm filter groups config.
+  - algorithm/filter_groups@algorithm.filter_groups
   - _self_
 
 actor_rollout_ref:
