@@ -97,6 +97,7 @@ def default_compute_score(
         "searchR1_2wikimultihopqa",
         "searchR1_musique",
         "searchR1_bamboogle",
+        "lmms-lab/Omni_Bench_fix",
     ]:
         from . import search_r1_like_qa_em
 
