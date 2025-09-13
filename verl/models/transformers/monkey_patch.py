@@ -271,10 +271,25 @@ def apply_monkey_patch(
     try:
         num_attention_heads, num_key_value_heads = model.config.num_attention_heads, model.config.num_key_value_heads
     except AttributeError:
-        num_attention_heads, num_key_value_heads = (
-            model.config.text_config.num_attention_heads,
-            model.config.text_config.num_key_value_heads,
-        )
+        try:
+            num_attention_heads, num_key_value_heads = (
+                model.config.decoder_attention_heads,
+                model.config.decoder_key_value_heads,
+            )
+        except AttributeError:
+            # Fallback for models like GPT2 that don't have num_key_value_heads
+            # For these models, num_key_value_heads equals num_attention_heads
+            num_attention_heads = getattr(model.config, "num_attention_heads", getattr(model.config, "n_head", None))
+            if num_attention_heads is None and hasattr(model.config, "text_config"):
+                num_attention_heads = getattr(
+                    model.config.text_config, "num_attention_heads", getattr(model.config.text_config, "n_head", None)
+                )
+
+            if num_attention_heads is None:
+                # ruff B904: suppress exception chaining since this is a deliberate terminal validation error
+                raise AttributeError("Could not find num_attention_heads in model config") from None
+
+            num_key_value_heads = num_attention_heads  # Default fallback
 
     assert num_attention_heads % ulysses_sp_size == 0, (
         f"num_attention_heads {num_attention_heads} must be divisible by ulysses_sp_size {ulysses_sp_size}"
