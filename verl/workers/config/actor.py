@@ -35,12 +35,16 @@ class PolicyLossConfig(BaseConfig):
     The inheritance from BaseConfig provides omegaconf.DictConfig-like interface for a dataclass config.
 
     Args:
-        loss_mode (str): Loss function mode. Options: 'vanilla', 'clip-cov', 'kl-cov', 'gpg'.
+        loss_mode (str): Loss function mode. Options: 'vanilla', 'clip-cov', 'kl-cov', 'gpg', 'disco'.
         clip_cov_ratio (float): Ratio of tokens to be clipped for clip-cov loss.
         clip_cov_lb (float): Lower bound for clip-cov loss.
         clip_cov_ub (float): Upper bound for clip-cov loss.
         kl_cov_ratio (float): Ratio of tokens to be applied KL penalty for kl-cov loss.
         ppo_kl_coef (float): KL divergence penalty coefficient.
+        score_func (str):  Score function for disco loss. Options: 'logL', 'Lratio'.
+        delta (float): Constraint value for disco loss.
+        beta (float): Penalty weight for constraint violation for disco loss.
+        tau (float): Temperature for disco loss.
     """
 
     loss_mode: str = "vanilla"
@@ -49,6 +53,10 @@ class PolicyLossConfig(BaseConfig):
     clip_cov_ub: float = 5.0
     kl_cov_ratio: float = 0.0002
     ppo_kl_coef: float = 0.1
+    score_func: str = "logL"
+    delta: float = 1e-4
+    beta: float = 1e3
+    tau: float = 10
 
 
 @dataclass
