@@ -1,4 +1,3 @@
-from typing import Dict, List, Optional, Union
 from mcp.server.fastmcp import FastMCP
 from tools.mcp_tools.func_source_code.ticket_api import TicketAPI
 
@@ -115,7 +114,7 @@ def resolve_ticket(ticket_id: int, resolution: str):
         return f"Error: {str(e)}"
 
 @mcp.tool()
-def edit_ticket(ticket_id: int, title: Optional[str] = None, description: Optional[str] = None, status: Optional[str] = None, priority: Optional[int] = None):
+def edit_ticket(ticket_id: int, title: str = None, description: str = None, status: str = None, priority: str = None):
     """
     Modify the details of an existing ticket.
 
@@ -200,7 +199,7 @@ def logout():
         return f"Error: {str(e)}"
 
 @mcp.tool()
-def get_user_tickets(status: Optional[str] = None):
+def get_user_tickets(status: str = None):
     """
     Get all tickets created by the current user, optionally filtered by status.
 

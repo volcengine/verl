@@ -30,20 +30,10 @@ from verl.tools.schemas import ToolResponse
 from verl.tools.utils.tool_registry import initialize_tools_from_config
 from verl.utils.profiler import simple_timer
 from verl.utils.rollout_trace import rollout_trace_op
+from tools.configs.mcp_tools.bfcl_mcp_tools_to_ignore import TOOLS_TO_IGNORE
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
-
-
-def get_tool_schema(tool: MCPManager):
-    return {
-        "type": "function",
-        "function": {
-            "name": tool.name,
-            "description": tool.description,
-            "parameters": tool.parameters,
-        }
-    }
 
 
 class AgentState(Enum):
@@ -106,20 +96,16 @@ class ToolAgentLoop(AgentLoopBase):
         # Initialize tools from config file
         cls.tokenizer = tokenizer
         cls.processor = processor
+        cls.max_prompt_length = config.data.max_prompt_length
         cls.max_user_turns = config.actor_rollout_ref.rollout.multi_turn.max_user_turns
         cls.max_assistant_turns = config.actor_rollout_ref.rollout.multi_turn.max_assistant_turns
-        cls.max_parallel_calls = config.actor_rollout_ref.rollout.multi_turn.max_parallel_calls
+        cls.max_parallel_calls = config.actor_rollout_ref.rollout.multi_turn.max_parallel_calls # FIXME: Current design only consider max_parallel_calls=1.
         cls.max_tool_response_length = config.actor_rollout_ref.rollout.multi_turn.max_tool_response_length
         cls.tool_response_truncate_side = config.actor_rollout_ref.rollout.multi_turn.tool_response_truncate_side
         tool_config_path = config.actor_rollout_ref.rollout.multi_turn.tool_config_path
-        # tool_list = initialize_tools_from_config(tool_config_path) if tool_config_path else []
-        # cls.tools = {tool.name: tool for tool in tool_list}
-        # cls.tool_schemas = [tool.tool_schema.model_dump(exclude_unset=True, exclude_none=True) for tool in tool_list]
-        with open(tool_config_path, 'r') as f:
-            tool_config = json.load(f)
-        tool_list = MCPManager().initConfig(tool_config)
+        tool_list = initialize_tools_from_config(tool_config_path) if tool_config_path else []
         cls.tools = {tool.name: tool for tool in tool_list}
-        cls.tool_schemas = [get_tool_schema(tool) for tool in tool_list]
+        cls.tool_schemas = [tool.tool_schema.model_dump(exclude_unset=True, exclude_none=True) for tool in tool_list]
         cls.tool_parser = ToolParser.get_tool_parser(config.actor_rollout_ref.rollout.multi_turn.format, cls.tokenizer)
         # print(f"Initialized tools: {cls.tools}")
 
@@ -134,7 +120,7 @@ class ToolAgentLoop(AgentLoopBase):
         if cls.interaction_config_file:
             cls.interaction_map: dict[str, BaseInteraction] = cls._initialize_interactions(cls.interaction_config_file)
 
-    def filter_tools(self, involved_class: list[str] | None, num: int | None = None) -> list:
+    def filter_tools(self, involved_class: list[str] | None) -> list:
         if involved_class is None:
             return self.tool_schemas
 
@@ -142,16 +128,16 @@ class ToolAgentLoop(AgentLoopBase):
 
         # Only keep the tools that belongs to the involved classes
         # Remove the load_scenario and save_scenario tools from
+        # Remove the tools that are in TOOLS_TO_IGNORE
         for tool_class in involved_class:
             for tool_name, tool in self.tools.items():
                 if tool_class in tool_name \
                 and 'load_scenario' not in tool_name \
-                and 'save_scenario' not in tool_name:
+                and 'save_scenario' not in tool_name \
+                and tool_name not in TOOLS_TO_IGNORE:
                     filtered_tools.append(tool)
         
-        if num is not None:
-                return [get_tool_schema(tool) for tool in filtered_tools][:num]
-        return [get_tool_schema(tool) for tool in filtered_tools]
+        return [tool.tool_schema.model_dump(exclude_unset=True, exclude_none=True) for tool in filtered_tools]
 
     @rollout_trace_op
     async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
@@ -238,6 +224,8 @@ class ToolAgentLoop(AgentLoopBase):
                     tools=self.filter_tools(agent_data.involved_class),
                     add_generation_prompt=True,
                     tokenize=False,
+                    truncation=True,
+                    max_length=self.max_prompt_length,
                     **self.apply_chat_template_kwargs,
                 ),
             )
@@ -248,9 +236,11 @@ class ToolAgentLoop(AgentLoopBase):
                 None,
                 lambda: self.tokenizer.apply_chat_template(
                     agent_data.messages,
-                    tools=self.filter_tools(agent_data.involved_class, 10),
+                    tools=self.filter_tools(agent_data.involved_class),
                     add_generation_prompt=True,
                     tokenize=True,
+                    truncation=True,
+                    max_length=self.max_prompt_length,
                     **self.apply_chat_template_kwargs,
                 ),
             )

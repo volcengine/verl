@@ -45,6 +45,9 @@ class MCPClientManager:
                 transport = SSETransport(url=server["url"], headers={"Authorization": f"Bearer {server['auth_token']}"})
                 client = Client(transport)
                 self.clients.append(client)
+            if "local_path" in server:
+                client = Client(server['local_path'])
+                self.clients.append(client)
             else:
                 exclude_sse_servers[self.rootServerName][server_name] = server
 

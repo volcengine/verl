@@ -1,0 +1,28 @@
+{
+    "mcpServers": {
+        "file_system": {
+            "local_path": "tools/mcp_tools/file_system.py"
+        },
+        "math": {
+            "local_path": "tools/mcp_tools/math_api.py"
+        },
+        "posting": {
+            "local_path": "tools/mcp_tools/posting.py"
+        },
+        "ticket": {
+            "local_path": "tools/mcp_tools/ticket.py"
+        },
+        "trading": {
+            "local_path": "tools/mcp_tools/trading.py"
+        },
+        "travel": {
+            "local_path": "tools/mcp_tools/travel.py"
+        },
+        "vehicle": {
+            "local_path": "tools/mcp_tools/vehicle.py"
+        },
+        "message": {
+            "local_path": "tools/mcp_tools/message.py"
+        }
+    }
+}

@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Union
 from mcp.server.fastmcp import FastMCP
 from tools.mcp_tools.func_source_code.trading_bot import TradingBot
 
@@ -346,7 +346,7 @@ def get_order_history():
         return f"Error: {str(e)}"
 
 @mcp.tool()
-def get_transaction_history(start_date: Optional[str] = None, end_date: Optional[str] = None):
+def get_transaction_history(start_date: str = None, end_date: str = None):
     """
     Get the transaction history within a specified date range.
 

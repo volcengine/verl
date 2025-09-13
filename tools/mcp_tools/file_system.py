@@ -1,11 +1,12 @@
-from typing import Optional, Dict, List, Union
 from mcp.server.fastmcp import FastMCP
 from tools.mcp_tools.func_source_code.gorilla_file_system import *
 mcp = FastMCP("FileSystem")
 
 file_system = GorillaFileSystem()
 
-@mcp.tool()
+@mcp.tool(
+    name="file_system-load_scenario",
+)
 def load_scenario(scenario: dict, long_context: bool = False):
     """
         Load a scenario into the file system.
@@ -206,7 +207,7 @@ def cat(file_name: str) -> str:
         return f"Error: {str(e)}"
 
 @mcp.tool()
-def find(path: str = ".", name: Optional[str] = None) -> str:
+def find(path: str = ".", name: str = None) -> str:
     """
     Find any file or directories under specific path that contain name in its file name.
 

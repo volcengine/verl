@@ -1,4 +1,4 @@
-ignored_tools = [
+TOOLS_TO_IGNORE = [
     'file_system-load_scenario',
     'file_system-pwd',
     'file_system-rm',
