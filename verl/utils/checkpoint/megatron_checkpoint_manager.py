@@ -438,7 +438,8 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             if self.rank == 0:
                 # Save tokenizer
                 hf_config_tokenizer_path = get_hf_model_checkpoint_path(local_path)
-                self.processing_class.save_pretrained(hf_config_tokenizer_path)
+                if self.processing_class is not None:
+                    self.processing_class.save_pretrained(hf_config_tokenizer_path)
                 # Save huggingface config
                 self.hf_config.save_pretrained(hf_config_tokenizer_path)
                 if hasattr(self.hf_config, "name_or_path") and self.hf_config.name_or_path:

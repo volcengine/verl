@@ -16,8 +16,9 @@
 import torch
 from tensordict import TensorDict
 
-from verl.trainer.ppo.core_algos import agg_loss, get_policy_loss_fn, kl_penalty
-from verl.workers.config import ActorConfig
+from verl.trainer.ppo.core_algos import agg_loss, compute_value_loss, get_policy_loss_fn, kl_penalty
+from verl.utils.torch_functional import masked_mean
+from verl.workers.config import ActorConfig, CriticConfig
 
 
 def sft_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None):
@@ -80,3 +81,33 @@ def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
         metrics["kl_coef"] = config.kl_loss_coef
 
     return policy_loss, metrics
+
+
+def value_loss(config: CriticConfig, model_output, data: TensorDict, dp_group=None):
+    vpreds = model_output["values"]
+    values = data["values"]
+
+    values = data["values"]
+    returns = data["returns"]
+    response_mask = data["response_mask"].to(bool)
+
+    vf_loss, vf_clipfrac = compute_value_loss(
+        vpreds=vpreds,
+        values=values,
+        returns=returns,
+        response_mask=response_mask,
+        cliprange_value=config.cliprange_value,
+        loss_agg_mode=config.loss_agg_mode,
+    )
+
+    metrics = {}
+
+    metrics.update(
+        {
+            "critic/vf_loss": vf_loss.detach().item(),
+            "critic/vf_clipfrac": vf_clipfrac.detach().item(),
+            "critic/vpred_mean": masked_mean(vpreds, response_mask).detach().item(),
+        }
+    )
+
+    return vf_loss, metrics
