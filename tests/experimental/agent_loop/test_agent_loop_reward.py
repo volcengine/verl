@@ -47,6 +47,7 @@ def test_agent_loop_compute_score():
     config.actor_rollout_ref.rollout.mode = "async"
     config.actor_rollout_ref.rollout.prompt_length = 1024
     config.actor_rollout_ref.rollout.response_length = 4096
+    config.actor_rollout_ref.rollout.skip_tokenizer_init = True
 
     # 1. init agent loop manager
     agent_loop_manager = init_agent_loop_manager(config)
