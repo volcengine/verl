@@ -119,13 +119,13 @@ class ActorConfig(BaseConfig):
     profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
     engine: BaseConfig = field(default_factory=BaseConfig)
     data_loader_seed = 1
-    n: int = 1  # must be override by sampling config
+    rollout_n: int = 1  # must be override by sampling config
     model_config: HFModelConfig = field(default_factory=BaseConfig)
 
     def __post_init__(self):
         """Validate actor configuration parameters."""
         assert self.strategy != MISSING
-        assert self.n != MISSING
+        assert self.rollout_n != MISSING
         if not self.use_dynamic_bsz:
             if self.ppo_micro_batch_size is not None and self.ppo_micro_batch_size_per_gpu is not None:
                 raise ValueError(
