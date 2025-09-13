@@ -72,6 +72,8 @@ class SupportedModel(Enum):
     QWEN3_MOE = "Qwen3MoeForCausalLM"  # tested
     GLM4_MOE = "Glm4MoeForCausalLM"
 
+    QWEN3_TOKEN_CLASSIFICATION = "Qwen3ForTokenClassification"
+
 
 # Registry for model configuration converters
 MODEL_CONFIG_CONVERTER_REGISTRY: dict[SupportedModel, Callable[[PretrainedConfig, torch.dtype], TransformerConfig]] = {
@@ -85,6 +87,7 @@ MODEL_CONFIG_CONVERTER_REGISTRY: dict[SupportedModel, Callable[[PretrainedConfig
     SupportedModel.QWEN3: hf_to_mcore_config_dense,
     SupportedModel.QWEN3_MOE: hf_to_mcore_config_qwen3moe,
     SupportedModel.QWEN2_5_VL: hf_to_mcore_config_qwen2_5_vl,
+    SupportedModel.QWEN3_TOKEN_CLASSIFICATION: hf_to_mcore_config_dense,
 }
 
 # Registry for model initializers
@@ -99,6 +102,7 @@ MODEL_INITIALIZER_REGISTRY: dict[SupportedModel, type[BaseModelInitializer]] = {
     SupportedModel.QWEN3: DenseModel,
     SupportedModel.QWEN3_MOE: Qwen3MoEModel,
     SupportedModel.QWEN2_5_VL: Qwen25VLModel,
+    SupportedModel.QWEN3_TOKEN_CLASSIFICATION: DenseModel,
 }
 
 # Registry for model forward functions
@@ -115,6 +119,7 @@ MODEL_FORWARD_REGISTRY: dict[SupportedModel, Callable] = {
     SupportedModel.QWEN2_5_VL: gptmodel_forward_qwen2_5_vl,
     SupportedModel.DEEPSEEK_V3: gptmodel_forward,
     SupportedModel.GLM4_MOE: gptmodel_forward,
+    SupportedModel.QWEN3_TOKEN_CLASSIFICATION: gptmodel_forward,
 }
 
 # Registry for model forward functions
@@ -143,6 +148,7 @@ MODEL_WEIGHT_CONVERTER_REGISTRY: dict[SupportedModel, type] = {
     SupportedModel.QWEN3: McoreToHFWeightConverterDense,
     SupportedModel.QWEN3_MOE: McoreToHFWeightConverterQwen3Moe,
     SupportedModel.QWEN2_5_VL: McoreToHFWeightConverterQwen2_5_VL,
+    SupportedModel.QWEN3_TOKEN_CLASSIFICATION: McoreToHFWeightConverterDense,
 }
 
 
