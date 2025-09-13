@@ -875,11 +875,6 @@ class SGLangRollout(BaseRollout):
                     break
 
                 # Video support is not implemented yet
-                image_data = (
-                    _req.multi_modal_data["image"]
-                    if _req.multi_modal_data and "image" in _req.multi_modal_data
-                    else None
-                )
                 video_data = (
                     _req.multi_modal_data["video"]
                     if _req.multi_modal_data and "video" in _req.multi_modal_data
@@ -890,7 +885,9 @@ class SGLangRollout(BaseRollout):
                         "video support is not implemented yet, current length of video data is %d", len(video_data)
                     )
 
-                output = await self._handle_engine_call(_req, request_sampling_params, image_data=image_data)
+                multi_modal_inputs = _req.multi_modal_inputs
+
+                output = await self._handle_engine_call(_req, request_sampling_params, image_data=multi_modal_inputs)
                 content = output["text"]
                 finish_reason_type = FinishReasonTypeEnum.from_str(output["meta_info"]["finish_reason"]["type"])
                 current_turns += 1
