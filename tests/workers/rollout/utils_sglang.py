@@ -129,6 +129,7 @@ def get_rollout_config(
     tensor_parallel_size,
     tool_config_path=None,
     interaction_config_path=None,
+    skip_tokenizer_init=False,
 ):
     sampling_params = dict(
         n=1,
@@ -166,6 +167,7 @@ def get_rollout_config(
             },
             "calculate_log_probs": False,
             "max_model_len": None,
+            "skip_tokenizer_init": skip_tokenizer_init,
             **sampling_params,
         }
     )
