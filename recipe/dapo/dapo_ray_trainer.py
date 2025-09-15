@@ -156,15 +156,15 @@ class SmartDataLoader:
         self.dataloader_iter = iter(dataloader)
         self.dataloader_exhausted = False
         self.reached_epoch_end = False         # mark that we hit StopIteration (before refresh)
-        if not self.config.enable:
-            return
+
+        # Always initialize buffers to prevent AttributeErrors.
+        self.unused_buffer = DataBuffer()
+        self.filtered_buffer = DataBuffer() if self.config.keep_filtered else None
         self.data_history = set()  # track seen data UIDs
-        self.unused_buffer = DataBuffer()             # successful but unused samples
-        if self.config.keep_filtered:
-            self.filtered_buffer = DataBuffer()    # filtered-out samples
         self.current_batch_remainder = None
-        print("DEBUG: SmartDataLoader initialized")
-        
+
+        if self.config.enable:
+            print("DEBUG: SmartDataLoader initialized")
     def _refresh_dataloader_iter(self):
         """Reset dataloader iterator when exhausted"""
         self.dataloader_iter = iter(self.dataloader)
