@@ -14,23 +14,15 @@
 
 import importlib
 from abc import ABC, abstractmethod
-from typing import Generator, Optional
+from typing import Generator
 
 import torch
-from pydantic import BaseModel
 from torch.distributed.device_mesh import DeviceMesh
 
 from verl import DataProto
 from verl.workers.config import HFModelConfig, RolloutConfig
 
-__all__ = ["BaseRollout", "TokenOutput"]
-
-
-class TokenOutput(BaseModel):
-    token_ids: list[int]
-    """response token ids"""
-    log_probs: Optional[list[float]] = None
-    """logprobs of response token ids"""
+__all__ = ["BaseRollout"]
 
 
 class BaseRollout(ABC):
