@@ -670,8 +670,9 @@ class AgentLoopManager:
         await asyncio.gather(*[asyncio.wrap_future(future.future()) for future in futures], return_exceptions=True)
 
 
-
 from verl.workers.rollout.async_server import AsyncServerBase
+
+
 def async_server_class(
     rollout_backend: str, rollout_backend_module: Optional[str] = None, rollout_backend_class: Optional[str] = None
 ) -> type[AsyncServerBase]:
@@ -692,6 +693,7 @@ def async_server_class(
 
         if rollout_backend == "vllm":
             from recipe.fully_async_policy.agent_loop.vllm_async_server import AsyncvLLMServer
+
             return AsyncvLLMServer
         else:
             raise NotImplementedError(f"rollout backend {rollout_backend} is not supported")

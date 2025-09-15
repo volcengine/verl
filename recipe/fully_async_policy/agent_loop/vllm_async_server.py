@@ -397,5 +397,3 @@ class AsyncvLLMServer(AsyncServerBase):
         await self.engine.reset_prefix_cache()
         if self.config.rollout.free_cache_engine:
             await self.engine.sleep()
-
-

@@ -194,7 +194,7 @@ class FullyAsyncTaskRunner:
         print(f"total_train_steps {total_train_steps}")
         ray.get(self.components["trainer"].set_total_train_steps.remote(total_train_steps))
 
-        # max_queue_size 
+        # max_queue_size
         max_queue_size = ray.get(self.components["rollouter"].get_max_queue_size.remote())
         print(f"[ASYNC MAIN] Creating MessageQueue... max_queue_size {max_queue_size}")
         message_queue = MessageQueue.remote(config, max_queue_size)
