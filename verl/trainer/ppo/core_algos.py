@@ -697,7 +697,7 @@ def compute_scores(data, metric="response length", metric_name="token_level_scor
             id2response_and_score[index[i]].append((i, response_length[i]))
     elif metric == "token efficiency":
         for i in range(bsz):
-            id2response_and_score[index[i]].append((i, -reward_value[i] / response_length[i]))
+            id2response_and_score[index[i]].append((i, -reward_value[i] / (response_length[i] + 10**(-8))))
     else:
         raise NotImplementedError
 
@@ -756,6 +756,6 @@ def filtering_sampling(data, metric="response length", metric_name="token_level_
     else:
         for id in id2response_and_score.keys():
             id_score = id2response_and_score[id]
-            for i in range(min(retain_count, len(id_score[i]))):
+            for i in range(min(retain_count, len(id_score))):
                 kept_traj_idxs.append(id_score[i][0])
     return kept_traj_idxs
