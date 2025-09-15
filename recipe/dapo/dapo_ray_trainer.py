@@ -160,7 +160,8 @@ class SmartDataLoader:
             return
         self.data_history = set()  # track seen data UIDs
         self.unused_buffer = DataBuffer()             # successful but unused samples
-        self.filtered_buffer = DataBuffer()    # filtered-out samples
+        if self.config.keep_filtered:
+            self.filtered_buffer = DataBuffer()    # filtered-out samples
         self.current_batch_remainder = None
         print("DEBUG: SmartDataLoader initialized")
         
@@ -245,7 +246,11 @@ class SmartDataLoader:
                 filtered_data = self.filtered_buffer.get_samples_excluding(samples_needed, self.data_history)
                 if filtered_data is not None:
                     collected_data.append(filtered_data)
-                    self.data_history.update(sample.non_tensor_batch["uid"] for sample in filtered_data) if filtered_data else None
+                    # ensures that the filtered data is only used once per epoch. If it fails a second time, we discard it.
+                    self.data_history.update(
+                        sample.non_tensor_batch["uid"] 
+                        for sample in filtered_data
+                    ) if filtered_data else None
                     samples_needed -= len(filtered_data)
 
                 # If still need more, now refresh and try to get fresh data
@@ -288,10 +293,16 @@ class SmartDataLoader:
         self.filtered_buffer.stats['total_samples_buffered'] += len(filtered_batch)
 
     def get_stats(self):
-        return {
-            "unused_buffer": self.unused_buffer.get_stats(),
-            "filtered_buffer": self.filtered_buffer.get_stats(),
-        }
+
+        if self.config.keep_filtered:
+            return {
+                "unused_buffer": self.unused_buffer.get_stats(),
+                "filtered_buffer": self.filtered_buffer.get_stats(),
+            }
+        else:
+            return {
+                "unused_buffer": self.unused_buffer.get_stats(),
+            }
 
 class RayDAPOTrainer(RayPPOTrainer):
     """
@@ -503,7 +514,8 @@ class RayDAPOTrainer(RayPPOTrainer):
                             filtered_prompt_uids = set(prompt_uid2metric_vals.keys()) - set(kept_prompt_uids)
                             if filtered_prompt_uids:
                                 filtered_indices = [
-                                    i for i, uid in enumerate(new_batch.non_tensor_batch["uid"]) if uid in filtered_prompt_uids
+                                    i for i, uid in enumerate(original_data_proto.non_tensor_batch["uid"]) 
+                                    if uid in filtered_prompt_uids
                                 ]
                                 filtered_original_subset = original_data_proto[filtered_indices]
                                 self.smart_dataloader.return_filtered_samples(filtered_original_subset)
@@ -555,17 +567,22 @@ class RayDAPOTrainer(RayPPOTrainer):
                             
                             # Log smart dataloader statistics
                             dl_stats = self.smart_dataloader.get_stats()
+                            total_samples_buffered = dl_stats['unused_buffer']['total_samples_buffered']
+                            total_samples_reused = dl_stats['unused_buffer']['total_samples_reused']
                             metrics.update({
-                                'data_conservation/buffer_size': self.smart_dataloader.unused_buffer.size(),
-                                'data_conservation/total_samples_buffered': dl_stats['unused_buffer']['total_samples_buffered'],
-                                'data_conservation/total_samples_reused': dl_stats['unused_buffer']['total_samples_reused'],
-                                'data_conservation/filtered_buffer_size': self.smart_dataloader.filtered_buffer.size(),
-                                'data_conservation/filtered_samples_buffered': dl_stats['filtered_buffer']['total_samples_buffered'],
-                                'data_conservation/filtered_samples_reused': dl_stats['filtered_buffer']['total_samples_reused'],
+                                'data_con/buffer_size': self.smart_dataloader.unused_buffer.size(),
+                                'data_con/total_samples_buffered': total_samples_buffered,
+                                'data_con/total_samples_reused': total_samples_reused,
                             })
 
-                            print(f"DEBUG: Data conservation stats - Buffer size: {self.smart_dataloader.unused_buffer.size()}, "
-                                  f"Buffered: {dl_stats['unused_buffer']['total_samples_buffered']}, Reused: {dl_stats['unused_buffer']['total_samples_reused']}")
+                            if self.config.data.databuffer.get("keep_filtered", False):
+                                total_samples_buffered = dl_stats['filtered_buffer']['total_samples_buffered']
+                                total_samples_reused = dl_stats['filtered_buffer']['total_samples_reused']
+                                metrics.update({
+                                    'data_con/filtered_buffer_size': self.smart_dataloader.filtered_buffer.size(),
+                                    'data_con/filtered_total_samples_buffered': total_samples_buffered,
+                                    'data_con/filtered_total_samples_reused': total_samples_reused,
+                                })
 
                     # === Updating ===
 
