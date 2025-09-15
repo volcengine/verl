@@ -730,6 +730,7 @@ def test_serialize_deserialize_tensordict_mixed_types():
     int_tensor = torch.randint(0, 10, (2, 3)).int()
     long_tensor = torch.randint(0, 10, (2, 3)).long()
     bool_tensor = torch.tensor([[True, False], [False, True]])
+    bfloat16_tensor = torch.randn(2, 3).bfloat16()
 
     # Create nested tensor
     tensor_list = [
@@ -738,16 +739,19 @@ def test_serialize_deserialize_tensordict_mixed_types():
     ]
     nested_tensor = torch.nested.as_nested_tensor(tensor_list)
 
-    # Create TensorDict
+    # Create TensorDict with all available types
+    tensordict_data = {
+        "float": float_tensor,
+        "double": double_tensor,
+        "int": int_tensor,
+        "long": long_tensor,
+        "bool": bool_tensor,
+        "bfloat16": bfloat16_tensor,
+        "nested": nested_tensor,
+    }
+
     original_tensordict = TensorDict(
-        {
-            "float": float_tensor,
-            "double": double_tensor,
-            "int": int_tensor,
-            "long": long_tensor,
-            "bool": bool_tensor,
-            "nested": nested_tensor,
-        },
+        tensordict_data,
         batch_size=(2,),
     )
 
