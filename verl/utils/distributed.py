@@ -16,24 +16,30 @@
 import os
 from datetime import timedelta
 
+import ray
 import torch.distributed
 
-from verl.utils.device import get_device_name, get_nccl_backend, get_torch_device
+from verl.utils.device import get_device_name, get_nccl_backend, get_torch_device, is_npu_available
 
 
 def set_numa_affinity():
     try:
-        local_rank = int(os.environ["RANK"]) % 8
         import pynvml
 
+        initialized = False
         pynvml.nvmlInit()
+        initialized = True
+        device_name = "NPU" if is_npu_available else "GPU"
+        local_rank = int(ray.get_runtime_context().get_accelerator_ids()[device_name][0])
         handle = pynvml.nvmlDeviceGetHandleByIndex(local_rank)
         pynvml.nvmlDeviceSetCpuAffinity(handle)
-        pynvml.nvmlShutdown()
     except ImportError:
         print("Warning: pynvml not available, skipping NUMA affinity setup")
     except Exception as e:
         print(f"Warning: Failed to set NUMA affinity: {e}")
+    finally:
+        if initialized:
+            pynvml.nvmlShutdown()
 
 
 def initialize_global_process_group(timeout_second=36000):
