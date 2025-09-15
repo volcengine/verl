@@ -13,8 +13,7 @@
 # limitations under the License.
 
 import sys
-from dataclasses import dataclass
-from typing import Callable, List, Optional, Tuple, Union
+from typing import Callable, Optional
 
 import torch
 
@@ -25,10 +24,11 @@ else:
 
 from transformers.cache_utils import Cache
 from transformers.modeling_flash_attention_utils import _flash_attention_forward
-from transformers.modeling_outputs import CausalLMOutputWithPast
 from transformers.models.llama.modeling_llama import apply_rotary_pos_emb
 from transformers.utils import logging
 
+# Import compatibility wrapper for flash_attn_supports_top_left_mask
+from verl.utils.transformers_compat import flash_attn_supports_top_left_mask
 from verl.utils.ulysses import (
     gather_heads_scatter_seq,
     gather_seq_scatter_heads,
@@ -48,9 +48,9 @@ def llama_flash_attn_forward(
     output_attentions: bool = False,
     use_cache: bool = False,
     cache_position: Optional[torch.LongTensor] = None,
-    position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # will become mandatory in v4.46
+    position_embeddings: Optional[tuple[torch.Tensor, torch.Tensor]] = None,  # will become mandatory in v4.46
     **kwargs,
-) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+) -> tuple[torch.Tensor, Optional[torch.Tensor], Optional[tuple[torch.Tensor]]]:
     """
     Adapted from transformers 4.47.1 to support Ulysses sequence parallelism.
 
@@ -105,7 +105,8 @@ def llama_flash_attn_forward(
         cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
         key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
 
-    # TODO: These transpose are quite inefficient but Flash Attention requires the layout [batch_size, sequence_length, num_heads, head_dim]. We would need to refactor the KV cache
+    # TODO: These transpose are quite inefficient but Flash Attention requires the layout
+    # [batch_size, sequence_length, num_heads, head_dim]. We would need to refactor the KV cache
     # to be able to avoid many of these transpose/reshape/view.
     query_states = query_states.transpose(1, 2)
     key_states = key_states.transpose(1, 2)
@@ -129,7 +130,11 @@ def llama_flash_attn_forward(
         else:
             target_dtype = self.q_proj.weight.dtype
 
-        logger.warning_once(f"The input hidden states seems to be silently casted in float32, this might be related to the fact you have upcasted embedding or layer norm layers in float32. We will cast back the input in {target_dtype}.")
+        logger.warning_once(
+            f"The input hidden states seems to be silently casted in float32, this might be related to "
+            f"the fact you have upcasted embedding or layer norm layers in float32. We will cast back the "
+            f"input in {target_dtype}."
+        )
 
         query_states = query_states.to(target_dtype)
         key_states = key_states.to(target_dtype)
@@ -144,7 +149,7 @@ def llama_flash_attn_forward(
         position_ids=position_ids,
         dropout=dropout_rate,
         sliding_window=getattr(self, "sliding_window", None),
-        use_top_left_mask=self._flash_attn_uses_top_left_mask,
+        use_top_left_mask=flash_attn_supports_top_left_mask(),
         is_causal=self.is_causal,
         **kwargs,
     )
@@ -165,12 +170,12 @@ def llama_flash_attn_forward(
 def llama_attn_forward(
     self,
     hidden_states: torch.Tensor,
-    position_embeddings: Tuple[torch.Tensor, torch.Tensor],
+    position_embeddings: tuple[torch.Tensor, torch.Tensor],
     attention_mask: Optional[torch.Tensor],
     past_key_value: Optional[Cache] = None,
     cache_position: Optional[torch.LongTensor] = None,
     **kwargs,
-) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+) -> tuple[torch.Tensor, Optional[torch.Tensor], Optional[tuple[torch.Tensor]]]:
     """
     Adapted from transformers 4.49.0 to support Ulysses sequence parallelism for transformers >= 4.48.0.
 
@@ -208,7 +213,11 @@ def llama_attn_forward(
     attention_interface: Callable = eager_attention_forward
     if self.config._attn_implementation != "eager":
         if self.config._attn_implementation == "sdpa" and kwargs.get("output_attentions", False):
-            logger.warning_once('`torch.nn.functional.scaled_dot_product_attention` does not support `output_attentions=True`. Falling back to eager attention. This warning can be removed using the argument `attn_implementation="eager"` when loading the model.')
+            logger.warning_once(
+                "`torch.nn.functional.scaled_dot_product_attention` does not support `output_attentions=True`. "
+                "Falling back to eager attention. This warning can be removed using the argument "
+                '`attn_implementation="eager"` when loading the model.'
+            )
         else:
             attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
 
@@ -230,84 +239,3 @@ def llama_attn_forward(
     attn_output = attn_output.reshape(bsz, q_len, -1).contiguous()
     attn_output = self.o_proj(attn_output)
     return attn_output, attn_weights
-
-
-@dataclass
-class CausalLMOutputForPPO(CausalLMOutputWithPast):
-    log_probs: Optional[torch.FloatTensor] = None
-    entropy: Optional[torch.FloatTensor] = None
-
-
-def forward_for_ppo(
-    self,
-    input_ids: torch.LongTensor = None,
-    attention_mask: Optional[torch.Tensor] = None,
-    position_ids: Optional[torch.LongTensor] = None,
-    past_key_values: Optional[Union["Cache", List[torch.FloatTensor]]] = None,
-    inputs_embeds: Optional[torch.FloatTensor] = None,
-    labels: Optional[torch.LongTensor] = None,
-    use_cache: Optional[bool] = None,
-    output_attentions: Optional[bool] = None,
-    output_hidden_states: Optional[bool] = None,
-    return_dict: Optional[bool] = None,
-    cache_position: Optional[torch.LongTensor] = None,
-    logits_to_keep: Union[int, torch.Tensor] = 0,
-    temperature: float = 1.0,
-    **loss_kwargs,
-) -> Union[Tuple, CausalLMOutputForPPO]:
-    r"""
-    Copy paste LLaMa's forward
-    https://github.com/linkedin/Liger-Kernel/blob/main/src/liger_kernel/transformers/model/llama.py
-
-    This function should be generic enough for all pure text models.
-    ```"""
-    from verl.utils.experimental.torch_functional import FusedLinearForPPO
-
-    output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-    output_hidden_states = (
-        output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
-    )
-    return_dict = return_dict if return_dict is not None else self.config.use_return_dict
-
-    # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
-    outputs = self.model(
-        input_ids=input_ids,
-        attention_mask=attention_mask,
-        position_ids=position_ids,
-        past_key_values=past_key_values,
-        inputs_embeds=inputs_embeds,
-        use_cache=use_cache,
-        output_attentions=output_attentions,
-        output_hidden_states=output_hidden_states,
-        return_dict=return_dict,
-        cache_position=cache_position,
-    )
-
-    hidden_states = outputs[0]
-
-    if not return_dict:
-        raise NotImplementedError("forward_for_ppo has to return_dict")
-
-    # Loss calculations
-    if labels is not None:
-        rolled_labels = torch.roll(labels, shifts=-1, dims=-1)
-    elif input_ids is not None:
-        rolled_labels = torch.roll(input_ids, shifts=-1, dims=-1)
-    else:
-        raise RuntimeError("To use forward_for_ppo, either labels or input_ids must be provided.")
-
-    fused_linear_for_ppo = FusedLinearForPPO()
-    log_probs, entropy = fused_linear_for_ppo.forward(
-        hidden_states=hidden_states,
-        vocab_weights=self.lm_head.weight,
-        input_ids=rolled_labels,
-        temperature=temperature,
-    )
-
-    return CausalLMOutputForPPO(
-        log_probs=log_probs,
-        entropy=entropy,
-        past_key_values=outputs.past_key_values,
-        hidden_states=outputs.hidden_states,
-        attentions=outputs.attentions,
-    )

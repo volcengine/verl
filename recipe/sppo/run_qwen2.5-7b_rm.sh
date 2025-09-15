@@ -5,7 +5,7 @@ set -x
 # Example usage:
 #
 #   python3 examples/data_preprocess/math_dataset.py --local_dir ~/data/math
-#   python3 examples/data_preprocess/gsm8k.py --local_dir ~/data/gsm8k
+#   python3 examples/data_preprocess/gsm8k.py --local_save_dir ~/data/gsm8k
 
 gsm8k_train_path=$HOME/data/math/train.parquet
 gsm8k_test_path=$HOME/data/math/test.parquet
@@ -43,7 +43,7 @@ python3 -m recipe.sppo.main_sppo \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.3 \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
-    trainer.logger=['console','wandb'] \
+    trainer.logger='["console","wandb"]' \
     trainer.project_name='sppo-sglang' \
     trainer.val_before_train=True \
     trainer.experiment_name='Qwen2-7B-Instruct_hybrid_rm' \

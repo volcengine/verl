@@ -13,9 +13,8 @@
 # limitations under the License.
 
 import inspect
-from functools import wraps
+from functools import partial, wraps
 from types import FunctionType
-from typing import Dict, List, Tuple
 
 from verl.protocol import DataProtoFuture, _padding_size_key
 from verl.utils.py_functional import DynamicEnum
@@ -40,11 +39,6 @@ def init_predefined_dispatch_mode():
     Dispatch.register("RANK_ZERO")
     Dispatch.register("ONE_TO_ALL")
     Dispatch.register("ALL_TO_ALL")
-    Dispatch.register("MEGATRON_COMPUTE")
-    Dispatch.register("MEGATRON_PP_AS_DP")
-    Dispatch.register("MEGATRON_PP_ONLY")
-    Dispatch.register("MEGATRON_COMPUTE_PROTO")
-    Dispatch.register("MEGATRON_PP_AS_DP_PROTO")
     Dispatch.register("DP_COMPUTE")
     Dispatch.register("DP_COMPUTE_PROTO")
     Dispatch.register("DP_COMPUTE_PROTO_WITH_FUNC")
@@ -79,12 +73,12 @@ def _split_args_kwargs_data_proto(chunks, *args, **kwargs):
 
     splitted_args = []
     for arg in args:
-        assert isinstance(arg, (DataProto, DataProtoFuture))
+        assert isinstance(arg, DataProto | DataProtoFuture)
         splitted_args.append(arg.chunk(chunks=chunks))
 
     splitted_kwargs = {}
     for key, val in kwargs.items():
-        assert isinstance(val, (DataProto, DataProtoFuture))
+        assert isinstance(val, DataProto | DataProtoFuture)
         splitted_kwargs[key] = val.chunk(chunks=chunks)
 
     return splitted_args, splitted_kwargs
@@ -93,38 +87,28 @@ def _split_args_kwargs_data_proto(chunks, *args, **kwargs):
 def _split_args_kwargs_data_proto_with_auto_padding(chunks, *args, **kwargs):
     from verl.protocol import DataProto, DataProtoFuture
 
-    splitted_args = []
-    splitted_kwargs = {}
-
     data_proto_len = None
     padding_size = None
-    for arg in args:
-        assert isinstance(arg, (DataProto, DataProtoFuture))
-        if isinstance(arg, DataProto) and arg.is_padding_enabled():
+
+    def _padding_and_split_data(obj, chunks):
+        nonlocal data_proto_len, padding_size
+        assert isinstance(obj, DataProto | DataProtoFuture)
+        if isinstance(obj, DataProto) and obj.is_padding_enabled():
             # for padding, we only support DataProto with same length
             if data_proto_len is None:
-                data_proto_len = len(arg)
+                data_proto_len = len(obj)
                 padding_size = (chunks - (data_proto_len % chunks)) if (data_proto_len % chunks > 0) else 0
-                splitted_kwargs[_padding_size_key] = padding_size
             else:
-                assert data_proto_len == len(arg), f"expecting all arg share same length of {data_proto_len}, but got {len(arg)}"
-                data_proto_len = len(arg)
-            arg.padding(padding_size=padding_size)
+                assert data_proto_len == len(obj), (
+                    f"expecting all arg share same length of {data_proto_len}, but got {len(obj)}"
+                )
+            obj.padding(padding_size=padding_size)
+        return obj.chunk(chunks=chunks)
 
-        splitted_args.append(arg.chunk(chunks=chunks))
-
-    for key, val in kwargs.items():
-        assert isinstance(val, (DataProto, DataProtoFuture))
-        if isinstance(val, DataProto) and val.is_padding_enabled():
-            # for padding, we only support DataProto with same length
-            if data_proto_len is None:
-                data_proto_len = len(val)
-                padding_size = chunks - (data_proto_len % chunks)
-                splitted_kwargs[_padding_size_key] = padding_size
-            else:
-                assert data_proto_len == len(val), f"expecting all arg share same length of {data_proto_len}, but got {len(val)}"
-                data_proto_len = len(val)
-        splitted_kwargs[key] = val.chunk(chunks=chunks)
+    splitted_args = [_padding_and_split_data(arg, chunks) for arg in args]
+    splitted_kwargs = {key: _padding_and_split_data(val, chunks) for key, val in kwargs.items()}
+    if padding_size is not None:
+        splitted_kwargs[_padding_size_key] = padding_size
 
     return splitted_args, splitted_kwargs
 
@@ -147,70 +131,7 @@ def collect_all_to_all(worker_group, output):
     return output
 
 
-def dispatch_megatron_compute(worker_group, *args, **kwargs):
-    """
-    User passes in dp data. The data is dispatched to all tp/pp ranks with the same dp
-    """
-    from verl.single_controller.base.megatron.worker_group import MegatronWorkerGroup
-
-    assert isinstance(worker_group, MegatronWorkerGroup), f"worker_group must be MegatronWorkerGroup, Got {type(worker_group)}"
-
-    # ray put all the args in advance to avoid duplicate serialization cost
-    import ray
-
-    args = [[ray.put(dp_arg) for dp_arg in arg] for arg in args]
-    kwargs = {k: [ray.put(dp_v) for dp_v in v] for k, v in kwargs.items()}
-
-    all_args = []
-    for arg in args:
-        assert isinstance(arg, (Tuple, List)) and len(arg) == worker_group.dp_size
-        transformed_args = []
-        for i in range(worker_group.world_size):
-            local_dp_rank = worker_group.get_megatron_rank_info(rank=i).dp_rank
-            transformed_args.append(arg[local_dp_rank])
-        all_args.append(transformed_args)
-    all_args = tuple(all_args)
-
-    all_kwargs = {}
-    for k, v in kwargs.items():
-        assert isinstance(v, (Tuple, List)) and len(v) == worker_group.dp_size
-        transformed_v = []
-        for i in range(worker_group.world_size):
-            local_dp_rank = worker_group.get_megatron_rank_info(rank=i).dp_rank
-            transformed_v.append(v[local_dp_rank])
-        all_kwargs[k] = transformed_v
-    return all_args, all_kwargs
-
-
-def collect_megatron_compute(worker_group, output):
-    """
-    Only collect the data from the tp=0 and pp=last and every dp ranks
-    """
-    from verl.single_controller.base.megatron.worker_group import MegatronWorkerGroup
-
-    assert isinstance(worker_group, MegatronWorkerGroup)
-    output_in_dp = []
-    pp_size = worker_group.get_megatron_global_info().pp_size
-    for global_rank in range(worker_group.world_size):
-        local_rank_info = worker_group.get_megatron_rank_info(rank=global_rank)
-        if local_rank_info.tp_rank == 0 and local_rank_info.pp_rank == pp_size - 1 and local_rank_info.cp_rank == 0:
-            output_in_dp.append(output[global_rank])
-    return output_in_dp
-
-
-def dispatch_megatron_compute_data_proto(worker_group, *args, **kwargs):
-    """
-    All the args and kwargs must be DataProto. The batch will be chunked by dp_size and passed to each rank
-    """
-    from verl.single_controller.base.megatron.worker_group import MegatronWorkerGroup
-
-    assert isinstance(worker_group, MegatronWorkerGroup)
-
-    splitted_args, splitted_kwargs = _split_args_kwargs_data_proto(worker_group.dp_size, *args, **kwargs)
-    return dispatch_megatron_compute(worker_group, *splitted_args, **splitted_kwargs)
-
-
-def _concat_data_proto_or_future(output: List):
+def _concat_data_proto_or_future(output: list):
     import ray
 
     from verl.protocol import DataProto, DataProtoFuture
@@ -229,132 +150,14 @@ def _concat_data_proto_or_future(output: List):
         raise NotImplementedError
 
 
-def collect_megatron_compute_data_proto(worker_group, output):
-    """
-    Each output must be a DataProto. We concat the dim=0 of output
-    """
-    import ray
-
-    from verl.protocol import DataProto
-
-    output = collect_megatron_compute(worker_group, output)
-    for o in output:
-        assert isinstance(o, (DataProto, ray.ObjectRef)), f"expecting {o} to be DataProto, but got {type(o)}"
-
-    return _concat_data_proto_or_future(output)
-
-
-def dispatch_megatron_pp_as_dp(worker_group, *args, **kwargs):
-    """
-    treat pp as dp.
-    """
-    from verl.single_controller.base.megatron.worker_group import MegatronWorkerGroup
-
-    assert isinstance(worker_group, MegatronWorkerGroup)
-
-    pp_size = worker_group.pp_size
-    dp_size = worker_group.dp_size
-    cp_size = worker_group.cp_size
-    pp_dp_cp_size = pp_size * dp_size * cp_size
-
-    all_args = []
-    for arg in args:
-        assert isinstance(arg, (List, Tuple)) and len(arg) == pp_dp_cp_size
-        transformed_args = []
-        for i in range(worker_group.world_size):
-            local_dp_rank = worker_group.get_megatron_rank_info(rank=i).dp_rank
-            local_pp_rank = worker_group.get_megatron_rank_info(rank=i).pp_rank
-            local_cp_rank = worker_group.get_megatron_rank_info(rank=i).cp_rank
-            # compute the rank in arg. Note that the order is dp then cp then pp
-            # Also note that the outputs within a pp group will be firstly allgathered, then only the output of pp0 will be collected.
-            # For pp=2 dp=4, a batch of data "ABCDEFGH" should be dispatched and collected in below order:
-            #    dispatch:       pp_allgther:        collect:
-            #   dp 0 1 2 3      dp  0  1  2  3
-            # pp +---------+  pp +-------------+
-            #  0 | A C E G |   0 | AB CD EF GH |     ABCDEFGH
-            #  1 | B D F H |   1 | AB CD EF GH |
-            #    +---------+     +-------------+
-            dp_cp_rank = local_cp_rank * dp_size + local_dp_rank
-            arg_rank = dp_cp_rank * pp_size + local_pp_rank
-
-            transformed_args.append(arg[arg_rank])
-        all_args.append(transformed_args)
-    all_args = tuple(all_args)
-
-    all_kwargs = {}
-    for k, v in kwargs.items():
-        assert isinstance(v, (List, Tuple)) and len(v) == pp_dp_cp_size, f"expect len(v)=={pp_dp_cp_size}, got {len(v)}"
-        transformed_v = []
-        for i in range(worker_group.world_size):
-            local_dp_rank = worker_group.get_megatron_rank_info(rank=i).dp_rank
-            local_pp_rank = worker_group.get_megatron_rank_info(rank=i).pp_rank
-            local_cp_rank = worker_group.get_megatron_rank_info(rank=i).cp_rank
-            # compute the rank in arg. Note that the order is dp then cp then pp
-            dp_cp_rank = local_cp_rank * dp_size + local_dp_rank
-            arg_rank = dp_cp_rank * pp_size + local_pp_rank
-            transformed_v.append(v[arg_rank])
-        all_kwargs[k] = transformed_v
-    return all_args, all_kwargs
-
-
-def collect_megatron_pp_as_dp(worker_group, output):
-    """
-    treat pp as dp. Only collect data on tp=0
-    """
-    from verl.single_controller.base.megatron.worker_group import MegatronWorkerGroup
-
-    assert isinstance(worker_group, MegatronWorkerGroup)
-    output_in_dp = []
-    for global_rank in range(worker_group.world_size):
-        local_rank_info = worker_group.get_megatron_rank_info(rank=global_rank)
-        if local_rank_info.tp_rank == 0:
-            output_in_dp.append(output[global_rank])
-    return output_in_dp
-
-
-def collect_megatron_pp_only(worker_group, output):
-    """
-    Only collect output of megatron pp. This is useful when examine weight names as they are identical in tp/dp
-    """
-    from verl.single_controller.base.megatron.worker_group import MegatronWorkerGroup
-
-    assert isinstance(worker_group, MegatronWorkerGroup)
-    output_in_pp = []
-    for global_rank in range(worker_group.world_size):
-        local_rank_info = worker_group.get_megatron_rank_info(rank=global_rank)
-        if local_rank_info.tp_rank == 0 and local_rank_info.dp_rank == 0:
-            output_in_pp.append(output[global_rank])
-    return output_in_pp
-
-
-def dispatch_megatron_pp_as_dp_data_proto(worker_group, *args, **kwargs):
-    from verl.single_controller.base.megatron.worker_group import MegatronWorkerGroup
-
-    assert isinstance(worker_group, MegatronWorkerGroup)
-
-    pp_dp_cp_size = worker_group.dp_size * worker_group.pp_size * worker_group.cp_size
-    splitted_args, splitted_kwargs = _split_args_kwargs_data_proto(pp_dp_cp_size, *args, **kwargs)
-    ret = dispatch_megatron_pp_as_dp(worker_group, *splitted_args, **splitted_kwargs)
-    return ret
-
-
-def collect_megatron_pp_as_dp_data_proto(worker_group, output):
-    from verl.single_controller.base.megatron.worker_group import MegatronWorkerGroup
-
-    assert isinstance(worker_group, MegatronWorkerGroup)
-
-    output = collect_megatron_pp_as_dp(worker_group, output)
-    return _concat_data_proto_or_future(output)
-
-
 def dispatch_dp_compute(worker_group, *args, **kwargs):
     from verl.single_controller.base.worker_group import WorkerGroup
 
     assert isinstance(worker_group, WorkerGroup)
     for arg in args:
-        assert isinstance(arg, (Tuple, List)) and len(arg) == worker_group.world_size
+        assert isinstance(arg, tuple | list) and len(arg) == worker_group.world_size
     for k, v in kwargs.items():
-        assert isinstance(v, (Tuple, List)) and len(v) == worker_group.world_size
+        assert isinstance(v, tuple | list) and len(v) == worker_group.world_size
     return args, kwargs
 
 
@@ -396,10 +199,112 @@ def collect_dp_compute_data_proto(worker_group, output):
     from verl.protocol import DataProto
 
     for o in output:
-        assert isinstance(o, (DataProto, ray.ObjectRef)), f"expecting {o} to be DataProto, but got {type(o)}"
+        assert isinstance(o, DataProto | ray.ObjectRef), f"expecting {o} to be DataProto, but got {type(o)}"
 
     output = collect_dp_compute(worker_group, output)
     return _concat_data_proto_or_future(output)
+
+
+def dispatch_nd_compute(dp_rank_mapping: list[int], dp_size, worker_group, *args, **kwargs):
+    import ray
+
+    from verl.single_controller.base.worker_group import WorkerGroup
+
+    assert isinstance(worker_group, WorkerGroup)
+
+    args = [[ray.put(dp_arg) for dp_arg in arg] for arg in args]
+    kwargs = {k: [ray.put(dp_v) for dp_v in v] for k, v in kwargs.items()}
+
+    all_args = []
+    for arg in args:
+        assert isinstance(arg, tuple | list) and len(arg) == dp_size
+        transformed_args = []
+        for i in range(worker_group.world_size):
+            local_dp_rank = dp_rank_mapping[i]
+            transformed_args.append(arg[local_dp_rank])
+        all_args.append(transformed_args)
+    all_args = tuple(all_args)
+
+    all_kwargs = {}
+    for k, v in kwargs.items():
+        assert isinstance(v, tuple | list) and len(v) == dp_size
+        transformed_v = []
+        for i in range(worker_group.world_size):
+            local_dp_rank = dp_rank_mapping[i]
+            transformed_v.append(v[local_dp_rank])
+        all_kwargs[k] = transformed_v
+    return all_args, all_kwargs
+
+
+def collect_nd_compute(collect_mask: list[bool], worker_group, output):
+    from verl.single_controller.base.worker_group import WorkerGroup
+
+    assert isinstance(worker_group, WorkerGroup)
+    assert len(output) == worker_group.world_size
+
+    output_in_dp = []
+    for global_rank in range(worker_group.world_size):
+        collect_dp_rank = collect_mask[global_rank]
+        if collect_dp_rank:
+            output_in_dp.append(output[global_rank])
+    return output_in_dp
+
+
+def dispatch_nd_compute_dataproto(dp_rank_mapping: list[int], dp_size, worker_group, *args, **kwargs):
+    splitted_args, splitted_kwargs = _split_args_kwargs_data_proto(dp_size, *args, **kwargs)
+    return dispatch_nd_compute(dp_rank_mapping, dp_size, worker_group, *splitted_args, **splitted_kwargs)
+
+
+def collect_nd_compute_dataproto(collect_mask: list[bool], worker_group, output):
+    output = collect_nd_compute(collect_mask, worker_group, output)
+    import ray
+
+    from verl.protocol import DataProto
+
+    for o in output:
+        assert isinstance(o, DataProto | ray.ObjectRef), f"expecting {o} to be DataProto, but got {type(o)}"
+    return _concat_data_proto_or_future(output)
+
+
+def dispatch_lazy_compute_data_proto(mesh_name, worker_group, *args, **kwargs):
+    from verl.single_controller.base.worker_group import WorkerGroup
+
+    assert isinstance(worker_group, WorkerGroup)
+
+    # query dispatch info of the worker group
+    if mesh_name not in worker_group._dispatch_info:
+        worker_group._dispatch_info[mesh_name] = worker_group._query_dispatch_info(mesh_name)
+        assert len(worker_group._dispatch_info[mesh_name]) == worker_group.world_size
+
+    dp_rank_mapping = worker_group._dispatch_info[mesh_name]
+    # perform dispatch
+    dp_size = max(dp_rank_mapping) + 1
+    return dispatch_nd_compute_dataproto(dp_rank_mapping, dp_size, worker_group, *args, **kwargs)
+
+
+def collect_lazy_compute_data_proto(mesh_name, worker_group, *args, **kwargs):
+    from verl.single_controller.base.worker_group import WorkerGroup
+
+    assert isinstance(worker_group, WorkerGroup)
+
+    # the dispatch info is stored in the worker group
+    assert mesh_name in worker_group._dispatch_info
+
+    if mesh_name not in worker_group._collect_info:
+        worker_group._collect_info[mesh_name] = worker_group._query_collect_info(mesh_name)
+        assert len(worker_group._collect_info[mesh_name]) == worker_group.world_size
+
+    # a boolean of whether the dp_rank is used for collect
+    collect_mask = worker_group._collect_info[mesh_name]
+    # perform dispatch
+    return collect_nd_compute_dataproto(collect_mask, worker_group, *args, **kwargs)
+
+
+def make_nd_compute_dataproto_dispatch_fn(mesh_name):
+    return {
+        "dispatch_fn": partial(dispatch_lazy_compute_data_proto, mesh_name),
+        "collect_fn": partial(collect_lazy_compute_data_proto, mesh_name),
+    }
 
 
 # Global registry for dispatch mode.
@@ -411,23 +316,6 @@ DISPATCH_MODE_FN_REGISTRY = {
     Dispatch.ALL_TO_ALL: {
         "dispatch_fn": dispatch_all_to_all,
         "collect_fn": collect_all_to_all,
-    },
-    Dispatch.MEGATRON_COMPUTE: {
-        "dispatch_fn": dispatch_megatron_compute,
-        "collect_fn": collect_megatron_compute,
-    },
-    Dispatch.MEGATRON_PP_AS_DP: {
-        "dispatch_fn": dispatch_megatron_pp_as_dp,
-        "collect_fn": collect_megatron_pp_as_dp,
-    },
-    Dispatch.MEGATRON_PP_ONLY: {"dispatch_fn": dispatch_one_to_all, "collect_fn": collect_megatron_pp_only},
-    Dispatch.MEGATRON_COMPUTE_PROTO: {
-        "dispatch_fn": dispatch_megatron_compute_data_proto,
-        "collect_fn": collect_megatron_compute_data_proto,
-    },
-    Dispatch.MEGATRON_PP_AS_DP_PROTO: {
-        "dispatch_fn": dispatch_megatron_pp_as_dp_data_proto,
-        "collect_fn": collect_megatron_pp_as_dp_data_proto,
     },
     Dispatch.DP_COMPUTE: {"dispatch_fn": dispatch_dp_compute, "collect_fn": collect_dp_compute},
     Dispatch.DP_COMPUTE_PROTO: {
@@ -482,8 +370,10 @@ def get_predefined_execute_fn(execute_mode):
 
 
 def _check_dispatch_mode(dispatch_mode):
-    assert isinstance(dispatch_mode, (Dispatch, Dict)), f"dispatch_mode must be a Dispatch or a Dict. Got {dispatch_mode}"
-    if isinstance(dispatch_mode, Dict):
+    assert isinstance(dispatch_mode, Dispatch | dict), (
+        f"dispatch_mode must be a Dispatch or a Dict. Got {dispatch_mode}"
+    )
+    if isinstance(dispatch_mode, dict):
         necessary_keys = ["dispatch_fn", "collect_fn"]
         for key in necessary_keys:
             assert key in dispatch_mode, f"key {key} should be in dispatch_mode if it is a dictionary"

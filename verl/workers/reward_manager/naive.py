@@ -13,29 +13,45 @@
 # limitations under the License.
 
 from collections import defaultdict
+from typing import Any
 
 import torch
 
 from verl import DataProto
 from verl.utils.reward_score import default_compute_score
+from verl.workers.reward_manager import register
+from verl.workers.reward_manager.abstract import AbstractRewardManager
 
 
-class NaiveRewardManager:
+@register("naive")
+class NaiveRewardManager(AbstractRewardManager):
     """The reward manager."""
 
     def __init__(self, tokenizer, num_examine, compute_score=None, reward_fn_key="data_source") -> None:
-        self.tokenizer = tokenizer
+        """
+        Initialize the NaiveRewardManager instance.
+
+        Args:
+            tokenizer: The tokenizer used to decode token IDs into text.
+            num_examine: The number of batches of decoded responses to print to the console for debugging purpose.
+            compute_score: A function to compute the reward score. If None, `default_compute_score` will be used.
+            reward_fn_key: The key used to access the data source in the non-tensor batch data. Defaults to
+                "data_source".
+        """
+        self.tokenizer = tokenizer  # Store the tokenizer for decoding token IDs
         self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
         self.compute_score = compute_score or default_compute_score
-        self.reward_fn_key = reward_fn_key
+        self.reward_fn_key = reward_fn_key  # Store the key for accessing the data source
 
-    def __call__(self, data: DataProto, return_dict=False):
+    def __call__(self, data: DataProto, return_dict: bool = False) -> torch.Tensor | dict[str, Any]:
         """We will expand this function gradually based on the available datasets"""
 
         # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
         if "rm_scores" in data.batch.keys():
             if return_dict:
-                return {"reward_tensor": data.batch["rm_scores"]}
+                reward_extra_keys = data.meta_info.get("reward_extra_keys", [])
+                reward_extra_info = {key: data.non_tensor_batch[key] for key in reward_extra_keys}
+                return {"reward_tensor": data.batch["rm_scores"], "reward_extra_info": reward_extra_info}
             else:
                 return data.batch["rm_scores"]
 
@@ -63,10 +79,10 @@ class NaiveRewardManager:
             response_str = self.tokenizer.decode(valid_response_ids, skip_special_tokens=True)
 
             ground_truth = data_item.non_tensor_batch["reward_model"]["ground_truth"]
-
             data_source = data_item.non_tensor_batch[self.reward_fn_key]
-
-            extra_info = data_item.non_tensor_batch.get("extra_info", None)
+            extra_info = data_item.non_tensor_batch.get("extra_info", {})
+            num_turns = data_item.non_tensor_batch.get("__num_turns__", None)
+            extra_info["num_turns"] = num_turns
 
             score = self.compute_score(
                 data_source=data_source,

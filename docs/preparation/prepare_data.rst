@@ -1,6 +1,8 @@
 Prepare Data for Post-Training
 ========================================
 
+Last updated: 02/09/2025.
+
 Before starting the post-training job, we need to prepare the data for
 the policy training. The data should be stored in the parquet format.
 
@@ -71,7 +73,7 @@ In the ``make_map_fn``, each data field should consist of the following
 5 fields:
 
 1. ``data_source``: The name of the dataset. To index the corresponding
-   reward function in the ``RewardModule``
+   reward function in the ``RewardModel``
 2. ``prompt``: This field should be constructed in the format of
    huggingface chat_template. The tokenizer in ``RLHFDataset`` will
    apply chat template and tokenize the prompt.

@@ -2,6 +2,8 @@
 Add models with the FSDP backend
 ==================================
 
+Last updated: 02/09/2025.
+
 Model
 --------------------------
 

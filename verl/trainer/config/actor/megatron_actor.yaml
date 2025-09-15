@@ -1,0 +1,20 @@
+# megatron actor config, inheriting from trainer/config/actor/actor.yaml
+defaults:
+  # megatron optimizer config
+  - ../optim@optim: megatron
+
+  # megatron engine config
+  - ../engine@megatron: megatron
+
+  - actor
+
+  # load the reference default config, then apply the fields in the current yaml
+  - _self_
+
+_target_: verl.workers.config.McoreActorConfig
+
+strategy: megatron
+
+data_loader_seed: null
+
+load_weight: True

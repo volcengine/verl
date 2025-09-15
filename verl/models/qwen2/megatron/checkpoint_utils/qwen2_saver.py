@@ -21,7 +21,9 @@ from megatron.core.distributed import DistributedDataParallel as LocalDDP
 from megatron.core.transformer.module import Float16Module
 from torch.nn.parallel import DistributedDataParallel as torchDDP
 
-from verl.utils.megatron_utils import print_rank_0, unwrap_model
+from verl.utils.device import get_device_id, get_torch_device
+from verl.utils.logger import print_rank_0
+from verl.utils.megatron_utils import unwrap_model
 
 
 def _megatron_calc_global_rank(tp_rank: int = 0, dp_rank: int = 0, pp_rank: int = 0):
@@ -30,7 +32,9 @@ def _megatron_calc_global_rank(tp_rank: int = 0, dp_rank: int = 0, pp_rank: int 
     tp_size = mpu.get_tensor_model_parallel_world_size()
     dp_size = mpu.get_data_parallel_world_size()
     pp_size = mpu.get_pipeline_model_parallel_world_size()
-    assert tp_size * dp_size * pp_size == torch.distributed.get_world_size(), f"{tp_size} x {dp_size} x {pp_size} != {torch.distributed.get_world_size()}"
+    assert tp_size * dp_size * pp_size == torch.distributed.get_world_size(), (
+        f"{tp_size} x {dp_size} x {pp_size} != {torch.distributed.get_world_size()}"
+    )
     # We only support TP-DP-PP grouping, for correctness when resharding
     return (pp_rank * dp_size + dp_rank) * tp_size + tp_rank
 
@@ -53,7 +57,9 @@ def _megatron_calc_layer_map(config):
 
     for pp_rank_idx in range(pp_size):
         for virtual_pp_rank_idx in range(virtual_pp_size):
-            layer_offset = virtual_pp_rank_idx * (config.num_hidden_layers // virtual_pp_size) + pp_rank_idx * num_layers_per_model
+            layer_offset = (
+                virtual_pp_rank_idx * (config.num_hidden_layers // virtual_pp_size) + pp_rank_idx * num_layers_per_model
+            )
             for layer_idx in range(num_layers_per_model):
                 layer_map[layer_offset + layer_idx] = (
                     pp_rank_idx,
@@ -94,7 +100,7 @@ def merge_megatron_ckpt_qwen2(wrapped_models, config, dtype, is_value_model=Fals
         assert pp_rank == 0, f"pp_rank:[{pp_rank}] != 0 on rank #0"
         assert dp_rank == 0, f"dp_rank:[{dp_rank}] != 0 on rank #0"
 
-    if not isinstance(wrapped_models, (list, tuple)):
+    if not isinstance(wrapped_models, list | tuple):
         wrapped_models = list(wrapped_models)
 
     assert len(wrapped_models) == virtual_pp_size
@@ -105,7 +111,11 @@ def merge_megatron_ckpt_qwen2(wrapped_models, config, dtype, is_value_model=Fals
 
     for i, wrapped_model in enumerate(wrapped_models):
         models[i] = unwrap_model(wrapped_model, (torchDDP, LocalDDP, Float16Module))
-        assert len(models[i].model.layers) == num_layers_per_model, "len model layers {} not equal to num_layers_per_model {}".format(len(models[i].model.layers), num_layers_per_model)
+        assert len(models[i].model.layers) == num_layers_per_model, (
+            "len model layers {} not equal to num_layers_per_model {}".format(
+                len(models[i].model.layers), num_layers_per_model
+            )
+        )
 
     state_dict = dict()
 
@@ -146,7 +156,7 @@ def merge_megatron_ckpt_qwen2(wrapped_models, config, dtype, is_value_model=Fals
             weight = torch.empty(
                 tensor_shape,
                 dtype=dtype,
-                device=torch.cuda.current_device(),
+                device=get_device_id(),
                 requires_grad=False,
             )
 
@@ -175,7 +185,7 @@ def merge_megatron_ckpt_qwen2(wrapped_models, config, dtype, is_value_model=Fals
         buffer_tensor = torch.empty(
             chunk_shape,
             dtype=dtype,
-            device=torch.cuda.current_device(),
+            device=get_device_id(),
             requires_grad=False,
         )
 
@@ -215,7 +225,7 @@ def merge_megatron_ckpt_qwen2(wrapped_models, config, dtype, is_value_model=Fals
         buffer_tensor = torch.empty(
             chunk_shape,
             dtype=dtype,
-            device=torch.cuda.current_device(),
+            device=get_device_id(),
             requires_grad=False,
         )
 
@@ -264,7 +274,7 @@ def merge_megatron_ckpt_qwen2(wrapped_models, config, dtype, is_value_model=Fals
         buffer_tensor = torch.empty(
             chunk_shape,
             dtype=dtype,
-            device=torch.cuda.current_device(),
+            device=get_device_id(),
             requires_grad=False,
         )
 
@@ -316,7 +326,7 @@ def merge_megatron_ckpt_qwen2(wrapped_models, config, dtype, is_value_model=Fals
             state_dict[v_name] = torch.cat(v_weight_list, dim=0)
 
     # empty cache before collecting weights
-    torch.cuda.empty_cache()
+    get_torch_device().empty_cache()
     # Embeddings
     # -------------------
     if dp_rank == 0:
@@ -412,7 +422,9 @@ def merge_megatron_ckpt_qwen2(wrapped_models, config, dtype, is_value_model=Fals
                     src_pp_rank=pp_size - 1,
                 )
                 _broadcast_tensor(
-                    gpt_model_module.reward_head.weight if pp_rank == pp_size - 1 and getattr(gpt_model_module, "reward_weight", None) is not None else None,
+                    gpt_model_module.reward_head.weight
+                    if pp_rank == pp_size - 1 and getattr(gpt_model_module, "reward_weight", None) is not None
+                    else None,
                     "reward_head.weight",
                     src_pp_rank=pp_size - 1,
                 )
@@ -426,7 +438,7 @@ def merge_megatron_ckpt_qwen2(wrapped_models, config, dtype, is_value_model=Fals
 
     dist.barrier()
 
-    torch.cuda.empty_cache()
+    get_torch_device().empty_cache()
     if torch.distributed.get_rank() == 0:
         for k, v in state_dict.items():
             if dtype != v.dtype:

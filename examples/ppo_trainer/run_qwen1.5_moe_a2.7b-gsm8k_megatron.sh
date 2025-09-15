@@ -1,7 +1,5 @@
 set -x
 
-# If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
-# export VLLM_ATTENTION_BACKEND=XFORMERS
 export CUDA_DEVICE_MAX_CONNECTIONS=1 # For megatron communication/computation overlapping
 
 # 0. download the model
@@ -56,7 +54,6 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     actor_rollout_ref.rollout.tensor_model_parallel_size=$VLLM_TP \
     critic.optim.lr=1e-5 \
     critic.model.path=$HF_MODEL_PATH \
-    critic.model.enable_gradient_checkpointing=False \
     critic.ppo_micro_batch_size_per_gpu=4 \
     critic.megatron.tensor_model_parallel_size=$TP \
     critic.megatron.pipeline_model_parallel_size=$PP \
@@ -65,7 +62,7 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     critic.megatron.dist_checkpointing_path=$DIST_CKPT_PATH \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
-    trainer.logger=['console','wandb'] \
+    trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_megatron_gsm8k_examples' \
     trainer.experiment_name='qwen1.5_moe_nochat' \
     trainer.n_gpus_per_node=8 \

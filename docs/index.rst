@@ -32,6 +32,8 @@ verl is fast with:
    start/quickstart
    start/multinode
    start/ray_debug_tutorial
+   start/more_resources
+   start/agentic_rl
 
 .. toctree::
    :maxdepth: 2
@@ -60,6 +62,7 @@ verl is fast with:
    examples/ppo_code_architecture
    examples/gsm8k_example
    examples/multi_modal_example
+   examples/skypilot_examples
 
 .. toctree::
    :maxdepth: 1
@@ -70,10 +73,12 @@ verl is fast with:
    algo/dapo.md
    algo/spin.md
    algo/sppo.md
+   algo/entropy.md
    algo/opo.md
    algo/baseline.md
+   algo/gpg.md
 
-.. toctree:: 
+.. toctree::
    :maxdepth: 1
    :caption: PPO Trainer and Workers
 
@@ -85,10 +90,13 @@ verl is fast with:
 .. toctree::
    :maxdepth: 1
    :caption: Performance Tuning Guide
-   
+
+   perf/dpsk.md
    perf/perf_tuning
    README_vllm0.8.md
    perf/device_tuning
+   perf/verl_profiler_system.md
+   perf/nsight_profiling.md
 
 .. toctree::
    :maxdepth: 1
@@ -105,9 +113,24 @@ verl is fast with:
    advance/rope
    advance/ppo_lora.rst
    sglang_multiturn/multiturn.rst
+   sglang_multiturn/interaction_system.rst
    advance/placement
    advance/dpo_extension
    examples/sandbox_fusion_example
+   advance/rollout_trace.rst
+   advance/rollout_skip.rst
+   advance/one_step_off
+   advance/agent_loop
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Hardware Support
+
+   amd_tutorial/amd_build_dockerfile_page.rst
+   amd_tutorial/amd_vllm_page.rst
+   ascend_tutorial/ascend_quick_start.rst
+   ascend_tutorial/ascend_profiling_zh.rst
+   ascend_tutorial/ascend_profiling_en.rst
 
 .. toctree::
    :maxdepth: 1
@@ -124,6 +147,12 @@ verl is fast with:
    :caption: FAQ
 
    faq/faq
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Development Notes
+
+   sglang_multiturn/sandbox_fusion.rst
 
 Contribution
 -------------

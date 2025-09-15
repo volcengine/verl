@@ -1,0 +1,43 @@
+# defaults specify the default config from each component
+defaults:
+
+  # megatron optimizer config
+  - ../optim@optim: megatron
+
+  # megatron engine config
+  - ../engine@megatron: megatron
+
+  # dp actor config, inheriting from trainer/config/critic/critic.yaml
+  - critic
+
+  # load the reference default config, then apply the fields in the current yaml
+  - _self_
+
+# Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+_target_: verl.workers.config.McoreCriticConfig
+
+strategy: megatron
+
+# seconds, default is 10 minutes for torch, you can set it to a larger value if you have long-running operations like 32B or 72B model using megatron
+nccl_timeout: 600
+
+# model config for the critic
+model:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.trainer.config.BaseModelConfig
+
+  # override default empty mapping
+  override_config:
+
+    model_config: {}
+
+    moe_config:
+
+      freeze_moe_router: False
+
+# Whether to load initial weights
+load_weight: True
+
+# seed for data loader
+data_loader_seed: ${oc.select:actor_rollout_ref.actor.data_loader_seed,null}

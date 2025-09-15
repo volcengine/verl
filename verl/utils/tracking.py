@@ -16,11 +16,13 @@ A unified tracking interface that supports logging data to different backend
 """
 
 import dataclasses
+import json
+import os
 from enum import Enum
 from functools import partial
 from pathlib import Path
-from typing import Any, Dict, List, Union
-import os
+from typing import Any
+
 
 class Tracking:
     """A unified tracking interface for logging experiment data to multiple backends.
@@ -33,9 +35,19 @@ class Tracking:
         logger: Dictionary of initialized logger instances for each backend.
     """
 
-    supported_backend = ["wandb", "mlflow", "swanlab", "vemlp_wandb", "tensorboard", "console", "clearml"]
+    supported_backend = [
+        "wandb",
+        "mlflow",
+        "swanlab",
+        "vemlp_wandb",
+        "tensorboard",
+        "console",
+        "clearml",
+        "trackio",
+        "file",
+    ]
 
-    def __init__(self, project_name, experiment_name, default_backend: Union[str, List[str]] = "console", config=None):
+    def __init__(self, project_name, experiment_name, default_backend: str | list[str] = "console", config=None):
         if isinstance(default_backend, str):
             default_backend = [default_backend]
         for backend in default_backend:
@@ -52,19 +64,24 @@ class Tracking:
             import wandb
 
             settings = None
-            if config["trainer"].get("wandb_proxy", None):
+            if config and config["trainer"].get("wandb_proxy", None):
                 settings = wandb.Settings(https_proxy=config["trainer"]["wandb_proxy"])
             wandb.init(project=project_name, name=experiment_name, config=config, settings=settings)
             self.logger["wandb"] = wandb
+
+        if "trackio" in default_backend:
+            import trackio
+
+            trackio.init(project=project_name, name=experiment_name, config=config)
+            self.logger["trackio"] = trackio
 
         if "mlflow" in default_backend:
             import os
 
             import mlflow
 
-            MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", None)
-            if MLFLOW_TRACKING_URI:
-                mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+            MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "sqlite:////tmp/mlruns.db")
+            mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 
             # Project_name is actually experiment_name in MLFlow
             # If experiment does not exist, will create a new experiment
@@ -116,16 +133,19 @@ class Tracking:
             self.logger["vemlp_wandb"] = vemlp_wandb
 
         if "tensorboard" in default_backend:
-            self.logger["tensorboard"] = _TensorboardAdapter()
+            self.logger["tensorboard"] = _TensorboardAdapter(project_name, experiment_name)
 
         if "console" in default_backend:
-            from verl.utils.logger.aggregate_logger import LocalLogger
+            from verl.utils.logger import LocalLogger
 
             self.console_logger = LocalLogger(print_to_console=True)
             self.logger["console"] = self.console_logger
 
         if "clearml" in default_backend:
             self.logger["clearml"] = ClearMLLogger(project_name, experiment_name, config)
+
+        if "file" in default_backend:
+            self.logger["file"] = FileLogger(project_name, experiment_name)
 
     def log(self, data, step, backend=None):
         for default_backend, logger_instance in self.logger.items():
@@ -141,9 +161,12 @@ class Tracking:
             self.logger["vemlp_wandb"].finish(exit_code=0)
         if "tensorboard" in self.logger:
             self.logger["tensorboard"].finish()
-
-        if "clearnml" in self.logger:
-            self.logger["clearnml"].finish()
+        if "clearml" in self.logger:
+            self.logger["clearml"].finish()
+        if "trackio" in self.logger:
+            self.logger["trackio"].finish()
+        if "file" in self.logger:
+            self.logger["file"].finish()
 
 
 class ClearMLLogger:
@@ -174,7 +197,7 @@ class ClearMLLogger:
         for k, v in data.items():
             title, series = k.split("/", 1)
 
-            if isinstance(v, (int, float, np.floating, np.integer)):
+            if isinstance(v, int | float | np.floating | np.integer):
                 logger.report_scalar(
                     title=title,
                     series=series,
@@ -189,19 +212,44 @@ class ClearMLLogger:
                     iteration=step,
                 )
             else:
-                logger.warning(f'Trainer is attempting to log a value of "{v}" of type {type(v)} for key "{k}". This invocation of ClearML logger\'s function is incorrect so this attribute was dropped. ')
+                logger.warning(
+                    f'Trainer is attempting to log a value of "{v}" of type {type(v)} for key "{k}". This '
+                    f"invocation of ClearML logger's function is incorrect so this attribute was dropped. "
+                )
 
     def finish(self):
-        self._task.mark_completed()
+        self._task.close()
+
+
+class FileLogger:
+    def __init__(self, project_name: str, experiment_name: str):
+        self.project_name = project_name
+        self.experiment_name = experiment_name
+
+        self.filepath = os.getenv("VERL_FILE_LOGGER_PATH", None)
+        if self.filepath is None:
+            root_path = os.path.expanduser(os.getenv("VERL_FILE_LOGGER_ROOT", "."))
+            directory = os.path.join(root_path, self.project_name)
+            os.makedirs(directory, exist_ok=True)
+            self.filepath = os.path.join(directory, f"{self.experiment_name}.jsonl")
+            print(f"Creating file logger at {self.filepath}")
+        self.fp = open(self.filepath, "w")
+
+    def log(self, data, step):
+        data = {"step": step, "data": data}
+        self.fp.write(json.dumps(data) + "\n")
+
+    def finish(self):
+        self.fp.close()
 
 
 class _TensorboardAdapter:
-    def __init__(self):
+    def __init__(self, project_name, experiment_name):
         import os
 
         from torch.utils.tensorboard import SummaryWriter
 
-        tensorboard_dir = os.environ.get("TENSORBOARD_DIR", "tensorboard_log")
+        tensorboard_dir = os.environ.get("TENSORBOARD_DIR", f"tensorboard_log/{project_name}/{experiment_name}")
         os.makedirs(tensorboard_dir, exist_ok=True)
         print(f"Saving tensorboard log to {tensorboard_dir}.")
         self.writer = SummaryWriter(tensorboard_dir)
@@ -222,7 +270,7 @@ class _MlflowLoggingAdapter:
         mlflow.log_metrics(metrics=results, step=step)
 
 
-def _compute_mlflow_params_from_objects(params) -> Dict[str, Any]:
+def _compute_mlflow_params_from_objects(params) -> dict[str, Any]:
     if params is None:
         return {}
 
@@ -249,7 +297,7 @@ def _transform_params_to_json_serializable(x, convert_list_to_dict: bool):
     return x
 
 
-def _flatten_dict(raw: Dict[str, Any], *, sep: str) -> Dict[str, Any]:
+def _flatten_dict(raw: dict[str, Any], *, sep: str) -> dict[str, Any]:
     import pandas as pd
 
     ans = pd.json_normalize(raw, sep=sep).to_dict(orient="records")[0]
@@ -259,6 +307,9 @@ def _flatten_dict(raw: Dict[str, Any], *, sep: str) -> Dict[str, Any]:
 
 @dataclasses.dataclass
 class ValidationGenerationsLogger:
+    project_name: str = None
+    experiment_name: str = None
+
     def log(self, loggers, samples, step):
         if "wandb" in loggers:
             self.log_generations_to_wandb(samples, step)
@@ -271,13 +322,27 @@ class ValidationGenerationsLogger:
             self.log_generations_to_clearml(samples, step)
         if "tensorboard" in loggers:
             self.log_generations_to_tensorboard(samples, step)
-            
+
+        if "vemlp_wandb" in loggers:
+            self.log_generations_to_vemlp_wandb(samples, step)
+
+    def log_generations_to_vemlp_wandb(self, samples, step):
+        from volcengine_ml_platform import wandb as vemlp_wandb
+
+        self._log_generations_to_wandb(samples, step, vemlp_wandb)
+
     def log_generations_to_wandb(self, samples, step):
-        """Log samples to wandb as a table"""
         import wandb
 
+        self._log_generations_to_wandb(samples, step, wandb)
+
+    def _log_generations_to_wandb(self, samples, step, wandb):
+        """Log samples to wandb as a table"""
+
         # Create column names for all samples
-        columns = ["step"] + sum([[f"input_{i + 1}", f"output_{i + 1}", f"score_{i + 1}"] for i in range(len(samples))], [])
+        columns = ["step"] + sum(
+            [[f"input_{i + 1}", f"output_{i + 1}", f"score_{i + 1}"] for i in range(len(samples))], []
+        )
 
         if not hasattr(self, "validation_table"):
             # Initialize the table on first call
@@ -303,23 +368,16 @@ class ValidationGenerationsLogger:
         """Log samples to swanlab as text"""
         import swanlab
 
-        swanlab_text_list = []
-        for i, sample in enumerate(samples):
-            row_text = f"""
-            input: {sample[0]}
-            
-            ---
-            
-            output: {sample[1]}
-            
-            ---
-            
-            score: {sample[2]}
-            """
-            swanlab_text_list.append(swanlab.Text(row_text, caption=f"sample {i + 1}"))
+        swanlab_table = swanlab.echarts.Table()
+
+        # Create column names
+        headers = ["step", "input", "output", "score"]
+
+        swanlab_row_list = [[step, *sample] for sample in samples]
+        swanlab_table.add(headers=headers, rows=swanlab_row_list)
 
         # Log to swanlab
-        swanlab.log({"val/generations": swanlab_text_list}, step=step)
+        swanlab.log({"val/generations": swanlab_table}, step=step)
 
     def log_generations_to_mlflow(self, samples, step):
         """Log validation generation to mlflow as artifacts"""
@@ -370,36 +428,43 @@ class ValidationGenerationsLogger:
             table_plot=pd.DataFrame.from_records(table),
             iteration=step,
         )
- 
+
     def log_generations_to_tensorboard(self, samples, step):
         """Log samples to tensorboard as text"""
         # Initialize tensorboard writer if not exists
         if not hasattr(self, "writer"):
             from torch.utils.tensorboard import SummaryWriter
-            tensorboard_dir = os.environ.get("TENSORBOARD_DIR", "tensorboard_log")
+
+            # Use the same directory structure as _TensorboardAdapter
+            if self.project_name and self.experiment_name:
+                default_dir = os.path.join("tensorboard_log", self.project_name, self.experiment_name)
+            else:
+                default_dir = "tensorboard_log"
+
+            tensorboard_dir = os.environ.get("TENSORBOARD_DIR", default_dir)
             os.makedirs(tensorboard_dir, exist_ok=True)
             self.writer = SummaryWriter(log_dir=tensorboard_dir)
-        
+
         # Format the samples data into readable text
         text_content = f"**Generation Results - Step {step}**\n\n"
-        
+
         for i, sample in enumerate(samples):
             text_content += f"### Sample {i + 1}\n"
-            
+
             # Assuming sample contains [input, output, score]
             if len(sample) >= 3:
                 input_text, output_text, score = sample[0], sample[1], sample[2]
-                
+
                 text_content += f"**Input:** {input_text}\n\n"
                 text_content += f"**Output:** {output_text}\n\n"
                 text_content += f"**Score:** {score}\n\n"
             else:
                 # Handle cases where sample format might be different
                 text_content += f"**Data:** {sample}\n\n"
-            
+
             text_content += "---\n\n"
-        
+
         # Log to tensorboard as text
-        self.writer.add_text('val/generations', text_content, step)
+        self.writer.add_text("val/generations", text_content, step)
         # Flush to ensure data is written
         self.writer.flush()

@@ -21,7 +21,6 @@ FROM: https://github.com/openai/prm800k/blob/main/prm800k/grading/grader.py
 
 import contextlib
 import math
-import os
 import re
 
 import sympy
@@ -40,6 +39,7 @@ from .grader import math_equal
 BAD_SUBSTRINGS = ["^{", "^("]
 BAD_REGEXES = ["\^[0-9]+\^", "\^[0-9][0-9]+"]
 TUPLE_CHARS = "()[]"
+
 
 def _sympy_parse(expr: str):
     """Parses an expression with sympy."""
@@ -231,7 +231,12 @@ def split_tuple(expr: str):
     expr = _strip_properly_formatted_commas(expr)
     if len(expr) == 0:
         return []
-    if len(expr) > 2 and expr[0] in TUPLE_CHARS and expr[-1] in TUPLE_CHARS and all([ch not in expr[1:-1] for ch in TUPLE_CHARS]):
+    if (
+        len(expr) > 2
+        and expr[0] in TUPLE_CHARS
+        and expr[-1] in TUPLE_CHARS
+        and all([ch not in expr[1:-1] for ch in TUPLE_CHARS])
+    ):
         elems = [elem.strip() for elem in expr[1:-1].split(",")]
     else:
         elems = [expr]
@@ -270,16 +275,21 @@ def grade_answer(given_answer: str, ground_truth: str) -> bool:
     ground_truth_elems = split_tuple(ground_truth_normalized)
     given_elems = split_tuple(given_normalized)
 
-    if len(ground_truth_elems) > 1 and (ground_truth_normalized[0] != given_normalized[0] or ground_truth_normalized[-1] != given_normalized[-1]) or len(ground_truth_elems) != len(given_elems):
+    if (
+        len(ground_truth_elems) > 1
+        and (ground_truth_normalized[0] != given_normalized[0] or ground_truth_normalized[-1] != given_normalized[-1])
+        or len(ground_truth_elems) != len(given_elems)
+    ):
         is_correct = False
     else:
-        for ground_truth_elem, given_elem in zip(ground_truth_elems, given_elems):
+        for ground_truth_elem, given_elem in zip(ground_truth_elems, given_elems, strict=True):
             if _is_frac(ground_truth_elem) and _is_frac(given_elem):
                 # if fractions aren't reduced, then shouldn't be marked as correct
                 # so, we don't want to allow sympy.simplify in this case
                 is_correct = ground_truth_elem == given_elem
             elif _str_is_int(ground_truth_elem) != _str_is_int(given_elem):
-                # if the ground truth answer is an integer, we require the given answer to be a strict match (no sympy.simplify)
+                # if the ground truth answer is an integer, we require the given answer to be a strict match
+                # (no sympy.simplify)
                 is_correct = False
             else:
                 try:

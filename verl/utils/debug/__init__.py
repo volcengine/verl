@@ -12,6 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .performance import GPUMemoryLogger, log_gpu_memory_usage, log_print
-
-__all__ = ["GPUMemoryLogger", "log_gpu_memory_usage"]
+# APIs kept for backward compatibility purpose
+# For new features please develop in verl/utils/profiler/
+from ..profiler import *  # noqa

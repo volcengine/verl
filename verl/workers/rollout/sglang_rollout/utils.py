@@ -14,15 +14,17 @@
 # limitations under the License.
 
 import pickle
-from typing import Any, List, Optional
+from typing import Any, Iterator, Optional
 
 import numpy as np
 import torch
 import torch.distributed as dist
 
+from verl.utils.device import get_device_name
+
 
 def broadcast_pyobj(
-    data: List[Any],
+    data: list[Any],
     rank: int,
     dist_group: Optional[torch.distributed.ProcessGroup] = None,
     src: int = 0,
@@ -34,9 +36,7 @@ def broadcast_pyobj(
     The `rank` here refer to the source rank on global process group (regardless
     of dist_group argument).
     """
-    device = torch.device(
-        "cuda" if torch.cuda.is_available() and not force_cpu_device else "cpu"
-    )
+    device = torch.device(get_device_name() if not force_cpu_device else "cpu")
 
     if rank == src:
         if len(data) == 0:
@@ -46,9 +46,7 @@ def broadcast_pyobj(
             serialized_data = pickle.dumps(data)
             size = len(serialized_data)
 
-            tensor_data = torch.ByteTensor(
-                np.frombuffer(serialized_data, dtype=np.uint8)
-            ).to(device)
+            tensor_data = torch.ByteTensor(np.frombuffer(serialized_data, dtype=np.uint8)).to(device)
             tensor_size = torch.tensor([size], dtype=torch.long, device=device)
 
             dist.broadcast(tensor_size, src=src, group=dist_group)
@@ -68,3 +66,43 @@ def broadcast_pyobj(
         serialized_data = bytes(tensor_data.cpu().numpy())
         data = pickle.loads(serialized_data)
         return data
+
+
+def get_named_tensor_buckets(
+    iterable: Iterator[tuple[str, torch.Tensor]], bucket_bytes: int
+) -> Iterator[list[tuple[str, torch.Tensor]]]:
+    """
+    Group tensors into buckets based on a specified size in megabytes.
+
+    Args:
+        iterable: An iterator of tuples containing tensor names and tensors.
+        bucket_bytes: The maximum size of each bucket in bytes.
+
+    Yields:
+        Lists of tuples, where each tuple contains a tensor name and its corresponding tensor.
+
+    Example:
+        >>> tensors = [('tensor1', torch.randn(1000, 1000)), ('tensor2', torch.randn(2000, 2000))]
+        >>> for bucket in get_named_tensor_buckets(tensors, bucket_size_mb=10):
+        ...     print(bucket)
+        [('tensor1', tensor(...)), ('tensor2', tensor(...))]
+
+    """
+    if bucket_bytes <= 0:
+        raise ValueError(f"bucket_bytes must be greater than 0, got {bucket_bytes}")
+
+    current_bucket = []
+    current_size = 0
+    for name, tensor in iterable:
+        tensor_size = tensor.element_size() * tensor.numel()
+        if current_size + tensor_size > bucket_bytes:
+            if current_bucket:
+                yield current_bucket
+            current_bucket = [(name, tensor)]
+            current_size = tensor_size
+        else:
+            current_bucket.append((name, tensor))
+            current_size += tensor_size
+
+    if current_bucket:
+        yield current_bucket

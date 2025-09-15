@@ -14,7 +14,8 @@
 # limitations under the License.
 
 """
-This script override a model with custom config and random weights, mainly for create small models for debugging purposes.
+This script override a model with custom config and random weights, mainly for create small models for 
+debugging purposes.
 
 Usage:
     python scripts/init_random_model.py \
@@ -28,7 +29,7 @@ import argparse
 import json
 import os
 import warnings
-from typing import Any, Dict
+from typing import Any
 
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, PretrainedConfig
 
@@ -51,17 +52,21 @@ def check_output_path(output_path: str):
         print(f"Output path '{output_path}' created.")
 
 
-def check_configs(original_config: Dict[str, Any], new_config: Dict[str, Any]) -> bool:
+def check_configs(original_config: dict[str, Any], new_config: dict[str, Any]) -> bool:
     """
     Check if the original config and new config are compatible.
     This is a placeholder function; actual implementation may vary based on requirements.
     """
     # Example check: ensure 'model_type' is the same
-    if new_config.get("model_type", None) is not None and original_config.get("model_type") != new_config.get("model_type"):
+    if new_config.get("model_type", None) is not None and original_config.get("model_type") != new_config.get(
+        "model_type"
+    ):
         raise RuntimeError("Model types do not match.")
     for key in new_config:
         if key not in original_config:
-            warnings.warn(f"Key '{key}' in new config does not exist in original config, may not take effect.", stacklevel=2)
+            warnings.warn(
+                f"Key '{key}' in new config does not exist in original config, may not take effect.", stacklevel=2
+            )
 
 
 def init_random_model(hf_model_path, new_config_path, output_path):
@@ -85,4 +90,6 @@ def init_random_model(hf_model_path, new_config_path, output_path):
 if __name__ == "__main__":
     args = _init_args()
     check_output_path(args.output_path)
-    init_random_model(hf_model_path=args.hf_model_path, new_config_path=args.new_config_path, output_path=args.output_path)
+    init_random_model(
+        hf_model_path=args.hf_model_path, new_config_path=args.new_config_path, output_path=args.output_path
+    )

@@ -1,6 +1,8 @@
 PyTorch FSDP Backend
 ======================
 
+Last updated: 02/12/2025.
+
 We support PyTorch FSDP Backend by implementing various workers for
 actor, critic, reference, rollout and reward models. We also implement
 the ``FSDPVLLMShardingManager`` that reshard weight between FSDP and

@@ -19,16 +19,17 @@ import os
 import threading
 from contextlib import ExitStack
 from enum import Enum
-from typing import Any, Callable, Optional, Tuple, TypeVar
+from typing import Any, Callable, Optional, TypeVar
 from uuid import uuid4
 
 import ray
 import ray.actor
 
 from verl.tools.utils.search_r1_like_utils import perform_single_search_batch
+from verl.utils.rollout_trace import rollout_trace_op
 
 from .base_tool import BaseTool
-from .schemas import OpenAIFunctionToolSchema
+from .schemas import OpenAIFunctionToolSchema, ToolResponse
 
 logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -99,10 +100,16 @@ class SearchExecutionWorker:
             return fn(*fn_args, **fn_kwargs)
 
 
-def init_search_execution_pool(num_workers: int, enable_global_rate_limit=True, rate_limit=10, mode: PoolMode = PoolMode.ThreadMode):
+def init_search_execution_pool(
+    num_workers: int, enable_global_rate_limit=True, rate_limit=10, mode: PoolMode = PoolMode.ThreadMode
+):
     """Initialize search execution pool."""
     if mode == PoolMode.ThreadMode:
-        return ray.remote(SearchExecutionWorker).options(max_concurrency=num_workers).remote(enable_global_rate_limit=enable_global_rate_limit, rate_limit=rate_limit)
+        return (
+            ray.remote(SearchExecutionWorker)
+            .options(max_concurrency=num_workers)
+            .remote(enable_global_rate_limit=enable_global_rate_limit, rate_limit=rate_limit)
+        )
     else:
         raise NotImplementedError("Process mode is not implemented yet")
 
@@ -158,7 +165,12 @@ class SearchTool(BaseTool):
         self.timeout = config.get("timeout", 30)
 
         self.enable_global_rate_limit = config.get("enable_global_rate_limit", True)
-        self.execution_pool = init_search_execution_pool(num_workers=self.num_workers, enable_global_rate_limit=self.enable_global_rate_limit, rate_limit=self.rate_limit, mode=PoolMode.ThreadMode)
+        self.execution_pool = init_search_execution_pool(
+            num_workers=self.num_workers,
+            enable_global_rate_limit=self.enable_global_rate_limit,
+            rate_limit=self.rate_limit,
+            mode=PoolMode.ThreadMode,
+        )
 
         # Retrieval service configuration
         self.retrieval_service_url = config.get("retrieval_service_url")
@@ -173,7 +185,7 @@ class SearchTool(BaseTool):
         """Return the OpenAI tool schema."""
         return self.tool_schema
 
-    async def create(self, instance_id: Optional[str] = None, **kwargs) -> str:
+    async def create(self, instance_id: Optional[str] = None, **kwargs) -> tuple[str, ToolResponse]:
         """Create a tool instance.
 
         Args:
@@ -181,6 +193,7 @@ class SearchTool(BaseTool):
 
         Returns:
             The instance id of the tool.
+            tool_creation_response: The response of the tool when creating the instance.
         """
         if instance_id is None:
             instance_id = str(uuid4())
@@ -188,7 +201,7 @@ class SearchTool(BaseTool):
             "response": "",
             "reward": [],
         }
-        return instance_id
+        return instance_id, ToolResponse()
 
     def execute_search(self, instance_id: str, query_list: list, retrieval_service_url: str, topk: int, timeout: int):
         """Execute search operation using retrieval service.
@@ -213,7 +226,8 @@ class SearchTool(BaseTool):
         logger.debug(f"Search result for instance {instance_id}: {result_text}")
         return result_text, metadata
 
-    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> Tuple[str, float, dict]:
+    @rollout_trace_op
+    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[ToolResponse, float, dict]:
         """Execute the search tool.
 
         Args:
@@ -231,24 +245,31 @@ class SearchTool(BaseTool):
         if not query_list_from_params or not isinstance(query_list_from_params, list):
             error_msg = "Error: 'query_list' is missing, empty, or not a list in parameters."
             logger.error(f"[SearchTool] {error_msg} Received parameters: {parameters}")
-            return json.dumps({"result": error_msg}), 0.0, {}
+            return ToolResponse(text=json.dumps({"result": error_msg})), 0.0, {}
 
         # Execute search using Ray execution pool
         try:
-            result_text, metadata = await self.execution_pool.execute.remote(self.execute_search, instance_id, query_list_from_params, self.retrieval_service_url, self.topk, timeout)
+            result_text, metadata = await self.execution_pool.execute.remote(
+                self.execute_search, instance_id, query_list_from_params, self.retrieval_service_url, self.topk, timeout
+            )
 
             # Store results in instance dictionary
             self._instance_dict[instance_id]["reward"].append(result_text.strip())
 
             # Convert metadata to metrics
-            metrics = {"query_count": metadata.get("query_count", 0), "status": metadata.get("status", "unknown"), "total_results": metadata.get("total_results", 0), "api_request_error": metadata.get("api_request_error")}
+            metrics = {
+                "query_count": metadata.get("query_count", 0),
+                "status": metadata.get("status", "unknown"),
+                "total_results": metadata.get("total_results", 0),
+                "api_request_error": metadata.get("api_request_error"),
+            }
 
-            return result_text, 0.0, metrics
+            return ToolResponse(text=result_text), 0.0, metrics
 
         except Exception as e:
             error_result = json.dumps({"result": f"Search execution failed: {e}"})
             logger.error(f"[SearchTool] Execution failed: {e}")
-            return error_result, 0.0, {"error": str(e)}
+            return ToolResponse(text=error_result), 0.0, {"error": str(e)}
 
     async def calc_reward(self, instance_id: str, **kwargs) -> str:
         return self._instance_dict[instance_id]["reward"]

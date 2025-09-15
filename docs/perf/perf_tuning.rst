@@ -1,7 +1,9 @@
 Performance Tuning Guide
 ==============================
 
-Author: `Guangming Sheng <https://github.com/PeterSH6>`_
+Last updated: 07/17/2025.
+
+Author: `Guangming Sheng <https://github.com/PeterSH6>`_, `Jiali Zheng <https://github.com/CurryRice233>`_
 
 In this section, we will discuss how to tune the performance of all the stages in verl, including:
 
@@ -17,6 +19,10 @@ In this section, we will discuss how to tune the performance of all the stages i
 
 6. LigerKernel for SFT performance optimization
 
+7. Forward prefetch in FSDP training backend
+
+8. Memory optimization for entropy calculation from logits
+
 Rollout Generation Tuning
 --------------------------
 
@@ -26,7 +32,6 @@ Below are key factors for tuning vLLM-based rollout. Before tuning, we recommend
 
 - Increase ``gpu_memory_utilization``.
 
-  - For vLLM v0.5.4 and v0.6.3, the vLLM pre-allocates GPU KVCache by using gpu_memory_utilization of the **remaining** memory. 
   - For vLLM v0.7.0 and later, the vLLM instance will only use gpu_memory_utilization of the **total** memory.
   - For SGLang, it's the fraction of the free GPU memory used for **static** memory like model weights and KV cache. However, the remaining (1-gpu_memory_utilization) will also be used during inference.
 
@@ -44,12 +49,18 @@ Below are key factors for tuning vLLM-based rollout. Before tuning, we recommend
   When GPU resources allow, a smaller tensor parallel size spawns more vLLM replicas. 
   Data parallelism (DP) can yield higher throughput than tensor parallelism (TP), but also increases KVCache consumption. 
   Carefully balance the trade-off between more replicas and higher memory usage.
-  Our experient in Sec. 8.4 of `HybridFlow paper <https://arxiv.org/pdf/2409.19256v2>`_ evaluate this trade-off.
+  Our experiment in Sec. 8.4 of `HybridFlow paper <https://arxiv.org/pdf/2409.19256v2>`_ evaluate this trade-off.
+
+- Balance performance and memory using ``cudagraph_capture_sizes``.
+  If ``cudagraph_capture_sizes`` is set, vLLM will try to capture the model execution graph for different batch sizes.
+  Since cudagraph memory can not be offloaded to cpu, The memory stay in gpu when update actor is running. 
+  Using smaller batch sizes can avoid OOM but slightly reduce throughput.
+  Must to set ``enforce_eager=False`` to use ``cudagraph_capture_sizes``.
 
 More tuning details such as dealing with Preemption and Chunked-prefill
 can be found in `vLLM official tuning guide <https://docs.vllm.ai/en/latest/performance/optimization.html>`_ 
 
-The performance of vllm can be further increased if upgrading from v0.6.3 to v0.7. See https://github.com/volcengine/verl/blob/main/docs/README_vllm0.7.md for details on how to upgrade.
+For optimal performance, we recommend using vLLM v0.8.3 or later. See https://github.com/volcengine/verl/blob/main/docs/README_vllm0.8.md for details.
 
 Enable remove padding (sequence packing)
 -----------------------------------------
@@ -59,7 +70,7 @@ sequence packing implementation provided by transformers library.
 
 For other models, transformers library may also support it but we haven't tested it yet.
 Users can add the desired model config to the  `test_transformer.py <https://github.com/volcengine/verl/blob/main/tests/models/test_transformer.py#L24>`_ file.
-And test its functionaility by running the following command:
+And test its functionality by running the following command:
 
 .. code-block:: bash
 
@@ -124,7 +135,7 @@ Instead, users should tune the following parameters:
   The maximum number of tokens to be processed in fwd and bwd of ``update_policy`` and ``update_critic``.
 
 - ``actor_rollout_ref.ref.log_prob_max_token_len_per_gpu`` and ``actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu``: 
-  The maximum number of tokens to be processed in a the fwd computation of ``compute_log_prob`` and ``comptue_ref_log_prob``.
+  The maximum number of tokens to be processed in a the fwd computation of ``compute_log_prob`` and ``compute_ref_log_prob``.
 
 - ``critic.forward_micro_batch_size_per_gpu``, ``reward_model.forward_micro_batch_size_per_gpu``: 
   The maximum number of tokens to be processed in a the fwd computation of ``compute_values``, ``compute_rm_score``.
@@ -154,7 +165,7 @@ To utilize this technique, users can set ``ulysses_sequence_parallel_size>1`` in
 
 We support different model utilize different ulysses_sequence_parallel_size sizes.
 
-To train log sequence (>32k), users may need to decrease the ``*micro_batch_size_per_gpu`` and ``*max_token_len_per_gpu`` to avoid OOM.
+To train long sequence (>32k), users may need to decrease the ``*micro_batch_size_per_gpu`` and ``*max_token_len_per_gpu`` to avoid OOM.
 
 LigerKernel for SFT
 ----------------------
@@ -172,3 +183,42 @@ LigerKernel is a high-performance kernel for Supervised Fine-Tuning (SFT) that c
 
 3. LigerKernel is particularly useful for improving training performance in SFT scenarios.
 
+Forward prefetch in FSDP training backend
+----------------------
+
+During the training phase, users can enable forward prefetching in FSDP by setting ``fsdp_config.forward_prefetch=True``. For example, ``actor_rollout_ref.actor.fsdp_config.forward_prefetch=True``. This configuration prefetches the next forward-pass all-gather operation before completing the current forward computation, overlapping communication with computation and improving efficiency. For further details, refer to the `FSDP forward_prefetch <https://docs.pytorch.org/docs/stable/fsdp.html#module-torch.distributed.fsdp>`_ documentation.
+
+.. note::
+    Backward prefetch is unsupported because the ``BACKWARD_POST`` policy may prefetch incorrectly in nested-module cases. For details, see the `FSDP documentation <https://github.com/pytorch/torchtitan/blob/main/docs/fsdp.md?plain=1#L70>`_
+
+Migrating to FSDP2
+----------------------
+
+FSDP2 offers notable improvements over FSDP1. According to `PyTorch TorchTitan benchmarks <https://arxiv.org/abs/2410.06511v1>`_:
+
+- 7% lower GPU memory usage on average
+- 1.5% throughput improvement with BF16 training
+- Better composability with DTensor and per-parameter sharding
+
+**Enabling FSDP2 in VERL:**
+
+   .. code-block:: python
+
+    # Enable FSDP2 in actor configuration
+    actor_rollout_ref.actor.strategy="fsdp2"
+
+.. note:: 
+   FSDP2 requires PyTorch 2.1+ and is recommended for models with transformer architecture.
+
+Memory optimization for entropy calculation from logits
+----------------------
+
+The ``logits`` tensor (typically of shape ``[bsz*seq_len, voc]``) can consume significant memory. When using ``compute_entropy_from_logits``, memory usage reaches approximately ``[bsz*seq_len, voc] × (4 bytes (float32) + 2 bytes (autocast for softmax+logsumexp) + 1 byte (softmax output))``.
+
+To reduce this memory peak, enable chunked computation by setting:
+``actor_rollout_ref.ref.entropy_from_logits_with_chunking = True``
+This processes the tensor in chunks of shape ``[chunk_size, voc]`` (e.g., 2048) rather than the full sequence length, exclusively during the model's forward pass.
+
+Additionally, during training, standard gradient checkpointing (``enable_gradient_checkpointing=True``) does not apply to entropy calculations. To reduce memory peaks in this context, set:
+``actor_rollout_ref.actor.entropy_checkpointing = True``
+This enables entropy recomputation specifically for the entropy calculation, lowering memory usage during training.

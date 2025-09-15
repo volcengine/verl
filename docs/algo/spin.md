@@ -1,5 +1,7 @@
 # Recipe: Self-Play Fine-Tuning (SPIN)
 
+Last updated: 05/31/2025.
+
 `verl` provides a recipe inspired by the paper **"Self-Play Fine-Tuning Converts Weak Language Models to Strong Language Models"** (SPIN). SPIN is a language model finetuning algorithm that enables iterative self-improvement through a self-play mechanism inspired by game theory.
 
 **Core Idea:** Models learn by playing against themselves, reducing reliance on external preference datasets or stronger teacher models:
@@ -113,7 +115,7 @@ The following steps outline how to set up the environment and run the SPIN recip
     # wandb login
 
     # Download the GSM8K dataset
-    python3 examples/data_preprocess/gsm8k.py --local_dir ~/data/gsm8k # Adjusted path
+    python3 examples/data_preprocess/gsm8k.py --local_save_dir ~/data/gsm8k # Adjusted path
 
     # Download the base model (Example: Qwen2.5-3B-Instruct)
     huggingface-cli download Qwen/Qwen2.5-3B-Instruct --local-dir $HOME/models/Qwen2.5-3B-Instruct

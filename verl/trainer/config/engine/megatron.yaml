@@ -1,0 +1,75 @@
+# Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+_target_: verl.workers.config.McoreEngineConfig
+
+# Whether to offload model parameters to CPU
+param_offload: False
+
+# Whether to offload gradients to CPU
+grad_offload: False
+
+# Whether to offload optimizer state to CPU
+optimizer_offload: False
+
+# tensor model parallel size
+tensor_model_parallel_size: 1
+
+# expert model parallel size
+expert_model_parallel_size: 1
+
+# expert tensor parallel size
+expert_tensor_parallel_size: 1
+
+# pipeline model parallel size
+pipeline_model_parallel_size: 1
+
+# virtual pipeline model parallel size
+virtual_pipeline_model_parallel_size: null
+
+# context parallel size
+context_parallel_size: 1
+
+# sequence parallel
+sequence_parallel: True
+
+# Whether to use distributed optimizer
+use_distributed_optimizer: True
+
+# Whether to use distributed checkpointing
+use_dist_checkpointing: False
+
+# distributed checkpointing path
+dist_checkpointing_path: null
+
+# oc.select: default val for ref.megatron.seed
+seed: 42
+
+# Allow to override Distributed Data Parallel (DDP) config
+override_ddp_config: {}
+
+# additional transformer config like: num_layers_in_first(/last)_pipeline_stage
+# oc.select: default val for ref.megatron.override_transformer_config
+override_transformer_config:
+  # Recompute configuration, same as in megatron.training.arguments
+  # default use minimal performance-interference recompute methods
+  # Recompute granualarity, choices: ["full", "selective"]
+  recompute_granularity: null
+
+  # Recompute modules, multiple choices: ["core_attn", "moe_act", "layernorm", "mla_up_proj", "mlp", "moe"]
+  # Please use correct module in matched model
+  recompute_modules: ["core_attn"]
+
+  # 'uniform', 'block'
+  # 'uniform' divides the total number of transformer layers and checkpoints the input activation of each chunk
+  # 'block' checkpoints the specified number of layers per pipeline stage at the specified granularity
+  recompute_method: null
+
+  # 'full' will checkpoint the entire transformer layer and 'selective' only checkpoints memory intensive part of attention
+  recompute_num_layers: null
+
+override_mcore_model_config: {}
+
+# oc.select: default val for ref.megatron.use_mbridge
+use_mbridge: False
+
+# whether to use forward only
+forward_only: False

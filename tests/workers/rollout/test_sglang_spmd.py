@@ -19,6 +19,7 @@ usage: torchrun --standalone --nnodes=1 \
 """
 
 import asyncio
+import os
 
 import torch
 from sglang.srt.entrypoints.engine import Engine
@@ -48,7 +49,7 @@ def test_sglang_spmd():
     max_prompt_length = 16
     max_response_length = 16
 
-    local_model_path = "Qwen/Qwen2.5-0.5B"
+    local_model_path = os.path.expanduser("~/models/Qwen/Qwen2.5-0.5B")
     tokenizer, actor_model = load_tokenizer_and_model(local_model_path)
 
     preencode_prompts = ["Who won the Champions League in 2019?", "The founder of Apple is", "What's your name?"]
@@ -57,7 +58,9 @@ def test_sglang_spmd():
     hf_response_tokens = generate_hf_output(actor_model, input_ids, attention_mask, tokenizer, max_response_length)
 
     tensor_parallel_size = 2
-    inference_device_mesh_cpu = init_device_mesh("cpu", mesh_shape=(1, tensor_parallel_size, 1), mesh_dim_names=["dp", "tp", "pp"])
+    inference_device_mesh_cpu = init_device_mesh(
+        "cpu", mesh_shape=(1, tensor_parallel_size, 1), mesh_dim_names=["dp", "tp", "pp"]
+    )
     tp_rank = inference_device_mesh_cpu["tp"].get_local_rank()
 
     if tp_rank == 0:
@@ -67,6 +70,7 @@ def test_sglang_spmd():
             mem_fraction_static=0.5,
             enable_memory_saver=True,
             tp_size=inference_device_mesh_cpu["tp"].size(),
+            attention_backend="fa3",
         )
 
         input_ids = input_ids.cuda()

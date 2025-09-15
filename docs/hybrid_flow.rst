@@ -2,6 +2,8 @@
 HybridFlow Programming Guide
 =========================================================
 
+Last updated: 06/02/2025.
+
 .. _vermouth: https://github.com/vermouth1992
 
 Author: `Chi Zhang <https://github.com/vermouth1992>`_
@@ -115,7 +117,7 @@ Each worker inside the WorkerGroup runs on a GPU. The worker group serves as a p
 
 For example, in PPO, we define 3 worker groups:
 
-- ActorRolloutRef: manages actor, rollout and reference policy. ActorRolloutRefWorker can be instantiated as a single actor, a single rollout, a single reference policy, a combined actor/rollout or a combined actor/rollout/ref. This design is aimed for the maximum code reuse in various scenarios. The reason for colocating actor and rollout is for fast weight transfer using nccl. The reason for coloating actor and reference is to implement an efficient lora PPO as the reference policy is simply the base model of PPO in lora.
+- ActorRolloutRef: manages actor, rollout and reference policy. ActorRolloutRefWorker can be instantiated as a single actor, a single rollout, a single reference policy, a combined actor/rollout or a combined actor/rollout/ref. This design is aimed for the maximum code reuse in various scenarios. The reason for colocating actor and rollout is for fast weight transfer using nccl. The reason for coloating actor and reference is to implement an efficient lora PPO as the reference policy is simply the base model of PPO in lora. The colocation is done via ``verl.single_controller.ray.base.create_colocated_worker_cls``, where it creates a single ray remote class exposing all class methods from these roles.
 - Critic: manages the critic model
 - Reward: manages the reward model
 
@@ -252,12 +254,7 @@ Important code files in the repository are organized as below:
        weight_loader_registery.py  # registry of weight loaders for loading hf ckpt into Megatron
      third_party
        vllm  # adaptor for vllm's usage in RL
-         vllm_v_0_6_3  # vllm v0.6.3 adaptor
-           llm.py  # entrypoints for generate, sync_model_weight, offload_model_weights
-           parallel_state.py  # vllm related device mesh and process groups
-           dtensor_weight_loaders.py  # weight loader for huggingface models with FSDP
-           megatron_weight_loaders.py  # weight loader for Megatron models
-         vllm_spmd  # vllm >= v0.7 adaptor (coming soon)
+         vllm_spmd  # vllm >= v0.7 adaptor
    examples  # example scripts
    tests  # integration and unit tests
    .github  # the configuration of continuous integration tests

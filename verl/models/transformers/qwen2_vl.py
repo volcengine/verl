@@ -13,9 +13,10 @@
 # limitations under the License.
 
 import inspect
+import logging
 import os
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Union
+from typing import Optional
 
 import torch
 from transformers.modeling_flash_attention_utils import _flash_attention_forward
@@ -25,6 +26,10 @@ from transformers.models.qwen2_vl.modeling_qwen2_vl import (
 )
 from transformers.utils import is_flash_attn_greater_or_equal
 
+from verl.models.transformers.monkey_patch import is_transformers_version_in_range
+
+# Import compatibility wrapper for flash_attn_supports_top_left_mask
+from verl.utils.transformers_compat import flash_attn_supports_top_left_mask
 from verl.utils.ulysses import (
     gather_heads_scatter_seq,
     gather_seq_scatter_heads,
@@ -32,12 +37,25 @@ from verl.utils.ulysses import (
     validate_ulysses_config,
 )
 
+logger = logging.getLogger(__file__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
+
 try:
     from transformers.modeling_flash_attention_utils import flash_attn_func, flash_attn_varlen_func
 
     _flash_supports_window_size = "window_size" in list(inspect.signature(flash_attn_func).parameters)
 except ImportError:
-    flash_attn_varlen_func = None
+    # Fallback: try to import from flash_attn package directly
+    flash_attn_func = None
+    _flash_supports_window_size = None
+    try:
+        from flash_attn import flash_attn_varlen_func
+    except ImportError:
+        # If flash_attn is not available, set it to None
+        flash_attn_varlen_func = None
+        logger.warning(
+            "flash_attn_varlen_func not available. Variable length attention will fall back to standard attention."
+        )
 
 
 def get_rope_index(
@@ -140,7 +158,9 @@ def get_rope_index(
     return position_ids
 
 
-def prepare_fa2_from_position_ids(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, position_ids: torch.Tensor):
+def prepare_fa2_from_position_ids(
+    query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, position_ids: torch.Tensor
+):
     query = query.view(-1, query.size(-2), query.size(-1))
     key = key.view(-1, key.size(-2), key.size(-1))
     value = value.view(-1, value.size(-2), value.size(-1))
@@ -175,7 +195,9 @@ def flash_attention_forward(
     causal = is_causal if not use_top_left_mask else is_causal and query_length != 1
 
     # Assuming 4D tensors, key_states.shape[1] is the key/value sequence length (source length).
-    use_sliding_windows = _flash_supports_window_size and sliding_window is not None and key_states.shape[1] > sliding_window
+    use_sliding_windows = (
+        _flash_supports_window_size and sliding_window is not None and key_states.shape[1] > sliding_window
+    )
     flash_kwargs = {"window_size": (sliding_window, sliding_window)} if use_sliding_windows else {}
 
     if is_flash_attn_greater_or_equal("2.4.1"):
@@ -183,26 +205,61 @@ def flash_attention_forward(
             deterministic = os.environ.get("FLASH_ATTENTION_DETERMINISTIC", "0") == "1"
         flash_kwargs["deterministic"] = deterministic
 
-    if position_ids is not None and query_length != 1 and not (torch.diff(position_ids[0], dim=-1) >= 0).all():
+    if (
+        flash_attn_varlen_func is not None
+        and position_ids is not None
+        and query_length != 1
+        and not (torch.diff(position_ids[0], dim=-1) >= 0).all()
+    ):
         batch_size = query_states.size(0)
-        query_states, key_states, value_states, _, cu_seq_lens, max_seq_lens = prepare_fa2_from_position_ids(query_states, key_states, value_states, position_ids[0])  # remove channel dimension
+        query_states, key_states, value_states, _, cu_seq_lens, max_seq_lens = prepare_fa2_from_position_ids(
+            query_states, key_states, value_states, position_ids[0]
+        )  # remove channel dimension
         cu_seqlens_q, cu_seqlens_k = cu_seq_lens
         max_seqlen_in_batch_q, max_seqlen_in_batch_k = max_seq_lens
-        attn_output = flash_attn_varlen_func(
+
+        flash_attn_func = flash_attn_varlen_func
+        common_attn_kwargs = {
+            "cu_seqlens_q": cu_seqlens_q,
+            "cu_seqlens_k": cu_seqlens_k,
+            "max_seqlen_q": max_seqlen_in_batch_q,
+            "max_seqlen_k": max_seqlen_in_batch_k,
+            "dropout_p": kwargs.pop("dropout", 0.0),
+            "softmax_scale": kwargs.pop("softmax_scale", None),
+            **flash_kwargs,
+        }
+
+        if flash_attn_func is None:
+            # Use transformers >= 4.54
+            flash_attn_func = _flash_attention_forward
+            specific_attn_kwargs = {
+                "attention_mask": attention_mask,
+                "position_ids": position_ids,
+                "query_length": query_length,
+                "is_causal": causal,
+            }
+        else:
+            specific_attn_kwargs = {"causal": causal}
+
+        attn_output = flash_attn_func(
             query_states,
             key_states,
             value_states,
-            cu_seqlens_q=cu_seqlens_q,
-            cu_seqlens_k=cu_seqlens_k,
-            max_seqlen_q=max_seqlen_in_batch_q,
-            max_seqlen_k=max_seqlen_in_batch_k,
-            dropout_p=kwargs.pop("dropout", 0.0),
-            softmax_scale=kwargs.pop("softmax_scale", None),
-            causal=causal,
-            **flash_kwargs,
+            **common_attn_kwargs,
+            **specific_attn_kwargs,
         )
         attn_output = attn_output.view(batch_size, -1, attn_output.size(-2), attn_output.size(-1))
     else:
+        if (
+            flash_attn_varlen_func is None
+            and position_ids is not None
+            and query_length != 1
+            and not (torch.diff(position_ids[0], dim=-1) >= 0).all()
+        ):
+            logger.warning_once(
+                "flash_attn_varlen_func is not available; falling back to _flash_attention_forward."
+                "This may be suboptimal for non-monotonic position_ids in VLM mRoPE."
+            )
         attn_output = _flash_attention_forward(
             query_states,
             key_states,
@@ -211,10 +268,10 @@ def flash_attention_forward(
             query_length,
             is_causal=is_causal,
             sliding_window=sliding_window,
-            use_top_left_mask=use_top_left_mask,
+            use_top_left_mask=flash_attn_supports_top_left_mask(),
             deterministic=deterministic,
             **kwargs,
-        )  # do not pass position_ids to old flash_attention_forward
+        )
 
     return attn_output
 
@@ -224,9 +281,9 @@ def ulysses_flash_attn_forward(
     hidden_states: torch.Tensor,
     attention_mask: Optional[torch.Tensor] = None,
     position_ids: Optional[torch.LongTensor] = None,
-    position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # will become mandatory in v4.46
+    position_embeddings: Optional[tuple[torch.Tensor, torch.Tensor]] = None,  # will become mandatory in v4.46
     **kwargs,
-) -> Tuple[torch.Tensor, None, None]:
+) -> tuple[torch.Tensor, None, None]:
     from transformers.models.qwen2_vl.modeling_qwen2_vl import apply_multimodal_rotary_pos_emb, repeat_kv
 
     bsz, q_len, _ = hidden_states.size()  # q_len = seq_length / sp_size
@@ -259,7 +316,9 @@ def ulysses_flash_attn_forward(
     else:
         cos, sin = position_embeddings
 
-    query_states, key_states = apply_multimodal_rotary_pos_emb(query_states, key_states, cos, sin, self.rope_scaling["mrope_section"])
+    query_states, key_states = apply_multimodal_rotary_pos_emb(
+        query_states, key_states, cos, sin, self.rope_scaling["mrope_section"]
+    )
     dropout_rate = 0.0 if not self.training else self.attention_dropout
 
     # Reashape to the expected shape for Flash Attention
@@ -267,7 +326,11 @@ def ulysses_flash_attn_forward(
     key_states = key_states.transpose(1, 2)
     value_states = value_states.transpose(1, 2)
 
-    if self.config.use_sliding_window and getattr(self.config, "sliding_window", None) is not None and self.layer_idx >= self.config.max_window_layers:
+    if (
+        self.config.use_sliding_window
+        and getattr(self.config, "sliding_window", None) is not None
+        and self.layer_idx >= self.config.max_window_layers
+    ):
         sliding_window = self.config.sliding_window
     else:
         sliding_window = None
@@ -281,7 +344,7 @@ def ulysses_flash_attn_forward(
         dropout=dropout_rate,
         sliding_window=sliding_window,
         is_causal=self.is_causal,
-        use_top_left_mask=self._flash_attn_uses_top_left_mask,
+        use_top_left_mask=flash_attn_supports_top_left_mask(),
         position_ids=position_ids,  # important: pass position ids
     )  # (batch_size, seq_length, num_head / sp_size, head_size)
     if ulysses_sp_size > 1:
@@ -289,7 +352,10 @@ def ulysses_flash_attn_forward(
 
     attn_output = attn_output.reshape(bsz, q_len, self.hidden_size).contiguous()
     attn_output = self.o_proj(attn_output)
-    return attn_output, None, None
+    if is_transformers_version_in_range(min_version="4.53.0"):
+        return attn_output, None
+    else:
+        return attn_output, None, None
 
 
 @dataclass
@@ -298,14 +364,13 @@ class Qwen2VLCausalLMOutputForPPO(Qwen2VLCausalLMOutputWithPast):
     entropy: Optional[torch.FloatTensor] = None
 
 
-def forward_for_ppo(
+def forward_base_model(
     self: Qwen2VLForConditionalGeneration,
     input_ids: torch.LongTensor = None,
     attention_mask: Optional[torch.Tensor] = None,
     position_ids: Optional[torch.LongTensor] = None,
-    past_key_values: Optional[List[torch.FloatTensor]] = None,
+    past_key_values: Optional[list[torch.FloatTensor]] = None,
     inputs_embeds: Optional[torch.FloatTensor] = None,
-    labels: Optional[torch.LongTensor] = None,
     use_cache: Optional[bool] = None,
     output_attentions: Optional[bool] = None,
     output_hidden_states: Optional[bool] = None,
@@ -316,15 +381,11 @@ def forward_for_ppo(
     video_grid_thw: Optional[torch.LongTensor] = None,
     rope_deltas: Optional[torch.LongTensor] = None,
     cache_position: Optional[torch.LongTensor] = None,
-    temperature: float = 1.0,
-    **loss_kwargs,
-) -> Union[Tuple, Qwen2VLCausalLMOutputForPPO]:
+) -> tuple | Qwen2VLCausalLMOutputWithPast:
     r"""
     Copy paste Qwen2VL's forward
     https://github.com/linkedin/Liger-Kernel/blob/main/src/liger_kernel/transformers/model/qwen2_vl.py
     ```"""
-    from verl.utils.experimental.torch_functional import FusedLinearForPPO
-
     output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
     output_hidden_states = (
         output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
@@ -340,7 +401,8 @@ def forward_for_ppo(
             n_image_features = image_embeds.shape[0]
             if n_image_tokens != n_image_features:
                 raise ValueError(
-                    f"Image features and image tokens do not match: tokens: {n_image_tokens}, features {n_image_features}"
+                    f"Image features and image tokens do not match: tokens: {n_image_tokens}, "
+                    f"features {n_image_features}"
                 )
             image_mask = (
                 (input_ids == self.config.image_token_id)
@@ -358,7 +420,8 @@ def forward_for_ppo(
             n_video_features = video_embeds.shape[0]
             if n_video_tokens != n_video_features:
                 raise ValueError(
-                    f"Video features and video tokens do not match: tokens: {n_video_tokens}, features {n_video_features}"
+                    f"Video features and video tokens do not match: tokens: {n_video_tokens}, "
+                    f"features {n_video_features}"
                 )
             video_mask = (
                 (input_ids == self.config.video_token_id)
@@ -401,10 +464,55 @@ def forward_for_ppo(
         cache_position=cache_position,
     )
 
+    return outputs
+
+
+def forward_with_torch_backend(
+    self: Qwen2VLForConditionalGeneration,
+    input_ids: torch.LongTensor = None,
+    attention_mask: Optional[torch.Tensor] = None,
+    position_ids: Optional[torch.LongTensor] = None,
+    past_key_values: Optional[list[torch.FloatTensor]] = None,
+    inputs_embeds: Optional[torch.FloatTensor] = None,
+    labels: Optional[torch.LongTensor] = None,
+    use_cache: Optional[bool] = None,
+    output_attentions: Optional[bool] = None,
+    output_hidden_states: Optional[bool] = None,
+    return_dict: Optional[bool] = None,
+    pixel_values: Optional[torch.Tensor] = None,
+    pixel_values_videos: Optional[torch.FloatTensor] = None,
+    image_grid_thw: Optional[torch.LongTensor] = None,
+    video_grid_thw: Optional[torch.LongTensor] = None,
+    rope_deltas: Optional[torch.LongTensor] = None,
+    cache_position: Optional[torch.LongTensor] = None,
+    temperature: float = 1.0,
+    **loss_kwargs,
+) -> tuple | Qwen2VLCausalLMOutputForPPO:
+    from verl.utils.experimental.torch_functional import FusedLinearForPPO
+
+    outputs = forward_base_model(
+        self,
+        input_ids=input_ids,
+        attention_mask=attention_mask,
+        position_ids=position_ids,
+        past_key_values=past_key_values,
+        inputs_embeds=inputs_embeds,
+        use_cache=use_cache,
+        output_attentions=output_attentions,
+        output_hidden_states=output_hidden_states,
+        return_dict=return_dict,
+        pixel_values=pixel_values,
+        pixel_values_videos=pixel_values_videos,
+        image_grid_thw=image_grid_thw,
+        video_grid_thw=video_grid_thw,
+        rope_deltas=rope_deltas,
+        cache_position=cache_position,
+    )
+
     hidden_states = outputs[0]
 
     if not return_dict:
-        raise NotImplementedError("forward_for_ppo has to return_dict")
+        raise NotImplementedError("forward_with_torch_backend has to return_dict")
 
     # Loss calculations
     if labels is not None:
@@ -412,7 +520,7 @@ def forward_for_ppo(
     elif input_ids is not None:
         rolled_labels = torch.roll(input_ids, shifts=-1, dims=-1)
     else:
-        raise RuntimeError("To use forward_for_ppo, either labels or input_ids must be provided.")
+        raise RuntimeError("To use forward_with_torch_backend, either labels or input_ids must be provided.")
 
     fused_linear_for_ppo = FusedLinearForPPO()
     log_probs, entropy = fused_linear_for_ppo.forward(
@@ -420,6 +528,79 @@ def forward_for_ppo(
         vocab_weights=self.lm_head.weight,
         input_ids=rolled_labels,
         temperature=temperature,
+    )
+
+    return Qwen2VLCausalLMOutputForPPO(
+        log_probs=log_probs,
+        entropy=entropy,
+        past_key_values=outputs.past_key_values,
+        hidden_states=outputs.hidden_states,
+        attentions=outputs.attentions,
+        rope_deltas=rope_deltas,
+    )
+
+
+def forward_with_triton_backend(
+    self: Qwen2VLForConditionalGeneration,
+    input_ids: torch.LongTensor = None,
+    attention_mask: Optional[torch.Tensor] = None,
+    position_ids: Optional[torch.LongTensor] = None,
+    past_key_values: Optional[list[torch.FloatTensor]] = None,
+    inputs_embeds: Optional[torch.FloatTensor] = None,
+    labels: Optional[torch.LongTensor] = None,
+    use_cache: Optional[bool] = None,
+    output_attentions: Optional[bool] = None,
+    output_hidden_states: Optional[bool] = None,
+    return_dict: Optional[bool] = None,
+    pixel_values: Optional[torch.Tensor] = None,
+    pixel_values_videos: Optional[torch.FloatTensor] = None,
+    image_grid_thw: Optional[torch.LongTensor] = None,
+    video_grid_thw: Optional[torch.LongTensor] = None,
+    rope_deltas: Optional[torch.LongTensor] = None,
+    cache_position: Optional[torch.LongTensor] = None,
+    temperature: float = 1.0,
+    **loss_kwargs,
+) -> tuple | Qwen2VLCausalLMOutputForPPO:
+    from verl.utils.kernel.linear_cross_entropy import linear_cross_entropy
+
+    outputs = forward_base_model(
+        self,
+        input_ids=input_ids,
+        attention_mask=attention_mask,
+        position_ids=position_ids,
+        past_key_values=past_key_values,
+        inputs_embeds=inputs_embeds,
+        use_cache=use_cache,
+        output_attentions=output_attentions,
+        output_hidden_states=output_hidden_states,
+        return_dict=return_dict,
+        pixel_values=pixel_values,
+        pixel_values_videos=pixel_values_videos,
+        image_grid_thw=image_grid_thw,
+        video_grid_thw=video_grid_thw,
+        rope_deltas=rope_deltas,
+        cache_position=cache_position,
+    )
+
+    hidden_states = outputs[0]
+
+    if not return_dict:
+        raise NotImplementedError("forward_with_triton_backend has to return_dict")
+
+    # Loss calculations
+    if labels is not None:
+        rolled_labels = torch.roll(labels, shifts=-1, dims=-1)
+    elif input_ids is not None:
+        rolled_labels = torch.roll(input_ids, shifts=-1, dims=-1)
+    else:
+        raise RuntimeError("To use forward_with_triton_backend, either labels or input_ids must be provided.")
+
+    log_probs, entropy = linear_cross_entropy(
+        hidden_states,
+        self.lm_head.weight,
+        rolled_labels,
+        temperature,
+        "none",
     )
 
     return Qwen2VLCausalLMOutputForPPO(

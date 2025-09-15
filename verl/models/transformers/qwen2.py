@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Callable, Optional, Tuple
+from typing import Callable, Optional
 
 import torch
 from transformers.cache_utils import Cache
@@ -20,6 +20,8 @@ from transformers.modeling_flash_attention_utils import _flash_attention_forward
 from transformers.models.llama.modeling_llama import apply_rotary_pos_emb, repeat_kv
 from transformers.utils import logging
 
+# Import compatibility wrapper for flash_attn_supports_top_left_mask
+from verl.utils.transformers_compat import flash_attn_supports_top_left_mask
 from verl.utils.ulysses import (
     gather_heads_scatter_seq,
     gather_seq_scatter_heads,
@@ -39,7 +41,7 @@ def qwen2_flash_attn_forward(
     output_attentions: bool = False,
     use_cache: bool = False,
     cache_position: Optional[torch.LongTensor] = None,
-    position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # will become mandatory in v4.46
+    position_embeddings: Optional[tuple[torch.Tensor, torch.Tensor]] = None,  # will become mandatory in v4.46
 ):
     """
     Adapted from transformers 4.47.1 to support Ulysses sequence parallelism.
@@ -103,7 +105,11 @@ def qwen2_flash_attn_forward(
         else:
             target_dtype = self.q_proj.weight.dtype
 
-        logger.warning_once(f"The input hidden states seems to be silently casted in float32, this might be related to the fact you have upcasted embedding or layer norm layers in float32. We will cast back the input in {target_dtype}.")
+        logger.warning_once(
+            f"The input hidden states seems to be silently casted in float32, this might be related to "
+            f"the fact you have upcasted embedding or layer norm layers in float32. We will cast back the "
+            f"input in {target_dtype}."
+        )
 
         query_states = query_states.to(target_dtype)
         key_states = key_states.to(target_dtype)
@@ -114,7 +120,11 @@ def qwen2_flash_attn_forward(
     key_states = key_states.transpose(1, 2)
     value_states = value_states.transpose(1, 2)
 
-    if self.config.use_sliding_window and getattr(self.config, "sliding_window", None) is not None and self.layer_idx >= self.config.max_window_layers:
+    if (
+        self.config.use_sliding_window
+        and getattr(self.config, "sliding_window", None) is not None
+        and self.layer_idx >= self.config.max_window_layers
+    ):
         sliding_window = self.config.sliding_window
     else:
         sliding_window = None
@@ -129,7 +139,7 @@ def qwen2_flash_attn_forward(
         dropout=dropout_rate,
         sliding_window=sliding_window,
         is_causal=self.is_causal,
-        use_top_left_mask=self._flash_attn_uses_top_left_mask,
+        use_top_left_mask=flash_attn_supports_top_left_mask(),
     )
 
     # use full_q_len to reshape
@@ -149,12 +159,12 @@ def qwen2_flash_attn_forward(
 def qwen2_attn_forward(
     self,
     hidden_states: torch.Tensor,
-    position_embeddings: Tuple[torch.Tensor, torch.Tensor],
+    position_embeddings: tuple[torch.Tensor, torch.Tensor],
     attention_mask: Optional[torch.Tensor],
     past_key_value: Optional[Cache] = None,
     cache_position: Optional[torch.LongTensor] = None,
     **kwargs,
-) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+) -> tuple[torch.Tensor, Optional[torch.Tensor], Optional[tuple[torch.Tensor]]]:
     """
     Adapted from transformers 4.49.0 to support Ulysses sequence parallelism for transformers >= 4.48.0.
 
@@ -191,7 +201,11 @@ def qwen2_attn_forward(
         key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
 
     sliding_window = None
-    if self.config.use_sliding_window and getattr(self.config, "sliding_window", None) is not None and self.layer_idx >= self.config.max_window_layers:
+    if (
+        self.config.use_sliding_window
+        and getattr(self.config, "sliding_window", None) is not None
+        and self.layer_idx >= self.config.max_window_layers
+    ):
         sliding_window = self.config.sliding_window
 
     from transformers.models.qwen2.modeling_qwen2 import eager_attention_forward
@@ -199,7 +213,11 @@ def qwen2_attn_forward(
     attention_interface: Callable = eager_attention_forward
     if self.config._attn_implementation != "eager":
         if self.config._attn_implementation == "sdpa" and kwargs.get("output_attentions", False):
-            logger.warning_once('`torch.nn.functional.scaled_dot_product_attention` does not support `output_attentions=True`. Falling back to eager attention. This warning can be removed using the argument `attn_implementation="eager"` when loading the model.')
+            logger.warning_once(
+                "`torch.nn.functional.scaled_dot_product_attention` does not support `output_attentions=True`. "
+                "Falling back to eager attention. This warning can be removed using the argument "
+                '`attn_implementation="eager"` when loading the model.'
+            )
         else:
             attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
 

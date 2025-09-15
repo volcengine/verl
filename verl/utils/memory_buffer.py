@@ -15,10 +15,12 @@
 This file contains utilities to manipulate torch memory buffers
 """
 
-from typing import Dict, List, Optional
+from typing import Optional
 
 import torch
 from torch import nn
+
+from verl.utils.device import get_device_name
 
 
 class MemoryBuffer:
@@ -34,7 +36,7 @@ class MemoryBuffer:
         if source is not None:
             self.data = source
         else:
-            self.data = torch.zeros(self.numel_padded, dtype=self.dtype, device="cuda", requires_grad=False)
+            self.data = torch.zeros(self.numel_padded, dtype=self.dtype, device=get_device_name(), requires_grad=False)
 
     def zero(self):
         """Reset the buffer to zero."""
@@ -57,7 +59,7 @@ def calc_padded_numel(shape: torch.Size, dtype: torch.dtype):
     return (numel + align_numel - 1) // align_numel * align_numel
 
 
-def get_weight_buffer_meta_from_module(module: nn.Module) -> Dict[str, Dict]:
+def get_weight_buffer_meta_from_module(module: nn.Module) -> dict[str, dict]:
     """
     Return a dictionary containing name to a shape and dtype.
     """
@@ -67,7 +69,7 @@ def get_weight_buffer_meta_from_module(module: nn.Module) -> Dict[str, Dict]:
     return weight_buffer_meta
 
 
-def build_memory_buffer(weight_buffer_meta: Dict[str, Dict]) -> Dict[torch.dtype, MemoryBuffer]:
+def build_memory_buffer(weight_buffer_meta: dict[str, dict]) -> dict[torch.dtype, MemoryBuffer]:
     """Build the memory buffer given weight_buffer_meta
 
     Args:
@@ -96,7 +98,9 @@ def build_memory_buffer(weight_buffer_meta: Dict[str, Dict]) -> Dict[torch.dtype
     return memory_buffers
 
 
-def build_memory_reference_from_module(module: torch.nn.Module, memory_buffers: Dict[torch.dtype, MemoryBuffer], maintain_weight=True):
+def build_memory_reference_from_module(
+    module: torch.nn.Module, memory_buffers: dict[torch.dtype, MemoryBuffer], maintain_weight=True
+):
     start_index = {}
     for dtype in memory_buffers:
         start_index[dtype] = 0
@@ -110,7 +114,7 @@ def build_memory_reference_from_module(module: torch.nn.Module, memory_buffers: 
         param.data = buffer
 
 
-def build_memory_reference(weight_buffer_meta: Dict[str, Dict], memory_buffers: Dict[torch.dtype, MemoryBuffer]):
+def build_memory_reference(weight_buffer_meta: dict[str, dict], memory_buffers: dict[torch.dtype, MemoryBuffer]):
     """Build the memory references. The memory buffers are built using the build_memory_buffer API.
     This API will allocate a weight buffer pointer to the memory buffer according to the weight_buffer_meta.
 
@@ -178,7 +182,7 @@ class MegatronMemoryBufferForRollout:
         self._named_parameters = {}
         self.transform_memory_param_fn = transform_memory_param_fn
 
-    def initialize_weight_buffer(self, weight_buffer_meta_pp: List[Dict[str, Dict]]):
+    def initialize_weight_buffer(self, weight_buffer_meta_pp: list[dict[str, dict]]):
         """
         Initialize the weight buffer. The weight buffer is obtained according to the actor. We will construct
         a large buffer for each dtype in the weight_buffer.

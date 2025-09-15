@@ -23,6 +23,7 @@ import hydra
 import numpy as np
 import pandas as pd
 import ray
+from omegaconf import OmegaConf
 from tqdm import tqdm
 
 from verl.trainer.ppo.reward import get_custom_reward_fn
@@ -38,7 +39,7 @@ def process_item(reward_fn, data_source, response_lst, reward_data):
 
 @hydra.main(config_path="config", config_name="evaluation", version_base=None)
 def main(config):
-    local_path = copy_to_local(config.data.path, use_shm=config.data.get('use_shm', False))
+    local_path = copy_to_local(config.data.path, use_shm=config.data.get("use_shm", False))
     dataset = pd.read_parquet(local_path)
     responses = dataset[config.data.response_key]
     data_sources = dataset[config.data.data_source_key]
@@ -48,14 +49,16 @@ def main(config):
 
     # Initialize Ray
     if not ray.is_initialized():
-        ray.init(num_cpus=config.ray_init.num_cpus)
+        ray.init(**OmegaConf.to_container(config.ray_kwargs.get("ray_init", {})))
 
     # evaluate test_score based on data source
     data_source_reward = defaultdict(list)
     compute_score = get_custom_reward_fn(config)
 
     # Create remote tasks
-    remote_tasks = [process_item.remote(compute_score, data_sources[i], responses[i], reward_model_data[i]) for i in range(total)]
+    remote_tasks = [
+        process_item.remote(compute_score, data_sources[i], responses[i], reward_model_data[i]) for i in range(total)
+    ]
 
     # Process results as they come in
     with tqdm(total=total) as pbar:

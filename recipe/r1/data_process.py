@@ -43,7 +43,9 @@ def build_aime2024_dataset():
     data_source = "Maxwell-Jia/AIME_2024"
     print(f"Loading the {data_source} dataset from huggingface...", flush=True)
     dataset = load_dataset(data_source, split="train")
-    map_fn = partial(example_map_fn, process_fn=process_aime2024, data_source=data_source, ability="English", split="test")
+    map_fn = partial(
+        example_map_fn, process_fn=process_aime2024, data_source=data_source, ability="English", split="test"
+    )
     dataset = dataset.map(map_fn, with_indices=True, remove_columns=dataset.column_names)
     return dataset
 
@@ -51,14 +53,20 @@ def build_aime2024_dataset():
 def build_gpqa_dimond_dataset():
     import random
 
-    GPQA_QUERY_TEMPLATE = "Answer the following multiple choice question. The last line of your response should be of the following format: 'Answer: $LETTER' (without quotes) where LETTER is one of ABCD. Think step by step before answering.\n\n{Question}\n\nA) {A}\nB) {B}\nC) {C}\nD) {D}"
+    GPQA_QUERY_TEMPLATE = (
+        "Answer the following multiple choice question. The last line of your response should be of the following "
+        "format: 'Answer: $LETTER' (without quotes) where LETTER is one of ABCD. Think step by step before "
+        "answering.\n\n{Question}\n\nA) {A}\nB) {B}\nC) {C}\nD) {D}"
+    )
 
     def process_gpqa_diamond(example):
         choices = [example["Incorrect Answer 1"], example["Incorrect Answer 2"], example["Incorrect Answer 3"]]
         random.shuffle(choices)
         gold_index = random.randint(0, 3)
         choices.insert(gold_index, example["Correct Answer"])
-        query_prompt = GPQA_QUERY_TEMPLATE.format(A=choices[0], B=choices[1], C=choices[2], D=choices[3], Question=example["Question"])
+        query_prompt = GPQA_QUERY_TEMPLATE.format(
+            A=choices[0], B=choices[1], C=choices[2], D=choices[3], Question=example["Question"]
+        )
         gold_choice = "ABCD"[gold_index]
         return query_prompt, gold_choice
 
@@ -66,7 +74,9 @@ def build_gpqa_dimond_dataset():
     print(f"Loading the {data_source} dataset from huggingface...", flush=True)
 
     dataset = load_dataset(data_source, "gpqa_diamond", split="train")
-    map_fn = partial(example_map_fn, process_fn=process_gpqa_diamond, data_source=data_source, ability="Math", split="test")
+    map_fn = partial(
+        example_map_fn, process_fn=process_gpqa_diamond, data_source=data_source, ability="Math", split="test"
+    )
     dataset = dataset.map(map_fn, with_indices=True, remove_columns=dataset.column_names)
     return dataset
 
@@ -79,11 +89,15 @@ def build_cnmo2024_dataset():
     print(f"Loading the {data_source} dataset from huggingface...", flush=True)
 
     dataset_en = load_dataset(data_source, "v202412_CNMO_en", split="test")
-    map_fn_en = partial(example_map_fn, process_fn=process_cnmo2024, data_source="opencompass/cnmo2024_en", ability="Math", split="test")
+    map_fn_en = partial(
+        example_map_fn, process_fn=process_cnmo2024, data_source="opencompass/cnmo2024_en", ability="Math", split="test"
+    )
     dataset_en = dataset_en.map(map_fn_en, with_indices=True, remove_columns=dataset_en.column_names)
 
     dataset_zh = load_dataset(data_source, "v202412_CNMO_cn", split="test")
-    map_fn_zh = partial(example_map_fn, process_fn=process_cnmo2024, data_source="opencompass/cnmo2024_zh", ability="Math", split="test")
+    map_fn_zh = partial(
+        example_map_fn, process_fn=process_cnmo2024, data_source="opencompass/cnmo2024_zh", ability="Math", split="test"
+    )
     dataset_zh = dataset_zh.map(map_fn_zh, with_indices=True, remove_columns=dataset_zh.column_names)
 
     dataset = concatenate_datasets([dataset_en, dataset_zh])
@@ -99,12 +113,20 @@ def build_livecodebench_dataset():
     def process_livecodebench(example):
         # Construct Query Prompt
         # From https://github.com/LiveCodeBench/LiveCodeBench/blob/998c52d394b836f15fff3b9a29866191108ff81b/lcb_runner/prompts/code_generation.py#L140
-        query_prompt = f"You will be given a question (problem specification) and will generate a correct Python program that matches the specification and passes all tests.\n\nQuestion: {example['question_content']}\n\n"
+        query_prompt = (
+            f"You will be given a question (problem specification) and will generate a correct Python program "
+            f"that matches the specification and passes all tests.\n\nQuestion: {example['question_content']}\n\n"
+        )
         if example["starter_code"]:
-            query_prompt += f"You will use the following starter code to write the solution to the problem and enclose your code within delimiters.\n```python\n{example['starter_code']}\n```"
+            query_prompt += (
+                f"You will use the following starter code to write the solution to the problem and enclose your "
+                f"code within delimiters.\n```python\n{example['starter_code']}\n```"
+            )
         else:
             query_prompt += (
-                "Read the inputs from stdin solve the problem and write the answer to stdout (do not directly test on the sample inputs). Enclose your code within delimiters as follows. Ensure that when the python program runs, it reads the inputs, runs the algorithm and writes output to STDOUT."
+                "Read the inputs from stdin solve the problem and write the answer to stdout (do not directly test "
+                "on the sample inputs). Enclose your code within delimiters as follows. Ensure that when the python "
+                "program runs, it reads the inputs, runs the algorithm and writes output to STDOUT."
                 "```python\n# YOUR CODE HERE\n```"
             )
 
@@ -114,7 +136,9 @@ def build_livecodebench_dataset():
             private_test_cases = json.loads(example["private_test_cases"])
         except Exception as e:
             print(f"Error loading private test cases: {e}")
-            private_test_cases = json.loads(pickle.loads(zlib.decompress(base64.b64decode(example["private_test_cases"].encode("utf-8")))))
+            private_test_cases = json.loads(
+                pickle.loads(zlib.decompress(base64.b64decode(example["private_test_cases"].encode("utf-8"))))
+            )
         full_test_cases = public_test_cases + private_test_cases
 
         metadata = json.loads(example["metadata"])
@@ -131,7 +155,9 @@ def build_livecodebench_dataset():
     dataset = load_dataset(data_source, split="test")
     # R1 Evaluation use LiveCodeBench 24.08-25.01
     dataset = dataset.filter(lambda line: "2024-08-00T00:00:00" <= line["contest_date"] < "2025-01-00T00:00:00")
-    map_fn = partial(example_map_fn, process_fn=process_livecodebench, data_source=data_source, ability="Code", split="test")
+    map_fn = partial(
+        example_map_fn, process_fn=process_livecodebench, data_source=data_source, ability="Code", split="test"
+    )
 
     dataset = dataset.map(map_fn, with_indices=True, remove_columns=dataset.column_names, num_proc=8)
     return dataset

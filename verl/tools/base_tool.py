@@ -12,10 +12,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import Any, Optional, Tuple
+import json
+from typing import Any, Optional
 from uuid import uuid4
 
-from .schemas import OpenAIFunctionToolSchema
+from verl.utils.rollout_trace import rollout_trace_op
+
+from .schemas import OpenAIFunctionToolSchema, ToolResponse
 
 
 class BaseTool:
@@ -23,7 +26,7 @@ class BaseTool:
 
     A tool should support the following methods:
 
-    - `to_openai_function_tool_schema`: return the tool schema in OpenAI format.
+    - `get_openai_tool_schema`: return the tool schema in OpenAI format.
     - `create`: create a tool instance for a trajectory.
     - `execute`: execute the tool.
     - `calc_reward`: calculate the reward respect to tool state.
@@ -32,13 +35,15 @@ class BaseTool:
 
     def __init__(self, config: dict, tool_schema: OpenAIFunctionToolSchema):
         self.config = config
-        self.name = tool_schema.function.name
-        self.tool_schema = tool_schema
+        self.tool_schema = tool_schema or self.get_openai_tool_schema()
+        assert self.tool_schema is not None, "Tool schema is not set!"
+        self.name = self.tool_schema.function.name
+        print(json.dumps(self.tool_schema.model_dump(exclude_unset=True, exclude_none=True), indent=2))
 
     def get_openai_tool_schema(self) -> OpenAIFunctionToolSchema:
         return self.tool_schema
 
-    async def create(self, instance_id: Optional[str] = None, **kwargs) -> str:
+    async def create(self, instance_id: Optional[str] = None, **kwargs) -> tuple[str, ToolResponse]:
         """Create a tool instance.
 
         Args:
@@ -46,13 +51,15 @@ class BaseTool:
 
         Returns:
             The instance id of the tool.
+            tool_creation_response: The response of the tool when creating the instance.
         """
         if instance_id is None:
-            return str(uuid4())
+            return str(uuid4()), ToolResponse()
         else:
-            return instance_id
+            return instance_id, ToolResponse()
 
-    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> Tuple[str, float, dict]:
+    @rollout_trace_op
+    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[ToolResponse, float, dict]:
         """Execute the tool.
 
         Args:
@@ -60,11 +67,11 @@ class BaseTool:
             parameters: The json string of the parameters of the tool.
 
         Returns: tool_response, tool_reward_score, tool_metrics
-            tool_response: The response str of the tool.
+            tool_response: The ToolResponse object containing text, image, and/or video content.
             tool_reward_score: The step reward score of the tool.
             tool_metrics: The metrics of the tool.
         """
-        return "Updated the tool state.", 0.0, {}
+        return ToolResponse(text="Updated the tool state."), 0.0, {}
 
     async def calc_reward(self, instance_id: str, **kwargs) -> float:
         """Calculate the reward of the tool.

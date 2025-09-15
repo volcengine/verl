@@ -19,9 +19,9 @@ name = "verl"
 dynamic = ["version", "dependencies", "optional-dependencies", "authors", "urls"]
 
 description = "verl: Volcano Engine Reinforcement Learning for LLM"
-license = {file = "LICENSE"}  # or "Apache-2.0", if you prefer an SPDX identifier
+license = {text = "Apache-2.0"}  # Changed from file to text format
 readme = {file = "README.md", content-type = "text/markdown"}
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 
 # -------------------------------
 # tool.ruff - Linting configuration
@@ -29,7 +29,8 @@ requires-python = ">=3.8"
 [tool.ruff]
 # Note: While the formatter will attempt to format lines such that they remain within the line-length,
 # it isn't a hard upper bound, and formatted lines may exceed the line-length.
-line-length = 300 # TODO: Reduce this to a more reasonable value
+line-length = 120
+exclude = ["tests/workers/rollout/test_sglang_async_rollout_sf_tools.py", "scripts/legacy_model_merger.py"]
 
 [tool.ruff.lint]
 isort = {known-first-party = ["verl"]}
@@ -56,11 +57,35 @@ ignore = [
     "B007",
     # f-string format
     "UP032",
-    # Can remove once 3.10+ is the minimum Python version
-    "UP007",
     # `.log()` statement uses f-string
     "G004",
+    # X | None for type annotations
+    "UP045",
+    # deprecated import
+    "UP035",
 ]
+
+# -------------------------------
+# tool.mypy - typechecking config
+# -------------------------------
+[tool.mypy]
+pretty            = true
+ignore_missing_imports = true
+explicit_package_bases = true
+follow_imports = "skip"
+
+# Blanket silence
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = [
+"verl.trainer.config.algorithm",
+"verl.trainer.ppo.core_algos",
+"verl.trainer.ppo.reward",
+"verl.workers.reward_manager",
+"verl.workers.reward_manager.*",
+]
+ignore_errors = false
 
 # -------------------------------
 # tool.setuptools - Additional config
@@ -83,5 +108,6 @@ version = {file = "verl/version/version"}
 [tool.setuptools.package-data]
 verl = [
   "version/*",
-  "trainer/config/*.yaml"
+  "trainer/config/*.yaml",
+  "trainer/config/*/*.yaml",
 ]

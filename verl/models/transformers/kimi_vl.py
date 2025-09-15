@@ -12,58 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
 import torch.nn.functional as F
 from transformers.cache_utils import Cache
 from transformers.modeling_flash_attention_utils import _flash_attention_forward
 
-from verl.utils.ulysses import gather_heads_scatter_seq, gather_outpus_and_unpad, gather_seq_scatter_heads, get_ulysses_sequence_parallel_group, get_ulysses_sequence_parallel_rank, get_ulysses_sequence_parallel_world_size, validate_ulysses_config
+from verl.models.transformers.monkey_patch import is_transformers_version_in_range
 
-
-def _merge_with_image_features(
-    self,
-    inputs_embeds: torch.Tensor,
-    input_ids: torch.Tensor,
-    image_features: torch.Tensor,
-):
-    """
-    Args:
-        inputs_embeds (:obj:`torch.Tensor` of shape :obj:`(batch_size, sequence_length, input_embed_dim)`):
-            The input embeddings.
-        input_ids (:obj:`torch.Tensor` of shape :obj:`(batch_size, sequence_length)`):
-            The input ids.
-        image_features (:obj:`torch.Tensor` of shape :obj:`(image_token_nums, image_feature_dim)`):
-            The image features to merge with the input embeddings.
-    """
-    image_token_index: int = self.config.media_placeholder_token_id
-
-    batch_size, sequence_length, input_embed_dim = inputs_embeds.shape
-    image_feature_nums, image_feature_dim = image_features.shape
-
-    assert image_feature_dim == input_embed_dim
-
-    image_token_nums = (input_ids == image_token_index).sum()
-    total_image_token_nums = torch.tensor([image_token_nums], dtype=image_token_nums.dtype, device=input_ids.device)
-    total_image_token_nums = gather_outpus_and_unpad(total_image_token_nums, gather_dim=0)  # [sp_size]
-    assert image_feature_nums == total_image_token_nums.sum()
-
-    # (batch_size, sequence_length / sp, input_embed_dim) -> (batch_size * sequence_length / sp, input_embed_dim)
-    inputs_embeds = inputs_embeds.reshape(-1, input_embed_dim)
-
-    # (batch_size, sequence_length / sp) -> (batch_size * sequence_length / sp)
-    input_ids = input_ids.flatten()
-
-    # split image features and fill in the image token positions if there are image tokens
-    sp_image_features = image_features.split(total_image_token_nums.tolist(), dim=0)
-    sp_rank = get_ulysses_sequence_parallel_rank()
-    image_features = sp_image_features[sp_rank]
-    inputs_embeds[input_ids == image_token_index] = image_features
-
-    inputs_embeds = inputs_embeds.reshape((batch_size, sequence_length, input_embed_dim))
-
-    return inputs_embeds
+# Import compatibility wrapper for flash_attn_supports_top_left_mask
+from verl.utils.transformers_compat import flash_attn_supports_top_left_mask
+from verl.utils.ulysses import (
+    gather_heads_scatter_seq,
+    gather_seq_scatter_heads,
+    get_ulysses_sequence_parallel_world_size,
+    validate_ulysses_config,
+)
 
 
 # Copied from transformers.models.llama.modeling_llama.rotate_half
@@ -132,7 +97,7 @@ def _ulysses_flash_attn_forward(
     output_attentions: bool = False,
     use_cache: bool = False,
     **kwargs,
-) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+) -> tuple[torch.Tensor, Optional[torch.Tensor], Optional[tuple[torch.Tensor]]]:
     bsz, q_len, _ = hidden_states.size()
 
     if self.q_lora_rank is None:
@@ -140,7 +105,6 @@ def _ulysses_flash_attn_forward(
     else:
         q = self.q_b_proj(self.q_a_layernorm(self.q_a_proj(hidden_states)))
     q = q.view(bsz, q_len, self.num_heads, self.q_head_dim).transpose(1, 2)
-    q_nope, q_pe = torch.split(q, [self.qk_nope_head_dim, self.qk_rope_head_dim], dim=-1)
 
     # Flash attention requires the input to have the shape
     # batch_size x seq_length x head_dim x hidden_dim
@@ -148,50 +112,50 @@ def _ulysses_flash_attn_forward(
     compressed_kv = self.kv_a_proj_with_mqa(hidden_states)
     compressed_kv, k_pe = torch.split(compressed_kv, [self.kv_lora_rank, self.qk_rope_head_dim], dim=-1)
     k_pe = k_pe.view(bsz, q_len, 1, self.qk_rope_head_dim).transpose(1, 2)
-    kv = self.kv_b_proj(self.kv_a_layernorm(compressed_kv)).view(bsz, q_len, self.num_heads, self.qk_nope_head_dim + self.v_head_dim).transpose(1, 2)
+    kv = (
+        self.kv_b_proj(self.kv_a_layernorm(compressed_kv))
+        .view(bsz, q_len, self.num_heads, self.qk_nope_head_dim + self.v_head_dim)
+        .transpose(1, 2)
+    )
 
     k_nope, value_states = torch.split(kv, [self.qk_nope_head_dim, self.v_head_dim], dim=-1)
-    kv_seq_len = value_states.shape[-2]
 
-    # patch to get all emb
+    # patch
     ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
-    kv_seq_len *= ulysses_sp_size
+    if ulysses_sp_size > 1:
+        validate_ulysses_config(self.num_heads, ulysses_sp_size)
 
-    cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
+        num_key_value_groups = self.config.num_attention_heads // self.config.num_key_value_heads
+        k_pe = repeat_kv(k_pe, ulysses_sp_size)  # to keep heads=1 after a2a
+        k_nope = repeat_kv(k_nope, num_key_value_groups)
+        value_states = repeat_kv(value_states, num_key_value_groups)
+        q = gather_seq_scatter_heads(q, seq_dim=2, head_dim=1)
+        k_pe = gather_seq_scatter_heads(k_pe, seq_dim=2, head_dim=1)
+        k_nope = gather_seq_scatter_heads(k_nope, seq_dim=2, head_dim=1)
+        value_states = gather_seq_scatter_heads(value_states, seq_dim=2, head_dim=1)
+        # (batch_size, num_head / sp_size, seq_length, head_size)
+        full_q_len = q.size(2)  # full_q_len = seq_length
+
+    else:
+        full_q_len = q_len
+
+    q_nope, q_pe = torch.split(q, [self.qk_nope_head_dim, self.qk_rope_head_dim], dim=-1)
+    cos, sin = self.rotary_emb(value_states, seq_len=full_q_len)
     q_pe, k_pe = apply_rotary_pos_emb(q_pe, k_pe, cos, sin, position_ids)
 
-    query_states = k_pe.new_empty(bsz, self.num_heads, q_len, self.q_head_dim)
+    query_states = k_pe.new_empty(bsz, self.num_heads // ulysses_sp_size, full_q_len, self.q_head_dim)
     query_states[:, :, :, : self.qk_nope_head_dim] = q_nope
     query_states[:, :, :, self.qk_nope_head_dim :] = q_pe
 
-    key_states = k_pe.new_empty(bsz, self.num_heads, q_len, self.q_head_dim)
+    key_states = k_pe.new_empty(bsz, self.num_heads // ulysses_sp_size, full_q_len, self.q_head_dim)
     key_states[:, :, :, : self.qk_nope_head_dim] = k_nope
     key_states[:, :, :, self.qk_nope_head_dim :] = k_pe
 
     if self.q_head_dim != self.v_head_dim:
         value_states = F.pad(value_states, [0, self.q_head_dim - self.v_head_dim])
 
-    # patch
-    if ulysses_sp_size > 1:
-        validate_ulysses_config(self.num_heads, ulysses_sp_size)
-
-        num_key_value_groups = self.config.num_attention_heads // self.config.num_key_value_heads
-        key_states = repeat_kv(key_states, num_key_value_groups)
-        value_states = repeat_kv(value_states, num_key_value_groups)
-        query_states = gather_seq_scatter_heads(query_states, seq_dim=2, head_dim=1)
-        key_states = gather_seq_scatter_heads(key_states, seq_dim=2, head_dim=1)
-        value_states = gather_seq_scatter_heads(value_states, seq_dim=2, head_dim=1)
-        # (batch_size, num_head / sp_size, seq_length, head_size)
-        full_q_len = query_states.size(2)  # full_q_len = seq_length
-
-        position_ids_list = [torch.empty_like(position_ids) for _ in range(ulysses_sp_size)]
-        torch.distributed.all_gather(position_ids_list, position_ids, group=get_ulysses_sequence_parallel_group())
-        position_ids = torch.concat(position_ids_list, dim=-1)
-
-    else:
-        full_q_len = q_len
-
-    # TODO: These transpose are quite inefficient but Flash Attention requires the layout [batch_size, sequence_length, num_heads, head_dim]. We would need to refactor the KV cache
+    # TODO: These transpose are quite inefficient but Flash Attention requires the layout
+    # [batch_size, sequence_length, num_heads, head_dim]. We would need to refactor the KV cache
     # to be able to avoid many of these transpose/reshape/view.
     query_states = query_states.transpose(1, 2)
     key_states = key_states.transpose(1, 2)
@@ -208,7 +172,7 @@ def _ulysses_flash_attn_forward(
         dropout=dropout_rate,
         sliding_window=None,
         is_causal=self.is_causal,
-        use_top_left_mask=self._flash_attn_uses_top_left_mask,
+        use_top_left_mask=flash_attn_supports_top_left_mask(),
         position_ids=position_ids,  # important: pass position ids
         softmax_scale=self.softmax_scale,
     )
@@ -222,4 +186,7 @@ def _ulysses_flash_attn_forward(
     attn_output = attn_output.reshape(bsz, q_len, self.num_heads * self.v_head_dim).contiguous()
     attn_output = self.o_proj(attn_output)
 
-    return attn_output, None, None
+    if is_transformers_version_in_range(min_version="4.53.0"):
+        return attn_output, None
+    else:
+        return attn_output, None, None

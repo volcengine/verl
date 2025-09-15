@@ -11,29 +11,75 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import asyncio
 import logging
-from collections.abc import AsyncGenerator
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+import os
+import pickle
+from typing import Any, Callable, Optional
 
-import cloudpickle
+import numpy as np
 import ray
-from omegaconf import DictConfig
+import zmq
+from omegaconf import DictConfig, ListConfig
 from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
 from vllm import SamplingParams
+from vllm.config import CompilationConfig, CompilationLevel
 from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.entrypoints.logger import RequestLogger
 from vllm.entrypoints.openai.protocol import ChatCompletionRequest, ChatCompletionResponse, ErrorResponse
 from vllm.entrypoints.openai.serving_chat import OpenAIServingChat
 from vllm.entrypoints.openai.serving_models import BaseModelPath, OpenAIServingModels
+from vllm.inputs import TokensPrompt
+from vllm.outputs import RequestOutput
 from vllm.v1.engine.async_llm import AsyncLLM
 from vllm.v1.executor.abstract import Executor
 from vllm.worker.worker_base import WorkerWrapperBase
 
+from verl.utils import hf_processor
 from verl.utils.fs import copy_to_local
-from verl.workers.rollout.async_server import AsyncServerBase
+from verl.workers.rollout.async_server import AsyncServerBase, TokenOutput
 
 logger = logging.getLogger(__file__)
+
+
+def _get_model_runner_workers(vllm_config, init_ray: bool = True):
+    assert vllm_config.instance_id is not None, "instance_id must be set for external ray actors."
+
+    fields = vllm_config.instance_id.split(":")
+    assert len(fields) == 4, (
+        f"instance_id: {vllm_config.instance_id} must be in the format of "
+        f"<namespace>:<wg_prefix>:<vllm_dp_size>:<vllm_dp_rank>."
+    )
+    namespace, wg_prefix, vllm_dp_size, vllm_dp_rank = fields[0], fields[1], int(fields[2]), int(fields[3])
+
+    # Make sure subprocess in same namespace as parent actor.
+    # actor name format: {name_prefix}WorkerDict_{pg_idx}:{local_rank}
+    if init_ray:
+        ray.init(namespace=namespace)
+    actor_names = [
+        actor_name for actor_name in ray.util.list_named_actors() if actor_name.startswith(f"{wg_prefix}WorkerDict")
+    ]
+
+    vllm_tp_size = vllm_config.parallel_config.tensor_parallel_size
+    assert len(actor_names) == vllm_dp_size * vllm_tp_size, (
+        f"instance_id: {vllm_config.instance_id} has {len(actor_names)} actors, but vllm_dp_size: "
+        f"{vllm_dp_size} * vllm_tp_size: {vllm_tp_size} = {vllm_dp_size * vllm_tp_size} is expected."
+    )
+
+    def get_pg_index_and_local_rank(actor_name) -> tuple[int, int]:
+        fields = actor_name.split(":")
+        assert len(fields) == 2, f"invalid actor name: {actor_name}"
+        pg_index, local_rank = int(fields[0].split("_")[-1]), int(fields[1])
+        return pg_index, local_rank
+
+    # sort actor names by pg_index and local_rank
+    actor_names = sorted(actor_names, key=get_pg_index_and_local_rank)
+    actor_names = actor_names[vllm_dp_rank * vllm_tp_size : (vllm_dp_rank + 1) * vllm_tp_size]
+    workers: list[WorkerWrapperBase] = [ray.get_actor(actor_name) for actor_name in actor_names]
+    print(f"instance_id: {vllm_config.instance_id} initializes with external actors: {actor_names}")
+
+    return workers
 
 
 class ExternalRayDistributedExecutor(Executor):
@@ -42,31 +88,7 @@ class ExternalRayDistributedExecutor(Executor):
     uses_ray: bool = False
 
     def _init_executor(self) -> None:
-        assert self.vllm_config.instance_id is not None, "instance_id must be set for external ray actors."
-
-        fields = self.vllm_config.instance_id.split(":")
-        assert len(fields) == 4, f"instance_id: {self.vllm_config.instance_id} must be in the format of <namespace>:<wg_prefix>:<vllm_dp_size>:<vllm_dp_rank>."
-        namespace, wg_prefix, vllm_dp_size, vllm_dp_rank = fields[0], fields[1], int(fields[2]), int(fields[3])
-
-        # Make sure subprocess in same namespace as parent actor.
-        # actor name format: {name_prefix}WorkerDict_{pg_idx}:{local_rank}
-        ray.init(namespace=namespace)
-        actor_names = [actor_name for actor_name in ray.util.list_named_actors() if actor_name.startswith(f"{wg_prefix}WorkerDict")]
-
-        vllm_tp_size = self.vllm_config.parallel_config.tensor_parallel_size
-        assert len(actor_names) == vllm_dp_size * vllm_tp_size, f"instance_id: {self.vllm_config.instance_id} has {len(actor_names)} actors, but vllm_dp_size: {vllm_dp_size} * vllm_tp_size: {vllm_tp_size} = {vllm_dp_size * vllm_tp_size} is expected."
-
-        def get_pg_index_and_local_rank(actor_name) -> Tuple[int, int]:
-            fields = actor_name.split(":")
-            assert len(fields) == 2, f"invalid actor name: {actor_name}"
-            pg_index, local_rank = int(fields[0].split("_")[-1]), int(fields[1])
-            return pg_index, local_rank
-
-        # sort actor names by pg_index and local_rank
-        actor_names = sorted(actor_names, key=get_pg_index_and_local_rank)
-        actor_names = actor_names[vllm_dp_rank * vllm_tp_size : (vllm_dp_rank + 1) * vllm_tp_size]
-        self.workers: List[WorkerWrapperBase] = [ray.get_actor(actor_name) for actor_name in actor_names]
-        print(f"instance_id: {self.vllm_config.instance_id} initializes with external actors: {actor_names}")
+        self.workers = _get_model_runner_workers(vllm_config=self.vllm_config, init_ray=True)
 
         kwargs = dict(
             vllm_config=self.vllm_config,
@@ -82,20 +104,73 @@ class ExternalRayDistributedExecutor(Executor):
 
     def collective_rpc(
         self,
-        method: Union[str, Callable],
+        method: str | Callable,
         timeout: Optional[float] = None,
-        args: Tuple = (),
-        kwargs: Optional[Dict[str, Any]] = None,
-    ) -> List[Any]:
+        args: tuple = (),
+        kwargs: Optional[dict[str, Any]] = None,
+    ) -> list[Any]:
         # TODO(wuxibin): support ray compiled graph
         if isinstance(method, str):
             sent_method = method
         else:
-            sent_method = cloudpickle.dumps(method)
+            sent_method = pickle.dumps(method)
         del method
 
         # ~3ms overhead per schedule step due to SchedulerOutput/ModelRunnerOutput serialization/deserialization.
-        outputs = ray.get([worker.execute_method.remote(sent_method, *args, **(kwargs or {})) for worker in self.workers])
+        outputs = ray.get(
+            [worker.execute_method.remote(sent_method, *args, **(kwargs or {})) for worker in self.workers]
+        )
+        return outputs
+
+    def check_health(self):
+        return
+
+
+class ExternalZeroMQDistributedExecutor(Executor):
+    """An executor that engines are launched by external ray actors."""
+
+    uses_ray: bool = False
+
+    def _init_executor(self) -> None:
+        addresses = os.environ["VERL_VLLM_ZMQ_ADDRESSES"].split(",")
+        self.context = zmq.Context()
+        self.sockets = []
+        for address in addresses:
+            socket = self.context.socket(zmq.REQ)
+            socket.connect(address)
+            self.sockets.append(socket)
+
+        kwargs = dict(
+            vllm_config=self.vllm_config,
+            local_rank=None,
+            rank=None,
+            distributed_init_method="env://",
+            is_driver_worker=True,
+        )
+        self.collective_rpc("init_worker", args=([kwargs],))
+        self.collective_rpc("init_device")
+        self.collective_rpc("load_model")
+
+    def collective_rpc(
+        self,
+        method: str | Callable,
+        timeout: Optional[float] = None,
+        args: tuple = (),
+        kwargs: Optional[dict[str, Any]] = None,
+    ) -> list[Any]:
+        if isinstance(method, str):
+            sent_method = method
+        else:
+            sent_method = pickle.dumps(method)
+        del method
+
+        message = pickle.dumps((sent_method, args, kwargs or {}))
+        for socket in self.sockets:
+            socket.send(message, zmq.DONTWAIT)
+
+        outputs = []
+        for socket in self.sockets:
+            outputs.append(pickle.loads(socket.recv()))
         return outputs
 
     def check_health(self):
@@ -122,14 +197,14 @@ class AsyncvLLMServer(AsyncServerBase):
     def __init__(self, config: DictConfig, vllm_dp_size: int, vllm_dp_rank: int, wg_prefix: str):
         """
         Args:
-            config: DictConfig, actor_rollout_ref config.
+            config: DictConfig.
             vllm_dp_size: int, vllm data parallel size.
             vllm_dp_rank: int, vllm data parallel rank.
             wg_prefix: str, worker group prefix, used to lookup actors.
         """
         super().__init__()
 
-        self.config = config
+        self.config = config.actor_rollout_ref
         self.vllm_dp_size = vllm_dp_size
         self.vllm_dp_rank = vllm_dp_rank
         self.wg_prefix = wg_prefix
@@ -147,46 +222,73 @@ class AsyncvLLMServer(AsyncServerBase):
         tensor_parallel_size = config.get("tensor_model_parallel_size", 1)
         max_num_batched_tokens = config.get("max_num_batched_tokens", 8192)
         max_model_len = config.max_model_len if config.max_model_len else config.prompt_length + config.response_length
-        max_model_len = int(max_model_len)
+        self.max_model_len = int(max_model_len)
 
         # Override default generation config from hugging face model config,
         # user can still override them by passing kwargs in each request.
         kwargs = dict(
             n=1,
             logprobs=0,
-            max_tokens=config.response_length,
+            repetition_penalty=1.0,
+            max_new_tokens=config.response_length,
         )
         for k in config.keys():
             if hasattr(SamplingParams(), str(k)):
                 kwargs[k] = config.get(k)
         print(f"override_generation_config: {kwargs}")
 
+        backend = os.environ.get("VERL_VLLM_DISTRIBUTED_BACKEND", "zeromq")
+        if backend == "zeromq":
+            distributed_executor_backend = ExternalZeroMQDistributedExecutor
+        elif backend == "ray":
+            distributed_executor_backend = ExternalRayDistributedExecutor
+        else:
+            distributed_executor_backend = None
+
+        compilation_config = {}
+
+        cudagraph_capture_sizes = config.get("cudagraph_capture_sizes")
+        # enforce_eager must be False to use cudagraph
+        if not config.enforce_eager and cudagraph_capture_sizes:
+            if isinstance(cudagraph_capture_sizes, ListConfig):
+                compilation_config["compilation_config"] = CompilationConfig(
+                    level=CompilationLevel.PIECEWISE, cudagraph_capture_sizes=cudagraph_capture_sizes
+                )
+            else:
+                logger.warning(f"cudagraph_capture_sizes must be a list, but got {cudagraph_capture_sizes}")
+
+        engine_kwargs = config.get("engine_kwargs", {}).get("vllm", {}) or {}
+
+        engine_kwargs = {key: val for key, val in engine_kwargs.items() if val is not None}
+        if config.get("limit_images", None):  # support for multi-image data
+            engine_kwargs["limit_mm_per_prompt"] = {"image": config.get("limit_images")}
+
         engine_args = AsyncEngineArgs(
             model=local_path,
-            enable_sleep_mode=True,
+            enable_sleep_mode=config.free_cache_engine,
             override_generation_config=kwargs,
             tensor_parallel_size=tensor_parallel_size,
-            distributed_executor_backend=ExternalRayDistributedExecutor,
+            distributed_executor_backend=distributed_executor_backend,
             dtype=config.dtype,
             enforce_eager=config.enforce_eager,
             gpu_memory_utilization=config.gpu_memory_utilization,
             disable_custom_all_reduce=True,
-            disable_mm_preprocessor_cache=True,
             skip_tokenizer_init=False,
-            max_model_len=max_model_len,
-            load_format="auto",
+            max_model_len=self.max_model_len,
+            max_num_seqs=config.max_num_seqs,
+            load_format="dummy" if config.load_format.startswith("dummy") else config.load_format,
             disable_log_stats=config.disable_log_stats,
             max_num_batched_tokens=max_num_batched_tokens,
             enable_chunked_prefill=config.enable_chunked_prefill,
             enable_prefix_caching=True,
             trust_remote_code=trust_remote_code,
-            seed=self.vllm_dp_rank,
+            seed=config.get("seed", 0),
+            **compilation_config,
+            **engine_kwargs,
         )
 
         # init async llm engine
-        vllm_config = engine_args.create_engine_config()
-        namespace = ray.get_runtime_context().namespace
-        vllm_config.instance_id = f"{namespace}:{self.wg_prefix}:{self.vllm_dp_size}:{self.vllm_dp_rank}"
+        vllm_config = self._create_engine_config(engine_args)
         self.engine = AsyncLLM.from_vllm_config(vllm_config)
 
         # build serving chat
@@ -201,7 +303,26 @@ class AsyncvLLMServer(AsyncServerBase):
             request_logger=RequestLogger(max_log_len=4096),
             chat_template=None,
             chat_template_content_format="auto",
+            enable_auto_tools=config.multi_turn.tool_config_path is not None,
+            tool_parser=config.multi_turn.format,  # hermes, llama3_json, ...
         )
+
+        # used for Qwen2.5-VL
+        self.processor = hf_processor(local_path, trust_remote_code=trust_remote_code, use_fast=True)
+
+    def _create_engine_config(self, engine_args: AsyncEngineArgs):
+        vllm_config = engine_args.create_engine_config()
+        namespace = ray.get_runtime_context().namespace
+        vllm_config.instance_id = f"{namespace}:{self.wg_prefix}:{self.vllm_dp_size}:{self.vllm_dp_rank}"
+
+        # VERL_VLLM_ZMQ_ADDRESSES
+        if engine_args.distributed_executor_backend == ExternalZeroMQDistributedExecutor:
+            self.workers = _get_model_runner_workers(vllm_config=vllm_config, init_ray=False)
+            zmq_addresses = ray.get([worker.get_zeromq_address.remote() for worker in self.workers])
+            print(f"VERL_VLLM_ZMQ_ADDRESSES: {zmq_addresses}")
+            os.environ["VERL_VLLM_ZMQ_ADDRESSES"] = ",".join(zmq_addresses)
+
+        return vllm_config
 
     async def chat_completion(self, raw_request: Request):
         """OpenAI-compatible HTTP endpoint.
@@ -220,32 +341,69 @@ class AsyncvLLMServer(AsyncServerBase):
             assert isinstance(generator, ChatCompletionResponse)
             return JSONResponse(content=generator.model_dump())
 
-    async def chat_completion_generator(self, request: ChatCompletionRequest) -> AsyncGenerator[Tuple[int, str]]:
-        """Direct chat completion without FastAPI.
+    async def generate(
+        self,
+        prompt_ids: list[int],
+        sampling_params: dict[str, Any],
+        request_id: str,
+        image_data: Optional[list[Any]] = None,
+    ) -> TokenOutput:
+        max_tokens = self.max_model_len - len(prompt_ids)
+        sampling_params["logprobs"] = 0 if sampling_params.pop("logprobs", False) else None
+        sampling_params.setdefault("repetition_penalty", self.config.rollout.get("repetition_penalty", 1.0))
+        sampling_params = SamplingParams(max_tokens=max_tokens, **sampling_params)
+        prompt_ids = _qwen2_5_vl_dedup_image_tokens(prompt_ids, self.processor)
+        prompt = TokensPrompt(
+            prompt_token_ids=prompt_ids, multi_modal_data={"image": image_data} if image_data else None
+        )
+        generator = self.engine.generate(prompt=prompt, sampling_params=sampling_params, request_id=request_id)
 
-        Args:
-            request: ChatCompletionRequest, request object.
+        # Get final response
+        final_res: Optional[RequestOutput] = None
+        async for output in generator:
+            final_res = output
+        assert final_res is not None
 
-        Returns:
-            AsyncGenerator[Tuple[int, str]]: async generator of (status_code, data) pairs.
-        """
-        generator = await self.openai_serving_chat.create_chat_completion(request)
-        if isinstance(generator, ErrorResponse):
-            data = generator.model_dump_json(exclude_unset=True)
-            yield generator.code, f"data: {data}\n\n"
-
-        if request.stream:
-            async for chunk in generator:
-                yield 200, chunk
-        else:
-            assert isinstance(generator, ChatCompletionResponse)
-            data = generator.model_dump_json(exclude_unset=True)
-            yield 200, f"data: {data}\n\n"
+        token_ids = final_res.outputs[0].token_ids
+        log_probs = None
+        if sampling_params.logprobs is not None:
+            log_probs = [logprobs[token_ids[i]].logprob for i, logprobs in enumerate(final_res.outputs[0].logprobs)]
+        return TokenOutput(token_ids=token_ids, log_probs=log_probs)
 
     async def wake_up(self):
-        await self.engine.wake_up()
+        if self.config.rollout.free_cache_engine:
+            await asyncio.gather(*[worker.wake_up.remote() for worker in self.workers])
 
     async def sleep(self):
         # TODO: https://github.com/vllm-project/vllm/issues/17103
         await self.engine.reset_prefix_cache()
-        await self.engine.sleep()
+        if self.config.rollout.free_cache_engine:
+            await asyncio.gather(*[worker.sleep.remote() for worker in self.workers])
+
+
+def _qwen2_5_vl_dedup_image_tokens(prompt_ids: list[int], processor):
+    """Deduplicate consecutive image tokens in prompt_ids for Qwen2.5-VL, since vLLM will replicate the
+    <|image_pad|> token by image_data.
+
+    For example,
+    ```
+    <|vision_start|><|image_pad|><|image_pad|>...<|image_pad|><|vision_end|>
+    =>
+    <|vision_start|><|image_pad|><|vision_end|>
+    ```
+    """
+    if processor is not None and "Qwen2VLImageProcessor" in processor.image_processor.__class__.__name__:
+        prompt_ids = np.array(prompt_ids)
+
+        # Create a mask where True indicates elements to keep
+        mask = np.ones(len(prompt_ids), dtype=bool)
+
+        # Find where the array equals the value
+        is_value = prompt_ids == processor.image_token_id
+
+        # Find consecutive duplicates by checking if previous element is also the value
+        mask[1:] &= ~(is_value[1:] & is_value[:-1])
+
+        return prompt_ids[mask].tolist()
+    else:
+        return prompt_ids

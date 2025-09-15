@@ -1,6 +1,8 @@
 Sandbox Fusion Example
 ============================
 
+Last updated: 06/27/2025.
+
 Introduction
 ------------
 
@@ -35,6 +37,7 @@ To integrate Sandbox Fusion into your training script, configure the following p
 
 - ``reward_model.sandbox_fusion.url='<API-endpoint>'``: Enable Sandbox Fusion by specifying the API endpoint (must end with ``/run_code``).
 - ``reward_model.sandbox_fusion.max_concurrent=256``: Set the maximum number of concurrent API requests to the Sandbox Fusion service.
+- ``reward_model.sandbox_fusion.memory_limit_mb=1024``: Set the memory limit (in MB) for each sandbox instance. Defaults to 1024MB if not specified.
 
 **Additional Optimization**
 

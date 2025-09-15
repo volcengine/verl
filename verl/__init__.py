@@ -12,12 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import importlib
 import logging
 import os
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as get_version
 
-import pkg_resources
 from packaging.version import parse as parse_version
-from pkg_resources import DistributionNotFound
 
 from .protocol import DataProto
 from .utils.device import is_npu_available
@@ -35,8 +36,6 @@ set_basic_config(level=logging.WARNING)
 __all__ = ["DataProto", "__version__"]
 
 if os.getenv("VERL_USE_MODELSCOPE", "False").lower() == "true":
-    import importlib
-
     if importlib.util.find_spec("modelscope") is None:
         raise ImportError("You are using the modelscope hub, please install modelscope by `pip install modelscope -U`")
     # Patch hub to download models from modelscope to speed up.
@@ -45,15 +44,49 @@ if os.getenv("VERL_USE_MODELSCOPE", "False").lower() == "true":
     patch_hub()
 
 if is_npu_available:
-    package_name = 'transformers'
-    required_version_spec = '4.51.0'
+    from .models.transformers import npu_patch as npu_patch
+
+    package_name = "transformers"
+    required_version_spec = "4.52.4"
     try:
-        installed_version = pkg_resources.get_distribution(package_name).version
+        installed_version = get_version(package_name)
         installed = parse_version(installed_version)
         required = parse_version(required_version_spec)
 
-        if not installed >= required:
-            raise ValueError(f"{package_name} version >= {required_version_spec} is required on ASCEND NPU, current version is {installed}.")
-    except DistributionNotFound:
+        if installed < required:
+            raise ValueError(
+                f"{package_name} version >= {required_version_spec} is required on ASCEND NPU, current version is "
+                f"{installed}."
+            )
+    except PackageNotFoundError as e:
         raise ImportError(
-            f"package {package_name} is not installed, please run pip install {package_name}=={required_version_spec}")
+            f"package {package_name} is not installed, please run pip install {package_name}=={required_version_spec}"
+        ) from e
+
+    # In verl, the driver process aggregates the computation results of workers via Ray.
+    # Therefore, after a worker completes its computation job, it will package the output
+    # using tensordict and transfer it to the CPU. Since the `to` operation of tensordict
+    # is non-blocking, when transferring data from a device to the CPU, it is necessary to
+    # ensure that a batch of data has been completely transferred before being used on the
+    # host; otherwise, unexpected precision issues may arise. Tensordict has already noticed
+    # this problem and fixed it. Ref: https://github.com/pytorch/tensordict/issues/725
+    # However, the relevant modifications only cover CUDA and MPS devices and do not take effect
+    # for third-party devices such as NPUs. This patch fixes this issue, and the relevant
+    # modifications can be removed once the fix is merged into tensordict.
+
+    import tensordict
+
+    if parse_version(tensordict.__version__) < parse_version("0.10.0"):
+        from tensordict.base import TensorDictBase
+
+        def _sync_all_patch(self):
+            from torch._utils import _get_available_device_type, _get_device_module
+
+            device_type = _get_available_device_type()
+            if device_type is None:
+                return
+
+            device_module = _get_device_module(device_type)
+            device_module.synchronize()
+
+        TensorDictBase._sync_all = _sync_all_patch

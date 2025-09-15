@@ -71,7 +71,11 @@ def process_single_row(row, current_split_name, row_index):
     data_source_tagged = "searchR1_" + str(row.get("data_source", ""))
 
     # Build tools kwargs structure
-    tools_kwargs = {"search": {"create_kwargs": {"ground_truth": ground_truth, "question": question, "data_source": data_source_tagged}}}
+    tools_kwargs = {
+        "search": {
+            "create_kwargs": {"ground_truth": ground_truth, "question": question, "data_source": data_source_tagged}
+        }
+    }
 
     # Build complete extra_info structure
     extra_info = {
@@ -155,8 +159,14 @@ def main():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Download Search-R1 from HuggingFace, process, and save to Parquet.")
-    parser.add_argument("--hf_repo_id", default="PeterJinGo/nq_hotpotqa_train", help="HuggingFace dataset repository ID.")
-    parser.add_argument("--local_dir", default="~/data/searchR1_processed_direct", help="Local directory to save the processed Parquet files.")
+    parser.add_argument(
+        "--hf_repo_id", default="PeterJinGo/nq_hotpotqa_train", help="HuggingFace dataset repository ID."
+    )
+    parser.add_argument(
+        "--local_dir",
+        default="~/data/searchR1_processed_direct",
+        help="Local directory to save the processed Parquet files.",
+    )
     parser.add_argument("--hdfs_dir", default=None, help="Optional HDFS directory to copy the Parquet files to.")
 
     args = parser.parse_args()

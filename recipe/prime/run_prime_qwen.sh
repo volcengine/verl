@@ -1,7 +1,5 @@
 set -x
 
-# If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
-# export VLLM_ATTENTION_BACKEND=XFORMERS
 
 gsm8k_train_path=$HOME/data/gsm8k/train.parquet
 gsm8k_test_path=$HOME/data/gsm8k/test.parquet
@@ -56,7 +54,7 @@ python3 -m recipe.prime.main_prime \
     reward_model.model.input_tokenizer=null \
     reward_model.mini_batch_size=64 \
     trainer.val_before_train=False \
-    trainer.logger=['console','wandb'] \
+    trainer.logger='["console","wandb"]' \
     trainer.project_name='prime_example' \
     trainer.experiment_name='Eurus-2-7B-SFT-gsm8k' \
     trainer.n_gpus_per_node=8 \
