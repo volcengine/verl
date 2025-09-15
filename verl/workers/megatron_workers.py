@@ -387,7 +387,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         # 1. parse rollout and huggingface model config
         rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
-        model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model)
+        model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model, dataclass_type=HFModelConfig)
 
         # 2. build rollout device mesh
         infer_tp = self.config.rollout.tensor_model_parallel_size

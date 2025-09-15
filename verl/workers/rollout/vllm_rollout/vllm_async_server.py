@@ -129,7 +129,9 @@ class vLLMHttpServer:
         super().__init__()
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config.actor_rollout_ref.rollout)
-        self.model_config: HFModelConfig = omega_conf_to_dataclass(config.actor_rollout_ref.model)
+        self.model_config: HFModelConfig = omega_conf_to_dataclass(
+            config.actor_rollout_ref.model, dataclass_type=HFModelConfig
+        )
         self.config.max_model_len = self.config.prompt_length + self.config.response_length
         self.rollout_mode = rollout_mode
         self.workers = workers

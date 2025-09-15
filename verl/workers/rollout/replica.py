@@ -85,7 +85,9 @@ class RolloutReplica(ABC):
         self.replica_rank = replica_rank
         self.config = config
         self.rollout_config: RolloutConfig = omega_conf_to_dataclass(config.actor_rollout_ref.rollout)
-        self.model_config: HFModelConfig = omega_conf_to_dataclass(config.actor_rollout_ref.model)
+        self.model_config: HFModelConfig = omega_conf_to_dataclass(
+            config.actor_rollout_ref.model, dataclass_type=HFModelConfig
+        )
 
         self.world_size = self.rollout_config.tensor_model_parallel_size * self.rollout_config.data_parallel_size
         self.gpus_per_node = min(gpus_per_node, self.world_size)
