@@ -33,10 +33,10 @@ rollout:
   # number of responses (i.e. num sample times). > 1 for grpo
   n: 4                                
 
-  # Number of epochs in training 
+  # total rollout samples # TODO rename to total_rollout_samples
   total_rollout_steps: 100
 
-  # 
+  # Number of epochs in training 
   total_epochs: 10
 
   # Test frequency, how many times a parameter update triggers a validation

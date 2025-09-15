@@ -24,7 +24,7 @@ from omegaconf import OmegaConf
 from recipe.fully_async_policy.fully_async_rollouter import FullyAsyncRollouter
 from recipe.fully_async_policy.fully_async_trainer import FullyAsyncTrainer
 from recipe.fully_async_policy.message_queue import MessageQueue, MessageQueueClient
-from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
+from recipe.fully_async_policy.ray_trainer import ResourcePoolManager, Role
 from verl.trainer.ppo.reward import load_reward_manager
 from verl.utils.fs import copy_to_local
 
@@ -185,16 +185,16 @@ class FullyAsyncTaskRunner:
         print("[ASYNC MAIN] Creating FullyAsyncTrainer...")
         self._create_trainer(config)
 
-        # 同步require samples
+        # sync require samples between rollouter and trainer
         required_samples = ray.get(self.components["trainer"].get_required_samples.remote())
         ray.get(self.components["rollouter"].set_required_samples.remote(required_samples))
 
-        # 同步total_train_steps
+        # sync total_train_steps between rollouter and trainer
         total_train_steps = ray.get(self.components["rollouter"].get_total_train_steps.remote())
         print(f"total_train_steps {total_train_steps}")
         ray.get(self.components["trainer"].set_total_train_steps.remote(total_train_steps))
 
-        # 获取 max_queue_size (使用同步方法避免异步返回值问题)
+        # max_queue_size 
         max_queue_size = ray.get(self.components["rollouter"].get_max_queue_size.remote())
         print(f"[ASYNC MAIN] Creating MessageQueue... max_queue_size {max_queue_size}")
         message_queue = MessageQueue.remote(config, max_queue_size)
@@ -280,7 +280,7 @@ class FullyAsyncTaskRunner:
 
 @hydra.main(config_path="config", config_name="fully_async_ppo_trainer", version_base=None)
 def main(config):
-    from verl.trainer.main_ppo import run_ppo
+    from recipe.fully_async_policy.main_ppo import run_ppo
 
     # Ensure async training config exists
     if not hasattr(config, "async_training"):

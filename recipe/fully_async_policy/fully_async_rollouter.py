@@ -25,7 +25,7 @@ from recipe.fully_async_policy.detach_utils import (
 )
 from recipe.fully_async_policy.message_queue import MessageQueueClient
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
-from verl.trainer.ppo.ray_trainer import RayPPOTrainer, ResourcePoolManager, Role, WorkerType
+from recipe.fully_async_policy.ray_trainer import RayPPOTrainer, ResourcePoolManager, Role, WorkerType
 from verl.utils.profiler import marked_timer
 from verl.utils.tracking import ValidationGenerationsLogger
 
@@ -257,7 +257,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
     def _init_async_rollout_manager(self):
         # create async rollout manager and request scheduler
         assert self.config.actor_rollout_ref.rollout.mode == "async"
-        from verl.experimental.agent_loop import AgentLoopManager
+        from recipe.fully_async_policy.agent_loop import AgentLoopManager
 
         self.async_rollout_mode = True
         self.async_rollout_manager = AgentLoopManager(
