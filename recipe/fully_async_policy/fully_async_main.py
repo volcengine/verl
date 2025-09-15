@@ -267,15 +267,37 @@ class FullyAsyncTaskRunner:
     def _run_training_loop(self):
         self.running = True
 
-        print("[ASYNC MAIN] Starting Rollouter in background...")
+        print("[ASYNC MAIN] Starting Rollouter and Trainer...")
         rollouter_future = self.components["rollouter"].fit.remote()
         trainer_future = self.components["trainer"].fit.remote()
 
-        ray.get(rollouter_future)
-        ray.get(trainer_future)
+        futures = [rollouter_future, trainer_future]
 
-        self.components["message_queue_client"].clear_queue()
-        print("[ASYNC MAIN] Training completed or interrupted")
+        try:
+            while futures:
+                # Use ray.wait to monitor all futures and return when any one is completed.
+                done_futures, remaining_futures = ray.wait(futures, num_returns=1, timeout=None)
+
+                for future in done_futures:
+                    try:
+                        ray.get(future)
+                        print(f"[ASYNC MAIN] One component completed successfully")
+                    except Exception as e:
+                        print(f"[ASYNC MAIN] Component failed with error: {e}")
+                        for remaining_future in remaining_futures:
+                            ray.cancel(remaining_future)
+                        raise e
+
+                futures = remaining_futures
+
+        except Exception as e:
+            print(f"[ASYNC MAIN] Training failed: {e}")
+            for future in futures:
+                ray.cancel(future)
+            raise
+        finally:
+            self.components["message_queue_client"].clear_queue()
+            print("[ASYNC MAIN] Training completed or interrupted")
 
 
 @hydra.main(config_path="config", config_name="fully_async_ppo_trainer", version_base=None)
