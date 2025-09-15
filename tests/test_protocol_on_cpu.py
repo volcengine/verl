@@ -732,6 +732,22 @@ def test_serialize_deserialize_tensordict_mixed_types():
     bool_tensor = torch.tensor([[True, False], [False, True]])
     bfloat16_tensor = torch.randn(2, 3).bfloat16()
 
+    # Add fp8 tensor (if available)
+    # Note: FP8 is not natively supported in all PyTorch versions
+    # We'll check if it's available and conditionally include it
+    has_fp8 = hasattr(torch, "float8_e5m2") or hasattr(torch, "float8_e4m3fn")
+    if has_fp8:
+        try:
+            # Try to create an FP8 tensor (implementation may vary)
+            # This is a placeholder - actual FP8 support might require specific hardware
+            fp8_tensor = torch.randn(2, 3)
+            if hasattr(torch, "float8_e5m2"):
+                fp8_tensor = fp8_tensor.to(torch.float8_e5m2)
+            elif hasattr(torch, "float8_e4m3fn"):
+                fp8_tensor = fp8_tensor.to(torch.float8_e4m3fn)
+        except Exception:
+            has_fp8 = False
+
     # Create nested tensor
     tensor_list = [
         torch.randn(2, 3),
@@ -749,6 +765,10 @@ def test_serialize_deserialize_tensordict_mixed_types():
         "bfloat16": bfloat16_tensor,
         "nested": nested_tensor,
     }
+
+    # Conditionally add fp8 tensor if available
+    if has_fp8:
+        tensordict_data["fp8"] = fp8_tensor
 
     original_tensordict = TensorDict(
         tensordict_data,
@@ -782,7 +802,7 @@ def test_serialize_deserialize_tensordict_mixed_types():
                 assert orig.dtype == recon.dtype
         else:
             # For regular tensors, compare directly
-            assert torch.allclose(original_tensor, reconstructed_tensor, equal_nan=True)
+            assert torch.all(original_tensor == reconstructed_tensor)
             assert original_tensor.shape == reconstructed_tensor.shape
             assert original_tensor.dtype == reconstructed_tensor.dtype
 
