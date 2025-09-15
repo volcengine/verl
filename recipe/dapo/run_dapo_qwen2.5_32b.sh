@@ -86,6 +86,7 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     algorithm.filter_sample.easy_count=4\
     algorithm.filter_sample.medium_count=6\
     algorithm.filter_sample.hard_count=8\
+    algorithm.filter_sample.very_hard_count=8\
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.use_dynamic_bsz=${use_dynamic_bsz} \
     actor_rollout_ref.ref.log_prob_use_dynamic_bsz=${use_dynamic_bsz} \
