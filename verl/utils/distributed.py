@@ -13,6 +13,7 @@
 # limitations under the License.
 """Utilities for distributed training."""
 
+import ctypes
 import os
 from datetime import timedelta
 
@@ -23,6 +24,10 @@ from verl.utils.device import get_device_name, get_nccl_backend, get_torch_devic
 
 
 def set_numa_affinity():
+    libnuma = ctypes.CDLL("libnuma.so")
+    if libnuma.numa_available() < 0:
+        return
+
     try:
         import pynvml
 
