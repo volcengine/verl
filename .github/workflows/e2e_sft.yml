@@ -70,7 +70,7 @@ permissions:
   contents: read
 
 env:
-  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:app-verl0.5-transformers4.55.4-vllm0.10.0-mcore0.13.0-te2.2"
+  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:app-verl0.5-transformers4.55.4-sglang0.4.10.post2-mcore0.13.0-te2.2"
   DYNAMIC_RUNNER_ENDPOINT: "https://sd10g3clalm04ug7alq90.apigateway-cn-beijing.volceapi.com/runner"
 
 jobs:
@@ -143,13 +143,9 @@ jobs:
         run: |
           ray stop --force
           python3 examples/data_preprocess/gsm8k_multiturn_sft.py
-      - name: Running GSM8K E2E training tests with multiturn with fsdp engine
+      - name: Running GSM8K E2E training tests with multiturn and various configs and compare results
         run: |
-          BACKEND=fsdp bash tests/special_e2e/sft/run_sft_engine_gsm8k.sh
-      - name: Running GSM8K E2E training tests with multiturn with megatron engine
-        run: |
-          BACKEND=megatron bash tests/special_e2e/sft/run_sft_engine_gsm8k.sh
-
+          bash tests/special_e2e/sft/test_sft_engine_all.sh
 
   
   cleanup:

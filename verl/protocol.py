@@ -31,6 +31,7 @@ import tensordict
 import torch
 import torch.distributed
 from packaging import version
+from packaging.version import parse as parse_version
 from tensordict import TensorDict
 from torch.utils.data import DataLoader
 
@@ -42,6 +43,8 @@ __all__ = ["DataProto", "union_tensor_dict"]
 
 with contextlib.suppress(Exception):
     tensordict.set_lazy_legacy(False).set()
+    if parse_version(tensordict.__version__) < parse_version("0.10.0"):
+        tensordict.set_list_to_stack(True).set()
 
 
 class _DataProtoConfigMeta(type):
@@ -963,6 +966,29 @@ class DataProto:
             non_tensor_batch=repeated_non_tensor_batch,
             meta_info=self.meta_info,
         )
+
+    def to_tensordict(self) -> TensorDict:
+        """Convert this DataProto to TensorDict. Note that this requires tensordict version at least 0.10
+
+        Returns:
+
+        """
+        assert parse_version(tensordict.__version__) >= parse_version("0.10"), (
+            "Convert DataProto to TensorDict at least requires tensordict version 0.10"
+        )
+        tensor_batch = self.batch.to_dict()
+        non_tensor_batch = self.non_tensor_batch
+
+        from verl.utils import tensordict_utils as tu
+
+        common_keys = set(tensor_batch.keys()) & set(non_tensor_batch.keys())
+        assert len(common_keys) == 0, f"tensor_batch and non_tensor_batch have common keys {common_keys}"
+
+        for key, val in non_tensor_batch.items():
+            assert isinstance(val, np.ndarray)
+            tensor_batch[key] = val.tolist()
+        output = tu.get_tensordict(tensor_dict=tensor_batch, non_tensor_dict=self.meta_info)
+        return output
 
     def get_data_info(self) -> str:
         """Return formatted information about stored data with nested type details.

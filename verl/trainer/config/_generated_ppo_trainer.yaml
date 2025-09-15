@@ -47,6 +47,7 @@ actor_rollout_ref:
     clip_ratio: 0.2
     clip_ratio_low: 0.2
     clip_ratio_high: 0.2
+    freeze_vision_tower: false
     policy_loss:
       _target_: verl.workers.config.PolicyLossConfig
       loss_mode: vanilla
@@ -226,6 +227,7 @@ actor_rollout_ref:
       token2text: false
     skip_rollout: false
     skip_dump_dir: /tmp/rollout_dump
+    skip_tokenizer_init: false
     profiler:
       _target_: verl.utils.profiler.ProfilerConfig
       tool: ${oc.select:global_profiler.tool,null}
@@ -235,6 +237,7 @@ actor_rollout_ref:
       save_path: ${oc.select:global_profiler.save_path,null}
       tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}
     enable_chunked_prefill: true
+    enable_prefix_caching: true
     load_format: dummy_dtensor
     layered_summon: false
   model:

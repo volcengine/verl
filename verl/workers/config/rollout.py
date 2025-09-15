@@ -26,6 +26,7 @@ __all__ = [
     "CustomAsyncServerConfig",
     "AgentLoopConfig",
     "TraceConfig",
+    "ServerConfig",
     "RolloutConfig",
 ]
 
@@ -156,6 +157,9 @@ class RolloutConfig(BaseConfig):
     profiler: Optional[ProfilerConfig] = None
 
     enable_chunked_prefill: bool = True
+
+    enable_prefix_caching: bool = True
+
     load_format: str = "dummy_dtensor"
 
     layered_summon: bool = False
@@ -165,3 +169,5 @@ class RolloutConfig(BaseConfig):
     sglang_engine_mode: str = "local"
 
     limit_images: Optional[int] = None
+
+    skip_tokenizer_init: bool = False

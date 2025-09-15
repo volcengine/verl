@@ -102,6 +102,7 @@ class ActorConfig(BaseConfig):
     clip_ratio: float = 0.2
     clip_ratio_low: float = 0.2
     clip_ratio_high: float = 0.2
+    freeze_vision_tower: bool = False
     policy_loss: PolicyLossConfig = field(default_factory=PolicyLossConfig)
     clip_ratio_c: float = 3.0
     loss_agg_mode: str = "token-mean"
@@ -120,13 +121,14 @@ class ActorConfig(BaseConfig):
 
     engine: BaseConfig = field(default_factory=BaseConfig)
     data_loader_seed: Optional[int] = 1
-    n: int = 1  # must be override by sampling config
+    rollout_n: int = 1  # must be override by sampling config
+
     model_config: HFModelConfig = field(default_factory=BaseConfig)
 
     def __post_init__(self):
         """Validate actor configuration parameters."""
         assert self.strategy != MISSING
-        assert self.n != MISSING
+        assert self.rollout_n != MISSING
         if not self.use_dynamic_bsz:
             if self.ppo_micro_batch_size is not None and self.ppo_micro_batch_size_per_gpu is not None:
                 raise ValueError(

@@ -11,12 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""
-A lightweight one-file FSDP SFT Trainer
-TODO(zhangchi.usc1992)
-- Add calculation of mfu
-- Add validation
-"""
+
 
 import os
 from functools import partial
@@ -37,7 +32,7 @@ from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
 
 import verl.utils.hdfs_io as hdfs_io
-from verl import DataProto
+from verl.utils import tensordict_utils as tu
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, get_checkpoint_tracker_filename
 from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
 from verl.utils.device import get_device_name, is_cuda_available, is_npu_available
@@ -161,7 +156,8 @@ class SFTTrainer:
             self.train_dataset, shuffle=True, num_replicas=dp_size, rank=dp_rank, drop_last=True
         )
 
-        self.train_batch_size_per_dp = config.data.train_batch_size // dp_size
+        self.global_batch_size = config.data.train_batch_size
+        self.train_batch_size_per_dp = self.global_batch_size // dp_size
 
         self.train_dataloader = StatefulDataLoader(
             dataset=self.train_dataset,
@@ -362,6 +358,7 @@ class SFTTrainer:
             "max_token_len_per_gpu": self.config.data.max_token_len_per_gpu,
             "micro_batch_size_per_gpu": self.config.data.micro_batch_size_per_gpu,
             "temperature": 1.0,
+            "global_batch_size": self.global_batch_size,
         }
 
         train_time = 0
@@ -378,8 +375,9 @@ class SFTTrainer:
                 )
             ):
                 global_step += 1
-                # TODO: construct dataproto
-                data = DataProto.from_dict(tensors=data, meta_info=meta_info)
+
+                # construct tensordict
+                data = tu.get_tensordict(tensor_dict=data, non_tensor_dict=meta_info)
 
                 with self.engine.train_mode():
                     with Timer(name="update_policy", logger=None) as timer:
@@ -392,14 +390,14 @@ class SFTTrainer:
                     loss = torch.mean(torch.tensor(metrics["loss"], device=self.device_name))
 
                     # mean over dp group
-                    batch_seqlens = data.batch["attention_mask"].sum(dim=-1).to(self.device_name)  # (global_bsz // dp)
+                    batch_seqlens = data["attention_mask"].sum(dim=-1).to(self.device_name)  # (global_bsz // dp)
 
                     output_tensor = torch.randint(
                         0,
                         100,
                         (batch_seqlens.shape[0] * self.engine.get_data_parallel_size(),),
                         device=self.device_name,
-                    )
+                    )  # (global_bsz,)
 
                     torch.distributed.all_gather_into_tensor(
                         output_tensor=output_tensor,
@@ -418,6 +416,7 @@ class SFTTrainer:
                     metrics["train/loss"] = metrics.pop("loss")
                     metrics["train/grad_norm"] = metrics.pop("grad_norm")
                     metrics["train/lr"] = lr
+                    metrics["train/global_tokens"] = output_tensor.sum().item()
                     # mfu
                     delta_time = timer.last
                     estimated_flops, promised_flops = self.flops_counter.estimate_flops(batch_seqlens, delta_time)
@@ -436,7 +435,8 @@ class SFTTrainer:
                     val_losses = []
                     for val_data in self.val_dataloader:
                         with self.engine.eval_mode():
-                            val_data = DataProto.from_dict(tensors=val_data, meta_info=meta_info)
+                            # construct tensordict
+                            val_data = tu.get_tensordict(tensor_dict=val_data, non_tensor_dict=meta_info)
                             output = self.engine.infer_batch(data=val_data, loss_function=self.loss_fn)
                             if self.engine.is_mp_src_rank_with_outputs():
                                 val_losses.extend(output["metrics"]["loss"])

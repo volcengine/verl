@@ -18,7 +18,7 @@ import pytest
 
 from verl.utils.flops_counter import FlopsCounter
 
-VALID_CONFIG_TYPE = {"llama", "qwen2", "qwen3", "qwen3_moe", "deepseek_v3", "mistral", "gemma3_text"}
+VALID_CONFIG_TYPE = {"llama", "qwen2", "qwen3", "qwen3_moe", "deepseek_v3", "mistral", "gemma3_text", "apertus"}
 
 
 class Config:
@@ -206,12 +206,30 @@ CONFIG = {
         # total: 986195089686528 / 1e12 = 986.195089686528
         "expected_flops_tuple": (283517065887744 / 1e12, 986195089686528 / 1e12),
     },
+    "apertus": {
+        "config": {  # swiss-ai/Apertus-8B
+            "model_type": "apertus",
+            "vocab_size": 131072,
+            "hidden_size": 4096,
+            "intermediate_size": 21504,
+            "num_hidden_layers": 32,
+            "num_attention_heads": 32,
+            "num_key_value_heads": 32,
+            "hidden_act": "xielu",
+            # head_dim will be derived as 4096 / 32 = 128
+        },
+        "batch_seqlens_tuple": ([512, 1024, 2048], [4096, 4096, 4096]),
+        # Calculation for Apertus (hidden_act="xielu" -> MLP uses [k_mlp=2]*H*I params; qk_norm=True -> [k_qkn=2]*H):
+        # V=131072, H=4096, I=21504, L=32, k_mlp=2 (XIELU), k_qkn=2 (QK norm), S=6
+        # S*(2*V*H + L*(4*H**2 + k_mlp*H*I + k_qkn*H)) * (SUM[seqlen]) + 12*SUM[seqlen**2]*L*H
+        "expected_flops_tuple": (199154680725504 / 1e12, 732294071451648 / 1e12),
+    },
 }
 
 
 @pytest.mark.parametrize(
     "config_type",
-    ["llama", "qwen2", "qwen3", "qwen3_moe", "deepseek_v3", "mistral", "gemma3_text"],
+    ["llama", "qwen2", "qwen3", "qwen3_moe", "deepseek_v3", "mistral", "gemma3_text", "apertus"],
 )
 def test_flops_counter(config_type: str):
     test_config = CONFIG[config_type]
