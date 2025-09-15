@@ -1468,7 +1468,7 @@ def compute_scores(data, metric="response length", metric_name="token_level_scor
         for i in range(bsz):
             id2response_and_score[index[i]].append((i, -reward_value[i] / (response_length[i] + 10**(-8))))
     else:
-        raise NotImplementedError
+        raise NotImplementedError(f"metric {metric} not supported")
 
     for id in id2response_and_score.keys():
         id2response_and_score[id] = sorted(id2response_and_score[id], key=lambda x: x[1])
