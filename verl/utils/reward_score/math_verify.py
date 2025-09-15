@@ -70,10 +70,11 @@ def parallel_compute_score(model_outputs: list, ground_truths: list, timeout: in
                         results[original_index] = score
                     except multiprocessing.TimeoutError:
                         warnings.warn(f"Timeout when processing item at index {original_index}. Will restart pool.")
-                        raise multiprocessing.TimeoutError 
+                        results[original_index] = 0.0  # Mark as failed to prevent infinite loop
+                        raise multiprocessing.TimeoutError
                     except Exception as e:
                         warnings.warn(f"An error occurred retrieving result at index {original_index}: {e}")
-                        results[original_index] = 0.0 
+                        results[original_index] = 0.0
 
         except multiprocessing.TimeoutError:
             # This block is executed after the inner loop raises TimeoutError.
