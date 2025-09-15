@@ -18,7 +18,9 @@ from dataclasses import dataclass
 import pytest
 import torch
 import torch.distributed
+import transformers
 from flash_attn.bert_padding import index_first_axis, rearrange, unpad_input
+from packaging import version
 from torch.distributed import init_device_mesh
 from transformers import AutoModelForCausalLM, LlamaConfig, PretrainedConfig, Qwen2Config
 
@@ -46,7 +48,7 @@ class SequenceParallelConfig:
 
 
 def test_configs():
-    return [
+    configs = [
         SequenceParallelConfig(
             LlamaConfig(num_hidden_layers=2, num_attention_heads=32, num_key_value_heads=32), sp_size=8, is_valid=True
         ),
@@ -67,6 +69,19 @@ def test_configs():
             Qwen2Config(num_hidden_layers=2, num_attention_heads=32, num_key_value_heads=4), sp_size=8, is_valid=True
         ),
     ]
+
+    if version.parse(transformers.__version__) >= version.parse("4.56.0"):
+        from transformers import ApertusConfig
+
+        configs.append(
+            SequenceParallelConfig(
+                ApertusConfig(num_hidden_layers=2, num_attention_heads=32, num_key_value_heads=32, hidden_size=4096),
+                sp_size=8,
+                is_valid=True,
+            )
+        )
+
+    return configs
 
 
 def sync_model_parameters_global(layer):
