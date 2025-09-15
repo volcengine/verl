@@ -24,7 +24,7 @@ import numpy as np
 import torch
 
 import verl.utils.torch_functional as verl_F
-
+import statistics
 
 class AdaptiveKLController:
     """
@@ -668,3 +668,94 @@ def compute_pf_ppo_reweight_data(
     resampled_data.meta_info = resampled_meta_info
 
     return resampled_data
+
+
+def compute_scores(data, metric="response length", metric_name="token_level_scores", adaptive=False):
+    """ Implementation of computing scores.
+        See more description in https://arxiv.org/pdf/2508.09726.
+        Args:
+             data(DataProto): The data containing batched model outputs and inputs.
+             metric: The metric (e.g., response length, token efficiency) aimed at reducing response length inflation. Defaults to response length.
+             metric_name: The metric (e.g., token_level_rewards, token_level_scores) for the reward. Defaults to token_level_scores.
+             adaptive(bool, optional): Adaptive difficulty to allocate more training signal to harder questions. Defaults to False.
+        Returns:
+             id2response_and_score: The score of the corresponding set of responses for each prompt.
+             id2average_reward: The average reward of the corresponding set of responses for each prompt.
+    """
+
+    response_mask = data.batch["response_mask"]
+    response_length = response_mask.sum(dim=-1)
+    index = data.non_tensor_batch["uid"]
+    id2response_and_score = defaultdict(list)
+    bsz = response_mask.shape[0]
+
+    if metric == "token efficiency" or adaptive:
+        reward_value = data.batch[metric_name].sum(dim=-1).numpy()
+
+    if metric == "response length":
+        for i in range(bsz):
+            id2response_and_score[index[i]].append((i, response_length[i]))
+    elif metric == "token efficiency":
+        for i in range(bsz):
+            id2response_and_score[index[i]].append((i, -reward_value[i] / response_length[i]))
+    else:
+        raise NotImplementedError
+
+    for id in id2response_and_score.keys():
+        id2response_and_score[id] = sorted(id2response_and_score[id], key=lambda x: x[1])
+
+    if adaptive:
+        id2average_reward = {}
+        id2reward = defaultdict(list)
+        for i in range(bsz):
+            id2reward[index[i]].append(reward_value[i])
+        for id in id2reward:
+            id2average_reward[id] = statistics.mean(id2reward[id])
+
+        return id2response_and_score, id2average_reward
+    return id2response_and_score, None
+
+
+def filtering_sampling(data, metric="response length", metric_name="token_level_scores", retain_count=8, adaptive=False,
+                       t_digest=None, easy_count=None, medium_count=None, hard_count=None, very_hard_count=None):
+    """ Implementation of filtering sampling strategy for Group Filtered Policy Optimization (GFPO).
+        See more description in https://arxiv.org/pdf/2508.09726.
+        Args:
+            data(DataProto): The data containing batched model outputs and inputs.
+            metric: The metric (e.g., response length, token efficiency) aimed at reducing response length inflation. Defaults to response length.
+            metric_name: The metric (e.g., token_level_rewards, token_level_scores) for the reward. Defaults to token_level_scores.
+            retain_count(int, optional): The size of most desirable responses to tain on.Defaults to 8.
+            adaptive(bool, optional): Adaptive difficulty to allocate more training signal to harder questions. Defaults to False.
+            t_digest(TDigest, optional): TDigest is a data structure designed for efficient and accurate estimation of percentiles, quantiles, and other statistical metrics from streaming or distributed data. Defaults to None.
+            easy_count(int, optional): A target number of retained responses for easy question. Defaults to None.
+            medium_count(int, optional): A target number of retained responses for medium question. Defaults to None.
+            hard_count(int, optional): A target number of retained responses for hard question. Defaults to None.
+            very_hard_count(int, optional): A target number of retained responses for very hard question. Defaults to None.
+        Returns:
+            kept_traj_idxs: the desirable responses to train on.
+    """
+    id2response_and_score, id2average_reward = compute_scores(data, metric, adaptive, metric_name)
+    kept_traj_idxs = []
+    if adaptive:
+        mean_rewards = [id2average_reward[id] for id in id2average_reward]
+        t_digest.batch_update(mean_rewards)
+        p_25, p_50, p_75 = t_digest.percentile(0.25), t_digest.percentile(0.5), t_digest.percentile(0.75)
+        for id in id2response_and_score.keys():
+            mean_reward = id2average_reward[id]
+            id_score = id2response_and_score[id]
+            if mean_reward < p_25:
+                count = very_hard_count
+            elif mean_reward < p_50:
+                count = hard_count
+            elif mean_reward < p_75:
+                count = medium_count
+            else:
+                count = easy_count
+            for i in range(min(count, len(id_score))):
+                kept_traj_idxs.append(id_score[i][0])
+    else:
+        for id in id2response_and_score.keys():
+            id_score = id2response_and_score[id]
+            for i in range(min(retain_count, len(id_score[i]))):
+                kept_traj_idxs.append(id_score[i][0])
+    return kept_traj_idxs
