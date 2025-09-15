@@ -165,7 +165,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                             metrics.update(kl_metrics)  # TODO: This will be cleared if we use multiple genenration batches
                         else:
                             new_batch.batch["token_level_rewards"] = new_batch.batch["token_level_scores"]
-                    if self.config.algorithm.filter_samples.enable:
+                    if self.config.algorithm.filter_sample.enable:
                         new_batch.batch["response_mask"] = compute_response_mask(new_batch)
                         filtering_sampling_kept_traj_idxs = filtering_sampling(new_batch,
                                                                                metric=self.config.algorithm.filter_sample.metric,
