@@ -156,7 +156,10 @@ def launch_server_process(
                 raise RuntimeError("Server process terminated unexpectedly during startup")
 
             try:
-                response = session.get(f"{base_url}/health_generate", headers=headers, timeout=timeout)
+                if server_args.is_embedding:
+                    response = session.get(f"{base_url}/health", headers=headers, timeout=timeout)
+                else:
+                    response = session.get(f"{base_url}/health_generate", headers=headers, timeout=timeout)
                 if response.status_code == 200:
                     break
             except requests.RequestException as e:
@@ -472,6 +475,25 @@ class HttpServerAdapter(EngineBase):
         payload = {k: v for k, v in payload.items() if v is not None}
 
         return self._make_request("generate", payload, only_master=False)
+
+    def reward_score(
+        self,
+        prompt: Optional[str] = None,
+        input_ids: Optional[list[int]] = None,
+        image_data: Optional[Any] = None,
+        lora_path: Optional[str] = None,
+    ) -> dict[str, Any]:
+        assert self.server_args.is_embedding, "Score is only supported for embedding models"
+        payload = {
+            "text": prompt,
+            "input_ids": input_ids,
+            "image_data": image_data,
+            "lora_path": lora_path,
+        }
+        # Filter out None values
+        payload = {k: v for k, v in payload.items() if v is not None}
+
+        return self._make_request("classify", payload, only_master=False)
 
     def flush_cache(self) -> dict[str, Any]:
         """Flush the cache of the server.
@@ -873,6 +895,42 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
             token_ids_logprob=token_ids_logprob,
             lora_path=lora_path,
             custom_logit_processor=custom_logit_processor,
+        )
+
+    async def reward_score(
+        self,
+        prompt: Optional[str] = None,
+        input_ids: Optional[list[int]] = None,
+        image_data: Optional[Any] = None,
+        lora_path: Optional[str] = None,
+    ) -> dict[str, Any]:
+        logger.info("reward_score() started")
+        payload = {
+            "text": prompt,
+            "input_ids": input_ids,
+            "image_data": image_data,
+            "lora_path": lora_path,
+        }
+        # Filter out None values
+        payload = {k: v for k, v in payload.items() if v is not None}
+
+        # Send request
+        response = await self._make_async_request("classify", payload, timeout=self.timeout, only_master=False)
+
+        return response
+
+    async def async_reward_score(
+        self,
+        prompt: Optional[str] = None,
+        input_ids: Optional[list[int]] = None,
+        image_data: Optional[Any] = None,
+        lora_path: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return await self.reward_score(
+            prompt=prompt,
+            input_ids=input_ids,
+            image_data=image_data,
+            lora_path=lora_path,
         )
 
     async def abort_request(self, rid: str = "", abort_all: bool = False) -> dict[str, Any]:

@@ -16,7 +16,9 @@ import random
 
 import numpy as np
 import pytest
+import tensordict
 import torch
+from packaging.version import parse as parse_version
 from tensordict import TensorDict
 
 from verl import DataProto
@@ -598,3 +600,17 @@ def test_dataproto_chunk_after_index():
     selected = data[torch_int_mask]
     assert isinstance(selected.batch.batch_size, torch.Size)
     assert all(isinstance(d, int) for d in selected.batch.batch_size)
+
+
+@pytest.mark.skipif(
+    parse_version(tensordict.__version__) < parse_version("0.10"), reason="requires at least tensordict 0.10"
+)
+def test_to_tensordict():
+    obs = torch.tensor([1, 2, 3, 4, 5, 6])
+    labels = ["a", "b", "c", "d", "e", "f"]
+    data = DataProto.from_dict(tensors={"obs": obs}, non_tensors={"labels": labels}, meta_info={"name": "abdce"})
+    output = data.to_tensordict()
+
+    assert torch.all(torch.eq(output["obs"], obs)).item()
+    assert output["labels"] == labels
+    assert output["name"] == "abdce"

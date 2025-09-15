@@ -143,6 +143,11 @@ jobs:
           ray stop --force
           bash tests/special_npu/run_qwen2_5_05b_dapo.sh
           rm -rf $HOME/ckpts
+      - name: Running gsm8k e2e qwen3 training tests with GRPO on ASCEND NPU
+        run: |
+          ray stop --force
+          bash tests/special_npu/run_qwen3_06b_grpo.sh
+          rm -rf $HOME/ckpts
       - name: Running gsm8k e2e training tests with GRPO MindSpeed on ASCEND NPU
         run: |
           ray stop --force
@@ -153,4 +158,3 @@ jobs:
         run: |
           ray stop --force
           pytest -s -x tests/utils/test_special_mstx_profile.py
-          

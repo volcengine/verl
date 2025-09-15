@@ -513,6 +513,7 @@ def get_cosine_schedule_with_warmup(
     min_lr_ratio: float = 0.0,
     num_cycles: float = 0.5,
     last_epoch: int = -1,
+    init_lr_ratio: float = None,
 ):
     """
     Create a schedule with a learning rate that decreases following the values of the cosine function between the
@@ -532,6 +533,8 @@ def get_cosine_schedule_with_warmup(
             following a half-cosine).
         last_epoch (:obj:`int`, `optional`, defaults to -1):
             The index of the last epoch when resuming training.
+        init_lr_ratio (:obj:`float`, `optional`, defaults to None):
+            The initial lr ratio w.r.t the maximum.
     Return:
         :obj:`torch.optim.lr_scheduler.LambdaLR` with the appropriate schedule.
     """
@@ -540,9 +543,12 @@ def get_cosine_schedule_with_warmup(
     coef = (1 - min_lr_ratio) * 0.5
     intercept = (1 + min_lr_ratio) * 0.5
 
+    init_lr_ratio = 0.0 if init_lr_ratio is None else init_lr_ratio
+    assert init_lr_ratio >= 0 and init_lr_ratio <= 1.0
+
     def lr_lambda(current_step):
         if current_step < num_warmup_steps:
-            return min_lr_ratio + (1.0 - min_lr_ratio) * (float(current_step) / float(max(1, num_warmup_steps)))
+            return init_lr_ratio + (1.0 - init_lr_ratio) * (float(current_step) / float(max(1, num_warmup_steps)))
         progress = float(current_step - num_warmup_steps) / float(max(1, num_training_steps - num_warmup_steps))
         x = math.cos(math.pi * float(num_cycles) * 2.0 * progress)
         return max(min_lr_ratio, x * coef + intercept)
