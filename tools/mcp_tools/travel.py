@@ -5,9 +5,7 @@ mcp = FastMCP("Travel")
 
 travel_api = TravelAPI()
 
-@mcp.tool(
-    name="travel-load_scenario"
-)
+@mcp.tool()
 def load_scenario(scenario: dict, long_context: bool = False):
     """
     Load a scenario from the scenarios folder.
@@ -22,9 +20,7 @@ def load_scenario(scenario: dict, long_context: bool = False):
     except Exception as e:
         return f"Error: {str(e)}"
         
-@mcp.tool(
-    name="travel-save_scenario"
-)
+@mcp.tool()
 def save_scenario():
     """
     保存当前 TravelAPI 的场景状态
@@ -40,9 +36,7 @@ def save_scenario():
     except Exception as e:
         return f"Error: {str(e)}"
 
-@mcp.tool(
-    name="travel-authenticate_travel"
-)
+@mcp.tool()
 def authenticate_travel(client_id: str, client_secret: str, refresh_token: str, grant_type: str, user_first_name: str, user_last_name: str):
     """
     Authenticate the user with the travel API.
@@ -64,9 +58,7 @@ def authenticate_travel(client_id: str, client_secret: str, refresh_token: str, 
     except Exception as e:
         return f"Error: {str(e)}"
 
-@mcp.tool(
-    name="travel-travel_get_login_status"
-)
+@mcp.tool()
 def travel_get_login_status():
     """
     Get the status of the login.
@@ -81,9 +73,7 @@ def travel_get_login_status():
     except Exception as e:
         return f"Error: {str(e)}"
 
-@mcp.tool(
-    name="travel-get_budget_fiscal_year"
-)
+@mcp.tool()
 def get_budget_fiscal_year(lastModifiedAfter: str = None, includeRemoved: str = None):
     """
     Get the budget fiscal year.
@@ -101,9 +91,7 @@ def get_budget_fiscal_year(lastModifiedAfter: str = None, includeRemoved: str = 
     except Exception as e:
         return f"Error: {str(e)}"
 
-@mcp.tool(
-    name="travel-register_credit_card"
-)
+@mcp.tool()
 def register_credit_card(access_token: str, card_number: str, expiration_date: str, cardholder_name: str, card_verification_number: int):
     """
     Register a credit card.
@@ -127,9 +115,7 @@ def register_credit_card(access_token: str, card_number: str, expiration_date: s
     except Exception as e:
         return f"Error: {str(e)}"
 
-@mcp.tool(
-    name="travel-get_flight_cost"
-)
+@mcp.tool()
 def get_flight_cost(travel_from: str, travel_to: str, travel_date: str, travel_class: str):
     """
     Get the list of cost of a flight in USD based on location, date, and class.
@@ -154,9 +140,7 @@ def get_flight_cost(travel_from: str, travel_to: str, travel_date: str, travel_c
     except Exception as e:
         return f"Error: {str(e)}"
 
-@mcp.tool(
-    name="travel-get_credit_card_balance"
-)
+@mcp.tool()
 def get_credit_card_balance(access_token: str, card_id: str):
     """
     Get the balance of a credit card.
@@ -177,9 +161,7 @@ def get_credit_card_balance(access_token: str, card_id: str):
     except Exception as e:
         return f"Error: {str(e)}"
 
-@mcp.tool(
-    name="travel-book_flight"
-)
+@mcp.tool()
 def book_flight(access_token: str, card_id: str, travel_date: str, travel_from: str, travel_to: str, travel_class: str):
     """
     Book a flight given the travel information. From and To should be the airport codes in the IATA format.
@@ -207,9 +189,7 @@ def book_flight(access_token: str, card_id: str, travel_date: str, travel_from: 
     except Exception as e:
         return f"Error: {str(e)}"
 
-@mcp.tool(
-    name="travel-retrieve_invoice"
-)
+@mcp.tool()
 def retrieve_invoice(access_token: str, booking_id: str = None, insurance_id: str = None):
     """
     Retrieve the invoice for a booking.
@@ -232,9 +212,7 @@ def retrieve_invoice(access_token: str, booking_id: str = None, insurance_id: st
     except Exception as e:
         return f"Error: {str(e)}"
 
-@mcp.tool(
-    name="travel-list_all_airports"
-)
+@mcp.tool()
 def list_all_airports():
     """
     List all available airports.
@@ -248,9 +226,7 @@ def list_all_airports():
     except Exception as e:
         return f"Error: {str(e)}"
 
-@mcp.tool(
-    name="travel-cancel_booking"
-)
+@mcp.tool()
 def cancel_booking(access_token: str, booking_id: str):
     """
     Cancel a booking.
@@ -273,10 +249,7 @@ def cancel_booking(access_token: str, booking_id: str):
             return f"Booking cancellation failed: {result.get('error', 'Unknown error')}"
     except Exception as e:
         return f"Error: {str(e)}"
-
-@mcp.tool(
-    name="travel-compute_exchange_rate"
-)
+@mcp.tool()
 def compute_exchange_rate(base_currency: str, target_currency: str, value: float):
     """
     Compute the exchange rate between two currencies.
@@ -294,10 +267,8 @@ def compute_exchange_rate(base_currency: str, target_currency: str, value: float
         return f"Exchange rate conversion: {value} {base_currency} = {result.get('exchanged_value')} {target_currency}"
     except Exception as e:
         return f"Error: {str(e)}"
-
-@mcp.tool(
-    name="travel-verify_traveler_information"
-)
+    
+@mcp.tool()
 def verify_traveler_information(first_name: str, last_name: str, date_of_birth: str, passport_number: str):
     """
     Verify the traveler information.
@@ -320,9 +291,7 @@ def verify_traveler_information(first_name: str, last_name: str, date_of_birth: 
     except Exception as e:
         return f"Error: {str(e)}"
 
-@mcp.tool(
-    name="travel-set_budget_limit"
-)
+@mcp.tool()
 def set_budget_limit(access_token: str, budget_limit: float):
     """
     Set the budget limit for the user.
@@ -343,9 +312,7 @@ def set_budget_limit(access_token: str, budget_limit: float):
     except Exception as e:
         return f"Error: {str(e)}"
 
-@mcp.tool(
-    name="travel-get_nearest_airport_by_city"
-)
+@mcp.tool()
 def get_nearest_airport_by_city(location: str):
     """
     Get the nearest airport to the given location.
@@ -365,9 +332,7 @@ def get_nearest_airport_by_city(location: str):
     except Exception as e:
         return f"Error: {str(e)}"
 
-@mcp.tool(
-    name="travel-purchase_insurance"
-)
+@mcp.tool()
 def purchase_insurance(access_token: str, insurance_type: str, booking_id: str, insurance_cost: float, card_id: str):
     """
     Purchase insurance.
@@ -394,9 +359,7 @@ def purchase_insurance(access_token: str, insurance_type: str, booking_id: str, 
     except Exception as e:
         return f"Error: {str(e)}"
 
-@mcp.tool(
-    name="travel-contact_customer_support"
-)
+@mcp.tool()
 def contact_customer_support(booking_id: str, message: str):
     """
     Contact travel booking customer support, get immediate support on an issue with an online call.
@@ -417,9 +380,7 @@ def contact_customer_support(booking_id: str, message: str):
     except Exception as e:
         return f"Error: {str(e)}"
 
-@mcp.tool(
-    name="travel-get_all_credit_cards"
-)
+@mcp.tool()
 def get_all_credit_cards():
     """
     Get all registered credit cards.

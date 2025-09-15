@@ -1,8 +1,0 @@
-tools:
-  - class_name: tools.configs.mcp_tools.bfcl_mcp_tool.BFCLMCPTool
-    config:
-      rate_limit: 120
-      timeout: 120
-      type: mcp
-    mcp:
-      mcp_servers_config_path: tools/configs/mcp_tools/bfcl_mcp_server.json

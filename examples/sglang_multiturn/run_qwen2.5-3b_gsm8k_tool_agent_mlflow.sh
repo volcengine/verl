@@ -55,6 +55,6 @@ python3 -m verl.trainer.main_ppo \
     trainer.total_training_steps=2 \
     data.train_files=$PROJECT_DIR/data/bfcl/test_example.parquet \
     data.val_files=$PROJECT_DIR/data/bfcl/test_example.parquet \
-    actor_rollout_ref.rollout.multi_turn.tool_config_path="$PROJECT_DIR/tools/configs/mcp_tools/bfcl_mcp_config.yaml" \
+    actor_rollout_ref.rollout.multi_turn.tool_config_path="$PROJECT_DIR/tools/mcp_configs/bfcl_mcp_server.json" \
     trainer.total_epochs=15 $@
 

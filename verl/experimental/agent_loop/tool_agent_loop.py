@@ -20,17 +20,15 @@ from enum import Enum
 from typing import Any, Optional
 from uuid import uuid4
 
-from qwen_agent.tools import MCPManager
-
 from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput, register
 from verl.experimental.agent_loop.tool_parser import FunctionCall, ToolParser
 from verl.interactions.base import BaseInteraction
 from verl.interactions.utils.interaction_registry import initialize_interactions_from_config
 from verl.tools.schemas import ToolResponse
-from verl.tools.utils.tool_registry import initialize_tools_from_config
 from verl.utils.profiler import simple_timer
 from verl.utils.rollout_trace import rollout_trace_op
-from tools.configs.mcp_tools.bfcl_mcp_tools_to_ignore import TOOLS_TO_IGNORE
+from tools.mcp_configs.bfcl_mcp_tools_to_ignore import TOOLS_TO_IGNORE
+from tools.mcp_managers.client_manager import MCPClientManager
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -103,9 +101,12 @@ class ToolAgentLoop(AgentLoopBase):
         cls.max_tool_response_length = config.actor_rollout_ref.rollout.multi_turn.max_tool_response_length
         cls.tool_response_truncate_side = config.actor_rollout_ref.rollout.multi_turn.tool_response_truncate_side
         tool_config_path = config.actor_rollout_ref.rollout.multi_turn.tool_config_path
-        tool_list = initialize_tools_from_config(tool_config_path) if tool_config_path else []
-        cls.tools = {tool.name: tool for tool in tool_list}
-        cls.tool_schemas = [tool.tool_schema.model_dump(exclude_unset=True, exclude_none=True) for tool in tool_list]
+
+        cls.client_manager = MCPClientManager()
+        cls.client_manager.initConfig(tool_config_path)
+        cls.tools = cls.client_manager.tools
+        cls.tool_schemas = cls.client_manager.tool_schemas
+
         cls.tool_parser = ToolParser.get_tool_parser(config.actor_rollout_ref.rollout.multi_turn.format, cls.tokenizer)
         # print(f"Initialized tools: {cls.tools}")
 
@@ -120,24 +121,24 @@ class ToolAgentLoop(AgentLoopBase):
         if cls.interaction_config_file:
             cls.interaction_map: dict[str, BaseInteraction] = cls._initialize_interactions(cls.interaction_config_file)
 
-    def filter_tools(self, involved_class: list[str] | None) -> list:
+    def filter_tools(self, involved_class: list[str] | None) -> list[dict]:
         if involved_class is None:
             return self.tool_schemas
 
-        filtered_tools = []
+        filtered_tool_schemas = []
 
         # Only keep the tools that belongs to the involved classes
         # Remove the load_scenario and save_scenario tools from
         # Remove the tools that are in TOOLS_TO_IGNORE
         for tool_class in involved_class:
-            for tool_name, tool in self.tools.items():
+            for tool_name, tool_schema in self.tools.items():
                 if tool_class in tool_name \
                 and 'load_scenario' not in tool_name \
                 and 'save_scenario' not in tool_name \
                 and tool_name not in TOOLS_TO_IGNORE:
-                    filtered_tools.append(tool)
+                    filtered_tool_schemas.append(tool_schema)
         
-        return [tool.tool_schema.model_dump(exclude_unset=True, exclude_none=True) for tool in filtered_tools]
+        return filtered_tool_schemas
 
     @rollout_trace_op
     async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
@@ -298,7 +299,7 @@ class ToolAgentLoop(AgentLoopBase):
 
         tasks = []
         for tool_call in agent_data.tool_calls[: self.max_parallel_calls]:
-            tasks.append(self._call_tool(tool_call, agent_data.tools_kwargs))
+            tasks.append(self._call_tool(agent_data, tool_call))
 
         with simple_timer("tool_calls", agent_data.metrics):
             responses = await asyncio.gather(*tasks)
@@ -443,27 +444,38 @@ class ToolAgentLoop(AgentLoopBase):
         else:
             return AgentState.GENERATING
 
-    async def _call_tool(self, tool_call: FunctionCall, tools_kwargs: dict[str, Any]) -> ToolResponse:
+    async def _call_tool(self, agent_data: AgentData, tool_call: FunctionCall) -> ToolResponse:
         """Call tool and return tool response."""
-        tool, instance_id = None, None
         try:
-            # TODO: append malformed tool_call to the prompt: invalid function name or arguments
+
             tool_name = tool_call.name
+            tool_class = tool_name.split("-")[0]
             tool_args = json.loads(tool_call.arguments)
-            tool = self.tools[tool_name]
-            kwargs = tools_kwargs.get(tool_name, {})
-            instance_id, _ = await tool.create(create_kwargs=kwargs.get("create_kwargs", {}))
-            tool_execution_response, _, _ = await tool.execute(instance_id, tool_args)
+            kwargs = agent_data.tools_kwargs.get(tool_name, {})
+            client_id = f"{tool_class}-{agent_data.request_id}"
+
+            # Load scenario
+            scenario = agent_data.initial_config.get(tool_class, None)
+            scenario = {"scenario": scenario} if scenario else None
+            tool_execution_response = self.client_manager.load_scenario(
+                scenario = scenario,
+                client_id = client_id
+            )
+
+            # Call tool
+            tool_execution_response = self.client_manager.call_tool(
+                tool_name = tool_name,
+                tool_args = tool_args,
+                client_id = client_id,
+            )
+
         except Exception as e:
             logger.warning(f"Error when executing tool: {e}")
             return ToolResponse(
                 text=f"Error when executing tool: {e}",
             )
-        finally:
-            if tool and instance_id:
-                await tool.release(instance_id)
 
-        tool_response_text = tool_execution_response.text
+        tool_response_text = tool_execution_response
         if tool_response_text and len(tool_response_text) > self.max_tool_response_length:
             if self.tool_response_truncate_side == "left":
                 tool_response_text = tool_response_text[: self.max_tool_response_length] + "...(truncated)"

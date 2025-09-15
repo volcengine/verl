@@ -274,7 +274,8 @@ class TaskRunner:
         from verl.utils import hf_processor, hf_tokenizer
 
         trust_remote_code = config.data.get("trust_remote_code", False)
-        tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
+        truncation_side = config.data.get("truncation_side", "left")
+        tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code, truncation_side=truncation_side)
         # Used for multimodal LLM, could be None
         processor = hf_processor(local_path, trust_remote_code=trust_remote_code, use_fast=True)
 
