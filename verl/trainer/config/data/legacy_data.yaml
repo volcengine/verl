@@ -108,5 +108,13 @@ datagen:
   # E.g. 'MockDataGenerator'
   name: null
 
+databuffer:
+
+  # enable data buffer to conserve samples for DAPO
+  enable: False
+
+  # whether to keep filtered samples to the end of epoch
+  keep_filtered: False
+
 # Additional kwargs when calling tokenizer.apply_chat_template
 apply_chat_template_kwargs: {}

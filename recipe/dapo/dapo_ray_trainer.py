@@ -322,7 +322,7 @@ class RayDAPOTrainer(RayPPOTrainer):
         # load checkpoint before doing anything
         self._load_checkpoint()
         # create smart_dataloader
-        self.smart_dataloader = SmartDataLoader(self.train_dataloader)
+        self.smart_dataloader = SmartDataLoader(self.train_dataloader, self.config.data.databuffer)
 
         # perform validation before training
         # currently, we only support validation using the reward_function.
@@ -499,13 +499,14 @@ class RayDAPOTrainer(RayPPOTrainer):
                                 kept_traj_idxs.append(idx)
 
                         # Return filtered-out originals to filtered buffer
-                        filtered_prompt_uids = set(prompt_uid2metric_vals.keys()) - set(kept_prompt_uids)
-                        if filtered_prompt_uids:
-                            filtered_indices = [
-                                i for i, uid in enumerate(new_batch.non_tensor_batch["uid"]) if uid in filtered_prompt_uids
-                            ]
-                            filtered_original_subset = original_data_proto[filtered_indices]
-                            self.smart_dataloader.return_filtered_samples(filtered_original_subset)
+                        if self.config.data.databuffer.get("keep_filtered", False):
+                            filtered_prompt_uids = set(prompt_uid2metric_vals.keys()) - set(kept_prompt_uids)
+                            if filtered_prompt_uids:
+                                filtered_indices = [
+                                    i for i, uid in enumerate(new_batch.non_tensor_batch["uid"]) if uid in filtered_prompt_uids
+                                ]
+                                filtered_original_subset = original_data_proto[filtered_indices]
+                                self.smart_dataloader.return_filtered_samples(filtered_original_subset)
 
                         new_batch = new_batch[kept_traj_idxs]
                         batch = new_batch if batch is None else DataProto.concat([batch, new_batch])
