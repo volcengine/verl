@@ -1,0 +1,26 @@
+hydra:
+  searchpath:
+    - file://verl/trainer/config
+
+defaults:
+  - ppo_trainer
+  - _self_
+
+data:
+  filter_overlong_prompts: False
+  max_prompt_length: 1024
+  max_response_length: 1024
+  train_batch_size: 256
+  return_raw_chat: True
+  apply_chat_template_kwargs:
+    enable_thinking: True
+  truncation_side: left
+  truncation: left
+
+actor_rollout_ref:
+  hybrid_engine: True
+  rollout:
+    name: sglang
+    multi_turn:
+      enable: True
+      max_assistant_turns: 5
