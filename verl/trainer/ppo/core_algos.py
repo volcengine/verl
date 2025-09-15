@@ -734,7 +734,7 @@ def filtering_sampling(data, metric="response length", metric_name="token_level_
         Returns:
             kept_traj_idxs: the desirable responses to train on.
     """
-    id2response_and_score, id2average_reward = compute_scores(data, metric, adaptive, metric_name)
+    id2response_and_score, id2average_reward = compute_scores(data, metric=metric, metric_name = metric_name, adaptive=adaptive)
     kept_traj_idxs = []
     if adaptive:
         mean_rewards = [id2average_reward[id] for id in id2average_reward]
