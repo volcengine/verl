@@ -99,7 +99,11 @@ class SGLangHttpServer:
         # used for NCCL process group
         if self.node_rank == 0:
             self._master_address = self._server_address
-            self._master_port = get_free_port()
+            self._master_port, self._master_sock = get_free_port(self._server_address)
+            logger.info(
+                f"SGLangHttpServer, replica_rank: {self.replica_rank}, "
+                f"master address: {self._master_address}, port: {self._master_port}"
+            )
         else:
             self._master_address = None
             self._master_port = None
@@ -131,6 +135,8 @@ class SGLangHttpServer:
             "base_gpu_id": 0,
             "gpu_id_step": 1,
             "tp_size": self.config.tensor_model_parallel_size,
+            "dp_size": self.config.data_parallel_size,
+            "ep_size": self.config.expert_parallel_size,
             "node_rank": self.node_rank,
             "load_format": self.config.load_format,
             "dist_init_addr": f"{self._master_address}:{self._master_port}",
@@ -159,8 +165,8 @@ class SGLangHttpServer:
                 scheduler_info=self.scheduler_info,
             )
         )
-        app.is_single_tokenizer_mode = True
-        self._server_port, self._server_task = await run_unvicorn(app, server_args)
+
+        self._server_port, self._server_task = await run_unvicorn(app, server_args, self._server_address)
 
     async def wake_up(self):
         if self.rollout_mode == RolloutMode.HYBRID:
