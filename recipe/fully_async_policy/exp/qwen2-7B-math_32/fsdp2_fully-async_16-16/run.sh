@@ -52,7 +52,7 @@ ref_offload=True
 actor_offload=False
 gen_tp=4
 sp_size=4
-fsdp_size=2
+fsdp_size=8
 
 # Fully async specific parameters
 NNODES_ROLLOUT=${NNODES_ROLLOUT:-2}
