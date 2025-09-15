@@ -243,15 +243,16 @@ class SmartDataLoader:
             fresh_data = self._get_fresh_batch(allow_refresh=False)
             if fresh_data is None:
                 # Hit end of epoch; first consume from filtered buffer excluding seen UIDs
-                filtered_data = self.filtered_buffer.get_samples_excluding(samples_needed, self.data_history)
-                if filtered_data is not None:
-                    collected_data.append(filtered_data)
-                    # ensures that the filtered data is only used once per epoch. Discards after second failure
-                    self.data_history.update(
-                        sample.non_tensor_batch["uid"] 
-                        for sample in filtered_data
-                    ) if filtered_data else None
-                    samples_needed -= len(filtered_data)
+                if self.filtered_buffer:
+                    filtered_data = self.filtered_buffer.get_samples_excluding(samples_needed, self.data_history)
+                    if filtered_data is not None:
+                        collected_data.append(filtered_data)
+                        # ensures that the filtered data is only used once per epoch. Discards after second failure
+                        self.data_history.update(
+                            sample.non_tensor_batch["uid"] 
+                            for sample in filtered_data
+                        )
+                        samples_needed -= len(filtered_data)
 
                 # If still need more, now refresh and try to get fresh data
                 if samples_needed > 0:
