@@ -55,7 +55,7 @@ def default_compute_score(
 
         # from . import math_verify
         # res = math_verify.compute_score(solution_str, ground_truth)
-    elif data_source in ["math_dapo", "math", "math_dapo_reasoning"] or data_source.startswith("aime"):
+    elif data_source == "math_dapo" or data_source.startswith("aime"):
         from . import math_dapo
 
         res = math_dapo.compute_score(solution_str, ground_truth)
@@ -85,7 +85,7 @@ def default_compute_score(
 
             # Assuming prime_code doesn't need the URL
             res = prime_code.compute_score(solution_str, ground_truth, continuous=True)
-    elif data_source in ["hiyouga/geometry3k"]:
+    elif data_source in ["hiyouga/geometry3k"] or data_source.startswith("local:/home/data/"):
         from . import geo3k
 
         res = geo3k.compute_score(solution_str, ground_truth)

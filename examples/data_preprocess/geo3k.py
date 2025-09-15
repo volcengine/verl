@@ -17,24 +17,33 @@ Preprocess the Geometry3k dataset to parquet format
 
 import argparse
 import os
-
+from pathlib import Path
 import datasets
 
 from verl.utils.hdfs_io import copy, makedirs
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--local_dir", default="~/data/geo3k")
+    parser.add_argument("--local_dir", default="~/data/")
     parser.add_argument("--hdfs_dir", default=None)
+    parser.add_argument("--local_dataset_path", default=None)
 
     args = parser.parse_args()
 
-    data_source = "hiyouga/geometry3k"
+    if args.local_dataset_path:
+        local_data_path = Path(args.local_dataset_path)
+        train_path = local_data_path / "data" / "train-00000-of-00001.parquet"
+        test_path = local_data_path / "data" / "test-00000-of-00001.parquet"
+        print("path",train_path)
 
-    dataset = datasets.load_dataset(data_source)
-
-    train_dataset = dataset["train"]
-    test_dataset = dataset["test"]
+        train_dataset = datasets.Dataset.from_parquet(str(train_path))
+        test_dataset = datasets.Dataset.from_parquet(str(test_path))
+        data_source = f"local:{args.local_dataset_path}"
+    else:
+        data_source = "hiyouga/geometry3k"
+        dataset = datasets.load_dataset(data_source)
+        train_dataset = dataset["train"]
+        test_dataset = dataset["test"]
 
     instruction_following = (
         r"You FIRST think about the reasoning process as an internal monologue and then provide the final answer. "
