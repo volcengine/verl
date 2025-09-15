@@ -243,7 +243,7 @@ class SmartDataLoader:
             fresh_data = self._get_fresh_batch(allow_refresh=False)
             if fresh_data is None:
                 # Hit end of epoch; first consume from filtered buffer excluding seen UIDs
-                if self.filtered_buffer:
+                if self.filtered_buffer is not None:
                     filtered_data = self.filtered_buffer.get_samples_excluding(samples_needed, self.data_history)
                     if filtered_data is not None:
                         collected_data.append(filtered_data)
