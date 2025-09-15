@@ -423,6 +423,9 @@ class SGLangRollout(BaseRollout):
             is_server_mode = False
         effective_first = first_rank_in_node or is_server_mode
 
+        if self.config.mode == "async" and not self.config.skip_tokenizer_init:
+            raise ValueError("async mode requires skip_tokenizer_init to be True")
+
         if effective_first:
             rank = dist.get_rank()
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
@@ -455,7 +458,7 @@ class SGLangRollout(BaseRollout):
                 "mm_attention_backend": "fa3",
                 "attention_backend": attention_backend if attention_backend is not None else "fa3",
                 # In async mode, we want token in token out.
-                "skip_tokenizer_init": self.config.mode == "async",
+                "skip_tokenizer_init": self.config.skip_tokenizer_init,
             }
 
             if is_server_mode:
@@ -845,6 +848,8 @@ class SGLangRollout(BaseRollout):
             elif _req.state == AsyncRolloutRequestStateEnum.TOOL_CALLING:
                 if _req.messages[-1].tool_calls is not None:
                     parsed_tool_calls = _req.messages[-1].tool_calls
+                    if self.config.skip_tokenizer_init:
+                        _req.messages[-1].tool_calls = None
                     tool_call_results = await asyncio.gather(
                         *[
                             self._tool_map[tool_call.function.name].execute(
@@ -891,11 +896,20 @@ class SGLangRollout(BaseRollout):
                     )
 
                 output = await self._handle_engine_call(_req, request_sampling_params, image_data=image_data)
-                content = output["text"]
+                if self.config.skip_tokenizer_init:
+                    content_ids = output["output_ids"]
+                    content = self.processing_class.decode(content_ids, skip_special_tokens=True)
+                    content_ids = torch.tensor(
+                        content_ids, dtype=_req.input_ids.dtype, device=_req.input_ids.device
+                    ).unsqueeze(0)
+                else:
+                    content_ids = None
+                    content = output["text"]
+
                 finish_reason_type = FinishReasonTypeEnum.from_str(output["meta_info"]["finish_reason"]["type"])
                 current_turns += 1
                 if finish_reason_type == FinishReasonTypeEnum.LENGTH:
-                    _req.add_assistant_message(self.processing_class, content)
+                    _req.add_assistant_message(self.processing_class, content=content, content_ids=content_ids)
                     break
                 else:
                     if self._function_call_parser and self._function_call_parser.has_tool_call(content):
@@ -928,17 +942,21 @@ class SGLangRollout(BaseRollout):
                             )
                         if len(parsed_tool_calls) > 0:
                             _req.add_assistant_message(
-                                self.processing_class, normed_content, tool_calls=parsed_tool_calls
+                                # since the content is updated, we just pass the content not content_ids
+                                self.processing_class,
+                                content=normed_content,
+                                tool_calls=parsed_tool_calls,
                             )
                         else:
-                            _req.add_assistant_message(self.processing_class, content)
+                            _req.add_assistant_message(self.processing_class, content=content, content_ids=content_ids)
                             finish_reason_type = FinishReasonTypeEnum.STOP
                             _req.state = AsyncRolloutRequestStateEnum.COMPLETED
                             break
                     else:
                         _req.add_assistant_message(
                             self.processing_class,
-                            content,
+                            content=content,
+                            content_ids=content_ids,
                         )
                         if (
                             _req.interaction_kwargs

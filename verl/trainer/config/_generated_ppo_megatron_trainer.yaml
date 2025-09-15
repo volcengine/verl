@@ -238,6 +238,7 @@ actor_rollout_ref:
       token2text: false
     skip_rollout: false
     skip_dump_dir: /tmp/rollout_dump
+    skip_tokenizer_init: false
     profiler:
       _target_: verl.utils.profiler.ProfilerConfig
       tool: ${oc.select:global_profiler.tool,null}
@@ -264,6 +265,7 @@ actor_rollout_ref:
         freeze_moe_router: false
     use_fused_kernels: false
     trust_remote_code: false
+    use_remove_padding: false
 data:
   tokenizer: null
   use_shm: false
