@@ -4,6 +4,10 @@ ulimit -n 65535
 
 export VLLM_USE_V1=1
 
+# Include the following export if offline
+export HF_HUB_OFFLINE=1
+export MLFLOW_TRACKING_URI=""
+
 PROJECT_DIR="$(pwd)"
 CONFIG_PATH="$PROJECT_DIR/tools/configs"
 CONFIG_NAME="bfcl_multiturn_grpo"

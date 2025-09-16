@@ -5,6 +5,12 @@ import threading
 import uuid
 from fastmcp import Client
 
+# TODO: write readme.md
+# TODO: enhance logger
+# TODO: support batch tool calling
+# TODO: support loading tools from multiple class
+# TODO: freeze stateless tool class
+
 class MCPClientManager:
     _instance = None  # Private class variable to store the unique instance
 
@@ -151,9 +157,10 @@ class MCPClientManager:
         )
         try:
             result = future.result()
+            print(f"{tool_name} succeeded: {result}")
             return result
         except Exception as e:
-            print(f'Failed in executing tool: {e}')
+            print(f"{tool_name} failed: {e}")
             raise e
 
     async def _call_tool_async(self, tool_name: str, tool_args: dict | str, client: Client):
