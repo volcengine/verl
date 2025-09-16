@@ -23,12 +23,12 @@ tau=10  ### tau=10 is recommended for 'logL',  tau=1 is recommended for 'Lratio'
 python3 -m recipe.disco.main_disco \
     algorithm.adv_estimator=disco \
     algorithm.filter_groups.enable=False \
-    data.train_files=./recipe/disco/data/deepscaler_preview.parquet \
-    data.val_files=./recipe/disco/data/aime24.parquet \
+    data.train_files="${HOME}/data/gsm8k/train.parquet" \
+    data.val_files="${HOME}/data/gsm8k/test.parquet" \
     data.train_batch_size=128 \
     data.val_batch_size=512 \
     data.max_prompt_length=1024 \
-    data.max_response_length=8192 \
+    data.max_response_length=1024 \
     data.filter_overlong_prompts=True \
     actor_rollout_ref.model.path=$MODEL_PATH  \
     actor_rollout_ref.actor.optim.lr=2e-6 \
