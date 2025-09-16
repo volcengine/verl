@@ -446,7 +446,23 @@ class MegatronPPOActor(BasePPOActor):
             # return loss and stats
             return policy_loss, metrics
 
-        def forward_step(batch_iter, model):
+        def forward_step(batch_iter, model, return_schedule_plan: bool = False):
+            """
+            Args:
+                batch_iter: the batch iterator
+                model: the model
+                return_schedule_plan: whether to return the schedule plan, for 1f1b overlap
+            """
+            if return_schedule_plan:
+                assert self.tf_config.overlap_moe_expert_parallel_comm, (
+                    "overlap_moe_expert_parallel_comm must be enabled to return the schedule plan"
+                )
+                from megatron.core.models.gpt.gpt_model import GPTModel
+
+                assert isinstance(model, GPTModel), "model must be a GPTModel"
+                # TODO: support VLM with MoE
+                from verl.models.mcore.model_forward_1f1b_overlap import gptmodel_forward_1f1b_overlap
+
             batch = next(batch_iter)
             batch = batch.to(get_device_id())
             batch = batch.contiguous()
@@ -475,6 +491,8 @@ class MegatronPPOActor(BasePPOActor):
 
             if self.use_fused_kernels:
                 forward_fn = get_mcore_forward_fused_fn(self.hf_config)
+                if return_schedule_plan:
+                    forward_fn = gptmodel_forward_1f1b_overlap
                 # return dict of [logits, entropy]
                 output = forward_fn(
                     model,
@@ -489,6 +507,8 @@ class MegatronPPOActor(BasePPOActor):
                 )
             else:
                 forward_fn = get_mcore_forward_fn(self.hf_config)
+                if return_schedule_plan:
+                    forward_fn = gptmodel_forward_1f1b_overlap
 
                 def logits_processor(logits, label, label_mask):
                     assert logits.shape[:2] == label.shape[:2]
