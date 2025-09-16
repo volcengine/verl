@@ -16,6 +16,10 @@ SOCKET_IFNAME="SOCKET IFNAME FOR CURRENT NODE"  # modify it to the communication
 # obtain the current node IP
 CURRENT_IP=$(ifconfig $SOCKET_IFNAME | grep -Eo 'inet (addr:)?([0-9]{1,3}\.){3}[0-9]{1,3}' | awk '{print $NF}')
 
+export TP_SOCKET_IFNAME=$SOCKET_IFNAME
+export HCCL_SOCKET_IFNAME=$SOCKET_IFNAME
+export GLOO_SOCKET_IFNAME=$SOCKET_IFNAME
+
 # configure environment variables
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 export PYTORCH_NPU_ALLOC_CONF="expandable_segments:True"

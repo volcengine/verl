@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import gc
 import logging
 import os
@@ -28,33 +29,41 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 class vLLMRollout(vLLMRolloutBase):
-    def __init__(self, model_path: str, config: RolloutConfig, tokenizer, model_hf_config, **kwargs):
-        """A vLLM rollout. It requires the module is supported by the vllm.
-
-        Args:
-            module: module here follows huggingface APIs
-            config: DictConfig
-            tokenizer: the task/model tokenizer
-            model_hf_config: the huggingface config to initiallize the generating model in vllm
-            **kwargs: train_tp, for Megatron Backend to initialize hybrid engine (zero redundancy) process group
-        """
+    def __init__(
+        self,
+        config: RolloutConfig,
+        model_config: HFModelConfig,
+        device_mesh: DeviceMesh,
+    ):  
         self.config = config
+        self.model_config = model_config
+        self.device_mesh = device_mesh
         # NPU-ADAPTATION: import vLLM-Ascend patch
         from vllm_ascend.patch import platform
         from vllm_ascend.patch import worker
         from recipe.r1_ascend import engine_core
         # NPU-ADAPTATION END
 
+        if config.layered_summon:
+            self.sleep_level = 1
+        else:
+            self.sleep_level = VLLM_SLEEP_LEVEL
+
+        model_path = model_config.local_path
+        tokenizer = model_config.tokenizer
+        model_hf_config = model_config.hf_config
+        trust_remote_code = model_config.trust_remote_code
+        self.lora_kwargs = (
+            {"enable_lora": True, "max_loras": 1, "max_lora_rank": model_config.lora_rank}
+            if model_config.lora_rank > 0
+            else {}
+        )
+
         tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
         assert tensor_parallel_size <= torch.distributed.get_world_size(), (
             "tensor parallel size should be less than or equal to the world size"
         )
         max_num_batched_tokens = self.config.get("max_num_batched_tokens", 8192)
-
-        if kwargs.get("train_tp") is not None:
-            os.environ["CUDA_TIMER_STREAM_KAFKA_ENABLE"] = "0"
-            os.environ["MEGATRON_IMPORT_TIMERS"] = "0"
-            vllm_ps.initialize_model_parallel(tensor_model_parallel_size=tensor_parallel_size)
         
         # NPU-ADAPTATION: VLLM_DP_SIZE is configured, the DP communication domain needs to be explicitly initialized
         if int(os.environ.get("VLLM_DP_SIZE", "1")) > 1:
@@ -97,11 +106,8 @@ class vLLMRollout(vLLMRolloutBase):
 
         max_model_len = int(config.max_model_len or config.prompt_length + config.response_length)
 
-        trust_remote_code = kwargs.get("trust_remote_code", False)
         load_format = "dummy" if config.load_format.startswith("dummy") else config.load_format
 
-        lora_kwargs = kwargs.pop("lora_kwargs", {})
-        self.lora_kwargs = lora_kwargs
         # copy it to avoid secretly modifying the engine config
         engine_kwargs = config.get("engine_kwargs", {}).get("vllm", {}) or {}
 
@@ -112,6 +118,18 @@ class vLLMRollout(vLLMRolloutBase):
         engine_kwargs = {key: val for key, val in engine_kwargs.items() if val is not None}
         if config.get("limit_images", None):  # support for multi-image data
             engine_kwargs["limit_mm_per_prompt"] = {"image": config.get("limit_images")}
+        
+        compilation_config = {}
+
+        cudagraph_capture_sizes = config.get("cudagraph_capture_sizes")
+        # enforce_eager must be False to use cudagraph
+        if not config.enforce_eager and cudagraph_capture_sizes:
+            if isinstance(cudagraph_capture_sizes, ListConfig):
+                compilation_config["compilation_config"] = CompilationConfig(
+                    level=CompilationLevel.PIECEWISE, cudagraph_capture_sizes=cudagraph_capture_sizes
+                )
+            else:
+                logger.warning(f"cudagraph_capture_sizes must be a list, but got {cudagraph_capture_sizes}")
 
         VLLM_ENABLE_GRAPGH_MODE = int(os.environ.get("VLLM_ENABLE_GRAPH_MODE", "0"))
         self.inference_engine = LLM(
@@ -154,7 +172,8 @@ class vLLMRollout(vLLMRolloutBase):
                 "refresh": True,
             },
             # NPU-ADAPTATION END
-            **lora_kwargs,
+            **compilation_config,
+            **self.lora_kwargs,
             **engine_kwargs,
         )
         # NPU-ADAPTATION: Weight onload and offload, and initialization configurations such as kv_cache.
@@ -164,14 +183,13 @@ class vLLMRollout(vLLMRolloutBase):
         self.gpu_buffers = None
         for name, params in self.model.named_parameters():
             self.cpu_model[name] = torch.empty_like(params, device="cpu")
-        self.free_cache_engine()
-        self.offload_model_weights()
         # NPU-ADAPTATION END
 
         kwargs = dict(
             n=1,
             logprobs=0,  # can be set to 0 and let actor to recompute
             max_tokens=config.response_length,
+            repetition_penalty=config.get("repetition_penalty", 1.0),
         )
 
         kwargs["detokenize"] = False
@@ -270,4 +288,53 @@ class vLLMRollout(vLLMRolloutBase):
 
         gc.collect()
         torch.npu.empty_cache()
+    
+    def _process_mla(self, load_weight=False):
+        for i in range(self.model.model.start_layer, self.model.model.end_layer):
+            mla = self.model.model.layers[i].self_attn.mla_attn.impl
+            if hasattr(mla, "w_kc"):
+                mla.w_kc = None
+                mla.w_vc = None
+            if hasattr(mla, "W_UV"):
+                mla.W_UV = None
+                mla.W_UK_T = None
+            if load_weight:
+                mla.process_weights_after_loading(None)
+    
+    async def resume(self, tags: list[str]):
+        """Resume rollout weights or kv cache in NPU memory.
+
+        Args:
+            tags: weights or kv_cache.
+        """
+        if not self.config.free_cache_engine:
+            return
+
+        if "weights" in tags:
+            self.onload_model_weights()
+        elif "kv_cache" in tags:
+            self.init_cache_engine()
+
+    async def release(self):
+        """Release weights and kv cache in NPU memory."""
+        if not self.config.free_cache_engine:
+            return
+        
+        self.free_cache_engine()
+        self.offload_model_weights()
+
+        if hasattr(self.model.model.layers[0].self_attn, "mla_attn"):
+            self._process_mla()
+
+    async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None], **kwargs):
+        """Update the weights of the rollout model.
+
+        Args:
+            weights: A generator that yields the name of the weight tensor and the tensor itself.
+        """
+        await super().update_weights(weights, **kwargs)
+
+        if hasattr(self.model.model.layers[0].self_attn, "mla_attn"):
+            self._process_mla(load_weight=True)
+
     # NPU-ADAPTATION END

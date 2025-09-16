@@ -418,7 +418,7 @@ def convert_checkpoint_from_transformers_to_megatron_dpskv3(
         print(f"{pp_rank=} {global_layer_idx=} {layer_idx=} {numel=} numel this layer={numel - numel_cur}")
         numel_hf_one_layer = sum([i.numel() for i in hf_layer.state_dict().values()])
         if hasattr(layer.mlp, "router"):
-            numel_hf_one_layer -= (ep_size - 1) // ep_size * numel_w2 * 3 * len(hf_layer.mlp.experts)
+            numel_hf_one_layer -= numel_w2 * 3 * len(hf_layer.mlp.experts) // ep_size * (ep_size - 1)
         assert numel - numel_cur == numel_hf_one_layer, "numel mismatch"
 
     if pp_rank == pp_size - 1:

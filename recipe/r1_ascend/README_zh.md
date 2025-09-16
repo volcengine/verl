@@ -3,7 +3,7 @@
 
 ## 实现细节
 为了在Ascend NPU上实现DeepSeek模型的RL训练，本样例中补充了一些代码，如下所示：
-- 为了能够在更有挑战性的deepscaler数据集上进行训练，我们参考`verl/utils/reward_score/gsm8k.py`实现了`deepscaler.py`
+- 为了能够在更有挑战性的deepscaler数据集上进行训练，我们参考`verl/utils/reward_score/gsm8k.py`实现了`deepscaler.py`。此外，提供了数据集文件转换脚本`json_to_parquet.py`，在格式转换同时给prompt增加激发模型思考的模板。
 - NPU上vLLM的sleep可能存在内存卸载不干净的问题，因此添加了一些patch，手动实现NPU上Rollout模型的卸载与加载。相关代码在`megatron_vllm.py`, `megatron_workers.py`
 - 为了实现vLLM利用所有卡进行专家并行，需要支持vLLM的数据并行。为此添加了一些patch构建正确的DP通信域。相关代码在`vllm_parallel_state.py`, `vllm_rollout_spmd.py`, 此外还需要正确配置`VLLM_DP_SIZE`环境变量
 - NPU的MindSpeed训练框架会将torch.compile无效化来规避训练侧的compile失败，但这会使推理侧无法利用torch.compile加速。为了解决该问题，本样例添加了一些patch，使推理时可以compile，训练时不compile。相关代码`megatron_workers.py`, `patch_compile.py`
@@ -52,7 +52,7 @@ veRL上的NPU环境准备，可参考[ascend_quick_start.rst](../../docs/ascend_
 
 本样准备源码的步骤如下：
 ```shell
-# veRL (commit-id:55e3c)
+# veRL (commit-id:ac2f7)
 git clone https://github.com/volcengine/verl.git
 cd verl
 cd ..
@@ -83,7 +83,12 @@ pip install mathruler
 ```
 
 ### 准备训练数据集与模型权重
-- 数据集放入`./data`, 数据集准备参考: [veRL官方文档](https://verl.readthedocs.io/en/latest/preparation/prepare_data.html)。本样例使用了[deepscaler数据集](https://huggingface.co/datasets/agentica-org/DeepScaleR-Preview-Dataset/blob/main/deepscaler.json)。
+- 数据集放入`./data/deepscaler`。本样例使用了[deepscaler数据集](https://huggingface.co/datasets/agentica-org/DeepScaleR-Preview-Dataset/blob/main/deepscaler.json)。获取`train.parquet`与`test.parquet`文件的方式如下:
+    ```shell
+    # 准备好deepscaler.json文件，在veRL项目目录执行
+    python recipe/r1_ascend/json_to_parquet.py --output_dir ./data/deepscaler --json_path ./deepscaler.json --train_data_ratio 0.9
+    ```
+    经过处理的prompt包含模板：`A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant first thinks about the reasoning process in the mind and then provides the user with the answer. The reasoning process and answer are enclosed within <think> </think> and <answer> </answer> tags, respectively, i.e., <think> reasoning process here </think><answer> answer here </answer>. Put your final answer within \\boxed{{}}. <｜User｜>{content}<｜Assistant｜>`
 
 - 模型放入`./DeepSeek-V3-hf`, 模型下载地址：[DeepSeek-V3](https://huggingface.co/deepseek-ai/DeepSeek-V3)。
 

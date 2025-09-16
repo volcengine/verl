@@ -44,7 +44,7 @@ gen_tp=2
 python3 -m recipe.r1_ascend.main_ppo \
     --config-path="${CONFIG_PATH}" \
     --config-name='ppo_megatron_trainer.yaml' \
-    custom_reward_function.path=recipe.r1_ascend.deepscaler.py \
+    custom_reward_function.path=recipe/r1_ascend/deepscaler.py \
     custom_reward_function.name=compute_score \
     data.train_files="${TRAIN_FILE}" \
     data.val_files="${TEST_FILE}" \
