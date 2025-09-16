@@ -1,113 +1,50 @@
-conda activate verl
+# Verl x CollabLLM
 
-cd /dfs/project/kgrlm/github/verl/examples/data_preprocess
+This repository implements [CollabLLM](https://arxiv.org/pdf/2502.00640) (ICML 2025) using the Verl framework. For the original implementation, see the [CollabLLM repository](https://github.com/Wuyxin/collabllm).
 
-To run CollabLLM
+## Quick Start
 
-1) Generate data for training and validation specifiy mode (one of 'rl' or 'sft') inside of the scripts.
+### 1. Prepare Your Dataset
+
+First, process your dataset using the provided script:
+
 ```bash
-sh recipe/collabllm/process_dataset.sh
+python process_dataset.py
 ```
 
-2) Run training with
+**Requirements:**
+- Input: A Hugging Face multiturn dataset
+- Example format: See [collabllm-multiturn-math-hard](https://huggingface.co/datasets/collabllm/collabllm-multiturn-math-hard)
+- To generate your own dataset: Use [build_dataset.py](https://github.com/Wuyxin/collabllm/blob/main/scripts/engine/build_dataset.py) from the original CollabLLM repository
+
+*Note: Check `process_dataset.py` for example commands and usage.*
+
+### 2. Train Your Model
+
+**For Supervised Fine-Tuning (SFT):**
 ```bash
-sh recipe/collabllm/train_sft_collabllm.sh 
+bash train_sft_collabllm.sh
 ```
 
-2) Run training with
+**For Reinforcement Learning (RL):**
 ```bash
-sh recipe/collabllm/train_rl_collabllm.sh 
+bash train_rl_collabllm.sh
 ```
 
-Structure:
-1) Collaborative simulation -> SGlang Interation rollout: `verl/interactions/collabllm_interation.py`  
-    This interaction class simulates the conversation between the user and the LLM.
+## What is CollabLLM?
 
-    Interaction config is in `verl/examples/sglang_multiturn/config/interaction_config/collabllm_interaction_config.yaml`
+CollabLLM is a method for training language models to collaborate effectively in multi-turn conversations. This implementation adapts the original imlpementation to work with the Verl training framework.
 
-2) Reward computation -> `verl/workers/reward_manager/collabllm.py` and `verl/recipe/collabllm/reward_function.py`
-    This computes the reward based on the interaction data in step 1.
+# Citation
+If you find CollabLLM useful in your research, please cite the following:
 
-
-Modifications:
-1) In `verl/workers/rollout/sglang_rollout/sglang_rollout.py`:
-```
-
-+               if self.config.multi_turn.collabllm_rollouts:
-+                   finish_reason_type = None
-+               else:
-                    finish_reason_type = FinishReasonTypeEnum.from_str(output["meta_info"]["finish_reason"]["type"])
-                    
-```
-
-```
-else:
-                        _req.add_assistant_message(
-                            self.processing_class,
-                            content,
-                        )
-                        if (
-                            _req.interaction_kwargs
-                            and self.interaction_map
-                            and user_turns < self.config.multi_turn.max_user_turns
-                            and current_turns < self.config.multi_turn.max_assistant_turns
-                        ):
-                            _req.state = AsyncRolloutRequestStateEnum.INTERACTING
-                        else:
-+                           # Add ending condition
-+                           finish_reason_type = FinishReasonTypeEnum.STOP
-                            _req.state = AsyncRolloutRequestStateEnum.COMPLETED
-                            break
-```
-
-```
-
-+           if self.config.multi_turn.collabllm_rollouts:
-+               max_assistant_turns = self.config.multi_turn.max_assistant_turns
-+
-+               # for collabllm, firstly generate model reponses
-+               self.config.multi_turn.max_assistant_turns = 1
-+               output_req_list = loop.run_until_complete(
-+                   asyncio.gather(
-+                       *[
-+                           self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) 
-+                           for req in req_list
-+                       ],
-+                       return_exceptions=False
-+                   )
-+               )
-+
-+               # then, collect interaction rollouts
-+               self.config.multi_turn.max_assistant_turns = max_assistant_turns
-+               for req in output_req_list:
-+                   req.state = AsyncRolloutRequestStateEnum.INTERACTING
-+
-+               interaction_requests = [
-+                   deepcopy(req) 
-+                   for req in output_req_list 
-+                   for _ in range(self.config.multi_turn.num_repeat_rollouts)
-+               ]
-+               interaction_req_list = loop.run_until_complete(
-+                   asyncio.gather(
-+                       *[
-+                           self._async_rollout_a_request(req, do_sample, is_validate, **kwargs)
-+                           for req in interaction_requests
-+                       ],
-+                       return_exceptions=False
-+                   )
-+               )
-+               # merge interaction rollouts back to original responses
-+               num_repeats = self.config.multi_turn.num_repeat_rollouts
-+               for i, req in enumerate(output_req_list):
-+                   start_idx = i * num_repeats
-+                   end_idx = start_idx + num_repeats
-+                   interaction_batch = interaction_req_list[start_idx:end_idx]
-+                   
-+                   # Extract messages from interaction rollouts
-+                   req.messages = [
-+                       interaction.messages for interaction in interaction_batch
-+                   ]
-+                   req.state = AsyncRolloutRequestStateEnum.COMPLETED
-+
-+           else:
+```bibtex
+@inproceedings{collabllm2025,
+    title={CollabLLM: From Passive Responders to Active Collaborators},
+    author={Shirley Wu and Michel Galley and Baolin Peng and Hao Cheng and 
+            Gavin Li and Yao Dou and Weixin Cai and James Zou and 
+            Jure Leskovec and Jianfeng Gao},
+    booktitle={International Conference on Machine Learning (ICML)},
+    year={2025}
+}
 ```

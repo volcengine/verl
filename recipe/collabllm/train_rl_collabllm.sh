@@ -11,14 +11,14 @@ python3 -m verl.trainer.main_ppo \
     --config-name collabllm_trainer \
     trainer.val_before_train=False \
     algorithm.adv_estimator=grpo \
-    data.train_files=$HOME/data/collabllm-math-hard/train.parquet \
-    data.val_files=$HOME/data/collabllm-math-hard/validation.parquet \
+    data.train_files=$HOME/data/collabllm-math-hard/rl_train.parquet \
+    data.val_files=$HOME/data/collabllm-math-hard/rl_validation.parquet \
     reward_model.reward_manager=collabllm \
     +reward_model.reward_kwargs.metric_weights.accuracy=1 \
     +reward_model.reward_kwargs.metric_weights.interactivity=1 \
-    +reward_model.reward_kwargs.metric_weights.token_amount=-0.001 \
+    +reward_model.reward_kwargs.metric_weights.token_amount=-0.0002 \
     +reward_model.reward_kwargs.llm_judge_kwargs.model=gpt-4o-mini \
-    +reward_model.reward_kwargs.llm_judge_kwargs.max_tokens=512 \
+    +reward_model.reward_kwargs.llm_judge_kwargs.max_tokens=1024 \
     +reward_model.reward_kwargs.llm_judge_kwargs.temperature=0 \
     data.train_batch_size=16 \
     data.max_prompt_length=4096 \
@@ -42,6 +42,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.mode=async \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.n=8 \
+    actor_rollout_ref.rollout.temperature=1.0 \
     actor_rollout_ref.rollout.free_cache_engine=True \
     actor_rollout_ref.rollout.multi_turn.enable=true \
     actor_rollout_ref.rollout.multi_turn.format=hermes \
@@ -58,7 +59,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.nnodes=1 \
     trainer.n_gpus_per_node=8 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
-    trainer.save_freq=-1 \
+    trainer.save_freq=100 \
     trainer.test_freq=5 \
     trainer.total_epochs=20 \
     custom_reward_function.path=recipe/collabllm/reward_function.py \

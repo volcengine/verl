@@ -15,6 +15,17 @@
 
 #!/usr/bin/env python3
 """
+python recipe/collabllm/process_dataset.py \
+  --dataset collabllm/collabllm-multiturn-math-hard  \
+  --local_dir $HOME/data/collabllm-math-hard \
+  --dataset_type sft
+
+
+python recipe/collabllm/process_dataset.py \
+  --dataset collabllm/collabllm-multiturn-math-hard  \
+  --local_dir $HOME/data/collabllm-math-hard \
+  --dataset_type rl
+  
 Preprocess collabllm/collabllm-multiturn-math-hard into (ground_truth, extra_info).
 
 - ground_truth: picked from --prefer_field (default: single_turn_completion),
@@ -26,23 +37,36 @@ Saves one parquet per split into --local_dir and a small JSON preview.
 """
 
 import argparse
+import json
 import os
 import uuid
 from typing import Any, Optional
 
-from datasets import Dataset, load_dataset
+from datasets import Dataset, concatenate_datasets, load_dataset
 
-SYSTEM_PROMPT = """The assistant is designed to be helpful, proactive, and highly interactive.
+SYSTEM_PROMPT = SYSTEM_PROMPT = """The assistant is designed to be helpful, proactive, and highly interactive.
 
-The assistant strives to accurately interpret the user's intent throughout the conversation, acknowledging previous interactions to maintain context and continuity. If the user's message is unclear or lacks necessary details, the assistant always asks for clarification rather than making assumptions. For example, if the user's request is incomplete, the assistant responds with: "Could you provide more details so I can assist you better?"
+The assistant strives to accurately interpret the user's intent throughout the conversation, acknowledging previous
+interactions to maintain context and continuity. If the user's message is unclear or lacks necessary details, the
+assistant always asks for clarification rather than making assumptions. For example, if the user's request is
+incomplete, the assistant responds with: "Could you provide more details so I can assist you better?"
 
-The assistant asks specific follow-up questions and offers suggestions based on the user's needs, avoiding vague or generic prompts. It proactively provides guidance and potential next steps, especially in complex tasks such as writing, analysis, coding, and question answering.
+The assistant asks specific follow-up questions and offers suggestions based on the user's needs, avoiding vague or
+generic prompts. It proactively provides guidance and potential next steps, especially in complex tasks such as
+writing, analysis, coding, and question answering.
 
-The assistant is mindful of how much content the user needs to read or type, keeping interactions concise and efficient. It reduces unnecessary repetition and ensures responses are relevant, well-structured, and free from errors. When presenting options or asking for feedback, the assistant simplifies interactions by offering multiple-choice answers or specific suggestions to make it easier for the user to respond quickly.
+The assistant is mindful of how much content the user needs to read or type, keeping interactions concise and
+efficient. It reduces unnecessary repetition and ensures responses are relevant, well-structured, and free from
+errors. When presenting options or asking for feedback, the assistant simplifies interactions by offering
+multiple-choice answers or specific suggestions to make it easier for the user to respond quickly.
 
-The assistant adapts its tone to align with the user's emotional state and style, adjusting its approach as needed. If uncertain about something, the assistant honestly says, "I don't know," and suggests ways for the user to find the information.
+The assistant adapts its tone to align with the user's emotional state and style, adjusting its approach as needed.
+If uncertain about something, the assistant honestly says, "I don't know," and suggests ways for the user to find
+the information.
 
-The assistant provides factually accurate, coherent, and relevant responses, using proper grammar and structure. It remains interactive and proactive across all tasks, continually seeking feedback to refine and improve interactions."""
+The assistant provides factually accurate, coherent, and relevant responses, using proper grammar and structure. It
+remains interactive and proactive across all tasks, continually seeking feedback to refine and improve
+interactions."""
 
 
 # Required fields: "prompt", "ground_truth", "extra_info"
@@ -134,31 +158,78 @@ def main():
 
     print(f"[INFO] Loading dataset: {args.dataset}")
     ds_dict = load_dataset(args.dataset)
-
-    # If multiple splits exist, merge them before collapsing/splitting.
     parts = list(ds_dict.values())
     ds_all: Dataset = parts[0] if len(parts) == 1 else concatenate_datasets(parts)
-    ds_all = ds_all.map(lambda x: {"task_desc": args.task_desc}, num_proc=args.num_proc)
+    # Dataset({
+    #     features: ['prompt', 'completion', 'conv_id', 'score', 'single_turn_prompt',
+    #       'single_turn_completion', 'single_turn_metadata', 'turn_id', 'sessions', 'rewards'],
+    #     num_rows: xxx
+    # })
 
-    print(f"[INFO] Collapsing to formatted fields on {len(ds_all)} rows…")
-    ds_all = ds_all.map(
-        function=collapse_example,
-        remove_columns=ds_all.column_names,
-        num_proc=args.num_proc,
-    )
+    if args.dataset_type == "rl":
+        # If multiple splits exist, merge them before collapsing/splitting.
+        ds_all = ds_all.map(lambda x: {"task_desc": args.task_desc}, num_proc=args.num_proc)
+
+        print(f"[INFO] Collapsing to formatted fields on {len(ds_all)} rows…")
+        ds_all = ds_all.map(
+            function=collapse_example,
+            remove_columns=ds_all.column_names,
+            num_proc=args.num_proc,
+        )
+
+        def dedup_by_prompt(dataset):
+            seen = set()
+            unique_rows = []
+            for ex in dataset:
+                prompt_key = json.dumps(ex["prompt"], sort_keys=True, ensure_ascii=False)
+                if prompt_key not in seen:
+                    seen.add(prompt_key)
+                    unique_rows.append(ex)
+            return Dataset.from_list(unique_rows)
+
+        ds_all = dedup_by_prompt(ds_all)
+
+    elif args.dataset_type == "sft":
+        df = ds_all.to_pandas()
+
+        # Sort so that within each conv_id the highest turn_id is first,
+        # and if multiple rows share the same turn_id, the highest score comes first
+        df = df.sort_values(["conv_id", "turn_id", "score"], ascending=[True, False, False])
+
+        # Keep only the top row per conv_id
+        df = df.drop_duplicates(subset="conv_id", keep="first")
+
+        # Back to HF Dataset
+        ds_all = Dataset.from_pandas(df, preserve_index=False)
+
+        # Append assistant response into prompt list
+        def append_completion(example):
+            example["prompt"] = (
+                [{"role": "system", "content": SYSTEM_PROMPT}]
+                + example["prompt"]
+                + [{"role": "assistant", "content": example["completion"]}]
+            )
+            return example
+
+        ds_all = ds_all.map(append_completion)
+
+        # Keep only prompt column
+        cols_to_remove = [col for col in ds_all.column_names if col != "prompt"]
+        ds_all = ds_all.remove_columns(cols_to_remove)
+        import pdb
+
+        pdb.set_trace()
 
     print(f"[INFO] Splitting with validation_size={args.validation_size}, seed={args.seed}")
     split = ds_all.train_test_split(test_size=args.validation_size, seed=args.seed, shuffle=True)
     train_ds, val_ds = split["train"], split["test"]
     print(train_ds, val_ds)
 
-    print(train_ds["extra_info"][0].keys())
-
-    save_parquet(train_ds, "train", out_dir)
-    save_parquet(val_ds, "validation", out_dir)
+    save_parquet(train_ds, f"{args.dataset_type}_train", out_dir)
+    save_parquet(val_ds, f"{args.dataset_type}_validation", out_dir)
 
     maybe_copy_to_hdfs(local_dir=out_dir, hdfs_dir=args.hdfs_dir)
-    print("[DONE] train.parquet and validation.parquet written.")
+    print(f"[DONE] {args.dataset_type}_train.parquet and {args.dataset_type}_validation.parquet written.")
 
 
 if __name__ == "__main__":
