@@ -212,8 +212,20 @@ def dispatch_nd_compute(dp_rank_mapping: list[int], dp_size, worker_group, *args
 
     assert isinstance(worker_group, WorkerGroup)
 
-    args = [[ray.put(dp_arg) for dp_arg in arg] for arg in args]
-    kwargs = {k: [ray.put(dp_v) for dp_v in v] for k, v in kwargs.items()}
+    def put_ray_data_with_thread(data):
+        import os
+        from concurrent.futures import ThreadPoolExecutor
+
+        num_threads = max(1, min(sum(len(arg) for arg in args), os.cpu_count()))
+        object_refs = []
+
+        with ThreadPoolExecutor(max_workers=num_threads) as executor:
+            object_refs = list(executor.map(ray.put, data))
+
+        return object_refs
+
+    args = [put_ray_data_with_thread(arg) for arg in args]
+    kwargs = {k: put_ray_data_with_thread(v) for k, v in kwargs.items()}
 
     all_args = []
     for arg in args:
