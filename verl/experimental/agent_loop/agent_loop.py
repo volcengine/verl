@@ -179,12 +179,12 @@ class AgentLoopBase(ABC):
     _class_initialized = False
 
     def __init__(
-        self,
-        trainer_config: _DummyConfig,
-        server_manager: AsyncLLMServerManager,
-        tokenizer: AutoTokenizer,
-        processor: AutoProcessor,
-        **kwargs,
+            self,
+            trainer_config: _DummyConfig,
+            server_manager: AsyncLLMServerManager,
+            tokenizer: AutoTokenizer,
+            processor: AutoProcessor,
+            **kwargs,
     ):
         """Initialize agent loop, each sample will have its own loop instance.
 
@@ -329,8 +329,8 @@ class RewardManagerWorker:
         self.rm_executor = rm_executor
 
     def compute_score(
-        self,
-        data: DataProto,
+            self,
+            data: DataProto,
     ) -> dict:
         """Compute reward score for agent loop output.
 
@@ -355,7 +355,7 @@ class AgentLoopWorker:
     """Agent loop worker takes a batch of messages and run each message in an agent loop."""
 
     def __init__(
-        self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], rm_executor: BatchExecutor = None
+            self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], rm_executor: BatchExecutor = None
     ):
         """Initialize agent loop manager.
 
@@ -364,7 +364,11 @@ class AgentLoopWorker:
             server_handles (List[ray.actor.ActorHandle]): OpenAI compatible LLM server actor handles.
         """
         self.config = config
-        self.server_manager = AsyncLLMServerManager(config, server_handles)
+
+        if self.AsyncLLMServerManager == None:
+            self.AsyncLLMServerManager = AsyncLLMServerManager
+
+        self.server_manager = self.AsyncLLMServerManager(config, server_handles)
         self.rm_executor = rm_executor
 
         model_path = config.actor_rollout_ref.model.path
@@ -455,19 +459,19 @@ class AgentLoopWorker:
         return output
 
     async def _run_agent_loop(
-        self,
-        sampling_params: dict[str, Any],
-        trajectory: dict[str, Any],
-        *,
-        agent_name: str,
-        **kwargs,
+            self,
+            sampling_params: dict[str, Any],
+            trajectory: dict[str, Any],
+            *,
+            agent_name: str,
+            **kwargs,
     ) -> _InternalAgentLoopOutput:
         with rollout_trace_attr(
-            step=trajectory["step"],
-            sample_index=trajectory["sample_index"],
-            rollout_n=trajectory["rollout_n"],
-            validate=trajectory["validate"],
-            name="agent_loop",
+                step=trajectory["step"],
+                sample_index=trajectory["sample_index"],
+                rollout_n=trajectory["rollout_n"],
+                validate=trajectory["validate"],
+                name="agent_loop",
         ):
             assert agent_name in _agent_loop_registry, (
                 f"Agent loop {agent_name} not registered, registered agent loops: {_agent_loop_registry.keys()}"
@@ -550,8 +554,8 @@ class AgentLoopWorker:
             # TODO: support other multi-modal inputs
             multi_modal_inputs = None
             if (
-                self.processor is not None
-                and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__
+                    self.processor is not None
+                    and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__
             ):
                 from verl.models.transformers.qwen2_vl import get_rope_index
 
@@ -580,8 +584,8 @@ class AgentLoopWorker:
             else:
                 position_ids = compute_position_id_with_mask(attention_mask)  # (1, seq_len)
             enable_async_reward = (
-                self.rm_executor is not None and self.config.reward_model.enable_resource_pool
-            ) or not self.config.reward_model.enable
+                                          self.rm_executor is not None and self.config.reward_model.enable_resource_pool
+                                  ) or not self.config.reward_model.enable
             if output.reward_score is None and enable_async_reward:
                 batch = TensorDict(
                     {
@@ -751,6 +755,9 @@ class AgentLoopManager:
         if self.config.actor_rollout_ref.rollout.free_cache_engine:
             self.sleep()
 
+        # for recipe to change AgentLoopWorker
+        self.AgentLoopWorker = AgentLoopWorker
+
     def _initialize_llm_servers(self):
         rollout_world_size = self.config.actor_rollout_ref.rollout.tensor_model_parallel_size
         world_size = (
@@ -783,7 +790,7 @@ class AgentLoopManager:
             # Round-robin scheduling over the all nodes
             node_id = node_ids[i % len(node_ids)]
             self.agent_loop_workers.append(
-                AgentLoopWorker.options(
+                self.AgentLoopWorker.options(
                     name=f"agent_loop_worker_{i}",
                     scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
                         node_id=node_id, soft=True

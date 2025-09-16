@@ -18,15 +18,86 @@ from typing import Any, Optional
 
 import numpy as np
 import torch
+from tensordict import TensorDict
 
 from verl import DataProto
-from recipe.fully_async_policy.agent_loop.agent_loop import postprocess_agent_loop_outputs
+from verl.experimental.agent_loop.agent_loop import AgentLoopOutput
 from verl.trainer.ppo.ray_trainer import compute_response_mask
 
 
-# Calculate the number of samples needed
-def calculate_one_step_size(minimal_bsz, ppo_mini_batch_size):
-    return minimal_bsz * ppo_mini_batch_size
+def postprocess_agent_loop_outputs(inputs: list[AgentLoopOutput], tokenizer, config) -> DataProto:
+    """Static method to postprocess a list of AgentLoopOutput into DataProto
+
+    Args:
+        inputs: List of AgentLoopOutput
+        tokenizer: Tokenizer instance
+        config: Configuration object
+
+    Returns:
+        DataProto: Processed batch data
+    """
+    # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py
+    # prompts: left pad
+    # responses: right pad
+    # input_ids: prompt + response
+    # attention_mask: [0,0,0,0,1,1,1,1, | 1,1,1,0,0,0,0,0]
+    # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
+
+    # prompts
+    tokenizer.padding_side = "left"
+    outputs = tokenizer.pad(
+        [{"input_ids": input.prompt_ids} for input in inputs],
+        padding="max_length",
+        max_length=config.actor_rollout_ref.rollout.prompt_length,
+        return_tensors="pt",
+        return_attention_mask=True,
+    )
+    prompt_ids, prompt_attention_mask = outputs["input_ids"], outputs["attention_mask"]
+
+    # responses
+    tokenizer.padding_side = "right"
+    outputs = tokenizer.pad(
+        [{"input_ids": input.response_ids} for input in inputs],
+        padding="max_length",
+        max_length=config.actor_rollout_ref.rollout.response_length,
+        return_tensors="pt",
+        return_attention_mask=True,
+    )
+    response_ids, response_attention_mask = outputs["input_ids"], outputs["attention_mask"]
+
+    # response_mask
+    outputs = tokenizer.pad(
+        [{"input_ids": input.response_mask} for input in inputs],
+        padding="max_length",
+        max_length=config.actor_rollout_ref.rollout.response_length,
+        return_tensors="pt",
+        return_attention_mask=False,
+    )
+    response_mask = outputs["input_ids"]
+    assert response_ids.shape == response_mask.shape, (
+        f"mismatch in response_ids and response_mask shape: {response_ids.shape} vs {response_mask.shape}"
+    )
+    response_mask = response_mask * response_attention_mask
+
+    input_ids = torch.cat([prompt_ids, response_ids], dim=1)
+    attention_mask = torch.cat([prompt_attention_mask, response_attention_mask], dim=1)
+    position_ids = (attention_mask.cumsum(dim=1) - 1) * attention_mask
+
+    batch = TensorDict(
+        {
+            "prompts": prompt_ids,  # [bsz, prompt_length]
+            "responses": response_ids,  # [bsz, response_length]
+            "response_mask": response_mask,  # [bsz, response_length]
+            "input_ids": input_ids,  # [bsz, prompt_length + response_length]
+            "attention_mask": attention_mask,  # [bsz, prompt_length + response_length]
+            "position_ids": position_ids,  # [bsz, prompt_length + response_length]
+        },
+        batch_size=len(input_ids),
+    )
+
+    num_turns = np.array([input.num_turns for input in inputs], dtype=np.int32)
+    metrics = [input.metrics.model_dump() for input in inputs]
+    return DataProto(batch=batch, non_tensor_batch={"__num_turns__": num_turns}, meta_info={"metrics": metrics})
 
 
 @dataclass
@@ -157,7 +228,7 @@ def merge_rollout_sample(config, tokenizer, rs: RolloutSample):
 
 
 def assemble_batch_from_rollout_samples(
-    rollout_samples: list[RolloutSample], tokenizer, config, balance_batch=None
+        rollout_samples: list[RolloutSample], tokenizer, config, balance_batch=None
 ) -> DataProto:
     """
     Assemble gen_batch_output from RolloutSample objects
@@ -368,7 +439,7 @@ class MetricsAggregator:
         REQUIRED_PERF_KEYS = {"perf/throughput", "perf/total_num_tokens", "perf/time_per_step"}
         if REQUIRED_PERF_KEYS.issubset(aggregated):
             aggregated["perf/throughput"] = aggregated["perf/total_num_tokens"] / (
-                aggregated["perf/time_per_step"] * self.total_gpus
+                    aggregated["perf/time_per_step"] * self.total_gpus
             )
 
         return aggregated

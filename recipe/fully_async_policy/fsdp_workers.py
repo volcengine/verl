@@ -38,8 +38,9 @@ from verl.utils.fsdp_utils import (
 )
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import get_generation_config, update_model_config
-from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
+from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
+from verl.workers.rollout import get_rollout_class
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -82,6 +83,9 @@ class DetachNcclSync(ActorRolloutRefWorker):
         params = self._get_actor_params() if self._is_actor else None
         if self._is_rollout:
             inference_model = get_inference_model(self.rollout)
+
+            from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
+
             patch_vllm_moe_model_weight_loader(inference_model)
         for key, shape, dtype in self._weights_info:
             tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
@@ -207,32 +211,28 @@ class DetachRolloutWorker(DetachNcclSync):
         rollout_device_mesh = init_device_mesh(
             device_name, mesh_shape=(dp, infer_tp), mesh_dim_names=["dp", "infer_tp"]
         )
+
+        is_collect = rollout_device_mesh["infer_tp"].get_local_rank() == 0
+        self._register_dispatch_collect_info(
+            "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
+        )
+
         rollout_name = self.config.rollout.name
         assert rollout_name == "vllm"
 
-        from verl.workers.rollout.vllm_rollout import vLLMRollout
+        rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
+        model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model, dataclass_type=HFModelConfig)
 
         log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=logger)
-
-        from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
-
-        vllm_rollout_cls = vLLMRollout if self.config.rollout.mode == "sync" else vLLMAsyncRollout
-        rollout = vllm_rollout_cls(
-            model_path=local_path,
-            config=self.config.rollout,
-            tokenizer=self.tokenizer,
-            model_hf_config=actor_model_config,
-            device_mesh=rollout_device_mesh,
-            trust_remote_code=trust_remote_code,
+        rollout = get_rollout_class(rollout_config.name, rollout_config.mode)(
+            config=rollout_config, model_config=model_config, device_mesh=rollout_device_mesh
         )
         log_gpu_memory_usage(f"After building {rollout_name} rollout", logger=logger)
-
         from .detach_sharding_manager import DetachShardingManager
 
         sharding_manager = DetachShardingManager(
             inference_engine=rollout.inference_engine, device_mesh=rollout_device_mesh
         )
-
         log_gpu_memory_usage("After building sharding manager", logger=logger)
 
         self.rollout = rollout

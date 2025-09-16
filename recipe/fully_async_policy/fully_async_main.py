@@ -24,8 +24,9 @@ from omegaconf import OmegaConf
 from recipe.fully_async_policy.fully_async_rollouter import FullyAsyncRollouter
 from recipe.fully_async_policy.fully_async_trainer import FullyAsyncTrainer
 from recipe.fully_async_policy.message_queue import MessageQueue, MessageQueueClient
-from recipe.fully_async_policy.ray_trainer import ResourcePoolManager, Role
+from verl.trainer.ppo.ray_trainer import ResourcePoolManager
 from verl.trainer.ppo.reward import load_reward_manager
+from verl.trainer.ppo.utils import Role
 from verl.utils.fs import copy_to_local
 
 
@@ -270,7 +271,7 @@ class FullyAsyncTaskRunner:
                 for future in done_futures:
                     try:
                         ray.get(future)
-                        print(f"[ASYNC MAIN] One component completed successfully")
+                        print("[ASYNC MAIN] One component completed successfully")
                     except Exception as e:
                         print(f"[ASYNC MAIN] Component failed with error: {e}")
                         for remaining_future in remaining_futures:
@@ -291,7 +292,7 @@ class FullyAsyncTaskRunner:
 
 @hydra.main(config_path="config", config_name="fully_async_ppo_trainer", version_base=None)
 def main(config):
-    from recipe.fully_async_policy.main_ppo import run_ppo
+    from verl.trainer.main_ppo import run_ppo
 
     # Ensure async training config exists
     if not hasattr(config, "async_training"):

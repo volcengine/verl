@@ -28,20 +28,17 @@ from recipe.fully_async_policy.detach_utils import (
     assemble_batch_from_rollout_samples,
 )
 from recipe.fully_async_policy.message_queue import MessageQueueClient
+from recipe.fully_async_policy.ray_trainer import FullyAsyncRayPPOTrainer
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import AdvantageEstimator
-from recipe.fully_async_policy.ray_trainer import (
-    RayPPOTrainer,
-    ResourcePoolManager,
-    Role,
-    WorkerType,
-)
+from verl.trainer.ppo.ray_trainer import ResourcePoolManager
+from verl.trainer.ppo.utils import Role, WorkerType
 from verl.utils.debug import marked_timer
 
 
 @ray.remote(num_cpus=10)
-class FullyAsyncTrainer(RayPPOTrainer):
+class FullyAsyncTrainer(FullyAsyncRayPPOTrainer):
     """
     A fully asynchronous PPO trainer that obtains samples from a MessageQueue for training.
     Based on an improved implementation of OneStepOffRayTrainer

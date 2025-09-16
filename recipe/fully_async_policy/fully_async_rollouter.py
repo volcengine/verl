@@ -24,14 +24,16 @@ from recipe.fully_async_policy.detach_utils import (
     prepare_single_generation_data,
 )
 from recipe.fully_async_policy.message_queue import MessageQueueClient
+from recipe.fully_async_policy.ray_trainer import FullyAsyncRayPPOTrainer
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
-from recipe.fully_async_policy.ray_trainer import RayPPOTrainer, ResourcePoolManager, Role, WorkerType
+from verl.trainer.ppo.ray_trainer import ResourcePoolManager
+from verl.trainer.ppo.utils import Role, WorkerType
 from verl.utils.profiler import marked_timer
 from verl.utils.tracking import ValidationGenerationsLogger
 
 
 @ray.remote(num_cpus=10, max_concurrency=100)
-class FullyAsyncRollouter(RayPPOTrainer):
+class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
     """
     Asynchronous sample generator, responsible for continuously generating training samples
     and putting them into MessageQueue
@@ -227,7 +229,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
         if not hasattr(self.config, "async_training"):
             raise ValueError("[FullyAsyncRollouter] Missing async_training configuration")
         assert self.config.actor_rollout_ref.rollout.calculate_log_probs, "must rollout calculate log_probs"
-        super()._validate_config()
 
     def _create_actor_rollout_classes(self):
         # only create rollout
@@ -257,10 +258,10 @@ class FullyAsyncRollouter(RayPPOTrainer):
     def _init_async_rollout_manager(self):
         # create async rollout manager and request scheduler
         assert self.config.actor_rollout_ref.rollout.mode == "async"
-        from recipe.fully_async_policy.agent_loop import AgentLoopManager
+        from recipe.fully_async_policy.agent_loop import FullyAgentLoopManager
 
         self.async_rollout_mode = True
-        self.async_rollout_manager = AgentLoopManager(
+        self.async_rollout_manager = FullyAgentLoopManager(
             config=self.config,
             worker_group=self.rollout_wg,
         )
