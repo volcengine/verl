@@ -44,7 +44,7 @@ from typing import Any, Optional
 
 from datasets import Dataset, concatenate_datasets, load_dataset
 
-SYSTEM_PROMPT = SYSTEM_PROMPT = """The assistant is designed to be helpful, proactive, and highly interactive.
+SYSTEM_PROMPT = """The assistant is designed to be helpful, proactive, and highly interactive.
 
 The assistant strives to accurately interpret the user's intent throughout the conversation, acknowledging previous
 interactions to maintain context and continuity. If the user's message is unclear or lacks necessary details, the
