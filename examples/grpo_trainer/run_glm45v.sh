@@ -1,19 +1,23 @@
+#!/usr/bin/env bash
 set -x
 ENGINE=${1:-vllm}
 export RAY_DEBUG=legacy
 export USE_OPTIMIZED_MODEL=0
 
+
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=$HOME/data/geo3k/train.parquet \
-    data.val_files=$HOME/data/geo3k/test.parquet \
+    data.train_files=/mnt/wujiahan/data/geo3k/train.parquet \
+    data.val_files=/mnt/wujiahan/data/geo3k/test.parquet \
     data.train_batch_size=32 \
     data.max_prompt_length=1024 \
     data.max_response_length=2048 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     data.image_key=images \
-    actor_rollout_ref.model.path=/mnt/GLM-4.1V-9B-Thinking \
+    +data.enable_thinking=True \
+    reward_model.reward_manager=think_aware \
+    actor_rollout_ref.model.path=/cloud/oss_checkpoints/zai-org/GLM-4.1V-9B-Thinking \
     actor_rollout_ref.model.use_fused_kernels=True \
     actor_rollout_ref.model.fused_kernel_options.impl_backend=torch \
     actor_rollout_ref.actor.optim.lr=1e-6 \
@@ -42,8 +46,8 @@ python3 -m verl.trainer.main_ppo \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
     trainer.logger=[console,wandb] \
-    trainer.project_name='torch_verl_grpo_example_geo3k' \
-    trainer.experiment_name='glm45v_function_rm' \
+    trainer.project_name='torch_verl_grpo_example_geo3k_think' \
+    trainer.experiment_name='glm45v_function_rm_think' \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
     trainer.save_freq=20 \

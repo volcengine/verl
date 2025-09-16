@@ -117,6 +117,9 @@ class RLHFDataset(Dataset):
         self.filter_prompts = config.get("filter_prompts", True)
         self.serialize_dataset = False
         self.return_multi_modal_inputs = config.get("return_multi_modal_inputs", True)
+        
+        # 添加think处理支持
+        self.enable_thinking = config.get("enable_thinking", False)
 
         self._download()
         self._read_files_and_tokenize()
@@ -359,6 +362,13 @@ class RLHFDataset(Dataset):
         row_dict["index"] = index
         row_dict["tools_kwargs"] = tools_kwargs
         row_dict["interaction_kwargs"] = interaction_kwargs
+        
+        # 在返回前检查think处理
+        if self.enable_thinking:
+            # 添加think相关的处理逻辑
+            row_dict["enable_thinking"] = True
+            # 其他think相关处理...
+        
         return row_dict
 
     def __getstate__(self):

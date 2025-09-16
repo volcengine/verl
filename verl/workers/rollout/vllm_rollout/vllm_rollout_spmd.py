@@ -80,25 +80,30 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> list[in
 
 
 class vLLMRollout(BaseRollout):
-    def __init__(self, model_path: str, config: RolloutConfig, tokenizer, model_hf_config, **kwargs):
+    def __init__(self, model_path: str, config: RolloutConfig, tokenizer, model_hf_config, 
+                 device_mesh=None, trust_remote_code=False, **kwargs):
         """A vLLM rollout. It requires the module is supported by the vllm.
 
         Args:
-            module: module here follows huggingface APIs
-            config: DictConfig
+            model_path: Path to the model
+            config: RolloutConfig
             tokenizer: the task/model tokenizer
-            model_hf_config: the huggingface config to initiallize the generating model in vllm
-            **kwargs: train_tp, for Megatron Backend to initialize hybrid engine (zero redundancy) process group
+            model_hf_config: the huggingface config to initialize the generating model in vllm
+            device_mesh: Device mesh for distributed training (optional)
+            trust_remote_code: Whether to trust remote code (default: False)
+            **kwargs: Additional arguments including lora_kwargs
         """
         super().__init__()
         self.config = config
-
+        self.device_mesh = device_mesh
+        self.trust_remote_code = trust_remote_code
+        
         tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
         assert tensor_parallel_size <= torch.distributed.get_world_size(), (
             "tensor parallel size should be less than or equal to the world size"
         )
         max_num_batched_tokens = self.config.get("max_num_batched_tokens", 8192)
-
+        
         if kwargs.get("train_tp") is not None:
             # deployed with megatron
             import os
@@ -396,6 +401,26 @@ class vLLMRollout(BaseRollout):
             # we will recompute old log prob with actor
             batch["rollout_log_probs"] = rollout_log_probs
 
+        # 在生成完成后添加think处理
+        enable_thinking = prompts.meta_info.get("enable_thinking", False)
+        
+        if enable_thinking:
+            # 解码响应文本并分离think内容
+            think_info = []
+            for i in range(batch_size):
+                response_text = self.tokenizer.decode(response[i], skip_special_tokens=True)
+                think_data = self._extract_think_content(response_text)
+                think_info.append(think_data)
+            
+            # 创建think mask
+            think_mask = self._create_think_mask(
+                response, self.think_token_id, self.think_end_token_id
+            )
+            
+            # 添加到batch中
+            batch["think_mask"] = think_mask
+            non_tensor_batch["think_info"] = think_info
+        
         return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
 
 
