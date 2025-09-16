@@ -22,6 +22,7 @@ from omegaconf import DictConfig
 from transformers.utils import get_json_schema
 
 from tests.experimental.agent_loop.agent_utils import init_agent_loop_manager
+from verl.experimental.agent_loop import AgentLoopManager
 from verl.experimental.agent_loop.agent_loop import get_trajectory_info
 from verl.protocol import DataProto
 from verl.tools.base_tool import BaseTool, OpenAIFunctionToolSchema
@@ -49,14 +50,16 @@ def init_config() -> DictConfig:
             ],
         )
 
-    model_path = "Qwen/Qwen2.5-1.5B-Instruct"
+    model_path = os.path.expanduser("~/models/Qwen/Qwen2.5-1.5B-Instruct")
     config.actor_rollout_ref.model.path = model_path
     config.actor_rollout_ref.rollout.name = os.environ["ROLLOUT_NAME"]
     config.actor_rollout_ref.rollout.mode = "async"
+    config.actor_rollout_ref.rollout.enforce_eager = True
     config.actor_rollout_ref.rollout.prompt_length = 4096
     config.actor_rollout_ref.rollout.response_length = 4096
     config.actor_rollout_ref.rollout.n = 4
     config.actor_rollout_ref.rollout.agent.num_workers = 2
+    config.actor_rollout_ref.rollout.skip_tokenizer_init = True
 
     return config
 
@@ -73,7 +76,7 @@ def test_single_turn(init_config):
         }
     )
 
-    agent_loop_manager = init_agent_loop_manager(init_config)
+    agent_loop_manager = AgentLoopManager(init_config)
     tokenizer = hf_tokenizer(init_config.actor_rollout_ref.model.path)
     reward_fn = load_reward_manager(
         init_config, tokenizer, num_examine=0, **init_config.reward_model.get("reward_kwargs", {})
@@ -222,7 +225,7 @@ def test_tool_agent(init_config):
     init_config.actor_rollout_ref.rollout.multi_turn.tool_config_path = tool_config_path
     init_config.actor_rollout_ref.rollout.multi_turn.max_parallel_calls = 2
     init_config.actor_rollout_ref.rollout.calculate_log_probs = True
-    agent_loop_manager = init_agent_loop_manager(init_config)
+    agent_loop_manager = AgentLoopManager(init_config)
 
     # =========================== 2. Generate sequences  ===========================
     raw_prompts = [

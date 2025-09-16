@@ -58,6 +58,16 @@ max_model_len: null
 # max length of sequences
 max_num_seqs: 1024
 
+# may get higher throughput when set to True. When activated, Please increase max_num_batched_tokens or decrease max_model_len.
+enable_chunked_prefill: True
+
+# Prefix caching kv-cache blocks is a popular optimization in LLM inference to avoid redundant prompt computations.
+enable_prefix_caching: True
+
+# Which loader to use for rollout model weights: dummy, hf, megatron, etc.
+# safetensors (for huge model, and set use_shm=True); dummy: randomly init model weight
+load_format: dummy
+
 # [Will be deprecated, use log_prob_micro_batch_size_per_gpu] The batch size for one forward pass in the computation of log_prob. Global batch size.
 log_prob_micro_batch_size: null
 
@@ -172,7 +182,7 @@ multi_turn:
 
 # support logging rollout prob for debugging purpose
 # "Truncated importance sampling" requires rollout log probs, set to True when turning on Truncated importance sampling
-calculate_log_probs: False 
+calculate_log_probs: False
 
 # [Experimental] agent loop based rollout configs
 agent:
@@ -242,6 +252,10 @@ skip_rollout: False
 # Note: Giving path under /tmp/ray/session* is not recommended as these are temporary Ray cluster directories.
 skip_dump_dir: /tmp/rollout_dump
 
+# Whether to skip tokenizer initialization for rollout engine
+# When enabled (True), the rollout assume token in token out for generation
+skip_tokenizer_init: True
+
 # profile the rollout model in `generate_sequence` 
 profiler:
 
@@ -254,7 +268,7 @@ profiler:
 
   # whether enable profile on ref
   enable: ${oc.select:actor_rollout_ref.actor.profiler.enable,false}
-  
+
   # Whether to profile all ranks.
   all_ranks: ${oc.select:actor_rollout_ref.actor.profiler.all_ranks,false}
 

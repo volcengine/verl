@@ -16,7 +16,6 @@ The main entry point to run the PPO algorithm
 """
 
 import asyncio
-import copy
 import datetime
 import logging
 import os
@@ -27,7 +26,7 @@ import psutil
 import torch
 import torch.distributed
 from codetiming import Timer
-from omegaconf import DictConfig, OmegaConf, open_dict
+from omegaconf import DictConfig, OmegaConf
 
 try:
     from mindspeed.megatron_adaptor import repatch
@@ -49,6 +48,7 @@ from verl.utils.device import (
     get_torch_device,
     set_expandable_segments,
 )
+from verl.utils.distributed import set_numa_affinity
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local
 from verl.utils.megatron_utils import (
@@ -149,7 +149,6 @@ class MegatronWorker(Worker):
         self.architectures = getattr(hf_config, "architectures", None)
         if self.rank == 0:
             print(f"Model config after override: {hf_config}")
-        tf_config = hf_to_mcore_config(hf_config, dtype, **override_transformer_config)
 
         if use_mbridge:
             from verl.models.mcore.mbridge import AutoBridge
@@ -159,6 +158,7 @@ class MegatronWorker(Worker):
             tf_config = bridge.config
             self.bridge = bridge
         else:
+            tf_config = hf_to_mcore_config(hf_config, dtype, **override_transformer_config)
             self.bridge = None
 
         print(f"TF config: {tf_config}")
@@ -186,6 +186,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         # 1, users should disable WorkerDict; 2.assign different ResourcePool to different models,
         # 3. and apply the following patch in ray==2.10, https://github.com/ray-project/ray/pull/44385
         if not torch.distributed.is_initialized():
+            set_numa_affinity()
             rank = int(os.environ["LOCAL_RANK"])
             torch.distributed.init_process_group(
                 backend=get_nccl_backend(),
@@ -388,15 +389,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         # 1. parse rollout and huggingface model config
         rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
-
-        # (vermouth1992). self.config.model in megatron differs from that of fsdp in the override_config.
-        # To workaround this we deepcopy self.config.model and make them compatible
-        omega_model_config = copy.deepcopy(self.config.model)
-        with open_dict(omega_model_config):
-            override_config = omega_model_config.override_config.pop("model_config")
-            omega_model_config.override_config = override_config
-
-        model_config: HFModelConfig = omega_conf_to_dataclass(omega_model_config, dataclass_type=HFModelConfig)
+        model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model, dataclass_type=HFModelConfig)
 
         # 2. build rollout device mesh
         infer_tp = self.config.rollout.tensor_model_parallel_size
@@ -433,7 +426,9 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             "qkv_layer_name": "self_attention.linear_qkv.",
             "gate_proj_layer_name": "linear_fc1.",
         }
-        self.weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
+        self.weight_converter = None
+        if not self.bridge:
+            self.weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
 
         # 5. switch to trainer mode
         # NOTE: It's critical that hybrid engine in trainer mode initially to load checkpoint.
@@ -572,12 +567,14 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         set_expandable_segments(False)
 
-        await self.rollout.resume(tags=["weights"])
+        if self.config.rollout.free_cache_engine:
+            await self.rollout.resume(tags=["weights"])
         await self.rollout.update_weights(per_tensor_param)
         if self._is_offload_param:
             offload_megatron_model_to_cpu(self.actor.actor_module)
         aggressive_empty_cache(force_sync=True)
-        await self.rollout.resume(tags=["kv_cache"])
+        if self.config.rollout.free_cache_engine:
+            await self.rollout.resume(tags=["kv_cache"])
 
         # important: need to manually set the random states of each tp to be identical.
         self.torch_random_states = get_torch_device().get_rng_state()
@@ -834,6 +831,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
         # 1, users should disable WorkerDict; 2.assign different ResourcePool to different models,
         # 3. and apply the following patch in ray==2.10, https://github.com/ray-project/ray/pull/44385
         if not torch.distributed.is_initialized():
+            set_numa_affinity()
             rank = int(os.environ["LOCAL_RANK"])
             torch.distributed.init_process_group(
                 backend=get_nccl_backend(),
@@ -1115,6 +1113,7 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
         # 1, users should disable WorkerDict; 2.assign different ResourcePool to different models,
         # 3. and apply the following patch in ray==2.10, https://github.com/ray-project/ray/pull/44385
         if not torch.distributed.is_initialized():
+            set_numa_affinity()
             rank = int(os.environ["LOCAL_RANK"])
             torch.distributed.init_process_group(
                 backend=get_nccl_backend(),

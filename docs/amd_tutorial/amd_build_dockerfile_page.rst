@@ -381,7 +381,7 @@ PPO
 
     GPUS_PER_NODE=8
     MODEL_PATH=Qwen/Qwen2.5-0.5B-Instruct
-    python3 examples/data_preprocess/gsm8k.py --local_dir data/gsm8k
+    python3 examples/data_preprocess/gsm8k.py --local_save_dir data/gsm8k
     python3 -c "import transformers; transformers.pipeline('text-generation', model='$MODEL_PATH')"
     ENGINE=vllm #sglang
 
@@ -436,7 +436,7 @@ GRPO
     GPUS_PER_NODE=8
     MODEL_PATH=Qwen/Qwen2.5-0.5B-Instruct
     # MODEL_PATH=Qwen/Qwen2-7B-Instruct
-    python3 examples/data_preprocess/gsm8k.py --local_dir data/gsm8k
+    python3 examples/data_preprocess/gsm8k.py --local_save_dir data/gsm8k
     python3 -c "import transformers; transformers.pipeline('text-generation', model='$MODEL_PATH')"
     ENGINE=vllm #sglang
     
@@ -716,7 +716,7 @@ slurm_script.sh
 
     echo "Starting data preprocessing..."
     docker exec "${CONTAINER_NAME}" \
-        python3 "examples/data_preprocess/gsm8k.py" "--local_dir" "../data/gsm8k"
+        python3 "examples/data_preprocess/gsm8k.py" "--local_save_dir" "../data/gsm8k"
 
     echo "Starting data preprocessing..."
     docker exec "${CONTAINER_NAME}" \

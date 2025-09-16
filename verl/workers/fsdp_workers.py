@@ -48,6 +48,7 @@ from verl import DataProto
 from verl.models.transformers.monkey_patch import apply_monkey_patch
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
+from verl.third_party.vllm import VLLM_SLEEP_LEVEL
 from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.activation_offload import enable_activation_offloading
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
@@ -119,6 +120,19 @@ def get_sharding_strategy(device_mesh):
     return sharding_strategy
 
 
+def get_vl_model_vision_tower(vl_model_instance):
+    """
+    Util to extract Vision Tower from a VL model instance
+    """
+    if hasattr(vl_model_instance, "model") and hasattr(vl_model_instance.model, "visual"):
+        # transformers >= 4.52.0
+        return vl_model_instance.model.visual
+    elif hasattr(vl_model_instance, "visual"):
+        # transformers < 4.52.0
+        return vl_model_instance.visual
+    return None
+
+
 class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     """
     This worker can be instantiated as a standalone actor or a standalone rollout or a standalone reference policy
@@ -175,6 +189,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         self._is_actor = self.role in ["actor", "actor_rollout", "actor_rollout_ref"]
         self._is_rollout = self.role in ["rollout", "actor_rollout", "actor_rollout_ref"]
         self._is_ref = self.role in ["ref", "actor_rollout_ref"]
+        self.use_orig_params = self.config.actor.fsdp_config.get("use_orig_params", False)
 
         # TODO(haibin.lin):
         # As of now the type of config is DictConfig, if we assign config.profiler with ProfilerConfig,
@@ -399,6 +414,19 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                     "bias": "none",
                 }
                 actor_module = get_peft_model(actor_module, LoraConfig(**lora_config))
+
+        self.use_orig_params = fsdp_config.get("use_orig_params", False)
+        if self.config.actor.get("freeze_vision_tower", False):
+            vision_tower = get_vl_model_vision_tower(actor_module)
+            if vision_tower is not None:
+                vision_tower.requires_grad_(False)
+                self.use_orig_params = True
+                if self.rank == 0:
+                    print("[actor model] Vision tower is set to not trainable.")
+            else:
+                if self.rank == 0:
+                    print("[actor model] No vision tower found.")
+
         torch.distributed.barrier()
 
         if self.rank == 0:
@@ -451,7 +479,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 mixed_precision=mixed_precision,
                 sync_module_states=True,
                 device_mesh=self.device_mesh,
-                use_orig_params=fsdp_config.get("use_orig_params", False),
+                use_orig_params=self.use_orig_params,
                 forward_prefetch=fsdp_config.get("forward_prefetch", False),
             )
         elif fsdp_strategy == "fsdp2":
@@ -587,6 +615,12 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         # used for LoRA
         self.base_sync_done: bool = "dummy" not in self.config.rollout.load_format
+        self.layered_summon = self.config.rollout.get("layered_summon", False)
+        if VLLM_SLEEP_LEVEL == 2 and not self.layered_summon:
+            self.force_reload = True
+            self.base_sync_done = False
+        else:
+            self.force_reload = False
 
         # 5. switch to trainer mode
         # NOTE: It's critical that hybrid engine in trainer mode initially to load checkpoint.
@@ -639,16 +673,18 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 for name, param in params.items()
             )
 
-        await self.rollout.resume(tags=["weights"])
+        if self.config.rollout.free_cache_engine:
+            await self.rollout.resume(tags=["weights"])
         log_gpu_memory_usage("After resume weights", logger=logger)
         await self.rollout.update_weights(per_tensor_param, peft_config=peft_config, base_sync_done=self.base_sync_done)
         log_gpu_memory_usage("After update_weights", logger=logger)
         del params, per_tensor_param
         aggressive_empty_cache(force_sync=True)
-        await self.rollout.resume(tags=["kv_cache"])
+        if self.config.rollout.free_cache_engine:
+            await self.rollout.resume(tags=["kv_cache"])
         log_gpu_memory_usage("After resume kv_cache", logger=logger)
 
-        self.base_sync_done = True
+        self.base_sync_done = not self.force_reload
         # important: need to manually set the random states of each tp to be identical.
         self.torch_random_states = get_torch_device().get_rng_state()
         get_torch_device().set_rng_state(self.gen_random_states)
@@ -1125,6 +1161,7 @@ class CriticWorker(Worker, DistProfilerExtension):
                 f"ppo_micro_batch_size_per_gpu {self.config.ppo_micro_batch_size_per_gpu}"
             )
         self._is_lora = self.config.model.get("lora_rank", 0) > 0
+        self.use_orig_params = self.config.model.fsdp_config.get("use_orig_params", False)
 
     def _build_critic_model_optimizer(self, config):
         # the following line is necessary
@@ -1252,12 +1289,24 @@ class CriticWorker(Worker, DistProfilerExtension):
         fsdp_mesh = self.device_mesh
         sharding_strategy = get_sharding_strategy(fsdp_mesh)
 
+        self.use_orig_params = fsdp_config.get("use_orig_params", False)
+        if self.config.model.get("freeze_vision_tower", False):
+            vision_tower = get_vl_model_vision_tower(critic_module)
+            if vision_tower is not None:
+                vision_tower.requires_grad_(False)
+                self.use_orig_params = True
+                if self.rank == 0:
+                    print("[critic model] Vision tower is set to not trainable.")
+            else:
+                if self.rank == 0:
+                    print("[critic model] No vision tower found.")
+
         # Note: We force turn off CPUOffload for critic because it causes incorrect results when using grad accumulation
         if config.strategy == "fsdp":
             critic_module = FSDP(
                 critic_module,
                 param_init_fn=init_fn,
-                use_orig_params=False,
+                use_orig_params=self.use_orig_params,
                 auto_wrap_policy=auto_wrap_policy,
                 device_id=get_device_id(),
                 sharding_strategy=sharding_strategy,

@@ -14,13 +14,48 @@
 
 
 import torch
+from tensordict import TensorDict
 
-from verl import DataProto
+from verl.utils import tensordict_utils as tu
 from verl.utils.py_functional import append_to_dict
-from verl.utils.seqlen_balancing import restore_dynamic_batch
+from verl.utils.seqlen_balancing import rearrange_micro_batches, restore_dynamic_batch
 
 
-def postprocess_batch_func(output_lst, indices, data: DataProto):
+def prepare_micro_batches(
+    data: TensorDict,
+    dp_group=None,
+    num_batches_divided_by=None,
+    same_micro_num_in_dp=True,
+    min_num_micro_batch=None,
+    use_dynamic_bsz_balance=True,
+):
+    """
+    Prepare micro batches from data.
+    """
+    use_dynamic_bsz = tu.get_non_tensor_data(data=data, key="use_dynamic_bsz", default=True)
+    sp_size = tu.get_non_tensor_data(data=data, key="sp_size", default=1)
+
+    if use_dynamic_bsz:
+        assert "max_token_len_per_gpu" in data.keys(), "max_token_len_per_gpu must be set when use_dynamic_bsz is True"
+        max_token_len_per_gpu = data["max_token_len_per_gpu"]
+        max_token_len = max_token_len_per_gpu * sp_size
+        micro_batches, batch_idx_list = rearrange_micro_batches(
+            data,
+            max_token_len=max_token_len,
+            dp_group=dp_group,
+            num_batches_divided_by=num_batches_divided_by,
+            same_micro_num_in_dp=same_micro_num_in_dp,
+            min_num_micro_batch=min_num_micro_batch,
+            use_dynamic_bsz_balance=use_dynamic_bsz_balance,
+        )
+    else:
+        micro_batch_size_per_gpu = data["micro_batch_size_per_gpu"]
+        micro_batches = data.split(micro_batch_size_per_gpu)
+        batch_idx_list = None
+    return micro_batches, batch_idx_list
+
+
+def postprocess_batch_func(output_lst, indices, data: TensorDict):
     """postprocess the output of a forward_backward_batch.
     output_lst is a list of dict containing outputs for each micro-batch
     reorder entropy and outputs. Return None for other pp ranks
@@ -29,7 +64,7 @@ def postprocess_batch_func(output_lst, indices, data: DataProto):
     each losses_reduced contains 1. model_output, 2. loss, 3. metrics.
     """
 
-    use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", True)
+    use_dynamic_bsz = tu.get_non_tensor_data(data=data, key="use_dynamic_bsz", default=True)
 
     # losses_reduced is a list of dict containing outputs for each micro-batch
     # reorder entropy and outputs. Return None for other pp ranks

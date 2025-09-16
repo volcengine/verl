@@ -26,6 +26,7 @@ __all__ = [
     "CustomAsyncServerConfig",
     "AgentLoopConfig",
     "TraceConfig",
+    "ServerConfig",
     "RolloutConfig",
 ]
 
@@ -90,10 +91,11 @@ class ServerConfig(BaseConfig):
 
 @dataclass
 class RolloutConfig(BaseConfig):
-    _mutable_fields = {"max_model_len"}
+    _mutable_fields = {"max_model_len", "load_format"}
 
     name: Optional[str] = MISSING
     mode: str = "sync"
+    skip_tokenizer_init: bool = True
 
     temperature: float = 1.0
     top_k: int = -1
@@ -114,6 +116,8 @@ class RolloutConfig(BaseConfig):
     enforce_eager: bool = True
     cudagraph_capture_sizes: Optional[list] = None
     free_cache_engine: bool = True
+    data_parallel_size: int = 1
+    expert_parallel_size: int = 1
     tensor_model_parallel_size: int = 2
     max_num_batched_tokens: int = 8192
 
@@ -156,7 +160,10 @@ class RolloutConfig(BaseConfig):
     profiler: Optional[ProfilerConfig] = None
 
     enable_chunked_prefill: bool = True
-    load_format: str = "dummy_dtensor"
+
+    enable_prefix_caching: bool = True
+
+    load_format: str = "dummy"
 
     layered_summon: bool = False
 
@@ -165,3 +172,5 @@ class RolloutConfig(BaseConfig):
     sglang_engine_mode: str = "local"
 
     limit_images: Optional[int] = None
+
+    skip_tokenizer_init: bool = False

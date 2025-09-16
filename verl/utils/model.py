@@ -26,7 +26,11 @@ import torch
 from torch import nn
 from transformers import (
     AutoConfig,
+    AutoModel,
     AutoModelForCausalLM,
+    AutoModelForSequenceClassification,
+    AutoModelForTokenClassification,
+    AutoModelForVision2Seq,
     GenerationConfig,
     MistralForSequenceClassification,
     PretrainedConfig,
@@ -402,6 +406,9 @@ def _load_hf_model(config, model_config, is_value_model, local_cache_path):
     architectures = getattr(model_config, "architectures", [])
     local_cache_path = os.path.expanduser(local_cache_path)
 
+    # get auto class
+    auto_cls = get_hf_auto_model_class(model_config)
+
     if config.model.path.startswith("hdfs:"):
         from verl.utils.fs import copy_to_local
 
@@ -434,7 +441,7 @@ def _load_hf_model(config, model_config, is_value_model, local_cache_path):
             ]  # workaround, 32001 -> 32000
             is_value_model = True
         else:
-            model = AutoModelForCausalLM.from_pretrained(
+            model = auto_cls.from_pretrained(
                 local_model_path,
                 torch_dtype="auto",
                 # device_map="auto", # disable auto device_map, the HF weight is only loaded to CPU in src_rank
@@ -658,13 +665,15 @@ def load_valuehead_model(local_path, torch_dtype, model_config, trust_remote_cod
     return model
 
 
-def get_hf_auto_model_class(hf_config):
-    from transformers import (
-        AutoModel,
-        AutoModelForCausalLM,
-        AutoModelForVision2Seq,
-    )
+_architecture_to_auto_class = {
+    "ForCausalLM": AutoModelForCausalLM,
+    "ForVision2Seq": AutoModelForVision2Seq,
+    "ForTokenClassification": AutoModelForTokenClassification,
+    "ForSequenceClassification": AutoModelForSequenceClassification,
+}
 
+
+def get_hf_auto_model_class(hf_config):
     has_remote_code = hasattr(hf_config, "auto_map") and any(
         hf_config.architectures[0] in val for val in hf_config.auto_map.values()
     )
@@ -678,12 +687,11 @@ def get_hf_auto_model_class(hf_config):
             case _:
                 actor_module_class = AutoModel
     else:
-        if type(hf_config) in AutoModelForVision2Seq._model_mapping.keys():
-            actor_module_class = AutoModelForVision2Seq
-        elif type(hf_config) in AutoModelForCausalLM._model_mapping.keys():
-            actor_module_class = AutoModelForCausalLM
-        else:
-            actor_module_class = AutoModel
+        actor_module_class = AutoModel
+        for key, cls in _architecture_to_auto_class.items():
+            if key in hf_config.architectures[0]:
+                actor_module_class = cls
+                break
 
     return actor_module_class
 
