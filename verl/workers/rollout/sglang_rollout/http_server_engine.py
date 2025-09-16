@@ -222,6 +222,7 @@ class HttpServerAdapter(EngineBase):
         retry_delay: float = DEFAULT_RETRY_DELAY,
         first_rank_in_node: bool = False,
         max_start_wait_time: float = DEFAULT_MAX_WAIT_TIME,
+        launch_server: bool = True,
         **kwargs: Any,
     ) -> None:
         """Initialize the HTTP server engine adapter.
@@ -237,6 +238,8 @@ class HttpServerAdapter(EngineBase):
                 Defaults to DEFAULT_MAX_ATTEMPTS.
             retry_delay (float, optional): Base delay between retries in seconds.
                 Defaults to DEFAULT_RETRY_DELAY.
+            launch_server (bool, optional): Whether to launch the server process.
+                Defaults to True.
             **kwargs (Any): Additional arguments passed to ServerArgs
 
         Note:
@@ -256,9 +259,10 @@ class HttpServerAdapter(EngineBase):
         logger.info(
             f"Launch HttpServerAdapter at: {self.server_args.host}:{self.server_args.port} with {first_rank_in_node}"
         )
-        self.process: multiprocessing.Process = launch_server_process(
-            self.server_args, self.timeout, self.max_start_wait_time, first_rank_in_node
-        )
+        if launch_server:
+            self.process: multiprocessing.Process = launch_server_process(
+                self.server_args, self.timeout, self.max_start_wait_time, first_rank_in_node
+            )
 
         if self.node_rank == 0 and self.router_ip and self.router_port:
             self._register_with_router()
@@ -577,7 +581,6 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
     communication and maintains connection pooling for better performance.
 
     Attributes:
-        _need_reload (bool): Flag indicating if weights need to be reloaded on first use
         max_connections (int): Maximum number of connections in the connection pool
     """
 
@@ -590,6 +593,7 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
         retry_delay: float = DEFAULT_RETRY_DELAY,
         max_connections: int = DEFAULT_MAX_CONNECTIONS,
         first_rank_in_node: bool = False,
+        launch_server: bool = True,
         **kwargs: Any,
     ) -> None:
         """Initialize the async HTTP server engine adapter.
@@ -607,11 +611,20 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
                 Defaults to DEFAULT_RETRY_DELAY.
             max_connections (int, optional): Maximum number of connections in the connection pool.
                 Defaults to DEFAULT_MAX_CONNECTIONS.
+            launch_server (bool, optional): Whether to launch the server process.
+                Defaults to True.
             **kwargs (Any): Additional arguments passed to ServerArgs
         """
-        super().__init__(router_ip, router_port, timeout, max_attempts, retry_delay, first_rank_in_node, **kwargs)
-        # Similar to AsyncEngine, track if we need to reload weights
-        self._need_reload: bool = True
+        super().__init__(
+            router_ip,
+            router_port,
+            timeout,
+            max_attempts,
+            retry_delay,
+            first_rank_in_node,
+            launch_server=launch_server,
+            **kwargs,
+        )
         self.max_connections: int = max_connections
 
     @asynccontextmanager
@@ -729,11 +742,6 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
         Returns:
             Dict[str, Any]: Server response indicating memory resume status
         """
-        # Similar to AsyncEngine, handle first-time reload
-        if self._need_reload:
-            await self.release_memory_occupation()
-            self._need_reload = False
-
         return await self._make_async_request("resume_memory_occupation", {"tags": tags})
 
     async def update_weights_from_tensor(
