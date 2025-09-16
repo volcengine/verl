@@ -113,15 +113,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
         self.trigger_parameter_sync_step = config.async_training.trigger_parameter_sync_step
 
         # calculate required_samples
-        ppo_mini_batch_size = config.actor_rollout_ref.actor.ppo_mini_batch_size
-        rollout_n = config.actor_rollout_ref.rollout.n
-        if ppo_mini_batch_size % rollout_n != 0:
-            raise ValueError(
-                f"PPO mini batch size ({ppo_mini_batch_size}) must be divisible by rollout n ({rollout_n})"
-            )
-        self.required_samples = int(
-            self.minimal_bsz * config.actor_rollout_ref.actor.ppo_mini_batch_size / config.actor_rollout_ref.rollout.n
-        )
+        self.required_samples = config.actor_rollout_ref.actor.ppo_mini_batch_size
         total_gpus = (
             config.trainer.nnodes * config.trainer.n_gpus_per_node
             + config.rollout.nnodes * config.rollout.n_gpus_per_node
