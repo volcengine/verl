@@ -28,10 +28,10 @@ def set_numa_affinity():
     if libnuma.numa_available() < 0:
         return
 
+    initialized = False
     try:
         import pynvml
 
-        initialized = False
         pynvml.nvmlInit()
         initialized = True
         device_name = "NPU" if is_npu_available else "GPU"
