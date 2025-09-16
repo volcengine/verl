@@ -142,7 +142,7 @@ if __name__ == "__main__":
 
     rl_test_dataset = {"prompt": [], "data_source": [], "ability": [], "reward_model": [], "extra_info": []}
 
-    from verl.utils.reward_score.math import last_boxed_only_string, remove_boxed
+    from verl.utils.reward_score.math_reward import last_boxed_only_string, remove_boxed
 
     for o in train_outputs:
         prompt = o[0]

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .math import compute_score
+from .math_reward import compute_score
 
 
 def compute_score_batched(data_sources, solution_strs, ground_truths, extra_infos):

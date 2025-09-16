@@ -41,6 +41,7 @@ def init_config() -> DictConfig:
     config.actor_rollout_ref.rollout.n = 4
     config.actor_rollout_ref.rollout.agent.num_workers = 2
 
+    config.actor_rollout_ref.actor.use_dynamic_bsz = True
     # test sleep/wake_up with fsdp offload
     config.actor_rollout_ref.actor.fsdp_config.param_offload = True
     config.actor_rollout_ref.actor.fsdp_config.optimizer_offload = True
@@ -150,6 +151,8 @@ def test_react_agent(init_config):
         non_tensor_batch={
             "raw_prompt": np.array([np.array(prompt) for prompt in raw_prompts], dtype=object),
             "agent_name": np.array(["react_agent"] * len(raw_prompts)),
+            "data_source": np.array(["openai/gsm8k"] * len(raw_prompts)),
+            "reward_model": np.array([{"style": "rule", "ground_truth": "1.0"}] * len(raw_prompts)),
         },
     )
     batch = batch.repeat(n)

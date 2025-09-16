@@ -108,6 +108,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.val_kwargs.top_k=${top_k} \
     actor_rollout_ref.rollout.val_kwargs.do_sample=True \
     actor_rollout_ref.rollout.val_kwargs.n=1 \
+    actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.ref.megatron.pipeline_model_parallel_size=${train_pp} \
     actor_rollout_ref.ref.megatron.tensor_model_parallel_size=${train_tp} \
     actor_rollout_ref.ref.megatron.param_offload=${offload} \

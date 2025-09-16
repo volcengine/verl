@@ -35,7 +35,8 @@ RUN pip3 install --no-cache-dir \
     'tensordict<0.6' \
     'transformers' \
     'vllm==0.6.3.post1' \
-    'wandb'
+    'wandb' \
+    'tensorboard'
 
 # full dependencies
 RUN pip3 install pytest pre-commit py-spy pyext liger-kernel

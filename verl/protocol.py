@@ -19,18 +19,19 @@ We can subclass Protocol to define more detailed batch info with specific keys
 import contextlib
 import copy
 import logging
+import math
 import os
 import pickle
 from dataclasses import dataclass, field
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 import numpy as np
-import pandas as pd
 import ray
 import tensordict
 import torch
 import torch.distributed
 from packaging import version
+from packaging.version import parse as parse_version
 from tensordict import TensorDict
 from torch.utils.data import DataLoader
 
@@ -42,6 +43,8 @@ __all__ = ["DataProto", "union_tensor_dict"]
 
 with contextlib.suppress(Exception):
     tensordict.set_lazy_legacy(False).set()
+    if parse_version(tensordict.__version__) < parse_version("0.10.0"):
+        tensordict.set_list_to_stack(True).set()
 
 
 class _DataProtoConfigMeta(type):
@@ -118,14 +121,77 @@ def union_tensor_dict(tensor_dict1: TensorDict, tensor_dict2: TensorDict) -> Ten
     return tensor_dict1
 
 
+def _array_equal(array1: np.ndarray, array2: np.ndarray, visited: set[int]) -> bool:
+    """
+    Recursively compares two NumPy arrays for strict equality, with special
+    handling for object-dtype arrays, NaN values, and circular references.
+    This function assumes that the two arguments provided are NumPy arrays.
+
+    Args:
+        array1: The first NumPy array.
+        array2: The second NumPy array.
+
+    Returns:
+        True if the arrays' dtypes, shapes, and all elements are equal.
+    """
+    # Check dtype and shape first, as this is the fastest failure path.
+    if array1.dtype != array2.dtype or array1.shape != array2.shape:
+        return False
+
+    # For non-object dtypes, use NumPy's implementation with equal_nan=True.
+    if array1.dtype != "object":
+        return np.array_equal(array1, array2, equal_nan=True)
+
+    # For object-dtype arrays, we must recursively compare each element.
+    # We delegate to _deep_equal to handle elements, as they could be any
+    # type, including other nested arrays or NaNs.
+    return all(_deep_equal(x, y, visited) for x, y in zip(array1.flat, array2.flat, strict=False))
+
+
+def _deep_equal(a: Any, b: Any, visited: set[int]) -> bool:
+    """
+    Recursively performs a deep comparison between two Python objects.
+    - Handles NaN values correctly (NaN == NaN evaluates to True).
+    - Handling circular references.
+    - Dispatches to _array_equal if both objects are NumPy arrays.
+    - Otherwise, uses standard '==' comparison.
+    """
+    if type(a) is not type(b):
+        return False
+
+    # If we have seen this object ID before on this path, it's a cycle.
+    # Since we already know the types match, we can safely assume this part
+    # of the structure is equal.
+    obj_id = id(a)
+    if obj_id in visited:
+        return True
+
+    visited.add(obj_id)
+
+    # Perform the specific comparison based on type
+    result = False
+    if isinstance(a, float) and math.isnan(a) and math.isnan(b):
+        result = True
+    elif isinstance(a, np.ndarray):
+        # We know b is also an ndarray due to the initial type check
+        result = _array_equal(a, b, visited)
+    else:
+        # Standard equality for all other types
+        result = a == b
+
+    # Clean up the visited set on the way out of the recursion
+    visited.remove(obj_id)
+    return result
+
+
 def union_numpy_dict(tensor_dict1: dict[str, np.ndarray], tensor_dict2: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
     for key, val in tensor_dict2.items():
         if key in tensor_dict1:
             assert isinstance(tensor_dict2[key], np.ndarray)
             assert isinstance(tensor_dict1[key], np.ndarray)
             # to properly deal with nan and object type
-            assert pd.DataFrame(tensor_dict2[key]).equals(pd.DataFrame(tensor_dict1[key])), (
-                f"{key} in tensor_dict1 and tensor_dict2 are not the same object"
+            assert _deep_equal(tensor_dict1[key], tensor_dict2[key], visited=set()), (
+                f"`{key}` in tensor_dict1 and tensor_dict2 are not the same object."
             )
         tensor_dict1[key] = val
 
@@ -181,6 +247,61 @@ def unfold_batch_dim(data: "DataProto", batch_dims=2):
         non_tensor_new[key] = np.reshape(val, newshape=(batch_size, *val.shape[batch_dims:]))
 
     return type(data)(batch=tensor, non_tensor_batch=non_tensor_new, meta_info=data.meta_info)
+
+
+def serialize_single_tensor(obj: torch.Tensor) -> tuple[str, tuple[int, ...], int | memoryview]:
+    data = obj.flatten().contiguous().view(torch.uint8).numpy()
+    dtype = str(obj.dtype).removeprefix("torch.")
+    return dtype, obj.shape, data
+
+
+def serialize_tensordict(batch: TensorDict) -> tuple[tuple[int, ...], Optional[str], dict[str, tuple[str, Any]]]:
+    encoded_items: dict[str, tuple[Any]] = {}
+    for k, v in batch.items():
+        if not v.is_nested:
+            encoded_items[k] = serialize_single_tensor(v)
+        else:
+            layout = str(v.layout).removeprefix("torch.")
+            data = [serialize_single_tensor(tensor) for tensor in v.unbind()]
+            encoded_items[k] = (layout, data)
+
+    batch_size = tuple(batch.batch_size)
+    device = str(batch.device) if batch.device is not None else None
+    return batch_size, device, encoded_items
+
+
+def deserialize_single_tensor(arr: Any) -> torch.Tensor:
+    dtype, shape, data = arr
+
+    torch_dtype = getattr(torch, dtype)
+    assert isinstance(torch_dtype, torch.dtype)
+
+    buffer = bytearray(data)
+    # Create uint8 array
+    arr = torch.frombuffer(buffer, dtype=torch.uint8)
+    # Convert back to proper shape & type
+    return arr.view(torch_dtype).view(shape)
+
+
+def deserialize_tensordict(arr: Any) -> TensorDict:
+    batch_size, device, encoded_items = arr
+    decoded_items: dict[str, Any] = {}
+
+    for k, v in encoded_items.items():
+        if len(v) == 3:
+            # decode single tensor
+            decoded_items[k] = deserialize_single_tensor(v)
+        elif len(v) == 2:
+            # decode nested tensor
+            layout, data = v
+            torch_layout = getattr(torch, layout)
+            decoded_items[k] = torch.nested.as_nested_tensor(
+                [deserialize_single_tensor(tensor) for tensor in data], layout=torch_layout
+            )
+        else:
+            raise ValueError(f"Invalid tensor encoding format, expected length 2 or 3, got {len(v)}")
+
+    return TensorDict(source=decoded_items, batch_size=batch_size, device=device)
 
 
 def collate_fn(x: list["DataProtoItem"]):
@@ -265,27 +386,47 @@ class DataProto:
             raise TypeError(f"Indexing with {type(item)} is not supported")
 
     def __getstate__(self):
-        import io
-
-        buffer = io.BytesIO()
         if version.parse(tensordict.__version__) >= version.parse("0.5.0") and self.batch is not None:
-            self.batch = self.batch.contiguous()
-            self.batch = self.batch.consolidate()
-        torch.save(self.batch, buffer)
-        buffer_bytes = buffer.getvalue()
-        return buffer_bytes, self.non_tensor_batch, self.meta_info
+            batch = self.batch.contiguous().consolidate()
+        else:
+            batch = self.batch
+
+        if os.getenv("VERL_DATAPROTO_SERIALIZATION_METHOD") == "numpy":
+            if batch is not None:
+                batch = serialize_tensordict(self.batch)
+
+            return (
+                batch,
+                self.non_tensor_batch,
+                self.meta_info,
+            )
+        else:
+            import io
+
+            buffer = io.BytesIO()
+            torch.save(batch, buffer)
+            buffer_bytes = buffer.getvalue()
+            return buffer_bytes, self.non_tensor_batch, self.meta_info
 
     def __setstate__(self, data):
-        import io
-
         batch_deserialized_bytes, non_tensor_batch, meta_info = data
-        batch_deserialized = io.BytesIO(initial_bytes=batch_deserialized_bytes)
-        batch = torch.load(
-            batch_deserialized,
-            weights_only=False,
-            map_location="cpu" if not get_torch_device().is_available() else None,
-        )
-        self.batch = batch
+
+        if os.getenv("VERL_DATAPROTO_SERIALIZATION_METHOD") == "numpy":
+            if batch_deserialized_bytes is not None:
+                self.batch = deserialize_tensordict(batch_deserialized_bytes)
+            else:
+                self.batch = None
+        else:
+            import io
+
+            batch_deserialized = io.BytesIO(initial_bytes=batch_deserialized_bytes)
+            batch = torch.load(
+                batch_deserialized,
+                weights_only=False,
+                map_location="cpu" if not get_torch_device().is_available() else None,
+            )
+            self.batch = batch
+
         self.non_tensor_batch = non_tensor_batch
         self.meta_info = meta_info
 
@@ -900,6 +1041,29 @@ class DataProto:
             meta_info=self.meta_info,
         )
 
+    def to_tensordict(self) -> TensorDict:
+        """Convert this DataProto to TensorDict. Note that this requires tensordict version at least 0.10
+
+        Returns:
+
+        """
+        assert parse_version(tensordict.__version__) >= parse_version("0.10"), (
+            "Convert DataProto to TensorDict at least requires tensordict version 0.10"
+        )
+        tensor_batch = self.batch.to_dict()
+        non_tensor_batch = self.non_tensor_batch
+
+        from verl.utils import tensordict_utils as tu
+
+        common_keys = set(tensor_batch.keys()) & set(non_tensor_batch.keys())
+        assert len(common_keys) == 0, f"tensor_batch and non_tensor_batch have common keys {common_keys}"
+
+        for key, val in non_tensor_batch.items():
+            assert isinstance(val, np.ndarray)
+            tensor_batch[key] = val.tolist()
+        output = tu.get_tensordict(tensor_dict=tensor_batch, non_tensor_dict=self.meta_info)
+        return output
+
     def get_data_info(self) -> str:
         """Return formatted information about stored data with nested type details.
 
@@ -999,9 +1163,9 @@ def all_gather_data_proto(data: DataProto, process_group):
     group_size = torch.distributed.get_world_size(group=process_group)
     assert isinstance(data, DataProto)
     prev_device = data.batch.device
-    data.batch = data.batch.to(get_device_id())
+    data = data.to(get_device_id())
     data.batch = allgather_dict_tensors(data.batch.contiguous(), size=group_size, group=process_group, dim=0)
-    data.batch = data.batch.to(prev_device)
+    data = data.to(prev_device)
     # all gather non_tensor_batch
     all_non_tensor_batch = [None for _ in range(group_size)]
     torch.distributed.all_gather_object(all_non_tensor_batch, data.non_tensor_batch, group=process_group)

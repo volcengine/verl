@@ -87,7 +87,7 @@ jobs:
   # Test FSDP2 strategy
   e2e_one_step_off_policy_fsdp2:
     runs-on: [L20x8]
-    timeout-minutes: 50 # Increase timeout for async training
+    timeout-minutes: 10 # Increase timeout for async training
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
@@ -116,7 +116,7 @@ jobs:
   # Test Megatron strategy
   e2e_one_step_off_policy_megatron:
     runs-on: [L20x8]
-    timeout-minutes: 50 # Increase timeout for async training
+    timeout-minutes: 10 # Increase timeout for async training
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}

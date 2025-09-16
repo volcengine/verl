@@ -46,7 +46,7 @@ We preprocess the dataset in parquet format so that (1) it contains necessary fi
 
 .. code-block:: bash
 
-   python3 examples/data_preprocess/gsm8k.py --local_dir ~/data/gsm8k
+   python3 examples/data_preprocess/gsm8k.py --local_save_dir ~/data/gsm8k
 
 Step 2: Download a model for post-training
 -------------------------------------------
@@ -92,6 +92,7 @@ You may set ``VERL_USE_MODELSCOPE=True`` to download models from `modelscope <ht
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.actor.ppo_mini_batch_size=64 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
+    actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=8 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \

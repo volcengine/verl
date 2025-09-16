@@ -28,7 +28,7 @@ from verl.utils.device import get_device_id, get_device_name, get_torch_device
 from verl.utils.megatron.pipeline_parallel import make_batch_generator
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.utils.torch_functional import broadcast_dict_tensor, pad_sequence_to_length
-from verl.workers.reward_model.base import BasePPORewardModel
+from verl.workers.reward_model import BasePPORewardModel
 
 
 class MegatronRewardModel(BasePPORewardModel):

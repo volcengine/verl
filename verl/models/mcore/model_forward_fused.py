@@ -70,6 +70,7 @@ def fused_forward_gptmodel(
     attention_mask: Tensor,
     labels: Tensor,
     labels_mask: Tensor,
+    temperature: float = 1.0,
     **kwargs,
 ):
     pre_process: bool = unwrap_model(model).pre_process
@@ -89,6 +90,7 @@ def fused_forward_gptmodel(
         position_ids=position_ids,
         labels=labels_rmpad,
         packed_seq_params=packed_seq_params,
+        temperature=temperature,
     )
 
     if post_process:
@@ -141,7 +143,7 @@ def fused_forward_qwen2_5_vl(
         packed_seq_params=packed_seq_params,
         pixel_values=pixel_values,
         image_grid_thw=image_grid_thw,
-        labels=labels,
+        labels=labels_rmpad,
     )
     if post_process:
         # output_orig is in type of CausalLMOutputForPPO
