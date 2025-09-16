@@ -90,17 +90,7 @@ def create_role_worker_mapping(config):
 
         ray_worker_group_cls = RayWorkerGroup
 
-    elif config.actor_rollout_ref.actor.strategy == "megatron":
-        assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
-        from recipe.fully_async_policy.megatron_workers import (
-            CriticWorker,
-            DetachActorWorker,
-            DetachAsyncRolloutWorker,
-        )
-        from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
-
-        ray_worker_group_cls = NVMegatronRayWorkerGroup
-
+    # TODO megatron support
     else:
         raise NotImplementedError(f"Unsupported strategy: {config.actor_rollout_ref.actor.strategy}")
 
@@ -113,8 +103,7 @@ def create_role_worker_mapping(config):
     if config.reward_model.enable:
         if config.reward_model.strategy == "fsdp2":
             from verl.workers.fsdp_workers import RewardModelWorker
-        elif config.reward_model.strategy == "megatron":
-            from verl.workers.megatron_workers import RewardModelWorker
+        # TODO megatron support
         else:
             raise NotImplementedError(f"Unsupported reward model strategy: {config.reward_model.strategy}")
 
