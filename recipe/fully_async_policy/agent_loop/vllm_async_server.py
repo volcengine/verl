@@ -11,10 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import asyncio
 import logging
 import os
 import pickle
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Sequence
 
 import ray
 import zmq
@@ -206,6 +207,12 @@ class AsyncvLLMServer(AsyncServerBase):
         self.wg_prefix = wg_prefix
         self.engine: AsyncLLM = None
 
+        # for cancel LLMServer
+        self.paused = False
+        self.lock = asyncio.Lock()
+        self.cancel_event: dict[str, asyncio.Event] = {}
+        self.req_output: dict[str, Optional[RequestOutput]] = {}
+
     async def init_engine(self):
         """Init vLLM AsyncLLM engine."""
         config = self.config
@@ -326,6 +333,60 @@ class AsyncvLLMServer(AsyncServerBase):
         assert final_res is not None
 
         return final_res.outputs[0].token_ids
+
+    async def _generate_step(self, prompt_ids: list[int], sampling_params: dict[str, Any], request_id: str):
+        max_tokens = self.max_model_len - len(prompt_ids)
+        sampling_params = SamplingParams(max_tokens=max_tokens, logprobs=1, **sampling_params)
+        prompt = TokensPrompt(prompt_token_ids=prompt_ids)
+        generator = self.engine.generate(prompt=prompt, sampling_params=sampling_params, request_id=request_id)
+
+        # Get final response
+        self.req_output[request_id]: Optional[RequestOutput] = None
+        async for output in generator:
+            self.req_output[request_id] = output
+        assert self.req_output[request_id] is not None
+
+    async def generate_for_partial(
+        self, prompt_ids: list[int], sampling_params: dict[str, Any], request_id: str
+    ) -> tuple[list[Any], list[Any], bool] | tuple[Sequence[int], list[float], Any]:
+        # 设置中断标志
+        async with self.lock:
+            if self.paused:
+                # cancel 后， 所有任务直接返回，等待下次提交
+                return [], [], True
+            self.cancel_event[request_id] = asyncio.Event()
+            cancel_handle = asyncio.create_task(self.cancel_event[request_id].wait())
+            generation_handle = asyncio.create_task(self._generate_step(prompt_ids, sampling_params, request_id))
+
+        done, pend = await asyncio.wait([generation_handle, cancel_handle], return_when=asyncio.FIRST_COMPLETED)
+
+        for task in done:
+            await task
+
+        for task in pend:
+            task.cancel()
+
+        async with self.lock:
+            token_ids = self.req_output[request_id].outputs[0].token_ids
+            log_probs: list[float] = []
+            for i, x in enumerate(self.req_output[request_id].outputs[0].logprobs):
+                # sampling_params 中 logprobs 设置为1，应该返回1个, 但是实测会有多个，取token_id所对应的log_prob
+                token_id = self.req_output[request_id].outputs[0].token_ids[i]
+                log_probs.append(x[token_id].logprob)
+            is_cancel = generation_handle not in done
+            self.cancel_event.pop(request_id, None)
+            self.req_output.pop(request_id, None)
+        return token_ids, log_probs, is_cancel
+
+    async def cancel(self):
+        async with self.lock:
+            self.paused = True
+            for request_id in self.cancel_event:
+                self.cancel_event[request_id].set()
+
+    async def resume(self):
+        async with self.lock:
+            self.paused = False
 
     async def wake_up(self):
         if self.config.rollout.free_cache_engine:

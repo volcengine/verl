@@ -20,7 +20,7 @@ import numpy as np
 import torch
 
 from verl import DataProto
-from verl.experimental.agent_loop.agent_loop import postprocess_agent_loop_outputs
+from recipe.fully_async_policy.agent_loop.agent_loop import postprocess_agent_loop_outputs
 from verl.trainer.ppo.ray_trainer import compute_response_mask
 
 

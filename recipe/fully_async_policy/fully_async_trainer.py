@@ -31,7 +31,7 @@ from recipe.fully_async_policy.message_queue import MessageQueueClient
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import AdvantageEstimator
-from verl.trainer.ppo.ray_trainer import (
+from recipe.fully_async_policy.ray_trainer import (
     RayPPOTrainer,
     ResourcePoolManager,
     Role,

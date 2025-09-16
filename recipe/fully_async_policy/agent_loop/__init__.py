@@ -13,9 +13,9 @@
 # limitations under the License.
 
 from .agent_loop import AgentLoopBase, AgentLoopManager
+from .partial_single_turn_agent_loop import PartialSingleTurnAgentLoop
 from .single_turn_agent_loop import SingleTurnAgentLoop
-from .tool_agent_loop import ToolAgentLoop
 
-_ = [SingleTurnAgentLoop, ToolAgentLoop]
+_ = [SingleTurnAgentLoop, PartialSingleTurnAgentLoop]
 
 __all__ = ["AgentLoopBase", "AgentLoopManager"]

@@ -51,19 +51,16 @@ __all__ = ["DetachActorWorker", "DetachRolloutWorker", "DetachAsyncRolloutWorker
 
 def get_inference_model(rollout):
     """
-    根据不同类型的inference_engine获取模型对象
+    get models according to different types of inference_engine
     Args:
-        rollout: rollout对象，包含inference_engine
+        rollout: rollout object
     Returns:
         model: 模型对象
     """
     inference_engine = rollout.inference_engine
-    # 判断inference_engine的类型
     if hasattr(inference_engine, "llm_engine"):
-        # LLM类型 - vLLMRollout
         inference_model = inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
     elif hasattr(inference_engine, "worker"):
-        # WorkerWrapperBase类型 - vLLMAsyncRollout
         inference_model = inference_engine.worker.model_runner.model
     else:
         raise AttributeError(
