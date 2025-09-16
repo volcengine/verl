@@ -52,7 +52,7 @@ class RolloutSample:
 @dataclass
 class ValidateMetrics:
     timing_raw: dict[str, Any]
-    metrics: dict[str, Any]
+    metrics: Optional[dict[str, Any]] = None
     global_steps: Optional[int] = None
     param_version: Optional[int] = None
 
@@ -362,14 +362,20 @@ class MetricsAggregator:
     def _special_metrics_aggergate(self, aggregated: dict[str, Any]) -> dict[str, Any]:
         """calculate special metrics"""
 
+        # global_seqlen/minmax_diff
         if "global_seqlen/minmax_diff" in aggregated.keys():
             aggregated["global_seqlen/minmax_diff"] = aggregated["global_seqlen/max"] - aggregated["global_seqlen/min"]
 
+        # perf/throughput
         REQUIRED_PERF_KEYS = {"perf/throughput", "perf/total_num_tokens", "perf/time_per_step"}
         if REQUIRED_PERF_KEYS.issubset(aggregated):
             aggregated["perf/throughput"] = aggregated["perf/total_num_tokens"] / (
                 aggregated["perf/time_per_step"] * self.total_gpus
             )
+        
+        # trainer/idle_ratio
+        if "timing_s/gen" in aggregated.keys() and "timing_s/step" in aggregated.keys():
+           aggregated["trainer/idle_ratio"] = aggregated["timing_s/gen"] / aggregated["timing_s/step"]
 
         return aggregated
 

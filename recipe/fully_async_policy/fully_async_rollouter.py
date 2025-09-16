@@ -127,6 +127,8 @@ class FullyAsyncRollouter(RayPPOTrainer):
         self.dropped_stale_samples = 0
         self.processed_sample_count = 0  # 已处理的样本计数
         self.global_steps = 0
+        self.idle_start_time = None
+        self.version_start_time = None
 
         # Concurrency control
         self.paused = False
@@ -203,24 +205,37 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 + self.cancel_queue.qsize()
                 + await self.message_queue_client.get_queue_size()
             )
+            timing_raw = {}
+            idle_ratio = None
+            if self.idle_start_time is not None and self.version_start_time is not None:
+               rollout_active_time = self.idle_start_time - self.version_start_time
+               rollout_version_time = time.time() - self.version_start_time
+               idle_ratio = 1 - rollout_active_time / rollout_version_time
+               timing_raw["rollouter/active_time"] = rollout_active_time
+               timing_raw["rollouter/version_time"] = rollout_version_time
+               timing_raw["rollouter/idle_ratio"] = idle_ratio
+               self.idle_start_time = None
             print(
                 f"[FullyAsyncRollouter][Public][update_param_version] "
                 f"Parameter version updated from {old_version} to {version} "
                 f",reset staleness_samples to: {self.staleness_samples}"
+                f",idle_ratio: {idle_ratio}"
             )
-            timing_raw = {}
+            val_metrics = None
             if (
                 self.val_reward_fn is not None
                 and self.config.rollout.test_freq > 0
                 and self.current_param_version % self.config.rollout.test_freq == 0
                 and self.current_param_version > 0  # don't test here in the initial parameter sync
             ) or (validate and self.val_reward_fn is not None):
-                with marked_timer("testing", timing_raw, color="green"):
+                with marked_timer("rollouter/validate_time", timing_raw, color="green"):
                     val_metrics: dict = self._validate()
-                data = ValidateMetrics(
-                    timing_raw=timing_raw, metrics=val_metrics, global_steps=global_steps, param_version=version
-                )
-                await self.message_queue_client.put_validate(ray.cloudpickle.dumps(data))
+            data = ValidateMetrics(
+                timing_raw=timing_raw, metrics=val_metrics, global_steps=global_steps, param_version=version
+            )
+            await self.message_queue_client.put_validate(ray.cloudpickle.dumps(data))
+
+            self.version_start_time = time.time()
 
     def _validate_config(self):
         # Validate asynchronous training configuration
@@ -320,6 +335,8 @@ class FullyAsyncRollouter(RayPPOTrainer):
             # self.paused 由 pause() 和 self._should_pause_generation() 负责修改
             if self.paused or await self._should_pause_generation():
                 print("[FullyAsyncRollouter][Processor] 收到暂停信号，等待剩余任务完成...")
+                async with self.lock:
+                    self.paused = True
                 while self.active_tasks:
                     async with self.lock:
                         # 获取锁后，active_tasks 数量会发生变化，需要再次校验
@@ -329,11 +346,10 @@ class FullyAsyncRollouter(RayPPOTrainer):
                             )
                         for task in done_tasks:
                             await task
-                async with self.lock:
-                    self.paused = True
 
                 async with self.lock:
                     while self.paused:
+                        self.idle_start_time = time.time()
                         await self.condition.wait()
 
             # 获取待处理的部分 RolloutSample
