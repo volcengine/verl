@@ -44,6 +44,7 @@ class MultiTurnConfig(BaseConfig):
     _mutable_fields = {"max_assistant_turns", "max_user_turns"}
 
     enable: bool = False
+    collabllm_rollouts: bool = False
     max_assistant_turns: Optional[int] = None
     tool_config_path: Optional[str] = None
     max_user_turns: Optional[int] = None

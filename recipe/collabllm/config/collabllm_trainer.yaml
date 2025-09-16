@@ -18,6 +18,7 @@ actor_rollout_ref:
     name: vllm
     multi_turn:
       enable: True
+      # collabllm_rollouts: True
       max_user_turns: 1
       max_assistant_turns: 3
       num_repeat_rollouts: 2 

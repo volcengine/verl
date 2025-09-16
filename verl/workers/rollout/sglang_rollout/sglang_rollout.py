@@ -329,7 +329,6 @@ class SGLangRollout(BaseRollout):
             except AttributeError as e:
                 raise ValueError(f"Cannot get pad_token_id from processing_class {self.processing_class}") from e
 
-        
     def _init_distributed_env(self, device_mesh_cpu, **kwargs):
         self._device_mesh_cpu = device_mesh_cpu
         os.environ.setdefault("SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK", "true")
@@ -867,7 +866,7 @@ class SGLangRollout(BaseRollout):
 
         # Update with any additional kwargs
         request_sampling_params.update(kwargs)
-        
+
         while current_turns < self.config.multi_turn.max_assistant_turns:
             if _req.state == AsyncRolloutRequestStateEnum.PENDING:
                 await self._handle_pending_state(_req)
@@ -922,13 +921,13 @@ class SGLangRollout(BaseRollout):
 
                 output = await self._handle_engine_call(_req, request_sampling_params, image_data=image_data)
                 content = output["text"]
-                
-                print(f'[SGLangRollout] Assistant: {content[:100]}...')
+
+                print(f"[SGLangRollout] Assistant: {content[:100]}...")
                 if self.config.multi_turn.collabllm_rollouts:
                     finish_reason_type = None
                 else:
                     finish_reason_type = FinishReasonTypeEnum.from_str(output["meta_info"]["finish_reason"]["type"])
-                    
+
                 current_turns += 1
                 if finish_reason_type == FinishReasonTypeEnum.LENGTH:
                     _req.add_assistant_message(self.processing_class, content)
@@ -1003,7 +1002,7 @@ class SGLangRollout(BaseRollout):
                     )
 
                 interaction = self.interaction_map[interaction_name]
-                
+
                 should_terminate_sequence, content, reward, metrics = await interaction.generate_response(
                     _req.request_id, messages, **_req.interaction_kwargs
                 )
@@ -1011,7 +1010,7 @@ class SGLangRollout(BaseRollout):
                 # Add turn check
                 if (
                     should_terminate_sequence
-                    or user_turns > self.config.multi_turn.max_user_turns 
+                    or user_turns > self.config.multi_turn.max_user_turns
                     or current_turns > self.config.multi_turn.max_assistant_turns
                 ):
                     finish_reason_type = FinishReasonTypeEnum.STOP
@@ -1141,11 +1140,8 @@ class SGLangRollout(BaseRollout):
                     self.config.multi_turn.max_assistant_turns = 1
                     output_req_list = loop.run_until_complete(
                         asyncio.gather(
-                            *[
-                                self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) 
-                                for req in req_list
-                            ],
-                            return_exceptions=False
+                            *[self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) for req in req_list],
+                            return_exceptions=False,
                         )
                     )
 
@@ -1155,8 +1151,8 @@ class SGLangRollout(BaseRollout):
                         req.state = AsyncRolloutRequestStateEnum.INTERACTING
 
                     interaction_requests = [
-                        deepcopy(req) 
-                        for req in output_req_list 
+                        deepcopy(req)
+                        for req in output_req_list
                         for _ in range(self.config.multi_turn.num_repeat_rollouts)
                     ]
                     interaction_req_list = loop.run_until_complete(
@@ -1165,7 +1161,7 @@ class SGLangRollout(BaseRollout):
                                 self._async_rollout_a_request(req, do_sample, is_validate, **kwargs)
                                 for req in interaction_requests
                             ],
-                            return_exceptions=False
+                            return_exceptions=False,
                         )
                     )
                     # merge interaction rollouts back to original responses
@@ -1174,11 +1170,9 @@ class SGLangRollout(BaseRollout):
                         start_idx = i * num_repeats
                         end_idx = start_idx + num_repeats
                         interaction_batch = interaction_req_list[start_idx:end_idx]
-                        
+
                         # Extract messages from interaction rollouts
-                        req.messages = [
-                            interaction.messages for interaction in interaction_batch
-                        ]
+                        req.messages = [interaction.messages for interaction in interaction_batch]
                         req.state = AsyncRolloutRequestStateEnum.COMPLETED
 
                 else:

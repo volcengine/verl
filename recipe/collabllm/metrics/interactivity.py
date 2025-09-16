@@ -16,7 +16,7 @@
 from recipe.collabllm.utils import extract_json, parse_messages
 
 INTERACTIVITY_PROMPT = '''You are a helpful and meticulous conversation evaluator. \
-Your task is to evaluate the *interactivity* of the responses provided by an AI assistant \
+Your task is to evaluate the interactivity of the responses provided by an AI assistant \
 to user questions in a given conversation:
 
 <|The Start of the Conversation to be Evaluated|>
@@ -24,14 +24,25 @@ to user questions in a given conversation:
 <|The End of the Conversation to be Evaluated|>
 
 You should assess the assistant's engagement, clarity, and ability to understand the user's needs. \
-Give a float number between 0 and 1, where:
-    1 = Highly interactive: The assistant is very engaging, asks all relevant questions, and significantly enhances understanding and problem-solving.
-     - Example: The assistant thoroughly understands the user's question, asks for necessary clarifications, such as "It sounds like you're asking about the causes of climate change. Are you looking for specific examples or a general overview?"
-    0.5 = Moderately interactive: The assistant is engaging, asks some relevant questions, but can be substantially improved.
-     - Example: The assistant asks some relevant questions about the user's inquiry but misses key details, such as "Are you asking about the effects of climate change?" but does not probe further for clarification.
-    0 = Low interactivity: The assistant shows low engagement, asks few relevant questions, and barely try to understand the user's needs.
-     - Example: The assistant provides a vague or incomplete response without fully understanding the user's intent, such as "Climate change is bad," without asking any follow-up questions or providing detailed information.
+Give a float number between 0 and 1. 
 
+Scoring Criteria:
+- Let U = understanding in [0,1]
+  - 1.0 = Clearly understands the user's intent and responds directly.
+  - 0.7 = Generally understands but misses some nuance.
+  - 0.3 = Misinterprets key parts of the question.
+  - 0.0 = Fails to understand the question.
+- Let Q = clarification in [0,1]
+  - 1.0 = Asks precise, necessary clarifying questions.
+  - 0.7 = Asks somewhat helpful but incomplete clarifications.
+  - 0.3 = Only asks generic questions (e.g., “Does that help?”).
+  - 0.0 = Asks no clarifying questions when needed.
+- Let S = suggestion helpfulness in [0,1]
+  - 1.0 = Provides useful, actionable suggestions beyond the prompt.
+  - 0.7 = Suggestions are somewhat helpful but limited.
+  - 0.3 = Suggestions are vague or generic.
+  - 0.0 = No suggestions when they would clearly help.
+score = average([U, Q, S])
 
 Output format (JSON):
 {{
@@ -39,7 +50,8 @@ Output format (JSON):
     "interactivity": <score>
 }}
 
-Double check if the JSON object is formatted correctly. Ensure that all fields are present and properly structured. Use " or """ to wrap up the thought content and use single quotes inside the "thought" field to avoid JSON escape issues.
+Double check if the JSON object is formatted correctly. Ensure that all fields are present and properly structured. \
+Use " or """ to wrap up the thought and use single quotes inside the "thought" field to avoid JSON escape issues.
 
 Your evaluation:
 '''

@@ -81,6 +81,7 @@ class CollabLLMAgentLoop(ToolAgentLoop):
         # messages are only used in collabllm reward manager
         messages_lst = []
         for _agent_data in interaction_requests:
+            # print(_agent_data.messages[-1]) # print assistant generation
             if not is_valid_messages(_agent_data.messages[-1]):
                 break
             await self.run_agent_data_loop(_agent_data, sampling_params, AgentState.INTERACTING)

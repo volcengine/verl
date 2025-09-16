@@ -244,7 +244,7 @@ def compute_advantage(
     elif adv_estimator == AdvantageEstimator.GRPO:
         # Initialize the mask for GRPO calculation
         grpo_calculation_mask = data.batch["response_mask"]
-        
+
         # Call compute_grpo_outcome_advantage with parameters matching its definition
         advantages, returns = core_algos.compute_grpo_outcome_advantage(
             token_level_rewards=data.batch["token_level_rewards"],
@@ -956,7 +956,6 @@ class RayPPOTrainer:
 
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
-
                 metrics = {}
                 timing_raw = {}
 
@@ -983,12 +982,11 @@ class RayPPOTrainer:
                 with marked_timer("step", timing_raw):
                     # generate a batch
                     with marked_timer("gen", timing_raw, color="red"):
-                        
                         if not self.async_rollout_mode:
                             gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
                         else:
                             gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
-                        
+
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)
 

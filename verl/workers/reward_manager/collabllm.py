@@ -91,6 +91,7 @@ class CollabLLMRewardManager(AbstractRewardManager):
         flattened_extra_infos = [extra_info[i] for _ in range(num_repeat_rollouts) for i in range(batch_size)]
         flattened_messages = [grouped_messages[j][i] for j in range(num_repeat_rollouts) for i in range(batch_size)]
 
+        print("num_repeat_rollouts", num_repeat_rollouts)
         if num_repeat_rollouts > 0:
             tasks = [
                 self.compute_score(
@@ -117,12 +118,11 @@ class CollabLLMRewardManager(AbstractRewardManager):
             weighted_scores_by_metrics = {
                 metric: torch.clamp(
                     scores_by_metrics[metric] * self.metric_weights[metric] / num_repeat_rollouts,
-                    min=0.0 / num_repeat_rollouts,
-                    max=1.0 / num_repeat_rollouts,
+                    min=-1.0,
+                    max=1.0,
                 )
                 for metric in self.metrics
             }
-
             # Compute mean of weighted scores for each metric
             mean_weighted_scores_by_metrics = {
                 metric: weighted_scores_by_metrics[metric].mean(dim=0) for metric in self.metrics
