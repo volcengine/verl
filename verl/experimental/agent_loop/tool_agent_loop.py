@@ -196,6 +196,9 @@ class ToolAgentLoop(AgentLoopBase):
                 logger.error(f"Invalid state: {state}")
                 state = AgentState.TERMINATED
 
+        # Close all stateful clients
+        self.client_manager.close_all_clients(ignore_stateless_client=True)
+
         # Finalize output
         response_ids = agent_data.prompt_ids[-len(agent_data.response_mask) :]
         prompt_ids = agent_data.prompt_ids[: len(agent_data.prompt_ids) - len(agent_data.response_mask)]

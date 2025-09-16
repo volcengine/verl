@@ -105,6 +105,19 @@ class MCPClientManager:
                 del self.clients[client_id]
                 print(f"Client {client_id} closed and removed")
 
+    def close_all_clients(self, ignore_stateless_client: bool = False):
+        """Close all clients"""
+        futures = []
+        for client_id in list(self.clients.keys()):
+            future = asyncio.run_coroutine_threadsafe(self.close_client(client_id), self.loop)
+            futures.append(future)
+        
+        for future in futures:
+            try:
+                future.result()
+            except Exception as e:
+                print(f"Error closing client: {e}")
+
     def load_scenario(self, client_id: str, scenario: dict | str | None = None):
         """Synchronous wrapper for the async call_tool method"""
         client, status = self.get_client(client_id)
@@ -116,8 +129,8 @@ class MCPClientManager:
                 self.loop,
             )
             try:
-                self.set_status(client_id) # TODO: call save scenario to check whether the load is successful
                 result = future.result()
+                self.set_status(client_id) # TODO: call save scenario to check whether the load is successful
                 return result
             except Exception as e:
                 print(f'Failed in executing tool: {e}')
@@ -154,18 +167,12 @@ class MCPClientManager:
     def shutdown(self, timeout=5):
         """Cleanup and shutdown the manager"""
         # Close all clients
-        futures = []
-        for client_id in list(self.clients.keys()):
-            future = asyncio.run_coroutine_threadsafe(self.close_client(client_id), self.loop)
-            futures.append(future)
-        
-        # Wait for clients to close
-        for future in futures:
-            try:
-                future.result(timeout = timeout)
-            except Exception as e:
-                print(f"Error during client shutdown: {e}")
+        self.close_all_clients()
         
         # Stop the event loop
         self.loop.call_soon_threadsafe(self.loop.stop)
-        self.loop_thread.join()
+        self.loop_thread.join(timeout=timeout)
+        
+        # Handle case where thread doesn't join within timeout
+        if self.loop_thread.is_alive():
+            print(f"Warning: Event loop thread did not terminate within {timeout} seconds")
