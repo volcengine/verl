@@ -39,7 +39,7 @@ def test_agent_loop_compute_score():
     with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config")):
         config = compose("ppo_trainer")
 
-    model_path = "Qwen/Qwen2.5-1.5B-Instruct"
+    model_path = os.path.expanduser("~/models/Qwen/Qwen2.5-1.5B-Instruct")
     config.data.return_raw_chat = True
     config.actor_rollout_ref.model.path = model_path
     config.actor_rollout_ref.actor.use_dynamic_bsz = True
@@ -47,6 +47,7 @@ def test_agent_loop_compute_score():
     config.actor_rollout_ref.rollout.mode = "async"
     config.actor_rollout_ref.rollout.prompt_length = 1024
     config.actor_rollout_ref.rollout.response_length = 4096
+    config.actor_rollout_ref.rollout.skip_tokenizer_init = True
 
     # 1. init agent loop manager
     agent_loop_manager = init_agent_loop_manager(config)

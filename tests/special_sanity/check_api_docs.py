@@ -57,8 +57,12 @@ _ALLOW_LIST = [
 def iter_submodules(root: ModuleType) -> Iterable[ModuleType]:
     """Yield *root* and every sub-module inside it."""
     yield root
+
+    def print_pkg_error(pkg_name):
+        print(f"[warn] Skipping {pkg_name!r}", file=sys.stderr)
+
     if getattr(root, "__path__", None):  # only packages have __path__
-        for mod_info in pkgutil.walk_packages(root.__path__, prefix=f"{root.__name__}."):
+        for mod_info in pkgutil.walk_packages(root.__path__, prefix=f"{root.__name__}.", onerror=print_pkg_error):
             try:
                 yield importlib.import_module(mod_info.name)
             except Exception as exc:  # noqa: BLE001

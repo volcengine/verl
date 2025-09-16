@@ -21,9 +21,6 @@ usage: torchrun --standalone --nnodes=1 \
 import numpy as np
 import torch
 from tensordict import TensorDict
-from torch.distributed.device_mesh import init_device_mesh
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp import MixedPrecision, ShardingStrategy
 from utils_sglang import (
     are_lists_similar,
     clean_torchelastic_env,
@@ -35,11 +32,14 @@ from utils_sglang import (
 )
 
 from verl import DataProto
+from verl.utils.config import omega_conf_to_dataclass
+from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.sglang_rollout.sglang_rollout import SGLangRollout
-from verl.workers.sharding_manager.fsdp_sglang import FSDPSGLangShardingManager
 
 
 def test_async_sglang_rollout_w_tool():
+    import os
+
     assert torch.cuda.device_count() >= 2
     initialize_global_process_group()
     clean_torchelastic_env()
@@ -48,7 +48,7 @@ def test_async_sglang_rollout_w_tool():
     max_response_length = 16
     dtype = "bfloat16"
     tensor_parallel_size = 2
-    local_model_path = "Qwen/Qwen2.5-0.5B"
+    local_model_path = os.path.expanduser("~/models/Qwen/Qwen2.5-0.5B")
 
     tokenizer, actor_model = load_tokenizer_and_model(local_model_path)
 
@@ -68,20 +68,6 @@ def test_async_sglang_rollout_w_tool():
 
     hf_response_tokens = generate_hf_output(actor_model, input_ids, attention_mask, tokenizer, max_response_length)
 
-    fsdp_device_mesh = init_device_mesh("cuda", mesh_shape=(tensor_parallel_size,), mesh_dim_names=("fsdp",))
-    inference_device_mesh_cpu = init_device_mesh(
-        "cpu", mesh_shape=(1, tensor_parallel_size, 1), mesh_dim_names=("dp", "infer_tp", "pp")
-    )
-
-    fsdp_model = FSDP(
-        actor_model,
-        use_orig_params=True,
-        device_id=fsdp_device_mesh["fsdp"].get_local_rank(),
-        mixed_precision=MixedPrecision(param_dtype=getattr(torch, dtype)),
-        sharding_strategy=ShardingStrategy.FULL_SHARD,
-        device_mesh=fsdp_device_mesh,
-    )
-
     rollout_config = get_rollout_config(
         max_response_length,
         max_prompt_length,
@@ -89,57 +75,46 @@ def test_async_sglang_rollout_w_tool():
         tensor_parallel_size,
         "./resource/tool_configs/sandbox_fusion_tool_config",
     )
+    rollout_config: RolloutConfig = omega_conf_to_dataclass(rollout_config, dataclass_type=RolloutConfig)
+    model_config = HFModelConfig(path=local_model_path)
     rollout = SGLangRollout(
-        actor_module=local_model_path,
         config=rollout_config,
-        processing_class=tokenizer,
-        model_hf_config=actor_model.config,
+        model_config=model_config,
+        device_mesh=None,
     )
 
-    rollout_sharding_manager = FSDPSGLangShardingManager(
-        module=fsdp_model,
-        inference_engine=rollout._engine,
-        model_config=actor_model.config,
-        rollout_config=rollout_config,
-        full_params=True,
-        device_mesh=inference_device_mesh_cpu,
+    prompt_dict = TensorDict(
+        {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "position_ids": position_ids,
+        },
+        batch_size=input_ids.shape[0],
+    )
+    print(f"preprocessed {input_ids.shape=}")
+
+    messages = np.asarray(preencode_prompts)
+    prompts = DataProto(
+        batch=prompt_dict,
+        non_tensor_batch={
+            "raw_prompt": messages,
+            "tools_kwargs": np.array([{}] * input_ids.shape[0], dtype=object),
+        },
     )
 
-    with rollout_sharding_manager:
-        prompt_dict = TensorDict(
-            {
-                "input_ids": input_ids,
-                "attention_mask": attention_mask,
-                "position_ids": position_ids,
-            },
-            batch_size=input_ids.shape[0],
-        )
-        print(f"preprocessed {input_ids.shape=}")
+    prompts.meta_info.update(
+        {
+            "eos_token_id": tokenizer.eos_token_id,
+            "pad_token_id": tokenizer.pad_token_id,
+        }
+    )
 
-        messages = np.asarray(preencode_prompts)
-        prompts = DataProto(
-            batch=prompt_dict,
-            non_tensor_batch={
-                "raw_prompt": messages,
-                "tools_kwargs": np.array([{}] * input_ids.shape[0], dtype=object),
-            },
-        )
+    # log_gpu_memory_usage("Before generating sequences", logger=None)
+    output = rollout.generate_sequences(prompts=prompts)
+    print(f"generated {output.batch['responses'].shape=}")
+    # log_gpu_memory_usage("After generating sequences", logger=None)
 
-        prompts.meta_info.update(
-            {
-                "eos_token_id": tokenizer.eos_token_id,
-                "pad_token_id": tokenizer.pad_token_id,
-            }
-        )
-
-        prompts = rollout_sharding_manager.preprocess_data(prompts)
-        # log_gpu_memory_usage("Before generating sequences", logger=None)
-        output = rollout.generate_sequences(prompts=prompts)
-        print(f"generated {output.batch['responses'].shape=}")
-        # log_gpu_memory_usage("After generating sequences", logger=None)
-        output = rollout_sharding_manager.postprocess_data(output)
-        print(f"postprocessed {output.batch['responses'].shape=}")
-        sglang_output = output.to("cpu")
+    sglang_output = output.to("cpu")
 
     sglang_response_tokens = tokenizer.batch_decode(sglang_output.batch["responses"])
 

@@ -31,6 +31,8 @@ from omegaconf import DictConfig, OmegaConf
 from transformers import AutoTokenizer
 
 from verl.interactions.base import BaseInteraction
+from verl.utils.config import omega_conf_to_dataclass
+from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.sglang_rollout.sglang_rollout import SGLangRollout
 
 
@@ -76,6 +78,7 @@ def create_mock_config_with_multi_interactions():
     # Create mock SGLangRollout config
     config = DictConfig(
         {
+            "name": "sglang",
             "multi_turn": {
                 "interaction_config_path": interaction_config_path,
                 "tool_config_path": None,
@@ -110,6 +113,8 @@ def setup_distributed():
 
 
 class TestSGLangMultiInteraction:
+    local_model_path = os.path.expanduser("~/models/Qwen/Qwen2.5-0.5B")
+
     def test_initialize_multiple_interactions(self):
         """Test that SGLangRollout can initialize multiple interactions."""
         setup_distributed()
@@ -123,7 +128,7 @@ class TestSGLangMultiInteraction:
                 patch.object(SGLangRollout, "_init_sampling_params", return_value=None),
             ):
                 # Create a real tokenizer like the reference test
-                tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B", padding_side="left")
+                tokenizer = AutoTokenizer.from_pretrained(self.local_model_path, padding_side="left")
                 tokenizer.pad_token = tokenizer.eos_token
 
                 # Mock model config
@@ -137,14 +142,11 @@ class TestSGLangMultiInteraction:
                     "type": "yarn",
                 }
 
-                # Create SGLangRollout instance
+                rollout_config: RolloutConfig = omega_conf_to_dataclass(config, dataclass_type=RolloutConfig)
+                model_config = HFModelConfig(path=self.local_model_path)
                 rollout = SGLangRollout(
-                    actor_module="mock_model",
-                    config=config,
-                    processing_class=tokenizer,
-                    model_hf_config=mock_model_config,
-                    port=None,
-                    trust_remote_code=False,
+                    config=rollout_config,
+                    model_config=model_config,
                     device_mesh=None,
                 )
 
@@ -179,7 +181,7 @@ class TestSGLangMultiInteraction:
                 patch.object(SGLangRollout, "_init_inference_engine", return_value=None),
                 patch.object(SGLangRollout, "_init_sampling_params", return_value=None),
             ):
-                tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B", padding_side="left")
+                tokenizer = AutoTokenizer.from_pretrained(self.local_model_path, padding_side="left")
                 tokenizer.pad_token = tokenizer.eos_token
 
                 mock_model_config = MagicMock()
@@ -190,13 +192,11 @@ class TestSGLangMultiInteraction:
                     "type": "yarn",
                 }
 
+                rollout_config: RolloutConfig = omega_conf_to_dataclass(config, dataclass_type=RolloutConfig)
+                model_config = HFModelConfig(path=self.local_model_path)
                 rollout = SGLangRollout(
-                    actor_module="mock_model",
-                    config=config,
-                    processing_class=tokenizer,
-                    model_hf_config=mock_model_config,
-                    port=None,
-                    trust_remote_code=False,
+                    config=rollout_config,
+                    model_config=model_config,
                     device_mesh=None,
                 )
 
@@ -261,6 +261,7 @@ class TestSGLangMultiInteraction:
 
         config = DictConfig(
             {
+                "name": "sglang",
                 "multi_turn": {
                     "interaction_config_path": interaction_config_path,
                     "tool_config_path": None,
@@ -291,7 +292,7 @@ class TestSGLangMultiInteraction:
                 patch.object(SGLangRollout, "_init_inference_engine", return_value=None),
                 patch.object(SGLangRollout, "_init_sampling_params", return_value=None),
             ):
-                tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B", padding_side="left")
+                tokenizer = AutoTokenizer.from_pretrained(self.local_model_path, padding_side="left")
                 tokenizer.pad_token = tokenizer.eos_token
 
                 mock_model_config = MagicMock()
@@ -302,13 +303,11 @@ class TestSGLangMultiInteraction:
                     "type": "yarn",
                 }
 
+                rollout_config: RolloutConfig = omega_conf_to_dataclass(config, dataclass_type=RolloutConfig)
+                model_config = HFModelConfig(path=self.local_model_path)
                 rollout = SGLangRollout(
-                    actor_module="mock_model",
-                    config=config,
-                    processing_class=tokenizer,
-                    model_hf_config=mock_model_config,
-                    port=None,
-                    trust_remote_code=False,
+                    config=rollout_config,
+                    model_config=model_config,
                     device_mesh=None,
                 )
 
@@ -332,7 +331,7 @@ class TestSGLangMultiInteraction:
                 patch.object(SGLangRollout, "_init_inference_engine", return_value=None),
                 patch.object(SGLangRollout, "_init_sampling_params", return_value=None),
             ):
-                tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B", padding_side="left")
+                tokenizer = AutoTokenizer.from_pretrained(self.local_model_path, padding_side="left")
                 tokenizer.pad_token = tokenizer.eos_token
 
                 mock_model_config = MagicMock()
@@ -343,13 +342,11 @@ class TestSGLangMultiInteraction:
                     "type": "yarn",
                 }
 
+                rollout_config: RolloutConfig = omega_conf_to_dataclass(config, dataclass_type=RolloutConfig)
+                model_config = HFModelConfig(path=self.local_model_path)
                 rollout = SGLangRollout(
-                    actor_module="mock_model",
-                    config=config,
-                    processing_class=tokenizer,
-                    model_hf_config=mock_model_config,
-                    port=None,
-                    trust_remote_code=False,
+                    config=rollout_config,
+                    model_config=model_config,
                     device_mesh=None,
                 )
 
@@ -372,6 +369,7 @@ class TestSGLangMultiInteraction:
         # Create config without interaction config
         config = DictConfig(
             {
+                "name": "sglang",
                 "multi_turn": {
                     "interaction_config_path": None,
                     "tool_config_path": None,
@@ -401,7 +399,7 @@ class TestSGLangMultiInteraction:
             patch.object(SGLangRollout, "_init_inference_engine", return_value=None),
             patch.object(SGLangRollout, "_init_sampling_params", return_value=None),
         ):
-            tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B", padding_side="left")
+            tokenizer = AutoTokenizer.from_pretrained(self.local_model_path, padding_side="left")
             tokenizer.pad_token = tokenizer.eos_token
 
             mock_model_config = MagicMock()
@@ -412,13 +410,11 @@ class TestSGLangMultiInteraction:
                 "type": "yarn",
             }
 
+            rollout_config: RolloutConfig = omega_conf_to_dataclass(config, dataclass_type=RolloutConfig)
+            model_config = HFModelConfig(path=self.local_model_path)
             rollout = SGLangRollout(
-                actor_module="mock_model",
-                config=config,
-                processing_class=tokenizer,
-                model_hf_config=mock_model_config,
-                port=None,
-                trust_remote_code=False,
+                config=rollout_config,
+                model_config=model_config,
                 device_mesh=None,
             )
 

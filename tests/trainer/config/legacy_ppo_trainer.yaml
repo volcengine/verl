@@ -601,7 +601,7 @@ critic:
     lr_warmup_steps_ratio: 0.
 
     # Minimum LR ratio for cosine schedule
-    min_lr_ratio: null
+    min_lr_ratio: 0.0
 
     # LR warmup style: "constant" or "cosine"
     warmup_style: constant

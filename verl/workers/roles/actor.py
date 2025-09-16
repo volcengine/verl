@@ -26,9 +26,9 @@ from verl.single_controller.base.decorator import Dispatch, make_nd_compute_data
 from verl.utils.device import (
     get_device_id,
     get_device_name,
-    get_nccl_backend,
     get_torch_device,
 )
+from verl.utils.distributed import initialize_global_process_group_ray
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.profiler import DistProfiler, DistProfilerExtension
 from verl.utils.py_functional import append_to_dict
@@ -56,56 +56,43 @@ class ActorWorker(Worker, DistProfilerExtension):
             self, DistProfiler(rank=self.rank, config=self.profiler_config, tool_config=tool_config)
         )
 
-        import torch.distributed
-
-        if not torch.distributed.is_initialized():
-            rank = int(os.environ.get("RANK", 0))
-            world_size = int(os.environ.get("WORLD_SIZE", 1))
-            torch.distributed.init_process_group(
-                backend=f"cpu:gloo,{get_device_name()}:{get_nccl_backend()}",
-                rank=rank,
-                world_size=world_size,
-                init_method=os.environ.get("DIST_INIT_METHOD", None),
-            )
+        initialize_global_process_group_ray(timeout_second=None)
 
         self.loss_fn = partial(ppo_loss, config=self.config)
 
     def _build_engine(self):
-        model_config = self.config.model_config
-        engine_config = self.config.engine
-        optimizer_config = self.config.optim
-        checkpoint_config = self.config.checkpoint
+        self.model_config = self.config.model_config
+        self.engine_config = self.config.engine
+        self.optimizer_config = self.config.optim
+        self.checkpoint_config = self.config.checkpoint
 
-        if self.config.strategy == "megatron":
-            from megatron.core import parallel_state as mpu
+        from verl.workers.engine import BaseEngine, EngineRegistry
 
-            from verl.workers.engine.megatron.engine_impl import MegatronEngineWithLMHead
+        self.engine: BaseEngine = EngineRegistry.new(
+            model_type="language_model",
+            backend=self.config.strategy,
+            model_config=self.model_config,
+            engine_config=self.engine_config,
+            optimizer_config=self.optimizer_config,
+            checkpoint_config=self.checkpoint_config,
+        )
 
-            self.engine = MegatronEngineWithLMHead(
-                model_config=model_config,
-                engine_config=engine_config,
-                optimizer_config=optimizer_config,
-                checkpoint_config=checkpoint_config,
-            )
-            # build dispatch info
-            is_collect = (
-                mpu.get_tensor_model_parallel_rank() == 0
-                and mpu.get_pipeline_model_parallel_rank() == mpu.get_pipeline_model_parallel_world_size() - 1
-                and mpu.get_context_parallel_rank() == 0
-            )
-            self._register_dispatch_collect_info(
-                mesh_name="actor", dp_rank=mpu.get_data_parallel_rank(), is_collect=is_collect
-            )
-        else:
-            raise NotImplementedError
+        # build dispatch info
+        self._register_dispatch_collect_info(
+            mesh_name="actor",
+            dp_rank=self.engine.get_data_parallel_rank(),
+            is_collect=self.engine.is_mp_src_rank_with_outputs(),
+        )
 
         # aggregate with bon sampling
-        self.ppo_mini_batch_size = self.config.ppo_mini_batch_size * self.config.n
-        assert self.ppo_mini_batch_size % self.engine.get_data_parallel_size() == 0
+        self.ppo_mini_batch_size = self.config.ppo_mini_batch_size * self.config.rollout_n
+        assert self.ppo_mini_batch_size % self.engine.get_data_parallel_size() == 0, (
+            f"{self.ppo_mini_batch_size=} is not divisible by {self.engine.get_data_parallel_size()=}"
+        )
         self.ppo_mini_batch_size_per_dp = self.ppo_mini_batch_size // self.engine.get_data_parallel_size()
 
         # setup flops counter
-        self.flops_counter = FlopsCounter(model_config.hf_config)
+        self.flops_counter = FlopsCounter(self.model_config.hf_config)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
@@ -128,9 +115,12 @@ class ActorWorker(Worker, DistProfilerExtension):
             data.meta_info["micro_batch_size_per_gpu"] = self.config.ppo_infer_micro_batch_size_per_gpu
 
         with self.engine.eval_mode():
+            # TODO: make worker API to accept TensorDict as well
+            data = data.to_tensordict()
             output = self.engine.infer_batch(data)
 
-        if "log_probs" in output and "entropy" in output:
+        if self.engine.is_mp_src_rank_with_outputs():
+            output = output["model_output"]
             # in megatron, only last pp contains valid data and returned to the single controller
             output = DataProto.from_dict(
                 tensors={"old_log_probs": output["log_probs"].float(), "entropy": output["entropy"].float()},
@@ -193,7 +183,11 @@ class ActorWorker(Worker, DistProfilerExtension):
             dataloader = self._make_minibatch_iterator(data)
             with Timer(name="update_policy", logger=None) as timer:
                 for batch_idx, mini_batch in enumerate(dataloader):
-                    mini_batch_metrics = self.engine.train_batch(mini_batch, self.loss_fn)
+                    mini_batch.meta_info["global_batch_size"] = self.config.ppo_mini_batch_size
+                    # TODO: make worker API to accept TensorDict as well
+                    mini_batch = mini_batch.to_tensordict()
+                    output = self.engine.train_batch(mini_batch, self.loss_fn)
+                    mini_batch_metrics = output.get("metrics", {})
                     append_to_dict(metrics, mini_batch_metrics, prefix="actor/")
 
             delta_time = timer.last

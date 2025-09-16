@@ -89,7 +89,7 @@ jobs:
       - name: Prepare gsm8k dataset with tool
         run: |
           ray stop --force
-          python3 examples/data_preprocess/gsm8k_multiturn_w_tool.py --local_dir $HOME/data/gsm8k_verl_sgl_multi_turn_preprocessed
+          python3 examples/data_preprocess/gsm8k_multiturn_w_tool.py --local_save_dir $HOME/data/gsm8k_verl_sgl_multi_turn_preprocessed
       - name: Running GSM8K with tool E2E training tests on 8 L20 GPUs with rmpad using function rm and save ckpt with sglang
         run: |
           ray stop --force
