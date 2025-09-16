@@ -20,6 +20,7 @@ from omegaconf import DictConfig
 
 from verl.workers.rollout import base
 from verl.workers.megatron_workers import ActorRolloutRefWorker as ARRWorker
+from verl.workers.megatron_workers import AsyncActorRolloutRefWorker, CriticWorker
 
 # NPU-ADAPTATION: Save the original and dummy copies of `torch.compile`.
 from mindspeed.patch_utils import MindSpeedPatchesManager

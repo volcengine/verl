@@ -15,13 +15,15 @@
 import gc
 import logging
 import os
+from typing import Generator
 
 import torch
 import torch.distributed
 from vllm import LLM, SamplingParams
-from vllm.distributed import parallel_state as vllm_ps
+from torch.distributed.device_mesh import DeviceMesh
 
-from verl.workers.config import RolloutConfig
+from verl.workers.config import HFModelConfig, RolloutConfig
+from verl.third_party.vllm import VLLM_SLEEP_LEVEL
 from verl.workers.rollout.vllm_rollout import vLLMRollout as vLLMRolloutBase
 
 logger = logging.getLogger(__file__)
