@@ -65,7 +65,6 @@ class BaseRollout(ABC):
         """Release weights and kv cache in GPU memory."""
         pass
 
-    @abstractmethod
     def generate_sequences(self, prompts: DataProto) -> DataProto:
         """Batch generate sequences in sync mode.
 
@@ -75,14 +74,14 @@ class BaseRollout(ABC):
         Returns:
             The output sequences.
         """
-        pass
+        raise NotImplementedError
 
 
 _ROLLOUT_REGISTRY = {
     ("vllm", "sync"): "verl.workers.rollout.vllm_rollout.vLLMRollout",
     ("vllm", "async"): "verl.workers.rollout.vllm_rollout.vLLMAsyncRollout",
     ("sglang", "sync"): "verl.workers.rollout.sglang_rollout.sglang_rollout.SGLangRollout",
-    ("sglang", "async"): "verl.workers.rollout.sglang_rollout.sglang_rollout.SGLangRollout",
+    ("sglang", "async"): "verl.workers.rollout.sglang_rollout.sglang_rollout.ServerAdapter",
 }
 
 

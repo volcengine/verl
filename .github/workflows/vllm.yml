@@ -95,7 +95,7 @@ jobs:
 
   vllm:
     needs: setup
-    runs-on: [ "${{ needs.setup.outputs.runner-label || 'L20x8' }}" ]
+    runs-on: ["${{ needs.setup.outputs.runner-label || 'L20x8' }}"]
     timeout-minutes: 35 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
@@ -110,20 +110,20 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install -e .[test]
-          pip install tensordict==0.6.2
       - name: Download Model to Use
         run: |
           huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct --local-dir ${HOME}/models/Qwen/Qwen2.5-0.5B-Instruct
           huggingface-cli download Qwen/Qwen2.5-1.5B-Instruct --local-dir ${HOME}/models/Qwen/Qwen2.5-1.5B-Instruct
-          huggingface-cli download 'Qwen/Qwen2-7B-Instruct' --local-dir ${HOME}/models/Qwen/Qwen2-7B-Instruct
-          huggingface-cli download 'deepseek-ai/deepseek-llm-7b-chat' --local-dir ${HOME}/models/deepseek-ai/deepseek-llm-7b-chat
-          huggingface-cli download 'OldKingMeister/Qwen2.5-1.5B-Instruct-YaRN' --local-dir $HOME/models/OldKingMeister/Qwen2.5-1.5B-Instruct-YaRN
+          huggingface-cli download Qwen/Qwen2.5-VL-3B-Instruct --local-dir ${HOME}/models/Qwen/Qwen2.5-VL-3B-Instruct
+          huggingface-cli download OldKingMeister/Qwen2.5-1.5B-Instruct-YaRN --local-dir ${HOME}/models/OldKingMeister/Qwen2.5-1.5B-Instruct-YaRN
           export HF_HUB_OFFLINE=1
-        # Disable requests to avoid network errors
       - name: Prepare gsm8k dataset
         run: |
           ray stop --force
           python3 examples/data_preprocess/gsm8k.py
+      - name: Test the latest vLLM Rollout async with agent loop
+        run: |
+          ROLLOUT_NAME=vllm pytest -svvv tests/experimental/agent_loop
       - name: Test the latest vLLM
         run: |
           torchrun --standalone --nnodes=1 --nproc_per_node=4 $(which pytest) -s tests/workers/rollout/rollout_vllm/test_vllm_spmd.py
@@ -142,19 +142,11 @@ jobs:
           export OUTPUT_PATH="${HOME}/data/gen/qwen_05_gen_test.parquet"
           MODEL_ID=${HOME}/models/Qwen/Qwen2.5-0.5B-Instruct NGPUS_PER_NODE=1 GEN_TP=1 bash ./run_gen_qwen05.sh
           rm -rf "${OUTPUT_PATH}"
-      - name: Test the latest vLLM Rollout async with agent loop
-        run: |
-          huggingface-cli download verl-team/gsm8k-v0.4.1 --repo-type dataset --local-dir ~/verl-data/gsm8k
-          ROLLOUT_NAME=vllm pytest -svvv tests/experimental/agent_loop
       # Note(haibin.lin): for any new test, please update gpu_unit_tests.yaml to avoid repeated tests
 
   cleanup:
     runs-on: ubuntu-latest
-    needs:
-      [
-        setup,
-        vllm
-      ]
+    needs: [setup, vllm]
     if: always()
     steps:
       - id: destroy-runner

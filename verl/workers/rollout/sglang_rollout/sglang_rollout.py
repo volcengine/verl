@@ -19,13 +19,13 @@ import asyncio
 import logging
 import multiprocessing as mp
 import os
-import time
 from copy import deepcopy
 from json import JSONDecodeError
 from typing import Any, Generator, Optional
 from uuid import uuid4
 
 import numpy as np
+import ray
 import sglang.srt.entrypoints.engine
 import torch
 import torch.distributed as dist
@@ -61,13 +61,11 @@ from verl.utils.net_utils import is_ipv6
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
 from verl.workers.config import HFModelConfig, RolloutConfig
-from verl.workers.rollout.async_server import TokenOutput
 from verl.workers.rollout.base import BaseRollout
 from verl.workers.rollout.schemas import (
     AsyncRolloutRequest,
     AsyncRolloutRequestStateEnum,
     FinishReasonTypeEnum,
-    Message,
 )
 from verl.workers.rollout.sglang_rollout.http_server_engine import AsyncHttpServerAdapter
 from verl.workers.rollout.sglang_rollout.utils import broadcast_pyobj, get_named_tensor_buckets
@@ -1513,101 +1511,86 @@ class SGLangRollout(BaseRollout):
         if self.device_mesh["infer_tp"].get_local_rank() == 0:
             await self._engine.flush_cache()
 
-    # ==================== server mode public methods ====================
 
-    async def chat_completion(self, json_request):
-        """OpenAI chat completion API."""
-        assert self._tp_rank == 0, "only called in tp rank 0"
-        _input_ids = None
-        _attention_mask = None
-        _position_ids = None
-        _tool_schemas = []
-        _tools_kwargs = {}
+class ServerAdapter(BaseRollout):
+    """SGLang server adapter used in native http server mode, serve as http client to request SGLang server
+    to resume/release/update weights and kv_cache.
 
-        req = AsyncRolloutRequest(
-            request_id=str(uuid4()),
-            state=AsyncRolloutRequestStateEnum.PENDING,
-            messages=[Message.model_validate(msg) for msg in json_request["messages"]],
-            tool_schemas=_tool_schemas,
-            tools_kwargs=_tools_kwargs,
-            input_ids=_input_ids,
-            prompt_ids=_input_ids,
-            response_ids=None,
-            attention_mask=_attention_mask,
-            prompt_attention_mask=_attention_mask,
-            response_attention_mask=None,
-            position_ids=_position_ids,
-            prompt_position_ids=_position_ids,
-            response_position_ids=None,
-            loss_mask=None,
-            prompt_loss_mask=None,
-            response_loss_mask=None,
-            reward_scores={},
-            max_prompt_len=self.config.prompt_length,
-            max_response_len=self.config.response_length,
-            max_model_len=min(self.config.max_model_len, self.config.prompt_length + self.config.response_length),
-            use_inference_chat_template=self.config.multi_turn.use_inference_chat_template,
-            tokenization_sanity_check_mode=self.config.multi_turn.tokenization_sanity_check_mode,
-            processing_class=self.processing_class,
+    - hybrid mode: reside in each hybrid worker to sync weights between training engine and SGLang server.
+    - standalone/colocated mode: just a dummy placeholder to occupy the GPU to prevent ray scheduling new GPU actor.
+    """
+
+    def __init__(
+        self,
+        config: RolloutConfig,
+        model_config: HFModelConfig,
+        device_mesh: DeviceMesh,
+    ):
+        super().__init__(config, model_config, device_mesh)
+        self._engine: AsyncHttpServerAdapter = None
+
+        rank = int(os.environ["RANK"])
+        local_world_size = int(os.environ["RAY_LOCAL_WORLD_SIZE"])
+        rollout_world_size = self.config.tensor_model_parallel_size
+        self.replica_rank = rank // rollout_world_size
+        self.rollout_rank = rank % rollout_world_size
+        self.node_rank = self.rollout_rank // local_world_size
+        self.local_rank = self.rollout_rank % local_world_size
+
+    async def _init_server_adapter(self):
+        if self._engine is not None:
+            return
+
+        # Lazy init http server adapter because http server is launched after hybrid engine.
+        self.server_actor = ray.get_actor(f"sglang_server_{self.replica_rank}_{self.node_rank}")
+        server_address, server_port = await self.server_actor.get_server_address.remote()
+        logger.debug(
+            f"replica_rank={self.replica_rank} node_rank={self.node_rank}, "
+            f"server address: {server_address}, port: {server_port}"
+        )
+        self._engine = AsyncHttpServerAdapter(
+            model_path=self.model_config.local_path, host=server_address, port=server_port, launch_server=False
         )
 
-        # json_request already contains sampling_params
-        # Filter only valid SamplingParams arguments
-        valid_sampling_params = {}
-        temp_sampling_params = SamplingParams()  # Create temporary instance to check valid attributes
-        for k, v in json_request.items():
-            if k not in ["messages", "model", "tools"] and hasattr(temp_sampling_params, k):
-                valid_sampling_params[k] = v
-        output = await self._handle_engine_call(req, valid_sampling_params)
-        # it can be Dict or AsyncIterator[Dict]
-        if isinstance(output, dict):
-            outputs = [output]
-        else:
-            outputs = output
+    async def resume(self, tags: list[str]):
+        """Resume rollout weights or kv cache in GPU memory.
 
-        # build openai chat completion format
-        choices = []
-        id = None
-        for i, content in enumerate(outputs):
-            choices.append(
-                {
-                    "index": i,
-                    "message": {
-                        "role": "assistant",
-                        "content": content["text"],
-                    },
-                    "finish_reason": content["meta_info"]["finish_reason"]["type"],
-                }
+        Args:
+            tag: weights or kv_cache.
+        """
+        await self._init_server_adapter()
+        if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.config.free_cache_engine:
+            await self._engine.resume_memory_occupation(tags=tags)
+
+    async def release(self):
+        """Release weights and kv cache in GPU memory."""
+        await self._init_server_adapter()
+        if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.config.free_cache_engine:
+            await self._engine.release_memory_occupation(tags=["kv_cache", "weights"])
+
+    async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None], **kwargs):
+        """
+        Update model weights using tensor buckets, similar to THUDM/slime's implementation.
+
+        Notes:
+          - For the best performance of `rebuild_cuda_tensor`, it is recommended to:
+              1. Enable `RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES`.
+              2. Manually set `CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7`
+            when using Tensor Parallelism (TP >= 8).
+          - See reference implementations in SLIME:
+            - Main logic: https://github.com/THUDM/slime/blob/fb7605cc5fb09af0f9369d37f7192f12bddee577/slime/ray/ppo_actor.py#L452
+            - runtime envs: https://github.com/THUDM/slime/blob/fb7605cc5fb09af0f9369d37f7192f12bddee577/slime/ray/ppo_actor.py#L39
+        """
+        # FIXME(@wuxibin): device_mesh is not right in multi-node case.
+        await self._init_server_adapter()
+        update_weights_bucket_bytes = int(self.config.update_weights_bucket_megabytes) << 20
+        for params_batch in get_named_tensor_buckets(weights, update_weights_bucket_bytes):
+            await sgl_update_weights(
+                engine=self._engine,
+                params_batch=params_batch,
+                device_mesh_key="infer_tp",
+                device_mesh=self.device_mesh,
             )
-            id = content["meta_info"]["id"]
 
-        return {
-            "id": "chatcmpl-" + id,
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": json_request.get("model", "sglang_model"),
-            "choices": choices,
-        }
-
-        # this function is left for uniform train-inference resharding
-
-    async def generate(
-        self,
-        prompt_ids: torch.Tensor,
-        sampling_params: dict[str, Any],
-        request_id: str,
-        image_data: Optional[list[Any]] = None,
-    ) -> TokenOutput:
-        """Generate sequence with token-in-token-out."""
-        request_sampling_params = self.sampling_params.copy()
-        request_sampling_params.update(sampling_params)
-        output = await self._handle_engine_generate(prompt_ids, request_sampling_params, image_data=image_data)
-        if sampling_params.get("logprobs", False):
-            output_token_logprobs = output["meta_info"]["output_token_logprobs"]
-            log_probs, token_ids = zip(
-                *[(log_prob, token_ids) for log_prob, token_ids, _ in output_token_logprobs], strict=True
-            )
-        else:
-            token_ids = output["output_ids"]
-            log_probs = None
-        return TokenOutput(token_ids=token_ids, log_probs=log_probs)
+        if self.device_mesh["infer_tp"].get_local_rank() == 0:
+            await self._engine.flush_cache()
