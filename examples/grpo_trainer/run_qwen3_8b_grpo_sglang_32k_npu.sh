@@ -1,31 +1,41 @@
 set -x
-logs=/home/l00878165/sglang/repos/logs/jingdu0915/tmp10_2k32k_graph.log
-
 export HCCL_CONNECT_TIMEOUT=1500
+export HCCL_HOST_SOCKET_PORT_RANGE=60000-60050
+export HCCL_NPU_SOCKET_PORT_RANGE=61000-61050
+# export VERL_PPO_LOGGING_LEVEL=DEBUG
+# export VERL_LOGGING_LEVEL=DEBUG
 
-num_gpu=8
+# WORKSPACE_HOME and DATA_HOME support custom path configuration.
+WORKSPACE_HOME=$pwd
+DATA_HOME=$pwd
+
 tp=4
 sp_size=4
+num_gpu=8
+use_dynamic_bsz=True
 train_prompt_bsz=16
 train_prompt_mini_bsz=16
 
-use_dynamic_bsz=True
 max_prompt_length=$((1024 * 2))
 max_response_length=$((1024 * 32))
-actor_ppo_max_token_len=$(((max_prompt_length + max_response_length) / sp_size))
-infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) / sp_size))
+
+logs=$WORKSPACE_HOME/logs/qwen3_8b_2k_32k_graph.log
+CKPTS_DIR=$WORKSPACE_HOME/logs/ckpt/qwen3_8b
+model_path=$DATA_HOME/models/Qwen3-8B
+train_data=$DATA_HOME/datasets/processed_gsm8k/train.parquet
+valid_data=$DATA_HOME/datasets/processed_gsm8k/test.parquet
 
 CKPTS_DIR=/home/l00878165/models/ckpt/qwen3_8b
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/home/l00878165/datasets/dapo/dapo-math-17k.parquet \
-    data.val_files=/home/l00878165/datasets/dapo/aime-2024.parquet \
+    data.train_files=$train_data \
+    data.val_files=$valid_data \
     data.train_batch_size=$train_prompt_bsz \
     data.max_prompt_length=$max_prompt_length \
     data.max_response_length=$max_response_length \
     data.filter_overlong_prompts=False \
     data.truncation='error' \
-    actor_rollout_ref.model.path=/home/l00878165/models/Qwen3-8B \
+    actor_rollout_ref.model.path=$model_path \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=$train_prompt_mini_bsz \

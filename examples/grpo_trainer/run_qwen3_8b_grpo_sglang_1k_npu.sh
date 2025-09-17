@@ -1,22 +1,32 @@
 set -x
-logs=/home/l00878165/sglang/repos/logs/jingdu0915/tmp1_qwen3_8b_512_1k_graph.log
-
 export HCCL_CONNECT_TIMEOUT=1500
+export HCCL_HOST_SOCKET_PORT_RANGE=60000-60050
+export HCCL_NPU_SOCKET_PORT_RANGE=61000-61050
+# export VERL_PPO_LOGGING_LEVEL=DEBUG
+# export VERL_LOGGING_LEVEL=DEBUG
 
-num=4
-sp_size=$num
+# WORKSPACE_HOME and DATA_HOME support custom path configuration.
+WORKSPACE_HOME=$pwd
+DATA_HOME=$pwd
 
-CKPTS_DIR=/home/l00878165/models/ckpt/qwen3_8b
+num_npu=4
+sp_size=4
+logs=$WORKSPACE_HOME/logs/qwen3_8b_512_1k_graph.log
+CKPTS_DIR=$WORKSPACE_HOME/logs/ckpt/qwen3_8b
+model_path=$DATA_HOME/models/Qwen3-8B
+train_data=$DATA_HOME/datasets/processed_gsm8k/train.parquet
+valid_data=$DATA_HOME/datasets/processed_gsm8k/test.parquet
+
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/home/l00878165/datasets/processed_gsm8k/train.parquet \
-    data.val_files=/home/l00878165/datasets/processed_gsm8k/test.parquet \
+    data.train_files=$train_data \
+    data.val_files=$valid_data \
     data.train_batch_size=16 \
     data.max_prompt_length=512 \
     data.max_response_length=1024 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
-    actor_rollout_ref.model.path=/home/l00878165/models/Qwen3-8B \
+    actor_rollout_ref.model.path=$model_path \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=16 \
@@ -46,7 +56,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.val_before_train=False \
     trainer.project_name='verl_grpo_example_gsm8k' \
     trainer.experiment_name='qwen2_5_7b_function_rm' \
-    trainer.n_gpus_per_node=$num \
+    trainer.n_gpus_per_node=$num_npu \
     trainer.nnodes=1 \
     trainer.save_freq=1000 \
     trainer.test_freq=10000 \
