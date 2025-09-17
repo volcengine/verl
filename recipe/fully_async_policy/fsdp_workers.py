@@ -99,6 +99,18 @@ class DetachNcclSync(ActorRolloutRefWorker):
                 inference_model.load_weights([(key, tensor)])
         get_torch_device().empty_cache()
 
+
+class DetachActorWorker(DetachNcclSync):
+    def _get_actor_params(self):
+        assert self._is_actor
+        params = self.actor_module_fsdp.state_dict()
+        from verl.utils.model import convert_weight_keys
+
+        params = convert_weight_keys(
+            params, getattr(self.actor_module_fsdp, "_fsdp_wrapped_module", self.actor_module_fsdp)
+        )
+        return params
+
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def get_actor_weights_info(self):
         assert self._is_actor
@@ -118,18 +130,6 @@ class DetachNcclSync(ActorRolloutRefWorker):
             ret.append((key, tensor.size(), tensor.dtype))
         self._weights_info = ret
         return ret
-
-
-class DetachActorWorker(DetachNcclSync):
-    def _get_actor_params(self):
-        assert self._is_actor
-        params = self.actor_module_fsdp.state_dict()
-        from verl.utils.model import convert_weight_keys
-
-        params = convert_weight_keys(
-            params, getattr(self.actor_module_fsdp, "_fsdp_wrapped_module", self.actor_module_fsdp)
-        )
-        return params
 
 
 class DetachRolloutWorker(DetachNcclSync):
