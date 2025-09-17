@@ -11,8 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import concurrent.futures
 import inspect
 import logging
+import os
 import socket
 from copy import deepcopy
 from typing import Any, Optional
@@ -640,19 +642,31 @@ class RayWorkerGroup(WorkerGroup):
         # element in these lists to the corresponding worker
         # print(f"execute_all_async: method {method_name}({args}, {kwargs})")
         length = len(self._workers)
-        if all(isinstance(arg, list) for arg in args) and all(isinstance(kwarg, list) for kwarg in kwargs.values()):
-            if all(len(arg) == length for arg in args) and all(len(kwarg) == length for kwarg in kwargs.values()):
-                # print(f"splitting args and kwargs into {length} shards")
-                result = []
-                for i in range(length):
+
+        def execute_remote_single_worker(i, worker):
+            if all(isinstance(arg, list) for arg in args) and all(isinstance(kwarg, list) for kwarg in kwargs.values()):
+                if all(len(arg) == length for arg in args) and all(len(kwarg) == length for kwarg in kwargs.values()):
                     sliced_args = tuple(arg[i] for arg in args)
                     sliced_kwargs = {k: v[i] for k, v in kwargs.items()}
-                    result.append(
-                        self._execute_remote_single_worker(self._workers[i], method_name, *sliced_args, **sliced_kwargs)
-                    )
-                return result
+                    return self._execute_remote_single_worker(worker, method_name, *sliced_args, **sliced_kwargs)
+            else:
+                return self._execute_remote_single_worker(worker, method_name, *args, **kwargs)
 
-        return [self._execute_remote_single_worker(worker, method_name, *args, **kwargs) for worker in self._workers]
+        max_workers = max(1, min(len(args[0]), os.cpu_count()))
+        output = [None] * length
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [
+                executor.submit(execute_remote_single_worker, i, worker) for i, worker in enumerate(self._workers)
+            ]
+            res_lst = []
+            for future in concurrent.futures.as_completed(futures):
+                res_lst.append(future.result())
+
+            for res in res_lst:
+                index, execute_ref = res
+                output[index] = execute_ref
+
+        return output
 
     @property
     def master_address(self):
