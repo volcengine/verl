@@ -1090,16 +1090,13 @@ class RayPPOTrainer:
                         if wsum > 0.0:
                             probs = weights_np / wsum
                         else:
-                            # 若全部为 0 权重，则退化为均匀采样
                             probs = np.full(M, 1.0 / M, dtype=np.float64)
 
-                        # 数值稳定化，确保和为 1
                         probs = probs / probs.sum()
 
                         target_bs = int(self.config.data.train_batch_size)
-                        replace = target_bs > M  # 不足时允许放回采样
+                        replace = target_bs > M
 
-                        # 按概率采样得到 keep_idx（原始索引）
                         selected_pos = np.random.choice(M, size=target_bs, replace=replace, p=probs)
                         keep_idx = [items[j] for j in selected_pos.tolist()]
                         keep_weights = weights_np[selected_pos]
@@ -1113,22 +1110,18 @@ class RayPPOTrainer:
                             f"[DEBUG] Sampled weights: min={keep_weights.min():.6f}, max={keep_weights.max():.6f}, mean={keep_weights.mean():.6f}"
                         )
 
-                        # 5) 依据 keep_idx 重组 batch_dict
                         if keep_idx:
                             sampled_batch_dict = {}
                             for k, v in batch_dict.items():
-                                # 优先尝试"高级索引"（numpy/tensor）
                                 try:
                                     sampled_batch_dict[k] = v[keep_idx]
                                     continue
                                 except Exception:
                                     pass
 
-                                # 兼容 Python 原生 list/tuple
                                 if isinstance(v, (list, tuple)):
                                     sampled_batch_dict[k] = type(v)(v[i] for i in keep_idx)
                                 else:
-                                    # 非逐样本字段（例如全局 scalar），保持不变
                                     sampled_batch_dict[k] = v
 
                             batch_dict = sampled_batch_dict
