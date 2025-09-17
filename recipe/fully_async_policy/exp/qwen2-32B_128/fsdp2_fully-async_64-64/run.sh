@@ -2,7 +2,7 @@
 set -xeuo pipefail
 
 project_name='DAPO'
-exp_name='dapo_qwen2-32B_20k_fsdp2_fully-async_64-64-tps1'
+exp_name='dapo_qwen2-32B_20k_fsdp2_fully-async_64-64'
 
 # Paths
 MODEL_PATH=/mnt/dolphinfs/ssd_pool/docker/user/hadoop-friday-studio/.friday/models/Qwen2.5-32B
@@ -62,11 +62,11 @@ NGPUS_PER_NODE=${NGPUS_PER_NODE:-8}
 train_prompt_bsz=0
 gen_prompt_bsz=1
 n_resp_per_prompt=16
-train_prompt_mini_bsz=128
-total_rollout_steps=$(((512*400)))
+train_prompt_mini_bsz=16
+total_rollout_steps=$(((512*200)))
 test_freq=20
 staleness_threshold=0.1
-trigger_parameter_sync_step=1
+trigger_parameter_sync_step=8
 partial_rollout=True
 
 python -m recipe.fully_async_policy.fully_async_main \
