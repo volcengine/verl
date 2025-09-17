@@ -95,8 +95,8 @@ class ParameterSynchronizer:
         self.wait_last_update = self.rollouter.update_param_version.remote(version, validate, global_steps)
         self.wait_last_resume = self.rollouter.resume.remote()
 
-    def wait_last_sync(self):
-        print("[ParameterSynchronizer] waiting last parameter sync and validate...")
+    def wait_last_valid(self):
+        print("[ParameterSynchronizer] waiting last validate...")
         start_time = time.time()
         if self.wait_last_update:
             ray.get(self.wait_last_update)

@@ -127,6 +127,8 @@ class FullyAsyncRollouter(RayPPOTrainer):
         self.dropped_stale_samples = 0
         self.processed_sample_count = 0  # 已处理的样本计数
         self.global_steps = 0
+        self.idle_start_time = None
+        self.version_start_time = None
 
         # Concurrency control
         self.paused = False
@@ -163,12 +165,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
             )
 
             # 单次最多扔一次更新需要的样本
-            self.max_concurrent_samples = int(
-                self.config.actor_rollout_ref.actor.ppo_mini_batch_size
-                / self.config.actor_rollout_ref.rollout.n
-                * self.async_rollout_manager.rollout_dp_size
-                * 8
-            )
+            self.max_concurrent_samples = self.async_rollout_manager.rollout_dp_size * 16
             self.max_concurrent_samples = min(self.max_concurrent_samples, self.max_required_samples)
             self.max_queue_size = self.max_required_samples
 
@@ -203,24 +200,37 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 + self.cancel_queue.qsize()
                 + await self.message_queue_client.get_queue_size()
             )
+            timing_raw = {}
+            idle_ratio = None
+            if self.idle_start_time is not None and self.version_start_time is not None:
+                rollout_active_time = self.idle_start_time - self.version_start_time
+                rollout_version_time = time.time() - self.version_start_time
+                idle_ratio = 1 - rollout_active_time / rollout_version_time
+                timing_raw["rollouter/active_time"] = rollout_active_time
+                timing_raw["rollouter/version_time"] = rollout_version_time
+                timing_raw["rollouter/idle_ratio"] = idle_ratio
+                self.idle_start_time = None
             print(
                 f"[FullyAsyncRollouter][Public][update_param_version] "
                 f"Parameter version updated from {old_version} to {version} "
                 f",reset staleness_samples to: {self.staleness_samples}"
+                f",idle_ratio: {idle_ratio}"
             )
-            timing_raw = {}
+            val_metrics = None
             if (
                 self.val_reward_fn is not None
                 and self.config.rollout.test_freq > 0
                 and self.current_param_version % self.config.rollout.test_freq == 0
                 and self.current_param_version > 0  # don't test here in the initial parameter sync
             ) or (validate and self.val_reward_fn is not None):
-                with marked_timer("testing", timing_raw, color="green"):
+                with marked_timer("rollouter/validate_time", timing_raw, color="green"):
                     val_metrics: dict = self._validate()
-                data = ValidateMetrics(
-                    timing_raw=timing_raw, metrics=val_metrics, global_steps=global_steps, param_version=version
-                )
-                await self.message_queue_client.put_validate(ray.cloudpickle.dumps(data))
+            data = ValidateMetrics(
+                timing_raw=timing_raw, metrics=val_metrics, global_steps=global_steps, param_version=version
+            )
+            await self.message_queue_client.put_validate(ray.cloudpickle.dumps(data))
+
+            self.version_start_time = time.time()
 
     def _validate_config(self):
         # Validate asynchronous training configuration
@@ -283,6 +293,8 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 sample_id=sample_id,
                 epoch=epoch,
                 param_version=0,  # 待处理后填充
+                param_version_start=[],
+                param_version_end=[],
                 processing_times=[],
                 rollout_status={},
             )
@@ -320,6 +332,8 @@ class FullyAsyncRollouter(RayPPOTrainer):
             # self.paused 由 pause() 和 self._should_pause_generation() 负责修改
             if self.paused or await self._should_pause_generation():
                 print("[FullyAsyncRollouter][Processor] 收到暂停信号，等待剩余任务完成...")
+                async with self.lock:
+                    self.paused = True
                 while self.active_tasks:
                     async with self.lock:
                         # 获取锁后，active_tasks 数量会发生变化，需要再次校验
@@ -329,11 +343,10 @@ class FullyAsyncRollouter(RayPPOTrainer):
                             )
                         for task in done_tasks:
                             await task
-                async with self.lock:
-                    self.paused = True
 
                 async with self.lock:
                     while self.paused:
+                        self.idle_start_time = time.time()
                         await self.condition.wait()
 
             # 获取待处理的部分 RolloutSample
@@ -380,12 +393,10 @@ class FullyAsyncRollouter(RayPPOTrainer):
         """流式处理单个样本"""
         # 调用异步生成方法
         agent_loop_output_list = await self.async_rollout_manager.generate_single_sample_async(
-            rollout_sample.full_batch, rollout_sample.agent_loop_output_list
+            rollout_sample.full_batch, self.current_param_version, rollout_sample.agent_loop_output_list
         )
         # 直接更新 RolloutSample 对象，填充剩余字段
         rollout_sample.agent_loop_output_list = agent_loop_output_list
-        rollout_sample.param_version = self.current_param_version
-        rollout_sample.rollout_status = await self.get_statistics()
 
         is_cancel = False
         # 收集所有信息
@@ -407,6 +418,8 @@ class FullyAsyncRollouter(RayPPOTrainer):
             await self.cancel_queue.put(rollout_sample)
         else:
             # 否则放入结果队列
+            rollout_sample.param_version = self.current_param_version
+            rollout_sample.rollout_status = await self.get_statistics()
             await self.result_queue.put(rollout_sample)
 
         self.processed_sample_count += 1
@@ -606,20 +619,23 @@ class FullyAsyncRollouter(RayPPOTrainer):
         queue_stats = self.message_queue_client.get_statistics_sync()
 
         stats = {
-            "current_param_version": self.current_param_version,
-            "total_generated_samples": self.total_generated_samples,
-            "staleness_samples": self.staleness_samples,
-            "dropped_stale_samples": self.dropped_stale_samples,
-            "max_queue_size": self.max_queue_size,
-            "queue_size": queue_stats["queue_size"],
-            "max_concurrent_samples": self.max_concurrent_samples,
-            "pending_queue_size": self.pending_queue.qsize(),
-            "active_tasks_size": len(self.active_tasks),
-            "result_queue_size": self.result_queue.qsize(),
-            "max_required_samples": self.max_required_samples,
-            "required_samples": self.required_samples,
-            "staleness_threshold": self.staleness_threshold,
-            "cancel_queue_size": self.cancel_queue.qsize(),
+            # static stats
+            "static/max_required_samples": self.max_required_samples,
+            "static/required_samples": self.required_samples,
+            "static/staleness_threshold": self.staleness_threshold,
+            "static/max_queue_size": self.max_queue_size,
+            "static/max_concurrent_samples": self.max_concurrent_samples,
+            # counting stats
+            "count/current_param_version": self.current_param_version,
+            "count/total_generated_samples": self.total_generated_samples,
+            "count/staleness_samples": self.staleness_samples,
+            "count/dropped_stale_samples": self.dropped_stale_samples,
+            # monitor stats
+            "monitor/active_tasks_size": len(self.active_tasks),
+            "monitor/queue/pending_queue_size": self.pending_queue.qsize(),
+            "monitor/queue/cancel_queue_size": self.cancel_queue.qsize(),
+            "monitor/queue/result_queue_size": self.result_queue.qsize(),
+            "monitor/queue/mq_queue_size": queue_stats["queue_size"],
         }
 
         return stats
