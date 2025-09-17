@@ -365,41 +365,15 @@ def forward_base_model(
         output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
     )
     return_dict = return_dict if return_dict is not None else self.config.use_return_dict
-    
-    # 🔥🔥🔥 GLM4V 3D position_ids 完整处理逻辑 🔥🔥🔥
-    print(f"\n======== GLM4V FORWARD_BASE_MODEL DEBUG ========")
-    print(f"Position IDs received: {position_ids.shape if position_ids is not None else 'None'}")
-    
+
     if position_ids is not None and hasattr(position_ids, 'shape'):
-        print(f"Position IDs shape: {position_ids.shape}")
-        print(f"Position IDs ndim: {position_ids.ndim}")
-        
         if position_ids.ndim == 3:
-            print(f"🔥🔥🔥 GLM4V: 3D position_ids detected! Shape: {position_ids.shape} 🔥🔥🔥")
-            print(f"🔥🔥🔥 GLM4V: Implementing complete 3D position_ids handling like Qwen2VL 🔥🔥🔥")
-            
-            # 模仿Qwen2VL的完整处理逻辑
-            # 1. 检查是否需要重新构造3D position_ids
             batch_size = position_ids.shape[1] if position_ids.shape[1] > 1 else 1
             seq_length = position_ids.shape[2]
-            
-            # 2. 为GLM4V构造正确的3D position_ids格式
-            # GLM4V需要的格式: [3, batch_size, seq_length]
             if position_ids.shape[0] != 3:
-                print(f"🔧🔧 GLM4V: Reconstructing 3D position_ids to [3, {batch_size}, {seq_length}] format 🔧🔧")
-                # 创建标准的position_ids序列
                 base_position_ids = torch.arange(seq_length, device=position_ids.device, dtype=position_ids.dtype)
                 base_position_ids = base_position_ids.unsqueeze(0).expand(batch_size, -1)
-                # 扩展为3D格式 [3, batch_size, seq_length]
                 position_ids = base_position_ids.unsqueeze(0).expand(3, -1, -1)
-                print(f"🔧🔧 GLM4V: Reconstructed position_ids shape: {position_ids.shape} 🔧🔧")
-            
-            print(f"✅✅ GLM4V: 3D position_ids ready for model! Shape: {position_ids.shape} ✅✅")
-        else:
-            print(f"📝📝 GLM4V: {position_ids.ndim}D position_ids - no special handling needed 📝📝")
-    
-    print(f"Final position_ids for GLM4V model: {position_ids.shape if position_ids is not None else 'None'}")
-    print(f"======== END GLM4V FORWARD_BASE_MODEL DEBUG ========\n")
     
     outputs = self.model(
         input_ids=input_ids,
@@ -408,7 +382,7 @@ def forward_base_model(
         image_grid_thw=image_grid_thw,
         video_grid_thw=video_grid_thw,
         attention_mask=attention_mask,
-        position_ids=position_ids,  # 🔥 现在是正确处理的3D position_ids！
+        position_ids=position_ids,
         past_key_values=past_key_values,
         inputs_embeds=inputs_embeds,
         use_cache=use_cache,
