@@ -63,29 +63,43 @@ def test_union_tensor_dict():
         tu.union_tensor_dict(data1, data2)
 
 
-def test_tensor_dict_constructor():
-    obs = torch.ones(100, 10)
-    act = torch.zeros(100, 10, 3)
-    data_source = ["gsm8k"] * 100
-    non_tensor_dict = {"name": "abdce"}
+def test_index_select_tensor_dict():
+    vocab_size = 128
+    a = torch.randint(low=0, high=vocab_size, size=(11,))
+    b = torch.randint(low=0, high=vocab_size, size=(13,))
+    c = torch.randint(low=0, high=vocab_size, size=(12,))
+    d = torch.randint(low=0, high=vocab_size, size=(15,))
+    input_ids = [a, b, c, d]
+    input_ids = torch.nested.as_nested_tensor(input_ids, layout=torch.jagged)
+
+    padded_tensor = torch.randn(4, 10)
+    non_tensor_dict = {"global_batch_size": "4"}
 
     data = tu.get_tensordict(
-        tensor_dict={"obs": obs, "act": act, "data_source": data_source}, non_tensor_dict=non_tensor_dict
+        tensor_dict={
+            "input_ids": input_ids,
+            "padded_tensor": padded_tensor,
+        },
+        non_tensor_dict=non_tensor_dict,
     )
 
-    assert data.batch_size == torch.Size([100])
+    assert data.batch_size == torch.Size([4])
 
-    # test slicing
-    assert torch.all(torch.eq(data[0]["obs"], torch.ones(10))).item()
-    assert torch.all(torch.eq(data[0]["act"], torch.zeros(10, 3))).item()
-    assert data[0]["data_source"] == "gsm8k"
+    # test index select
+    indices = torch.tensor([1, 3])
+    selected_data = tu.index_select_tensor_dict(data, indices)
 
-    assert torch.all(torch.eq(data[0:2]["obs"], torch.ones(2, 10))).item()
-    assert torch.all(torch.eq(data[0:2]["act"], torch.zeros(2, 10, 3))).item()
-    assert data[0:2]["data_source"] == ["gsm8k"] * 2
+    assert selected_data.batch_size == torch.Size([2])
 
-    # test non tensor data
-    assert data["name"] == "abdce"
+    target_input_ids = torch.nested.as_nested_tensor([input_ids[idx] for idx in indices], layout=torch.jagged)
+    target_select_data = tu.get_tensordict(
+        tensor_dict={
+            "input_ids": target_input_ids,
+            "padded_tensor": padded_tensor[indices],
+        },
+        non_tensor_dict=non_tensor_dict,
+    )
+    tu.assert_tensordict_eq(selected_data, target_select_data)
 
 
 def test_tensordict_with_images():
@@ -172,6 +186,25 @@ def test_tensordict_eq():
 
     with pytest.raises(AssertionError):
         tu.assert_tensordict_eq(data, data2)
+
+    obs = torch.nested.as_nested_tensor([torch.tensor([1, 2, 3]), torch.tensor([4, 5, 6])], layout=torch.jagged)
+    data_sources = ["abc", "def", "abc", "def", "pol", "klj"]
+    non_tensor_dict = {"train_sample_kwargs": {"top_p": 1.0}, "val_sample_kwargs": {"top_p": 0.7}}
+    data3 = tu.get_tensordict({"obs": obs, "data_sources": data_sources}, non_tensor_dict=non_tensor_dict)
+
+    obs = torch.nested.as_nested_tensor([torch.tensor([1, 2, 3]), torch.tensor([4, 5, 6])], layout=torch.jagged)
+    data4 = tu.get_tensordict({"obs": obs, "data_sources": data_sources}, non_tensor_dict=non_tensor_dict)
+    tu.assert_tensordict_eq(data3, data4)
+
+    obs = torch.nested.as_nested_tensor([torch.tensor([1, 2, 4]), torch.tensor([4, 5, 6])], layout=torch.jagged)
+    data5 = tu.get_tensordict({"obs": obs, "data_sources": data_sources}, non_tensor_dict=non_tensor_dict)
+    with pytest.raises(AssertionError):
+        tu.assert_tensordict_eq(data3, data5)
+
+    obs = torch.nested.as_nested_tensor([torch.tensor([4, 5, 6]), torch.tensor([1, 2, 3])], layout=torch.jagged)
+    data6 = tu.get_tensordict({"obs": obs, "data_sources": data_sources}, non_tensor_dict=non_tensor_dict)
+    with pytest.raises(AssertionError):
+        tu.assert_tensordict_eq(data3, data6)
 
 
 def test_tensor_dict_make_iterator():

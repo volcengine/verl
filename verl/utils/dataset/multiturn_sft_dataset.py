@@ -27,6 +27,7 @@ from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer
 
 from verl.utils import hf_tokenizer
+from verl.utils.dataset.dataset_utils import DatasetPadMode
 from verl.utils.fs import copy_local_path_from_hdfs
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.torch_functional import pad_sequence_to_length, postprocess_data
@@ -54,8 +55,8 @@ class MultiTurnSFTDataset(Dataset):
         # Set defaults and extract parameters from config if provided
         config = config or {}
         self.pad_mode = config.get("pad_mode", "right")
-        assert self.pad_mode in ["right", "left_right"], (
-            f"Expect pad_mode to be 'right' or 'left_right'. Got {self.pad_mode}"
+        assert self.pad_mode in ["right", "left_right", "no_padding"], (
+            f"Expect pad_mode to be 'right', 'left_right' or 'no_padding'. Got {self.pad_mode}"
         )
         self.truncation = config.get("truncation", "error")
         # for right padding
@@ -328,7 +329,7 @@ class MultiTurnSFTDataset(Dataset):
 
         sequence_length = input_ids.shape[0]
         # Handle sequence length
-        if self.pad_mode == "right":
+        if self.pad_mode == DatasetPadMode.RIGHT:
             if sequence_length < self.max_length:
                 # Pad sequences
                 pad_token_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else 0
@@ -364,7 +365,7 @@ class MultiTurnSFTDataset(Dataset):
                 "position_ids": position_ids,
                 "loss_mask": loss_mask,
             }
-        elif self.pad_mode == "left_right":
+        elif self.pad_mode == DatasetPadMode.LEFT_RIGHT:
             assert self.truncation == "error", "Only support error truncation for left_right pad mode"
             prompt_str = self.tokenizer.apply_chat_template(
                 messages[:prompt_message_length],
@@ -426,3 +427,43 @@ class MultiTurnSFTDataset(Dataset):
                 "responses": response_ids,
                 "response_mask": response_loss_mask,
             }
+        elif self.pad_mode == DatasetPadMode.NO_PADDING:
+            # create position IDs
+            position_ids = torch.arange(len(input_ids), dtype=torch.long)
+            # return nested tensor with out padding
+            return {
+                "input_ids": input_ids,
+                "position_ids": position_ids,
+                "loss_mask": loss_mask,
+            }
+
+
+class NestedTensorCollator:
+    """
+    A custom collate_fn that handles batching of variable-length sequences
+    into NestedTensors.
+    """
+
+    def __call__(self, batch: list[dict[str, any]]) -> dict[str, any]:
+        """
+        Collates a list of samples into a single batch.
+
+        Args:
+            batch: A list of dictionary samples from the dataset.
+
+        Returns:
+            A dictionary representing the batched data, with variable-length
+            sequences converted to NestedTensors.
+        """
+        # These keys correspond to tensors that will be nested.
+        tensor_keys = ["input_ids", "loss_mask", "position_ids"]
+
+        final_batch = {}
+
+        # Handle tensor values by creating a NestedTensor.
+        for key in tensor_keys:
+            if key in batch[0]:
+                tensors = [item[key] for item in batch]
+                final_batch[key] = torch.nested.as_nested_tensor(tensors, layout=torch.jagged)
+
+        return final_batch
