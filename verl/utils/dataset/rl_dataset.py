@@ -365,12 +365,8 @@ class RLHFDataset(Dataset):
         row_dict["index"] = index
         row_dict["tools_kwargs"] = tools_kwargs
         row_dict["interaction_kwargs"] = interaction_kwargs
-        
-        # 在返回前检查think处理
         if self.enable_thinking:
-            # 添加think相关的处理逻辑
             row_dict["enable_thinking"] = True
-            # 其他think相关处理...
         
         return row_dict
 
