@@ -49,12 +49,16 @@ class PartialSingleTurnAgentLoop(AgentLoopBase):
             param_version_start = param_version
         else:
             if output.is_cancel:
-                # 恢复暂停的样本，结果直接添加到 prompt_ids 后面
+                # Resume the paused sample,
+                # add the result directly after prompt_ids,
+                # and reset generate_sequences metric
                 prompt_ids = output.prompt_ids + output.response_ids
                 metrics["generate_sequences"] = output.metrics.generate_sequences
                 param_version_start = output.param_version_start
             else:
-                # 同一批样本，部分cancel，部分没有cancel， 没有cancel的样本直接返回
+                # In the same batch of samples,
+                # ome are canceled and some are not.
+                # The samples without partial rollout are returned directly.
                 return output
         param_version_end = param_version
         request_id = uuid4().hex
@@ -65,8 +69,8 @@ class PartialSingleTurnAgentLoop(AgentLoopBase):
 
         if not output:
             response_mask = [1] * len(response_ids)
-        # 暂停待恢复样本, 把输出结果加到 response_ids 后，并重置 response_mask
         else:
+            # Pause the sample to be resumed, add the output result to response_ids, and reset response_mask
             prompt_ids = output.prompt_ids
             log_probs = output.log_probs + log_probs
             response_ids = output.response_ids + response_ids

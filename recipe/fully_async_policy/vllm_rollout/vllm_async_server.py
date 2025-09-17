@@ -349,10 +349,9 @@ class AsyncvLLMServer(AsyncServerBase):
     async def generate_for_partial(
         self, prompt_ids: list[int], sampling_params: dict[str, Any], request_id: str
     ) -> tuple[list[Any], list[Any], bool] | tuple[Sequence[int], list[float], Any]:
-        # 设置中断标志
         async with self.lock:
             if self.paused:
-                # cancel 后， 所有任务直接返回，等待下次提交
+                # After cancel, all tasks will return directly and wait for the next submission
                 return [], [], True
             self.cancel_event[request_id] = asyncio.Event()
             cancel_handle = asyncio.create_task(self.cancel_event[request_id].wait())
@@ -370,7 +369,8 @@ class AsyncvLLMServer(AsyncServerBase):
             token_ids = self.req_output[request_id].outputs[0].token_ids
             log_probs: list[float] = []
             for i, x in enumerate(self.req_output[request_id].outputs[0].logprobs):
-                # sampling_params 中 logprobs 设置为1，应该返回1个, 但是实测会有多个，取token_id所对应的log_prob
+                # In sampling_params, logprobs is set to 1, which should return 1,
+                # but in practice there are multiple. Take the log_prob corresponding to token_id
                 token_id = self.req_output[request_id].outputs[0].token_ids[i]
                 log_probs.append(x[token_id].logprob)
             is_cancel = generation_handle not in done

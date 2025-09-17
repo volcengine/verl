@@ -80,11 +80,10 @@ class Role(Enum):
     ActorRolloutRef = 6
 
     def __str__(self):
-        """返回与代码中一致的字符串表示"""
         return self._get_role_string()
 
     def _get_role_string(self):
-        """获取角色对应的字符串名称"""
+        """Get the string name corresponding to the role"""
         role_mapping = {
             Role.Actor: "actor",
             Role.Rollout: "rollout",
@@ -98,7 +97,7 @@ class Role(Enum):
 
     @classmethod
     def from_string(cls, name: str):
-        """从字符串创建Role实例"""
+        """Create a Role instance from a string"""
         string_mapping = {
             "actor": cls.Actor,
             "rollout": cls.Rollout,

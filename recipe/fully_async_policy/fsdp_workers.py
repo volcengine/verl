@@ -55,7 +55,7 @@ def get_inference_model(rollout):
     Args:
         rollout: rollout object
     Returns:
-        model: 模型对象
+        model: model object
     """
     inference_engine = rollout.inference_engine
     if hasattr(inference_engine, "llm_engine"):

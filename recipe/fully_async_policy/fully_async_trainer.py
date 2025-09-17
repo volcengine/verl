@@ -158,11 +158,10 @@ class FullyAsyncTrainer(RayPPOTrainer):
         queue_samples = []
 
         while len(queue_samples) < self.required_samples:
-            # 获取单个样本，会一直等待直到有样本或收到None
+            # Get a single sample and wait until there is a sample or None is received
             sample, queue_len = self.message_queue_client.get_sample_sync()
 
             if sample is None:
-                # 检测到结束信号（None），立即退出
                 print(
                     f"[FullyAsyncTrainer] Detected termination signal (None), stopping sample collection. "
                     f"Collected {len(queue_samples)}/{self.required_samples} samples"
@@ -322,7 +321,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
             pprint(f"[FullyAsyncTrainer] Final validation metrics: {val_data.metrics}")
         self.progress_bar.close()
 
-        self._check_save_checkpoint(True, timing_raw)  # TODO: 检查checkpoint
+        self._check_save_checkpoint(True, timing_raw)  # TODO: check checkpoint
 
     def load_checkpoint(self):
         return self._load_checkpoint()

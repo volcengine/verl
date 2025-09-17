@@ -614,23 +614,24 @@ class AgentLoopManager:
         partial_output_list: Optional[list[AgentLoopOutput]],
     ) -> list[AgentLoopOutput]:
         """
-        异步处理单个样本, 需要复制n次
+        Asynchronously process a single sample
 
         Args:
-            sample: 单个样本数据
+            sample: Single sample data
             partial_output_list: Optional[List[AgentLoopOutput]]: already rollout result.
 
         Returns:
-            tuple[AgentLoopOutput, float]: 处理结果和处理时间
+            list[AgentLoopOutput]: Processing results
         """
-        # 使用负载均衡选择 worker
+        # select a worker
         worker = self._select_best_worker()
-        # 异步处理单个样本 - 使用无后处理版本获取原始AgentLoopOutput
+        # Process a single sample asynchronously，
+        # get the raw AgentLoopOutput using the no post-processing version
         output_future = worker.generate_sequences_no_post.remote(sample, param_version, partial_output_list)
         return await asyncio.wrap_future(output_future.future())
 
     def _select_best_worker(self):
-        """选择最佳的 worker（简单的轮询负载均衡）"""
+        """Select the best worker, simple round-robin load balancing"""
         if not hasattr(self, "_worker_index"):
             self._worker_index = 0
 
