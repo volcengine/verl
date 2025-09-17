@@ -643,16 +643,16 @@ class RayWorkerGroup(WorkerGroup):
         # print(f"execute_all_async: method {method_name}({args}, {kwargs})")
         length = len(self._workers)
 
-        def execute_remote_single_worker(i, worker):
+        def execute_remote_single_worker(index, worker):
             if all(isinstance(arg, list) for arg in args) and all(isinstance(kwarg, list) for kwarg in kwargs.values()):
                 if all(len(arg) == length for arg in args) and all(len(kwarg) == length for kwarg in kwargs.values()):
-                    sliced_args = tuple(arg[i] for arg in args)
-                    sliced_kwargs = {k: v[i] for k, v in kwargs.items()}
-                    return self._execute_remote_single_worker(worker, method_name, *sliced_args, **sliced_kwargs)
+                    sliced_args = tuple(arg[index] for arg in args)
+                    sliced_kwargs = {k: v[index] for k, v in kwargs.items()}
+                    return index, self._execute_remote_single_worker(worker, method_name, *sliced_args, **sliced_kwargs)
             else:
-                return self._execute_remote_single_worker(worker, method_name, *args, **kwargs)
+                return index, self._execute_remote_single_worker(worker, method_name, *args, **kwargs)
 
-        max_workers = max(1, min(len(args[0]), os.cpu_count()))
+        max_workers = max(1, min(length, os.cpu_count()))
         output = [None] * length
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [
