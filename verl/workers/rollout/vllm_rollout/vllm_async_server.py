@@ -74,11 +74,11 @@ class ExternalZeroMQDistributedExecutor(Executor):
         self.collective_rpc("load_model")
 
     def collective_rpc(
-        self,
-        method: str | Callable,
-        timeout: Optional[float] = None,
-        args: tuple = (),
-        kwargs: Optional[dict[str, Any]] = None,
+            self,
+            method: str | Callable,
+            timeout: Optional[float] = None,
+            args: tuple = (),
+            kwargs: Optional[dict[str, Any]] = None,
     ) -> list[Any]:
         if isinstance(method, str):
             sent_method = method
@@ -99,8 +99,7 @@ class ExternalZeroMQDistributedExecutor(Executor):
         return
 
 
-@ray.remote(num_cpus=1)
-class vLLMHttpServer:
+class vLLMHttpServerBase:
     """vLLM http server in single node, this is equivalent to launch server with command line:
     ```
     vllm serve --tensor-parallel-size=8 ...
@@ -108,14 +107,14 @@ class vLLMHttpServer:
     """
 
     def __init__(
-        self,
-        config: DictConfig,
-        rollout_mode: RolloutMode,
-        workers: list[ActorHandle],
-        replica_rank: int,
-        node_rank: int,
-        gpus_per_node: int,
-        nnodes: int,
+            self,
+            config: DictConfig,
+            rollout_mode: RolloutMode,
+            workers: list[ActorHandle],
+            replica_rank: int,
+            node_rank: int,
+            gpus_per_node: int,
+            nnodes: int,
     ):
         """
         Args:
@@ -242,7 +241,8 @@ class vLLMHttpServer:
         server_args.distributed_executor_backend = distributed_executor_backend
 
         zmq_addresses = ray.get([worker.get_zeromq_address.remote() for worker in self.workers])
-        logger.info(
+        print(
+            "=" * 1000,
             f"replica_rank={self.replica_rank}, node_rank={self.node_rank}, nnodes={self.nnodes}, "
             f"get worker zmq addresses: {zmq_addresses}"
         )
@@ -273,11 +273,11 @@ class vLLMHttpServer:
             engine_client.shutdown = lambda: None
 
     async def generate(
-        self,
-        prompt_ids: list[int],
-        sampling_params: dict[str, Any],
-        request_id: str,
-        image_data: Optional[list[Any]] = None,
+            self,
+            prompt_ids: list[int],
+            sampling_params: dict[str, Any],
+            request_id: str,
+            image_data: Optional[list[Any]] = None,
     ) -> TokenOutput:
         """Generate sequence with token-in-token-out."""
         # TODO(@wuxibin): switch to `/generate` http endpoint once multi-modal support ready.
@@ -324,6 +324,27 @@ class vLLMHttpServer:
             logger.info("skip sleep in standalone mode")
 
 
+@ray.remote(num_cpus=1)
+class vLLMHttpServer(vLLMHttpServerBase):
+    """vLLM http server in single node, this is equivalent to launch server with command line:
+    ```
+    vllm serve --tensor-parallel-size=8 ...
+    ```
+    """
+
+    def __init__(
+            self,
+            config: DictConfig,
+            rollout_mode: RolloutMode,
+            workers: list[ActorHandle],
+            replica_rank: int,
+            node_rank: int,
+            gpus_per_node: int,
+            nnodes: int,
+    ):
+        super().__init__(config, rollout_mode, workers, replica_rank, node_rank, gpus_per_node, nnodes)
+
+
 _rollout_worker_actor_cls = ray.remote(vLLMAsyncRollout)
 
 
@@ -364,7 +385,7 @@ class vLLMReplica(RolloutReplica):
 
         # create server actor in each node with node affinity
         for node_rank in range(nnodes):
-            workers = self.workers[node_rank * gpus_per_node : (node_rank + 1) * gpus_per_node]
+            workers = self.workers[node_rank * gpus_per_node: (node_rank + 1) * gpus_per_node]
             node_id = worker_node_ids[node_rank * gpus_per_node]
             server = self.server_class.options(
                 scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(

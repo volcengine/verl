@@ -117,13 +117,15 @@ class RolloutSample:
     # Processing metadata
     processing_times: list[float]
     param_version: int
+    param_version_start: list[int]
+    param_version_end: list[int]
     rollout_status: dict[str, Any]
 
 
 @dataclass
 class ValidateMetrics:
     timing_raw: dict[str, Any]
-    metrics: dict[str, Any]
+    metrics: Optional[dict[str, Any]] = None
     global_steps: Optional[int] = None
     param_version: Optional[int] = None
 
@@ -220,7 +222,8 @@ def merge_rollout_sample(config, tokenizer, rs: RolloutSample):
     rs.processing_times = []
     for agent_loop in rs.agent_loop_output_list:
         rs.processing_times.append(agent_loop.metrics.generate_sequences)
-
+    rs.param_version_start = [agent_loop.param_version_start for agent_loop in rs.agent_loop_output_list]
+    rs.param_version_end = [agent_loop.param_version_end for agent_loop in rs.agent_loop_output_list]
     # 第四步，清空 agent_loop_output_list
     rs.agent_loop_output_list = []
 
@@ -277,24 +280,34 @@ def assemble_batch_from_rollout_samples(
 
     # 收集统计信息和元数据（直接从 RolloutSample 中获取）
     param_versions = [rs.param_version for rs in rollout_samples]
+    trajectorys_param_versions = [version for rs in rollout_samples for version in rs.param_version_end]
 
     processing_time_stats = {
-        "avg_processing_time": np.mean(processing_times),
-        "max_processing_time": np.max(processing_times),
-        "min_processing_time": np.min(processing_times),
-        "tp50_processing_time": np.percentile(processing_times, 50),  # 中位数
-        "tp99_processing_time": np.percentile(processing_times, 99),  # 99百分位
-        "tp95_processing_time": np.percentile(processing_times, 95),  # 95百分位也很有用
+        "processing_time/avg": np.mean(processing_times),
+        "processing_time/max": np.max(processing_times),
+        "processing_time/min": np.min(processing_times),
+        "processing_time/tp50": np.percentile(processing_times, 50),  # 中位数
+        "processing_time/tp99": np.percentile(processing_times, 99),  # 99百分位
+        "processing_time/tp95": np.percentile(processing_times, 95),  # 95百分位也很有用
     }
     processing_time_stats = {f"fully_async/{key}": value for key, value in processing_time_stats.items()}
 
+    param_version_diff = [abs(a - b) for a, b in zip(rs.param_version_end, rs.param_version_start)]
+    num_diff0 = param_version_diff.count(0)
+    partial_stats = {
+        "fully_async/partial/total_partial_num": len(param_version_diff) - num_diff0,
+        "fully_async/partial/partial_ratio": (len(param_version_diff) - num_diff0) / len(param_version_diff),
+        "fully_async/partial/max_partial_span": max(param_version_diff),
+    }
     # 创建 meta_info
     final_batch.meta_info.update(
         {
             "rollout_param_versions": param_versions,
             "param_version_diversity": len(set(param_versions)) if param_versions else 0,
+            "trajectory_param_versions": trajectorys_param_versions,
             **processing_time_stats,
             **rollout_status,
+            **partial_stats,
         }
     )
 
@@ -326,6 +339,14 @@ class MetricsAggregator:
         return {
             # Time-Based metrics, can add metrics here
             "time_sum": ["perf/time_per_step"],
+            "last": [
+                "fully_async/count/total_generated_samples",
+                "fully_async/count/stale_samples_processed",
+                "fully_async/count/stale_trajectory_processed",
+                "fully_async/count/current_param_version",
+                "fully_async/count/dropped_stale_samples",
+                "training/global_step",  # TODO 改为total_step
+            ],
         }
 
     def add_step_metrics(self, metrics: dict[str, Any], sample_count: int, timestamp: float = None):
@@ -339,7 +360,7 @@ class MetricsAggregator:
 
         # Store all metrics values
         for key, value in metrics.items():
-            if isinstance(value, (int, float, np.number)):
+            if isinstance(value, int | float | np.number):
                 self.metric_values[key].append(float(value))
             elif isinstance(value, torch.Tensor):
                 self.metric_values[key].append(float(value.item()))
@@ -364,12 +385,6 @@ class MetricsAggregator:
         if any(keyword in metric_lower for keyword in ["weighted_avg"]):
             return "weighted_avg"
 
-        import warnings
-
-        warnings.warn(
-            f"No aggregation rule is matched in init_aggregation_rules. \
-                      For metric {metric_name}, the 'avg' method is used"
-        )
         return "avg"
 
     def _aggregate_single_metric(self, metric_name: str, values: list[float]) -> float:
@@ -433,14 +448,20 @@ class MetricsAggregator:
     def _special_metrics_aggergate(self, aggregated: dict[str, Any]) -> dict[str, Any]:
         """calculate special metrics"""
 
+        # global_seqlen/minmax_diff
         if "global_seqlen/minmax_diff" in aggregated.keys():
             aggregated["global_seqlen/minmax_diff"] = aggregated["global_seqlen/max"] - aggregated["global_seqlen/min"]
 
+        # perf/throughput
         REQUIRED_PERF_KEYS = {"perf/throughput", "perf/total_num_tokens", "perf/time_per_step"}
         if REQUIRED_PERF_KEYS.issubset(aggregated):
             aggregated["perf/throughput"] = aggregated["perf/total_num_tokens"] / (
                 aggregated["perf/time_per_step"] * self.total_gpus
             )
+
+        # trainer/idle_ratio
+        if "timing_s/gen" in aggregated.keys() and "timing_s/step" in aggregated.keys():
+            aggregated["trainer/idle_ratio"] = aggregated["timing_s/gen"] / aggregated["timing_s/step"]
 
         return aggregated
 

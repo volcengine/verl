@@ -26,7 +26,7 @@ from verl.workers.rollout.replica import RolloutMode
 from verl.workers.rollout.vllm_rollout.vllm_async_server import (
     _qwen2_5_vl_dedup_image_tokens,
     vLLMHttpServer,
-    vLLMReplica,
+    vLLMReplica, vLLMHttpServerBase,
 )
 
 logger = logging.getLogger(__file__)
@@ -34,7 +34,7 @@ logger.setLevel(logging.INFO)
 
 
 @ray.remote(num_cpus=1)
-class vLLMHttpServerForPartial(vLLMHttpServer):
+class vLLMHttpServerForPartial(vLLMHttpServerBase):
     def __init__(
         self,
         config: DictConfig,
@@ -128,4 +128,12 @@ class vLLMHttpServerForPartial(vLLMHttpServer):
 class vLLMReplicaForPartial(vLLMReplica):
     def __init__(self, replica_rank: int, config: DictConfig, gpus_per_node: int = 8):
         super().__init__(replica_rank, config, gpus_per_node)
-        self.server_class = vLLMHttpServerForPartail
+        self.server_class = vLLMHttpServerForPartial
+
+    async def cancel(self):
+        """Cancel each rollout server."""
+        await asyncio.gather(*[server.cancel.remote() for server in self.servers])
+
+    async def resume(self):
+        """Resume each rollout server."""
+        await asyncio.gather(*[server.resume.remote() for server in self.servers])

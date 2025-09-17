@@ -364,10 +364,7 @@ class AgentLoopWorkerBase:
         """
         self.config = config
 
-        if self.AsyncLLMServerManager is None:
-            self.AsyncLLMServerManager = AsyncLLMServerManager
-
-        self.server_manager = self.AsyncLLMServerManager(config, server_handles)
+        self.server_manager = AsyncLLMServerManager(config, server_handles)
         self.rm_executor = rm_executor
 
         model_path = config.actor_rollout_ref.model.path
@@ -755,15 +752,18 @@ class AgentLoopManager:
 
             self.rm_micro_batch_size = rm_wg.world_size
 
+        # for recipe to change
+        if not hasattr(self, 'rollout_replica_class'):
+            self.rollout_replica_class = get_rollout_replica_class(self.config.actor_rollout_ref.rollout.name)
+        if not hasattr(self, 'agent_loop_workers_class'):
+            self.agent_loop_workers_class = AgentLoopWorker
+
         self._initialize_llm_servers()
         self._init_agent_loop_workers()
 
         # Initially we're in sleep mode.
         if self.config.actor_rollout_ref.rollout.free_cache_engine:
             self.sleep()
-
-        # for recipe to change AgentLoopWorker
-        self.AgentLoopWorker = AgentLoopWorker
 
     def _initialize_llm_servers(self):
         rollout_world_size = self.config.actor_rollout_ref.rollout.tensor_model_parallel_size
@@ -774,9 +774,8 @@ class AgentLoopManager:
         )
         num_replicas = world_size // rollout_world_size
 
-        rollout_replica_class = get_rollout_replica_class(self.config.actor_rollout_ref.rollout.name)
         self.rollout_replicas = [
-            rollout_replica_class(
+            self.rollout_replica_class(
                 replica_rank=replica_rank, config=self.config, gpus_per_node=self.config.trainer.n_gpus_per_node
             )
             for replica_rank in range(num_replicas)
@@ -788,6 +787,7 @@ class AgentLoopManager:
         self.server_handles = [server._server_handle for server in self.rollout_replicas]
         self.server_addresses = [server._server_address for server in self.rollout_replicas]
 
+
     def _init_agent_loop_workers(self):
         self.agent_loop_workers = []
         num_workers = self.config.actor_rollout_ref.rollout.agent.num_workers
@@ -797,7 +797,7 @@ class AgentLoopManager:
             # Round-robin scheduling over the all nodes
             node_id = node_ids[i % len(node_ids)]
             self.agent_loop_workers.append(
-                self.AgentLoopWorker.options(
+                self.agent_loop_workers_class.options(
                     name=f"agent_loop_worker_{i}",
                     scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
                         node_id=node_id, soft=True

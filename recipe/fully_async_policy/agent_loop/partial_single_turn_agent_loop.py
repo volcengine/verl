@@ -44,7 +44,6 @@ class PartialSingleTurnAgentLoop(AgentLoopBase):
 
         metrics = {}
         request_id = uuid4().hex
-
         if not output:
             prompt_ids = await self.loop.run_in_executor(
                 None,
@@ -56,11 +55,10 @@ class PartialSingleTurnAgentLoop(AgentLoopBase):
             if output.is_cancel:
                 # 恢复暂停的样本，结果直接添加到 prompt_ids 后面
                 prompt_ids = output.prompt_ids + output.response_ids
+                metrics["generate_sequences"] = output.metrics.generate_sequences
             else:
                 # 同一批样本，部分cancel，部分没有cancel， 没有cancel的样本直接返回
                 return output
-
-        metrics = {}
         request_id = uuid4().hex
         with simple_timer("generate_sequences", metrics):
             response_ids, log_probs, is_cancel = await self.server_manager.generate_for_partial(

@@ -61,10 +61,15 @@ class FullyAsyncRayPPOTrainer(RayPPOTrainer):
         1. Ray resource pools from configuration
         2. Worker groups for each role (actor, critic, etc.)
         """
+        print("_init_resource_pools")
         self._init_resource_pools()
+        print("_create_worker_classes")
         self._create_worker_classes()
+        print("_init_worker_groups")
         self._init_worker_groups()
+        print("_init_models")
         self._init_models()
+        print("_init_async_rollout_manager")
         self._init_async_rollout_manager()
 
     def _init_resource_pools(self):
@@ -79,18 +84,7 @@ class FullyAsyncRayPPOTrainer(RayPPOTrainer):
         self._create_reward_model_class()
 
     def _create_actor_rollout_classes(self):
-        # create actor and rollout
-        if self.hybrid_engine:
-            resource_pool = self.resource_pool_manager.get_resource_pool(Role.ActorRollout)
-            actor_rollout_cls = RayClassWithInitArgs(
-                cls=self.role_worker_mapping[Role.ActorRollout],
-                config=self.config.actor_rollout_ref,
-                role=str(Role.ActorRollout),
-                profile_option=self.config.trainer.npu_profile.options,
-            )
-            self.resource_pool_to_cls[resource_pool][str(Role.ActorRollout)] = actor_rollout_cls
-        else:
-            raise NotImplementedError
+        raise NotImplementedError
 
     def _create_critic_class(self):
         # create critic
