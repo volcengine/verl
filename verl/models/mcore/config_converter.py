@@ -379,7 +379,6 @@ def hf_to_mcore_config_qwen2_5_vl(
     return TransformerConfig(**args)
 
 
-
 def hf_to_mcore_config_llama4(
     hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs
 ) -> TransformerConfig:
