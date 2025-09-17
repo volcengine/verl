@@ -348,14 +348,9 @@ def apply_monkey_patch(
 
     if model.config.model_type == "glm4v":
         from transformers.models.glm4v.modeling_glm4v import Glm4vTextAttention, Glm4vModel
-
         if use_remove_padding or ulysses_sp_size > 1:
-            # Use GLM4V-specific Ulysses FlashAttention forward implementation to avoid calling Qwen2-VL implementation
             from verl.models.transformers.glm4v import ulysses_flash_attn_forward
-
             Glm4vTextAttention.forward = ulysses_flash_attn_forward
-        
-        # 🔥🔥🔥 新增：拦截Glm4vModel.forward以处理3D position_ids 🔥🔥🔥
         original_glm4v_model_forward = Glm4vModel.forward
         Glm4vModel.forward = _intercepted_glm4v_model_forward(original_glm4v_model_forward)
         print("Monkey patch Glm4vModel.forward for 3D position_ids interception")
@@ -424,54 +419,31 @@ def is_transformers_version_in_range(min_version: Optional[str] = None, max_vers
 
 def _intercepted_glm4v_model_forward(original_forward):
     def wrapper(self, *args, **kwargs):
-        import traceback
-        print(f"\n======== GLM4V MODEL FORWARD INTERCEPTION ========")
-        print(f"Call stack: {traceback.format_stack()[-3:-1]}")
-        
         position_ids = kwargs.get('position_ids')
         print(f"Original position_ids: {position_ids.shape if position_ids is not None else 'None'}")
-        
         if position_ids is not None and hasattr(position_ids, 'shape') and position_ids.ndim == 3:
-            print(f"🚨🚨 INTERCEPTED: 3D position_ids {position_ids.shape} 🚨🚨")
             kwargs['position_ids'] = None
-            print(f"🔧🔧 FIXED: Set position_ids to None 🔧🔧")
-        
-        print(f"======== END GLM4V MODEL FORWARD INTERCEPTION ========\n")
         return original_forward(self, *args, **kwargs)
     return wrapper
 
-# 添加到monkey_patch.py中
 import transformers.masking_utils
 
-# 保存原始函数
 original_create_causal_mask = transformers.masking_utils.create_causal_mask
 original_preprocess_mask_arguments = transformers.masking_utils._preprocess_mask_arguments
 
 def _intercepted_create_causal_mask(*args, **kwargs):
-    # 从kwargs中提取position_ids
     position_ids = kwargs.get('position_ids')
     print(f"🔍 create_causal_mask called with position_ids: {position_ids.shape if position_ids is not None else 'None'}")
-    
-    # 检查并处理3D position_ids
     if position_ids is not None and hasattr(position_ids, 'ndim') and position_ids.ndim == 3:
-        print(f"🚨 INTERCEPTING 3D position_ids in create_causal_mask! Shape: {position_ids.shape}")
-        print(f"Call stack:")
-        import traceback
-        traceback.print_stack(limit=10)
         kwargs['position_ids'] = None
-        print(f"✅ Set position_ids to None")
-    
     return original_create_causal_mask(*args, **kwargs)
 
 def _intercepted_preprocess_mask_arguments(*args, **kwargs):
-    # 从kwargs中提取position_ids，如果不在kwargs中则从args中提取
     position_ids = kwargs.get('position_ids')
     if position_ids is None and len(args) >= 3:
-        position_ids = args[2]  # position_ids通常是第3个参数
-    
+        position_ids = args[2]
+
     print(f"🔍 _preprocess_mask_arguments called with position_ids: {position_ids.shape if position_ids is not None else 'None'}")
-    
-    # 检查并处理3D position_ids
     if position_ids is not None and hasattr(position_ids, 'ndim') and position_ids.ndim == 3:
         print(f"🚨 INTERCEPTING 3D position_ids in _preprocess_mask_arguments! Shape: {position_ids.shape}")
         print(f"This is the final line of defense before the crash!")
@@ -485,8 +457,6 @@ def _intercepted_preprocess_mask_arguments(*args, **kwargs):
     
     return original_preprocess_mask_arguments(*args, **kwargs)
 
-# 应用monkey patch
 transformers.masking_utils.create_causal_mask = _intercepted_create_causal_mask
 transformers.masking_utils._preprocess_mask_arguments = _intercepted_preprocess_mask_arguments
 
-print("✅ Applied masking_utils monkey patches for GLM4V 3D position_ids handling")

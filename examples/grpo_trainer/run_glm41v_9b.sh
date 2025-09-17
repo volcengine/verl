@@ -7,8 +7,8 @@ export USE_OPTIMIZED_MODEL=0
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/mnt/wujiahan/data/geo3k/train.parquet \
-    data.val_files=/mnt/wujiahan/data/geo3k/test.parquet \
+    data.train_files=/mnt/verl_train_data/geo3k/train.parquet \
+    data.val_files=/mnt/verl_train_data/geo3k/test.parquet \
     data.train_batch_size=32 \
     data.max_prompt_length=1024 \
     data.max_response_length=2048 \
@@ -45,7 +45,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
-    trainer.logger=[console,wandb] \
+    trainer.logger=[console] \
     trainer.project_name='torch_verl_grpo_example_geo3k_think' \
     trainer.experiment_name='glm45v_function_rm_think' \
     trainer.n_gpus_per_node=8 \
