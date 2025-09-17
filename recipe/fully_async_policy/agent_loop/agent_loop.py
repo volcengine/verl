@@ -1,4 +1,4 @@
-# Copyright 2024 Bytedance Ltd. and/or its affiliates
+# Copyright 2025 Meituan Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,23 +14,9 @@
 import asyncio
 import logging
 import os
-from typing import Any, Optional
-
-import hydra
-import numpy as np
-import ray
-import torch
-from omegaconf import DictConfig, OmegaConf
-from tensordict import TensorDict
-
-from verl.protocol import DataProto
-from verl.single_controller.ray.base import RayWorkerGroup
-from verl.utils import hf_tokenizer
-from verl.utils.fs import copy_to_local
-from verl.utils.rollout_trace import RolloutTraceConfig, rollout_trace_attr
-from verl.workers.rollout.replica import TokenOutput
 
 from verl.experimental.agent_loop.agent_loop import AgentLoopOutput, _agent_loop_registry, _DummyConfig
+from verl.protocol import DataProto
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -60,15 +46,15 @@ class PartialAgentLoopOutput(AgentLoopOutput):
 
 
 @ray.remote
-class FullyAgentLoopWorker(AgentLoopWorkerBase):
+class PartialAgentLoopWorker(AgentLoopWorkerBase):
     def __init__(
-            self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], rm_executor: BatchExecutor = None
+        self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], rm_executor: BatchExecutor = None
     ):
         self.AsyncLLMServerManager = PartialAsyncLLMServerManager
         super().__init__(config, server_handles, rm_executor)
 
     async def generate_sequences_no_post(
-            self, batch: DataProto, partial_output_list: Optional[list[AgentLoopOutput]]
+        self, batch: DataProto, partial_output_list: Optional[list[AgentLoopOutput]]
     ) -> list[AgentLoopOutput]:
         """Generate sequences from agent loop.
 
@@ -105,7 +91,7 @@ class FullyAgentLoopWorker(AgentLoopWorkerBase):
         if "index" in batch.non_tensor_batch:
             index = batch.non_tensor_batch["index"]
         else:
-            index = np.arange(len(raw_prompts))
+            index = np.arange(len(batch))
 
         trajectory_info = await get_trajectory_info(
             batch.meta_info.get("global_steps", -1), index, batch.meta_info.get("validate", False)
@@ -117,29 +103,26 @@ class FullyAgentLoopWorker(AgentLoopWorkerBase):
         tasks = []
         for i in range(len(batch)):
             kwargs = {k: v[i] for k, v in batch.non_tensor_batch.items()}
+            kwargs["output"] = partial_output_list[i]
             tasks.append(
-                asyncio.create_task(
-                    self._partial_run_agent_loop(sampling_params,
-                                                 trajectory_info[i],
-                                                 partial_output_list[i],
-                                                 **kwargs)))
+                asyncio.create_task(self._partial_run_agent_loop(sampling_params, trajectory_info[i], **kwargs))
+            )
         return await asyncio.gather(*tasks)
 
     async def _partial_run_agent_loop(
-            self,
-            sampling_params: dict[str, Any],
-            trajectory: dict[str, Any],
-            partial_output: Optional[AgentLoopOutput] = None,
-            *,
-            agent_name: str,
-            **kwargs,
+        self,
+        sampling_params: dict[str, Any],
+        trajectory: dict[str, Any],
+        *,
+        agent_name: str,
+        **kwargs,
     ) -> AgentLoopOutput:
         with rollout_trace_attr(
-                step=trajectory["step"],
-                sample_index=trajectory["sample_index"],
-                rollout_n=trajectory["rollout_n"],
-                validate=trajectory["validate"],
-                name="agent_loop",
+            step=trajectory["step"],
+            sample_index=trajectory["sample_index"],
+            rollout_n=trajectory["rollout_n"],
+            validate=trajectory["validate"],
+            name="agent_loop",
         ):
             assert agent_name in _agent_loop_registry, (
                 f"Agent loop {agent_name} not registered, registered agent loops: {_agent_loop_registry.keys()}"
@@ -153,18 +136,18 @@ class FullyAgentLoopWorker(AgentLoopWorkerBase):
                 tokenizer=self.tokenizer,
                 processor=self.processor,
             )
-            return await agent_loop.run(sampling_params, partial_output, **kwargs)
+            return await agent_loop.run(sampling_params, **kwargs)
 
 
-class FullyAgentLoopManager(AgentLoopManager):
+class PartialAgentLoopManager(AgentLoopManager):
     def __init__(self, config: DictConfig, worker_group: RayWorkerGroup = None, rm_wg: RayWorkerGroup = None):
-        self.AgentLoopWorker = FullyAgentLoopWorker
+        self.AgentLoopWorker = PartialAgentLoopWorker
         super().__init__(config, worker_group, rm_wg)
 
     async def generate_single_sample_async(
-            self,
-            sample: DataProto,
-            partial_output_list: Optional[list[AgentLoopOutput]],
+        self,
+        sample: DataProto,
+        partial_output_list: Optional[list[AgentLoopOutput]],
     ) -> list[AgentLoopOutput]:
         """
         异步处理单个样本, 需要复制n次
@@ -191,12 +174,23 @@ class FullyAgentLoopManager(AgentLoopManager):
         self._worker_index = (self._worker_index + 1) % len(self.agent_loop_workers)
         return worker
 
+    async def sleep(self):
+        futures = [replica.sleep.remote() for replica in self.rollout_replicas]
+        await asyncio.gather(*[asyncio.wrap_future(future.future()) for future in futures], return_exceptions=True)
+
+    async def wake_up(self):
+        futures = [replica.wake_up.remote() for replica in self.rollout_replicas]
+        await asyncio.gather(*[asyncio.wrap_future(future.future()) for future in futures], return_exceptions=True)
+
     async def cancel_async(self):
         """Cancel all rollout tasks asynchronously."""
-        futures = [server.cancel.remote() for server in self.async_llm_servers]
+        futures = [replica.cancel.remote() for replica in self.rollout_replicas]
         await asyncio.gather(*[asyncio.wrap_future(future.future()) for future in futures], return_exceptions=True)
 
     async def resume_async(self):
         """Cancel all rollout tasks asynchronously."""
-        futures = [server.resume.remote() for server in self.async_llm_servers]
+        futures = [replica.resume.remote() for replica in self.rollout_replicas]
         await asyncio.gather(*[asyncio.wrap_future(future.future()) for future in futures], return_exceptions=True)
+
+    def _run_all(self, tasks: list[asyncio.Task]):
+        pass

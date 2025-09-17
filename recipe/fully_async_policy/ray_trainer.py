@@ -175,10 +175,10 @@ class FullyAsyncRayPPOTrainer(RayPPOTrainer):
         # create async rollout manager and request scheduler
         self.async_rollout_mode = False
         if self.config.actor_rollout_ref.rollout.mode == "async":
-            from recipe.fully_async_policy.agent_loop.agent_loop import FullyAgentLoopManager
+            from recipe.fully_async_policy.agent_loop.agent_loop import PartialAgentLoopManager
 
             self.async_rollout_mode = True
-            self.async_rollout_manager = FullyAgentLoopManager(
+            self.async_rollout_manager = PartialAgentLoopManager(
                 config=self.config,
                 worker_group=self.actor_rollout_wg,
             )

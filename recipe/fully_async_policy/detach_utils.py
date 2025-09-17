@@ -228,7 +228,7 @@ def merge_rollout_sample(config, tokenizer, rs: RolloutSample):
 
 
 def assemble_batch_from_rollout_samples(
-        rollout_samples: list[RolloutSample], tokenizer, config, balance_batch=None
+    rollout_samples: list[RolloutSample], tokenizer, config, balance_batch=None
 ) -> DataProto:
     """
     Assemble gen_batch_output from RolloutSample objects
@@ -439,7 +439,7 @@ class MetricsAggregator:
         REQUIRED_PERF_KEYS = {"perf/throughput", "perf/total_num_tokens", "perf/time_per_step"}
         if REQUIRED_PERF_KEYS.issubset(aggregated):
             aggregated["perf/throughput"] = aggregated["perf/total_num_tokens"] / (
-                    aggregated["perf/time_per_step"] * self.total_gpus
+                aggregated["perf/time_per_step"] * self.total_gpus
             )
 
         return aggregated

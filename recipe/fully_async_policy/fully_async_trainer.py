@@ -93,8 +93,6 @@ class FullyAsyncTrainer(FullyAsyncRayPPOTrainer):
             )
             self.use_critic = False
 
-        self._validate_config()
-
         self.message_queue_client = None
         self.param_synchronizer = None
 

@@ -1,4 +1,4 @@
-# Copyright 2024 Bytedance Ltd. and/or its affiliates
+# Copyright 2025 Meituan Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,7 +16,12 @@ import os
 from typing import Any, Optional
 from uuid import uuid4
 
-from recipe.fully_async_policy.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput, register
+from recipe.fully_async_policy.agent_loop.agent_loop import (
+    AgentLoopBase,
+    AgentLoopOutput,
+    PartialAgentLoopOutput,
+    register,
+)
 from verl.utils.profiler import simple_timer
 
 logger = logging.getLogger(__file__)
@@ -31,13 +36,21 @@ class PartialSingleTurnAgentLoop(AgentLoopBase):
         super().__init__(*args, **kwargs)
         self.prompt_length = self.config.actor_rollout_ref.rollout.prompt_length
         self.response_length = self.config.actor_rollout_ref.rollout.response_length
+        self.apply_chat_template_kwargs = self.config.data.get("apply_chat_template_kwargs", {})
 
-    async def run(
-        self, messages: list[dict[str, Any]], sampling_params: dict[str, Any], output: Optional[AgentLoopOutput]
-    ) -> AgentLoopOutput:
+    async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
+        output: Optional[PartialAgentLoopOutput] = kwargs.get("output", None)
+        messages = list(kwargs["raw_prompt"])
+
+        metrics = {}
+        request_id = uuid4().hex
+
         if not output:
             prompt_ids = await self.loop.run_in_executor(
-                None, lambda: self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=True)
+                None,
+                lambda: self.tokenizer.apply_chat_template(
+                    messages, add_generation_prompt=True, tokenize=True, **self.apply_chat_template_kwargs
+                ),
             )
         else:
             if output.is_cancel:
@@ -63,7 +76,7 @@ class PartialSingleTurnAgentLoop(AgentLoopBase):
             response_ids = output.response_ids + response_ids
             response_mask = [1] * len(response_ids)
 
-        return AgentLoopOutput(
+        return PartialAgentLoopOutput(
             prompt_ids=prompt_ids,
             response_ids=response_ids[: self.response_length],
             response_mask=response_mask[: self.response_length],
