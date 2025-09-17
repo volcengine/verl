@@ -206,26 +206,17 @@ def collect_dp_compute_data_proto(worker_group, output):
 
 
 def dispatch_nd_compute(dp_rank_mapping: list[int], dp_size, worker_group, *args, **kwargs):
-    import ray
+    import os
 
     from verl.single_controller.base.worker_group import WorkerGroup
+    from verl.utils.ray_utils import parallel_put
 
     assert isinstance(worker_group, WorkerGroup)
 
-    def put_ray_data_with_thread(data):
-        import os
-        from concurrent.futures import ThreadPoolExecutor
+    max_workers = max(1, min(len(args[0]), os.cpu_count()))
 
-        num_threads = max(1, min(sum(len(arg) for arg in args), os.cpu_count()))
-        object_refs = []
-
-        with ThreadPoolExecutor(max_workers=num_threads) as executor:
-            object_refs = list(executor.map(ray.put, data))
-
-        return object_refs
-
-    args = [put_ray_data_with_thread(arg) for arg in args]
-    kwargs = {k: put_ray_data_with_thread(v) for k, v in kwargs.items()}
+    args = [parallel_put(arg, max_workers=max_workers) for arg in args]
+    kwargs = {k: parallel_put(v, max_workers=max_workers) for k, v in kwargs.items()}
 
     all_args = []
     for arg in args:
