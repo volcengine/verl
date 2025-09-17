@@ -701,6 +701,7 @@ def async_server_class(
 
         if rollout_backend == "vllm":
             from recipe.fully_async_policy.vllm_rollout.vllm_async_server import AsyncvLLMServer
+
             return AsyncvLLMServer
         else:
             raise NotImplementedError(f"rollout backend {rollout_backend} is not supported")

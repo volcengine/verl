@@ -271,7 +271,7 @@ class MetricsAggregator:
             "last": [
                 "fully_async/count/total_generated_samples",
                 "fully_async/count/stale_samples_processed",
-                "fully_async/count/stale_trajectory_processed"
+                "fully_async/count/stale_trajectory_processed",
                 "fully_async/count/current_param_version",
                 "fully_async/count/dropped_stale_samples",
                 "training/global_step",  # TODO 改为total_step
