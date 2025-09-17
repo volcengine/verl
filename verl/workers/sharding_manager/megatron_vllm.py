@@ -31,7 +31,6 @@ from verl.protocol import all_gather_data_proto
 from verl.third_party.vllm import LLM, VLLM_SLEEP_LEVEL
 from verl.third_party.vllm import parallel_state as vllm_ps
 from verl.utils.device import get_torch_device, set_expandable_segments
-from verl.utils.fp8_utils import is_fp8_model, load_quanted_weights
 from verl.utils.import_utils import deprecated
 from verl.utils.megatron_utils import load_megatron_model_to_gpu, offload_megatron_model_to_cpu, per_tensor_generator
 from verl.utils.memory_utils import aggressive_empty_cache
@@ -173,14 +172,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 
             patch_vllm_moe_model_weight_loader(model)
-
-            if is_fp8_model(self.model_runner.vllm_config):
-                # load_quanted_weights additionally casts bf16 weights into fp8
-                logger.info("load weights weight quantization")
-                loaded_params = load_quanted_weights(per_tensor_param, self.model_runner)
-            else:
-                loaded_params = model.load_weights(weights=per_tensor_param)
-
+            loaded_params = model.load_weights(per_tensor_param)
             info = f"vLLM load weights, loaded_params: {len(loaded_params)}"
             logger.info(info)
 
