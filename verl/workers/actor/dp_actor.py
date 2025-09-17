@@ -42,7 +42,6 @@ if is_cuda_available:
 elif is_npu_available:
     from transformers.integrations.npu_flash_attention import index_first_axis, pad_input, rearrange, unpad_input
 
-
 __all__ = ["DataParallelPPOActor"]
 
 logger = logging.getLogger(__file__)
@@ -82,13 +81,13 @@ class DataParallelPPOActor(BasePPOActor):
 
         self.compute_entropy_from_logits = (
             torch.compile(entropy_from_logits, dynamic=True)
-            if self.config.get("use_torch_compile", True)  #  use torch compile by default
+            if self.config.get("use_torch_compile", True)  # use torch compile by default
             else entropy_from_logits
         )
         self.device_name = get_device_name()
 
     def _forward_micro_batch(
-        self, micro_batch, temperature, calculate_entropy=False
+            self, micro_batch, temperature, calculate_entropy=False
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Returns:
@@ -102,10 +101,32 @@ class DataParallelPPOActor(BasePPOActor):
                 for key in micro_batch["multi_modal_inputs"][0].keys():
                     multi_modal_inputs[key] = [inputs[key] for inputs in micro_batch["multi_modal_inputs"]]
             else:
-                for key in micro_batch["multi_modal_inputs"][0].keys():
-                    multi_modal_inputs[key] = torch.cat(
-                        [inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0
-                    )
+                # Use union of keys from all samples to avoid ignoring keys missing from sample 0
+                mmi_list = micro_batch["multi_modal_inputs"]  # list[dict]
+                all_keys = set().union(*(set(d.keys()) for d in mmi_list))
+                for key in all_keys:
+                    vals = []
+                    if key in ("pixel_values", "pixel_values_videos"):
+                        for d in mmi_list:
+                            if key in d and d[key] is not None:
+                                v = d[key]
+                                vals.append(v.squeeze(0) if v.ndim == 3 else v)
+                            if len(vals) > 0:
+                                multi_modal_inputs[key] = torch.cat(vals, dim=0)
+
+
+                    elif key in ("image_grid_thw", "video_grid_thw", "second_per_grid_ts"):
+                        for d in mmi_list:
+                            if key in d and d[key] is not None:
+                                vals.append(d[key])
+                        if len(vals) > 0:
+                            multi_modal_inputs[key] = torch.cat(vals, dim=0)
+                    else:
+                        for d in mmi_list:
+                            if key in d and d[key] is not None:
+                                vals.append(d[key])
+                        if len(vals) > 0:
+                            multi_modal_inputs[key] = torch.cat(vals, dim=0)
 
         with torch.autocast(device_type=self.device_name, dtype=torch.bfloat16):
             input_ids = micro_batch["input_ids"]
@@ -243,8 +264,8 @@ class DataParallelPPOActor(BasePPOActor):
 
                 # only return response part:
                 if calculate_entropy:
-                    entropy = full_entropy.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
-                log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
+                    entropy = full_entropy.squeeze(-1)[:, -response_length - 1: -1]  # (bsz, response_length)
+                log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1: -1]  # (bsz, response_length)
 
             else:  # not using rmpad and no ulysses sp
                 extra_args = {}
@@ -262,14 +283,14 @@ class DataParallelPPOActor(BasePPOActor):
                 )  # prevent model thinks we are generating
 
                 if self.use_fused_kernels:
-                    log_probs = output.log_probs[:, -response_length - 1 : -1]
-                    entropy = output.entropy[:, -response_length - 1 : -1]  # (bsz, response_length)
+                    log_probs = output.log_probs[:, -response_length - 1: -1]
+                    entropy = output.entropy[:, -response_length - 1: -1]  # (bsz, response_length)
 
                 else:
                     logits = output.logits
 
                     logits.div_(temperature)
-                    logits = logits[:, -response_length - 1 : -1, :]  # (bsz, response_length, vocab_size)
+                    logits = logits[:, -response_length - 1: -1, :]  # (bsz, response_length, vocab_size)
                     log_probs = logprobs_from_logits(logits, micro_batch["responses"])
                     if calculate_entropy:
                         if not self.config.entropy_checkpointing:
@@ -404,7 +425,7 @@ class DataParallelPPOActor(BasePPOActor):
                     micro_batches, _ = prepare_dynamic_batch(mini_batch, max_token_len=max_token_len)
                 else:
                     self.gradient_accumulation = (
-                        self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
+                            self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
                     )
                     micro_batches = mini_batch.split(self.config.ppo_micro_batch_size_per_gpu)
 

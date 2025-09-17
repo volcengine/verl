@@ -235,6 +235,11 @@ def patch_forward_with_backends(
 
         forward_with_torch_backend_function = forward_with_torch_backend
         forward_with_triton_backend_function = forward_with_triton_backend
+    elif model.config.model_type == "glm4v":
+        from verl.models.transformers.glm4v import forward_with_torch_backend, forward_with_triton_backend
+
+        forward_with_torch_backend_function = forward_with_torch_backend
+        forward_with_triton_backend_function = forward_with_triton_backend
     else:
         from verl.models.transformers.dense_common import forward_with_torch_backend, forward_with_triton_backend
 
@@ -341,6 +346,19 @@ def apply_monkey_patch(
 
                 patch_vlm_for_ulysses_input_slicing(Qwen2VLModel)
 
+    if model.config.model_type == "glm4v":
+        from transformers.models.glm4v.modeling_glm4v import Glm4vTextAttention, Glm4vModel
+        if use_remove_padding or ulysses_sp_size > 1:
+            from verl.models.transformers.glm4v import ulysses_flash_attn_forward
+            Glm4vTextAttention.forward = ulysses_flash_attn_forward
+        original_glm4v_model_forward = Glm4vModel.forward
+        Glm4vModel.forward = _intercepted_glm4v_model_forward(original_glm4v_model_forward)
+        print("Monkey patch Glm4vModel.forward for 3D position_ids interception")
+        
+        if ulysses_sp_size > 1:
+            from transformers.models.glm4v.modeling_glm4v import Glm4vTextModel
+            patch_vlm_for_ulysses_input_slicing(Glm4vTextModel)
+
     elif model.config.model_type == "kimi_vl":
         if use_remove_padding or ulysses_sp_size > 1:
             # TODO: Changes need to be made when transformers are adapted.
@@ -397,3 +415,41 @@ def is_transformers_version_in_range(min_version: Optional[str] = None, max_vers
         upper_bound_check = transformers_version <= version.parse(max_version)
 
     return lower_bound_check and upper_bound_check
+
+
+def _intercepted_glm4v_model_forward(original_forward):
+    def wrapper(self, *args, **kwargs):
+        position_ids = kwargs.get('position_ids')
+        if position_ids is not None and hasattr(position_ids, 'shape') and position_ids.ndim == 3:
+            kwargs['position_ids'] = None
+        return original_forward(self, *args, **kwargs)
+    return wrapper
+
+import transformers.masking_utils
+
+original_create_causal_mask = transformers.masking_utils.create_causal_mask
+original_preprocess_mask_arguments = transformers.masking_utils._preprocess_mask_arguments
+
+def _intercepted_create_causal_mask(*args, **kwargs):
+    position_ids = kwargs.get('position_ids')
+    if position_ids is not None and hasattr(position_ids, 'ndim') and position_ids.ndim == 3:
+        kwargs['position_ids'] = None
+    return original_create_causal_mask(*args, **kwargs)
+
+def _intercepted_preprocess_mask_arguments(*args, **kwargs):
+    position_ids = kwargs.get('position_ids')
+    if position_ids is None and len(args) >= 3:
+        position_ids = args[2]
+    if position_ids is not None and hasattr(position_ids, 'ndim') and position_ids.ndim == 3:
+        if 'position_ids' in kwargs:
+            kwargs['position_ids'] = None
+        elif len(args) >= 3:
+            args = list(args)
+            args[2] = None
+            args = tuple(args)
+    
+    return original_preprocess_mask_arguments(*args, **kwargs)
+
+transformers.masking_utils.create_causal_mask = _intercepted_create_causal_mask
+transformers.masking_utils._preprocess_mask_arguments = _intercepted_preprocess_mask_arguments
+
