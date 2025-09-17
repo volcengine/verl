@@ -352,7 +352,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
             if rollout_sample == "DONE":
                 print(
-                    "[FullyAsyncRollouter][Processor] Received end signal, waiting for the remaining tasks to complete..."
+                    "[FullyAsyncRollouter][Processor] Received end signal, waiting for remaining tasks to complete..."
                 )
                 while self.active_tasks:
                     async with self.lock:
