@@ -60,7 +60,7 @@ class PartialAgentLoopOutput(AgentLoopOutput):
 
 
 @ray.remote
-class FullyAgentLoopWorker(AgentLoopWorker):
+class FullyAgentLoopWorker(AgentLoopWorkerBase):
     def __init__(
             self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], rm_executor: BatchExecutor = None
     ):
@@ -158,8 +158,8 @@ class FullyAgentLoopWorker(AgentLoopWorker):
 
 class FullyAgentLoopManager(AgentLoopManager):
     def __init__(self, config: DictConfig, worker_group: RayWorkerGroup = None, rm_wg: RayWorkerGroup = None):
-        super().__init__(config, worker_group, rm_wg)
         self.AgentLoopWorker = FullyAgentLoopWorker
+        super().__init__(config, worker_group, rm_wg)
 
     async def generate_single_sample_async(
             self,

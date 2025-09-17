@@ -84,12 +84,12 @@ class AsyncLLMServerManager:
 
     @rollout_trace_op
     async def generate(
-        self,
-        request_id,
-        *,
-        prompt_ids: list[int],
-        sampling_params: dict[str, Any],
-        image_data: Optional[list[Any]] = None,
+            self,
+            request_id,
+            *,
+            prompt_ids: list[int],
+            sampling_params: dict[str, Any],
+            image_data: Optional[list[Any]] = None,
     ) -> TokenOutput:
         """Generate tokens from prompt ids.
 
@@ -350,8 +350,7 @@ class RewardManagerWorker:
         return {"reward_score": reward_score, "reward_extra_info": reward_extra_info}
 
 
-@ray.remote
-class AgentLoopWorker:
+class AgentLoopWorkerBase:
     """Agent loop worker takes a batch of messages and run each message in an agent loop."""
 
     def __init__(
@@ -690,6 +689,12 @@ class AgentLoopWorker:
         )
 
 
+@ray.remote
+class AgentLoopWorker(AgentLoopWorkerBase):
+    def __init__(self, config: DictConfig, server_handles: list[ray.actor.ActorHandle],
+                 rm_executor: BatchExecutor = None):
+        super().__init__(config, server_handles, rm_executor)
+
 async def get_trajectory_info(step, index, validate):
     """Get trajectory info.
 
@@ -854,7 +859,7 @@ class AgentLoopManager:
 
         return timing
 
-    def wake_up(self):
+    async def wake_up(self):
         """Wake up all rollout replica instances."""
         self._run_all([replica.wake_up() for replica in self.rollout_replicas])
 
