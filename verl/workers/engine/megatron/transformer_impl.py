@@ -525,6 +525,7 @@ class MegatronEngineWithLMHead(MegatronEngine):
 
     def forward_step(self, batch_iter: Iterator[TensorDict], model, postprocess_micro_batch_func):
         batch: TensorDict = next(batch_iter)
+        batch = batch.to(get_device_id())
         use_fused_kernels = tu.get_non_tensor_data(batch, key="use_fused_kernels", default=False)
         calculate_entropy = tu.get_non_tensor_data(batch, key="calculate_entropy", default=False)
         temperature = batch["temperature"]
@@ -634,6 +635,7 @@ class MegatronEngineWithValueHead(MegatronEngineWithLMHead):
     # for value head
     def forward_step(self, batch_iter, model, postprocess_micro_batch_func):
         batch: TensorDict = next(batch_iter)
+        batch = batch.to(get_device_id())
         model_inputs = self.prepare_model_inputs(batch)
         input_ids = model_inputs["input_ids"]
         attention_mask = model_inputs["attention_mask"]
