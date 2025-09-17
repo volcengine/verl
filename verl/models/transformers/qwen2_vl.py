@@ -74,8 +74,14 @@ def get_rope_index(
     spatial_merge_size = processor.image_processor.merge_size
     tokens_per_second = 2
     image_token_id = processor.tokenizer.convert_tokens_to_ids("<|image_pad|>")
+    if image_token_id is None:
+        image_token_id = 151655  # from https://github.com/huggingface/transformers/blob/68eb1a9a6353911f491b1c8139eb73d052a8e9b9/src/transformers/models/qwen2_5_omni/processing_qwen2_5_omni.py
     video_token_id = processor.tokenizer.convert_tokens_to_ids("<|video_pad|>")
+    if video_token_id is None:
+        video_token_id = 151656
     vision_start_token_id = processor.tokenizer.convert_tokens_to_ids("<|vision_start|>")
+    if vision_start_token_id is None:
+        vision_start_token_id = 151652
     if input_ids is not None and (image_grid_thw is not None or video_grid_thw is not None):
         if attention_mask is None:
             attention_mask = torch.ones_like(input_ids)

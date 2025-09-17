@@ -72,6 +72,12 @@ image_key: images
 # The field in the multi-modal dataset where the video is located.
 video_key: videos
 
+# The field in the multi-modal dataset where the audio is located.
+audio_key: audios
+
+# Whether to use audio in video.
+use_audio_in_video: False
+
 # If the remote tokenizer has a Python file, this flag determines whether to allow using it.
 trust_remote_code: False
 
