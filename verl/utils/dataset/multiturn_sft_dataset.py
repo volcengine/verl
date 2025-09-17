@@ -275,9 +275,6 @@ class MultiTurnSFTDataset(Dataset):
                 tokens, loss_mask, attention_mask = self._process_message_tokens(
                     messages, i, i + 1, is_assistant=True, enable_thinking=enable_thinking, tools=tools
                 )
-                concat_tokens.extend(tokens)
-                concat_loss_mask.extend(loss_mask)
-                concat_attention_mask.extend(attention_mask)
                 i += 1
             elif cur_messages["role"] == "tool":
                 # Process consecutive tool messages
@@ -288,9 +285,6 @@ class MultiTurnSFTDataset(Dataset):
                 tokens, loss_mask, attention_mask = self._process_message_tokens(
                     messages, st, ed, enable_thinking=enable_thinking, tools=tools
                 )
-                concat_tokens.extend(tokens)
-                concat_loss_mask.extend(loss_mask)
-                concat_attention_mask.extend(attention_mask)
                 i = ed
             elif cur_messages["role"] in ["user", "system"]:
                 # Process user or system message
@@ -299,12 +293,22 @@ class MultiTurnSFTDataset(Dataset):
                 tokens, loss_mask, attention_mask = self._process_message_tokens(
                     messages, i, i + 1, enable_thinking=enable_thinking, tools=tools
                 )
-                concat_tokens.extend(tokens)
-                concat_loss_mask.extend(loss_mask)
-                concat_attention_mask.extend(attention_mask)
                 i += 1
             else:
                 raise ValueError(f"Unknown role: {cur_messages['role']}")
+
+            # override loss mask with mask in the dataset to handle multi-turn conversation
+            override_loss_mask = cur_messages.get("loss_mask", None)
+            if override_loss_mask is not None:
+                if isinstance(override_loss_mask, np.ndarray):
+                    override_loss_mask = override_loss_mask.item()
+                assert isinstance(override_loss_mask, int), f"loss_mask should be int, got {type(override_loss_mask)}"
+                assert override_loss_mask in [0, 1], f"loss_mask should be 0 or 1, got {override_loss_mask}"
+                loss_mask = [override_loss_mask] * len(tokens)
+
+            concat_tokens.extend(tokens)
+            concat_loss_mask.extend(loss_mask)
+            concat_attention_mask.extend(attention_mask)
 
         # Validate and convert tokens
         input_ids, loss_mask, attention_mask = self._validate_and_convert_tokens(
