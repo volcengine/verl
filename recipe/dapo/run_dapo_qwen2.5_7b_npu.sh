@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -xeuo pipefail
 
-project_name='DAPO-Qwen2.5-32B'
-exp_name='Qwen2.5-32B-npu-32rank-gbs128'
+project_name='DAPO-Qwen2.5-7B-Instruct'
+exp_name='DAPO-Qwen2.5-7B-Instruct'
 
 adv_estimator=grpo
 
@@ -22,12 +22,12 @@ enable_filter_groups=True
 filter_groups_metric=acc
 max_num_gen_batches=10
 
-NNODES=2
+NNODES=1
 
-train_prompt_bsz=128
+train_prompt_bsz=16
 gen_prompt_bsz=$((train_prompt_bsz * 3))
 n_resp_per_prompt=16
-train_prompt_mini_bsz=32
+train_prompt_mini_bsz=1
 
 # Ray
 PWD=./
@@ -37,7 +37,7 @@ RUNTIME_ENV=${RUNTIME_ENV:-"${WORKING_DIR}/verl/trainer/runtime_env.yaml"}
 
 # Paths
 RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
-MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen2.5-32B"}
+MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen2.5-7B-Instruct"}
 CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/ckpts/${project_name}/${exp_name}"}
 TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/dapo-math-17k.parquet"}
 TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/aime-2024.parquet"}
@@ -46,16 +46,14 @@ TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/aime-2024.parquet"}
 temperature=1.0
 top_p=1.0
 top_k=-1 # 0 for HF rollout, -1 for vLLM rollout
-val_top_p=0.7
 
 # Performance Related Parameter
-sp_size=8
+sp_size=4
 use_dynamic_bsz=True
 actor_ppo_max_token_len=$(((max_prompt_length + max_response_length) / sp_size))
 infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) / sp_size))
 offload=True
-gen_tp=4
-enable_chunked_prefill=True
+gen_tp=1
 
 ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     --working-dir "${WORKING_DIR}" \
@@ -106,15 +104,15 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     actor_rollout_ref.actor.grad_clip=1.0 \
     actor_rollout_ref.actor.loss_agg_mode=${loss_agg_mode} \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=${sp_size} \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.90 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.50 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=${gen_tp} \
-    actor_rollout_ref.rollout.enable_chunked_prefill=${enable_chunked_prefill} \
+    actor_rollout_ref.rollout.enable_chunked_prefill=True \
     actor_rollout_ref.rollout.max_num_batched_tokens=$((max_prompt_length + max_response_length)) \
     actor_rollout_ref.rollout.temperature=${temperature} \
     actor_rollout_ref.rollout.top_p=${top_p} \
     actor_rollout_ref.rollout.top_k="${top_k}" \
     actor_rollout_ref.rollout.val_kwargs.temperature=${temperature} \
-    actor_rollout_ref.rollout.val_kwargs.top_p=${val_top_p} \
+    actor_rollout_ref.rollout.val_kwargs.top_p=${top_p} \
     actor_rollout_ref.rollout.val_kwargs.top_k=${top_k} \
     actor_rollout_ref.rollout.val_kwargs.do_sample=True \
     actor_rollout_ref.rollout.val_kwargs.n=1 \
@@ -125,7 +123,7 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     reward_model.overlong_buffer.enable=${enable_overlong_buffer} \
     reward_model.overlong_buffer.len=${overlong_buffer_len} \
     reward_model.overlong_buffer.penalty_factor=${overlong_penalty_factor} \
-    trainer.logger="['console','wandb']" \
+    trainer.logger="['console']" \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
     trainer.n_gpus_per_node=16 \
@@ -137,5 +135,9 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     trainer.default_local_dir="${CKPTS_DIR}" \
     trainer.device=npu \
     trainer.resume_mode=auto \
+    actor_rollout_ref.actor.entropy_checkpointing=True \
+    actor_rollout_ref.ref.entropy_checkpointing=True \
     actor_rollout_ref.actor.fsdp_config.forward_prefetch=True \
     actor_rollout_ref.ref.fsdp_config.forward_prefetch=True \
+    actor_rollout_ref.actor.entropy_from_logits_with_chunking=True \
+    actor_rollout_ref.ref.entropy_from_logits_with_chunking=True
