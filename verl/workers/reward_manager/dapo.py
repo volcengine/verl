@@ -111,7 +111,12 @@ class DAPORewardManager(AbstractRewardManager):
                 score = result
                 reward_extra_info["acc"].append(score)
 
-            reward = score
+            if isinstance(score, dict):
+                reward = score["score"]
+                for key, value in score.items():
+                    reward_extra_info[key].append(value)
+            else:
+                reward = score
 
             if self.overlong_buffer_cfg.enable:
                 overlong_buffer_len = self.overlong_buffer_cfg.len
