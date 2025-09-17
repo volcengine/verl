@@ -44,25 +44,22 @@ class ThinkAwareRewardManager(AbstractRewardManager):
             response_ids = data_item.batch["responses"]
             valid_response_length = data_item.batch["attention_mask"][prompt_length:].sum()
             valid_response_ids = response_ids[:valid_response_length]
-            
-            # 解码
+
             prompt_str = self.tokenizer.decode(valid_prompt_ids, skip_special_tokens=True)
             response_str = self.tokenizer.decode(valid_response_ids, skip_special_tokens=True)
-            
-            # 提取answer部分（去除think内容）
+
             think_data = extract_think_content(response_str)
             answer_str = think_data["answer_content"]
-            
+            print(answer_str)
             ground_truth = data_item.non_tensor_batch["reward_model"]["ground_truth"]
             data_source = data_item.non_tensor_batch[self.reward_fn_key]
             extra_info = data_item.non_tensor_batch.get("extra_info", {})
             num_turns = data_item.non_tensor_batch.get("__num_turns__", None)
             extra_info["num_turns"] = num_turns
-            
-            # 只对answer部分计算奖励
+
             score = self.compute_score(
                 data_source=data_source,
-                solution_str=answer_str,  # 只使用answer部分
+                solution_str=answer_str,
                 ground_truth=ground_truth,
                 extra_info=extra_info,
             )
@@ -75,16 +72,8 @@ class ThinkAwareRewardManager(AbstractRewardManager):
                 reward = score
             
             reward_tensor[i] = reward
-            
-            # Debug输出（保持与原有逻辑一致）
+
             if self.num_examine > 0 and data_source not in self.already_print_data_sources:
-                print(f"=== Think-Aware Reward Debug ===")
-                print(f"Data source: {data_source}")
-                print(f"Original response: {response_str[:200]}...")
-                print(f"Answer only: {answer_str[:200]}...")
-                print(f"Has think: {think_data['has_think']}")
-                print(f"Reward: {reward}")
-                print("=" * 50)
                 self.already_print_data_sources[data_source] = True
                 self.num_examine -= 1
         

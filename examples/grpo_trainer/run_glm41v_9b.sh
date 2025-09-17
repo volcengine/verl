@@ -16,7 +16,7 @@ python3 -m verl.trainer.main_ppo \
     data.truncation='error' \
     data.image_key=images \
     +data.enable_thinking=True \
-    reward_model.reward_manager=think_aware \
+    reward_model.reward_manager=dapo \
     actor_rollout_ref.model.path=/cloud/oss_checkpoints/zai-org/GLM-4.1V-9B-Thinking \
     actor_rollout_ref.model.use_fused_kernels=True \
     actor_rollout_ref.model.fused_kernel_options.impl_backend=torch \
