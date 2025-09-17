@@ -366,9 +366,13 @@ class FullyAsyncTrainer(RayPPOTrainer):
         )
         self.progress_bar.update(1)
         self.metrics_aggregator.reset()
-        ray.get(self.param_synchronizer.wait_last_valid.remote())
-        ray.get(
-            self.param_synchronizer.sync_weights.remote(
-                self.current_param_version, validate=validate, global_steps=global_steps
+        timing_param_sync = {}
+        with marked_timer("timing_s/wait_last_valid", timing_param_sync):
+            ray.get(self.param_synchronizer.wait_last_valid.remote())
+        with marked_timer("timing_s/param_sync", timing_param_sync):
+            ray.get(
+                self.param_synchronizer.sync_weights.remote(
+                    self.current_param_version, validate=validate, global_steps=global_steps
+                )
             )
-        )
+        self.logger.log(data=timing_param_sync, step=self.current_param_version)
