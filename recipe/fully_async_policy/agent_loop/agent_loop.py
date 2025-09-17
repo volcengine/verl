@@ -34,6 +34,7 @@ from verl.single_controller.ray.base import RayWorkerGroup
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_to_local
 from verl.utils.rollout_trace import RolloutTraceConfig, rollout_trace_attr, rollout_trace_op
+from verl.workers.rollout.async_server import AsyncServerBase
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -137,6 +138,10 @@ class AgentLoopOutput(BaseModel):
     """Indicates whether the request was interrupted"""
     log_probs: list[float] = None
     """Response token log probs including LLM generated token, tool response token."""
+    param_version_start: int = 0
+    """Indicate start parameter version when this response is generated"""
+    param_version_end: int = 0
+    """Indicate end parameter version when this response is generated, used for partial rollout"""
 
 
 # make hydra.utils.instantiate happy
@@ -381,7 +386,7 @@ class AgentLoopWorker:
         return output
 
     async def generate_sequences_no_post(
-        self, batch: DataProto, partial_output_list: Optional[list[AgentLoopOutput]]
+        self, batch: DataProto, param_version: int, partial_output_list: Optional[list[AgentLoopOutput]]
     ) -> list[AgentLoopOutput]:
         """Generate sequences from agent loop.
 
@@ -433,7 +438,9 @@ class AgentLoopWorker:
         ):
             tasks.append(
                 asyncio.create_task(
-                    self._run_agent_loop(agent_name, messages.tolist(), sampling_params, trajectory, partial_output)
+                    self._run_agent_loop(
+                        agent_name, messages.tolist(), sampling_params, trajectory, param_version, partial_output
+                    )
                 )
             )
         outputs = await asyncio.gather(*tasks)
@@ -446,6 +453,7 @@ class AgentLoopWorker:
         messages: list[dict[str, Any]],
         sampling_params: dict[str, Any],
         trajectory: dict[str, Any],
+        param_version: Optional[int] = None,
         partial_output: Optional[AgentLoopOutput] = None,
     ) -> AgentLoopOutput:
         with rollout_trace_attr(
@@ -466,7 +474,7 @@ class AgentLoopWorker:
                 tokenizer=self.tokenizer,
             )
             if agent_name == "partial_single_turn_agent":
-                output = await agent_loop.run(messages, sampling_params, partial_output)
+                output = await agent_loop.run(messages, sampling_params, param_version, partial_output)
             else:
                 output = await agent_loop.run(messages, sampling_params)
             return output
@@ -602,6 +610,7 @@ class AgentLoopManager:
     async def generate_single_sample_async(
         self,
         sample: DataProto,
+        param_version: int,
         partial_output_list: Optional[list[AgentLoopOutput]],
     ) -> list[AgentLoopOutput]:
         """
@@ -617,7 +626,7 @@ class AgentLoopManager:
         # 使用负载均衡选择 worker
         worker = self._select_best_worker()
         # 异步处理单个样本 - 使用无后处理版本获取原始AgentLoopOutput
-        output_future = worker.generate_sequences_no_post.remote(sample, partial_output_list)
+        output_future = worker.generate_sequences_no_post.remote(sample, param_version, partial_output_list)
         return await asyncio.wrap_future(output_future.future())
 
     def _select_best_worker(self):
@@ -665,12 +674,9 @@ class AgentLoopManager:
         await asyncio.gather(*[asyncio.wrap_future(future.future()) for future in futures], return_exceptions=True)
 
     async def resume_async(self):
-        """Cancel all rollout tasks asynchronously."""
+        """Resume all rollout tasks asynchronously."""
         futures = [server.resume.remote() for server in self.async_llm_servers]
         await asyncio.gather(*[asyncio.wrap_future(future.future()) for future in futures], return_exceptions=True)
-
-
-from verl.workers.rollout.async_server import AsyncServerBase
 
 
 def async_server_class(
@@ -693,6 +699,7 @@ def async_server_class(
 
         if rollout_backend == "vllm":
             from recipe.fully_async_policy.vllm_rollout.vllm_async_server import AsyncvLLMServer
+
             return AsyncvLLMServer
         else:
             raise NotImplementedError(f"rollout backend {rollout_backend} is not supported")

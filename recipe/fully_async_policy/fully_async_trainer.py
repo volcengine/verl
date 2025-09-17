@@ -107,21 +107,14 @@ class FullyAsyncTrainer(RayPPOTrainer):
         self.local_trigger_step = 1
         self.processed_samples = 0
         self.stale_samples_processed = 0
+        self.stale_trajectory_processed = 0
         self.current_param_version = 0
         self.total_train_steps = None
         self.progress_bar = None
         self.trigger_parameter_sync_step = config.async_training.trigger_parameter_sync_step
 
         # calculate required_samples
-        ppo_mini_batch_size = config.actor_rollout_ref.actor.ppo_mini_batch_size
-        rollout_n = config.actor_rollout_ref.rollout.n
-        if ppo_mini_batch_size % rollout_n != 0:
-            raise ValueError(
-                f"PPO mini batch size ({ppo_mini_batch_size}) must be divisible by rollout n ({rollout_n})"
-            )
-        self.required_samples = int(
-            self.minimal_bsz * config.actor_rollout_ref.actor.ppo_mini_batch_size / config.actor_rollout_ref.rollout.n
-        )
+        self.required_samples = config.actor_rollout_ref.actor.ppo_mini_batch_size
         total_gpus = (
             config.trainer.nnodes * config.trainer.n_gpus_per_node
             + config.rollout.nnodes * config.rollout.n_gpus_per_node
@@ -263,13 +256,14 @@ class FullyAsyncTrainer(RayPPOTrainer):
 
         # get validate data before training
         if self.config.trainer.val_before_train and self.reward_fn is not None:
-            ray.get(self.param_synchronizer.wait_last_sync.remote())
+            ray.get(self.param_synchronizer.wait_last_valid.remote())
         val_data = self.message_queue_client.get_validate_sync()
         if val_data:
             val_data: ValidateMetrics = ray.cloudpickle.loads(val_data)
-            self.logger.log(data=val_data.metrics, step=val_data.param_version)
+            if val_data.metrics:
+                self.logger.log(data=val_data.metrics, step=val_data.param_version)
+                pprint(f"[FullyAsyncTrainer] Initial validation metrics: {val_data.metrics}")
             self.logger.log(data=val_data.timing_raw, step=val_data.param_version)
-            pprint(f"[FullyAsyncTrainer] Initial validation metrics: {val_data.metrics}")
 
         # Use queue mode, no need for traditional dataloader iterator
         # Initialize to get the first batch of data
@@ -282,23 +276,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
                     epoch, batch = self._get_samples_from_queue()
                     if batch is None:
                         break
-
-                    # 从meta_info中获取参数版本信息
-                    if hasattr(batch, "meta_info") and batch.meta_info:
-                        # 统计陈旧样本
-                        rollout_param_versions = batch.meta_info["rollout_param_versions"]
-                        stale_count = sum(1 for v in rollout_param_versions if self.current_param_version - v > 1)
-                        self.stale_samples_processed += stale_count
-                        metrics.update(
-                            {
-                                "fully_async/stale_samples_ratio": stale_count / len(rollout_param_versions),
-                                "fully_async/stale_samples_processed": self.stale_samples_processed,
-                                "fully_async/current_param_version": self.current_param_version,
-                            }
-                        )
-                        for key, value in batch.meta_info.items():
-                            if key.startswith("fully_async"):
-                                metrics[key] = value
+                    self._collect_metrics_from_samples(batch, metrics)
 
                 batch, reward_extra_infos_dict = self._process_batch_common(batch, metrics, timing_raw)
                 self._log_rollout(batch, reward_extra_infos_dict, timing_raw)
@@ -320,24 +298,26 @@ class FullyAsyncTrainer(RayPPOTrainer):
             val_data = self.message_queue_client.get_validate_sync()
             if val_data:
                 val_data: ValidateMetrics = ray.cloudpickle.loads(val_data)
-                self.logger.log(data=val_data.metrics, step=val_data.param_version)
+                if val_data.metrics:
+                    self.logger.log(data=val_data.metrics, step=val_data.param_version)
+                    pprint(
+                        f"[FullyAsyncTrainer] parameter version: {val_data.param_version} \
+                        Validation metrics: {val_data.metrics}"
+                    )
                 self.logger.log(data=val_data.timing_raw, step=val_data.param_version)
-                pprint(
-                    f"[FullyAsyncTrainer] parameter version: {val_data.param_version} \
-                      Validation metrics: {val_data.metrics}"
-                )
             self.global_steps += 1
 
         # final parameter sync and validate
-        if val_data is None:
+        if val_data is None or val_data.metrics is None:
             self._trigger_parameter_sync_after_step(validate=True, global_steps=self.global_steps - 1)
-            ray.get(self.param_synchronizer.wait_last_sync.remote())
+            ray.get(self.param_synchronizer.wait_last_valid.remote())
             val_data = self.message_queue_client.get_validate_sync()
             if val_data:
                 val_data: ValidateMetrics = ray.cloudpickle.loads(val_data)
-                self.logger.log(data=val_data.metrics, step=val_data.param_version)
+                if val_data.metrics:
+                    self.logger.log(data=val_data.metrics, step=val_data.param_version)
+                    pprint(f"[FullyAsyncTrainer] Final validation metrics: {val_data.metrics}")
                 self.logger.log(data=val_data.timing_raw, step=val_data.param_version)
-                pprint(f"[FullyAsyncTrainer] Final validation metrics: {val_data.metrics}")
         else:
             pprint(f"[FullyAsyncTrainer] Final validation metrics: {val_data.metrics}")
         self.progress_bar.close()
@@ -346,6 +326,28 @@ class FullyAsyncTrainer(RayPPOTrainer):
 
     def load_checkpoint(self):
         return self._load_checkpoint()
+
+    def _collect_metrics_from_samples(self, batch, metrics):
+        """
+        Collect metrics from samples
+        """
+        if hasattr(batch, "meta_info") and batch.meta_info:
+            samples_param_versions = batch.meta_info["rollout_param_versions"]
+            stale_count = sum(1 for v in samples_param_versions if self.current_param_version - v > 1)
+            self.stale_samples_processed += stale_count
+            trajectory_param_versions = batch.meta_info["trajectory_param_versions"]
+            stale_traj_count = sum(1 for v in trajectory_param_versions if self.current_param_version - v > 1)
+            self.stale_trajectory_processed += stale_traj_count
+            metrics.update(
+                {
+                    "fully_async/count/stale_samples_processed": self.stale_samples_processed,
+                    "fully_async/count/stale_trajectory_processed": self.stale_trajectory_processed,
+                    "fully_async/count/current_param_version": self.current_param_version,
+                }
+            )
+            for key, value in batch.meta_info.items():
+                if key.startswith("fully_async"):
+                    metrics[key] = value
 
     def _trigger_parameter_sync_after_step(self, validate: bool = False, global_steps: int = None):
         """
@@ -364,9 +366,13 @@ class FullyAsyncTrainer(RayPPOTrainer):
         )
         self.progress_bar.update(1)
         self.metrics_aggregator.reset()
-        ray.get(self.param_synchronizer.wait_last_sync.remote())
-        ray.get(
-            self.param_synchronizer.sync_weights.remote(
-                self.current_param_version, validate=validate, global_steps=global_steps
+        timing_param_sync = {}
+        with marked_timer("timing_s/wait_last_valid", timing_param_sync):
+            ray.get(self.param_synchronizer.wait_last_valid.remote())
+        with marked_timer("timing_s/param_sync", timing_param_sync):
+            ray.get(
+                self.param_synchronizer.sync_weights.remote(
+                    self.current_param_version, validate=validate, global_steps=global_steps
+                )
             )
-        )
+        self.logger.log(data=timing_param_sync, step=self.current_param_version)
