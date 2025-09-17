@@ -21,7 +21,6 @@ os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
 import logging
 
-
 import hydra
 import torch
 import torch.distributed
@@ -31,16 +30,14 @@ from torch.utils.data import DistributedSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
 
-
 from verl.utils import tensordict_utils as tu
-
+from verl.utils.checkpoint import CheckpointHandler
 from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
 from verl.utils.device import get_device_name, is_cuda_available, is_npu_available
 from verl.utils.distributed import destroy_global_process_group
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.logger import log_with_rank
 from verl.utils.tracking import Tracking
-from verl.utils.checkpoint import CheckpointHandler
 
 if is_cuda_available:
     pass
@@ -49,9 +46,6 @@ elif is_npu_available:
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_SFT_LOGGING_LEVEL", "WARN"))
-
-
-
 
 
 class SFTTrainer:
@@ -196,8 +190,6 @@ class SFTTrainer:
             drop_last=True,
             pin_memory_device=device_name,
         )
-
-    
 
     def fit(self):
         is_logging = self.engine.is_mp_src_rank_with_outputs() and self.engine.get_data_parallel_rank() == 0

@@ -13,3 +13,5 @@
 # limitations under the License.
 
 from .checkpoint_handler import CheckpointHandler
+
+__all__ = ["CheckpointHandler"]

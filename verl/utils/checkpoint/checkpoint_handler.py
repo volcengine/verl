@@ -19,13 +19,12 @@ import logging
 import os
 import re
 
-from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, get_checkpoint_tracker_filename
-import verl.utils.hdfs_io as hdfs_io
-
-from verl.workers.engine import BaseEngine
-from verl.utils.logger import log_with_rank
-
 import torch
+
+import verl.utils.hdfs_io as hdfs_io
+from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, get_checkpoint_tracker_filename
+from verl.utils.logger import log_with_rank
+from verl.workers.engine import BaseEngine
 
 
 def extract_step(path):
@@ -38,19 +37,25 @@ def extract_step(path):
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_SFT_LOGGING_LEVEL", "WARN"))
 
+
 class CheckpointHandler:
     """
-    Checkpoint handler handles the path, global_step of a checkpoint folder. Currently, it only works with a single model.
+    Checkpoint handler handles the path, global_step of a checkpoint folder.
+    Currently, it only works with a single model.
     We can expand it to support multiple models. It is expected to be used with SPMD style (e.g., torchrun)
     """
 
-    def __init__(self, engine: BaseEngine, train_dataloader,
-                 *,
-                 default_local_dir, 
-                 max_ckpt_to_keep=None, 
-                 default_hdfs_dir=None, 
-                 resume_mode="auto", 
-                 resume_from_path=None):
+    def __init__(
+        self,
+        engine: BaseEngine,
+        train_dataloader,
+        *,
+        default_local_dir,
+        max_ckpt_to_keep=None,
+        default_hdfs_dir=None,
+        resume_mode="auto",
+        resume_from_path=None,
+    ):
         self.default_local_dir = default_local_dir
         self.max_ckpt_to_keep = max_ckpt_to_keep
         self.default_hdfs_dir = default_hdfs_dir
@@ -59,7 +64,6 @@ class CheckpointHandler:
         self.engine = engine
         self.train_dataloader = train_dataloader
         self.rank = torch.distributed.get_rank()
-
 
     def save_checkpoint(self, step):
         """Save checkpoint using FSDPCheckpointManager with improved tracking"""
