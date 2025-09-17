@@ -1677,26 +1677,16 @@ class RewardModelWorker(Worker, DistProfilerExtension):
             batch_size, seqlen = input_ids.shape
             attention_mask = micro_batch["attention_mask"]
             position_ids = micro_batch["position_ids"]
-            
-            # 🔥🔥🔥 强化GLM4V防护 - 彻底阻止3D position_ids 🔥🔥🔥
+
             is_glm4v = (hasattr(self.reward_module.config, 'model_type') and 
                        self.reward_module.config.model_type == 'glm4v')
-            
-            print(f"🚨🚨 RewardModelWorker DEBUG: model_type={getattr(self.reward_module.config, 'model_type', 'unknown')} 🚨🚨")
-            print(f"🚨🚨 RewardModelWorker DEBUG: is_glm4v={is_glm4v} 🚨🚨")
-            print(f"🚨🚨 RewardModelWorker DEBUG: position_ids shape={position_ids.shape if position_ids is not None else 'None'} 🚨🚨")
-            
+
             if is_glm4v:
                 if position_ids is not None and position_ids.dim() == 3:
-                    print(f"🚨🚨 RewardModelWorker: GLM4V 3D position_ids detected! Shape: {position_ids.shape} 🚨🚨")
-                    print(f"🚨🚨 FORCING position_ids to None to prevent masking_utils error 🚨🚨")
                     position_ids = None
-                # 对GLM4V，强制设为None，不管原来是什么
-                print(f"🚨🚨 RewardModelWorker: GLM4V detected, forcing position_ids=None 🚨🚨")
                 position_ids = None
-            elif position_ids is not None and position_ids.dim() == 3:  # 只有非GLM4V才执行转置
-                print(f"📝📝 Non-GLM4V 3D position_ids processing: {position_ids.shape} 📝📝")
-                position_ids = position_ids.transpose(0, 1)  # (bsz, 3, seqlen) -> (3, bsz, seqlen)
+            elif position_ids is not None and position_ids.dim() == 3:
+                position_ids = position_ids.transpose(0, 1)
             
             print(f"🚨🚨 RewardModelWorker FINAL: position_ids={position_ids.shape if position_ids is not None else 'None'} 🚨🚨")
             

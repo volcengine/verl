@@ -117,8 +117,6 @@ class RLHFDataset(Dataset):
         self.filter_prompts = config.get("filter_prompts", True)
         self.serialize_dataset = False
         self.return_multi_modal_inputs = config.get("return_multi_modal_inputs", True)
-        
-        # 添加think处理支持
         self.enable_thinking = config.get("enable_thinking", False)
 
         self._download()

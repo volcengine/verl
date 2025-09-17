@@ -433,7 +433,6 @@ original_preprocess_mask_arguments = transformers.masking_utils._preprocess_mask
 
 def _intercepted_create_causal_mask(*args, **kwargs):
     position_ids = kwargs.get('position_ids')
-    print(f"🔍 create_causal_mask called with position_ids: {position_ids.shape if position_ids is not None else 'None'}")
     if position_ids is not None and hasattr(position_ids, 'ndim') and position_ids.ndim == 3:
         kwargs['position_ids'] = None
     return original_create_causal_mask(*args, **kwargs)
@@ -442,18 +441,13 @@ def _intercepted_preprocess_mask_arguments(*args, **kwargs):
     position_ids = kwargs.get('position_ids')
     if position_ids is None and len(args) >= 3:
         position_ids = args[2]
-
-    print(f"🔍 _preprocess_mask_arguments called with position_ids: {position_ids.shape if position_ids is not None else 'None'}")
     if position_ids is not None and hasattr(position_ids, 'ndim') and position_ids.ndim == 3:
-        print(f"🚨 INTERCEPTING 3D position_ids in _preprocess_mask_arguments! Shape: {position_ids.shape}")
-        print(f"This is the final line of defense before the crash!")
         if 'position_ids' in kwargs:
             kwargs['position_ids'] = None
         elif len(args) >= 3:
             args = list(args)
             args[2] = None
             args = tuple(args)
-        print(f"✅ Set position_ids to None")
     
     return original_preprocess_mask_arguments(*args, **kwargs)
 

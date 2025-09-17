@@ -401,23 +401,18 @@ class vLLMRollout(BaseRollout):
             # we will recompute old log prob with actor
             batch["rollout_log_probs"] = rollout_log_probs
 
-        # 在生成完成后添加think处理
         enable_thinking = prompts.meta_info.get("enable_thinking", False)
-        
         if enable_thinking:
-            # 解码响应文本并分离think内容
             think_info = []
             for i in range(batch_size):
                 response_text = self.tokenizer.decode(response[i], skip_special_tokens=True)
                 think_data = self._extract_think_content(response_text)
                 think_info.append(think_data)
-            
-            # 创建think mask
+
             think_mask = self._create_think_mask(
                 response, self.think_token_id, self.think_end_token_id
             )
-            
-            # 添加到batch中
+
             batch["think_mask"] = think_mask
             non_tensor_batch["think_info"] = think_info
         

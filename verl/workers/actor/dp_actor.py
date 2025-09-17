@@ -27,10 +27,6 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, get_policy_loss_fn, kl_penalty
-from verl.utils.dataset.vision_utils import (
-    align_position_ids_for_rmpad,
-    process_multi_modal_inputs_for_minicpmo,
-)
 from verl.utils.device import get_device_id, get_device_name, is_cuda_available, is_npu_available
 from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
 from verl.utils.profiler import GPUMemoryLogger
@@ -42,9 +38,9 @@ from verl.workers.actor import BasePPOActor
 from verl.workers.config import ActorConfig
 
 if is_cuda_available:
-    from flash_attn.bert_padding import pad_input, unpad_input
+    from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
 elif is_npu_available:
-    from transformers.integrations.npu_flash_attention import pad_input, unpad_input
+    from transformers.integrations.npu_flash_attention import index_first_axis, pad_input, rearrange, unpad_input
 
 
 __all__ = ["DataParallelPPOActor"]
@@ -99,7 +95,6 @@ class DataParallelPPOActor(BasePPOActor):
             entropy: # (bs, response_len)
             log_probs: # (bs, response_len)
         """
-        entropy = None
         response_length = micro_batch["responses"].size(-1)
         multi_modal_inputs = {}
         if "multi_modal_inputs" in micro_batch.keys():
@@ -107,241 +102,180 @@ class DataParallelPPOActor(BasePPOActor):
                 for key in micro_batch["multi_modal_inputs"][0].keys():
                     multi_modal_inputs[key] = [inputs[key] for inputs in micro_batch["multi_modal_inputs"]]
             else:
-                # Use union of keys from all samples to avoid ignoring keys missing from sample 0
-                mmi_list = micro_batch["multi_modal_inputs"]  # list[dict]
-                all_keys = set().union(*(set(d.keys()) for d in mmi_list))
-                for key in all_keys:
-                    vals = []
-                    if key in ("pixel_values", "pixel_values_videos"):
-                        # Only collect existing visual features; skip if all missing to avoid model taking vision branch
-                        for d in mmi_list:
-                            if key in d and d[key] is not None:
-                                v = d[key]
-                                # Compatible with historical shapes: maintain consistent processing for 3D/4D/5D tensors
-                                vals.append(v.squeeze(0) if v.ndim == 3 else v)
-                        if len(vals) > 0:
-                            multi_modal_inputs[key] = torch.cat(vals, dim=0)
-                    elif key in ("image_grid_thw", "video_grid_thw", "second_per_grid_ts"):
-                        # Grid/timestamps etc.: only pass when non-empty items exist;
-                        # can also pad empty (0 rows) and cat if needed
-                        for d in mmi_list:
-                            if key in d and d[key] is not None:
-                                vals.append(d[key])
-                        if len(vals) > 0:
-                            multi_modal_inputs[key] = torch.cat(vals, dim=0)
-                    else:
-                        # Other keys: aggregate existing ones, don't pass if all are missing
-                        for d in mmi_list:
-                            if key in d and d[key] is not None:
-                                vals.append(d[key])
-                        if len(vals) > 0:
-                            multi_modal_inputs[key] = torch.cat(vals, dim=0)
-        input_ids = micro_batch["input_ids"]
-        attention_mask = micro_batch["attention_mask"].to(bool)
-
-        batch_size = input_ids.size(0)
-        seqlen = input_ids.size(1)
-
-        position_ids = micro_batch["position_ids"]
-        position_ids = position_ids.transpose(0, 1)  # (bsz, 3, seqlen) -> (3, bsz, seqlen)
-
-        if self.use_remove_padding:
-            input_ids_rmpad, indices, cu_seqlens, *_ = unpad_input(input_ids.unsqueeze(-1), attention_mask)
-            input_ids_rmpad = input_ids_rmpad.transpose(0, 1)
-
-            position_ids_rmpad = align_position_ids_for_rmpad(position_ids, indices)
-
-            if "image_bound" in multi_modal_inputs:
-                multi_modal_inputs = process_multi_modal_inputs_for_minicpmo(
-                    input_ids, attention_mask, position_ids, cu_seqlens, multi_modal_inputs
-                )
-
-            # for compute the log_prob
-            input_ids_rmpad_rolled = torch.roll(input_ids_rmpad, shifts=-1, dims=1)  # (1, total_nnz)
-
-            # pad and slice the inputs if sp > 1
-            if self.use_ulysses_sp:
-                is_vlm_model = "multi_modal_inputs" in micro_batch.keys()
-                if is_vlm_model:
-                    # vlm model's inputs will be sliced after embedding
-                    input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad(
-                        input_ids_rmpad,
-                        position_ids_rmpad=position_ids_rmpad,
-                        sp_size=self.ulysses_sequence_parallel_size,
+                for key in micro_batch["multi_modal_inputs"][0].keys():
+                    multi_modal_inputs[key] = torch.cat(
+                        [inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0
                     )
+
+        with torch.autocast(device_type=self.device_name, dtype=torch.bfloat16):
+            input_ids = micro_batch["input_ids"]
+            batch_size, seqlen = input_ids.shape
+            attention_mask = micro_batch["attention_mask"]
+            position_ids = micro_batch["position_ids"]
+            entropy = None
+            if position_ids.dim() == 3:  # qwen2vl mrope
+                position_ids = position_ids.transpose(0, 1)  # (bsz, 3, seqlen) -> (3, bsz, seqlen)
+
+            if self.use_remove_padding:
+                input_ids_rmpad, indices, cu_seqlens, *_ = unpad_input(
+                    input_ids.unsqueeze(-1), attention_mask
+                )  # input_ids_rmpad (total_nnz, ...)
+                input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
+
+                # unpad the position_ids to align the rotary
+                if position_ids.dim() == 3:
+                    position_ids_rmpad = (
+                        index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices)
+                        .transpose(0, 1)
+                        .unsqueeze(1)
+                    )  # (3, bsz, seqlen) -> (3, 1, bsz * seqlen)
                 else:
-                    input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(
-                        input_ids_rmpad,
-                        position_ids_rmpad=position_ids_rmpad,
-                        sp_size=self.ulysses_sequence_parallel_size,
+                    position_ids_rmpad = index_first_axis(
+                        rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices
+                    ).transpose(0, 1)
+
+                if "image_bound" in multi_modal_inputs:
+                    from verl.utils.dataset.vision_utils import process_multi_modal_inputs_for_minicpmo
+
+                    multi_modal_inputs = process_multi_modal_inputs_for_minicpmo(
+                        input_ids, attention_mask, position_ids, cu_seqlens, multi_modal_inputs
                     )
-                input_ids_rmpad_rolled, _, _ = ulysses_pad_and_slice_inputs(
-                    input_ids_rmpad_rolled,
-                    position_ids_rmpad=None,
-                    sp_size=self.ulysses_sequence_parallel_size,
-                )
 
-            input_ids_rmpad_rolled = input_ids_rmpad_rolled.squeeze(0)  # ((total_nnz / sp) + pad)
+                # for compute the log_prob
+                input_ids_rmpad_rolled = torch.roll(input_ids_rmpad, shifts=-1, dims=1)  # (1, total_nnz)
 
-            # GLM4V 3D position_ids conflicts with masking_utils 2D assumption
-            # when rmpad + attention_mask=None, set to None for internal model construction
-            def _get_model_type_lower():
-                mt = None
-                _m = getattr(self, "actor_module", None)
-                if _m is not None:
-                    cfg = getattr(_m, "config", None)
-                    if cfg is not None:
-                        mt = getattr(cfg, "model_type", None)
-                    if mt is None:
-                        lm = getattr(_m, "language_model", None)
-                        if lm is not None:
-                            mt = getattr(getattr(lm, "config", None), "model_type", None)
-                print(f"\n======== MODEL TYPE DEBUG ========")
-                # 修复：直接访问属性而不是使用get方法
-                config_obj = getattr(getattr(self, 'actor_module', None), 'config', None)
-                raw_model_type = getattr(config_obj, 'model_type', 'NOT_FOUND') if config_obj else 'NO_CONFIG'
-                print(f"Raw model_type from config: {raw_model_type}")
-                print(f"Lowercased model_type: {str(mt).lower() if mt is not None else 'None'}")
-                actor_module = getattr(self, 'actor_module', None)
-                print(f"Actor module class: {actor_module.__class__.__name__ if actor_module else 'None'}")
-                print(f"Config class: {config_obj.__class__.__name__ if config_obj else 'None'}")
-                print(f"======== END MODEL TYPE DEBUG ========\n")
-                return str(mt).lower() if mt is not None else ""
-
-            _model_type_lower = _get_model_type_lower()
-            _is_glm4v = _model_type_lower == "glm4v"
-            position_ids_arg = position_ids_rmpad
-            
-            print(f"\n======== GLM4V DEBUG INFO ========")
-            print(f"Model type detected: {_model_type_lower}")
-            print(f"Is GLM4V: {_is_glm4v}")
-            print(f"Position IDs shape: {position_ids_arg.shape if hasattr(position_ids_arg, 'shape') else 'No shape attr'}")
-            print(f"Position IDs type: {type(position_ids_arg)}")
-            if hasattr(position_ids_arg, 'shape'):
-                print(f"Position IDs ndim: {position_ids_arg.ndim}")
-                if position_ids_arg.ndim == 3:
-                    print(f"🔥🔥🔥 3D POSITION_IDS DETECTED! Shape: {position_ids_arg.shape} 🔥🔥🔥")
-                    print(f"GLM4V check result: _is_glm4v={_is_glm4v}")
-                    if _is_glm4v:
-                        print(f"✅✅ Setting position_ids to None for GLM4V ✅✅")
-                        position_ids_arg = None
-                    else:
-                        print(f"❌❌ NOT GLM4V - 3D position_ids will be passed through! ❌❌")
-                else:
-                    print(f"Position IDs is {position_ids_arg.ndim}D - no special handling needed")
-            print(f"Final position_ids_arg: {position_ids_arg}")
-            print(f"======== END GLM4V DEBUG ========\n")
-            
-            if _is_glm4v and position_ids_arg is not None and position_ids_arg.dim() == 3:
-                position_ids_arg = None
-
-            # only pass input_ids and position_ids to enable flash_attn_varlen
-            extra_args = {}
-            if self.use_fused_kernels:
-                extra_args["temperature"] = temperature
-                extra_args["return_dict"] = True
-
-            output = self.actor_module(
-                input_ids=input_ids_rmpad,
-                attention_mask=None,
-                position_ids=position_ids_arg,
-                **multi_modal_inputs,
-                use_cache=False,
-                **extra_args,
-            )  # prevent model thinks we are generating
-
-            if self.use_fused_kernels:
-                log_probs = output.log_probs.squeeze(0)  # (total_nnz,)
-                entropy_rmpad = output.entropy.squeeze(0)  # (total_nnz,)
-
-            else:
-                logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
-                logits_rmpad.div_(temperature)
-
-                inplace_backward = True
-                if calculate_entropy:
-                    inplace_backward = False
-                log_probs = logprobs_from_logits(
-                    logits=logits_rmpad,
-                    labels=input_ids_rmpad_rolled,
-                    inplace_backward=inplace_backward,
-                )
-
-                if calculate_entropy:
-                    if not self.config.entropy_checkpointing:
-                        entropy_rmpad = self.compute_entropy_from_logits(logits_rmpad)  # ((total_nnz / sp) + pad)
-                    else:
-                        entropy_rmpad = torch.utils.checkpoint.checkpoint(
-                            self.compute_entropy_from_logits, logits_rmpad
+                # pad and slice the inputs if sp > 1
+                if self.use_ulysses_sp:
+                    is_vlm_model = "multi_modal_inputs" in micro_batch.keys()
+                    if is_vlm_model:
+                        # vlm model's inputs will be sliced after embedding
+                        input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad(
+                            input_ids_rmpad,
+                            position_ids_rmpad=position_ids_rmpad,
+                            sp_size=self.ulysses_sequence_parallel_size,
                         )
+                    else:
+                        input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(
+                            input_ids_rmpad,
+                            position_ids_rmpad=position_ids_rmpad,
+                            sp_size=self.ulysses_sequence_parallel_size,
+                        )
+                    input_ids_rmpad_rolled, _, _ = ulysses_pad_and_slice_inputs(
+                        input_ids_rmpad_rolled,
+                        position_ids_rmpad=None,
+                        sp_size=self.ulysses_sequence_parallel_size,
+                    )
 
-            # gather log_prob if sp > 1
-            if self.use_ulysses_sp:
-                # gather and unpad for the ulysses sp
-                log_probs = gather_outputs_and_unpad(
-                    log_probs,
-                    gather_dim=0,
-                    unpad_dim=0,
-                    padding_size=pad_size,
-                )
-                if calculate_entropy:
-                    entropy_rmpad = gather_outputs_and_unpad(
-                        entropy_rmpad,
+                input_ids_rmpad_rolled = input_ids_rmpad_rolled.squeeze(0)  # ((total_nnz / sp) + pad)
+
+                # only pass input_ids and position_ids to enable flash_attn_varlen
+                extra_args = {}
+                if self.use_fused_kernels:
+                    extra_args["temperature"] = temperature
+                    extra_args["return_dict"] = True
+
+                output = self.actor_module(
+                    input_ids=input_ids_rmpad,
+                    attention_mask=None,
+                    position_ids=position_ids_rmpad,
+                    **multi_modal_inputs,
+                    use_cache=False,
+                    **extra_args,
+                )  # prevent model thinks we are generating
+
+                if self.use_fused_kernels:
+                    log_probs = output.log_probs.squeeze(0)  # (total_nnz,)
+                    entropy_rmpad = output.entropy.squeeze(0)  # (total_nnz,)
+
+                else:
+                    logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
+                    logits_rmpad.div_(temperature)
+
+                    # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
+                    inplace_backward = True
+                    if calculate_entropy:
+                        inplace_backward = False
+                    log_probs = logprobs_from_logits(
+                        logits=logits_rmpad,
+                        labels=input_ids_rmpad_rolled,
+                        inplace_backward=inplace_backward,
+                    )
+
+                    # compute entropy
+                    if calculate_entropy:
+                        if not self.config.entropy_checkpointing:
+                            entropy_rmpad = self.compute_entropy_from_logits(logits_rmpad)  # ((total_nnz / sp) + pad)
+                        else:
+                            entropy_rmpad = torch.utils.checkpoint.checkpoint(
+                                self.compute_entropy_from_logits, logits_rmpad
+                            )
+
+                # gather log_prob if sp > 1
+                if self.use_ulysses_sp:
+                    # gather and unpad for the ulysses sp
+                    log_probs = gather_outputs_and_unpad(
+                        log_probs,
                         gather_dim=0,
                         unpad_dim=0,
                         padding_size=pad_size,
                     )
-            # pad back to (bsz, seqlen)
-            if calculate_entropy:
-                full_entropy = pad_input(
-                    hidden_states=entropy_rmpad.unsqueeze(-1),
+                    if calculate_entropy:
+                        entropy_rmpad = gather_outputs_and_unpad(
+                            entropy_rmpad,
+                            gather_dim=0,
+                            unpad_dim=0,
+                            padding_size=pad_size,
+                        )
+                # pad back to (bsz, seqlen)
+                if calculate_entropy:
+                    full_entropy = pad_input(
+                        hidden_states=entropy_rmpad.unsqueeze(-1),
+                        indices=indices,
+                        batch=batch_size,
+                        seqlen=seqlen,
+                    )
+                full_log_probs = pad_input(
+                    hidden_states=log_probs.unsqueeze(-1),
                     indices=indices,
                     batch=batch_size,
                     seqlen=seqlen,
                 )
-            full_log_probs = pad_input(
-                hidden_states=log_probs.unsqueeze(-1),
-                indices=indices,
-                batch=batch_size,
-                seqlen=seqlen,
-            )
 
-            if calculate_entropy:
-                entropy = full_entropy.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
-            log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
-
-            return entropy, log_probs
-
-        else:  # not using rmpad and no ulysses sp
-            extra_args = {}
-            if self.use_fused_kernels:
-                extra_args["temperature"] = temperature
-                extra_args["return_dict"] = True
-
-            output = self.actor_module(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                position_ids=position_ids,
-                **multi_modal_inputs,
-                use_cache=False,
-                **extra_args,
-            )  # prevent model thinks we are generating
-
-            if self.use_fused_kernels:
-                log_probs = output.log_probs[:, -response_length - 1 : -1]
-                entropy = output.entropy[:, -response_length - 1 : -1]  # (bsz, response_length)
-
-            else:
-                logits = output.logits
-
-                logits.div_(temperature)
-                logits = logits[:, -response_length - 1 : -1, :]  # (bsz, response_length, vocab_size)
-                log_probs = logprobs_from_logits(logits, micro_batch["responses"])
+                # only return response part:
                 if calculate_entropy:
-                    if not self.config.entropy_checkpointing:
-                        entropy = verl_F.entropy_from_logits(logits)  # (bsz, response_length)
-                    else:
-                        entropy = torch.utils.checkpoint.checkpoint(verl_F.entropy_from_logits, logits)
+                    entropy = full_entropy.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
+                log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
+
+            else:  # not using rmpad and no ulysses sp
+                extra_args = {}
+                if self.use_fused_kernels:
+                    extra_args["temperature"] = temperature
+                    extra_args["return_dict"] = True
+
+                output = self.actor_module(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    position_ids=position_ids,
+                    **multi_modal_inputs,
+                    use_cache=False,
+                    **extra_args,
+                )  # prevent model thinks we are generating
+
+                if self.use_fused_kernels:
+                    log_probs = output.log_probs[:, -response_length - 1 : -1]
+                    entropy = output.entropy[:, -response_length - 1 : -1]  # (bsz, response_length)
+
+                else:
+                    logits = output.logits
+
+                    logits.div_(temperature)
+                    logits = logits[:, -response_length - 1 : -1, :]  # (bsz, response_length, vocab_size)
+                    log_probs = logprobs_from_logits(logits, micro_batch["responses"])
+                    if calculate_entropy:
+                        if not self.config.entropy_checkpointing:
+                            entropy = verl_F.entropy_from_logits(logits)  # (bsz, response_length)
+                        else:
+                            entropy = torch.utils.checkpoint.checkpoint(verl_F.entropy_from_logits, logits)
 
             return entropy, log_probs
 
