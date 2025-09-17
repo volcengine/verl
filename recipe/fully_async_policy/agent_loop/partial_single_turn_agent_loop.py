@@ -33,21 +33,30 @@ class PartialSingleTurnAgentLoop(AgentLoopBase):
         self.response_length = self.config.actor_rollout_ref.rollout.response_length
 
     async def run(
-        self, messages: list[dict[str, Any]], sampling_params: dict[str, Any], output: Optional[AgentLoopOutput]
+        self,
+        messages: list[dict[str, Any]],
+        sampling_params: dict[str, Any],
+        param_version: int,
+        output: Optional[AgentLoopOutput],
     ) -> AgentLoopOutput:
+        metrics = {}
+        param_version_start = None
+        param_version_end = None
         if not output:
             prompt_ids = await self.loop.run_in_executor(
                 None, lambda: self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=True)
             )
+            param_version_start = param_version
         else:
             if output.is_cancel:
                 # 恢复暂停的样本，结果直接添加到 prompt_ids 后面
                 prompt_ids = output.prompt_ids + output.response_ids
+                metrics["generate_sequences"] = output.metrics.generate_sequences
+                param_version_start = output.param_version_start
             else:
                 # 同一批样本，部分cancel，部分没有cancel， 没有cancel的样本直接返回
                 return output
-
-        metrics = {}
+        param_version_end = param_version
         request_id = uuid4().hex
         with simple_timer("generate_sequences", metrics):
             response_ids, log_probs, is_cancel = await self.server_manager.generate_for_partial(
@@ -71,4 +80,6 @@ class PartialSingleTurnAgentLoop(AgentLoopBase):
             metrics=metrics,
             is_cancel=is_cancel,
             log_probs=log_probs,
+            param_version_start=param_version_start,
+            param_version_end=param_version_end,
         )
