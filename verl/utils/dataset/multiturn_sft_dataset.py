@@ -296,14 +296,14 @@ class MultiTurnSFTDataset(Dataset):
                 i += 1
             else:
                 raise ValueError(f"Unknown role: {cur_messages['role']}")
-            
+
             # override loss mask with mask in the dataset to handle multi-turn conversation
             loss_mask = cur_messages.get("loss_mask", None)
             if loss_mask is not None:
                 if isinstance(loss_mask, np.ndarray):
                     loss_mask = loss_mask.item()
-                assert isinstance(loss_mask, int), f'loss_mask should be int, got {type(loss_mask)}'
-                assert loss_mask in [0, 1], f'loss_mask should be 0 or 1, got {loss_mask}'
+                assert isinstance(loss_mask, int), f"loss_mask should be int, got {type(loss_mask)}"
+                assert loss_mask in [0, 1], f"loss_mask should be 0 or 1, got {loss_mask}"
                 loss_mask = [loss_mask] * len(tokens)
 
             concat_tokens.extend(tokens)
