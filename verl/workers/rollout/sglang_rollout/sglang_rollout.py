@@ -29,7 +29,7 @@ import numpy as np
 import sglang.srt.entrypoints.engine
 import torch
 import torch.distributed as dist
-from sglang.srt.managers.tokenizer_manager import (
+from sglang.srt.managers.io_struct import (
     ReleaseMemoryOccupationReqInput,
     ResumeMemoryOccupationReqInput,
     UpdateWeightsFromTensorReqInput,
@@ -60,6 +60,7 @@ from verl.tools.utils.tool_registry import initialize_tools_from_config
 from verl.utils.net_utils import is_ipv6
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
+from verl.utils.device import get_visible_devices_keyword
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.async_server import TokenOutput
 from verl.workers.rollout.base import BaseRollout
@@ -338,12 +339,12 @@ class SGLangRollout(BaseRollout):
             logger.info(f"_init_distributed_env: :tp_world: {self._tp_size}, global_world: {world_size}")
         # get tp_rank of this process in this tp group
         visible_devices = [None] * self._device_mesh_cpu.size(1)
-
+        devices_keyword = get_visible_devices_keyword()
         torch.distributed.all_gather_object(
-            visible_devices, os.environ["CUDA_VISIBLE_DEVICES"], self._device_mesh_cpu.get_group("tp")
+            visible_devices, os.environ[devices_keyword], self._device_mesh_cpu.get_group("tp")
         )
         self.visible_devices_set = set(",".join(visible_devices).split(","))
-        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(sorted(list(self.visible_devices_set)))
+        os.environ[devices_keyword] = ",".join(sorted(list(self.visible_devices_set)))
 
     def _verify_config(self, model_hf_config):
         if not self.config.get("max_model_len", None):
@@ -425,7 +426,7 @@ class SGLangRollout(BaseRollout):
 
         if self.config.mode == "async" and not self.config.skip_tokenizer_init:
             raise ValueError("async mode requires skip_tokenizer_init to be True")
-
+        backend = attention_backend if attention_backend is not None else "fa3"
         if effective_first:
             rank = dist.get_rank()
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
@@ -455,10 +456,11 @@ class SGLangRollout(BaseRollout):
                 # log_requests_level=2,
                 # NOTE(Chenyang): turn on max_running_requests to set the max concurrent running requests
                 # max_running_requests=1,
-                "mm_attention_backend": "fa3",
-                "attention_backend": attention_backend if attention_backend is not None else "fa3",
+                "mm_attention_backend": backend,
+                "attention_backend": backend,
                 # In async mode, we want token in token out.
                 "skip_tokenizer_init": self.config.skip_tokenizer_init,
+                "dist_timeout":1800,
             }
 
             if is_server_mode:
