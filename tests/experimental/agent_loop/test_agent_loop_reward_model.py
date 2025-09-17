@@ -13,17 +13,19 @@
 # limitations under the License.
 import os
 
+import pytest
 import ray
 from hydra import compose, initialize_config_dir
 from torchdata.stateful_dataloader import StatefulDataLoader
 from transformers import AutoTokenizer
 
-from tests.experimental.agent_loop.agent_utils import init_agent_loop_manager
+from tests.experimental.agent_loop.agent_utils import AgentLoopManager
 from verl.protocol import DataProto
 from verl.trainer.main_ppo import create_rl_sampler
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
 
 
+@pytest.mark.skip(reason="reward model is depreated and replaced by GRM")
 def test_agent_loop_compute_score_with_model():
     ray.init(
         runtime_env={
@@ -39,14 +41,16 @@ def test_agent_loop_compute_score_with_model():
     with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config")):
         config = compose("ppo_trainer")
 
-    model_path = "Qwen/Qwen2.5-1.5B-Instruct"
+    model_path = os.path.expanduser("~/models/Qwen/Qwen2.5-1.5B-Instruct")
     config.data.return_raw_chat = True
     config.actor_rollout_ref.model.path = model_path
     config.actor_rollout_ref.actor.use_dynamic_bsz = True
     config.actor_rollout_ref.rollout.name = os.environ["ROLLOUT_NAME"]
     config.actor_rollout_ref.rollout.mode = "async"
+    config.actor_rollout_ref.rollout.enforce_eager = True
     config.actor_rollout_ref.rollout.prompt_length = 1024
     config.actor_rollout_ref.rollout.response_length = 4096
+    config.actor_rollout_ref.rollout.skip_tokenizer_init = True
     config.reward_model.enable = True
     config.reward_model.model.path = model_path
     config.reward_model.use_dynamic_bsz = True
@@ -60,10 +64,10 @@ def test_agent_loop_compute_score_with_model():
     config.trainer.n_gpus_per_node = 4
     config.trainer.nnodes = 1
     # 1. init agent loop manager
-    agent_loop_manager = init_agent_loop_manager(config)
+    agent_loop_manager = AgentLoopManager(config)
 
     # 2. init dataset and dataloader
-    local_folder = os.path.expanduser("~/verl-data/gsm8k/")
+    local_folder = os.path.expanduser("~/data/gsm8k/")
     data_files = [os.path.join(local_folder, "train.parquet")]
     tokenizer = AutoTokenizer.from_pretrained(model_path)
 
