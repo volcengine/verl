@@ -34,6 +34,7 @@ from verl.single_controller.ray.base import RayWorkerGroup
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_to_local
 from verl.utils.rollout_trace import RolloutTraceConfig, rollout_trace_attr, rollout_trace_op
+from verl.workers.rollout.async_server import AsyncServerBase
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -676,9 +677,6 @@ class AgentLoopManager:
         """Resume all rollout tasks asynchronously."""
         futures = [server.resume.remote() for server in self.async_llm_servers]
         await asyncio.gather(*[asyncio.wrap_future(future.future()) for future in futures], return_exceptions=True)
-
-
-from verl.workers.rollout.async_server import AsyncServerBase
 
 
 def async_server_class(

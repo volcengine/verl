@@ -289,7 +289,7 @@ class MetricsAggregator:
 
         # Store all metrics values
         for key, value in metrics.items():
-            if isinstance(value, (int, float, np.number)):
+            if isinstance(value, int | float | np.number):
                 self.metric_values[key].append(float(value))
             elif isinstance(value, torch.Tensor):
                 self.metric_values[key].append(float(value.item()))
