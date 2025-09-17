@@ -420,7 +420,6 @@ def is_transformers_version_in_range(min_version: Optional[str] = None, max_vers
 def _intercepted_glm4v_model_forward(original_forward):
     def wrapper(self, *args, **kwargs):
         position_ids = kwargs.get('position_ids')
-        print(f"Original position_ids: {position_ids.shape if position_ids is not None else 'None'}")
         if position_ids is not None and hasattr(position_ids, 'shape') and position_ids.ndim == 3:
             kwargs['position_ids'] = None
         return original_forward(self, *args, **kwargs)
