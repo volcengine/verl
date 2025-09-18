@@ -22,8 +22,8 @@ max_response_length=$((1024 * 32))
 logs=$WORKSPACE_HOME/logs/qwen3_8b_2k_32k_graph.log
 CKPTS_DIR=$WORKSPACE_HOME/logs/ckpt/qwen3_8b
 model_path=$DATA_HOME/models/Qwen3-8B
-train_data=$DATA_HOME/datasets/processed_gsm8k/train.parquet
-valid_data=$DATA_HOME/datasets/processed_gsm8k/test.parquet
+train_data=$DATA_HOME/datasets/dapo/dapo-math-17k.parquet
+valid_data=$DATA_HOME/datasets/dapo/aime-2024.parquet
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \

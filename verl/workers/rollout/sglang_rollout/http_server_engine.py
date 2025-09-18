@@ -56,11 +56,19 @@ import aiohttp
 import requests
 from sglang.srt.entrypoints.EngineBase import EngineBase
 from sglang.srt.entrypoints.http_server import launch_server
-from sglang.srt.managers.io_struct import (
-    UpdateWeightsFromTensorReqInput,
-)
 from sglang.srt.server_args import ServerArgs
 from sglang.srt.utils import kill_process_tree
+
+from verl.utils.device import is_cuda_available, is_npu_available
+
+if is_cuda_available:
+    from sglang.srt.managers.tokenizer_manager import (
+        UpdateWeightsFromTensorReqInput,
+    )
+elif is_npu_available:
+    from sglang.srt.managers.io_struct import (
+        UpdateWeightsFromTensorReqInput,
+    )
 
 # Configure logger
 logger = logging.getLogger(__name__)
