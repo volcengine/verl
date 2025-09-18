@@ -11,6 +11,7 @@ DATA_HOME=$pwd
 
 num_npu=4
 sp_size=4
+tp_size=4
 logs=$WORKSPACE_HOME/logs/qwen3_8b_512_1k_graph.log
 CKPTS_DIR=$WORKSPACE_HOME/logs/ckpt/qwen3_8b
 model_path=$DATA_HOME/models/Qwen3-8B
@@ -40,7 +41,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.fsdp_config.param_offload=True \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=2 \
-    actor_rollout_ref.rollout.tensor_model_parallel_size=$num \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=$tp_size \
     actor_rollout_ref.rollout.name=sglang \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.3 \
     actor_rollout_ref.rollout.n=5 \

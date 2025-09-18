@@ -9,9 +9,9 @@ export HCCL_NPU_SOCKET_PORT_RANGE=61000-61050
 WORKSPACE_HOME=$pwd
 DATA_HOME=$pwd
 
-tp=4
 sp_size=4
 num_gpu=8
+tp_size=4
 use_dynamic_bsz=True
 train_prompt_bsz=16
 train_prompt_mini_bsz=16
@@ -25,7 +25,6 @@ model_path=$DATA_HOME/models/Qwen3-8B
 train_data=$DATA_HOME/datasets/processed_gsm8k/train.parquet
 valid_data=$DATA_HOME/datasets/processed_gsm8k/test.parquet
 
-CKPTS_DIR=/home/l00878165/models/ckpt/qwen3_8b
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=$train_data \
@@ -49,7 +48,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.fsdp_config.param_offload=True \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=1 \
-    actor_rollout_ref.rollout.tensor_model_parallel_size=$tp \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=$tp_size \
     actor_rollout_ref.rollout.name=sglang \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.3 \
     actor_rollout_ref.rollout.n=5 \
