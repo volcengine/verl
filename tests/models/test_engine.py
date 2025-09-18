@@ -40,6 +40,9 @@ from verl.workers.config import (
 from verl.workers.roles import ActorWorker, CriticWorker
 from verl.workers.roles.utils.losses import ppo_loss, sft_loss
 
+import torch.distributed as dist
+import torch.multiprocessing as mp
+
 
 @pytest.mark.parametrize("strategy", ["megatron", "fsdp", "fsdp2"])
 def test_actor_engine(strategy):
@@ -267,3 +270,74 @@ def test_critic_engine(strategy):
     print(ppo_metrics)
 
     ray.shutdown()
+
+
+
+
+
+
+def _worker(rank: int, world_size: int, rendezvous_file: str, strategy: str, model_path: str):
+    torch.cuda.set_device(rank)
+    dist.init_process_group(
+        backend="nccl",
+        init_method=f"file://{rendezvous_file}",
+        rank=rank,
+        world_size=world_size,
+    )
+
+    from verl.workers.engine import BaseEngine, EngineRegistry
+
+    # construct configs
+    model_config = HFModelConfig(path=model_path)
+
+    if strategy == "megatron":
+        engine_config = McoreEngineConfig(
+            forward_only=False,
+            use_mbridge=False,
+            tensor_model_parallel_size=2,
+            pipeline_model_parallel_size=2,
+            context_parallel_size=2,
+        )
+        optimizer_config = McoreOptimizerConfig(lr_decay_steps=10)
+    elif strategy in ["fsdp", "fsdp2"]:
+        engine_config = FSDPEngineConfig(
+            forward_only=False, fsdp_size=4, strategy=strategy, ulysses_sequence_parallel_size=2
+        )
+        optimizer_config = FSDPOptimizerConfig()
+    else:
+        raise NotImplementedError(f"strategy {strategy} is not supported")
+
+    # build model engine
+    engine: BaseEngine = EngineRegistry.new(
+        model_type="language_model",
+        backend=engine_config.strategy,
+        model_config=model_config,
+        engine_config=engine_config,
+        optimizer_config=optimizer_config,
+        checkpoint_config=checkpoint_config,
+    )
+
+    engine.initialize()
+
+    # get per tensor parameter
+    per_tensor_params = engine.get_per_tensor_param()
+
+    # load ground truth and compare
+
+
+def test_fsdp_per_tensor_generator(world_size, tmp_path):
+    # create a model
+    
+    # spawn workers
+    rendezvous_file = str(tmp_path / "rdzv_mask")
+    os.makedirs(os.path.dirname(rendezvous_file), exist_ok=True)
+
+    mp.spawn(
+        fn=_worker,
+        args=(world_size, rendezvous_file),
+        nprocs=world_size,
+        join=True,
+    )
+
+
+
