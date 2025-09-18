@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from .agent_loop import FullyAsyncAgentLoopManager
 from .partial_single_turn_agent_loop import PartialSingleTurnAgentLoop
-from .agent_loop import PartialAgentLoopManager
 
 _ = [PartialSingleTurnAgentLoop]
-__all__ = ["PartialAgentLoopManager"]
+__all__ = [FullyAsyncAgentLoopManager]

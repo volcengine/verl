@@ -36,7 +36,7 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 device_name = get_device_name()
 
-__all__ = ["DetachActorWorker", "DetachRolloutWorker", "DetachAsyncRolloutWorker", "CriticWorker"]
+__all__ = ["DetachActorWorker", "DetachAsyncRolloutWorker", "CriticWorker"]
 
 
 def get_inference_model(rollout):
