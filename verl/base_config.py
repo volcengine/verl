@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import collections
-from dataclasses import FrozenInstanceError, dataclass, field, fields
+from dataclasses import FrozenInstanceError, dataclass, fields
 from typing import Any
 
 
@@ -27,8 +27,8 @@ class BaseConfig(collections.abc.Mapping):
     This allows instances of this class to be used like dictionaries.
     """
 
-    _mutable_fields = {"extra"}
-    extra: dict[str, Any] = field(default_factory=dict)
+    _mutable_fields = set()
+    _target_: str = ""
 
     def __setattr__(self, name: str, value):
         """Set the value of an attribute. Check if the attr is mutable before setting the value."""

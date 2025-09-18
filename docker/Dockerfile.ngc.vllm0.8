@@ -51,7 +51,7 @@ RUN pip install --no-cache-dir "vllm==0.8.3" "torch==2.6.0" "torchvision==0.21.0
     "transformers[hf_xet]>=4.51.0" accelerate datasets peft hf-transfer \
     "numpy<2.0.0" "pyarrow>=15.0.0" pandas \
     ray[default] codetiming hydra-core pylatexenc qwen-vl-utils wandb dill pybind11 liger-kernel mathruler \
-    pytest py-spy pyext pre-commit ruff
+    pytest py-spy pyext pre-commit ruff tensorboard
 
 # Install flash-attn-2.7.4.post1 (cxx11abi=False)
 RUN wget -nv https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.6cxx11abiFALSE-cp310-cp310-linux_x86_64.whl && \

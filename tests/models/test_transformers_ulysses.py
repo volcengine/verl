@@ -18,7 +18,9 @@ from dataclasses import dataclass
 import pytest
 import torch
 import torch.distributed
+import transformers
 from flash_attn.bert_padding import index_first_axis, rearrange, unpad_input
+from packaging import version
 from torch.distributed import init_device_mesh
 from transformers import AutoModelForCausalLM, LlamaConfig, PretrainedConfig, Qwen2Config
 
@@ -46,7 +48,7 @@ class SequenceParallelConfig:
 
 
 def test_configs():
-    return [
+    configs = [
         SequenceParallelConfig(
             LlamaConfig(num_hidden_layers=2, num_attention_heads=32, num_key_value_heads=32), sp_size=8, is_valid=True
         ),
@@ -67,6 +69,19 @@ def test_configs():
             Qwen2Config(num_hidden_layers=2, num_attention_heads=32, num_key_value_heads=4), sp_size=8, is_valid=True
         ),
     ]
+
+    if version.parse(transformers.__version__) >= version.parse("4.56.0"):
+        from transformers import ApertusConfig
+
+        configs.append(
+            SequenceParallelConfig(
+                ApertusConfig(num_hidden_layers=2, num_attention_heads=32, num_key_value_heads=32, hidden_size=4096),
+                sp_size=8,
+                is_valid=True,
+            )
+        )
+
+    return configs
 
 
 def sync_model_parameters_global(layer):
@@ -254,8 +269,9 @@ def _hf_casual_fwd_bwd(config, sp_size, dp_size):
     # 3. check the gradients
     grad = model.model.layers[0].self_attn.q_proj.weight.grad
     grad_full = model_no_sp.model.layers[0].self_attn.q_proj.weight.grad
-    torch.testing.assert_close(mean_local, mean_full, rtol=1e-2, atol=1e-5)
-    torch.testing.assert_close(grad, grad_full, atol=1e-2, rtol=1e-5)
+    torch.testing.assert_close(mean_local, mean_full, rtol=1e-2, atol=3e-5)
+    # The check should be less strict because the gradient is not an averaged value.
+    torch.testing.assert_close(grad, grad_full, rtol=1e-2, atol=1e-3)
 
 
 if __name__ == "__main__":

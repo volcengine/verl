@@ -17,6 +17,7 @@ import itertools
 import json
 import math
 import os
+from abc import ABC
 from collections import OrderedDict
 from contextlib import contextmanager, nullcontext
 
@@ -31,13 +32,19 @@ from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy, transformer
 from transformers.trainer_pt_utils import get_module_class_from_name
 
 from verl.utils.device import get_device_id, get_device_name, get_torch_device
+from verl.utils.model import check_exclude_modules, check_target_modules
 
 if version.parse(torch.__version__) >= version.parse("2.6"):
     from torch.distributed.fsdp import CPUOffloadPolicy, FSDPModule, MixedPrecisionPolicy, fully_shard
+    from torch.distributed.tensor import Shard
+
+    fully_shard_module = torch.distributed.fsdp._fully_shard._fully_shard
 elif version.parse(torch.__version__) >= version.parse("2.4"):
     from torch.distributed._composable.fsdp import CPUOffloadPolicy, FSDPModule, MixedPrecisionPolicy, fully_shard
+
+    fully_shard_module = torch.distributed._composable.fsdp.fully_shard
 else:
-    fully_shard, MixedPrecisionPolicy, FSDPModule, CPUOffloadPolicy = None, None, None, None
+    fully_shard, MixedPrecisionPolicy, FSDPModule, CPUOffloadPolicy, fully_shard_module = None, None, None, None, None
 
 
 def init_fn(x: torch.nn.Module):
@@ -162,8 +169,7 @@ def offload_fsdp_model_to_cpu(model: FSDP, empty_cache: bool = True):
 
 @torch.no_grad()
 def offload_fsdp2_model_to_cpu(model, empty_cache: bool = True):
-    for param in model.parameters():
-        param.data = param.data.to(torch.device("cpu"), non_blocking=True)
+    model.cpu()
     if empty_cache:
         get_torch_device().empty_cache()
 
@@ -191,8 +197,7 @@ def load_fsdp_model_to_gpu(model: FSDP):
 @torch.no_grad()
 def load_fsdp2_model_to_gpu(model):
     device = get_device_id()
-    for param in model.parameters():
-        param.data = param.data.to(device, non_blocking=True)
+    model.to(device)
 
 
 @torch.no_grad()
@@ -480,6 +485,25 @@ def fsdp2_load_full_state_dict(model: torch.nn.Module, full_state: dict, device_
             buf.data = buf.data.to(get_device_id())
 
 
+@contextmanager
+def maybe_patch_fsdp_module(model):
+    if fully_shard_module is None:
+        yield
+        return
+
+    orig_fsdp_module = fully_shard_module.FSDPModule
+
+    class FSDPModuleABC(ABC, orig_fsdp_module):
+        pass
+
+    try:
+        if isinstance(model, ABC):
+            fully_shard_module.FSDPModule = FSDPModuleABC
+        yield
+    finally:
+        fully_shard_module.FSDPModule = orig_fsdp_module
+
+
 def apply_fsdp2(model, fsdp_kwargs, config):
     """model: AutoModelForCausalLM"""
     assert CPUOffloadPolicy is not None, "PyTorch version >= 2.4 is required for using fully_shard API (FSDP2)"
@@ -502,8 +526,28 @@ def apply_fsdp2(model, fsdp_kwargs, config):
             modules.append(module)
 
     for idx, module in enumerate(modules):
-        fully_shard(module, **fsdp_kwargs)
-    fully_shard(model, **fsdp_kwargs)  # fsdp2 will not reshard_after_forward for root module
+        # if torch.distributed.is_initialized() and torch.distributed.get_rank() == 0:
+        #     print(f"wrap module {module.__class__.__name__}")
+        with maybe_patch_fsdp_module(module):
+            fully_shard(module, **fsdp_kwargs)
+
+    # if torch.distributed.is_initialized() and torch.distributed.get_rank() == 0:
+    #     print(f"wrap module {model.__class__.__name__}")
+    with maybe_patch_fsdp_module(model):
+        fully_shard(model, **fsdp_kwargs)  # fsdp2 will not reshard_after_forward for root module
+
+
+def get_shard_placement_fn(fsdp_size):
+    """Choose the dimension that can divide fsdp_size to avoid padding"""
+
+    def shard_placement_fn(param):
+        shape = list(param.shape)
+        for i in range(len(shape)):
+            if shape[i] % fsdp_size == 0:
+                return Shard(i)
+        return Shard(0)
+
+    return shard_placement_fn
 
 
 def fsdp2_clip_grad_norm_(parameters, max_norm, norm_type=2.0, error_if_nonfinite=False, foreach=None):
@@ -536,10 +580,12 @@ def layered_summon_lora_params(fsdp_module) -> OrderedDict:
         "_fsdp_wrapped_module.base_model.model.",
         "_fsdp_wrapped_module.base_model.model.model.",
         "_fsdp_wrapped_module.base_model.model.model.layers.",
+        "_fsdp_wrapped_module.base_model.model.model.language_model.layers.",
         # fsdp2
         "base_model.model.",
         "base_model.model.model.",
         "base_model.model.model.layers.",
+        "base_model.model.model.language_model.layers.",
     ]
     peft_model = getattr(fsdp_module, "_fsdp_wrapped_module", fsdp_module)
     for prefix in prefix_list:
@@ -560,3 +606,89 @@ def layered_summon_lora_params(fsdp_module) -> OrderedDict:
                     submodule._is_root = False
                 get_torch_device().empty_cache()
     return lora_params
+
+
+def collect_lora_params(module: FSDP, layered_summon: bool, base_sync_done: bool) -> OrderedDict:
+    """
+    collect lora params or full params if base model is not ready in vllm
+    work with if isinstance(self.module._fsdp_wrapped_module, PeftModel)
+    """
+    from peft.utils.save_and_load import get_peft_model_state_dict
+
+    lora_params = OrderedDict()
+    peft_model = getattr(module, "_fsdp_wrapped_module", module)
+    if fsdp_version(module) > 0:
+        if layered_summon:
+            if not base_sync_done:
+                raise ValueError(
+                    "To use layered_summon, you must make sure base-model is preloaded in vllm, e.g. let "
+                    "rollout.load_format=safetensors"
+                )
+            lora_params = layered_summon_lora_params(module)
+        else:
+            with FSDP.summon_full_params(module, writeback=False):
+                if base_sync_done:
+                    lora_params = get_peft_model_state_dict(peft_model)
+                    lora_params = {
+                        name: param.full_tensor().detach().cpu()
+                        if hasattr(param, "full_tensor")
+                        else param.detach().cpu()
+                        for name, param in lora_params.items()
+                    }
+                else:
+                    model = peft_model.base_model.model
+                    orig_dev = "cpu" if "cpu" in str(next(model.parameters()).device) else get_device_name()
+                    model = model.to("cpu")
+                    for name, param in model.state_dict().items():
+                        if any(x in name for x in ["_flat_param", "lora_"]):
+                            continue
+                        name = name.replace("_fsdp_wrapped_module.", "").replace(".base_layer", "")
+                        lora_params[name] = (
+                            param.full_tensor().detach().cpu()
+                            if hasattr(param, "full_tensor")
+                            else param.detach().cpu()
+                        )
+                    model = model.to(orig_dev)
+            get_torch_device().empty_cache()
+    else:
+        if base_sync_done:
+            lora_params = get_peft_model_state_dict(peft_model)
+        else:
+            model = peft_model.base_model.model
+            orig_dev = "cpu" if "cpu" in str(next(model.parameters()).device) else get_device_name()
+            model = model.to("cpu")
+            for name, param in model.state_dict().items():
+                if any(x in name for x in ["_flat_param", "lora_"]):
+                    continue
+                name = name.replace("_fsdp_wrapped_module.", "").replace(".base_layer", "")
+                lora_params[name] = param.detach().cpu()
+            model = model.to(orig_dev)
+    return lora_params
+
+
+def replace_lora_wrapper(k, peft_config):
+    """Replace LoRA parameter keys with base layer equivalents.
+
+    Transforms LoRA parameter names to their corresponding base layer
+    names for proper weight loading in vLLM when base model sync is not done.
+
+    Args:
+        k (str): Original parameter key name.
+
+    Returns:
+        str: Transformed parameter key for base layer.
+    """
+    stacked_params = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+    if k.endswith(".weight"):
+        module_k = k[: -len(".weight")]
+        if check_exclude_modules(peft_config, module_k):
+            return k
+        elif any([module_k.endswith(s) for s in stacked_params]) or check_target_modules(peft_config, module_k):
+            return f"{module_k}.base_layer.weight"
+    if k.endswith(".bias"):
+        module_k = k[: -len(".bias")]
+        if check_exclude_modules(peft_config, module_k):
+            return k
+        elif any([module_k.endswith(s) for s in stacked_params]) or check_target_modules(peft_config, module_k):
+            return f"{module_k}.base_layer.bias"
+    return k

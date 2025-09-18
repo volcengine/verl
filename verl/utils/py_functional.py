@@ -162,7 +162,7 @@ def union_two_dict(dict1: dict, dict2: dict):
     return dict1
 
 
-def append_to_dict(data: dict, new_data: dict):
+def append_to_dict(data: dict, new_data: dict, prefix: str = ""):
     """Append values from new_data to lists in data.
 
     For each key in new_data, this function appends the corresponding value to a list
@@ -176,9 +176,10 @@ def append_to_dict(data: dict, new_data: dict):
         None: The function modifies data in-place.
     """
     for key, val in new_data.items():
-        if key not in data:
-            data[key] = []
-        data[key].append(val)
+        new_key = f"{prefix}{key}"
+        if new_key not in data:
+            data[new_key] = []
+        data[new_key].append(val)
 
 
 class NestedNamespace(SimpleNamespace):

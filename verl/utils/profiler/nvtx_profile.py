@@ -20,6 +20,7 @@ from typing import Callable, Optional
 import nvtx
 import torch
 
+from .config import NsightToolConfig
 from .profile import DistProfiler, ProfilerConfig
 
 
@@ -113,7 +114,7 @@ def marked_timer(
 class NsightSystemsProfiler(DistProfiler):
     """Nsight system profiler. Installed in a worker to control the Nsight system profiler."""
 
-    def __init__(self, rank: int, config: Optional[ProfilerConfig], **kwargs):
+    def __init__(self, rank: int, config: Optional[ProfilerConfig], tool_config: Optional[NsightToolConfig], **kwargs):
         """Initialize the NsightSystemsProfiler.
 
         Args:
@@ -123,8 +124,13 @@ class NsightSystemsProfiler(DistProfiler):
         # If no configuration is provided, create a default ProfilerConfig with an empty list of ranks
         if not config:
             config = ProfilerConfig(ranks=[])
+        if not tool_config:
+            assert not config.enable, "tool_config must be provided when profiler is enabled"
+        self.enable = config.enable
+        if not config.enable:
+            return
         self.this_step: bool = False
-        self.discrete: bool = config.discrete
+        self.discrete: bool = tool_config.discrete
         self.this_rank: bool = False
         if config.all_ranks:
             self.this_rank = True
@@ -132,24 +138,24 @@ class NsightSystemsProfiler(DistProfiler):
             self.this_rank = rank in config.ranks
 
     def start(self, **kwargs):
-        if self.this_rank:
+        if self.enable and self.this_rank:
             self.this_step = True
             if not self.discrete:
                 torch.cuda.profiler.start()
 
     def stop(self):
-        if self.this_rank:
+        if self.enable and self.this_rank:
             self.this_step = False
             if not self.discrete:
                 torch.cuda.profiler.stop()
 
-    @staticmethod
     def annotate(
+        self,
         message: Optional[str] = None,
         color: Optional[str] = None,
         domain: Optional[str] = None,
         category: Optional[str] = None,
-        **kwargs,
+        **kwargs_outer,
     ) -> Callable:
         """Decorate a Worker member function to profile the current rank in the current training step.
 
@@ -169,19 +175,22 @@ class NsightSystemsProfiler(DistProfiler):
 
         def decorator(func):
             @functools.wraps(func)
-            def wrapper(self, *args, **kwargs):
+            def wrapper(*args, **kwargs_inner):
+                if not self.enable:
+                    return func(*args, **kwargs_inner)
+
                 profile_name = message or func.__name__
 
-                if self.profiler.this_step:
-                    if self.profiler.discrete:
+                if self.this_step:
+                    if self.discrete:
                         torch.cuda.profiler.start()
                     mark_range = mark_start_range(message=profile_name, color=color, domain=domain, category=category)
 
-                result = func(self, *args, **kwargs)
+                result = func(*args, **kwargs_inner)
 
-                if self.profiler.this_step:
+                if self.this_step:
                     mark_end_range(mark_range)
-                    if self.profiler.discrete:
+                    if self.discrete:
                         torch.cuda.profiler.stop()
 
                 return result

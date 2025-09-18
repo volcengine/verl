@@ -24,14 +24,16 @@ from recipe.fully_async_policy.detach_utils import (
     prepare_single_generation_data,
 )
 from recipe.fully_async_policy.message_queue import MessageQueueClient
+from recipe.fully_async_policy.ray_trainer import FullyAsyncRayPPOTrainer
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
-from recipe.fully_async_policy.ray_trainer import RayPPOTrainer, ResourcePoolManager, Role, WorkerType
+from verl.trainer.ppo.ray_trainer import ResourcePoolManager
+from verl.trainer.ppo.utils import Role, WorkerType
 from verl.utils.profiler import marked_timer
 from verl.utils.tracking import ValidationGenerationsLogger
 
 
 @ray.remote(num_cpus=10, max_concurrency=100)
-class FullyAsyncRollouter(RayPPOTrainer):
+class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
     """
     Asynchronous sample generator, responsible for continuously generating training samples
     and putting them into MessageQueue
@@ -95,13 +97,13 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
 
+        # ==================== fully async config ====================
+
         self.total_rollout_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
         if self.config.rollout.total_rollout_steps is not None:
             self.total_rollout_steps = min(self.config.rollout.total_rollout_steps, self.total_rollout_steps)
         print(f"[FullyAsyncRollouter] Total rollout steps: {self.total_rollout_steps}")
         self.total_train_steps = None
-
-        # ==================== fully async config ====================
 
         # Rollouter parameter configuration
         self.message_queue_client = None
@@ -113,7 +115,8 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
         # Config
         self.staleness_threshold: float = config.async_training.get("staleness_threshold", 1)
-        self.required_samples = None
+        # required_samples use ppo_mini_batch_size as the minimum number of samples.
+        self.required_samples = config.actor_rollout_ref.actor.ppo_mini_batch_size
         self.max_required_samples = None
         # 单次最多扔一次更新需要的样本
         self.max_concurrent_samples = None
@@ -151,9 +154,8 @@ class FullyAsyncRollouter(RayPPOTrainer):
         async with self.lock:
             self.message_queue_client = message_queue_client
 
-    async def set_required_samples(self, required_samples: int):
+    async def set_max_required_samples(self):
         async with self.lock:
-            self.required_samples = int(required_samples)
             self.max_required_samples = int(
                 self.required_samples
                 * (self.staleness_threshold + 1)
@@ -165,7 +167,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
             )
 
             # 单次最多扔一次更新需要的样本
-            self.max_concurrent_samples = self.async_rollout_manager.rollout_dp_size * 16
+            self.max_concurrent_samples = len(self.async_rollout_manager.server_handles) * 16
             self.max_concurrent_samples = min(self.max_concurrent_samples, self.max_required_samples)
             self.max_queue_size = self.max_required_samples
 
@@ -237,7 +239,19 @@ class FullyAsyncRollouter(RayPPOTrainer):
         if not hasattr(self.config, "async_training"):
             raise ValueError("[FullyAsyncRollouter] Missing async_training configuration")
         assert self.config.actor_rollout_ref.rollout.calculate_log_probs, "must rollout calculate log_probs"
-        super()._validate_config()
+
+    async def init_workers(self):
+        """Initialize distributed training workers using Ray backend.
+
+        Creates:
+        1. Ray resource pools from configuration
+        2. Worker groups for each role (actor, critic, etc.)
+        """
+        self._init_resource_pools()
+        self._create_worker_classes()
+        self._init_worker_groups()
+        self._init_models()
+        await self._init_async_rollout_manager()
 
     def _create_actor_rollout_classes(self):
         # only create rollout
@@ -264,13 +278,13 @@ class FullyAsyncRollouter(RayPPOTrainer):
             for batch_dict in iterator:
                 yield epoch, batch_dict
 
-    def _init_async_rollout_manager(self):
+    async def _init_async_rollout_manager(self):
         # create async rollout manager and request scheduler
         assert self.config.actor_rollout_ref.rollout.mode == "async"
-        from recipe.fully_async_policy.agent_loop import AgentLoopManager
+        from recipe.fully_async_policy.agent_loop import FullyAsyncAgentLoopManager
 
         self.async_rollout_mode = True
-        self.async_rollout_manager = AgentLoopManager(
+        self.async_rollout_manager = await FullyAsyncAgentLoopManager.create(
             config=self.config,
             worker_group=self.rollout_wg,
         )
@@ -392,8 +406,11 @@ class FullyAsyncRollouter(RayPPOTrainer):
     async def _process_single_sample_streaming(self, rollout_sample: RolloutSample):
         """流式处理单个样本"""
         # 调用异步生成方法
+        rollout_sample.full_batch.non_tensor_batch["param_version"] = [self.current_param_version] * len(
+            rollout_sample.full_batch
+        )
         agent_loop_output_list = await self.async_rollout_manager.generate_single_sample_async(
-            rollout_sample.full_batch, self.current_param_version, rollout_sample.agent_loop_output_list
+            rollout_sample.full_batch, rollout_sample.agent_loop_output_list
         )
         # 直接更新 RolloutSample 对象，填充剩余字段
         rollout_sample.agent_loop_output_list = agent_loop_output_list
@@ -452,7 +469,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
         # 确保async_rollout_manager已经初始化
         if self.async_rollout_manager is None:
-            self._init_async_rollout_manager()
+            await self._init_async_rollout_manager()
 
         # 启动流式处理循环
         print(f"[FullyAsyncRollouter] 启动流式处理模式，最大并发样本数: {self.max_concurrent_samples}")
@@ -588,21 +605,18 @@ class FullyAsyncRollouter(RayPPOTrainer):
         return False
 
     async def pause(self):
-        """pause rollout
-        TODO async_rollout_manager clear kv cache
-        """
+        """pause rollout"""
         print("[FullyAsyncRollouter][Public][Pause]")
         async with self.lock:
             self.paused = True
             # 取消rollout所有任务
             if self.config.async_training.partial_rollout:
-                await self.async_rollout_manager.cancel_async()
+                await self.async_rollout_manager.cancel()
             if self.active_tasks:
                 await asyncio.gather(*self.active_tasks, return_exceptions=True)
                 self.active_tasks.clear()
                 print("[FullyAsyncRollouter][Public][Pause] All active tasks completed")
-            self.async_rollout_manager.sleep()
-            self.async_rollout_manager.wake_up()
+            await self.async_rollout_manager.reset_prefix_cache()
             self.monitor_loop_trigger = False
 
     async def resume(self):
@@ -613,7 +627,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
             self.condition.notify_all()
 
             if self.config.async_training.partial_rollout:
-                await self.async_rollout_manager.resume_async()
+                await self.async_rollout_manager.resume()
 
     async def get_statistics(self) -> dict:
         queue_stats = self.message_queue_client.get_statistics_sync()

@@ -1,4 +1,4 @@
-# Copyright 2024 Bytedance Ltd. and/or its affiliates
+# Copyright 2025 Meituan Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,7 +16,9 @@ import os
 from typing import Any, Optional
 from uuid import uuid4
 
-from recipe.fully_async_policy.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput, register
+from recipe.fully_async_policy.agent_loop.agent_loop import AgentLoopOutput, FullyAsyncAgentLoopOutput
+from verl.experimental.agent_loop import AgentLoopBase
+from verl.experimental.agent_loop.agent_loop import register
 from verl.utils.profiler import simple_timer
 
 logger = logging.getLogger(__file__)
@@ -31,22 +33,26 @@ class PartialSingleTurnAgentLoop(AgentLoopBase):
         super().__init__(*args, **kwargs)
         self.prompt_length = self.config.actor_rollout_ref.rollout.prompt_length
         self.response_length = self.config.actor_rollout_ref.rollout.response_length
+        self.apply_chat_template_kwargs = self.config.data.get("apply_chat_template_kwargs", {})
 
-    async def run(
-        self,
-        messages: list[dict[str, Any]],
-        sampling_params: dict[str, Any],
-        param_version: int,
-        output: Optional[AgentLoopOutput],
-    ) -> AgentLoopOutput:
+    async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
+        output: Optional[FullyAsyncAgentLoopOutput] = kwargs.get("output", None)
+        messages = list(kwargs["raw_prompt"])
+        param_version = kwargs.get("param_version", 0)
+
         metrics = {}
-        param_version_start = None
-        param_version_end = None
+        request_id = uuid4().hex
+
+        param_version_start = param_version
+        param_version_end = param_version
+
         if not output:
             prompt_ids = await self.loop.run_in_executor(
-                None, lambda: self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=True)
+                None,
+                lambda: self.tokenizer.apply_chat_template(
+                    messages, add_generation_prompt=True, tokenize=True, **self.apply_chat_template_kwargs
+                ),
             )
-            param_version_start = param_version
         else:
             if output.is_cancel:
                 # 恢复暂停的样本，结果直接添加到 prompt_ids 后面
@@ -56,13 +62,10 @@ class PartialSingleTurnAgentLoop(AgentLoopBase):
             else:
                 # 同一批样本，部分cancel，部分没有cancel， 没有cancel的样本直接返回
                 return output
-        param_version_end = param_version
-        request_id = uuid4().hex
         with simple_timer("generate_sequences", metrics):
             response_ids, log_probs, is_cancel = await self.server_manager.generate_for_partial(
                 request_id=request_id, prompt_ids=prompt_ids, sampling_params=sampling_params
             )
-
         if not output:
             response_mask = [1] * len(response_ids)
         # 暂停待恢复样本, 把输出结果加到 response_ids 后，并重置 response_mask
@@ -72,7 +75,7 @@ class PartialSingleTurnAgentLoop(AgentLoopBase):
             response_ids = output.response_ids + response_ids
             response_mask = [1] * len(response_ids)
 
-        return AgentLoopOutput(
+        return FullyAsyncAgentLoopOutput(
             prompt_ids=prompt_ids,
             response_ids=response_ids[: self.response_length],
             response_mask=response_mask[: self.response_length],

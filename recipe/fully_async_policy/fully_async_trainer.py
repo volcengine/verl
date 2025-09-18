@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import time
-import warnings
 from datetime import datetime
 from pprint import pprint
 from typing import Any
@@ -28,20 +27,16 @@ from recipe.fully_async_policy.detach_utils import (
     assemble_batch_from_rollout_samples,
 )
 from recipe.fully_async_policy.message_queue import MessageQueueClient
+from recipe.fully_async_policy.ray_trainer import FullyAsyncRayPPOTrainer
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.trainer.ppo import core_algos
-from verl.trainer.ppo.core_algos import AdvantageEstimator
-from recipe.fully_async_policy.ray_trainer import (
-    RayPPOTrainer,
-    ResourcePoolManager,
-    Role,
-    WorkerType,
-)
+from verl.trainer.ppo.ray_trainer import ResourcePoolManager
+from verl.trainer.ppo.utils import Role, WorkerType, need_critic, need_reference_policy, need_reward_model
 from verl.utils.debug import marked_timer
 
 
 @ray.remote(num_cpus=10)
-class FullyAsyncTrainer(RayPPOTrainer):
+class FullyAsyncTrainer(FullyAsyncRayPPOTrainer):
     """
     A fully asynchronous PPO trainer that obtains samples from a MessageQueue for training.
     Based on an improved implementation of OneStepOffRayTrainer
@@ -71,8 +66,9 @@ class FullyAsyncTrainer(RayPPOTrainer):
 
         self.role_worker_mapping = role_worker_mapping
         self.resource_pool_manager = resource_pool_manager
-        self.use_reference_policy = Role.RefPolicy in role_worker_mapping
-        self.use_rm = Role.RewardModel in role_worker_mapping
+        self.use_reference_policy = need_reference_policy(self.role_worker_mapping)
+        self.use_rm = need_reward_model(self.role_worker_mapping)
+        self.use_critic = need_critic(self.config)
         self.ray_worker_group_cls = ray_worker_group_cls
         self.device_name = device_name if device_name else self.config.trainer.device
 
@@ -84,19 +80,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
         if self.config.algorithm.use_kl_in_reward:
             self.kl_ctrl_in_reward = core_algos.get_kl_controller(self.config.algorithm.kl_ctrl)
 
-        if config.critic.enable is not None:
-            self.use_critic = bool(config.critic.enable)
-        elif self.config.algorithm.adv_estimator == AdvantageEstimator.GAE:
-            self.use_critic = True
-        else:
-            warnings.warn(
-                "Disabled critic as algorithm.adv_estimator != gae. "
-                "If it is not intended, please set critic.enable=True",
-                stacklevel=2,
-            )
-            self.use_critic = False
-
-        self._validate_config()
+        # ==================== fully async config ====================
 
         self.message_queue_client = None
         self.param_synchronizer = None
@@ -113,7 +97,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
         self.progress_bar = None
         self.trigger_parameter_sync_step = config.async_training.trigger_parameter_sync_step
 
-        # calculate required_samples
+        # required_samples use ppo_mini_batch_size as the minimum number of samples.
         self.required_samples = config.actor_rollout_ref.actor.ppo_mini_batch_size
         total_gpus = (
             config.trainer.nnodes * config.trainer.n_gpus_per_node
@@ -136,9 +120,6 @@ class FullyAsyncTrainer(RayPPOTrainer):
     def get_actor_wg(self):
         """Get actor worker group"""
         return self.actor_wg
-
-    def get_required_samples(self):
-        return self.required_samples
 
     def _get_samples_from_queue(self) -> tuple[None, None] | tuple[int, Any]:
         """

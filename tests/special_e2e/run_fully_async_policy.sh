@@ -49,8 +49,8 @@ top_k=-1
 val_top_p=0.7
 
 # Fully async specific parameters
-n_gpus_rollout=1
-n_gpus_training=1
+n_gpus_rollout=4
+n_gpus_training=4
 
 train_prompt_bsz=0
 gen_prompt_bsz=1
@@ -118,7 +118,7 @@ common_params=(
     trainer.logger=['console']
     trainer.project_name='verl-test-fully-async'
     trainer.experiment_name="${exp_name}"
-    trainer.val_before_train=False
+    trainer.val_before_train=True
     trainer.save_freq=-1
     trainer.resume_mode=disable
     trainer.nnodes=1

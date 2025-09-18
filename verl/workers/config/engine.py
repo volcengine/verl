@@ -67,10 +67,14 @@ class McoreEngineConfig(BaseConfig):
     seed: int = 42
     override_ddp_config: dict[str, Any] = field(default_factory=dict)
     override_transformer_config: dict[str, Any] = field(default_factory=dict)
+    override_mcore_model_config: dict[str, Any] = field(default_factory=dict)
     use_mbridge: bool = False
+    forward_only: bool = False
+    strategy: str = "megatron"
 
     def __post_init__(self) -> None:
         """config validation logics go here"""
+        assert self.strategy == "megatron"
         if self.tensor_model_parallel_size == 1:
             warnings.warn("set sequence parallel to false as TP size is 1", stacklevel=2)
             self.sequence_parallel = False
@@ -92,6 +96,7 @@ class FSDPEngineConfig(BaseConfig):
         forward_prefetch (bool): Whether to prefetch parameters for next forward pass, default False
         model_dtype (str): Model data type used to initialize the transformers model. default "fp32"
         use_orig_params (bool): Whether to use original parameters when initialize FSDP1, default False
+        mixed_precision (Optional[dict[str, Any]]): Mixed precision configuration for FSDP, default None
     """
 
     wrap_policy: dict[str, Any] = field(default_factory=dict)
@@ -103,3 +108,13 @@ class FSDPEngineConfig(BaseConfig):
     forward_prefetch: bool = False
     model_dtype: str = "fp32"
     use_orig_params: bool = False
+    mixed_precision: Optional[dict[str, Any]] = None
+    ulysses_sequence_parallel_size: int = 1
+    entropy_from_logits_with_chunking: bool = False
+    use_torch_compile: bool = True
+    entropy_checkpointing: bool = False
+    forward_only: bool = False
+    strategy: str = "fsdp"
+
+    def __post_init__(self):
+        assert self.strategy in ["fsdp", "fsdp2"], f"strategy {self.strategy} not supported"

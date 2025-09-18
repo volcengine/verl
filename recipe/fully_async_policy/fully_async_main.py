@@ -24,8 +24,9 @@ from omegaconf import OmegaConf
 from recipe.fully_async_policy.fully_async_rollouter import FullyAsyncRollouter
 from recipe.fully_async_policy.fully_async_trainer import FullyAsyncTrainer
 from recipe.fully_async_policy.message_queue import MessageQueue, MessageQueueClient
-from recipe.fully_async_policy.ray_trainer import ResourcePoolManager, Role
+from verl.trainer.ppo.ray_trainer import ResourcePoolManager
 from verl.trainer.ppo.reward import load_reward_manager
+from verl.trainer.ppo.utils import Role
 from verl.utils.fs import copy_to_local
 
 
@@ -174,10 +175,6 @@ class FullyAsyncTaskRunner:
         print("[ASYNC MAIN] Creating FullyAsyncTrainer...")
         self._create_trainer(config)
 
-        # sync require samples between rollouter and trainer
-        required_samples = ray.get(self.components["trainer"].get_required_samples.remote())
-        ray.get(self.components["rollouter"].set_required_samples.remote(required_samples))
-
         # sync total_train_steps between rollouter and trainer
         total_train_steps = ray.get(self.components["rollouter"].get_total_train_steps.remote())
         print(f"total_train_steps {total_train_steps}")
@@ -227,6 +224,8 @@ class FullyAsyncTaskRunner:
         )
 
         ray.get(rollouter.init_workers.remote())
+        ray.get(rollouter.set_max_required_samples.remote())
+
         self.components["rollouter"] = rollouter
         print("[ASYNC MAIN] Rollouter created and initialized successfully")
 
@@ -270,7 +269,7 @@ class FullyAsyncTaskRunner:
                 for future in done_futures:
                     try:
                         ray.get(future)
-                        print(f"[ASYNC MAIN] One component completed successfully")
+                        print("[ASYNC MAIN] One component completed successfully")
                     except Exception as e:
                         print(f"[ASYNC MAIN] Component failed with error: {e}")
                         for remaining_future in remaining_futures:
@@ -291,7 +290,7 @@ class FullyAsyncTaskRunner:
 
 @hydra.main(config_path="config", config_name="fully_async_ppo_trainer", version_base=None)
 def main(config):
-    from recipe.fully_async_policy.main_ppo import run_ppo
+    from verl.trainer.main_ppo import run_ppo
 
     # Ensure async training config exists
     if not hasattr(config, "async_training"):

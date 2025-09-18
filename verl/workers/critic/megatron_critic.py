@@ -88,7 +88,6 @@ class MegatronPPOCritic(BasePPOCritic):
 
     @GPUMemoryLogger("megatron critic", logger=logger)
     def compute_values(self, data: DataProto) -> DataProto:
-        data.to(get_device_id())
         responses = data.batch["responses"]
         attention_mask = data.batch["attention_mask"]
         use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", False)
@@ -130,11 +129,13 @@ class MegatronPPOCritic(BasePPOCritic):
             values = values.contiguous()
 
             # sync among pp ranks
+            values = values.to(get_device_id())
             torch.distributed.broadcast(
                 tensor=values,
                 src=mpu.get_pipeline_model_parallel_last_rank(),
                 group=mpu.get_pipeline_model_parallel_group(),
             )
+            values = values.to("cpu")
 
         # add empty cache after each compute
         get_torch_device().empty_cache()
@@ -161,14 +162,15 @@ class MegatronPPOCritic(BasePPOCritic):
         mini_batch_size=None,
     ):
         # broadcast from last pp rank to all other pp ranks
+        data.to(get_device_id())
         mini_batch = data
-        mini_batch.to(get_device_id())
         mini_batch.batch = mini_batch.batch.contiguous()
         broadcast_dict_tensor(
             mini_batch.batch,
             src=mpu.get_pipeline_model_parallel_last_rank(),
             group=mpu.get_pipeline_model_parallel_group(),
         )
+        mini_batch.to("cpu")
         # split into micro-batches
         mini_batch.batch["attention_mask"] = mini_batch.batch["attention_mask"].to(bool)
 
@@ -239,6 +241,9 @@ class MegatronPPOCritic(BasePPOCritic):
 
         def forward_step(batch_iter, model):
             batch = next(batch_iter)
+            batch = batch.to(get_device_id())
+            batch = batch.contiguous()
+
             input_ids = batch["input_ids"]
             attention_mask = batch["attention_mask"]
             position_ids = batch["position_ids"]
@@ -293,7 +298,6 @@ class MegatronPPOCritic(BasePPOCritic):
         metrics = {}
 
         for data in dataloader:
-            # data = data.batch.to(self.critic_module.device)
             self.critic_optimizer.zero_grad()
             # use use_contiguous_buffers_in_local_ddp and no overlap_dp_param_comm
             for chunk in self.critic_module:

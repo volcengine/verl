@@ -4,6 +4,11 @@ options:
   # Storage path of collected data.
   save_path: ./profiler_data
 
+  # The roles that will be profiled. Only takes effect in discrete mode.
+  # optional values: all, rollout_generate, actor_compute_log_prob, actor_update and ref_compute_log_prob.
+  # "all" means all roles will be profiled.
+  roles: ["all"]
+
   # Collection level, optional values: level_none, level0, level1, level2.
   level: level1
 

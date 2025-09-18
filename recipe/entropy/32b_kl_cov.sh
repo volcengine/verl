@@ -82,6 +82,7 @@ HYDRA_FULL_ERROR=1 python -m recipe.entropy.main_entropy \
     actor_rollout_ref.actor.policy_loss.ppo_kl_coef=${ppo_kl_coef} \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=8 \
     actor_rollout_ref.rollout.mode=sync \
+    actor_rollout_ref.rollout.name=vllm \
     algorithm.adv_estimator=${adv_estimator} \
     algorithm.use_kl_in_reward=${use_kl_in_reward} \
     algorithm.kl_ctrl.kl_coef=${kl_coef} \
