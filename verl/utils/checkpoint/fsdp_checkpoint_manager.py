@@ -136,6 +136,10 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                 remote_model_path = os.path.join(local_path, f"model_world_size_{self.world_size}_rank_{self.rank}.pt")
                 local_model_path = copy_to_local(remote_model_path)
                 model_state_dict = torch.load(local_model_path, weights_only=False)
+                
+                # Handle LoRA model state dict key mapping
+                model_state_dict = self.convert_lora_state_dict(model_state_dict)
+                
                 self.model.load_state_dict(model_state_dict)
                 log_with_rank(f"Loaded model from {remote_model_path}", rank=self.rank, logger=logger)
 
@@ -354,3 +358,67 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             torch.distributed.barrier()
 
         self.previous_saved_paths.append(local_path)
+    
+    def convert_lora_state_dict(self, state_dict: dict) -> dict:
+        """
+        Convert state dict keys from original model format to LoRA/PEFT wrapped format.
+        
+        This handles the case where checkpoint was saved from original model but 
+        loading into a LoRA-wrapped model.
+        
+        Args:
+            state_dict: Original state dict with keys like "model.embed_tokens.weight"
+            
+        Returns:
+            Converted state dict with keys compatible with LoRA model structure
+        """
+        has_base_model = any(key.startswith("base_model.model.") for key in state_dict.keys())
+        
+        # already has base_model prefix, no conversion needed
+        if has_base_model:
+            return state_dict
+
+        model_to_check = getattr(self.model, '_fsdp_wrapped_module', self.model)
+        is_peft_model = hasattr(model_to_check, 'base_model')
+        
+        if not is_peft_model:
+            return state_dict
+            
+        log_with_rank(
+            "Converting state dict keys from original model format to LoRA/PEFT format",
+            rank=self.rank,
+            logger=logger
+        )
+        
+        converted_state_dict = {}
+        for key, value in state_dict.items():
+            # Convert linear layer weights to LoRA base_layer format
+            if key.startswith("model.") and (".weight" in key or ".bias" in key):
+                # Handle layer norm and embedding weights (not LoRA)
+                if any(layer_type in key for layer_type in [
+                    "embed_tokens", "norm", "input_layernorm", "post_attention_layernorm"
+                ]):
+                    new_key = key.replace("model.", "base_model.model.model.", 1)
+                    converted_state_dict[new_key] = value
+                # Handle linear layers that become LoRA layers
+                elif any(proj_type in key for proj_type in [
+                    "q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"
+                ]):
+                    base_key = key.replace("model.", "base_model.model.model.", 1)
+                    if ".weight" in base_key:
+                        new_key = base_key.replace(".weight", ".base_layer.weight")
+                    elif ".bias" in base_key:
+                        new_key = base_key.replace(".bias", ".base_layer.bias") 
+                    converted_state_dict[new_key] = value
+                else:
+                    new_key = key.replace("model.", "base_model.model.model.", 1)
+                    converted_state_dict[new_key] = value
+                
+            # Convert lm_head weights
+            elif key.startswith("lm_head."):
+                new_key = key.replace("lm_head.", "base_model.model.lm_head.", 1)
+                converted_state_dict[new_key] = value
+            else:
+                converted_state_dict[key] = value
+                
+        return converted_state_dict

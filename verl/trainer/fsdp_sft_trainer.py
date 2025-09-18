@@ -250,17 +250,27 @@ class FSDPSFTTrainer:
 
                 _apply_liger_kernel_to_instance(model=self.model)
 
-            if self.config.model.get("lora_rank", 0) > 0:
+            self._is_lora = (hasattr(self.config.model, "lora_adapter_path") and self.config.model.lora_adapter_path is not None) \
+                         or self.config.model.get("lora_rank", 0) > 0
+
+            if self._is_lora:
                 self.model.enable_input_require_grads()
+                
+                if hasattr(self.config.model, "lora_adapter_path") and self.config.model.lora_adapter_path is not None:
+                    # Load LoRA adapter
+                    from peft import PeftModel
+                    self.model = PeftModel.from_pretrained(self.model, self.config.model.lora_adapter_path)
+                    print(f"Loaded LoRA adapter from: {self.config.model.lora_adapter_path}")
+                else:
                 # Convert config to regular Python types before creating PEFT model
-                lora_config = {
-                    "task_type": TaskType.CAUSAL_LM,
-                    "r": self.config.model.lora_rank,
-                    "lora_alpha": self.config.model.lora_alpha,
-                    "target_modules": convert_to_regular_types(self.config.model.target_modules),
-                    "bias": "none",
-                }
-                self.model = get_peft_model(self.model, LoraConfig(**lora_config))
+                    lora_config = {
+                        "task_type": TaskType.CAUSAL_LM,
+                        "r": self.config.model.lora_rank,
+                        "lora_alpha": self.config.model.lora_alpha,
+                        "target_modules": convert_to_regular_types(self.config.model.target_modules),
+                        "bias": "none",
+                    }
+                    self.model = get_peft_model(self.model, LoraConfig(**lora_config))
                 self.model = self.model.to(torch_dtype)
 
         if self.config.model.enable_gradient_checkpointing:
@@ -275,7 +285,7 @@ class FSDPSFTTrainer:
         auto_wrap_policy = get_fsdp_wrap_policy(
             self.model,
             config=self.config.model.fsdp_config.wrap_policy,
-            is_lora=self.config.model.get("lora_rank", 0) > 0,
+            is_lora=self._is_lora,
         )
         if self.device_mesh.get_rank() == 0:
             print(auto_wrap_policy)

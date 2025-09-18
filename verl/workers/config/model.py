@@ -39,6 +39,7 @@ class HFModelConfig(BaseConfig):
         "local_path",
         "local_hf_config_path",
         "local_tokenizer_path",
+        "lora_rank",  # Allow modification of lora_rank for auto-inference
     }
 
     path: str = MISSING
@@ -73,6 +74,7 @@ class HFModelConfig(BaseConfig):
     lora_rank: int = 0
     lora_alpha: int = 16
     target_modules: Optional[str] = "all-linear"
+    lora_adapter_path: Optional[str] = None  # Path to pretrained LoRA adapter
 
     exclude_modules: Optional[str] = None
     use_liger: bool = False
@@ -112,9 +114,44 @@ class HFModelConfig(BaseConfig):
         override_config_kwargs.update(self.override_config)
         update_model_config(self.hf_config, override_config_kwargs=override_config_kwargs)
 
+        # Auto-infer lora_rank from lora_adapter_path if not explicitly set
+        if hasattr(self, "lora_adapter_path") and self.lora_adapter_path is not None and self.lora_rank == 0:
+            self.lora_rank = self._infer_lora_rank_from_adapter_path(self.lora_adapter_path)
+
         # per model patch
         if getattr(self.hf_config, "model_type", None) == "kimi_vl":
             self.hf_config.text_config.topk_method = "greedy"
+
+    def _infer_lora_rank_from_adapter_path(self, adapter_path: str) -> int:
+        """
+        Infer LoRA rank from adapter configuration file.
+        
+        Args:
+            adapter_path: Path to the LoRA adapter directory
+            
+        Returns:
+            LoRA rank extracted from adapter_config.json, defaults to 32 if not found
+        """
+        import json
+        import os
+        
+        try:
+            # Copy adapter path to local if needed (similar to how we handle model paths)
+            local_adapter_path = copy_to_local(adapter_path, use_shm=self.use_shm)
+            config_file = os.path.join(local_adapter_path, "adapter_config.json")
+            
+            if os.path.exists(config_file):
+                with open(config_file, 'r', encoding='utf-8') as f:
+                    adapter_config = json.load(f)
+                lora_rank = adapter_config.get('r', 32)  # Default to 32 if 'r' not found
+                print(f"Inferred LoRA rank {lora_rank} from adapter config: {config_file}")
+                return lora_rank
+            else:
+                print(f"Warning: adapter_config.json not found in {local_adapter_path}, defaulting to rank 32")
+                return 32
+        except Exception as e:
+            print(f"Warning: Failed to infer LoRA rank from {adapter_path}: {e}, defaulting to rank 32")
+            return 32
 
     def get_processor(self):
         return self.processor if self.processor is not None else self.tokenizer
