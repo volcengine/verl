@@ -77,6 +77,10 @@ actor_rollout_ref:
     # [q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj]
     target_modules: all-linear
 
+    # Path to pretrained LoRA adapter (optional). If provided, loads existing adapter instead of creating new one.
+    # Example: ~/checkpoints/my_project/lora_adapter
+    lora_adapter_path: null
+
     # Exclude modules from applying Lora. Similar usage to target_modules and Peft.
     # Example: '.*visual.*' for excluding the ViT in Qwen2.5-VL, as currently vllm does not support ViT Lora.
     exclude_modules: null

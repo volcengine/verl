@@ -80,9 +80,16 @@ class RolloutWorker(Worker):
             from verl.workers.rollout.vllm_rollout import vLLMRollout
 
             log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=logger)
+            # Enable LoRA if either lora_rank > 0 or lora_adapter_path is provided
+            if self.model_config.lora_adapter_path is not None:
+                self.model_config.lora_rank = self.model_config._get_lora_rank_from_adapter_path(
+                    self.model_config.lora_adapter_path
+                )
+            is_lora = self.model_config.lora_rank > 0
+
             lora_kwargs = (
                 {"lora_kwargs": {"enable_lora": True, "max_loras": 1, "max_lora_rank": self.model_config.lora_rank}}
-                if self.model_config.lora_rank > 0
+                if is_lora
                 else {}
             )
             from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
