@@ -532,7 +532,6 @@ class vLLMAsyncRollout(BaseRollout):
 
     def _init_worker(self, all_kwargs: list[dict[str, Any]]):
         """Initialize worker engine."""
-
         all_kwargs[0]["rank"] = int(os.environ["RANK"])
         device_name = "NPU" if is_npu_available else "GPU"
         all_kwargs[0]["local_rank"] = (

@@ -16,10 +16,10 @@ CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/ckpts/${project_name}/${exp_name}"}
 TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/dapo-math-17k.parquet"}
 TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/aime-2024.parquet"}
 
-MODEL_PATH=/mnt/dolphinfs/hdd_pool/docker/user/hadoop-djst-algoplat/houzhenggang/modelscope/hub/models/Qwen/Qwen2___5-Math-7B
+MODEL_PATH=/mnt/dolphinfs/ssd_pool/docker/user/hadoop-friday-studio/FTI/houzhenggang/model/Qwen2___5-Math-7B
 CKPTS_DIR=./ckpts/${project_name}/${exp_name}
-TRAIN_FILE=/mnt/dolphinfs/hdd_pool/docker/user/hadoop-djst-algoplat/houzhenggang/data/dapo/dapo-math-17k.parquet
-TEST_FILE=/mnt/dolphinfs/hdd_pool/docker/user/hadoop-djst-algoplat/houzhenggang/data/dapo/aime-2024.parquet
+TRAIN_FILE=/mnt/dolphinfs/ssd_pool/docker/user/hadoop-friday-studio/FTI/houzhenggang/data/dapo/dapo-math-17k.parquet
+TEST_FILE=/mnt/dolphinfs/ssd_pool/docker/user/hadoop-friday-studio/FTI/houzhenggang/data/dapo/aime-2024.parquet
 
 rollout_mode="async"
 rollout_name="vllm" # sglang or vllm
@@ -65,17 +65,19 @@ gen_tp=1
 sp_size=1
 fsdp_size=2
 
-NNODES=${NNODES:-1}
-NGPUS_PER_NODE=${NGPUS_PER_NODE:-8}
 
 # Fully async specific parameters
+NNODES_ROLLOUT=${NNODES_ROLLOUT:-1}
+NNODES_TRAIN=${NNODES_TRAIN:-1}
+NGPUS_PER_NODE=${NGPUS_PER_NODE:-8}
+
 n_gpus_rollout=8
 n_gpus_training=8
 
 train_prompt_bsz=0
 gen_prompt_bsz=1
 n_resp_per_prompt=16
-train_prompt_mini_bsz=64
+train_prompt_mini_bsz=32
 total_rollout_steps=$(((512*100)))
 test_freq=10
 staleness_threshold=0.1
@@ -159,10 +161,10 @@ $PYTHON_INTERPRETER -m recipe.fully_async_policy.fully_async_main \
     trainer.save_freq=-1 \
     trainer.default_local_dir="${CKPTS_DIR}" \
     trainer.resume_mode=auto \
-    trainer.nnodes="${NNODES}" \
-    trainer.n_gpus_per_node="${n_gpus_training}" \
-    rollout.nnodes="${NNODES}" \
-    rollout.n_gpus_per_node="${n_gpus_rollout}" \
+    trainer.nnodes="${NNODES_TRAIN}" \
+    trainer.n_gpus_per_node="${NGPUS_PER_NODE}" \
+    rollout.nnodes="${NNODES_ROLLOUT}" \
+    rollout.n_gpus_per_node="${NGPUS_PER_NODE}" \
     rollout.total_rollout_steps="${total_rollout_steps}" \
     rollout.total_epochs=10 \
     rollout.test_freq="${test_freq}" \

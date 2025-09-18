@@ -97,7 +97,7 @@ class FullyAsyncTrainer(FullyAsyncRayPPOTrainer):
         self.progress_bar = None
         self.trigger_parameter_sync_step = config.async_training.trigger_parameter_sync_step
 
-        # calculate required_samples
+        # required_samples use ppo_mini_batch_size as the minimum number of samples.
         self.required_samples = config.actor_rollout_ref.actor.ppo_mini_batch_size
         total_gpus = (
             config.trainer.nnodes * config.trainer.n_gpus_per_node
@@ -120,9 +120,6 @@ class FullyAsyncTrainer(FullyAsyncRayPPOTrainer):
     def get_actor_wg(self):
         """Get actor worker group"""
         return self.actor_wg
-
-    def get_required_samples(self):
-        return self.required_samples
 
     def _get_samples_from_queue(self) -> tuple[None, None] | tuple[int, Any]:
         """

@@ -281,7 +281,6 @@ class RolloutWorker(ActorRolloutRefWorker):
         output = output.to("cpu")
 
         # clear kv cache
-        get_torch_device().empty_cache()
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)

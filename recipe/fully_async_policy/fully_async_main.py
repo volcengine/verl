@@ -175,10 +175,6 @@ class FullyAsyncTaskRunner:
         print("[ASYNC MAIN] Creating FullyAsyncTrainer...")
         self._create_trainer(config)
 
-        # sync require samples between rollouter and trainer
-        required_samples = ray.get(self.components["trainer"].get_required_samples.remote())
-        ray.get(self.components["rollouter"].set_required_samples.remote(required_samples))
-
         # sync total_train_steps between rollouter and trainer
         total_train_steps = ray.get(self.components["rollouter"].get_total_train_steps.remote())
         print(f"total_train_steps {total_train_steps}")
@@ -228,6 +224,8 @@ class FullyAsyncTaskRunner:
         )
 
         ray.get(rollouter.init_workers.remote())
+        ray.get(rollouter.set_max_required_samples.remote())
+
         self.components["rollouter"] = rollouter
         print("[ASYNC MAIN] Rollouter created and initialized successfully")
 

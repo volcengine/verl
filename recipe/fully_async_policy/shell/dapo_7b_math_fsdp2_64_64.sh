@@ -2,7 +2,7 @@
 set -xeuo pipefail
 
 project_name='DAPO'
-exp_name='dapo_qwen2-7B-math_28k_fsdp2_fully-async_64-64_mbs32_tpf4_fixmcs'
+exp_name='dapo_qwen2-7B-math_28k_fsdp2_fully-async_64-64'
 
 # Ray
 # RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
@@ -16,11 +16,8 @@ CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/ckpts/${project_name}/${exp_name}"}
 TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/dapo-math-17k.parquet"}
 TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/aime-2024.parquet"}
 
-# MODEL_PATH=/mnt/dolphinfs/hdd_pool/docker/user/hadoop-djst-algoplat/houzhenggang/modelscope/hub/models/Qwen/Qwen2___5-Math-7B
 MODEL_PATH=/mnt/dolphinfs/ssd_pool/docker/user/hadoop-friday-studio/FTI/houzhenggang/model/Qwen2___5-Math-7B
 CKPTS_DIR=./ckpts/${project_name}/${exp_name}
-# TRAIN_FILE=/mnt/dolphinfs/hdd_pool/docker/user/hadoop-djst-algoplat/houzhenggang/data/dapo/dapo-math-17k.parquet
-# TEST_FILE=/mnt/dolphinfs/hdd_pool/docker/user/hadoop-djst-algoplat/houzhenggang/data/dapo/aime-2024.parquet
 TRAIN_FILE=/mnt/dolphinfs/ssd_pool/docker/user/hadoop-friday-studio/FTI/houzhenggang/data/dapo/dapo-math-17k.parquet
 TEST_FILE=/mnt/dolphinfs/ssd_pool/docker/user/hadoop-friday-studio/FTI/houzhenggang/data/dapo/aime-2024.parquet
 
@@ -73,15 +70,14 @@ NNODES_ROLLOUT=${NNODES_ROLLOUT:-8}
 NNODES_TRAIN=${NNODES_TRAIN:-8}
 NGPUS_PER_NODE=${NGPUS_PER_NODE:-8}
 
-
 train_prompt_bsz=0
 gen_prompt_bsz=1
 n_resp_per_prompt=16
 train_prompt_mini_bsz=32
 total_rollout_steps=$(((512*400)))
-test_freq=20
+test_freq=10
 staleness_threshold=0.1
-trigger_parameter_sync_step=4
+trigger_parameter_sync_step=16
 partial_rollout=True
 
 python -m recipe.fully_async_policy.fully_async_main \

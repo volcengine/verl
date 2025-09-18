@@ -115,7 +115,8 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
 
         # Config
         self.staleness_threshold: float = config.async_training.get("staleness_threshold", 1)
-        self.required_samples = None
+        # required_samples use ppo_mini_batch_size as the minimum number of samples.
+        self.required_samples = config.actor_rollout_ref.actor.ppo_mini_batch_size
         self.max_required_samples = None
         # 单次最多扔一次更新需要的样本
         self.max_concurrent_samples = None
@@ -153,9 +154,8 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         async with self.lock:
             self.message_queue_client = message_queue_client
 
-    async def set_required_samples(self, required_samples: int):
+    async def set_max_required_samples(self):
         async with self.lock:
-            self.required_samples = int(required_samples)
             self.max_required_samples = int(
                 self.required_samples
                 * (self.staleness_threshold + 1)
