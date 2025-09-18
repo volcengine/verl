@@ -25,8 +25,8 @@ from vllm.outputs import RequestOutput
 from verl.workers.rollout.replica import RolloutMode
 from verl.workers.rollout.vllm_rollout.vllm_async_server import (
     _qwen2_5_vl_dedup_image_tokens,
-    vLLMHttpServer,
-    vLLMReplica, vLLMHttpServerBase,
+    vLLMHttpServerBase,
+    vLLMReplica,
 )
 
 logger = logging.getLogger(__file__)

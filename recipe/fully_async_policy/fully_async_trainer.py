@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import time
-import warnings
 from datetime import datetime
 from pprint import pprint
 from typing import Any
@@ -31,11 +30,9 @@ from recipe.fully_async_policy.message_queue import MessageQueueClient
 from recipe.fully_async_policy.ray_trainer import FullyAsyncRayPPOTrainer
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.trainer.ppo import core_algos
-from verl.trainer.ppo.core_algos import AdvantageEstimator
 from verl.trainer.ppo.ray_trainer import ResourcePoolManager
-from verl.trainer.ppo.utils import Role, WorkerType, need_reference_policy, need_reward_model, need_critic
+from verl.trainer.ppo.utils import Role, WorkerType, need_critic, need_reference_policy, need_reward_model
 from verl.utils.debug import marked_timer
-from verl.utils.tracking import ValidationGenerationsLogger
 
 
 @ray.remote(num_cpus=10)

@@ -49,8 +49,8 @@ top_k=-1
 val_top_p=0.7
 
 # Fully async specific parameters
-n_gpus_rollout=1
-n_gpus_training=1
+n_gpus_rollout=4
+n_gpus_training=4
 
 train_prompt_bsz=0
 gen_prompt_bsz=1

@@ -16,12 +16,9 @@ import os
 from typing import Any, Optional
 from uuid import uuid4
 
-from recipe.fully_async_policy.agent_loop.agent_loop import (
-    AgentLoopOutput,
-    FullyAsyncAgentLoopOutput
-)
-from verl.experimental.agent_loop.agent_loop import register
+from recipe.fully_async_policy.agent_loop.agent_loop import AgentLoopOutput, FullyAsyncAgentLoopOutput
 from verl.experimental.agent_loop import AgentLoopBase
+from verl.experimental.agent_loop.agent_loop import register
 from verl.utils.profiler import simple_timer
 
 logger = logging.getLogger(__file__)

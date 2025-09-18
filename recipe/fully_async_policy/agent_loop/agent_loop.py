@@ -14,7 +14,7 @@
 import asyncio
 import logging
 import os
-from typing import Optional, Any
+from typing import Any, Optional
 
 import hydra
 import numpy as np
@@ -23,9 +23,16 @@ import torch
 from omegaconf import DictConfig
 
 from recipe.fully_async_policy.vllm_rollout.vllm_async_server import FullyAsyncvLLMReplica
-from verl.experimental.agent_loop.agent_loop import (AgentLoopOutput, _agent_loop_registry, _DummyConfig,
-                                                     AsyncLLMServerManager, AgentLoopWorkerBase, BatchExecutor,
-                                                     get_trajectory_info, AgentLoopManager)
+from verl.experimental.agent_loop.agent_loop import (
+    AgentLoopManager,
+    AgentLoopOutput,
+    AgentLoopWorkerBase,
+    AsyncLLMServerManager,
+    BatchExecutor,
+    _agent_loop_registry,
+    _DummyConfig,
+    get_trajectory_info,
+)
 from verl.protocol import DataProto
 from verl.single_controller.ray import RayWorkerGroup
 from verl.utils.rollout_trace import rollout_trace_attr
@@ -49,6 +56,7 @@ class FullyAsyncLLMServerManager(AsyncLLMServerManager):
 
 class FullyAsyncAgentLoopOutput(AgentLoopOutput):
     """Agent loop output."""
+
     is_cancel: bool = False
     """Indicates whether the request was interrupted"""
     log_probs: list[float] = None
@@ -58,16 +66,17 @@ class FullyAsyncAgentLoopOutput(AgentLoopOutput):
     param_version_end: int = 0
     """Indicate end parameter version when this response is generated, used for partial rollout"""
 
+
 @ray.remote
 class FullyAsyncAgentLoopWorker(AgentLoopWorkerBase):
     def __init__(
-            self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], rm_executor: BatchExecutor = None
+        self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], rm_executor: BatchExecutor = None
     ):
         self.server_manager_class = FullyAsyncLLMServerManager(config, server_handles)
         super().__init__(config, server_handles, rm_executor)
 
     async def generate_sequences_no_post(
-            self, batch: DataProto, partial_output_list: Optional[list[AgentLoopOutput]]
+        self, batch: DataProto, partial_output_list: Optional[list[AgentLoopOutput]]
     ) -> list[AgentLoopOutput]:
         """Generate sequences from agent loop.
 
@@ -117,19 +126,19 @@ class FullyAsyncAgentLoopWorker(AgentLoopWorkerBase):
         return await asyncio.gather(*tasks)
 
     async def _partial_run_agent_loop(
-            self,
-            sampling_params: dict[str, Any],
-            trajectory: dict[str, Any],
-            *,
-            agent_name: str,
-            **kwargs,
+        self,
+        sampling_params: dict[str, Any],
+        trajectory: dict[str, Any],
+        *,
+        agent_name: str,
+        **kwargs,
     ) -> AgentLoopOutput:
         with rollout_trace_attr(
-                step=trajectory["step"],
-                sample_index=trajectory["sample_index"],
-                rollout_n=trajectory["rollout_n"],
-                validate=trajectory["validate"],
-                name="agent_loop",
+            step=trajectory["step"],
+            sample_index=trajectory["sample_index"],
+            rollout_n=trajectory["rollout_n"],
+            validate=trajectory["validate"],
+            name="agent_loop",
         ):
             assert agent_name in _agent_loop_registry, (
                 f"Agent loop {agent_name} not registered, registered agent loops: {_agent_loop_registry.keys()}"
@@ -174,6 +183,7 @@ class PartialAgentLoopManager(AgentLoopManager):
         """异步初始化方法"""
         # 处理 rm_wg 相关初始化
         if self.rm_wg:
+
             def batch_fn(data_list: list[DataProto]) -> list[torch.Tensor]:
                 new_data_list = []
                 for data in data_list:
@@ -223,9 +233,9 @@ class PartialAgentLoopManager(AgentLoopManager):
         self.server_addresses = [server._server_address for server in self.rollout_replicas]
 
     async def generate_single_sample_async(
-            self,
-            sample: DataProto,
-            partial_output_list: Optional[list[AgentLoopOutput]],
+        self,
+        sample: DataProto,
+        partial_output_list: Optional[list[AgentLoopOutput]],
     ) -> list[AgentLoopOutput]:
         """
         异步处理单个样本

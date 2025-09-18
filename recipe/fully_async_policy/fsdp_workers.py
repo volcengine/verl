@@ -18,29 +18,18 @@ import os
 
 import torch
 import torch.distributed
-from omegaconf import DictConfig, OmegaConf
-from torch.distributed.device_mesh import init_device_mesh
+from omegaconf import DictConfig
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from transformers import AutoConfig
 
-from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, register
-from verl.utils import hf_processor, hf_tokenizer, omega_conf_to_dataclass
-from verl.utils.debug import DistProfiler, DistProfilerExtension, log_gpu_memory_usage
 from verl.utils.device import (
     get_device_name,
-    get_nccl_backend,
     get_torch_device,
 )
-from verl.utils.fs import copy_to_local
 from verl.utils.fsdp_utils import (
     fsdp_version,
 )
-from verl.utils.import_utils import import_external_libs
-from verl.utils.model import get_generation_config, update_model_config
-from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
-from verl.workers.rollout import get_rollout_class
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
