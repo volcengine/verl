@@ -27,10 +27,9 @@ import torch.distributed
 from peft import LoraConfig, TaskType, get_peft_model
 from tensordict import TensorDict
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.tensor import DTensor
 
 import verl.utils.torch_functional as verl_F
-
-from torch.distributed.tensor import DTensor
 from verl.models.transformers.monkey_patch import apply_monkey_patch
 from verl.utils import tensordict_utils as tu
 from verl.utils.activation_offload import enable_activation_offloading
@@ -48,6 +47,7 @@ from verl.utils.fsdp_utils import (
     FSDPModule,
     MixedPrecisionPolicy,
     apply_fsdp2,
+    collect_lora_params,
     fsdp2_clip_grad_norm_,
     fsdp2_load_full_state_dict,
     fsdp_version,
@@ -58,10 +58,9 @@ from verl.utils.fsdp_utils import (
     load_fsdp_optimizer,
     offload_fsdp_model_to_cpu,
     offload_fsdp_optimizer,
-    collect_lora_params,
-    replace_lora_wrapper
+    replace_lora_wrapper,
 )
-from verl.utils.model import compute_position_id_with_mask, convert_weight_keys
+from verl.utils.model import convert_weight_keys
 from verl.utils.py_functional import convert_to_regular_types
 from verl.utils.torch_functional import logprobs_from_logits
 from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad, ulysses_pad_and_slice_inputs
@@ -608,9 +607,7 @@ class FSDPEngine(BaseEngine):
         else:
             params = self.module.state_dict()
 
-        params = convert_weight_keys(
-            params, getattr(self.module, "_fsdp_wrapped_module", self.module)
-        )
+        params = convert_weight_keys(params, getattr(self.module, "_fsdp_wrapped_module", self.module))
 
         log_gpu_memory_usage("Before offload_fsdp_model_to_cpu", logger=logger)
         if self._is_offload_param:

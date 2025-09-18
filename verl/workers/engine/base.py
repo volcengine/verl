@@ -123,7 +123,7 @@ class BaseEngine:
         with torch.no_grad():
             outputs = self.forward_backward_batch(data, loss_function, forward_only=True)
         return outputs
-    
+
     def get_per_tensor_param(self):
         raise NotImplementedError
 

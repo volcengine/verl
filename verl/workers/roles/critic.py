@@ -17,7 +17,6 @@ import logging
 import os
 import warnings
 from functools import partial
-from typing import Iterable
 
 import psutil
 from codetiming import Timer

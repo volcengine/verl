@@ -36,7 +36,7 @@ from verl.utils.megatron_utils import (
     load_megatron_optimizer,
     offload_megatron_model_to_cpu,
     offload_megatron_optimizer,
-    per_tensor_generator
+    per_tensor_generator,
 )
 from verl.utils.model import load_mcore_dist_weights, load_megatron_gptmodel_weights
 from verl.workers.config import HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
