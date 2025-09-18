@@ -97,13 +97,13 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
 
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
 
+        # ==================== fully async config ====================
+
         self.total_rollout_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
         if self.config.rollout.total_rollout_steps is not None:
             self.total_rollout_steps = min(self.config.rollout.total_rollout_steps, self.total_rollout_steps)
         print(f"[FullyAsyncRollouter] Total rollout steps: {self.total_rollout_steps}")
         self.total_train_steps = None
-
-        # ==================== fully async config ====================
 
         # Rollouter parameter configuration
         self.message_queue_client = None
@@ -247,15 +247,10 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         1. Ray resource pools from configuration
         2. Worker groups for each role (actor, critic, etc.)
         """
-        print("_init_resource_pools")
         self._init_resource_pools()
-        print("_create_worker_classes")
         self._create_worker_classes()
-        print("_init_worker_groups")
         self._init_worker_groups()
-        print("_init_models")
         self._init_models()
-        print("_init_async_rollout_manager")
         await self._init_async_rollout_manager()
 
     def _create_actor_rollout_classes(self):
@@ -285,7 +280,6 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
 
     async def _init_async_rollout_manager(self):
         # create async rollout manager and request scheduler
-        print(f"_init_async_rollout_manager !!!!!!!!!!!!! {self.config.actor_rollout_ref.rollout.mode}")
         assert self.config.actor_rollout_ref.rollout.mode == "async"
         from recipe.fully_async_policy.agent_loop import PartialAgentLoopManager
         self.async_rollout_mode = True
@@ -415,7 +409,7 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         """流式处理单个样本"""
         # 调用异步生成方法
         agent_loop_output_list = await self.async_rollout_manager.generate_single_sample_async(
-            rollout_sample.full_batch, self.current_param_version, rollout_sample.agent_loop_output_list
+            rollout_sample.full_batch, rollout_sample.agent_loop_output_list
         )
         # 直接更新 RolloutSample 对象，填充剩余字段
         rollout_sample.agent_loop_output_list = agent_loop_output_list

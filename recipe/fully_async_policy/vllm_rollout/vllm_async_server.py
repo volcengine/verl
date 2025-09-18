@@ -125,7 +125,7 @@ class vLLMHttpServerForPartial(vLLMHttpServerBase):
             self.paused = False
 
 
-class vLLMReplicaForPartial(vLLMReplica):
+class FullyAsyncvLLMReplica(vLLMReplica):
     def __init__(self, replica_rank: int, config: DictConfig, gpus_per_node: int = 8):
         super().__init__(replica_rank, config, gpus_per_node)
         self.server_class = vLLMHttpServerForPartial

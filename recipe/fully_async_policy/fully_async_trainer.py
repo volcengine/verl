@@ -83,6 +83,7 @@ class FullyAsyncTrainer(FullyAsyncRayPPOTrainer):
         if self.config.algorithm.use_kl_in_reward:
             self.kl_ctrl_in_reward = core_algos.get_kl_controller(self.config.algorithm.kl_ctrl)
 
+        # ==================== fully async config ====================
 
         self.message_queue_client = None
         self.param_synchronizer = None

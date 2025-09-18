@@ -110,7 +110,6 @@ class RolloutReplica(ABC):
         Args:
             worker_group: RayWorkerGroup, fused workers where training engine(fsdp/megatron) have been initialized.
         """
-        print("=========== init_hybrid ============")
         self.rollout_mode = RolloutMode.HYBRID
         self.workers = worker_group.workers[
             self.world_size * self.replica_rank : self.world_size * (self.replica_rank + 1)

@@ -226,7 +226,6 @@ def merge_rollout_sample(config, tokenizer, rs: RolloutSample):
     rs.param_version_end = [agent_loop.param_version_end for agent_loop in rs.agent_loop_output_list]
     # 第四步，清空 agent_loop_output_list
     rs.agent_loop_output_list = []
-
     return rs
 
 
