@@ -1,6 +1,6 @@
 # FP8 for verl
 
-Last updated: 09/18/2025.
+Last updated: 11/7/2025.
 
 This module is still in development. Currently we support FP8 rollout, using FP8 blockwise scaling (used in Deepseek,
 which is 1x128 quantization for activations and 128x128 quantization for model weights).
@@ -12,7 +12,6 @@ function to handle model weights loading after quantization.
 
 **Notes**: 
 - Currently, we only support VLLM rollout with Megatron training. SGLang rollout with Megatron training is on the roadmap.
-- Only support Batch generate sequences.
 - We also support FP8 per tensor quantization, but after preliminary testing, there were issues with the accuracy and it is not recommended to use it.
 
 ## Usage
