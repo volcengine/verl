@@ -216,19 +216,17 @@ def _custom_flash_attention_forward(
 
     if position_ids is not None and query_length != 1 and not (torch.diff(position_ids, dim=-1) >= 0).all():
         batch_size = query_states.size(0)
-        query_states, key_states, value_states, cu_seq_lens, max_seq_lens = prepare_fa2_from_position_ids(
+        q, k, v, (cu_seqlens_q, cu_seqlens_k), (max_seqlen_q, max_seqlen_k) = prepare_fa2_from_position_ids(
             query_states, key_states, value_states, position_ids
         )
-        cu_seqlens_q, cu_seqlens_k = cu_seq_lens
-        max_seqlen_in_batch_q, max_seqlen_in_batch_k = max_seq_lens
         attn_output = flash_attn_varlen_func(
-            query_states,
-            key_states,
-            value_states,
+            q=q,
+            k=k,
+            v=v,
             cu_seqlens_q=cu_seqlens_q,
             cu_seqlens_k=cu_seqlens_k,
-            max_seqlen_q=max_seqlen_in_batch_q,
-            max_seqlen_k=max_seqlen_in_batch_k,
+            max_seqlen_q=max_seqlen_q,
+            max_seqlen_k=max_seqlen_k,
             dropout_p=kwargs.pop("dropout", 0.0),
             softmax_scale=kwargs.pop("softmax_scale", None),
             causal=is_causal,
