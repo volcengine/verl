@@ -165,19 +165,14 @@ class MegatronEngine(BaseEngine):
         return module
 
     def _build_optimizer(self):
-        from verl.utils.megatron.optimizer import (
-            get_megatron_optimizer,
-            init_megatron_optim_config,
-        )
+        from verl.utils.megatron.optimizer import get_megatron_optimizer, init_megatron_optim_config
 
         optim_config_megatron = init_megatron_optim_config(self.optimizer_config)
         optimizer = get_megatron_optimizer(model=self.module, config=optim_config_megatron)
         return optimizer
 
     def _build_lr_scheduler(self):
-        from verl.utils.megatron.optimizer import (
-            get_megatron_optimizer_param_scheduler,
-        )
+        from verl.utils.megatron.optimizer import get_megatron_optimizer_param_scheduler
 
         optimizer_scheduler = get_megatron_optimizer_param_scheduler(
             optimizer=self.optimizer, config=self.optimizer_config
@@ -495,13 +490,11 @@ class MegatronEngineWithLMHead(MegatronEngine):
             ]  # mcore patch recompute qwen2vl's pos ids during forward
 
         multi_modal_inputs = {}
-        if "multi_modal_inputs" in batch.keys():
-            for key in batch["multi_modal_inputs"][0].keys():
-                idxs = batch["multi_modal_inputs_idx"]
-                mmi = batch["multi_modal_inputs"]
-                multi_modal_inputs[key] = torch.cat(
-                    [mmi[idx].get(key).to(input_ids.device) for idx in idxs if mmi[idx].get(key) is not None], dim=0
-                )
+        if "multi_modal_inputs" in batch:
+            from verl.utils.model import extract_multi_modal_inputs
+
+            indices = batch.get("multi_modal_inputs_idx", None)
+            multi_modal_inputs = extract_multi_modal_inputs(batch["multi_modal_inputs"], indices)
 
         return {
             "input_ids": input_ids,
