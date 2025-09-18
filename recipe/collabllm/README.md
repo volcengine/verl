@@ -9,7 +9,7 @@ This repository implements [CollabLLM](https://arxiv.org/pdf/2502.00640) (ICML 2
 First, process your dataset using the provided script:
 
 ```bash
-python process_dataset.py
+python process_dataset.py ... --dataset_type <sft or rl>
 ```
 
 **Requirements:**

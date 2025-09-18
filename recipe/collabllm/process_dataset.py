@@ -1,4 +1,4 @@
-# Copyright 2025 collabllm team and/or its affiliates
+# Copyright 2025 CollabLLM team and/or its affiliates
 # Copyright 2025 Bytedance Ltd. and/or its affiliates
 
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,17 +15,24 @@
 
 #!/usr/bin/env python3
 """
+# available datasets: 
+# math-hard(-large), medium(-large), bigcodebench(-large)
+# to create your own dataset, refer to https://github.com/Wuyxin/collabllm
+
+DATASET=math-hard-large
+
 python recipe/collabllm/process_dataset.py \
-  --dataset collabllm/collabllm-multiturn-math-hard  \
-  --local_dir $HOME/data/collabllm-math-hard \
+  --dataset collabllm/collabllm-multiturn-$DATASET  \
+  --local_dir $HOME/data/collabllm-$DATASET \
   --dataset_type sft
 
 
 python recipe/collabllm/process_dataset.py \
-  --dataset collabllm/collabllm-multiturn-math-hard  \
-  --local_dir $HOME/data/collabllm-math-hard \
+  --dataset collabllm/collabllm-multiturn-$DATASET  \
+  --local_dir $HOME/data/collabllm-$DATASET \
   --dataset_type rl
   
+
 Preprocess collabllm/collabllm-multiturn-math-hard into (ground_truth, extra_info).
 
 - ground_truth: picked from --prefer_field (default: single_turn_completion),
@@ -100,7 +107,7 @@ def collapse_example(example: dict[str, Any]) -> dict[str, Any]:
         {
             "name": "collabllm",
             "single_turn_prompt": extra_info.pop("single_turn_prompt"),
-            "task_desc": extra_info.pop("task_desc", "general assistance task"),
+            "task_desc": extra_info.pop("task_desc", "general ask-for-assistance task"),
         },
     )
     return {
@@ -216,9 +223,6 @@ def main():
         # Keep only prompt column
         cols_to_remove = [col for col in ds_all.column_names if col != "prompt"]
         ds_all = ds_all.remove_columns(cols_to_remove)
-        import pdb
-
-        pdb.set_trace()
 
     print(f"[INFO] Splitting with validation_size={args.validation_size}, seed={args.seed}")
     split = ds_all.train_test_split(test_size=args.validation_size, seed=args.seed, shuffle=True)

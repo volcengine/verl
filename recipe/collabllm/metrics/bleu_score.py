@@ -1,4 +1,4 @@
-# Copyright 2025 collabllm team and/or its affiliates
+# Copyright 2025 CollabLLM team and/or its affiliates
 # Copyright 2025 Bytedance Ltd. and/or its affiliates
 
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,7 +17,11 @@ from nltk.translate.bleu_score import sentence_bleu
 
 from recipe.collabllm.utils import extract_json, parse_messages
 
-EXTRACT_MULTITURN_COMPLETION_PROMPT = '''You are a thorough and diligent conversation analyzer. Your task is to extract the final and complete version of a document that was generated during a multiturn conversation between a user and a chat assistant. The extracted content should reflect the final and comprehensive response provided by the assistant based on the user’s request.
+EXTRACT_MULTITURN_COMPLETION_PROMPT = '''You are a thorough and diligent conversation analyzer. \
+Your task is to extract the final and complete version of a document that was generated during \
+a multiturn conversation between a user and a chat assistant. \
+The extracted content should reflect the final and comprehensive response provided by the assistant \
+based on the user’s request.
 
 You will be provided with the conversation:
 
@@ -27,13 +31,19 @@ You will be provided with the conversation:
 
 Instructions for Extraction:
 
-1. Identify the Most Update-to-Date Contents: Review the entire conversation to identify the most updated parts of the content provided by the assistant. This may include:
+1. Identify the Most Update-to-Date Contents: Review the entire conversation to identify the most updated parts \
+of the content provided by the assistant. This may include:
    - Different sections of text (e.g., an essay, report, or article).
 
-2. Integrate Revisions: If the assistant made revisions, updates, or added sections throughout the conversation, ensure that these changes are fully integrated into the final content. The goal is to extract a single, cohesive output that incorporates all modifications and additions made during the conversation. For example, if the assistant writes an introducation at the beginning and move on to the conclusion, the final output should include both the introduction and the conclusion.
+2. Integrate Revisions: If the assistant made revisions, updates, or added sections throughout the conversation, \
+ensure that these changes are fully integrated into the final content. The goal is to extract a single, cohesive \
+output that incorporates all modifications and additions made during the conversation. For example, if the assistant \
+writes an introducation at the beginning and move on to the conclusion, the final output should include both the \
+introduction and the conclusion.
 
 3. Focus on Completeness:
-   - For text-based documents: Ensure that the extracted content is comprehensive and represents the full document or section as discussed in the conversation.
+   - For text-based documents: Ensure that the extracted content is comprehensive and represents the full document \
+     or section as discussed in the conversation.
 
 You should output a JSON object with two entries:
 - "thought" (str): Output your thought process when extracting the final content. 
@@ -43,10 +53,12 @@ You should output a JSON object with two entries:
 - "final_completion" (str): The final and complete version of the document extracted from the conversation.
 
 Note: 
-1. If there are multiple lines, you should use triple quotes (""") to wrap the content. For example, "final_completion": """first line. 
+1. If there are multiple lines, you should use triple quotes (""") to wrap the content. For example, \
+   "final_completion": """first line. 
    second line.""" or "thought": """first line;
    second line.""".
-2. In the "final_completion" entry, replace all double quotes (") with single quotes (') to prevent JSON formatting issues. For example, you can output "final_completion": "'Hello World' is a common phrase." 
+2. In the "final_completion" entry, replace all double quotes (") with single quotes (') to prevent JSON formatting \
+issues. For example, you can output "final_completion": "'Hello World' is a common phrase." 
 
 Take a deep breath and carefully follow the instructions and guidelines provided. 
 '''

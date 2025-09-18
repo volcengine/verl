@@ -241,7 +241,7 @@ class ToolAgentLoop(AgentLoopBase):
         # Handle interaction if needed
         if self.interaction_config_file:
             assistant_message = await self.loop.run_in_executor(
-                None, lambda: self.tokenizer.decode(agent_data.response_ids)
+                None, lambda: self.tokenizer.decode(agent_data.response_ids, skip_special_tokens=True)
             )
             add_messages.append({"role": "assistant", "content": assistant_message})
             agent_data.messages.extend(add_messages)
@@ -365,6 +365,7 @@ class ToolAgentLoop(AgentLoopBase):
         agent_data.user_turns += 1
 
         add_messages: list[dict[str, Any]] = [{"role": "user", "content": interaction_responses}]
+        agent_data.messages.extend(add_messages)
 
         if reward is not None:
             agent_data.turn_scores.append(reward)
@@ -395,6 +396,7 @@ class ToolAgentLoop(AgentLoopBase):
         if agent_data.response_logprobs:
             agent_data.response_logprobs += [0.0] * len(response_ids)
 
+        # double check prompt
         # Check termination condition
         if should_terminate_sequence:
             return AgentState.TERMINATED

@@ -1,4 +1,4 @@
-# Copyright 2025 collabllm team and/or its affiliates
+# Copyright 2025 CollabLLM team and/or its affiliates
 # Copyright 2025 Bytedance Ltd. and/or its affiliates
 
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -43,7 +43,8 @@ Output format (JSON):
     "accuracy": <0 or 1>
 }}
 
-Double check if the JSON object is formatted correctly. Ensure that all fields are present and properly structured. Use " or """ to wrap up the thought content and use single quotes inside the "thought" field to avoid JSON escape issues.
+Double check if the JSON object is formatted correctly. Ensure that all fields are present and properly structured. \
+Use " or """ to wrap up the thought and use single quotes inside the "thought" field to avoid JSON escape issues.
 
 Your evaluation:
 '''

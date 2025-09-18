@@ -1,4 +1,4 @@
-# Copyright 2025 collabllm team and/or its affiliates
+# Copyright 2025 CollabLLM team and/or its affiliates
 # Copyright 2025 Bytedance Ltd. and/or its affiliates
 
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -27,18 +27,18 @@ You should assess the assistant's engagement, clarity, and ability to understand
 Give a float number between 0 and 1. 
 
 Scoring Criteria:
-- Let U = understanding in [0,1]
-  - 1.0 = Clearly understands the user's intent and responds directly.
-  - 0.7 = Generally understands but misses some nuance.
-  - 0.3 = Misinterprets key parts of the question.
-  - 0.0 = Fails to understand the question.
+- Let U = user understanding & response clarity ∈ [0,1]  
+  - 1.0 = Fully understands the user's intent and gives a clear answer.  
+  - 0.7 = Mostly understands and the answer is generally clear.  
+  - 0.3 = Partially misunderstands or the answer is hard to follow.  
+  - 0.0 = Misunderstands the intent and gives an unclear or irrelevant answer.
 - Let Q = clarification in [0,1]
-  - 1.0 = Asks precise, necessary clarifying questions.
+  - 1.0 = Asks precise, necessary clarifying questions when needed.
   - 0.7 = Asks somewhat helpful but incomplete clarifications.
   - 0.3 = Only asks generic questions (e.g., “Does that help?”).
   - 0.0 = Asks no clarifying questions when needed.
 - Let S = suggestion helpfulness in [0,1]
-  - 1.0 = Provides useful, actionable suggestions beyond the prompt.
+  - 1.0 = Provides useful, actionable suggestions.
   - 0.7 = Suggestions are somewhat helpful but limited.
   - 0.3 = Suggestions are vague or generic.
   - 0.0 = No suggestions when they would clearly help.

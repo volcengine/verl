@@ -1,4 +1,4 @@
-# Copyright 2025 collabllm team and/or its affiliates
+# Copyright 2025 CollabLLM team and/or its affiliates
 # Copyright 2025 Bytedance Ltd. and/or its affiliates
 
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -78,14 +78,20 @@ class CollabLLMAgentLoop(ToolAgentLoop):
             num_repeats = self.config.actor_rollout_ref.rollout.multi_turn.num_repeat_rollouts
 
         interaction_requests = [deepcopy(agent_data) for _ in range(num_repeats)]
+
         # messages are only used in collabllm reward manager
         messages_lst = []
         for _agent_data in interaction_requests:
-            # print(_agent_data.messages[-1]) # print assistant generation
             if not is_valid_messages(_agent_data.messages[-1]):
                 break
+
+            prev_msg_len = len(_agent_data.messages)
             await self.run_agent_data_loop(_agent_data, sampling_params, AgentState.INTERACTING)
             messages_lst.append([Message(**msg) for msg in _agent_data.messages])
+
+            if interaction.config.get("enable_log"):
+                print(f"Assistant: ...{messages_lst[-1][prev_msg_len - 1].content[-100:]}")
+                print(f"User:      {messages_lst[-1][prev_msg_len].content[:100]}...")
 
         # Finalize output
         response_ids = agent_data.prompt_ids[-len(agent_data.response_mask) :]

@@ -1,4 +1,4 @@
-# Copyright 2025 collabllm team and/or its affiliates
+# Copyright 2025 CollabLLM team and/or its affiliates
 # Copyright 2025 Bytedance Ltd. and/or its affiliates
 
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -82,7 +82,8 @@ async def conversation_level_reward_func(
             except Exception as e:
                 if attempt == num_retries - 1:  # Last attempt
                     print(
-                        f"Error: Failed to compute metric '{metric}' after {num_retries} attempts. Last error: {e}. Assigning 0 to metric '{metric}'."
+                        f"Error: Failed to compute metric '{metric}' after {num_retries} attempts. "
+                        f"Last error: {e}. Assigning 0 to metric '{metric}'."
                     )
                     rewards[metric] = 0.0
                 else:
