@@ -84,12 +84,7 @@ staleness_threshold=0.1
 trigger_parameter_sync_step=16
 partial_rollout=True
 
-PYTHON_INTERPRETER="/home/hadoop-djst-algoplat/miniconda3/bin/python"
-if [ ! -x "$PYTHON_INTERPRETER" ]; then
-    PYTHON_INTERPRETER="python3"
-fi
-
-$PYTHON_INTERPRETER -m recipe.fully_async_policy.fully_async_main \
+python -m recipe.fully_async_policy.fully_async_main \
     data.train_files="${TRAIN_FILE}" \
     data.val_files="${TEST_FILE}" \
     data.prompt_key=prompt \
