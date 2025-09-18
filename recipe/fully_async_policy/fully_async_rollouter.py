@@ -282,14 +282,11 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         # create async rollout manager and request scheduler
         assert self.config.actor_rollout_ref.rollout.mode == "async"
         from recipe.fully_async_policy.agent_loop import PartialAgentLoopManager
-
         self.async_rollout_mode = True
-        print(f"{self.async_rollout_mode}")
         self.async_rollout_manager = await PartialAgentLoopManager.create(
             config=self.config,
             worker_group=self.rollout_wg,
         )
-        print(f"self.async_rollout_manager {self.async_rollout_manager}")
 
     # 添加样本到待处理队列的协程
     async def _feed_samples(self):

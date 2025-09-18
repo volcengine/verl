@@ -241,10 +241,9 @@ class vLLMHttpServerBase:
         server_args.distributed_executor_backend = distributed_executor_backend
 
         zmq_addresses = ray.get([worker.get_zeromq_address.remote() for worker in self.workers])
-        print(
-            "=" * 1000,
+        logger.info(
             f"replica_rank={self.replica_rank}, node_rank={self.node_rank}, nnodes={self.nnodes}, "
-            f"get worker zmq addresses: {zmq_addresses}",
+            f"get worker zmq addresses: {zmq_addresses}"
         )
         os.environ["VERL_VLLM_ZMQ_ADDRESSES"] = ",".join(zmq_addresses)
 

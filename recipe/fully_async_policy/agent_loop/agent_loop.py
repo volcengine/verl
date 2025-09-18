@@ -72,7 +72,7 @@ class FullyAsyncAgentLoopWorker(AgentLoopWorkerBase):
     def __init__(
         self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], rm_executor: BatchExecutor = None
     ):
-        self.server_manager_class = FullyAsyncLLMServerManager(config, server_handles)
+        self.server_manager = FullyAsyncLLMServerManager(config, server_handles)
         super().__init__(config, server_handles, rm_executor)
 
     async def generate_sequences_no_post(
@@ -148,7 +148,7 @@ class FullyAsyncAgentLoopWorker(AgentLoopWorkerBase):
             agent_loop = hydra.utils.instantiate(
                 config=agent_loop_config,
                 trainer_config=_DummyConfig(config=self.config),
-                server_manager=self.server_manager_class,
+                server_manager=self.server_manager,
                 tokenizer=self.tokenizer,
                 processor=self.processor,
             )

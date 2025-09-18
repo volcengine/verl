@@ -3,7 +3,7 @@ set -x
 
 # For async rollout mode, dataset should return raw chat.
 rollout_mode="async"
-rollout_name="vllm" # sglang or vllm
+rollout_name="sglang" # sglang or vllm
 if [ "$rollout_mode" = "async" ]; then
     export VLLM_USE_V1=1
     return_raw_chat="True"
@@ -19,7 +19,7 @@ python3 -m verl.trainer.main_ppo \
     data.max_response_length=1024 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
-    actor_rollout_ref.model.path=Qwen/Qwen2.5-0.5B-Instruct \
+    actor_rollout_ref.model.path=Qwen/Qwen2-7B-Instruct \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=256 \
@@ -41,7 +41,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
-    trainer.logger='["console","tensorboard"]' \
+    trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_grpo_example_gsm8k' \
     trainer.experiment_name='qwen2_7b_function_rm_kl1e-3' \
     trainer.val_before_train=False \

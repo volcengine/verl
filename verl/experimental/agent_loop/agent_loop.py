@@ -365,8 +365,8 @@ class AgentLoopWorkerBase:
         self.config = config
 
         # for recipe to change
-        if not hasattr(self, "server_manager_class"):
-            self.server_manager_class = AsyncLLMServerManager(config, server_handles)
+        if not hasattr(self, "server_manager"):
+            self.server_manager = AsyncLLMServerManager(config, server_handles)
 
         self.rm_executor = rm_executor
 
@@ -480,7 +480,7 @@ class AgentLoopWorkerBase:
             agent_loop = hydra.utils.instantiate(
                 config=agent_loop_config,
                 trainer_config=_DummyConfig(config=self.config),
-                server_manager=self.server_manager_class,
+                server_manager=self.server_manager,
                 tokenizer=self.tokenizer,
                 processor=self.processor,
             )
