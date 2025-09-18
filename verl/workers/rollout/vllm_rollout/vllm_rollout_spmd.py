@@ -484,7 +484,8 @@ class vLLMAsyncRollout(BaseRollout):
         self.inference_engine: WorkerWrapperBase = None
         self.address = self._init_zeromq()
 
-        if config.layered_summon:
+        # https://github.com/vllm-project/vllm/issues/25171
+        if config.layered_summon or config.expert_parallel_size > 1:
             self.sleep_level = 1
         else:
             self.sleep_level = VLLM_SLEEP_LEVEL
