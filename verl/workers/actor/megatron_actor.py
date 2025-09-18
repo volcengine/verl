@@ -128,7 +128,8 @@ class MegatronPPOActor(BasePPOActor):
         else:
             self.prof = None
         self.use_fused_kernels = self.config.get("use_fused_kernels", False)
-        if self.use_fused_kernels:
+        if self.use_fused_kernels and not getattr(self.config, "overlap_moe_expert_parallel_comm", False):
+            # do not patch if overlap_moe_expert_parallel_comm is enabled
             from verl.models.mcore.model_forward_fused import patch_fused_forward
 
             for model in self.actor_module:
@@ -424,15 +425,25 @@ class MegatronPPOActor(BasePPOActor):
         def loss_func(output, data):
             # For memory efficiency
             # We move calculation of entropy to compute_log_probs, forward_only == True
-            device = output["log_probs"].device
+            log_probs = None
+            entropy = None
+            if isinstance(output, dict):
+                log_probs = output["log_probs"]
+                if "entropy" in output:
+                    entropy = output["entropy"]
+            else:
+                assert isinstance(output, torch.Tensor)
+                log_probs = output
+
+            device = log_probs.device
 
             responses = data["responses"]
             response_length = responses.size(1)
 
-            log_prob = output["log_probs"][:, -response_length - 1 : -1].contiguous()
+            log_prob = log_probs[:, -response_length - 1 : -1].contiguous()
             model_output = {"log_probs": log_prob}
             if calculate_entropy:
-                entropy = output["entropy"][:, -response_length - 1 : -1].contiguous()
+                entropy = entropy[:, -response_length - 1 : -1].contiguous()
                 model_output["entropy"] = entropy
 
             if forward_only:
@@ -457,9 +468,12 @@ class MegatronPPOActor(BasePPOActor):
                 assert self.tf_config.overlap_moe_expert_parallel_comm, (
                     "overlap_moe_expert_parallel_comm must be enabled to return the schedule plan"
                 )
+                # TODO: Fix this
+                assert not calculate_entropy, "calculate_entropy must be disabled to return the schedule plan"
                 from megatron.core.models.gpt.gpt_model import GPTModel
 
                 assert isinstance(model, GPTModel), "model must be a GPTModel"
+                assert self.use_fused_kernels, "use_fused_kernels must be enabled to return the schedule plan"
                 # TODO: support VLM with MoE
                 from verl.models.mcore.model_forward_1f1b_overlap import gptmodel_forward_1f1b_overlap
 
@@ -495,10 +509,10 @@ class MegatronPPOActor(BasePPOActor):
                     forward_fn = gptmodel_forward_1f1b_overlap
                 # return dict of [logits, entropy]
                 output = forward_fn(
-                    model,
-                    input_ids,
-                    position_ids,
-                    attention_mask,
+                    model=model,
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    position_ids=position_ids,
                     sequence_parallel=self.tf_config.sequence_parallel,
                     multi_modal_inputs=multi_modal_inputs,
                     labels=label,
@@ -507,8 +521,6 @@ class MegatronPPOActor(BasePPOActor):
                 )
             else:
                 forward_fn = get_mcore_forward_fn(self.hf_config)
-                if return_schedule_plan:
-                    forward_fn = gptmodel_forward_1f1b_overlap
 
                 def logits_processor(logits, label, label_mask):
                     assert logits.shape[:2] == label.shape[:2]
@@ -534,10 +546,10 @@ class MegatronPPOActor(BasePPOActor):
 
                 logits_processor_args = {"label": label, "label_mask": label_mask}
                 output = forward_fn(
-                    model,
-                    input_ids,
-                    attention_mask,
-                    position_ids,
+                    model=model,
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    position_ids=position_ids,
                     sequence_parallel=self.tf_config.sequence_parallel,
                     multi_modal_inputs=multi_modal_inputs,
                     logits_processor=logits_processor,
