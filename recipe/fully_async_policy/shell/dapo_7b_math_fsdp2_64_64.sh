@@ -76,9 +76,9 @@ n_resp_per_prompt=16
 train_prompt_mini_bsz=32
 total_rollout_steps=$(((512*400)))
 test_freq=10
-staleness_threshold=0.1
+staleness_threshold=0
 trigger_parameter_sync_step=16
-partial_rollout=True
+partial_rollout=False
 
 python -m recipe.fully_async_policy.fully_async_main \
     data.train_files="${TRAIN_FILE}" \
