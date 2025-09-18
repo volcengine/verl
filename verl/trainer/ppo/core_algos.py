@@ -1462,16 +1462,16 @@ def compute_scores(data, metric="response length", metric_name="token_level_scor
         reward_value = data.batch[metric_name].sum(dim=-1).numpy()
 
     if metric == "response length":
-        for i in range(bsz):
-            id2response_and_score[index[i]].append((i, response_length[i]))
+        score_func = lambda i: response_length[i]
     elif metric == "token efficiency":
-        for i in range(bsz):
-            id2response_and_score[index[i]].append((i, -reward_value[i] / (response_length[i] + 10**(-8))))
+        score_func = lambda i: -reward_value[i] / (response_length[i] + 1e-8)
     else:
         raise NotImplementedError(f"metric {metric} not supported")
-
-    for id in id2response_and_score.keys():
-        id2response_and_score[id] = sorted(id2response_and_score[id], key=lambda x: x[1])
+        
+    for i in range(bsz):
+        id2response_and_score[index[i]].append((i, score_func(i)))
+    for id, response_and_score in id2response_and_score.items():
+        id2response_and_score[id] = sorted(response_and_score, key=lambda x: x[1])
 
     if adaptive:
         id2average_reward = {}
