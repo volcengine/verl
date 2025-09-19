@@ -19,11 +19,13 @@ import torch
 import torch.distributed
 import torch.distributed as dist
 from omegaconf import OmegaConf
-from transformers import AutoConfig, AutoTokenizer
+from transformers import AutoTokenizer
 
 from verl import DataProto
+from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.distributed import initialize_global_process_group
 from verl.utils.model import compute_position_id_with_mask
+from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.vllm_rollout.vllm_rollout_spmd import vLLMRollout
 
 
@@ -36,7 +38,7 @@ def test_vllm_rollout_with_yarn_position_embeddings():
     model_path = os.path.expanduser("~/models/OldKingMeister/Qwen2.5-1.5B-Instruct-YaRN")
     config = OmegaConf.create(
         {
-            "model_path": model_path,
+            "name": "vllm",
             "prompt_length": 35000,
             "response_length": 512,
             "dtype": "bfloat16",
@@ -56,7 +58,6 @@ def test_vllm_rollout_with_yarn_position_embeddings():
                 "do_sample": False,
             },
             "tensor_model_parallel_size": 4,
-            "trust_remote_code": True,
             "calculate_log_probs": False,
             "do_sample": False,
             "temperature": 0.0,
@@ -64,18 +65,20 @@ def test_vllm_rollout_with_yarn_position_embeddings():
         }
     )
 
-    tokenizer = AutoTokenizer.from_pretrained(config.model_path, trust_remote_code=True, padding_side="left")
+    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True, padding_side="left")
     tokenizer.pad_token = tokenizer.eos_token
-    model_hf_config = AutoConfig.from_pretrained(config.model_path)
 
     # do_sample=False for temperate=0 deterministic
     input_dataproto = prepare_input_dataproto(tokenizer, config, validate=True, do_sample=False)
 
+    rollout_config: RolloutConfig = omega_conf_to_dataclass(config, dataclass_type=RolloutConfig)
+    model_config = HFModelConfig(path=model_path)
+    model_config.tokenizer.pad_token = tokenizer.eos_token
+
     vllm_rollout = vLLMRollout(
-        model_path=config.model_path,
-        config=config,
-        tokenizer=tokenizer,
-        model_hf_config=model_hf_config,
+        config=rollout_config,
+        model_config=model_config,
+        device_mesh=None,
     )
     # rollout
     rollout_response = vllm_rollout.generate_sequences(

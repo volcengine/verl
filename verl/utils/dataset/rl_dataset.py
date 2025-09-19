@@ -275,6 +275,11 @@ class RLHFDataset(Dataset):
                 row_dict["multi_modal_inputs"].pop("second_per_grid_ts", None)
 
         else:
+            if self.apply_chat_template_kwargs.get("chat_template") is None:
+                assert hasattr(self.tokenizer, "chat_template"), (
+                    "chat_template should be provided in apply_chat_template_kwargs or tokenizer config, "
+                    "models like GLM can copy chat_template.jinja from instruct models"
+                )
             raw_prompt = self.tokenizer.apply_chat_template(
                 messages, add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
             )
@@ -294,17 +299,18 @@ class RLHFDataset(Dataset):
         if self.processor is not None and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__:
             from verl.models.transformers.qwen2_vl import get_rope_index
 
-            position_ids = [
-                get_rope_index(
-                    self.processor,
-                    input_ids=input_ids[0],
-                    image_grid_thw=model_inputs.get("image_grid_thw"),
-                    video_grid_thw=model_inputs.get("video_grid_thw"),
-                    second_per_grid_ts=model_inputs.get("second_per_grid_ts"),
-                    attention_mask=attention_mask[0],
-                )
-            ]  # (1, 3, seq_len)
-
+            vision_position_ids = get_rope_index(
+                self.processor,
+                input_ids=input_ids[0],
+                image_grid_thw=model_inputs.get("image_grid_thw"),
+                video_grid_thw=model_inputs.get("video_grid_thw"),
+                second_per_grid_ts=model_inputs.get("second_per_grid_ts"),
+                attention_mask=attention_mask[0],
+            )  # (3, seq_length)
+            valid_mask = attention_mask[0].bool()
+            text_position_ids = torch.ones((1, len(input_ids[0])), dtype=torch.long)
+            text_position_ids[0, valid_mask] = torch.arange(valid_mask.sum().item())
+            position_ids = [torch.cat((text_position_ids, vision_position_ids), dim=0)]  # (1, 4, seq_length)
         else:
             position_ids = compute_position_id_with_mask(attention_mask)
 

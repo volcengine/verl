@@ -111,7 +111,7 @@ def _pad_tensor(x: Tensor, dim: int, padding_size: int) -> Tensor:
 def _unpad_tensor(x: Tensor, dim: int, padding_size: int) -> Tensor:
     slc = [slice(None)] * len(x.shape)
     slc[dim] = slice(0, -padding_size)
-    return x[slc]
+    return x[tuple(slc)]
 
 
 def slice_input_tensor(x: Tensor, dim: int, padding: bool = True, group: ProcessGroup = None) -> Tensor:
@@ -127,7 +127,7 @@ def slice_input_tensor(x: Tensor, dim: int, padding: bool = True, group: Process
     parts = x.size(dim) // sp_world_size
     slc = [slice(None)] * len(x.shape)
     slc[dim] = slice(sp_rank * parts, (sp_rank + 1) * parts)
-    return x[slc].contiguous()
+    return x[tuple(slc)].contiguous()
 
 
 def all_to_all_tensor(
@@ -288,7 +288,7 @@ def ulysses_pad(input_ids_rmpad: torch.Tensor, position_ids_rmpad: Optional[torc
         if position_ids_rmpad is not None:
             pad_pos_ids = torch.arange(pad_size, device=position_ids_rmpad.device).unsqueeze(0)
             if position_ids_rmpad.dim() == 3:
-                pad_pos_ids = pad_pos_ids.unsqueeze(0).repeat(3, 1, 1)
+                pad_pos_ids = pad_pos_ids.unsqueeze(0).repeat(position_ids_rmpad.size(0), 1, 1)
             position_ids_rmpad = torch.cat((position_ids_rmpad, pad_pos_ids), dim=-1)
     return input_ids_rmpad, position_ids_rmpad, pad_size
 

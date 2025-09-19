@@ -62,6 +62,7 @@ verl is fast with:
    examples/ppo_code_architecture
    examples/gsm8k_example
    examples/multi_modal_example
+   examples/skypilot_examples
 
 .. toctree::
    :maxdepth: 1
