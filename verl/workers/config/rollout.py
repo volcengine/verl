@@ -174,3 +174,7 @@ class RolloutConfig(BaseConfig):
     limit_images: Optional[int] = None
 
     skip_tokenizer_init: bool = False
+
+    quantization: bool = False
+
+    use_block_quant_rollout: bool = False

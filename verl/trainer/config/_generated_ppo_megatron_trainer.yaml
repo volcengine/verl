@@ -250,6 +250,8 @@ actor_rollout_ref:
       ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
       save_path: ${oc.select:global_profiler.save_path,null}
       tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}
+    quantization: false
+    use_block_quant_rollout: true
     layer_name_map:
       qkv_layer_name: qkv
       gate_proj_layer_name: gate_up
