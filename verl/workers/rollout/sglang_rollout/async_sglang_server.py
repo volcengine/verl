@@ -30,7 +30,7 @@ from sglang.srt.entrypoints.http_server import (
     set_global_state,
 )
 from sglang.srt.managers.io_struct import GenerateReqInput
-from sglang.srt.managers.tokenizer_manager import ReleaseMemoryOccupationReqInput, ResumeMemoryOccupationReqInput
+from sglang.srt.managers.io_struct import ReleaseMemoryOccupationReqInput, ResumeMemoryOccupationReqInput
 
 from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
