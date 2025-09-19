@@ -156,7 +156,10 @@ def launch_server_process(
                 raise RuntimeError("Server process terminated unexpectedly during startup")
 
             try:
-                response = session.get(f"{base_url}/health_generate", headers=headers, timeout=timeout)
+                if server_args.is_embedding:
+                    response = session.get(f"{base_url}/health", headers=headers, timeout=timeout)
+                else:
+                    response = session.get(f"{base_url}/health_generate", headers=headers, timeout=timeout)
                 if response.status_code == 200:
                     break
             except requests.RequestException as e:
@@ -219,6 +222,7 @@ class HttpServerAdapter(EngineBase):
         retry_delay: float = DEFAULT_RETRY_DELAY,
         first_rank_in_node: bool = False,
         max_start_wait_time: float = DEFAULT_MAX_WAIT_TIME,
+        launch_server: bool = True,
         **kwargs: Any,
     ) -> None:
         """Initialize the HTTP server engine adapter.
@@ -234,6 +238,8 @@ class HttpServerAdapter(EngineBase):
                 Defaults to DEFAULT_MAX_ATTEMPTS.
             retry_delay (float, optional): Base delay between retries in seconds.
                 Defaults to DEFAULT_RETRY_DELAY.
+            launch_server (bool, optional): Whether to launch the server process.
+                Defaults to True.
             **kwargs (Any): Additional arguments passed to ServerArgs
 
         Note:
@@ -253,9 +259,10 @@ class HttpServerAdapter(EngineBase):
         logger.info(
             f"Launch HttpServerAdapter at: {self.server_args.host}:{self.server_args.port} with {first_rank_in_node}"
         )
-        self.process: multiprocessing.Process = launch_server_process(
-            self.server_args, self.timeout, self.max_start_wait_time, first_rank_in_node
-        )
+        if launch_server:
+            self.process: multiprocessing.Process = launch_server_process(
+                self.server_args, self.timeout, self.max_start_wait_time, first_rank_in_node
+            )
 
         if self.node_rank == 0 and self.router_ip and self.router_port:
             self._register_with_router()
@@ -473,6 +480,25 @@ class HttpServerAdapter(EngineBase):
 
         return self._make_request("generate", payload, only_master=False)
 
+    def reward_score(
+        self,
+        prompt: Optional[str] = None,
+        input_ids: Optional[list[int]] = None,
+        image_data: Optional[Any] = None,
+        lora_path: Optional[str] = None,
+    ) -> dict[str, Any]:
+        assert self.server_args.is_embedding, "Score is only supported for embedding models"
+        payload = {
+            "text": prompt,
+            "input_ids": input_ids,
+            "image_data": image_data,
+            "lora_path": lora_path,
+        }
+        # Filter out None values
+        payload = {k: v for k, v in payload.items() if v is not None}
+
+        return self._make_request("classify", payload, only_master=False)
+
     def flush_cache(self) -> dict[str, Any]:
         """Flush the cache of the server.
 
@@ -555,7 +581,6 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
     communication and maintains connection pooling for better performance.
 
     Attributes:
-        _need_reload (bool): Flag indicating if weights need to be reloaded on first use
         max_connections (int): Maximum number of connections in the connection pool
     """
 
@@ -568,6 +593,7 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
         retry_delay: float = DEFAULT_RETRY_DELAY,
         max_connections: int = DEFAULT_MAX_CONNECTIONS,
         first_rank_in_node: bool = False,
+        launch_server: bool = True,
         **kwargs: Any,
     ) -> None:
         """Initialize the async HTTP server engine adapter.
@@ -585,11 +611,20 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
                 Defaults to DEFAULT_RETRY_DELAY.
             max_connections (int, optional): Maximum number of connections in the connection pool.
                 Defaults to DEFAULT_MAX_CONNECTIONS.
+            launch_server (bool, optional): Whether to launch the server process.
+                Defaults to True.
             **kwargs (Any): Additional arguments passed to ServerArgs
         """
-        super().__init__(router_ip, router_port, timeout, max_attempts, retry_delay, first_rank_in_node, **kwargs)
-        # Similar to AsyncEngine, track if we need to reload weights
-        self._need_reload: bool = True
+        super().__init__(
+            router_ip,
+            router_port,
+            timeout,
+            max_attempts,
+            retry_delay,
+            first_rank_in_node,
+            launch_server=launch_server,
+            **kwargs,
+        )
         self.max_connections: int = max_connections
 
     @asynccontextmanager
@@ -707,11 +742,6 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
         Returns:
             Dict[str, Any]: Server response indicating memory resume status
         """
-        # Similar to AsyncEngine, handle first-time reload
-        if self._need_reload:
-            await self.release_memory_occupation()
-            self._need_reload = False
-
         return await self._make_async_request("resume_memory_occupation", {"tags": tags})
 
     async def update_weights_from_tensor(
@@ -873,6 +903,42 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
             token_ids_logprob=token_ids_logprob,
             lora_path=lora_path,
             custom_logit_processor=custom_logit_processor,
+        )
+
+    async def reward_score(
+        self,
+        prompt: Optional[str] = None,
+        input_ids: Optional[list[int]] = None,
+        image_data: Optional[Any] = None,
+        lora_path: Optional[str] = None,
+    ) -> dict[str, Any]:
+        logger.info("reward_score() started")
+        payload = {
+            "text": prompt,
+            "input_ids": input_ids,
+            "image_data": image_data,
+            "lora_path": lora_path,
+        }
+        # Filter out None values
+        payload = {k: v for k, v in payload.items() if v is not None}
+
+        # Send request
+        response = await self._make_async_request("classify", payload, timeout=self.timeout, only_master=False)
+
+        return response
+
+    async def async_reward_score(
+        self,
+        prompt: Optional[str] = None,
+        input_ids: Optional[list[int]] = None,
+        image_data: Optional[Any] = None,
+        lora_path: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return await self.reward_score(
+            prompt=prompt,
+            input_ids=input_ids,
+            image_data=image_data,
+            lora_path=lora_path,
         )
 
     async def abort_request(self, rid: str = "", abort_all: bool = False) -> dict[str, Any]:

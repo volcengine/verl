@@ -34,6 +34,7 @@ from transformers import (
 
 from verl.models.mcore import hf_to_mcore_config
 from verl.utils.device import get_device_name, get_nccl_backend, get_torch_device
+from verl.utils.distributed import set_numa_affinity
 from verl.utils.megatron.dist_checkpointing import load_dist_checkpointing
 from verl.utils.megatron_utils import get_model
 from verl.utils.tokenizer import hf_processor, hf_tokenizer
@@ -142,6 +143,7 @@ class MegatronModelMerger(BaseModelMerger):
             os.environ["MASTER_ADDR"] = "localhost"
             os.environ["MASTER_PORT"] = "12355"
 
+        set_numa_affinity()
         torch.distributed.init_process_group(get_nccl_backend())
 
         self.rank = torch.distributed.get_rank()

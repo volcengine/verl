@@ -73,9 +73,29 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:app-verl0.5-transformers4.55.4-vllm0.10.0-mcore0.13.0-te2.2"
+  DYNAMIC_RUNNER_ENDPOINT: "https://sd10g3clalm04ug7alq90.apigateway-cn-beijing.volceapi.com/runner"
+
 jobs:
+  setup:
+    if: github.repository_owner == 'volcengine'
+    runs-on: ubuntu-latest
+    outputs:
+      runner-label: ${{ steps.create-runner.outputs.runner-label }}
+      mlp-task-id: ${{ steps.create-runner.outputs.mlp-task-id }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: create-runner
+        uses: volcengine/vemlp-github-runner@v1
+        with:
+          mode: "create"
+          faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
+          mlp-image: "${{ env.IMAGE }}"
+
   vllm:
-    runs-on: [L20x8]
+    needs: setup
+    runs-on: ["${{ needs.setup.outputs.runner-label || 'L20x8' }}"]
     timeout-minutes: 35 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
@@ -83,9 +103,6 @@ jobs:
       NO_PROXY: "localhost,127.0.0.1,hf-mirror.com"
       HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
-    container:
-      image: verlai/verl:app-verl0.5-transformers4.55.4-vllm0.10.0-mcore0.13.0-te2.2
-      options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -93,20 +110,20 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install -e .[test]
-          pip install tensordict==0.6.2
       - name: Download Model to Use
         run: |
-          huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct
-          huggingface-cli download Qwen/Qwen2.5-1.5B-Instruct
-          huggingface-cli download 'Qwen/Qwen2-7B-Instruct'
-          huggingface-cli download 'deepseek-ai/deepseek-llm-7b-chat'
-          huggingface-cli download 'OldKingMeister/Qwen2.5-1.5B-Instruct-YaRN' --local-dir $HOME/models/OldKingMeister/Qwen2.5-1.5B-Instruct-YaRN
+          huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct --local-dir ${HOME}/models/Qwen/Qwen2.5-0.5B-Instruct
+          huggingface-cli download Qwen/Qwen2.5-1.5B-Instruct --local-dir ${HOME}/models/Qwen/Qwen2.5-1.5B-Instruct
+          huggingface-cli download Qwen/Qwen2.5-VL-3B-Instruct --local-dir ${HOME}/models/Qwen/Qwen2.5-VL-3B-Instruct
+          huggingface-cli download OldKingMeister/Qwen2.5-1.5B-Instruct-YaRN --local-dir ${HOME}/models/OldKingMeister/Qwen2.5-1.5B-Instruct-YaRN
           export HF_HUB_OFFLINE=1
-        # Disable requests to avoid network errors
       - name: Prepare gsm8k dataset
         run: |
           ray stop --force
           python3 examples/data_preprocess/gsm8k.py
+      - name: Test the latest vLLM Rollout async with agent loop
+        run: |
+          ROLLOUT_NAME=vllm pytest -svvv tests/experimental/agent_loop
       - name: Test the latest vLLM
         run: |
           torchrun --standalone --nnodes=1 --nproc_per_node=4 $(which pytest) -s tests/workers/rollout/rollout_vllm/test_vllm_spmd.py
@@ -117,16 +134,24 @@ jobs:
         run: |
           cd tests/special_e2e/generation
           export OUTPUT_PATH="${HOME}/data/gen/qwen_05_gen_test.parquet"
-          MODEL_ID=Qwen/Qwen2.5-0.5B-Instruct NGPUS_PER_NODE=4 GEN_TP=2 bash ./run_gen_qwen05.sh
+          MODEL_ID=${HOME}/models/Qwen/Qwen2.5-0.5B-Instruct NGPUS_PER_NODE=4 GEN_TP=2 bash ./run_gen_qwen05.sh
           rm -rf "${OUTPUT_PATH}"
       - name: Run Qwen 0.5B generation test when world_size == 1
         run: |
           cd tests/special_e2e/generation
           export OUTPUT_PATH="${HOME}/data/gen/qwen_05_gen_test.parquet"
-          MODEL_ID=Qwen/Qwen2.5-0.5B-Instruct NGPUS_PER_NODE=1 GEN_TP=1 bash ./run_gen_qwen05.sh
+          MODEL_ID=${HOME}/models/Qwen/Qwen2.5-0.5B-Instruct NGPUS_PER_NODE=1 GEN_TP=1 bash ./run_gen_qwen05.sh
           rm -rf "${OUTPUT_PATH}"
-      - name: Test the latest vLLM Rollout async with agent loop
-        run: |
-          huggingface-cli download verl-team/gsm8k-v0.4.1 --repo-type dataset --local-dir ~/verl-data/gsm8k
-          ROLLOUT_NAME=vllm pytest -svvv tests/experimental/agent_loop
       # Note(haibin.lin): for any new test, please update gpu_unit_tests.yaml to avoid repeated tests
+
+  cleanup:
+    runs-on: ubuntu-latest
+    needs: [setup, vllm]
+    if: always()
+    steps:
+      - id: destroy-runner
+        uses: volcengine/vemlp-github-runner@v1
+        with:
+          mode: "destroy"
+          faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
+          mlp-task-id: "${{ needs.setup.outputs.mlp-task-id }}"

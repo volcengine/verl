@@ -129,12 +129,12 @@ actor_rollout_ref:
       param_offload: False
       tensor_model_parallel_size: 1
       expert_model_parallel_size: 1
-      expert_tensor_parallel_size: None
+      expert_tensor_parallel_size: null
       pipeline_model_parallel_size: 1
       virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
       context_parallel_size: 1
       sequence_parallel: True
-      use_distributed_optimizer: False
+      use_distributed_optimizer: True
       use_dist_checkpointing: False
       dist_checkpointing_path: null
       seed: ${actor_rollout_ref.actor.megatron.seed}
@@ -165,8 +165,8 @@ actor_rollout_ref:
     ignore_eos: False
     enforce_eager: False
     free_cache_engine: True
-    load_format: dummy_megatron
-    tensor_model_parallel_size: 1
+    load_format: dummy
+    tensor_model_parallel_size: 2
     max_num_batched_tokens: 8192
     max_model_len: null
     max_num_seqs: 1024
@@ -175,7 +175,7 @@ actor_rollout_ref:
     log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
     log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
     disable_log_stats: True
-    enable_chunked_prefill: False # could get higher throughput
+    enable_chunked_prefill: True # could get higher throughput
     # for hf rollout
     do_sample: True
     layer_name_map:
@@ -271,7 +271,7 @@ critic:
     lr_warmup_steps: null # Prioritized. None, 0 or Negative values mean delegating to lr_warmup_steps_ratio.
     lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
     lr_decay_steps: null
-    lr_decay_style: linear # select from constant/linear/cosine/inverse_square_root
+    lr_decay_style: constant # select from constant/linear/cosine/inverse_square_root
     min_lr: 0.0 # minimum learning rate, default to 0.0
     weight_decay: 0.01
     weight_decay_incr_style: constant # select from constant/linear/cosine

@@ -17,7 +17,7 @@ from time import sleep
 
 import requests
 
-from verl.utils.reward_score.math import last_boxed_only_string, remove_boxed
+from verl.utils.reward_score.math_reward import last_boxed_only_string, remove_boxed
 
 BASE_URL = "http://localhost:30000"
 API_KEY = "EMPTY"
