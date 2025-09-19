@@ -137,7 +137,7 @@ class FullyAsyncTrainer(FullyAsyncRayPPOTrainer):
         # Collect samples using a simple loop calling get_sample
         consumer_start = time.time()
         queue_samples = []
-
+        queue_len = 0
         while len(queue_samples) < self.required_samples:
             # Get a single sample and wait until there is a sample or None is received
             sample, queue_len = self.message_queue_client.get_sample_sync()
@@ -166,7 +166,8 @@ class FullyAsyncTrainer(FullyAsyncRayPPOTrainer):
 
         print(
             f"[FullyAsyncTrainer] Loop collection completed: {len(queue_samples)}/{self.required_samples} samples, "
-            f"total wait time: {total_wait_time:.2f} seconds"
+            f"total wait time: {total_wait_time:.2f} seconds."
+            f"mq_len: {queue_len}"
         )
 
         queue_samples = [ray.cloudpickle.loads(x) for x in queue_samples]

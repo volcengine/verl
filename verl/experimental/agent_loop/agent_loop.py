@@ -691,9 +691,17 @@ class AgentLoopWorkerBase:
 
 @ray.remote
 class AgentLoopWorker(AgentLoopWorkerBase):
+    """Agent loop worker takes a batch of messages and run each message in an agent loop."""
+
     def __init__(
         self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], rm_executor: BatchExecutor = None
     ):
+        """Initialize agent loop manager.
+
+        Args:
+            config (DictConfig): YAML config.
+            server_handles (List[ray.actor.ActorHandle]): OpenAI compatible LLM server actor handles.
+        """
         super().__init__(config, server_handles, rm_executor)
 
 

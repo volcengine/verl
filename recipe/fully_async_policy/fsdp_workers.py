@@ -47,9 +47,6 @@ def get_inference_model(rollout):
     Returns:
         model: model object
     """
-
-    print(rollout)
-    print(dir(rollout))
     inference_engine = rollout.inference_engine
     if hasattr(inference_engine, "llm_engine"):
         inference_model = inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
