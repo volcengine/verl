@@ -124,7 +124,7 @@ jobs:
           pip3 install --no-deps -e .[test]
       - name: Prepare GSM8K dataset
         run: |
-          python3 examples/data_preprocess/gsm8k.py
+          python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
       - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (DeepSeek)
         run: |
           ray stop --force
@@ -173,7 +173,7 @@ jobs:
           pip3 install --no-deps -e .[test]
       - name: Prepare GSM8K dataset
         run: |
-          python3 examples/data_preprocess/gsm8k.py
+          python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
       - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with tie-embedding Megatron (Qwen) with train tp > infer tp
         run: |
           ray stop --force
@@ -205,7 +205,7 @@ jobs:
           pip3 install --no-deps -e .[test]
       - name: Prepare GSM8K dataset
         run: |
-          python3 examples/data_preprocess/gsm8k.py
+          python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
       - name: Download Model to Use
         run: |
           huggingface-cli download Qwen/Qwen2.5-0.5B --local-dir ${HOME}/models/Qwen/Qwen2.5-0.5B
@@ -247,7 +247,7 @@ jobs:
           pip3 install --no-deps -e .[test]
       - name: Prepare GSM8K dataset
         run: |
-          python3 examples/data_preprocess/gsm8k.py
+          python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
       - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (DeepSeek)
         run: |
           ray stop --force
@@ -280,7 +280,7 @@ jobs:
           pip3 install --no-deps -e .[test]
       - name: Prepare GSM8K dataset
         run: |
-          python3 examples/data_preprocess/gsm8k.py
+          python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
       - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (DeepSeek)
         run: |
           ray stop --force
