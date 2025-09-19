@@ -61,7 +61,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.critic_warmup=0 \
     trainer.logger='["console", "wandb"]' \
     trainer.project_name='verlxcollabllm' \
-    trainer.experiment_name='collabllm-qwen2.5-7b-agentloop-large-from-sft-skip_special_tokens-add_usr_msg' \
+    trainer.experiment_name='collabllm-qwen2.5-7b-agentloop-large' \
     trainer.nnodes=1 \
     trainer.n_gpus_per_node=8 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
