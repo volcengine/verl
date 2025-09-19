@@ -350,8 +350,7 @@ class RewardManagerWorker:
         return {"reward_score": reward_score, "reward_extra_info": reward_extra_info}
 
 
-@ray.remote
-class AgentLoopWorker:
+class AgentLoopWorkerBase:
     """Agent loop worker takes a batch of messages and run each message in an agent loop."""
 
     def __init__(
@@ -364,7 +363,11 @@ class AgentLoopWorker:
             server_handles (List[ray.actor.ActorHandle]): OpenAI compatible LLM server actor handles.
         """
         self.config = config
-        self.server_manager = AsyncLLMServerManager(config, server_handles)
+
+        # for recipe to change
+        if not hasattr(self, "server_manager"):
+            self.server_manager = AsyncLLMServerManager(config, server_handles)
+
         self.rm_executor = rm_executor
 
         model_path = config.actor_rollout_ref.model.path
@@ -686,6 +689,22 @@ class AgentLoopWorker:
         )
 
 
+@ray.remote
+class AgentLoopWorker(AgentLoopWorkerBase):
+    """Agent loop worker takes a batch of messages and run each message in an agent loop."""
+
+    def __init__(
+        self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], rm_executor: BatchExecutor = None
+    ):
+        """Initialize agent loop manager.
+
+        Args:
+            config (DictConfig): YAML config.
+            server_handles (List[ray.actor.ActorHandle]): OpenAI compatible LLM server actor handles.
+        """
+        super().__init__(config, server_handles, rm_executor)
+
+
 async def get_trajectory_info(step, index, validate):
     """Get trajectory info.
 
@@ -744,6 +763,12 @@ class AgentLoopManager:
 
             self.rm_micro_batch_size = rm_wg.world_size
 
+        # for recipe to change
+        if not hasattr(self, "rollout_replica_class"):
+            self.rollout_replica_class = get_rollout_replica_class(self.config.actor_rollout_ref.rollout.name)
+        if not hasattr(self, "agent_loop_workers_class"):
+            self.agent_loop_workers_class = AgentLoopWorker
+
         self._initialize_llm_servers()
         self._init_agent_loop_workers()
 
@@ -760,9 +785,8 @@ class AgentLoopManager:
         )
         num_replicas = world_size // rollout_world_size
 
-        rollout_replica_class = get_rollout_replica_class(self.config.actor_rollout_ref.rollout.name)
         self.rollout_replicas = [
-            rollout_replica_class(
+            self.rollout_replica_class(
                 replica_rank=replica_rank, config=self.config, gpus_per_node=self.config.trainer.n_gpus_per_node
             )
             for replica_rank in range(num_replicas)
@@ -783,7 +807,7 @@ class AgentLoopManager:
             # Round-robin scheduling over the all nodes
             node_id = node_ids[i % len(node_ids)]
             self.agent_loop_workers.append(
-                AgentLoopWorker.options(
+                self.agent_loop_workers_class.options(
                     name=f"agent_loop_worker_{i}",
                     scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
                         node_id=node_id, soft=True

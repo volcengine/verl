@@ -103,6 +103,7 @@ class ActorRolloutRefWorker(ARRWorker):
             self._weight_sync_group.broadcast(tensor, src=0, stream=get_torch_device().current_stream())
             if self._is_rollout:
                 inference_model.load_weights([(key, tensor)])
+        get_torch_device().empty_cache()
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def get_actor_weights_info(self):
@@ -280,7 +281,6 @@ class RolloutWorker(ActorRolloutRefWorker):
         output = output.to("cpu")
 
         # clear kv cache
-        get_torch_device().empty_cache()
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
