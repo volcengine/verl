@@ -696,6 +696,47 @@ def get_hf_auto_model_class(hf_config):
     return actor_module_class
 
 
+def extract_multi_modal_inputs(
+    batch_data: list[dict[str, torch.Tensor]],
+    indices: Optional[list[int]] = None,
+) -> dict[str, torch.Tensor | list[torch.Tensor]]:
+    """
+    Extract and process multi-modal inputs from a batch.
+
+    Args:
+        batch_data (list[dict[str, torch.Tensor]]): The batch containing potential multi-modal inputs
+        indices (Optional[list[int]]): If provided, only extract inputs at these indices
+
+    Returns:
+        dict[str, torch.Tensor | list[torch.Tensor]]: Processed multi-modal inputs ready for model consumption
+
+    """
+    multi_modal_inputs = {}
+    multi_modal_inputs_collected = {}
+    has_image_bound = False
+
+    selected_batch_data = batch_data
+    if indices is not None:
+        selected_batch_data = [batch_data[i] for i in indices if i < len(batch_data)]
+
+    for inputs in selected_batch_data:
+        if "image_bound" in inputs:
+            has_image_bound = True
+        for key, value in inputs.items():
+            if value is not None:
+                if key not in multi_modal_inputs_collected:
+                    multi_modal_inputs_collected[key] = []
+                multi_modal_inputs_collected[key].append(value)
+
+    for key, values in multi_modal_inputs_collected.items():
+        if has_image_bound:  # minicpm-o logic
+            multi_modal_inputs[key] = values
+        else:
+            multi_modal_inputs[key] = torch.cat(values, dim=0)
+
+    return multi_modal_inputs
+
+
 @dataclass
 class CausalLMOutputForPPO(CausalLMOutputWithPast):
     log_probs: Optional[torch.FloatTensor] = None

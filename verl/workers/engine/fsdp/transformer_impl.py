@@ -644,14 +644,9 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
         multi_modal_inputs = {}
         if "multi_modal_inputs" in micro_batch.keys():
-            if "image_bound" in micro_batch["multi_modal_inputs"][0]:  # minicpm-o logic
-                for key in micro_batch["multi_modal_inputs"][0].keys():
-                    multi_modal_inputs[key] = [inputs[key] for inputs in micro_batch["multi_modal_inputs"]]
-            else:
-                for key in micro_batch["multi_modal_inputs"][0].keys():
-                    multi_modal_inputs[key] = torch.cat(
-                        [inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0
-                    )
+            from verl.utils.model import extract_multi_modal_inputs
+
+            multi_modal_inputs = extract_multi_modal_inputs(micro_batch["multi_modal_inputs"])
 
         input_ids = micro_batch["input_ids"]
         attention_mask = micro_batch["attention_mask"]
