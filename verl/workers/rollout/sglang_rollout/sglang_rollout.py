@@ -29,7 +29,7 @@ import ray
 import sglang.srt.entrypoints.engine
 import torch
 import torch.distributed as dist
-from sglang.srt.managers.tokenizer_manager import (
+from sglang.srt.managers.io_struct import (
     ReleaseMemoryOccupationReqInput,
     ResumeMemoryOccupationReqInput,
     UpdateWeightsFromTensorReqInput,
