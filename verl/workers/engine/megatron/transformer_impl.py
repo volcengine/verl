@@ -79,8 +79,6 @@ class MegatronEngine(BaseEngine):
             "gate_proj_layer_name": "linear_fc1.",
         }
         self.weight_converter = None
-        if not self.bridge:
-            self.weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
 
     def _init_device_mesh(self):
         mpu.initialize_model_parallel(
@@ -116,7 +114,11 @@ class MegatronEngine(BaseEngine):
         else:
             self.bridge = None
 
-        print(f"TF config: {tf_config}")
+        if not self.bridge:
+            self.weight_converter = get_mcore_weight_converter(self.model_config.hf_config, self.dtype)
+
+        if torch.distributed.get_rank() == 0:
+            print(f"TF config: {tf_config}")
         self.tf_config = tf_config
 
     def _build_megatron_module(self):

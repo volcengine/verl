@@ -37,6 +37,7 @@ from verl.workers.config import (
     McoreEngineConfig,
     McoreOptimizerConfig,
 )
+from verl.trainer.config import CheckpointConfig
 from verl.workers.roles import ActorWorker, CriticWorker
 from verl.workers.roles.utils.losses import ppo_loss, sft_loss
 
@@ -273,7 +274,12 @@ def test_critic_engine(strategy):
 
 
 
-
+def create_actor_model(tmp_path, config):
+    model = AutoModelForCausalLM.from_config(config)
+    path = os.path.join(tmp_path, "test_model")
+    model.save_pretrained(path)
+    config.save_pretrained(path)
+    return path
 
 
 def _worker(rank: int, world_size: int, rendezvous_file: str, strategy: str, model_path: str):
@@ -285,18 +291,21 @@ def _worker(rank: int, world_size: int, rendezvous_file: str, strategy: str, mod
         world_size=world_size,
     )
 
+    with torch.device('meta'):
+        ref_model = AutoModelForCausalLM.from_pretrained(model_path)
+
     from verl.workers.engine import BaseEngine, EngineRegistry
 
     # construct configs
-    model_config = HFModelConfig(path=model_path)
+    model_config = HFModelConfig(path=model_path, load_tokenizer=False)
 
     if strategy == "megatron":
         engine_config = McoreEngineConfig(
             forward_only=False,
-            use_mbridge=False,
+            use_mbridge=True,
             tensor_model_parallel_size=2,
             pipeline_model_parallel_size=2,
-            context_parallel_size=2,
+            context_parallel_size=1,
         )
         optimizer_config = McoreOptimizerConfig(lr_decay_steps=10)
     elif strategy in ["fsdp", "fsdp2"]:
@@ -306,6 +315,8 @@ def _worker(rank: int, world_size: int, rendezvous_file: str, strategy: str, mod
         optimizer_config = FSDPOptimizerConfig()
     else:
         raise NotImplementedError(f"strategy {strategy} is not supported")
+
+    checkpoint_config = CheckpointConfig()
 
     # build model engine
     engine: BaseEngine = EngineRegistry.new(
@@ -322,19 +333,33 @@ def _worker(rank: int, world_size: int, rendezvous_file: str, strategy: str, mod
     # get per tensor parameter
     per_tensor_params = engine.get_per_tensor_param()
 
+    ref_state_dict = ref_model.state_dict()
+
     # load ground truth and compare
+    for key, value in per_tensor_params:
+        assert key in ref_state_dict, f"{key} not in ref_state_dict"
+        assert value.shape == ref_state_dict[key].shape, f"{key} shape not equal, {value.shape} != {ref_state_dict[key].shape}"
+        if rank == 0:
+            print(key, value.shape)
+
+    dist.barrier()
+    dist.destroy_process_group()
 
 
-def test_fsdp_per_tensor_generator(world_size, tmp_path):
-    # create a model
-    
-    # spawn workers
+from transformers import Qwen3Config, Qwen3MoeConfig
+
+@pytest.mark.parametrize("world_size", [8])
+@pytest.mark.parametrize("config", [Qwen3Config(num_hidden_layers=2), Qwen3MoeConfig(num_hidden_layers=2)])
+@pytest.mark.parametrize("strategy", ['megatron', 'fsdp', 'fsdp2'])
+def test_per_tensor_generator(world_size, tmp_path, config, strategy):
     rendezvous_file = str(tmp_path / "rdzv_mask")
     os.makedirs(os.path.dirname(rendezvous_file), exist_ok=True)
-
+    # create a model
+    model_path = create_actor_model(tmp_path, config)
+    # spawn workers
     mp.spawn(
         fn=_worker,
-        args=(world_size, rendezvous_file),
+        args=(world_size, rendezvous_file, strategy, model_path),
         nprocs=world_size,
         join=True,
     )
