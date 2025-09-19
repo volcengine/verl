@@ -495,6 +495,7 @@ class RLHFDataset(Dataset):
         model_inputs = {}
 
         if self.processor is not None:
+            row_dict["is_multi_modal"] = True
             model_inputs, multi_modal_data, raw_prompt = process_minicpmo_data(
                 row_dict,
                 messages,
