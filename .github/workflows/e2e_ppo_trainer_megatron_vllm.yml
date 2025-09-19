@@ -573,8 +573,8 @@ jobs:
         e2e_ppo_trainer_megatron-deepseek-override-transformer-config,
         e2e_ppo_trainer_megatron-moe-expert-parallel,
         e2e_ppo_trainer_megatron-qwen2_5vl-3b,
-        e2e_ppo_trainer_vllm,
-        e2e_ppo_trainer_vllm_vlm
+#        e2e_ppo_trainer_vllm,
+#        e2e_ppo_trainer_vllm_vlm
       ]
     if: always()
     steps:
