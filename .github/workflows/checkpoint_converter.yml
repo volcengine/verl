@@ -127,7 +127,7 @@ jobs:
           pip3 install -e .[test]
       - name: Download Model to Use
         run: |
-          huggingface-cli download Qwen/Qwen1.5-MoE-A2.7B-Chat --local-dir ${HOME}/models/Qwen/Qwen1.5-MoE-A2.7B-Chat
+#          huggingface-cli download Qwen/Qwen1.5-MoE-A2.7B-Chat --local-dir ${HOME}/models/Qwen/Qwen1.5-MoE-A2.7B-Chat
           export HF_HUB_OFFLINE=1
       - name: Running Huggingface to Megatron dist_ckpt CPU converter (Qwen/Qwen1.5-MoE-A2.7B-Chat)
         run: |
