@@ -147,6 +147,9 @@ class ToolAgentLoop(AgentLoopBase):
             _, tool_calls = await self.tool_parser.extract_tool_calls(response_ids)
             if not tool_calls:
                 break
+            if any(fc.name=="submit" for fc in tool_calls):
+                # we need to submit now
+                break
 
             # call tools
             tasks = []

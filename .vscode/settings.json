@@ -11,5 +11,6 @@
         "initializer_list": "cpp",
         "utility": "cpp"
     },
-    "iis.configDir": ""
+    "iis.configDir": "",
+    "workbench.colorTheme": "Base16 Dark Colors"
 }
