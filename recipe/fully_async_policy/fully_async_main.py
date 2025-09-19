@@ -110,7 +110,7 @@ def create_role_worker_mapping(config):
 
         role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
 
-    # 添加reference policy（如果需要KL loss或reward）
+    # Add reference policy (if KL loss or reward is required)
     if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
         role_worker_mapping[Role.RefPolicy] = ray.remote(DetachActorWorker)
 
