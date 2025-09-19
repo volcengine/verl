@@ -314,7 +314,7 @@ jobs:
           pip3 install --no-deps -e .[test]
       - name: Prepare Geo3k dataset
         run: |
-          python3 examples/data_preprocess/geo3k.py
+          python3 examples/data_preprocess/geo3k.py --local_dataset_path ${HOME}/models/hf_data/hiyouga/geometry3k/
       - name: Prepare dist_ckpt of Qwen2.5-VL-3B, only supports dist_ckpt
         run: |
           python3 scripts/converter_hf_to_mcore.py --hf_model_path ${HOME}/models/Qwen/Qwen2.5-VL-3B-Instruct --output_path checkpoints/verl-test/qwen2.5-vl-3b-megatron
@@ -378,7 +378,7 @@ jobs:
       - name: Prepare GEO3K dataset
         run: |
           ray stop --force
-          python3 examples/data_preprocess/geo3k.py
+          python3 examples/data_preprocess/geo3k.py --local_dataset_path ${HOME}/models/hf_data/hiyouga/geometry3k/
       - name: Running GEO3K VLM E2E training tests on 8 L20 GPUs with rmpad using function rm
         run: |
           ray stop --force
