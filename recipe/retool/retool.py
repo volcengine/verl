@@ -61,8 +61,10 @@ class CustomSandboxFusionTool(SandboxFusionTool):
 
 
 class SumbitTool:
-    def __init__(self, *args, **kwargs):
-        pass
+    def __init__(self, config, tool_schema: OpenAIFunctionToolSchema):
+        self.name="submit"
+        self.tool_schema = tool_schema
+        self.config = config
 
     async def execute(self, *args, **kwargs):
         raise NotImplementedError
