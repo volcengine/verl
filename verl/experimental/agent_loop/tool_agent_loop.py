@@ -64,18 +64,15 @@ class ToolAgentLoop(AgentLoopBase):
     @rollout_trace_op
     async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
         messages = list(kwargs["raw_prompt"])
-        ###### start debug #############
-        print(f"KWARGS_KEYS: {kwargs.keys()}")
-        print(f"MESSAGES: {messages}")  
-
+        # call the tool sandbox with the initial code block
         initial_code_block = kwargs["code_preamble"]
         print(f"EXECUTING INITIAL TOOL CALL: {initial_code_block}")
-        initial_tool_call = FunctionCall(name="code_interpreter", arguments=json.dumps({"code": "print(9*7)"}, ensure_ascii=False))
+        initial_tool_call = FunctionCall(name="code_interpreter", arguments=json.dumps({"code": initial_code_block}, ensure_ascii=False))
 
         tasks = [self._call_tool(initial_tool_call, dict())]
         with simple_timer("tool_calls", {}):
             tool_responses = await asyncio.gather(*tasks)
-        ###### end debug #############
+            # TODO: do we need to handle exceptions here?
         image_data = copy.deepcopy(kwargs.get("multi_modal_data", {}).get("image", None))
         metrics = {}
         request_id = uuid4().hex

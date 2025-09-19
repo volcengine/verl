@@ -59,6 +59,16 @@ class CustomSandboxFusionTool(SandboxFusionTool):
         return result, None, None
 
 
+
+class SumbitTool:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    async def execute(self, *args, **kwargs):
+        raise NotImplementedError
+
+
+
 answer_format = """\nThe answer format must be: \\boxed{'The final answer goes here.'}"""
 
 
