@@ -124,7 +124,7 @@ jobs:
           pip3 install --no-deps -e .[test]
       - name: Prepare GSM8K dataset
         run: |
-          python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
+          python3 examples/data_preprocess/gsm8k.py
       - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (DeepSeek)
         run: |
           ray stop --force
@@ -173,7 +173,7 @@ jobs:
           pip3 install --no-deps -e .[test]
       - name: Prepare GSM8K dataset
         run: |
-          python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
+          python3 examples/data_preprocess/gsm8k.py
       - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with tie-embedding Megatron (Qwen) with train tp > infer tp
         run: |
           ray stop --force
@@ -205,11 +205,10 @@ jobs:
           pip3 install --no-deps -e .[test]
       - name: Prepare GSM8K dataset
         run: |
-          python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
+          python3 examples/data_preprocess/gsm8k.py
       - name: Download Model to Use
         run: |
-          echo "Download models"
-#          huggingface-cli download Qwen/Qwen2.5-0.5B --local-dir ${HOME}/models/Qwen/Qwen2.5-0.5B
+          huggingface-cli download Qwen/Qwen2.5-0.5B --local-dir ${HOME}/models/Qwen/Qwen2.5-0.5B
           export HF_HUB_OFFLINE=1
       - name: Prepare dist_ckpt of Qwen2.5-0.5B, uneven layer distribution only supports dist_ckpt
         run: |
@@ -248,7 +247,7 @@ jobs:
           pip3 install --no-deps -e .[test]
       - name: Prepare GSM8K dataset
         run: |
-          python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
+          python3 examples/data_preprocess/gsm8k.py
       - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (DeepSeek)
         run: |
           ray stop --force
@@ -281,7 +280,7 @@ jobs:
           pip3 install --no-deps -e .[test]
       - name: Prepare GSM8K dataset
         run: |
-          python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
+          python3 examples/data_preprocess/gsm8k.py
       - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (DeepSeek)
         run: |
           ray stop --force
@@ -315,7 +314,7 @@ jobs:
           pip3 install --no-deps -e .[test]
       - name: Prepare Geo3k dataset
         run: |
-          python3 examples/data_preprocess/geo3k.py --local_dataset_path ${HOME}/models/hf_data/hiyouga/geometry3k/
+          python3 examples/data_preprocess/geo3k.py
       - name: Prepare dist_ckpt of Qwen2.5-VL-3B, only supports dist_ckpt
         run: |
           python3 scripts/converter_hf_to_mcore.py --hf_model_path ${HOME}/models/Qwen/Qwen2.5-VL-3B-Instruct --output_path checkpoints/verl-test/qwen2.5-vl-3b-megatron
