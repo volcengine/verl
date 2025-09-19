@@ -13,8 +13,8 @@ tools:
     tool_schema:
       type: "function"
       function:
-        name: "code_interpreter"
-        description: "A tool for executing code."
+        name: "execute"
+        description: "Executes code using an IPython kernel and returns the output."
         parameters:
           type: "object"
           properties:
