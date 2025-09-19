@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import asyncio
+import ipaddress
 import logging
 import os
 import socket
@@ -22,20 +23,36 @@ from fastapi import FastAPI
 logger = logging.getLogger(__file__)
 
 
-def get_free_port():
-    with socket.socket() as sock:
-        sock.bind(("", 0))
-        return sock.getsockname()[1]
+def is_valid_ipv6_address(address: str) -> bool:
+    try:
+        ipaddress.IPv6Address(address)
+        return True
+    except ValueError:
+        return False
 
 
-async def run_unvicorn(app: FastAPI, server_args, max_retries=5) -> tuple[int, asyncio.Task]:
+def get_free_port(address: str) -> tuple[int, socket.socket]:
+    family = socket.AF_INET
+    if is_valid_ipv6_address(address):
+        family = socket.AF_INET6
+
+    sock = socket.socket(family=family, type=socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+    sock.bind((address, 0))
+
+    port = sock.getsockname()[1]
+    return port, sock
+
+
+async def run_unvicorn(app: FastAPI, server_args, server_address, max_retries=5) -> tuple[int, asyncio.Task]:
     server_port, server_task = None, None
 
     for i in range(max_retries):
         try:
-            server_port = get_free_port()
+            server_port, sock = get_free_port(server_address)
             app.server_args = server_args
-            config = uvicorn.Config(app, host=["::", "0.0.0.0"], port=server_port, log_level="warning")
+            config = uvicorn.Config(app, host=server_address, port=server_port, log_level="warning")
             server = uvicorn.Server(config)
             server.should_exit = True
             await server.serve()

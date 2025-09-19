@@ -87,3 +87,64 @@ async def test_standalone_(init_config, tp_size):
     print(completion.choices[0].message.content)
 
     ray.shutdown()
+
+
+@pytest.mark.skip(reason="Qwen3-30B-A3B-Instruct-2507 is too large for CI")
+@pytest.mark.asyncio
+async def test_standalone_dp_ep(init_config):
+    """Test standalone rollout with 4 GPUs * 2 nodes.
+
+    - vllm: DP=8, TP=1, EP=8
+    - sglang: DP=1, TP=8, EP=8
+    """
+    ray.init(
+        runtime_env={
+            "env_vars": {
+                "TOKENIZERS_PARALLELISM": "true",
+                "NCCL_DEBUG": "WARN",
+                "VLLM_LOGGING_LEVEL": "INFO",
+                "VLLM_USE_V1": "1",
+            }
+        }
+    )
+
+    init_config.actor_rollout_ref.model.path = os.path.expanduser("~/models/Qwen/Qwen3-30B-A3B-Instruct-2507")
+    init_config.actor_rollout_ref.rollout.skip_tokenizer_init = False
+    if init_config.actor_rollout_ref.rollout.name == "vllm":
+        init_config.actor_rollout_ref.rollout.tensor_model_parallel_size = 1
+        init_config.actor_rollout_ref.rollout.data_parallel_size = 8
+    elif init_config.actor_rollout_ref.rollout.name == "sglang":
+        init_config.actor_rollout_ref.rollout.tensor_model_parallel_size = 8
+        init_config.actor_rollout_ref.rollout.data_parallel_size = 1
+    init_config.actor_rollout_ref.rollout.expert_parallel_size = 8
+    num_replicas = 1
+
+    # create standalone rollout server
+    rollout_server_class = get_rollout_replica_class(init_config.actor_rollout_ref.rollout.name)
+    rollout_servers = [
+        rollout_server_class(replica_rank=replica_rank, config=init_config, gpus_per_node=4)
+        for replica_rank in range(num_replicas)
+    ]
+    await asyncio.gather(*[server.init_standalone() for server in rollout_servers])
+
+    server_handles = [server._server_handle for server in rollout_servers]
+    server_addresses = [server._server_address for server in rollout_servers]
+    assert len(server_handles) == num_replicas
+    assert len(server_addresses) == num_replicas
+
+    os.environ.pop("HTTPS_PROXY", None)
+    os.environ.pop("HTTP_PROXY", None)
+    os.environ.pop("NO_PROXY", None)
+
+    client = AsyncOpenAI(
+        api_key="123-abc",
+        base_url=f"http://{server_addresses[0]}/v1",
+    )
+
+    completion = await client.chat.completions.create(
+        model=init_config.actor_rollout_ref.model.path,
+        messages=[{"role": "user", "content": "What can you do?"}],
+    )
+    print(completion.choices[0].message.content)
+
+    ray.shutdown()
