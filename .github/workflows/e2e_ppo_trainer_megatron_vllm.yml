@@ -246,6 +246,7 @@ jobs:
           python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
       - name: Download Model to Use
         run: |
+          echo "Download models"
 #          huggingface-cli download Qwen/Qwen2.5-0.5B --local-dir ${HOME}/models/Qwen/Qwen2.5-0.5B
           export HF_HUB_OFFLINE=1
       - name: Prepare dist_ckpt of Qwen2.5-0.5B, uneven layer distribution only supports dist_ckpt
