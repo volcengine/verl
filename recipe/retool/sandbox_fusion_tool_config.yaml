@@ -2,9 +2,9 @@ tools:
   - class_name: "recipe.retool.retool.CustomSandboxFusionTool"
     config:
       sandbox_fusion_url: "http://localhost:8080/run_code"
-      num_workers: 128
+      num_workers: 1
       enable_global_rate_limit: true
-      rate_limit: 128
+      rate_limit: 1
       default_timeout: 30
       default_language: "python"
       memory_limit_mb: 1024

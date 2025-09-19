@@ -16,6 +16,7 @@ import re
 from typing import Any
 
 import datasets
+from pathlib import Path
 
 from verl.tools.base_tool import OpenAIFunctionToolSchema
 from verl.tools.sandbox_fusion_tools import SandboxFusionTool
@@ -80,6 +81,10 @@ class CustomRLHFDataset(RLHFDataset):
         self.dataframe: datasets.Dataset = datasets.concatenate_datasets(dataframes)
 
         print(f"dataset len: {len(self.dataframe)}")
+        save_key = "___".join(f.replace("/", "_") for f in self.data_files)    
+        save_path = Path("~/Documents/arc-agi/data/misc").expanduser() / f"data_{save_key}.pq"
+        self.dataframe.to_parquet(save_path)
+        print("="*200+f"\nSAVED DATASET TO {save_path}\n"+"="*200)
 
     def map_fn(self, row: dict, *, data_source: str = None):
         if data_source == "Maxwell-Jia/AIME_2024":

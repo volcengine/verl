@@ -7,12 +7,19 @@ HDFS_ROOT=${HDFS_ROOT:-$PWD}
 DATA_ROOT=${DATA_ROOT:-$PWD}
 
 dapo_math_17k=$DATA_ROOT/dataset/BytedTsinghua-SIA/DAPO-Math-17k
+dapo_math_small=$DATA_ROOT/dataset/arcagi2/deb-test-rl-dapo
 aime_2024=$DATA_ROOT/dataset/Maxwell-Jia/AIME_2024
 aime_2025=$DATA_ROOT/dataset/yentinglin/aime_2025
-model_path=$HDFS_ROOT/checkpoint/multiturn-sft-qwen-2.5-7b-instruct/global_step_372
-
+#-------------- overriding ----------------------
+#model_path=$HDFS_ROOT/checkpoint/multiturn-sft-qwen-2.5-7b-instruct/global_step_372
 train_files="['$dapo_math_17k']"
 test_files="['$aime_2025', '$aime_2024']"
+model_path=$HOME/.cache/huggingface/own/models/rl/checkpoints/retool/multiturn-sft-qwen-2.5-7b-instruct/one_merged
+
+#train_files="['$dapo_math_small']"
+#test_files="['$dapo_math_small']"
+#-------------- end overriding ------------------
+
 
 # tool
 tool_config_path=recipe/retool/sandbox_fusion_tool_config.yaml
@@ -38,14 +45,14 @@ max_prompt_length=2048
 max_response_length=16384
 actor_lr=1e-6
 
-train_batch_size=64
-ppo_mini_batch_size=16
+train_batch_size=1
+ppo_mini_batch_size=1
 n_resp_per_prompt=16
 n_resp_per_prompt_val=30
 
 # ================= perfomance =================
-infer_tp=4 # vllm
-train_sp=4 # train
+infer_tp=1 # vllm
+train_sp=1 # train
 offload=True
 
 actor_max_token_len_per_gpu=$(( (max_prompt_length + max_response_length) * 1 ))
@@ -99,7 +106,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.logger=['console','wandb'] \
     trainer.project_name=$project_name \
     trainer.experiment_name=$experiment_name \
-    trainer.n_gpus_per_node=8 \
+    trainer.n_gpus_per_node=1 \
     trainer.val_before_train=True \
     trainer.log_val_generations=20 \
     trainer.nnodes=1 \

@@ -64,6 +64,18 @@ class ToolAgentLoop(AgentLoopBase):
     @rollout_trace_op
     async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
         messages = list(kwargs["raw_prompt"])
+        ###### start debug #############
+        print(f"KWARGS_KEYS: {kwargs.keys()}")
+        print(f"MESSAGES: {messages}")  
+
+        initial_code_block = kwargs["code_preamble"]
+        print(f"EXECUTING INITIAL TOOL CALL: {initial_code_block}")
+        initial_tool_call = FunctionCall(name="code_interpreter", arguments=json.dumps({"code": "print(9*7)"}, ensure_ascii=False))
+
+        tasks = [self._call_tool(initial_tool_call, dict())]
+        with simple_timer("tool_calls", {}):
+            tool_responses = await asyncio.gather(*tasks)
+        ###### end debug #############
         image_data = copy.deepcopy(kwargs.get("multi_modal_data", {}).get("image", None))
         metrics = {}
         request_id = uuid4().hex
@@ -78,9 +90,21 @@ class ToolAgentLoop(AgentLoopBase):
                     **self.apply_chat_template_kwargs,
                 ),
             )
+            print(f"REALLY FINAL PROMPT: {raw_prompt}")    
             model_inputs = self.processor(text=[raw_prompt], images=image_data, return_tensors="pt")
             prompt_ids = model_inputs.pop("input_ids").squeeze(0).tolist()
         else:
+            DEBUG_INPUTS = await self.loop.run_in_executor(
+                None,
+                lambda: self.tokenizer.apply_chat_template(
+                    messages,
+                    tools=self.tool_schemas,
+                    add_generation_prompt=True,
+                    tokenize=False,
+                    **self.apply_chat_template_kwargs,
+                ),
+            )
+            print(f"REALLY FINAL PROMPT: {DEBUG_INPUTS}")    
             prompt_ids = await self.loop.run_in_executor(
                 None,
                 lambda: self.tokenizer.apply_chat_template(
