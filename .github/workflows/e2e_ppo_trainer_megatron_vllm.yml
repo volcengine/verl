@@ -54,6 +54,7 @@ on:
       - v0.*
     paths:
       - "**/*.py"
+      - ".github/workflows/e2e_ppo_trainer_megatron_vllm.yml"
       # Other entrypoints
       - "!docker/**"
       # Docs
@@ -68,7 +69,6 @@ on:
       # FSDP
       - "!verl/workers/**/*dp_*.py"
       # Entrypoints
-      - ".github/workflows/e2e_ppo_trainer_megatron_vllm.yml"
       - "examples/data_preprocess/gsm8k.py"
       - "examples/data_preprocess/geo3k.py"
       - "tests/special_e2e/run_ppo_trainer_megatron.sh"
