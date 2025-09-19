@@ -22,10 +22,13 @@ import numpy as np
 import pytest
 import ray
 import torch
-from transformers import AutoModelForCausalLM, AutoModelForTokenClassification
+import torch.distributed as dist
+import torch.multiprocessing as mp
+from transformers import AutoModelForCausalLM, AutoModelForTokenClassification, Qwen3Config, Qwen3MoeConfig
 
 from verl import DataProto
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
+from verl.trainer.config import CheckpointConfig
 from verl.utils.model import compute_position_id_with_mask, create_random_mask
 from verl.utils.torch_functional import logprobs_from_logits_naive
 from verl.workers.config import (
@@ -37,12 +40,8 @@ from verl.workers.config import (
     McoreEngineConfig,
     McoreOptimizerConfig,
 )
-from verl.trainer.config import CheckpointConfig
 from verl.workers.roles import ActorWorker, CriticWorker
 from verl.workers.roles.utils.losses import ppo_loss, sft_loss
-
-import torch.distributed as dist
-import torch.multiprocessing as mp
 
 
 @pytest.mark.parametrize("strategy", ["megatron", "fsdp", "fsdp2"])
@@ -273,7 +272,6 @@ def test_critic_engine(strategy):
     ray.shutdown()
 
 
-
 def create_actor_model(tmp_path, config):
     model = AutoModelForCausalLM.from_config(config)
     path = os.path.join(tmp_path, "test_model")
@@ -291,7 +289,7 @@ def _worker(rank: int, world_size: int, rendezvous_file: str, strategy: str, mod
         world_size=world_size,
     )
 
-    with torch.device('meta'):
+    with torch.device("meta"):
         ref_model = AutoModelForCausalLM.from_pretrained(model_path)
 
     from verl.workers.engine import BaseEngine, EngineRegistry
@@ -338,7 +336,9 @@ def _worker(rank: int, world_size: int, rendezvous_file: str, strategy: str, mod
     # load ground truth and compare
     for key, value in per_tensor_params:
         assert key in ref_state_dict, f"{key} not in ref_state_dict"
-        assert value.shape == ref_state_dict[key].shape, f"{key} shape not equal, {value.shape} != {ref_state_dict[key].shape}"
+        assert value.shape == ref_state_dict[key].shape, (
+            f"{key} shape not equal, {value.shape} != {ref_state_dict[key].shape}"
+        )
         if rank == 0:
             print(key, value.shape)
 
@@ -346,11 +346,9 @@ def _worker(rank: int, world_size: int, rendezvous_file: str, strategy: str, mod
     dist.destroy_process_group()
 
 
-from transformers import Qwen3Config, Qwen3MoeConfig
-
 @pytest.mark.parametrize("world_size", [8])
 @pytest.mark.parametrize("config", [Qwen3Config(num_hidden_layers=2), Qwen3MoeConfig(num_hidden_layers=2)])
-@pytest.mark.parametrize("strategy", ['megatron', 'fsdp', 'fsdp2'])
+@pytest.mark.parametrize("strategy", ["megatron", "fsdp", "fsdp2"])
 def test_per_tensor_generator(world_size, tmp_path, config, strategy):
     rendezvous_file = str(tmp_path / "rdzv_mask")
     os.makedirs(os.path.dirname(rendezvous_file), exist_ok=True)
@@ -363,6 +361,3 @@ def test_per_tensor_generator(world_size, tmp_path, config, strategy):
         nprocs=world_size,
         join=True,
     )
-
-
-
