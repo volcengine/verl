@@ -79,6 +79,8 @@ For latest vLLM with FSDP, please refer to `hiyouga/verl <https://hub.docker.com
 
 For latest SGLang with FSDP, please refer to `hebiaobuaa/verl <https://hub.docker.com/r/hebiaobuaa/verl>`_ repository and the latest version is ``hebiaobuaa/verl:app-verl0.5-sglang0.4.9.post6-mcore0.12.2-te2.2`` which is provided by SGLang RL Group.
 
+For latest vLLM with Megatron, please refer to `iseekyan/verl:app-verl0.5-transformers4.55.4-vllm0.10.0-mcore0.15.0-te2.7`
+
 See files under ``docker/`` for NGC-based image or if you want to build your own.
 
 Note that For aws instances with EFA net interface (Sagemaker AI Pod),
