@@ -29,7 +29,7 @@
 #     - new workflow yaml is added to `.github/workflows`
 #     - new tests are added to workflow mentioned in 2.
 
-name: e2e_ppo_trainer_megatron_sglang
+name: e2e_ppo_trainer_megatron_sglang_2
 
 on:
   # Trigger the workflow on push or pull request,
