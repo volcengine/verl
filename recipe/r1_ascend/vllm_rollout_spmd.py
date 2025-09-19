@@ -167,6 +167,7 @@ class vLLMRollout(vLLMRolloutBase):
                     "enable_multistream_moe": True,
                     "enable_view_optimize": False,
                     "enable_kv_nz": False,
+                    "enable_frozen_parameter": False,
                 },
                 "ascend_scheduler_config": {
                     "enabled": True,

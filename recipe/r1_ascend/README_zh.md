@@ -74,7 +74,7 @@ cd ..
 # MindSpeed (commit-id: 7ff81)
 git clone https://gitee.com/ascend/MindSpeed.git
 cd MindSpeed
-git checkout 55e3c
+git checkout 7ff81
 cd ..
 
 # Megatron-LM.core and others
