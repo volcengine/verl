@@ -79,7 +79,7 @@ jobs:
           pip3 install -e .[test,gpu,sglang]
       - name: Prepare GSM8K dataset
         run: |
-          python3 examples/data_preprocess/gsm8k.py
+          python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
       - name: Running the E2E test with the spin algorithm
         run: |
           ray stop --force

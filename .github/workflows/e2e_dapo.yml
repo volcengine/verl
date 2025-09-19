@@ -105,7 +105,7 @@ jobs:
           pip3 install --no-deps -e .[test,gpu]
       - name: Prepare GSM8K dataset
         run: |
-          python3 examples/data_preprocess/gsm8k.py
+          python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
       - name: Running the E2E test with the DAPO algorithm
         run: |
           ray stop --force

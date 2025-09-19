@@ -99,7 +99,7 @@ jobs:
       - name: Prepare GSM8K dataset
         run: |
           ray stop --force
-          python3 examples/data_preprocess/gsm8k.py
+          python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
       # HF sanity
 #      - name: Running GSM8K E2E training tests on 1 L20 GPU with hf for sanity
 #        run: |
@@ -296,7 +296,7 @@ jobs:
       - name: Prepare gsm8k dataset
         run: |
           ray stop --force
-          python3 examples/data_preprocess/gsm8k.py
+          python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
       - name: Running GSM8K E2E training tests on 8 L20 GPUs with rmpad using function rm and save ckpt
         run: |
           ray stop --force
