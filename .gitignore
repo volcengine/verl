@@ -126,3 +126,8 @@ logs
 log
 outputs
 .history
+__pycache__/
+*.py[cod]
+*.so
+build/
+.dist/
