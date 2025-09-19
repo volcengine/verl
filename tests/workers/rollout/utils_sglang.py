@@ -129,26 +129,20 @@ def get_rollout_config(
     tensor_parallel_size,
     tool_config_path=None,
     interaction_config_path=None,
+    skip_tokenizer_init=False,
 ):
     sampling_params = dict(
         n=1,
         temperature=0,
         top_p=1,
         top_k=-1,
-        max_new_tokens=max_response_length,
-        presence_penalty=0.0,
-        frequency_penalty=0.0,
-        repetition_penalty=1.0,
-        skip_special_tokens=True,
-        spaces_between_special_tokens=True,
-        ignore_eos=False,
     )
 
     rollout_config = OmegaConf.create(
         {
             "name": "sglang",
             "mode": "sync",
-            "load_format": "dummy_dtensor",
+            "load_format": "auto",
             "enforce_eager": False,
             "free_cache_engine": True,
             "dtype": dtype,
@@ -173,6 +167,7 @@ def get_rollout_config(
             },
             "calculate_log_probs": False,
             "max_model_len": None,
+            "skip_tokenizer_init": skip_tokenizer_init,
             **sampling_params,
         }
     )

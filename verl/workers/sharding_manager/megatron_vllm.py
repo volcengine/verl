@@ -31,6 +31,7 @@ from verl.protocol import all_gather_data_proto
 from verl.third_party.vllm import LLM, VLLM_SLEEP_LEVEL
 from verl.third_party.vllm import parallel_state as vllm_ps
 from verl.utils.device import get_torch_device, set_expandable_segments
+from verl.utils.import_utils import deprecated
 from verl.utils.megatron_utils import load_megatron_model_to_gpu, offload_megatron_model_to_cpu, per_tensor_generator
 from verl.utils.memory_utils import aggressive_empty_cache
 from verl.utils.profiler import GPUMemoryLogger, log_gpu_memory_usage
@@ -54,6 +55,7 @@ Megatron Hybrid Engine:
 """
 
 
+@deprecated()
 class MegatronVLLMShardingManager(BaseShardingManager):
     """A sharding manager that bridges Megatron-LM training with vLLM inference.
 

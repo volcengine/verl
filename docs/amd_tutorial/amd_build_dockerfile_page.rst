@@ -16,7 +16,7 @@ docker/Dockerfile.rocm
 
 .. code-block:: bash
 
-    FROM "rlfoundation.azurecr.io/rocm6.3.4:vllm-0.8.5-numa-patch-ubuntu-22.04"
+    FROM "rlsys/rocm-6.3.4-patch:rocm6.3.4-numa-patch_ubuntu-22.04"
 
     SHELL ["/bin/bash", "-ceuxo", "pipefail"]
 
@@ -321,9 +321,9 @@ Pull the image:
 
 .. code-block:: bash
 
-    docker pull yushengsuthu/verl:verl-0.4.1_ubuntu-22.04_rocm6.3.4-numa-patch_vllm0.8.5_sglang0.4.6.post4
+    docker pull rlsys/verl:verl-0.4.1_ubuntu-22.04_rocm6.3.4-numa-patch_vllm0.8.5_sglang0.4.6.post4
 
-    docker tag yushengsuthu/verl:verl-0.4.1_ubuntu-22.04_rocm6.3.4-numa-patch_vllm0.8.5_sglang0.4.6.post4 verl-rocm:latest
+    docker tag rlsys/verl:verl-0.4.1_ubuntu-22.04_rocm6.3.4-numa-patch_vllm0.8.5_sglang0.4.6.post4 verl-rocm:latest
 
 Run the container
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -381,7 +381,7 @@ PPO
 
     GPUS_PER_NODE=8
     MODEL_PATH=Qwen/Qwen2.5-0.5B-Instruct
-    python3 examples/data_preprocess/gsm8k.py --local_dir data/gsm8k
+    python3 examples/data_preprocess/gsm8k.py --local_save_dir data/gsm8k
     python3 -c "import transformers; transformers.pipeline('text-generation', model='$MODEL_PATH')"
     ENGINE=vllm #sglang
 
@@ -436,7 +436,7 @@ GRPO
     GPUS_PER_NODE=8
     MODEL_PATH=Qwen/Qwen2.5-0.5B-Instruct
     # MODEL_PATH=Qwen/Qwen2-7B-Instruct
-    python3 examples/data_preprocess/gsm8k.py --local_dir data/gsm8k
+    python3 examples/data_preprocess/gsm8k.py --local_save_dir data/gsm8k
     python3 -c "import transformers; transformers.pipeline('text-generation', model='$MODEL_PATH')"
     ENGINE=vllm #sglang
     
@@ -573,7 +573,7 @@ slurm_script.sh
         docker image prune -f
 
         # Need to pull the docker first
-        docker pull docker.io/rocm/vllm:rocm6.2_mi300_ubuntu20.04_py3.9_vllm_0.6.4
+        docker pull rlsys/verl:verl-0.4.1_ubuntu-22.04_rocm6.3.4-numa-patch_vllm0.8.5_sglang0.4.6.post4
         
         if ! docker images --format "{{.Repository}}:{{.Tag}}" | grep -q "${IMG}"; then
             echo \"Building ${IMG} image...\"
@@ -716,7 +716,7 @@ slurm_script.sh
 
     echo "Starting data preprocessing..."
     docker exec "${CONTAINER_NAME}" \
-        python3 "examples/data_preprocess/gsm8k.py" "--local_dir" "../data/gsm8k"
+        python3 "examples/data_preprocess/gsm8k.py" "--local_save_dir" "../data/gsm8k"
 
     echo "Starting data preprocessing..."
     docker exec "${CONTAINER_NAME}" \

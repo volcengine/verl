@@ -12,21 +12,38 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+
 import ray
 from omegaconf import DictConfig
 
+from verl.experimental.agent_loop import AgentLoopManager
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
-from verl.workers.fsdp_workers import AsyncActorRolloutRefWorker
-from verl.workers.rollout.async_server import AsyncLLMServerManager
+from verl.workers.config import RewardModelConfig
+from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
+
+if os.environ["LEGACY_IMPL_RM"] == "disable":
+    from verl.workers.roles import RewardModelWorker
+else:
+    from verl.workers.fsdp_workers import RewardModelWorker
 
 
-def init_async_rollout_manager(config: DictConfig) -> AsyncLLMServerManager:
+def init_agent_loop_manager(
+    config: DictConfig, reward_model_config: RewardModelConfig = None
+) -> AgentLoopManager | RayWorkerGroup:
     # =========================== 1. Create hybrid ActorRollout workers ===========================
+    actor_rollout_cls = (
+        AsyncActorRolloutRefWorker if config.actor_rollout_ref.rollout.mode == "async" else ActorRolloutRefWorker
+    )
     role_worker_mapping = {
-        Role.ActorRollout: ray.remote(AsyncActorRolloutRefWorker),
+        Role.ActorRollout: ray.remote(actor_rollout_cls),
     }
+    reward_model_config = reward_model_config or config.reward_model
+    if reward_model_config.enable:
+        role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
+
     global_pool_id = "global_pool"
     resource_pool_spec = {
         global_pool_id: [config.trainer.n_gpus_per_node] * config.trainer.nnodes,
@@ -34,6 +51,15 @@ def init_async_rollout_manager(config: DictConfig) -> AsyncLLMServerManager:
     mapping = {
         Role.ActorRollout: global_pool_id,
     }
+    if reward_model_config.enable_resource_pool:
+        mapping[Role.RewardModel] = "reward_pool"
+        if reward_model_config.n_gpus_per_node <= 0:
+            raise ValueError("reward_model_config.n_gpus_per_node must be greater than 0")
+        if reward_model_config.nnodes <= 0:
+            raise ValueError("reward_model_config.nnodes must be greater than 0")
+
+        reward_pool = [reward_model_config.n_gpus_per_node] * reward_model_config.nnodes
+        resource_pool_spec["reward_pool"] = reward_pool
     resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
     resource_pool_manager.create_resource_pool()
     resource_pool_to_cls = {pool: {} for pool in resource_pool_manager.resource_pool_dict.values()}
@@ -45,6 +71,12 @@ def init_async_rollout_manager(config: DictConfig) -> AsyncLLMServerManager:
     )
     resource_pool_to_cls[resource_pool]["actor_rollout"] = actor_rollout_cls
 
+    if reward_model_config.enable:
+        # we create a RM here
+        resource_pool = resource_pool_manager.get_resource_pool(Role.RewardModel)
+        rm_cls = RayClassWithInitArgs(role_worker_mapping[Role.RewardModel], config=reward_model_config)
+        resource_pool_to_cls[resource_pool]["rm"] = rm_cls
+
     all_wg = {}
     for resource_pool, class_dict in resource_pool_to_cls.items():
         worker_dict_cls = create_colocated_worker_cls(class_dict=class_dict)
@@ -54,10 +86,19 @@ def init_async_rollout_manager(config: DictConfig) -> AsyncLLMServerManager:
     actor_rollout_wg = all_wg["actor_rollout"]
     actor_rollout_wg.init_model()
 
-    # =========================== 2. Create AsyncLLMServerManager  ===========================
-    async_rollout_manager = AsyncLLMServerManager(
+    if config.actor_rollout_ref.rollout.mode == "sync":
+        return actor_rollout_wg
+
+    if reward_model_config.enable_resource_pool and reward_model_config.enable:
+        rm_wg = all_wg["rm"]
+        rm_wg.init_model()
+    else:
+        rm_wg = None
+    # =========================== 2. Create AgentLoopManager ===========================
+    agent_loop_manager = AgentLoopManager(
         config=config,
         worker_group=actor_rollout_wg,
+        rm_wg=rm_wg,
     )
 
-    return async_rollout_manager
+    return agent_loop_manager

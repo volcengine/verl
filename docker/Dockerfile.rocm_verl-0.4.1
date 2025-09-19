@@ -1,5 +1,6 @@
 # FROM "compute-artifactory.amd.com:5000/rocm-plus-docker/framework/compute-rocm-rel-6.4:94_ubuntu22.04_py3.10_pytorch_release-2.7_575e247"
-FROM "rlfoundation.azurecr.io/rocm6.3.4:vllm-0.8.5-numa-patch-ubuntu-22.04"
+# FROM "rlfoundation.azurecr.io/rocm6.3.4:vllm-0.8.5-numa-patch-ubuntu-22.04"
+FROM "rlsys/rocm-6.3.4-patch:rocm6.3.4-numa-patch_ubuntu-22.04"
 
 SHELL ["/bin/bash", "-ceuxo", "pipefail"]
 

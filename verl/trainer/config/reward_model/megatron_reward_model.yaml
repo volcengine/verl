@@ -29,7 +29,7 @@ megatron:
   expert_model_parallel_size: 1
 
   # Expert tensor parallel size
-  expert_tensor_parallel_size: null
+  expert_tensor_parallel_size: 1
 
   # Number of pipeline model parallel stages
   pipeline_model_parallel_size: 1

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import warnings
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -22,6 +23,7 @@ from verl.trainer.config import BaseModelConfig, CheckpointConfig
 from verl.utils.profiler import ProfilerConfig
 
 from .engine import FSDPEngineConfig, McoreEngineConfig
+from .model import HFModelConfig
 from .optimizer import OptimizerConfig
 
 __all__ = ["CriticConfig", "FSDPCriticConfig", "McoreCriticConfig", "FSDPCriticModelCfg"]
@@ -57,6 +59,7 @@ class CriticConfig(BaseConfig):
         "ppo_micro_batch_size_per_gpu",
         "ppo_mini_batch_size",
         "ppo_micro_batch_size",
+        "model_config",
     }
 
     strategy: str = MISSING
@@ -66,20 +69,32 @@ class CriticConfig(BaseConfig):
     ppo_mini_batch_size: int = 1
     use_dynamic_bsz: bool = False
     ppo_max_token_len_per_gpu: int = 32768
+    # deprecate this
     forward_max_token_len_per_gpu: int = 32768
+    ppo_infer_micro_batch_size_per_gpu: Optional[int] = None
+    ppo_infer_max_token_len_per_gpu: int = 32768
     ppo_epochs: int = 1
+    data_loader_seed: int = 1
     shuffle: bool = True
     cliprange_value: float = 0.5
     loss_agg_mode: str = "token-mean"
     ppo_micro_batch_size: Optional[int] = None
+    engine: BaseConfig = field(default_factory=BaseConfig)
     optim: OptimizerConfig = field(default_factory=OptimizerConfig)
+    # deprecate model to favor model_config
     model: BaseModelConfig = field(default_factory=BaseModelConfig)
+    model_config: HFModelConfig = None
     checkpoint: CheckpointConfig = field(default_factory=CheckpointConfig)
     profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
 
     def __post_init__(self):
         """Validate critic configuration parameters."""
         assert self.strategy != MISSING
+
+        if self.model_config is None:
+            warnings.warn("using model in Critic Config is deprecated, please use model_config instead", stacklevel=2)
+            self.model_config = self.model
+
         if not self.use_dynamic_bsz:
             self._check_mutually_exclusive(self.ppo_micro_batch_size, self.ppo_micro_batch_size_per_gpu, "critic")
 

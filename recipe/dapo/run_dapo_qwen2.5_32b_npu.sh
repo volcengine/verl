@@ -28,7 +28,6 @@ train_prompt_bsz=128
 gen_prompt_bsz=$((train_prompt_bsz * 3))
 n_resp_per_prompt=16
 train_prompt_mini_bsz=32
-now=$(date +%Y%m%d_%H%M%S)
 
 # Ray
 PWD=./
@@ -56,8 +55,6 @@ actor_ppo_max_token_len=$(((max_prompt_length + max_response_length) / sp_size))
 infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) / sp_size))
 offload=True
 gen_tp=4
-gen_dp=1
-gen_world_size=$((NNODES * 16)) # nnodes* npus_in_per_node
 enable_chunked_prefill=True
 
 ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
@@ -111,8 +108,6 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=${sp_size} \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.90 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=${gen_tp} \
-    +actor_rollout_ref.rollout.dp_model_parallel_size=${gen_dp} \
-    +actor_rollout_ref.rollout.rollout_world_size=${gen_world_size} \
     actor_rollout_ref.rollout.enable_chunked_prefill=${enable_chunked_prefill} \
     actor_rollout_ref.rollout.max_num_batched_tokens=$((max_prompt_length + max_response_length)) \
     actor_rollout_ref.rollout.temperature=${temperature} \
@@ -126,7 +121,6 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     actor_rollout_ref.ref.fsdp_config.param_offload=${offload} \
     actor_rollout_ref.ref.ulysses_sequence_parallel_size=${sp_size} \
     actor_rollout_ref.actor.fsdp_config.fsdp_size=-1 \
-    +actor_rollout_ref.rollout.enable_expert_parallel=False \
     reward_model.reward_manager=dapo \
     reward_model.overlong_buffer.enable=${enable_overlong_buffer} \
     reward_model.overlong_buffer.len=${overlong_buffer_len} \

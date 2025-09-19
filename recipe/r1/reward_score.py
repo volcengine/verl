@@ -15,9 +15,9 @@
 
 def reward_func(data_source, solution_str, ground_truth, extra_info=None):
     if data_source in ["Maxwell-Jia/AIME_2024", "opencompass/cnmo2024_en", "opencompass/cnmo2024_zh"]:
-        from recipe.r1.tasks import math
+        from recipe.r1.tasks import math_reward
 
-        return math.compute_score(solution_str, ground_truth)
+        return math_reward.compute_score(solution_str, ground_truth)
     elif data_source == "Idavidrein/gpqa":
         from recipe.r1.tasks import gpqa
 

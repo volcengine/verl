@@ -206,14 +206,17 @@ def collect_dp_compute_data_proto(worker_group, output):
 
 
 def dispatch_nd_compute(dp_rank_mapping: list[int], dp_size, worker_group, *args, **kwargs):
-    import ray
+    import os
 
     from verl.single_controller.base.worker_group import WorkerGroup
+    from verl.utils.ray_utils import parallel_put
 
     assert isinstance(worker_group, WorkerGroup)
 
-    args = [[ray.put(dp_arg) for dp_arg in arg] for arg in args]
-    kwargs = {k: [ray.put(dp_v) for dp_v in v] for k, v in kwargs.items()}
+    max_workers = max(1, min(len(args[0]), os.cpu_count()))
+
+    args = [parallel_put(arg, max_workers=max_workers) for arg in args]
+    kwargs = {k: parallel_put(v, max_workers=max_workers) for k, v in kwargs.items()}
 
     all_args = []
     for arg in args:
