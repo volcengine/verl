@@ -128,7 +128,7 @@ class SPINRolloutRefWorker(ActorRolloutRefWorker):
             )
 
         if self._is_rollout:
-            self.rollout, self.rollout_sharding_manager = self._build_rollout(
+            self._build_rollout(
                 trust_remote_code=self.config.model.get("trust_remote_code", False)
             )
 
