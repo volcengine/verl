@@ -124,6 +124,8 @@ class RolloutSample:
 
 @dataclass
 class ValidateMetrics:
+    """Metrics for validation"""
+
     timing_raw: dict[str, Any]
     metrics: Optional[dict[str, Any]] = None
     global_steps: Optional[int] = None
@@ -132,23 +134,15 @@ class ValidateMetrics:
 
 def prepare_single_generation_data(batch_dict, global_steps, rollout_n) -> DataProto:
     """
-    类似 ray_trainer._prepare_generate_batch 的逻辑，但针对单个样本
-    分离出用于生成的数据和需要保留的原始数据
+    Similar to the logic of ray_trainer._prepare_generate_batch, but for a single sample.
+    Separate the data used for generation from the original data.
 
     Returns:
         tuple: (original_batch_dict, gen_data_for_single_sample)
     """
 
-    # 创建完整的 DataProto
     full_batch = DataProto.from_single_dict(batch_dict)
 
-    # batch : TensorDict { input_ids, attention_mask, position_ids}
-    # non_tensor_batch: raw_prompt_ids, raw_prompt,
-    #                   multi_modal_data, tools_kwargs, interaction_kwargs, index, agent_name,
-    #                   data_source, ability, reward_model
-    # meta_info: {}
-
-    # 定义需要传递给生成服务器的字段
     batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
     non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
 
@@ -157,10 +151,10 @@ def prepare_single_generation_data(batch_dict, global_steps, rollout_n) -> DataP
         non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
     )
 
-    # 设置使用支持partial的agent
+    # Setting agent - partial_single_turn_agent, that supports partial
     full_batch.non_tensor_batch["agent_name"] = np.array(["partial_single_turn_agent"] * len(full_batch), dtype=object)
 
-    # 添加全局步数到生成数据
+    # Add global step count to generated data
     full_batch.meta_info["global_steps"] = global_steps
     full_batch = full_batch.repeat(repeat_times=rollout_n, interleave=True)
     return full_batch
@@ -168,32 +162,29 @@ def prepare_single_generation_data(batch_dict, global_steps, rollout_n) -> DataP
 
 def process_rollout_log_probs(data_proto: DataProto, rollout_log_probs: list[list[float]]) -> torch.Tensor:
     """
-    根据 DataProto 中的 mask 逻辑处理 rollout_log_probs
-    # attention_mask: [0,0,0,0,1,1,1,1, | 1,1,1,0,0,0,0,0]
+    Process rollout_log_probs according to the mask in DataProto
+    mask: [0,0,0,0,1,1,1,1, | 1,1,1,0,0,0,0,0]
 
     Args:
-        data_proto: 包含 batch 信息的 DataProto 对象
-        rollout_log_probs: 二维列表，每个子列表包含一个样本的 log_probs
+        data_proto: A DataProto object containing batch information
+        rollout_log_probs: A two-dimensional list, each sublist containing the log_probs of a sample
 
     Returns:
-        torch.Tensor: 处理后的 log_probs tensor，形状为 [bsz, response_length]
+        torch.Tensor: The processed log_probs tensor, with shape: [bsz, response_length]
     """
 
     batch = data_proto.batch
     response_mask = batch["response_mask"]
-    bsz, response_length = response_mask.shape
-
-    # 初始化结果 tensor
-    rollout_log_probs_tensor = torch.zeros((bsz, response_length), dtype=torch.float32) - 1
+    rollout_log_probs_tensor = torch.zeros(response_mask.shape, dtype=torch.float32) - 1
 
     for i, log_probs_seq in enumerate(rollout_log_probs):
-        # 获取当前样本的有效长度（mask 中为 1 的位置数量）
+        # Get the effective length of the current sample (the number of positions with 1 in the mask)
         valid_length = response_mask[i].sum().item()
 
-        # 确保 log_probs_seq 的长度不超过有效长度
+        # Ensure that the length of log_probs_seq does not exceed the valid length
         actual_length = min(len(log_probs_seq), valid_length)
 
-        # 将 log_probs 填入对应位置
+        # Fill log_probs into the corresponding position
         if actual_length > 0:
             rollout_log_probs_tensor[i, :actual_length] = torch.tensor(log_probs_seq[:actual_length])
 
@@ -202,29 +193,32 @@ def process_rollout_log_probs(data_proto: DataProto, rollout_log_probs: list[lis
 
 
 def merge_rollout_sample(config, tokenizer, rs: RolloutSample):
-    # 第一步：从 AgentLoopOutput 创建生成结果的 DataProto
+    """
+    Supplement and refine the RolloutSample object,
+    """
+    # Step 1: Create a DataProto from the AgentLoopOutput to generate the result
     gen_batch_output = postprocess_agent_loop_outputs(rs.agent_loop_output_list, tokenizer, config)
     rollout_log_probs = [x.log_probs for x in rs.agent_loop_output_list]
     rollout_log_probs = process_rollout_log_probs(gen_batch_output, rollout_log_probs)
     gen_batch_output.batch["rollout_log_probs"] = rollout_log_probs.to(torch.float32)
 
-    # 第二步：添加 uid
+    # Step 2: Add uid
     rs.full_batch.non_tensor_batch["uid"] = np.array([f"uid_{rs.sample_id}"] * len(rs.full_batch), dtype=object)
 
-    # 第二步：合并batch
-    # 将 original_batch 的 non_tensor_batch 和 meta_info 合并到 final_batch
+    # Step 2: Merge batches
+    # Merge the non_tensor_batch and meta_info of original_batch into final_batch
     for key, value in rs.full_batch.non_tensor_batch.items():
         gen_batch_output.non_tensor_batch[key] = value
     gen_batch_output.meta_info.update(rs.full_batch.meta_info)
 
-    # 第三步，设置 full_batch
+    # Step 3, set full_batch
     rs.full_batch = gen_batch_output
     rs.processing_times = []
     for agent_loop in rs.agent_loop_output_list:
         rs.processing_times.append(agent_loop.metrics.generate_sequences)
     rs.param_version_start = [agent_loop.param_version_start for agent_loop in rs.agent_loop_output_list]
     rs.param_version_end = [agent_loop.param_version_end for agent_loop in rs.agent_loop_output_list]
-    # 第四步，清空 agent_loop_output_list
+    # Step 4, clear agent_loop_output_list
     rs.agent_loop_output_list = []
     return rs
 
@@ -234,7 +228,7 @@ def assemble_batch_from_rollout_samples(
 ) -> DataProto:
     """
     Assemble gen_batch_output from RolloutSample objects
-    从 RolloutSample 对象中组装批次，类似 ray_trainer 的 _post_generate_batch 逻辑
+    Assembles batches from RolloutSample objects, similar to the _post_generate_batch logic in ray_trainer.
 
     Args:
         rollout_samples: List of RolloutSample objects
@@ -258,7 +252,7 @@ def assemble_batch_from_rollout_samples(
     rollout_samples_batch = []
     processing_times = []
     rollout_status = rollout_samples[0].rollout_status
-    # 为 rollout_status 的所有 key 添加前缀
+    # Add a prefix to all rollout_status keys
     rollout_status = {f"fully_async/{key}": value for key, value in rollout_status.items()}
 
     for rs in rollout_samples:
@@ -266,18 +260,18 @@ def assemble_batch_from_rollout_samples(
         processing_times.extend(rs.processing_times)
     final_batch = DataProto.concat(rollout_samples_batch)
 
-    # 计算 response_mask（如果不存在）
+    # Calculate response_mask (if not present)
     if "response_mask" not in final_batch.batch.keys():
         final_batch.batch["response_mask"] = compute_response_mask(final_batch)
 
     if balance_batch:
         balance_batch(final_batch, metrics={})
 
-    # 计算全局有效 token 数
+    # Calculate the global valid token number
     if "attention_mask" in final_batch.batch:
         final_batch.meta_info["global_token_num"] = torch.sum(final_batch.batch["attention_mask"], dim=-1).tolist()
 
-    # 收集统计信息和元数据（直接从 RolloutSample 中获取）
+    # Collect statistics
     param_versions = [rs.param_version for rs in rollout_samples]
     trajectorys_param_versions = [version for rs in rollout_samples for version in rs.param_version_end]
 
@@ -285,9 +279,9 @@ def assemble_batch_from_rollout_samples(
         "processing_time/avg": np.mean(processing_times),
         "processing_time/max": np.max(processing_times),
         "processing_time/min": np.min(processing_times),
-        "processing_time/tp50": np.percentile(processing_times, 50),  # 中位数
-        "processing_time/tp99": np.percentile(processing_times, 99),  # 99百分位
-        "processing_time/tp95": np.percentile(processing_times, 95),  # 95百分位也很有用
+        "processing_time/tp50": np.percentile(processing_times, 50),
+        "processing_time/tp99": np.percentile(processing_times, 99),
+        "processing_time/tp95": np.percentile(processing_times, 95),
     }
     processing_time_stats = {f"fully_async/{key}": value for key, value in processing_time_stats.items()}
 
@@ -298,7 +292,7 @@ def assemble_batch_from_rollout_samples(
         "fully_async/partial/partial_ratio": (len(param_version_diff) - num_diff0) / len(param_version_diff),
         "fully_async/partial/max_partial_span": max(param_version_diff),
     }
-    # 创建 meta_info
+    # add meta_info
     final_batch.meta_info.update(
         {
             "rollout_param_versions": param_versions,
@@ -344,7 +338,7 @@ class MetricsAggregator:
                 "fully_async/count/stale_trajectory_processed",
                 "fully_async/count/current_param_version",
                 "fully_async/count/dropped_stale_samples",
-                "training/global_step",  # TODO 改为total_step
+                "training/global_step",  # TODO change name to: total_step
             ],
         }
 

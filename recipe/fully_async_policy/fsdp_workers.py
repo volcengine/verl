@@ -45,7 +45,7 @@ def get_inference_model(rollout):
     Args:
         rollout: rollout object
     Returns:
-        model: 模型对象
+        model: model object
     """
 
     print(rollout)
