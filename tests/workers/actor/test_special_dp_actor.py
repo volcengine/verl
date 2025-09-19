@@ -157,8 +157,14 @@ class TestDataParallelPPOActor(unittest.TestCase):
         )
 
         meta_info = {"temperature": 1.0}
+        data = DataProto(batch=tensor_dict, meta_info=meta_info)
 
-        return DataProto(batch=tensor_dict, meta_info=meta_info)
+        return data.make_iterator(
+            mini_batch_size=self.config.ppo_mini_batch_size,
+            epochs=self.config.ppo_epochs,
+            seed=self.config.data_loader_seed,
+            dataloader_kwargs={"shuffle": self.config.shuffle},
+        )
 
     def test_compute_log_prob(self):
         """Test compute_log_prob method"""
@@ -195,9 +201,9 @@ class TestDataParallelPPOActor(unittest.TestCase):
 
     def test_update_policy(self):
         """Test update_policy method"""
-        data = self._create_test_data_for_update_policy()
+        dataloader = self._create_test_data_for_update_policy()
 
-        metrics = self.actor.update_policy(data)
+        metrics = self.actor.update_policy(dataloader)
 
         self.assertIsInstance(metrics, dict)
 
@@ -263,8 +269,8 @@ class TestDataParallelPPOActor(unittest.TestCase):
         self.assertTrue(torch.all(torch.isfinite(entropies)))
         self.assertTrue(torch.all(entropies >= 0))
 
-        policy_data = self._create_test_data_for_update_policy()
-        metrics = qwen_actor.update_policy(policy_data)
+        policy_data_loader = self._create_test_data_for_update_policy()
+        metrics = qwen_actor.update_policy(policy_data_loader)
 
         self.assertIsInstance(metrics, dict)
 

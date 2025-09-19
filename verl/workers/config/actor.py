@@ -81,6 +81,7 @@ class ActorConfig(BaseConfig):
         checkpoint (CheckpointConfig): Configuration for checkpointing.
         optim (OptimizerConfig): Configuration for optimizer.
         use_fused_kernels (bool): Whether to use custom fused kernels (e.g., FlashAttention, fused MLP).
+        data_loader_seed (Optional[int]): Seed for data loader. If None, uses global seed.
     """
 
     _mutable_fields = BaseConfig._mutable_fields | {
@@ -117,9 +118,11 @@ class ActorConfig(BaseConfig):
     optim: OptimizerConfig = field(default_factory=OptimizerConfig)
     use_fused_kernels: bool = False
     profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
+
     engine: BaseConfig = field(default_factory=BaseConfig)
-    data_loader_seed = 1
+    data_loader_seed: Optional[int] = 1
     rollout_n: int = 1  # must be override by sampling config
+
     model_config: HFModelConfig = field(default_factory=BaseConfig)
 
     def __post_init__(self):
@@ -194,14 +197,12 @@ class McoreActorConfig(ActorConfig):
 
     Args:
         strategy (str): Training strategy set to 'megatron' for Megatron parallelism.
-        data_loader_seed (Optional[int]): Seed for data loader. If None, uses global seed.
         load_weight (bool): Whether to load model weights from checkpoint.
         megatron (dict[str, Any]): Configuration for Megatron parallelism settings.
         profile (dict[str, Any]): Configuration for profiling settings.
     """
 
     strategy: str = "megatron"
-    data_loader_seed: Optional[int] = None
     load_weight: bool = True
     megatron: McoreEngineConfig = field(default_factory=McoreEngineConfig)
     profile: dict[str, Any] = field(default_factory=dict)
