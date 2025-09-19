@@ -232,18 +232,21 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
         partial_output_list: Optional[list[AgentLoopOutput]],
     ) -> list[AgentLoopOutput]:
         """
-        异步处理单个样本
+        Asynchronously process a single sample
+
         Args:
-            sample: 单个样本数据
-            partial_output_list: Optional[List[AgentLoopOutput]]: 已经 rollout 的结果
+            sample: Single sample data
+            partial_output_list: Optional[List[AgentLoopOutput]]: already rollout result.
+
         Returns:
-            list[AgentLoopOutput]: 处理结果列表
+            list[AgentLoopOutput]: Processing results
         """
         worker = self._select_best_worker()
         output_future = worker.generate_sequences_no_post.remote(sample, partial_output_list)
         return await asyncio.wrap_future(output_future.future())
 
     def _select_best_worker(self):
+        """Select the best worker, simple round-robin load balancing"""
         if not hasattr(self, "_worker_index"):
             self._worker_index = 0
 
