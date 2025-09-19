@@ -27,6 +27,7 @@ import torch.distributed
 from peft import LoraConfig, TaskType, get_peft_model
 from tensordict import TensorDict
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp.api import FullStateDictConfig, ShardedStateDictConfig, StateDictType
 from torch.distributed.tensor import DTensor
 
 import verl.utils.torch_functional as verl_F
@@ -342,6 +343,20 @@ class FSDPEngine(BaseEngine):
         if self.model_config.enable_activation_offload:
             enable_gradient_checkpointing = self.model_config.enable_gradient_checkpointing
             enable_activation_offloading(module, self.engine_config.strategy, enable_gradient_checkpointing)
+
+        if torch.distributed.get_world_size() == 1 and fsdp_version(module) == 1:
+            FSDP.set_state_dict_type(
+                module,
+                state_dict_type=StateDictType.FULL_STATE_DICT,
+                state_dict_config=FullStateDictConfig(),
+            )
+        elif fsdp_version(module) == 1:
+            FSDP.set_state_dict_type(
+                module,
+                state_dict_type=StateDictType.SHARDED_STATE_DICT,
+                state_dict_config=ShardedStateDictConfig(),
+            )
+
         return module
 
     def _build_optimizer(self, module):
