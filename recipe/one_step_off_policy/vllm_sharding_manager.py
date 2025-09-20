@@ -35,9 +35,10 @@ class VLLMShardingManager(BaseShardingManager):
     def __init__(self, inference_engine, device_mesh: DeviceMesh):
         self.device_mesh = device_mesh
         self.inference_engine = inference_engine
-        inference_engine.wake_up()
+        # Only wake up inference engine in sync mode (when inference_engine is not None)
+        if inference_engine is not None:
+            inference_engine.wake_up()
         assert device_mesh is not None
-        assert inference_engine is not None
         self.tp_size = self.device_mesh["infer_tp"].size()
         self.tp_rank = self.device_mesh["infer_tp"].get_local_rank()
         self.timing = {}
@@ -52,7 +53,8 @@ class VLLMShardingManager(BaseShardingManager):
     @GPUMemoryLogger(role="vllm sharding_manager", logger=logger)
     def __exit__(self, exc_type, exc_value, traceback):
         self.gen_random_states = get_torch_device().get_rng_state()
-        self.inference_engine.reset_prefix_cache()
+        if self.inference_engine is not None and hasattr(self.inference_engine, "reset_prefix_cache"):
+            self.inference_engine.reset_prefix_cache()
 
     @GPUMemoryLogger(role="vllm sharding_manager", logger=logger)
     def preprocess_data(self, data: DataProto) -> DataProto:
