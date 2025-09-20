@@ -1,7 +1,7 @@
 RolloutSkip Function Usage Documentation
 ========================================
 
-Last updated: 08/01/2025.
+Last updated: 08/31/2025.
 
 Applicable Scenarios
 --------------------
@@ -35,8 +35,8 @@ This is an example of how to patch rollout_skip in RayPPOTrainer.
             ...
 
             #* Add code as follow:
-            rollout_skip = RolloutSkip(self.config, self.actor_rollout_wg)
-            rollout_skip.wrap_generate_sequences()
+            rollout_skip = RolloutSkip(self.config)
+            rollout_skip.wrap_generate_sequences(self.actor_rollout_wg)
 
             ...
 
@@ -51,11 +51,13 @@ Then, you should add the following parameters to your config to enable the Rollo
 
 .. code-block:: bash
 
-    actor_rollout_ref.rollout.skip_rollout=True \
-    actor_rollout_ref.rollout.skip_dump_dir="/tmp/rollout_dump" \
+    actor_rollout_ref.rollout.skip.enable=True \
+    actor_rollout_ref.rollout.skip.dump_step=1 \
+    actor_rollout_ref.rollout.skip.post_dump_action="repeat" \
+    actor_rollout_ref.rollout.skip.dump_dir="/tmp/rollout_dump" \
 
 
 Note:
 
-1. The `skip_dump_dir` is the directory where the cached sequences will be stored. Ensure that this directory is writable and accessible by your training process. And make sure that `skip_dump_dir` is not relative path because ray will store the data in `/tmp/ray/session_<session_id>/` and the relative path will not be found in the worker.
-2. The dumped data path follows this naming pattern `{experiment_name}_{project_name}_TrainGBS{train_gbs}__InferGBS{gen_gbs}__N{n}`, once you change the `experiment_name`, `project_name`, `train_gbs`, `gen_gbs`, or `n`, the cached data will be stored in a new directory.
+1. The `dump_dir` is the directory where the cached sequences will be stored. Ensure that this directory is writable and accessible by your training process. And make sure that `skip_dump_dir` is not relative path because ray will store the data in `/tmp/ray/session_<session_id>/` and the relative path will not be found in the worker.
+2. The dumped data path follows this naming pattern `{experiment_name}_{project_name}/GBS{gen_batch_size}_N{n}_in{max_prompt_length}_out{max_response_length}`, once you change the `experiment_name`, `project_name`, `gen_gbs`, `n`, `max_prompt_length` or `max_response_length`, the cached data will be stored in a new directory.

@@ -239,8 +239,13 @@ actor_rollout_ref:
       _target_: verl.workers.config.TraceConfig
       backend: null
       token2text: false
-    skip_rollout: false
-    skip_dump_dir: /tmp/rollout_dump
+    skip:
+      _target_: verl.workers.config.SkipConfig
+      enable: false
+      dump_dir: /tmp/rollout_dump
+      dump_step: 1
+      post_dump_action: repeat
+      compress: false
     skip_tokenizer_init: true
     profiler:
       _target_: verl.utils.profiler.ProfilerConfig
