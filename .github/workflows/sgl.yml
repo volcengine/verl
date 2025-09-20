@@ -38,14 +38,14 @@ on:
   push:
     branches:
       - main
-      - v0.2.x
+      - v0.*
     paths:
       - "**/*.py"
-      - .github/workflows/vllm.yml
+      - .github/workflows/sgl.yml
   pull_request:
     branches:
       - main
-      - v0.2.x
+      - v0.*
     paths:
       - "**/*.py"
       # Other entrypoints
