@@ -107,6 +107,14 @@ datagen:
   # The class name of the data generation class within the specified file.
   # E.g. 'MockDataGenerator'
   name: null
+
+databuffer:
+
+  # Whether to enable the databuffer to store and reuse filtered data samples
+  enable: False
+
+  # Whether to keep the filtered data samples for the model to see a second time in the epoch
+  keep_filtered: False
   
 # Additional kwargs when calling tokenizer.apply_chat_template
 apply_chat_template_kwargs: {}

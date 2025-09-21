@@ -296,8 +296,8 @@ data:
     path: null
     name: null
   databuffer:
-    enable: False
-    keep_filtered: False
+    enable: false
+    keep_filtered: false
   apply_chat_template_kwargs: {}
 critic:
   optim:
