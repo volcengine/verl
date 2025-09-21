@@ -650,7 +650,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             params, getattr(self.actor_module_fsdp, "_fsdp_wrapped_module", self.actor_module_fsdp)
         )
 
-        if peft_config is not None and VLLM_SLEEP_LEVEL == 2 and not self.layered_summon:
+        # Special handling for LoRA with sleep_level=2:
+        # When sleep_level=2, base model weights are destroyed during each sleep cycle.
+        # separately collect and update LoRA weights and base model weights through their respective interfaces.
+        # Here: params contains LoRA weights, base_model_params contains base model weights.
+        if peft_config is not None and getattr(self.rollout, "sleep_level", None) == 2:
             base_model_params = collect_lora_params(
                 module=self.actor_module_fsdp,
                 layered_summon=self.layered_summon,
@@ -681,13 +685,13 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             await self.rollout.resume(tags=["weights"])
         log_gpu_memory_usage("After resume weights", logger=logger)
 
-        if peft_config is not None and VLLM_SLEEP_LEVEL == 2 and not self.layered_summon:
+        if peft_config is not None and getattr(self.rollout, "sleep_level", None) == 2:
             per_tensor_base_params = (
                 (name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param)
                 for name, param in base_model_params.items()
             )
-            await self.rollout.update_weights(per_tensor_base_params, peft_config=peft_config, base_sync_done=False)
-            del base_model_params
+            await self.rollout.update_weights(per_tensor_base_params, base_sync_done=False)
+            del base_model_params, per_tensor_base_params
 
         await self.rollout.update_weights(per_tensor_param, peft_config=peft_config, base_sync_done=self.base_sync_done)
         log_gpu_memory_usage("After update_weights", logger=logger)
