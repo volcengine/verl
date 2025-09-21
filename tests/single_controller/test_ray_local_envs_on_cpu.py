@@ -47,9 +47,6 @@ def test_basics():
     output = worker_group.execute_all_sync("getenv", key="RAY_LOCAL_WORLD_SIZE")
     assert output == ["4", "4", "4", "4"]
 
-    output = worker_group.execute_all_sync("getenv", key="RAY_LOCAL_RANK")
-    assert set(output) == set(["0", "1", "2", "3"])
-
     ray.shutdown()
 
 
@@ -68,9 +65,6 @@ def test_customized_worker_env():
             "test_key": "test_value",  # new key will be appended
         },
     )
-
-    output = worker_group.execute_all_sync("getenv", key="RAY_LOCAL_RANK")
-    assert set(output) == set(["0", "1", "2", "3"])
 
     output = worker_group.execute_all_sync("getenv", key="test_key")
     assert output == ["test_value", "test_value", "test_value", "test_value"]

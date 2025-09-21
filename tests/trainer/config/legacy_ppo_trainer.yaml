@@ -115,6 +115,9 @@ data:
     # the name of the curriculum class like `MySampler`
     class_name: null
 
+  # Additional kwargs when calling tokenizer.apply_chat_template
+  apply_chat_template_kwargs: {}
+
 # config for actor, rollout and reference model
 actor_rollout_ref:
 
@@ -123,6 +126,8 @@ actor_rollout_ref:
 
   # common configs for the model
   model:
+
+    _target_: verl.workers.config.HFModelConfig
 
     # Huggingface model path. This can be either local path or HDFS path.
     path: ~/models/deepseek-llm-7b-chat
@@ -428,7 +433,7 @@ actor_rollout_ref:
 
     # Which loader to use for rollout model weights: dummy_dtensor, hf, megatron, etc.
     # safetensors (for huge model, and set use_shm=True); dummy_dtensor: randomly init model weight
-    load_format: dummy_dtensor
+    load_format: dummy
 
     # for huge model, layered summon can save memory (prevent OOM) but make it slower
     layered_summon: False
@@ -473,23 +478,14 @@ actor_rollout_ref:
     # Whether to wake up inference engine in multi-stage to reduce peak memory during training-rollout transition.
     multi_stage_wake_up: false
 
-    # Extra inference engine arguments (vllm, sglang).
+    # Extra inference engine arguments, please refer vllm/sglang official doc for detail
     engine_kwargs:
 
-      # for vllm
-      vllm:
+      # vllm engine config
+      vllm: {}
 
-        # Swap space (in GB) used by inference engine. null uses default (e.g., 4 GB).
-        swap_space: null
-
-        # Whether to disable the preprocessor cache for multimodel models.
-        disable_mm_preprocessor_cache: False
-
-      # for sglang
-      sglang:
-
-        # The attention backend for sglang engine. Options: flashinfer, triton, flashmla, null for default.
-        attention_backend: null
+      # sglang engine config
+      sglang: {}
 
     # Sampling parameters used during validation.
     val_kwargs:
@@ -607,7 +603,7 @@ critic:
     lr_warmup_steps_ratio: 0.
 
     # Minimum LR ratio for cosine schedule
-    min_lr_ratio: null
+    min_lr_ratio: 0.0
 
     # LR warmup style: "constant" or "cosine"
     warmup_style: constant
@@ -1100,11 +1096,13 @@ trainer:
   # Device to run training on (e.g., "cuda", "cpu")
   device: cuda
 
-# configs related to ray initialization
-ray_init:
+# configs related to ray
+ray_kwargs:
+  # configs related to ray initialization
+  ray_init:
 
-  # Number of CPUs for Ray. Use a fixed number instead of null when using SLURM.
-  num_cpus: null
+    # Number of CPUs for Ray. Use a fixed number instead of null when using SLURM.
+    num_cpus: null
 
   # Path to save Ray timeline JSON for performance profiling
   timeline_json_file: null

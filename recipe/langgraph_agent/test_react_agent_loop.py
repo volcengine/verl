@@ -151,6 +151,8 @@ def test_react_agent(init_config):
         non_tensor_batch={
             "raw_prompt": np.array([np.array(prompt) for prompt in raw_prompts], dtype=object),
             "agent_name": np.array(["react_agent"] * len(raw_prompts)),
+            "data_source": np.array(["openai/gsm8k"] * len(raw_prompts)),
+            "reward_model": np.array([{"style": "rule", "ground_truth": "1.0"}] * len(raw_prompts)),
         },
     )
     batch = batch.repeat(n)

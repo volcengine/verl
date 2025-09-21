@@ -38,12 +38,11 @@ from verl.trainer.ppo.ray_trainer import (
     AdvantageEstimator,
     RayPPOTrainer,
     ResourcePoolManager,
-    Role,
-    WorkerType,
     apply_kl_penalty,
     compute_response_mask,
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
+from verl.trainer.ppo.utils import Role, WorkerType, need_reference_policy, need_reward_model
 from verl.utils.profiler.performance import simple_timer
 from verl.utils.tracking import ValidationGenerationsLogger
 
@@ -111,8 +110,9 @@ class RaySPPOTrainer(RayPPOTrainer):
 
         self.role_worker_mapping = role_worker_mapping
         self.resource_pool_manager = resource_pool_manager
-        self.use_reference_policy = Role.RefPolicy in role_worker_mapping
-        self.use_rm = Role.RewardModel in role_worker_mapping
+        self.use_reference_policy = need_reference_policy(role_worker_mapping)
+        self.use_rm = need_reward_model(role_worker_mapping)
+        self.use_critic = False
         self.ray_worker_group_cls = ray_worker_group_cls
         self.validation_generations_logger = ValidationGenerationsLogger()
         self.device_name = device_name if device_name else self.config.trainer.device
@@ -122,9 +122,6 @@ class RaySPPOTrainer(RayPPOTrainer):
         if config.algorithm.use_kl_in_reward:
             self.kl_ctrl_in_reward = core_algos.get_kl_controller(config.algorithm.kl_ctrl)
 
-        self.use_critic = False
-
-        self._validate_config()
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
 
     def fit(self):
@@ -316,11 +313,15 @@ class RaySPPOTrainer(RayPPOTrainer):
                         inputs = self.tokenizer.batch_decode(batch.batch["prompts"], skip_special_tokens=True)
                         outputs = self.tokenizer.batch_decode(batch.batch["responses"], skip_special_tokens=True)
                         scores = batch.batch["token_level_scores"].sum(-1).cpu().tolist()
+                        sample_gts = [
+                            item.non_tensor_batch.get("reward_model", {}).get("ground_truth", None) for item in batch
+                        ]
                         self._dump_generations(
                             inputs=inputs,
                             outputs=outputs,
                             scores=scores,
                             reward_extra_infos_dict=reward_extra_infos_dict,
+                            gts=sample_gts,
                             dump_path=rollout_data_dir,
                         )
 

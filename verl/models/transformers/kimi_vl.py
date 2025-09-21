@@ -17,9 +17,12 @@ from typing import Optional
 import torch
 import torch.nn.functional as F
 from transformers.cache_utils import Cache
-from transformers.modeling_flash_attention_utils import _flash_attention_forward, flash_attn_supports_top_left_mask
+from transformers.modeling_flash_attention_utils import _flash_attention_forward
 
 from verl.models.transformers.monkey_patch import is_transformers_version_in_range
+
+# Import compatibility wrapper for flash_attn_supports_top_left_mask
+from verl.utils.transformers_compat import flash_attn_supports_top_left_mask
 from verl.utils.ulysses import (
     gather_heads_scatter_seq,
     gather_seq_scatter_heads,

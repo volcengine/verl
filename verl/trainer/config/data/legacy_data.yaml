@@ -107,3 +107,6 @@ datagen:
   # The class name of the data generation class within the specified file.
   # E.g. 'MockDataGenerator'
   name: null
+
+# Additional kwargs when calling tokenizer.apply_chat_template
+apply_chat_template_kwargs: {}

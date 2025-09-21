@@ -56,6 +56,8 @@ Submit job to ray cluster
 - ray job logs <Submission ID>: query the logs of the job.
 - ray job status <Submission ID>: query the status of the job.
 - ray job stop <Submission ID>: request the job to be stopped.
+- ray job list | grep submission_id | grep JobStatus | grep RUNNING | grep -oP 'raysubmit_[^'\''"]+' | head -n 1: get the latest job submission ID of the running job.
+- ray job logs <Submission ID> --follow: added ``--follow`` parameter to ray job logs command to enable continuous log streaming.
 
 3. You can also access driver/task/actor logs in ``/tmp/ray/session_latest/logs/``, driver log is ``job-driver-raysubmit_<Submission ID>.log``.
 
@@ -66,6 +68,15 @@ Submit job to ray cluster
 
 Option 2: Launch via SkyPilot on Kubernetes or clouds
 ------------------------------------------------------
+
+.. note::
+   Ready-to-use SkyPilot example configurations are available in the `examples/skypilot/ <https://github.com/volcengine/verl/tree/main/examples/skypilot>`_ directory:
+   
+   - ``verl-ppo.yaml`` - PPO training with GSM8K dataset
+   - ``verl-grpo.yaml`` - GRPO training with MATH dataset  
+   - ``verl-multiturn-tools.yaml`` - Multi-turn tool usage training
+   
+   See the `SkyPilot examples README <https://github.com/volcengine/verl/tree/main/examples/skypilot>`_ for detailed usage instructions.
 
 Step 1: Setup SkyPilot
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -96,7 +107,7 @@ Step 2: Prepare dataset
 
    git clone https://github.com/volcengine/verl.git
    cd examples/data_preprocess
-   python3 gsm8k.py --local_dir ~/data/gsm8k
+   python3 gsm8k.py --local_save_dir ~/data/gsm8k
 
 
 Step 3: Submit a job with SkyPilot
@@ -331,7 +342,7 @@ Once the fleet is created, define a Ray cluster task, e.g. in ``ray-cluster.dsta
         - pip install hf_transfer hf_xet
         - |
         if [ $DSTACK_NODE_RANK = 0 ]; then
-            python3 examples/data_preprocess/gsm8k.py --local_dir ~/data/gsm8k
+            python3 examples/data_preprocess/gsm8k.py --local_save_dir ~/data/gsm8k
             python3 -c "import transformers; transformers.pipeline('text-generation', model='Qwen/Qwen2.5-7B-Instruct')" 
             ray start --head --port=6379;
         else
@@ -730,7 +741,7 @@ slurm_script.sh
 
     echo "Starting data preprocessing..."
     docker exec "${CONTAINER_NAME}" \
-        python3 "examples/data_preprocess/gsm8k.py" "--local_dir" "../data/gsm8k"
+        python3 "examples/data_preprocess/gsm8k.py" "--local_save_dir" "../data/gsm8k"
 
     echo "Starting data preprocessing..."
     docker exec "${CONTAINER_NAME}" \

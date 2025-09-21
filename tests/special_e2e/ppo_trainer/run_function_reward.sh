@@ -5,7 +5,7 @@ NUM_GPUS=${NUM_GPUS:-8}
 
 MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B}
 MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
-huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
+#huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
 
 TRAIN_FILES=${TRAIN_FILES:-$HOME/data/gsm8k/train.parquet}
 VAL_FILES=${VAL_FILES:-$HOME/data/gsm8k/test.parquet}
@@ -16,8 +16,10 @@ ENGINE=${ENGINE:-vllm}
 ROLLOUT_MODE=${ROLLOUT_MODE:-sync}
 
 RETURN_RAW_CHAT="False"
+SKIP_TOKENIZER_INIT=${SKIP_TOKENIZER_INIT:-False}
 if [ "$ROLLOUT_MODE" = "async" ]; then
     RETURN_RAW_CHAT="True"
+    SKIP_TOKENIZER_INIT="True"
 fi
 
 GPU_MEMORY_UTILIZATION=${GPU_MEMORY_UTILIZATION:-0.8}
@@ -39,7 +41,7 @@ LORA_ALPHA=${LORA_ALPHA:-${LORA_RANK}}
 LORA_TARGET=${LORA_TARGET:-"all-linear"}
 LORA_EXCLUDE=${LORA_EXCLUDE:-"DONT_EXCLUDE"}
 USE_SHM=${USE_SHM:-False}
-LOAD_FORMAT=${LOAD_FORMAT:-dummy_dtensor}
+LOAD_FORMAT=${LOAD_FORMAT:-dummy}
 LAYERED_SUMMON=${LAYERED_SUMMON:-False}
 # Validation
 VAL_BEFORE_TRAIN=${VAL_BEFORE_TRAIN:-False}
@@ -120,6 +122,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.mode="${ROLLOUT_MODE}" \
     actor_rollout_ref.rollout.load_format=${LOAD_FORMAT} \
     actor_rollout_ref.rollout.layered_summon=${LAYERED_SUMMON} \
+    actor_rollout_ref.rollout.skip_tokenizer_init="${SKIP_TOKENIZER_INIT}" \
     actor_rollout_ref.rollout.gpu_memory_utilization="${GPU_MEMORY_UTILIZATION}" \
     actor_rollout_ref.rollout.enable_chunked_prefill="${ENABLE_CHUNKED_PREFILL}" \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \

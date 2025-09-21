@@ -35,12 +35,28 @@ def test_actor_rollout_ref_worker_actor_ref_model():
         _target_: verl.workers.config.FSDPEngineConfig
         fsdp_size: -1
         forward_prefetch: false
+      profiler:
+        tool: torch_memory
+        save_path: ./mem_snapshots
+        tool_config:
+          torch_memory:
+            _target_: verl.utils.profiler.config.TorchMemoryToolConfig
+            trace_alloc_max_entries: 100000
+            stack_depth: 32
     ref:
       model:
         path: Qwen/Qwen2.5-1.5B-Instruct
       fsdp_config:
         _target_: verl.workers.config.FSDPEngineConfig
         fsdp_size: -1
+      profiler:
+        tool: torch_memory
+        save_path: ./mem_snapshots
+        tool_config:
+          torch_memory:
+            _target_: verl.utils.profiler.config.TorchMemoryToolConfig
+            trace_alloc_max_entries: 100000
+            stack_depth: 32
       log_prob_micro_batch_size: 1
       ulysses_sequence_parallel_size: 1
       entropy_from_logits_with_chunking: false

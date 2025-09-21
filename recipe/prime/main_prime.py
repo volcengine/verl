@@ -31,6 +31,10 @@ Note that we don't combine the main with ray_trainer as ray_trainer is used by o
 
 import hydra
 import ray
+from omegaconf import OmegaConf
+
+from verl.trainer.ppo.utils import need_reference_policy
+from verl.utils.config import validate_config
 
 from .prime_ray_trainer import RayPRIMETrainer
 
@@ -42,11 +46,14 @@ def main(config):
 
 def run_prime(config, compute_score=None):
     if not ray.is_initialized():
+        default_runtime_env = {"env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN"}}
+        ray_init_kwargs = config.ray_kwargs.get("ray_init", {})
+        runtime_env_kwargs = ray_init_kwargs.get("runtime_env", {})
+        runtime_env = OmegaConf.merge(default_runtime_env, runtime_env_kwargs)
+        ray_init_kwargs = OmegaConf.create({**ray_init_kwargs, "runtime_env": runtime_env})
+        print(f"ray init kwargs: {ray_init_kwargs}")
         # this is for local ray cluster
-        ray.init(
-            runtime_env={"env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN"}},
-            num_cpus=config.ray_init.num_cpus,
-        )
+        ray.init(**OmegaConf.to_container(ray_init_kwargs))
 
     ray.get(main_task.remote(config, compute_score))
 
@@ -62,14 +69,6 @@ def main_task(config, compute_score=None):
 
     pprint(OmegaConf.to_container(config, resolve=True))  # resolve=True will eval symbol values
     OmegaConf.resolve(config)
-
-    # download the checkpoint from hdfs
-    local_path = copy_local_path_from_hdfs(config.actor_rollout_ref.model.path)
-
-    # instantiate tokenizer
-    from verl.utils import hf_tokenizer
-
-    tokenizer = hf_tokenizer(local_path)
 
     # define worker classes
     if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
@@ -114,6 +113,21 @@ def main_task(config, compute_score=None):
         role_worker_mapping[Role.RewardModel] = ray.remote(PRIMERewardModelWorker)
         mapping[Role.RewardModel] = global_pool_id
 
+    # validate config
+    # TODO: Additional config checks can be added with proper function under prime recipe
+    validate_config(
+        config=config,
+        use_reference_policy=need_reference_policy(role_worker_mapping),
+        use_critic=False,
+    )
+
+    # download the checkpoint from hdfs
+    local_path = copy_local_path_from_hdfs(config.actor_rollout_ref.model.path)
+
+    # instantiate tokenizer
+    from verl.utils import hf_tokenizer
+
+    tokenizer = hf_tokenizer(local_path)
     reward_manager_name = config.reward_model.get("reward_manager", "naive")
     if reward_manager_name == "naive":
         from verl.workers.reward_manager import NaiveRewardManager

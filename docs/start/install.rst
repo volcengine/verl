@@ -4,7 +4,7 @@ Installation
 Requirements
 ------------
 
-- **Python**: Version >= 3.9
+- **Python**: Version >= 3.10
 - **CUDA**: Version >= 12.1
 
 verl supports various backends. Currently, the following configurations are available:
@@ -52,7 +52,7 @@ The first two types of images are hosted on dockerhub `verlai/verl <https://hub.
 Base Image
 ::::::::::
 
-The stable base image is ``verlai/verl:base-verl0.5-cu126-cudnn9.8-torch2.7.0-fa2.7.4`` and ``verlai/verl:base-verl0.5-cu126-cudnn9.8-torch2.7.1-fa2.7.4``, with different Pytorch version for vLLM and sglang. The installed package versions can be found from tags, and the Dockerfile can be found in ``docker/verl[version]-[packages]/Dockerfile.base``.
+The stable base image is ``verlai/verl:base-verl0.5-cu126-cudnn9.8-torch2.7.1-fa2.7.4`` for vLLM and sglang. The installed package versions can be found from tags, and the Dockerfile can be found in ``docker/verl[version]-[packages]/Dockerfile.base``.
 
 The update of base image is not frequent, and the app image can be built on top of it without reinstalling base packages.
 
@@ -63,8 +63,8 @@ From this version, we divide images built for vLLM and SGLang as the divergence 
 
 There are 2 types of application images available:
 
-- **vLLM with FSDP and Megatron**: ``verlai/verl:app-verl0.5-vllm0.9.1-mcore0.12.2-te2.2``
-- **SGLang with FSDP and Megatron**: ``verlai/verl:app-verl0.5-sglang0.4.9.post6-mcore0.12.2-te2.2``
+- **vLLM with FSDP and Megatron**: ``verlai/verl:app-verl0.5-transformers4.55.4-vllm0.10.0-mcore0.13.0-te2.2``
+- **SGLang with FSDP and Megatron**: ``verlai/verl:app-verl0.5-transformers4.55.4-sglang0.4.10.post2-mcore0.13.0-te2.2``
 
 Docker images with Megatron backends are runnable with large language model like ``Qwen/Qwen3-235B-A22B``, ``deepseek-ai/DeepSeek-V3-0324`` post-training. Refer to the :doc:`Large Language Model Post-Training documentation<../perf/dpsk>` for more details.
 

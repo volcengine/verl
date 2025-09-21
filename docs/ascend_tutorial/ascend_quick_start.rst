@@ -1,7 +1,7 @@
 verl x Ascend
 ===================================
 
-Last updated: 06/17/2025.
+Last updated: 08/15/2025.
 
 我们在 verl 上增加对华为昇腾设备的支持。
 
@@ -11,6 +11,8 @@ Last updated: 06/17/2025.
 Atlas 200T A2 Box16
 
 Atlas 900 A2 PODc
+
+Atlas 800T A3
 
 
 安装
@@ -28,9 +30,10 @@ Atlas 900 A2 PODc
 +-----------+-------------+
 | torch     | == 2.5.1    |
 +-----------+-------------+
-| torch_npu | == 2.5.1.RC1|
+| torch_npu | == 2.5.1    |
 +-----------+-------------+
 
+基础环境准备请参照这份 `文档 <https://gitee.com/ascend/pytorch>`_ 。
 
 vllm & vllm-ascend
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -80,14 +83,11 @@ vllm & vllm-ascend
 +--------------+---------------+
 | liger-kernel | not supported |
 +--------------+---------------+
-| tensordict   | 0.8.3 (ARM)   |
-+--------------+---------------+
 
-1. 支持通过 transformers 使能 --flash_attention_2， transformers 需大于等于 4.52.0版本。
+1. 支持通过 transformers 使能 --flash_attention_2， transformers 需等于 4.52.4版本。
 2. 不支持通过 flash_attn 使能 flash attention 加速。
 3. 不支持 liger-kernel 使能。
-4. 针对 ARM 服务器，tensordict 要求 0.8.3，可在依赖安装完成后再手动安装 tensordict。
-5. 针对 x86 服务器，需要安装 cpu 版本的 torchvision。
+4. 针对 x86 服务器，需要安装 cpu 版本的 torchvision。
 
 .. code-block:: bash
 
@@ -102,7 +102,7 @@ vllm & vllm-ascend
 
 .. code-block:: bash
 
-    python3 examples/data_preprocess/gsm8k.py --local_dir ~/data/gsm8k
+    python3 examples/data_preprocess/gsm8k.py --local_save_dir ~/data/gsm8k
 
 2.执行训练
 
@@ -153,64 +153,72 @@ vllm & vllm-ascend
         trainer.total_epochs=1 \
         trainer.device=npu $@
 
-MindSpeed 训练后端
+(可选) 设置MindSpeed训练后端指导
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-1. 参考 `MindSpeed Readme <https://gitee.com/ascend/MindSpeed>`_ 说明安装 MindSpeed 加速库。
+1. 参考 `MindSpeed README <https://gitee.com/ascend/MindSpeed>`_ 说明安装 MindSpeed 加速库。
 
-2. 使能 Verl worker 模型 ``strategy`` 配置为 ``megatron`` ，例如 ``actor_rollout_ref.actor.strategy=megatron``。
+2. 使能 verl worker 模型 ``strategy`` 配置为 ``megatron`` ，例如 ``actor_rollout_ref.actor.strategy=megatron``。
 
 3. MindSpeed 自定义入参可通过 ``override_transformer_config`` 参数传入，例如对 actor 模型开启 FA 特性可使用 ``+actor_rollout_ref.actor.megatron.override_transformer_config.use_flash_attn=True``。
 
-4. 更多特性信息可参考 `MindSpeed Verl 文档 <https://gitee.com/ascend/MindSpeed/blob/master/docs/user-guide/verl.md>`_ 。
+4. 更多特性信息可参考 `MindSpeed+verl 文档 <https://gitee.com/ascend/MindSpeed/blob/master/docs/user-guide/verl.md>`_ 。
 
 支持现状
 -----------------------------------
 
-+-----------+-------------------------+-------------+-------------------+----------------------+
-| algorithm |         model           | rewards mae |  throughput ratio |        hardware      |
-+-----------+-------------------------+-------------+-------------------+----------------------+
-|   GRPO    | Qwen2.5-7B-instruct     |    0.38%    |        0.588      |  Atlas 200T A2 Box16 |
-+-----------+-------------------------+-------------+-------------------+----------------------+
-|   GRPO    | Qwen2.5-32B-instruct    |    0.30%    |        0.685      |  Atlas 200T A2 Box16 |
-+-----------+-------------------------+-------------+-------------------+----------------------+
-|   GRPO    | Qwen2.5-VL-3B-instruct  |    3.14%    |        0.470      |  Atlas 200T A2 Box16 |
-+-----------+-------------------------+-------------+-------------------+----------------------+
-|   GRPO    | Qwen2.5-VL-7B-instruct  |    3.30%    |        0.380      |  Atlas 200T A2 Box16 |
-+-----------+-------------------------+-------------+-------------------+----------------------+
-|   GRPO    | Qwen2.5-VL-32B-instruct |    0.79%    |        0.568      |  Atlas 200T A2 Box16 |
-+-----------+-------------------------+-------------+-------------------+----------------------+
-|   DAPO    | Qwen2.5-7B-instruct     |    3.83%    |        pending    |  Atlas 200T A2 Box16 |
-+-----------+-------------------------+-------------+-------------------+----------------------+
-|   DAPO    | Qwen3-8B-base           |    5.3%     |        pending    |  Atlas 200T A2 Box16 |
-+-----------+-------------------------+-------------+-------------------+----------------------+
-|   DAPO    | Qwen3-14B-base          |    5.9%     |        pending    |  Atlas 200T A2 Box16 |
-+-----------+-------------------------+-------------+-------------------+----------------------+
-|  SFT-PEFT | Qwen2.5-0.5B-instruct   |    0.06%    |        0.305      |  Atlas 900 A2 PODc   |
-+-----------+-------------------------+-------------+-------------------+----------------------+
+**表1** RL类算法
 
-精度对比说明
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++-----------+-------------------------+-------------------+-------------------+--------------------------+
+| algorithm |         model           |   actor.strategy  |   rollout.name    |         hardware         |
++-----------+-------------------------+-------------------+-------------------+--------------------------+
+|   GRPO    | Qwen2.5-7B-instruct     |        FSDP       |    vllm-ascend    |    Atlas 200T A2 Box16   |
++-----------+-------------------------+-------------------+-------------------+--------------------------+
+|   GRPO    | Qwen2.5-32B-instruct    |        FSDP       |    vllm-ascend    |    Atlas 200T A2 Box16   |
++-----------+-------------------------+-------------------+-------------------+--------------------------+
+|   GRPO    | Qwen2.5-VL-3B-instruct  |        FSDP       |    vllm-ascend    |    Atlas 200T A2 Box16   |
++-----------+-------------------------+-------------------+-------------------+--------------------------+
+|   GRPO    | Qwen2.5-VL-7B-instruct  |        FSDP       |    vllm-ascend    |    Atlas 200T A2 Box16   |
++-----------+-------------------------+-------------------+-------------------+--------------------------+
+|   GRPO    | Qwen2.5-VL-32B-instruct |        FSDP       |    vllm-ascend    |    Atlas 200T A2 Box16   |
++-----------+-------------------------+-------------------+-------------------+--------------------------+
+|   GRPO    | Qwen3-8B                |        FSDP       |    vllm-ascend    |    Atlas 200T A2 Box16   |
++-----------+-------------------------+-------------------+-------------------+--------------------------+
+|   GRPO    | Qwen3-32B               |        FSDP       |    vllm-ascend    |    Atlas 200T A2 Box16   |
++-----------+-------------------------+-------------------+-------------------+--------------------------+
+|   DAPO    | Qwen2.5-7B-instruct     |        FSDP       |    vllm-ascend    |    Atlas 200T A2 Box16   |
++-----------+-------------------------+-------------------+-------------------+--------------------------+
+|   DAPO    | Qwen2.5-32B             |        FSDP       |    vllm-ascend    |    Atlas 200T A2 Box16   |
++-----------+-------------------------+-------------------+-------------------+--------------------------+
+|   DAPO    | Qwen3-8B-base           |        FSDP       |    vllm-ascend    |    Atlas 200T A2 Box16   |
++-----------+-------------------------+-------------------+-------------------+--------------------------+
+|   DAPO    | Qwen3-14B-base          |        FSDP       |    vllm-ascend    |    Atlas 200T A2 Box16   |
++-----------+-------------------------+-------------------+-------------------+--------------------------+
+|   DAPO    | Qwen3-30B-A3B-base      |        FSDP       |    vllm-ascend    |    Atlas 200T A2 Box16   |
++-----------+-------------------------+-------------------+-------------------+--------------------------+
+|   DAPO    | Qwen3-30B-A3B           |      megatron     |    vllm-ascend    |    Atlas 800T A3         |
++-----------+-------------------------+-------------------+-------------------+--------------------------+
+|   PPO     | Qwen3-8B                |        FSDP       |    vllm-ascend    |    Atlas 900 A2 PODc     |
++-----------+-------------------------+-------------------+-------------------+--------------------------+
 
-对于 SFT 类算法，我们期望在相同配置下华为昇腾设备与 A100 的 loss 平均绝对误差<= 2%。计算方式如下图。更多信息请参考 `精度计算说明 <https://www.hiascend.com/document/detail/zh/Pytorch/600/ptmoddevg/trainingmigrguide/LMaccuracy_0001.html>`_。
+**表2** SFT类算法
 
-.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/loss_comparison.png?raw=true
-   :alt: loss_comparison
++-----------+-------------------------+-------------------+----------------------+
+| algorithm |         model           |   actor.strategy  |        hardware      |
++-----------+-------------------------+-------------------+----------------------+
+|  SFT-PEFT | Qwen3-8B                |        FSDP       |   Atlas 900 A2 PODc  |
++-----------+-------------------------+-------------------+----------------------+
+| ReTool-SFT| Qwen2.5-7B-instruct     |        FSDP       |   Atlas 900 A2 PODc  |
++-----------+-------------------------+-------------------+----------------------+
 
-根据经验，对于 GRPO 等 RL 类算法，我们期望在相同配置下华为昇腾设备与 A100 的 rewards 平均绝对误差<= 4%，计算方式参考上图。
-
-
-吞吐对比说明
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Ascend npu 和 A100 分别取日志中前4个 step 的 "perf/throughput" 做平均， throughput ratio = npu 平均值 / A100 平均值。 
 
 
 计划
 -----------------------------------
 
-查看 `roadmap <https://github.com/volcengine/verl/discussions/900>`_ 获取更多特性的支持进度。
+查看 `roadmap <https://github.com/volcengine/verl/discussions/2171>`_ 获取更多特性的支持进度。
 
 
 
 声明
 -----------------------------------
-verl中提供的ascend支持代码皆为参考样例，商业使用请通过官方正式途径沟通，谢谢。
+verl中提供的ascend支持代码皆为参考样例，如在生产环境中使用请通过官方正式途径沟通，谢谢。

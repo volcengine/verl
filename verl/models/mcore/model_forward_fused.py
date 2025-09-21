@@ -70,6 +70,7 @@ def fused_forward_gptmodel(
     attention_mask: Tensor,
     labels: Tensor,
     labels_mask: Tensor,
+    temperature: float = 1.0,
     **kwargs,
 ):
     pre_process: bool = unwrap_model(model).pre_process
@@ -89,6 +90,7 @@ def fused_forward_gptmodel(
         position_ids=position_ids,
         labels=labels_rmpad,
         packed_seq_params=packed_seq_params,
+        temperature=temperature,
     )
 
     if post_process:

@@ -156,7 +156,8 @@ def check_and_construct_configs(original_config: dict, cls: type[T]) -> T:
         for key in removed_keys:
             original_config.pop(key)
 
-    print(f"Overridden {cls.__name__} init config: {original_config}")
+    if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
+        print(f"Overridden {cls.__name__} init config: {original_config}")
     return cls(**original_config)
 
 
@@ -164,8 +165,8 @@ def hf_to_mcore_config_dense(
     hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs
 ) -> TransformerConfig:
     # for LlamaForCausalLM or Qwen2ForCausalLM
-    qkv_bias = True if "Qwen2ForCausalLM" in hf_config.architectures else getattr(hf_config, "attention_bias", False)
-    qk_layernorm = True if "Qwen3ForCausalLM" in hf_config.architectures else False
+    qkv_bias = True if "Qwen2" in hf_config.architectures[0] else getattr(hf_config, "attention_bias", False)
+    qk_layernorm = True if "Qwen3" in hf_config.architectures[0] else False
 
     args: dict = _get_base_transformer_config(
         hf_config=hf_config,

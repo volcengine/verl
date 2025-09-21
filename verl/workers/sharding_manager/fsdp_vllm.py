@@ -32,15 +32,16 @@ from dataclasses import asdict
 
 from verl import DataProto
 from verl.protocol import all_gather_data_proto
-from verl.third_party.vllm import LLM
+from verl.third_party.vllm import LLM, VLLM_SLEEP_LEVEL
 from verl.third_party.vllm import parallel_state as vllm_ps
-from verl.utils.device import get_device_id, get_device_name, get_torch_device
+from verl.utils.device import get_device_id, get_device_name, get_torch_device, set_expandable_segments
 from verl.utils.fsdp_utils import (
     fsdp_version,
     layered_summon_lora_params,
     load_fsdp_model_to_gpu,
     offload_fsdp_model_to_cpu,
 )
+from verl.utils.import_utils import deprecated
 from verl.utils.model import check_exclude_modules, check_target_modules, convert_weight_keys
 from verl.utils.profiler import GPUMemoryLogger, log_gpu_memory_usage, simple_timer
 from verl.utils.torch_functional import check_device_is_available
@@ -52,6 +53,7 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
+@deprecated()
 class FSDPVLLMShardingManager(BaseShardingManager):
     """Sharding manager for FSDP models with vLLM inference engine integration.
 
@@ -210,6 +212,10 @@ class FSDPVLLMShardingManager(BaseShardingManager):
                 offload_fsdp_model_to_cpu(self.module)
             log_gpu_memory_usage("After state_dict() in sharding manager memory", logger=logger)
 
+            # vllm need to set _set_allocator_settings to False
+            logger.debug("fsdp vllm sharding_manager _set_allocator_settings to False")
+            set_expandable_segments(False)
+
             if self.rollout_config.free_cache_engine:
                 if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
                     self.inference_engine.wake_up(tags=["weights"])
@@ -238,12 +244,16 @@ class FSDPVLLMShardingManager(BaseShardingManager):
     @GPUMemoryLogger(role="fsdp vllm sharding_manager", logger=logger)
     def __exit__(self, exc_type, exc_value, traceback):
         if self.rollout_config.free_cache_engine:
-            self.inference_engine.sleep(level=1)
+            self.inference_engine.sleep(level=VLLM_SLEEP_LEVEL)
 
         self.module.train()
 
         # add empty cache after each compute
         get_torch_device().empty_cache()
+
+        # _set_allocator_settings to True is required by fsdp2 to avoid oom
+        logger.debug("fsdp vllm sharding_manager _set_allocator_settings to True")
+        set_expandable_segments(True)
 
         # restore random states
         if self.device_mesh is not None:

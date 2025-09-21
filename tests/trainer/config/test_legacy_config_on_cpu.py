@@ -25,6 +25,10 @@ _BREAKING_CHANGES = [
     "actor_rollout_ref.actor.optim.lr_warmup_steps",  # None -> -1
     "critic.optim.lr_warmup_steps",  # None -> -1
     "actor_rollout_ref.rollout.name",  # vllm -> ???
+    "actor_rollout_ref.actor.megatron.expert_tensor_parallel_size",
+    "actor_rollout_ref.ref.megatron.expert_tensor_parallel_size",
+    "critic.megatron.expert_tensor_parallel_size",
+    "reward_model.megatron.expert_tensor_parallel_size",
 ]
 
 
@@ -37,6 +41,14 @@ class TestConfigComparison(unittest.TestCase):
         "activations_checkpoint_method",
         "activations_checkpoint_granularity",
         "activations_checkpoint_num_layers",
+        "discrete",
+        "profiler",
+        "profile",
+        "use_profile",
+        "npu_profile",
+        "profile_steps",
+        "worker_nsight_options",
+        "controller_nsight_options",
     ]
 
     def _compare_configs_recursively(

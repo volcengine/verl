@@ -48,10 +48,13 @@ def main(config):
 def run_generation(config) -> None:
     if not ray.is_initialized():
         # this is for local ray cluster
-        ray.init(
-            runtime_env={"env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN"}},
-            num_cpus=config.ray_init.num_cpus,
-        )
+        default_runtime_env = {"env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN"}}
+        ray_init_kwargs = config.ray_kwargs.get("ray_init", {})
+        runtime_env_kwargs = ray_init_kwargs.get("runtime_env", {})
+        runtime_env = OmegaConf.merge(default_runtime_env, runtime_env_kwargs)
+        ray_init_kwargs = OmegaConf.create({**ray_init_kwargs, "runtime_env": runtime_env})
+        print(f"ray init kwargs: {ray_init_kwargs}")
+        ray.init(**OmegaConf.to_container(ray_init_kwargs))
 
     ray.get(main_task.remote(config))
 
@@ -90,6 +93,7 @@ def main_task(config):
 
     total_samples = len(dataset)
     config_batch_size = config.data.batch_size
+    apply_chat_template_kwargs = config.data.get("apply_chat_template_kwargs", {})
     num_batch = -(-total_samples // config_batch_size)
     output_lst = [[] for _ in range(config.data.n_samples)]
 
@@ -105,6 +109,7 @@ def main_task(config):
             return_tensors="pt",
             return_dict=True,
             tokenize=True,
+            **apply_chat_template_kwargs,
         )
         input_ids = inputs["input_ids"]
         attention_mask = inputs["attention_mask"]

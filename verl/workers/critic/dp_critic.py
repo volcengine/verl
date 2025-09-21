@@ -25,7 +25,7 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 from verl import DataProto
 from verl.trainer.ppo import core_algos
-from verl.utils.device import get_device_name, is_cuda_available, is_npu_available
+from verl.utils.device import get_device_id, get_device_name, is_cuda_available, is_npu_available
 from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.py_functional import append_to_dict
@@ -58,10 +58,9 @@ class DataParallelPPOCritic(BasePPOCritic):
         response_length = micro_batch["responses"].size(-1)
         multi_modal_inputs = {}
         if "multi_modal_inputs" in micro_batch.keys():
-            for key in micro_batch["multi_modal_inputs"][0].keys():
-                multi_modal_inputs[key] = torch.cat(
-                    [inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0
-                )
+            from verl.utils.model import extract_multi_modal_inputs
+
+            multi_modal_inputs = extract_multi_modal_inputs(micro_batch["multi_modal_inputs"])
 
         with torch.autocast(device_type=self.device_name, dtype=torch.bfloat16):
             input_ids = micro_batch["input_ids"]
@@ -83,7 +82,7 @@ class DataParallelPPOCritic(BasePPOCritic):
                         index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices)
                         .transpose(0, 1)
                         .unsqueeze(1)
-                    )  # (3, bsz, seqlen) -> (3, 1, bsz * seqlen)
+                    )  # (4, bsz, seqlen) -> (4, 1, bsz * seqlen)
                 else:
                     position_ids_rmpad = index_first_axis(
                         rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices
@@ -177,6 +176,7 @@ class DataParallelPPOCritic(BasePPOCritic):
 
         values_lst = []
         for micro_batch in micro_batches:
+            micro_batch = micro_batch.to(get_device_id())
             model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch}
             with torch.no_grad():
                 values = self._forward_micro_batch(model_inputs)
@@ -188,6 +188,7 @@ class DataParallelPPOCritic(BasePPOCritic):
 
         if "response_mask" in data.batch:
             response_mask = data.batch["response_mask"]
+            response_mask = response_mask.to(values.device)
             values = values * response_mask  # Only action tokens have values
         return values
 
@@ -221,6 +222,7 @@ class DataParallelPPOCritic(BasePPOCritic):
                 self.critic_optimizer.zero_grad()
 
                 for micro_batch in micro_batches:
+                    micro_batch = micro_batch.to(get_device_id())
                     micro_batch_metrics = {}
                     model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch}
                     response_mask = model_inputs["response_mask"]

@@ -17,6 +17,7 @@ Note that we don't combine the main with ray_trainer as ray_trainer is used by o
 
 import hydra
 import ray
+from omegaconf import OmegaConf
 
 from .entropy_ray_trainer import RayEntropyTrainer
 from .reward import load_reward_manager
@@ -30,17 +31,20 @@ def main(config):
 def run_ppo(config) -> None:
     if not ray.is_initialized():
         # this is for local ray cluster
-        ray.init(
-            runtime_env={
-                "env_vars": {
-                    "TOKENIZERS_PARALLELISM": "true",
-                    "NCCL_DEBUG": "WARN",
-                    "VLLM_LOGGING_LEVEL": "WARN",
-                    "WANDB_API_KEY": "YOUR_WANDB_API_KEY",
-                }
-            },
-            num_cpus=config.ray_init.num_cpus,
-        )
+        default_runtime_env = {
+            "env_vars": {
+                "TOKENIZERS_PARALLELISM": "true",
+                "NCCL_DEBUG": "WARN",
+                "VLLM_LOGGING_LEVEL": "WARN",
+                "WANDB_API_KEY": "YOUR_WANDB_API_KEY",
+            }
+        }
+        ray_init_kwargs = config.ray_kwargs.get("ray_init", {})
+        runtime_env_kwargs = ray_init_kwargs.get("runtime_env", {})
+        runtime_env = OmegaConf.merge(default_runtime_env, runtime_env_kwargs)
+        ray_init_kwargs = OmegaConf.create({**ray_init_kwargs, "runtime_env": runtime_env})
+        print(f"ray init kwargs: {ray_init_kwargs}")
+        ray.init(**OmegaConf.to_container(ray_init_kwargs))
 
     runner = TaskRunner.remote()
     ray.get(runner.run.remote(config))

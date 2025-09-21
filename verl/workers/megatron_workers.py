@@ -15,11 +15,12 @@
 The main entry point to run the PPO algorithm
 """
 
+import asyncio
 import datetime
 import logging
 import os
 import time
-from typing import Any
+from typing import Any, Optional
 
 import psutil
 import torch
@@ -40,7 +41,14 @@ from verl.single_controller.base.decorator import Dispatch, make_nd_compute_data
 from verl.utils import hf_tokenizer
 from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpointManager
 from verl.utils.config import omega_conf_to_dataclass
-from verl.utils.device import get_device_id, get_device_name, get_nccl_backend, get_torch_device
+from verl.utils.device import (
+    get_device_id,
+    get_device_name,
+    get_nccl_backend,
+    get_torch_device,
+    set_expandable_segments,
+)
+from verl.utils.distributed import set_numa_affinity
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local
 from verl.utils.megatron_utils import (
@@ -48,6 +56,7 @@ from verl.utils.megatron_utils import (
     load_megatron_optimizer,
     offload_megatron_model_to_cpu,
     offload_megatron_optimizer,
+    per_tensor_generator,
 )
 from verl.utils.memory_utils import aggressive_empty_cache
 from verl.utils.model import get_hf_model_path, load_mcore_dist_weights, load_megatron_gptmodel_weights
@@ -55,14 +64,16 @@ from verl.utils.profiler import (
     DistProfiler,
     DistProfilerExtension,
     GPUMemoryLogger,
+    ProfilerConfig,
     log_gpu_memory_usage,
     simple_timer,
 )
-from verl.utils.profiler.performance import reduce_timing
+from verl.utils.profiler.performance import reduce_timing, topk_reduce_ratio_min_max
 from verl.workers.actor.megatron_actor import MegatronPPOActor
-from verl.workers.config import McoreCriticConfig
+from verl.workers.config import HFModelConfig, McoreCriticConfig, RolloutConfig
 from verl.workers.critic.megatron_critic import MegatronPPOCritic
 from verl.workers.reward_model.megatron.reward_model import MegatronRewardModel
+from verl.workers.rollout import get_rollout_class
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -138,7 +149,6 @@ class MegatronWorker(Worker):
         self.architectures = getattr(hf_config, "architectures", None)
         if self.rank == 0:
             print(f"Model config after override: {hf_config}")
-        tf_config = hf_to_mcore_config(hf_config, dtype, **override_transformer_config)
 
         if use_mbridge:
             from verl.models.mcore.mbridge import AutoBridge
@@ -148,6 +158,7 @@ class MegatronWorker(Worker):
             tf_config = bridge.config
             self.bridge = bridge
         else:
+            tf_config = hf_to_mcore_config(hf_config, dtype, **override_transformer_config)
             self.bridge = None
 
         print(f"TF config: {tf_config}")
@@ -175,6 +186,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         # 1, users should disable WorkerDict; 2.assign different ResourcePool to different models,
         # 3. and apply the following patch in ray==2.10, https://github.com/ray-project/ray/pull/44385
         if not torch.distributed.is_initialized():
+            set_numa_affinity()
             rank = int(os.environ["LOCAL_RANK"])
             torch.distributed.init_process_group(
                 backend=get_nccl_backend(),
@@ -187,7 +199,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 tensor_model_parallel_size=self.config.actor.megatron.tensor_model_parallel_size,
                 pipeline_model_parallel_size=self.config.actor.megatron.pipeline_model_parallel_size,
                 virtual_pipeline_model_parallel_size=self.config.actor.megatron.virtual_pipeline_model_parallel_size,
-                pipeline_model_parallel_split_rank=None,
                 use_sharp=False,
                 context_parallel_size=self.config.actor.megatron.context_parallel_size,
                 expert_model_parallel_size=self.config.actor.megatron.expert_model_parallel_size,
@@ -213,8 +224,31 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         self._is_rollout = self.role in ["rollout", "actor_rollout", "actor_rollout_ref"]
         self._is_ref = self.role in ["ref", "actor_rollout_ref"]
 
-        profiler_config = omega_conf_to_dataclass(config.get("profiler"))
-        DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=profiler_config))
+        if self._is_actor:
+            omega_profiler_config = config.actor.get("profiler", {})
+        elif self._is_rollout:
+            # NOTE: In colocation mode, rollout config may not take effect (follow the actor config)
+            # This is for extendability in AsyncRL cases
+            omega_profiler_config = config.rollout.get("profiler", {})
+        elif self._is_ref:
+            omega_profiler_config = config.ref.get("profiler", {})
+        else:
+            raise ValueError(
+                f"Invalid role {self.role}, should be one of "
+                "['actor', 'rollout', 'ref', 'actor_rollout', 'actor_rollout_ref']"
+            )
+        # omega_profiler_config is DictConfig
+        # profiler_config is a ProfilerConfig dataclass
+        profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
+        if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch", "torch_memory"]:
+            tool_config = omega_conf_to_dataclass(
+                omega_profiler_config.get("tool_config", {}).get(omega_profiler_config.get("tool"))
+            )
+        else:
+            tool_config = None
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config)
+        )
 
         # TODO(sgm): Currently, we only support reference model param offload
         # will support other offload later
@@ -352,124 +386,56 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
     def _build_rollout(self, trust_remote_code=False):
         from torch.distributed.device_mesh import init_device_mesh
 
-        layer_name_mapping = {
+        # 1. parse rollout and huggingface model config
+        rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
+        model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model, dataclass_type=HFModelConfig)
+
+        # 2. build rollout device mesh
+        infer_tp = self.config.rollout.tensor_model_parallel_size
+        dp = self.world_size // infer_tp
+        assert self.world_size % infer_tp == 0, (
+            f"rollout world_size: {self.world_size} is not divisible by infer_tp: {infer_tp}"
+        )
+        rollout_device_mesh = init_device_mesh(
+            get_device_name(), mesh_shape=(dp, infer_tp), mesh_dim_names=["dp", "infer_tp"]
+        )
+
+        is_collect = rollout_device_mesh["infer_tp"].get_local_rank() == 0
+        self._register_dispatch_collect_info(
+            "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
+        )
+
+        # 3. init trainer and rollout random states
+        self.torch_random_states = get_torch_device().get_rng_state()
+        gen_dp_rank = rollout_device_mesh["dp"].get_local_rank()
+        get_torch_device().manual_seed(gen_dp_rank + 1000)  # make sure all tp ranks have the same random states
+        self.gen_random_states = get_torch_device().get_rng_state()
+        get_torch_device().set_rng_state(self.torch_random_states)
+
+        # 4. build rollout model
+        log_gpu_memory_usage(f"Before building {self.config.rollout.name} rollout", logger=logger)
+        self.rollout = get_rollout_class(rollout_config.name, rollout_config.mode)(
+            config=rollout_config, model_config=model_config, device_mesh=rollout_device_mesh
+        )
+        log_gpu_memory_usage(f"After building {self.config.rollout.name} rollout", logger=logger)
+
+        from verl.models.mcore import get_mcore_weight_converter
+
+        self.layer_name_mapping = {
             "qkv_layer_name": "self_attention.linear_qkv.",
             "gate_proj_layer_name": "linear_fc1.",
         }
-        if self.config.rollout.name == "vllm":
-            from torch.distributed.device_mesh import init_device_mesh
+        self.weight_converter = None
+        if not self.bridge:
+            self.weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
 
-            from verl.workers.rollout.vllm_rollout import vLLMRollout
-            from verl.workers.sharding_manager.megatron_vllm import MegatronVLLMShardingManager
-
-            # NOTE(sgm): If the QKV and gate_up projection layer are concate together in actor,
-            # we will reorganize their weight format when resharding from actor to rollout.
-
-            infer_tp = self.config.rollout.tensor_model_parallel_size
-            dp = self.world_size // infer_tp
-            assert self.world_size % infer_tp == 0, (
-                f"rollout world_size: {self.world_size} is not divisible by infer_tp: {infer_tp}"
-            )
-            rollout_device_mesh = init_device_mesh(
-                get_device_name(), mesh_shape=(dp, infer_tp), mesh_dim_names=["dp", "infer_tp"]
-            )
-            log_gpu_memory_usage("Before building vllm rollout", logger=None)
-
-            local_path = copy_to_local(self.config.model.path, use_shm=self.config.model.get("use_shm", False))
-            from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
-
-            vllm_rollout_cls = vLLMRollout if self.config.rollout.mode == "sync" else vLLMAsyncRollout
-            rollout = vllm_rollout_cls(
-                model_path=local_path,
-                config=self.config.rollout,
-                tokenizer=self.tokenizer,
-                model_hf_config=self.actor_model_config,
-                device_mesh=rollout_device_mesh,
-                trust_remote_code=trust_remote_code,
-            )
-            log_gpu_memory_usage("After building vllm rollout", logger=logger)
-
-            # perform weight resharding between actor and rollout
-            from verl.models.mcore import get_mcore_weight_converter
-
-            weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
-            sharding_manager = MegatronVLLMShardingManager(
-                inference_engine=rollout.inference_engine,
-                model_config=self.actor_model_config,
-                transformer_config=self.tf_config,
-                rollout_config=self.config.rollout,
-                layer_name_mapping=layer_name_mapping,
-                actor_module=self.actor.actor_module,
-                weight_converter=weight_converter,
-                device_mesh=rollout_device_mesh,
-                offload_param=self._is_offload_param,
-                bridge=self.bridge,
-            )
-            log_gpu_memory_usage("After building sharding manager", logger=logger)
-
-            is_collect = rollout_device_mesh["infer_tp"].get_local_rank() == 0
-            self._register_dispatch_collect_info(
-                "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
-            )
-
-        elif self.config.rollout.name == "sglang":
-            from verl.workers.rollout.sglang_rollout.sglang_rollout import SGLangRollout
-
-            # NOTE(linjunrong): Due to recent fp8 support in SGLang. Now importing any symbol relate to SGLang's
-            # model_runner would check CUDA device capability.
-            # However, due to verl's setting, the main process of ray can not find any CUDA device, which would
-            # potentially lead to: "RuntimeError: No CUDA GPUs are available".
-            # For this reason, sharding_manager.__init__ should not import FSDPSGLangShardingManager and we import it
-            # here use the abs path.
-            # check: https://github.com/sgl-project/sglang/blob/00f42707eaddfc2c0528e5b1e0094025c640b7a0/python/sglang/srt/layers/quantization/fp8_utils.py#L76
-            from verl.workers.sharding_manager.megatron_sglang import MegatronSGLangShardingManager
-
-            infer_tp = self.config.rollout.tensor_model_parallel_size
-            dp = self.world_size // infer_tp
-            assert self.world_size % infer_tp == 0, (
-                f"rollout world_size: {self.world_size} is not divisible by infer_tp: {infer_tp}"
-            )
-            rollout_device_mesh = init_device_mesh(
-                "cpu", mesh_shape=(dp, infer_tp, 1), mesh_dim_names=("dp", "tp", "pp")
-            )
-
-            is_collect = rollout_device_mesh["tp"].get_local_rank() == 0
-            self._register_dispatch_collect_info(
-                "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
-            )
-
-            local_path = copy_to_local(self.config.model.path)
-            log_gpu_memory_usage(f"Before building {self.config.rollout.name} rollout", logger=None)
-            rollout = SGLangRollout(
-                actor_module=local_path,
-                config=self.config.rollout,
-                processing_class=self.processor if self.processor is not None else self.tokenizer,
-                model_hf_config=self.actor_model_config,
-                trust_remote_code=trust_remote_code,
-                device_mesh=rollout_device_mesh,
-            )
-            log_gpu_memory_usage(f"After building {self.config.rollout.name} rollout", logger=None)
-
-            from verl.models.mcore import get_mcore_weight_converter
-
-            weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
-            sharding_manager = MegatronSGLangShardingManager(
-                actor_module=self.actor.actor_module,
-                inference_engine=rollout._engine,
-                model_config=self.actor_model_config,
-                rollout_config=self.config.rollout,
-                transformer_config=self.tf_config,
-                layer_name_mapping=layer_name_mapping,
-                weight_converter=weight_converter,
-                bridge=self.bridge,
-                device_mesh=rollout_device_mesh,
-                offload_param=self._is_offload_param,
-            )
-            log_gpu_memory_usage("After building sharding manager", logger=logger)
-        else:
-            raise NotImplementedError("Only vllmRollout is supported with Megatron now")
-        print(f"rollout and sharding manager init done sharding_manager: {sharding_manager}")
-        return rollout, sharding_manager
+        # 5. switch to trainer mode
+        # NOTE: It's critical that hybrid engine in trainer mode initially to load checkpoint.
+        # For sync mode, we directly switch to trainer mode here.
+        # For async mode, we can't call run_until_complete here, so we will switch to trainer mode in AgentLoopManager.
+        if rollout_config.mode == "sync" and self._is_actor:
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(self.trainer_mode())
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
@@ -534,11 +500,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             log_gpu_memory_usage("After MegatronPPOActor init", logger=logger)
 
         if self._is_rollout:
-            self.rollout, self.sharding_manager = self._build_rollout(
-                trust_remote_code=self.config.model.get("trust_remote_code", False)
-            )
-            # used for sleep/wake_up
-            self.rollout.sharding_manager = self.sharding_manager
+            self._build_rollout(trust_remote_code=self.config.model.get("trust_remote_code", False))
             log_gpu_memory_usage("After rollout init", logger=logger)
 
         if self._is_ref:
@@ -585,6 +547,60 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         get_torch_device().empty_cache()
         log_gpu_memory_usage("After init_model finish", logger=logger)
 
+    async def rollout_mode(self):
+        """Context switch hybridengine to rollout mode."""
+        aggressive_empty_cache(force_sync=True)
+
+        if self._is_offload_param:
+            load_megatron_model_to_gpu(self.actor.actor_module, load_grad=False)
+        if self.bridge is not None:
+            per_tensor_param = self.bridge.export_weights(self.actor.actor_module)
+        else:
+            per_tensor_param = per_tensor_generator(
+                self.actor.actor_module,
+                self.actor_model_config,
+                self.weight_converter,
+                self.tf_config,
+                self.layer_name_mapping,
+            )
+
+        set_expandable_segments(False)
+
+        if self.config.rollout.free_cache_engine:
+            await self.rollout.resume(tags=["weights"])
+        await self.rollout.update_weights(per_tensor_param)
+        if self._is_offload_param:
+            offload_megatron_model_to_cpu(self.actor.actor_module)
+        aggressive_empty_cache(force_sync=True)
+        if self.config.rollout.free_cache_engine:
+            await self.rollout.resume(tags=["kv_cache"])
+
+        # important: need to manually set the random states of each tp to be identical.
+        self.torch_random_states = get_torch_device().get_rng_state()
+        get_torch_device().set_rng_state(self.gen_random_states)
+
+    async def trainer_mode(self):
+        """Context switch hybridengine to trainer mode."""
+        if self.config.rollout.free_cache_engine:
+            log_gpu_memory_usage("Before rollout offload", logger=logger)
+            await self.rollout.release()
+            log_gpu_memory_usage("After rollout offload", logger=logger)
+
+        for model in self.actor.actor_module:
+            model.train()
+        # add empty cache after each compute
+        aggressive_empty_cache(force_sync=True)
+
+        # FIXME(@wuxibin): megatron+sglang failed with `expandable_segments:True` in ci,
+        # can't reproduce it in dev environment, temporary disable it.
+        # https://github.com/volcengine/verl/actions/runs/17382936845/job/49344264323?pr=3285
+        if os.environ.get("MEGATRON_CI_DISABLE_EXPANDABLE_SEGMENTS", "0") == "0":
+            set_expandable_segments(True)
+
+        # restore random states
+        self.gen_random_states = get_torch_device().get_rng_state()
+        get_torch_device().set_rng_state(self.torch_random_states)
+
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @GPUMemoryLogger(role="update_actor", logger=logger)
     @DistProfiler.annotate(color="red")
@@ -596,7 +612,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         if self._is_offload_optimizer:
             load_megatron_optimizer(self.actor_optimizer)
             log_gpu_memory_usage("After load actor optimizer during update_actor", logger=logger)
-        data.batch = data.batch.to(get_device_name())
 
         micro_batch_size = self.config.actor.ppo_micro_batch_size_per_gpu
         data.meta_info["micro_batch_size"] = micro_batch_size
@@ -634,7 +649,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
     @DistProfiler.annotate(color="red")
     def generate_sequences(self, prompts: DataProto):
         assert self._is_rollout
-        prompts.batch = prompts.batch.to(get_device_name())
+        prompts = prompts.to(get_device_name())
         meta_info = {
             "eos_token_id": self.generation_config.eos_token_id
             if self.generation_config is not None
@@ -648,16 +663,31 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             offload_megatron_optimizer(self.actor_optimizer)
 
         timing_generate = {}
-        with self.sharding_manager:
-            log_gpu_memory_usage("After entering sharding manager", logger=logger)
-            with simple_timer("generate_sequences", timing_generate):
-                output = self.rollout.generate_sequences(prompts=prompts)
-            log_gpu_memory_usage("After rollout generation", logger=logger)
+        if self._is_actor:  # For rollout only, we do not switch context.
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(self.rollout_mode())
+            log_gpu_memory_usage("After switch to rollout mode", logger=logger)
 
-        timing_generate.update(self.sharding_manager.timing)
+        with simple_timer("generate_sequences", timing_generate):
+            output = self.rollout.generate_sequences(prompts=prompts)
+
+        if self._is_actor:
+            loop.run_until_complete(self.trainer_mode())
+            log_gpu_memory_usage("After switch to trainer mode", logger=logger)
+
         # We calculate the average timing across all ranks
         # to make sure meta_info["timing"] is the same
+        timing_generate_topk_ratio, timing_generate_min, timing_generate_max = topk_reduce_ratio_min_max(
+            timing_generate["generate_sequences"]
+        )
         timing_generate = reduce_timing(timing_generate)
+        timing_generate.update(
+            {
+                "generation_timing/max": timing_generate_max,
+                "generation_timing/min": timing_generate_min,
+                "generation_timing/topk_ratio": timing_generate_topk_ratio,
+            }
+        )
         output.meta_info["timing"] = timing_generate
         output = output.to("cpu")
         # clear kv cache
@@ -677,7 +707,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         data.meta_info["max_token_len"] = self.config.ref.log_prob_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = self.config.ref.log_prob_use_dynamic_bsz
         data.meta_info["temperature"] = self.config.rollout.temperature
-        data = data.to(get_device_id())
         output, _ = self.ref_policy.compute_log_prob(data=data, calculate_entropy=False)
         output = DataProto.from_dict(tensors={"ref_log_prob": output})
         output = output.to("cpu")
@@ -700,7 +729,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         data.meta_info["max_token_len"] = self.config.rollout.log_prob_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = self.config.rollout.log_prob_use_dynamic_bsz
         data.meta_info["temperature"] = self.config.rollout.temperature
-        data = data.to(get_device_id())
         output, entropys = self.actor.compute_log_prob(data=data, calculate_entropy=True)
         output = DataProto.from_dict(
             tensors={"old_log_probs": output, "entropys": entropys},
@@ -743,32 +771,17 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
 
 class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
-    def _build_rollout(self, trust_remote_code=False):
-        rollout, rollout_sharding_manager = super()._build_rollout(trust_remote_code)
-
-        # NOTE: rollout is not actually initialized here, it's deferred
-        # to be initialized by AsyncvLLMServer.
-
-        self.vllm_tp_size = self.config.rollout.tensor_model_parallel_size
-        self.vllm_dp_rank = int(os.environ["RANK"]) // self.vllm_tp_size
-        self.vllm_tp_rank = int(os.environ["RANK"]) % self.vllm_tp_size
-
-        # used for sleep/wake_up
-        rollout.sharding_manager = rollout_sharding_manager
-
-        return rollout, rollout_sharding_manager
-
-    # ============================ vLLM related ============================
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
+    async def wake_up(self):
+        await self.rollout_mode()
+        return True
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    def execute_method(self, method: str | bytes, *args, **kwargs):
-        """Called by ExternalRayDistributedExecutor collective_rpc."""
-        if self.vllm_tp_rank == 0 and method != "execute_model":
-            print(
-                f"[DP={self.vllm_dp_rank},TP={self.vllm_tp_rank}] execute_method: "
-                f"{method if isinstance(method, str) else 'Callable'}"
-            )
-        return self.rollout.execute_method(method, *args, **kwargs)
+    async def sleep(self):
+        await self.trainer_mode()
+        return True
+
+    # ============================ vLLM related ============================
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     def get_zeromq_address(self):
@@ -782,29 +795,32 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
         return ret
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
-    async def generate(self, prompt_ids: list[int], sampling_params: dict[str, Any], request_id: str) -> list[int]:
-        ret = await self.rollout.generate(prompt_ids, sampling_params, request_id)
+    async def generate(
+        self,
+        prompt_ids: list[int],
+        sampling_params: dict[str, Any],
+        request_id: str,
+        image_data: Optional[list[Any]] = None,
+    ) -> list[int]:
+        ret = await self.rollout.generate(prompt_ids, sampling_params, request_id, image_data=image_data)
         return ret
-
-    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    async def wake_up(self):
-        if self.config.rollout.free_cache_engine:
-            await self.rollout.wake_up()
-        # return something to block the caller
-        return True
-
-    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    async def sleep(self):
-        if self.config.rollout.free_cache_engine:
-            await self.rollout.sleep()
-        # return something to block the caller
-        return True
 
 
 class CriticWorker(MegatronWorker, DistProfilerExtension):
     def __init__(self, config: McoreCriticConfig):
         Worker.__init__(self)
-        DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=config.get("profiler")))
+
+        omega_profiler_config = config.get("profiler", {})
+        profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
+        if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch", "torch_memory"]:
+            tool_config = omega_conf_to_dataclass(
+                omega_profiler_config.get("tool_config", {}).get(omega_profiler_config.get("tool"))
+            )
+        else:
+            tool_config = None
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config)
+        )
         self.config: McoreCriticConfig = config
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
@@ -814,6 +830,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
         # 1, users should disable WorkerDict; 2.assign different ResourcePool to different models,
         # 3. and apply the following patch in ray==2.10, https://github.com/ray-project/ray/pull/44385
         if not torch.distributed.is_initialized():
+            set_numa_affinity()
             rank = int(os.environ["LOCAL_RANK"])
             torch.distributed.init_process_group(
                 backend=get_nccl_backend(),
@@ -826,7 +843,6 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
                 tensor_model_parallel_size=self.config.megatron.tensor_model_parallel_size,
                 pipeline_model_parallel_size=self.config.megatron.pipeline_model_parallel_size,
                 virtual_pipeline_model_parallel_size=self.config.megatron.virtual_pipeline_model_parallel_size,
-                pipeline_model_parallel_split_rank=None,
                 use_sharp=False,
                 context_parallel_size=self.config.megatron.context_parallel_size,
                 expert_model_parallel_size=self.config.megatron.expert_model_parallel_size,
@@ -1072,8 +1088,19 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
 
     def __init__(self, config):
         Worker.__init__(self)
+
+        profiler_config = omega_conf_to_dataclass(config.get("profiler", {}), dataclass_type=ProfilerConfig)
+        omega_profiler_config = config.get("profiler", {})
+        profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
+        if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch", "torch_memory"]:
+            tool_config = omega_conf_to_dataclass(
+                omega_profiler_config.get("tool_config", {}).get(omega_profiler_config.get("tool"))
+            )
+        else:
+            tool_config = None
         DistProfilerExtension.__init__(
-            self, DistProfiler(rank=self.rank, config=omega_conf_to_dataclass(config.get("profiler")))
+            self,
+            DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config),
         )
         self.config = config
 
@@ -1084,6 +1111,7 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
         # 1, users should disable WorkerDict; 2.assign different ResourcePool to different models,
         # 3. and apply the following patch in ray==2.10, https://github.com/ray-project/ray/pull/44385
         if not torch.distributed.is_initialized():
+            set_numa_affinity()
             rank = int(os.environ["LOCAL_RANK"])
             torch.distributed.init_process_group(
                 backend=get_nccl_backend(),
@@ -1096,7 +1124,6 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
                 tensor_model_parallel_size=self.config.megatron.tensor_model_parallel_size,
                 pipeline_model_parallel_size=self.config.megatron.pipeline_model_parallel_size,
                 virtual_pipeline_model_parallel_size=self.config.megatron.virtual_pipeline_model_parallel_size,
-                pipeline_model_parallel_split_rank=None,
                 use_sharp=False,
                 context_parallel_size=self.config.megatron.context_parallel_size,
                 expert_model_parallel_size=self.config.megatron.expert_model_parallel_size,

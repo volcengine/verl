@@ -19,17 +19,16 @@ import asyncio
 import logging
 import multiprocessing as mp
 import os
-import time
 from copy import deepcopy
 from json import JSONDecodeError
-from typing import Any, Optional
+from typing import Any, Generator, Optional
 from uuid import uuid4
 
 import numpy as np
+import ray
 import sglang.srt.entrypoints.engine
 import torch
 import torch.distributed as dist
-from omegaconf import DictConfig
 from sglang.srt.managers.tokenizer_manager import (
     ReleaseMemoryOccupationReqInput,
     ResumeMemoryOccupationReqInput,
@@ -45,6 +44,7 @@ from sglang.srt.utils import (
     set_prometheus_multiproc_dir,
     set_ulimit,
 )
+from sglang.srt.weight_sync.utils import update_weights as sgl_update_weights
 from tensordict import TensorDict
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 from torch.nn.utils.rnn import pad_sequence
@@ -60,14 +60,15 @@ from verl.tools.utils.tool_registry import initialize_tools_from_config
 from verl.utils.net_utils import is_ipv6
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
+from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
 from verl.workers.rollout.schemas import (
     AsyncRolloutRequest,
     AsyncRolloutRequestStateEnum,
     FinishReasonTypeEnum,
-    Message,
 )
-from verl.workers.rollout.sglang_rollout.utils import broadcast_pyobj
+from verl.workers.rollout.sglang_rollout.http_server_engine import AsyncHttpServerAdapter
+from verl.workers.rollout.sglang_rollout.utils import broadcast_pyobj, get_named_tensor_buckets
 
 try:
     from sglang.srt.function_call.function_call_parser import FunctionCallParser
@@ -127,8 +128,6 @@ sglang.srt.entrypoints.engine._set_envs_and_config = _set_envs_and_config
 class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # default to use dummy load format, which need to reload weights in first time
-        self._need_reload = True
 
     async def release_memory_occupation(self, tags: Optional[list[str]] = None):
         """Release GPU occupation temporarily."""
@@ -140,13 +139,6 @@ class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
 
     async def resume_memory_occupation(self, tags: Optional[list[str]] = None):
         """Resume GPU occupation."""
-        # because __init__ is a sync method, it can not call the async release_memory_occupation
-        # have to move release_memory_occupation from __init__ to here
-        # For multi-stage awake, we run release weight and kv_cache when we resume weights for the first time.
-        if self._need_reload:
-            await self.release_memory_occupation()
-            self._need_reload = False
-
         if tags is None:
             obj = ResumeMemoryOccupationReqInput()
         else:
@@ -158,6 +150,15 @@ class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
 
     async def flush_cache(self):
         return await self.tokenizer_manager.flush_cache()
+
+    async def abort_request(self, rid: str = "", abort_all: bool = False):
+        """Abort a specific request or all requests.
+
+        Args:
+            rid: The request ID to abort. If empty and abort_all is False, no action is taken.
+            abort_all: If True, abort all running requests regardless of rid.
+        """
+        return self.tokenizer_manager.abort_request(rid=rid, abort_all=abort_all)
 
 
 # NOTE(sgm): add for verl. We can optimize it by making
@@ -246,40 +247,19 @@ def get_tool_call_parser_type(
 class SGLangRollout(BaseRollout):
     def __init__(
         self,
-        actor_module: str,
-        config: DictConfig,
-        processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
-        model_hf_config,
-        port=None,
-        trust_remote_code: bool = False,
-        device_mesh: DeviceMesh | None = None,
-        **kwargs,
+        config: RolloutConfig,
+        model_config: HFModelConfig,
+        device_mesh: DeviceMesh,
     ):
-        """Synchronized SGLang rollout engine.
+        super().__init__(config, model_config, device_mesh)
 
-        Args:
-            actor_module: Huggingface model name or path to the model. The
-                model should be supported by SGLang.
-            config: A DictConfig object containing SGLang-specific operational
-                parameters and rollout settings.
-                Refer to https://docs.sglang.ai/backend/server_arguments.html
-            processing_class: The tokenizer or processor instance compatible with the actor_module.
-            model_hf_config: The Hugging Face model's configuration (e.g.,
-                `transformers.PretrainedConfig`). It provides architectural
-                details and hyperparameters like `max_position_embeddings`,
-                used by SGLang for correct model initialization. This is
-                the model's inherent design, not SGLang's runtime behavior.
-            port: Optional port for multi-node initialization when nnodes > 1.
-            trust_remote_code: Whether or not to allow for custom models
-                defined on the Hub in their own modeling files.
-            device_mesh: Optional `DeviceMesh` object for distributed setup.
-            **kwargs: Additional keyword arguments, primarily `train_tp` for
-                Megatron Backend integration to initialize hybrid engine
-                process groups.
-        """
-        super().__init__()
-        self.config = config
-        self._device_mesh_cpu = device_mesh
+        actor_module = model_config.local_path
+        processing_class = model_config.get_processor()
+        model_hf_config = model_config.hf_config
+        trust_remote_code = model_config.trust_remote_code
+        port = None
+        kwargs = {}
+
         os.environ.setdefault("SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK", "true")
 
         (
@@ -298,7 +278,7 @@ class SGLangRollout(BaseRollout):
             f"{self._function_call_parser}"
         )
 
-        self._init_distributed_env(device_mesh_cpu=device_mesh, **kwargs)
+        self._init_distributed_env(device_mesh_cpu=None, **kwargs)
 
         self._verify_config(model_hf_config=model_hf_config)
         # initialize the inference engine
@@ -428,40 +408,68 @@ class SGLangRollout(BaseRollout):
         tp_size_per_node = self._tp_size // nnodes
         node_rank = self._tp_rank // tp_size_per_node
         first_rank_in_node = self._tp_rank % tp_size_per_node == 0
-        engine_kwargs = self.config.get("engine_kwargs", {}).get("sglang", {})
-        attention_backend = engine_kwargs.get("attention_backend", None)
+        engine_kwargs = self.config.get("engine_kwargs", {}).get("sglang", {}) or {}
+        engine_kwargs = {key: val for key, val in engine_kwargs.items() if val is not None}
 
-        if first_rank_in_node:
+        # attention backend will be changed to fa3 if not specified
+        attention_backend = engine_kwargs.pop("attention_backend", None)
+        max_running_requests = self.config.get("max_num_seqs", None)
+
+        try:
+            is_server_mode = self.config.sglang_rollout_mode == "server"
+        except Exception:
+            is_server_mode = False
+        effective_first = first_rank_in_node or is_server_mode
+
+        if self.config.mode == "async" and not self.config.skip_tokenizer_init:
+            raise ValueError("async mode requires skip_tokenizer_init to be True")
+
+        if effective_first:
             rank = dist.get_rank()
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
-            self._engine = AsyncEngine(
-                model_path=actor_module,
-                dtype=self.config.dtype,
-                mem_fraction_static=self.config.gpu_memory_utilization,
-                enable_memory_saver=True,
-                base_gpu_id=0,
-                gpu_id_step=1,
-                tp_size=self._tp_size,
-                node_rank=node_rank,
-                load_format=load_format,
-                dist_init_addr=dist_init_addr,
-                nnodes=nnodes,
-                trust_remote_code=trust_remote_code,
+            args = {
+                "model_path": actor_module,
+                "dtype": self.config.dtype,
+                "mem_fraction_static": self.config.gpu_memory_utilization,
+                "enable_memory_saver": True,
+                "base_gpu_id": 0,
+                "gpu_id_step": 1,
+                "tp_size": self._tp_size,
+                "node_rank": node_rank,
+                "load_format": load_format,
+                "dist_init_addr": dist_init_addr,
+                "nnodes": nnodes,
+                "trust_remote_code": trust_remote_code,
+                "max_running_requests": max_running_requests,
                 # NOTE(linjunrong): add rank to prevent SGLang generate same port inside PortArgs.init_new
                 # when random.seed is being set during training
-                port=30000 + rank,
+                "port": 30000 + rank,
                 # NOTE(Chenyang): if you want to debug the SGLang engine output
                 # please set the following parameters
                 # Otherwise, it will make the engine run too slow
-                # log_level="INFO",
+                "log_level": "info",
+                # "log_level": "error",
                 # log_requests=True,
                 # log_requests_level=2,
+                # NOTE(Chenyang): turn on max_running_requests to set the max concurrent running requests
                 # max_running_requests=1,
-                mm_attention_backend="fa3",
-                attention_backend=attention_backend if attention_backend is not None else "fa3",
+                "mm_attention_backend": "fa3",
+                "attention_backend": attention_backend if attention_backend is not None else "fa3",
                 # In async mode, we want token in token out.
-                skip_tokenizer_init=self.config.mode == "async",
-            )
+                "skip_tokenizer_init": self.config.skip_tokenizer_init,
+            }
+
+            if is_server_mode:
+                # add server specific args
+                args["first_rank_in_node"] = first_rank_in_node
+                args["timeout"] = self.config.server["timeout"]
+                args["max_attempts"] = self.config.server["max_attempts"]
+                args["retry_delay"] = self.config.server["retry_delay"]
+                args["max_connections"] = self.config.server["max_connections"]
+                args["max_start_wait_time"] = self.config.server["max_start_wait_time"]
+                self._engine = AsyncHttpServerAdapter(**args)
+            else:
+                self._engine = AsyncEngine(**args)
         else:
             self._engine = None
 
@@ -474,7 +482,7 @@ class SGLangRollout(BaseRollout):
             max_new_tokens=self.config.response_length,
             presence_penalty=0.0,
             frequency_penalty=0.0,
-            repetition_penalty=1.0,
+            repetition_penalty=self.config.get("repetition_penalty", 1.0),
         )
         # supporting adding any sampling params from the config file
         for k in self.config.keys():
@@ -747,8 +755,8 @@ class SGLangRollout(BaseRollout):
         response_length = response.size(1)
         delta_position_id = torch.arange(1, response_length + 1, device=position_ids.device)
         delta_position_id = delta_position_id.unsqueeze(0).repeat(batch_size, 1)
-        if position_ids.dim() == 3:  # qwen2vl mrope
-            delta_position_id = delta_position_id.view(batch_size, 1, -1).expand(batch_size, 3, -1)
+        if position_ids.dim() == 3:  # qwen2vl mrope (batch size, 4, seq len)
+            delta_position_id = delta_position_id.view(batch_size, 1, -1).expand(batch_size, position_ids.size(1), -1)
 
         # TODO(sgm): fix position_ids on right_pad
         # prompt: left pad + response: right pad
@@ -838,12 +846,14 @@ class SGLangRollout(BaseRollout):
             elif _req.state == AsyncRolloutRequestStateEnum.TOOL_CALLING:
                 if _req.messages[-1].tool_calls is not None:
                     parsed_tool_calls = _req.messages[-1].tool_calls
+                    if self.config.skip_tokenizer_init:
+                        _req.messages[-1].tool_calls = None
                     tool_call_results = await asyncio.gather(
                         *[
                             self._tool_map[tool_call.function.name].execute(
                                 _req.request_id,
                                 tool_call.function.arguments,
-                                **_req.tools_kwargs[tool_call.function.name].get("execute_kwargs", {}),
+                                **_req.tools_kwargs.get(tool_call.function.name, {}).get("execute_kwargs", {}),
                             )
                             for tool_call in parsed_tool_calls
                         ]
@@ -861,7 +871,9 @@ class SGLangRollout(BaseRollout):
                 # Only continue the conversation if the prompt length is not greater than max_model_len - 1,
                 # since SGLang raises an error when max_new_tokens + 1 is greater to max_model_len (the extra
                 # token accounts for the EOS token).
-                if len(_req.get_generation_prompt_ids(self.processing_class)) + 1 >= self.config.max_model_len:
+                prompt_length = len(_req.get_generation_prompt_ids(self.processing_class))
+
+                if prompt_length + 1 >= self.config.max_model_len:
                     finish_reason_type = FinishReasonTypeEnum.LENGTH
                     break
 
@@ -882,11 +894,20 @@ class SGLangRollout(BaseRollout):
                     )
 
                 output = await self._handle_engine_call(_req, request_sampling_params, image_data=image_data)
-                content = output["text"]
+                if self.config.skip_tokenizer_init:
+                    content_ids = output["output_ids"]
+                    content = self.processing_class.decode(content_ids, skip_special_tokens=True)
+                    content_ids = torch.tensor(
+                        content_ids, dtype=_req.input_ids.dtype, device=_req.input_ids.device
+                    ).unsqueeze(0)
+                else:
+                    content_ids = None
+                    content = output["text"]
+
                 finish_reason_type = FinishReasonTypeEnum.from_str(output["meta_info"]["finish_reason"]["type"])
                 current_turns += 1
                 if finish_reason_type == FinishReasonTypeEnum.LENGTH:
-                    _req.add_assistant_message(self.processing_class, content)
+                    _req.add_assistant_message(self.processing_class, content=content, content_ids=content_ids)
                     break
                 else:
                     if self._function_call_parser and self._function_call_parser.has_tool_call(content):
@@ -919,17 +940,21 @@ class SGLangRollout(BaseRollout):
                             )
                         if len(parsed_tool_calls) > 0:
                             _req.add_assistant_message(
-                                self.processing_class, normed_content, tool_calls=parsed_tool_calls
+                                # since the content is updated, we just pass the content not content_ids
+                                self.processing_class,
+                                content=normed_content,
+                                tool_calls=parsed_tool_calls,
                             )
                         else:
-                            _req.add_assistant_message(self.processing_class, content)
+                            _req.add_assistant_message(self.processing_class, content=content, content_ids=content_ids)
                             finish_reason_type = FinishReasonTypeEnum.STOP
                             _req.state = AsyncRolloutRequestStateEnum.COMPLETED
                             break
                     else:
                         _req.add_assistant_message(
                             self.processing_class,
-                            content,
+                            content=content,
+                            content_ids=content_ids,
                         )
                         if (
                             _req.interaction_kwargs
@@ -989,7 +1014,6 @@ class SGLangRollout(BaseRollout):
         all_rewards = {**tool_reward_scores, **{"user_turn_rewards": user_turn_rewards}}
         _req.finalize(self.processing_class, all_rewards, finish_reason_type)
         if self.config.calculate_log_probs:
-            # 把input_ids输入sglang内生成一遍，并设置max_new_tokens=0，以生成log_probs
             debug_sampling_params = {**self.sampling_params}
             debug_sampling_params["max_new_tokens"] = 0
             output = await self._engine.async_generate(
@@ -1013,13 +1037,16 @@ class SGLangRollout(BaseRollout):
         self, generation_prompt_ids: list[int], sampling_params: dict, image_data: Optional[list[Any]] = None
     ) -> dict:
         max_new_tokens = min(self.config.response_length, self.config.max_model_len - len(generation_prompt_ids) - 1)
+
         kwargs = sampling_params.copy()
         kwargs["max_new_tokens"] = max_new_tokens
         kwargs["n"] = 1  # group size is supported in preprocess
+        return_logprob = kwargs.pop("logprobs", False)
+
         output = await self._engine.async_generate(
             input_ids=generation_prompt_ids,
             sampling_params=kwargs,
-            return_logprob=False,
+            return_logprob=return_logprob,
             image_data=image_data,
         )
         return output
@@ -1050,16 +1077,6 @@ class SGLangRollout(BaseRollout):
 
     @GPUMemoryLogger(role="sglang rollout", logger=logger)
     @torch.no_grad()
-    def generate_sequences_with_tools(self, prompts: DataProto, **kwargs) -> DataProto:
-        logger.warning(
-            "`generate_sequences_with_tools` is deprecated, please use `generate_sequences(...)`",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self._req_level_generate_sequences(prompts, **kwargs)
-
-    @GPUMemoryLogger(role="sglang rollout", logger=logger)
-    @torch.no_grad()
     def _req_level_generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
         """Generates multi-turn sequences for a batch of prompts.
         For multi-turn generation, each prompt is processed separately via
@@ -1071,16 +1088,70 @@ class SGLangRollout(BaseRollout):
         do_sample = prompts.meta_info.get("do_sample", True)
         is_validate = prompts.meta_info.get("validate", False)
         tgt_device = prompts.batch["input_ids"].device
+
         if self._tp_rank == 0:
             req_list = self._preprocess_prompt_to_async_rollout_requests(
                 prompts,
             )
-            loop = asyncio.get_event_loop()
-            output_req_list = loop.run_until_complete(
-                asyncio.gather(
-                    *[self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) for req in req_list],
+
+            # distinguish training and validation
+            if is_validate:
+                # Validation mode: process all requests without abort
+                loop = asyncio.get_event_loop()
+                output_req_list = loop.run_until_complete(
+                    asyncio.gather(
+                        *[self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) for req in req_list],
+                    )
                 )
-            )
+            else:
+                # add progress monitoring and abort function
+                total_requests = len(req_list)
+                target_completion = int(total_requests * (1 - self.config.get("over_sample_rate", 0.0)))
+                # abort when target_completion of requests are completed
+
+                completed_count = 0
+                aborted_requests = []
+                all_tasks = []
+
+                async def rollout_a_request_with_cancellation_handler(req):
+                    try:
+                        result = await self._async_rollout_a_request(req, do_sample, is_validate, **kwargs)
+                        return result
+                    except asyncio.CancelledError:
+                        # request is cancelled, return padding
+                        logger.info(f"Request {req.request_id} was cancelled, creating padding")
+                        aborted_requests.append(req.request_id)
+                        return self._create_padding_request(req)
+
+                async def run_with_cancellation():
+                    nonlocal all_tasks
+                    nonlocal completed_count
+                    all_tasks = [
+                        asyncio.create_task(rollout_a_request_with_cancellation_handler(req)) for req in req_list
+                    ]
+
+                    # Wait for target_completion tasks to complete
+                    try:
+                        for completed_task in asyncio.as_completed(all_tasks):
+                            await completed_task
+                            completed_count += 1
+                            if completed_count >= target_completion:
+                                break
+                    finally:
+                        # Cancel remaining tasks
+                        for t in all_tasks:
+                            if not t.done():
+                                t.cancel()
+
+                        # Wait for all tasks to finish (including cancelled ones)
+                        final_results = await asyncio.gather(*all_tasks, return_exceptions=True)
+                        # Abort all requests in SGLang engine
+                        await self._engine.abort_request(abort_all=True)
+                    return final_results
+
+                loop = asyncio.get_event_loop()
+                output_req_list = loop.run_until_complete(run_with_cancellation())
+
             sorted_output_req_list = sorted(output_req_list, key=lambda x: (x.batch_data_id, x.rollout_offset))
         else:
             sorted_output_req_list = None
@@ -1097,7 +1168,7 @@ class SGLangRollout(BaseRollout):
         prompt_ids, response_ids = [], []
         prompt_attention_mask, response_attention_mask = [], []
         prompt_position_ids, response_position_ids = [], []
-        prompt_loss_mask, response_loss_mask = [], []
+        response_loss_mask = []
         messages = []
         reward_scores = []
         multi_modal_inputs = []
@@ -1139,7 +1210,6 @@ class SGLangRollout(BaseRollout):
             response_attention_mask.append(req.response_attention_mask.to(tgt_device).squeeze(0))
             prompt_position_ids.append(req.prompt_position_ids.to(tgt_device).squeeze(0))
             response_position_ids.append(req.response_position_ids.to(tgt_device).squeeze(0))
-            prompt_loss_mask.append(req.prompt_loss_mask.to(tgt_device).squeeze(0))
             response_loss_mask.append(req.response_loss_mask.to(tgt_device).squeeze(0))
             messages.append({"messages": req.messages})
             reward_scores.append(req.reward_scores)
@@ -1207,9 +1277,6 @@ class SGLangRollout(BaseRollout):
         if response_position_ids.shape[-1] < self.config.response_length:
             response_position_ids = pad_sequence_to_length(response_position_ids, self.config.response_length, 0)
 
-        prompt_loss_mask = pad_sequence(prompt_loss_mask, batch_first=True, padding_value=0, padding_side="left")
-        if prompt_loss_mask.shape[1] < self.config.prompt_length:
-            prompt_loss_mask = pad_sequence_to_length(prompt_loss_mask, self.config.prompt_length, 0, left_pad=True)
         response_loss_mask = pad_sequence(response_loss_mask, batch_first=True, padding_value=0)
         if response_loss_mask.shape[1] < self.config.response_length:
             response_loss_mask = pad_sequence_to_length(response_loss_mask, self.config.response_length, 0)
@@ -1267,6 +1334,70 @@ class SGLangRollout(BaseRollout):
             batch=batch,
             non_tensor_batch=non_tensor_batch,
         )
+
+    def _create_padding_request(self, original_req: AsyncRolloutRequest) -> AsyncRolloutRequest:
+        # create a padding request to replace the aborted request
+        # the padding request has the following characteristics:
+        # 1. state is COMPLETED, but contains empty response
+        # 2. response_loss_mask is all 0, ensuring it is ignored in loss calculation
+        # 3. keep the original request structure, but the content is empty
+        # create padding response_ids (all pad_token_id)
+        padding_response_length = self.config.response_length
+        device = original_req.input_ids.device if original_req.input_ids is not None else "cpu"
+        padding_response_ids = torch.full(
+            (1, padding_response_length),
+            self.pad_token_id,
+            dtype=torch.long,
+            device=device,
+        )
+
+        # create padding attention_mask (all 0)
+        padding_response_attention_mask = torch.zeros(
+            (1, padding_response_length),
+            dtype=torch.long,
+            device=device,
+        )
+
+        # create padding position_ids
+        if original_req.position_ids is not None:
+            first_dim = 1
+            # if position_ids is a 2D tensor (e.g. qwen2vl)
+            if original_req.position_ids.dim() == 2:
+                first_dim = original_req.position_ids.shape[0]
+            padding_response_position_ids = torch.zeros(
+                (first_dim, padding_response_length),
+                dtype=torch.long,
+                device=device,
+            )
+        else:
+            padding_response_position_ids = None
+
+        # create padding prompt_attention_mask (all 0)
+        padding_prompt_attention_mask = torch.zeros(
+            (1, original_req.prompt_attention_mask.shape[-1]),
+            dtype=torch.long,
+            device=device,
+        )
+
+        # create padding loss_mask (all 0, ensuring it is ignored)
+        padding_response_loss_mask = torch.zeros(
+            (1, padding_response_length),
+            dtype=torch.long,
+            device=device,
+        )
+
+        padding_req = original_req.model_copy(deep=True)
+        padding_req.state = AsyncRolloutRequestStateEnum.COMPLETED
+        padding_req.response_ids = padding_response_ids
+        padding_req.prompt_attention_mask = padding_prompt_attention_mask
+        padding_req.response_attention_mask = padding_response_attention_mask
+        padding_req.response_position_ids = padding_response_position_ids
+        padding_req.response_loss_mask = padding_response_loss_mask
+        padding_req.reward_scores = {}
+        padding_req.metrics = {}
+        padding_req.output_token_ids = None
+        padding_req.rollout_log_probs = None
+        return padding_req
 
     def _preprocess_prompt_to_async_rollout_requests(self, prompts: DataProto, n: int = 1) -> list[AsyncRolloutRequest]:
         assert "raw_prompt" in prompts.non_tensor_batch, (
@@ -1341,98 +1472,125 @@ class SGLangRollout(BaseRollout):
 
         return req_list
 
-    async def chat_completion(self, json_request):
-        assert self._tp_rank == 0, "only called in tp rank 0"
-        _input_ids = None
-        _attention_mask = None
-        _position_ids = None
-        _tool_schemas = []
-        _tools_kwargs = {}
+    async def resume(self, tags: list[str]):
+        """Resume rollout weights or kv cache in GPU memory.
 
-        req = AsyncRolloutRequest(
-            request_id=str(uuid4()),
-            state=AsyncRolloutRequestStateEnum.PENDING,
-            messages=[Message.model_validate(msg) for msg in json_request["messages"]],
-            tool_schemas=_tool_schemas,
-            tools_kwargs=_tools_kwargs,
-            input_ids=_input_ids,
-            prompt_ids=_input_ids,
-            response_ids=None,
-            attention_mask=_attention_mask,
-            prompt_attention_mask=_attention_mask,
-            response_attention_mask=None,
-            position_ids=_position_ids,
-            prompt_position_ids=_position_ids,
-            response_position_ids=None,
-            loss_mask=None,
-            prompt_loss_mask=None,
-            response_loss_mask=None,
-            reward_scores={},
-            max_prompt_len=self.config.prompt_length,
-            max_response_len=self.config.response_length,
-            max_model_len=min(self.config.max_model_len, self.config.prompt_length + self.config.response_length),
-            use_inference_chat_template=self.config.multi_turn.use_inference_chat_template,
-            tokenization_sanity_check_mode=self.config.multi_turn.tokenization_sanity_check_mode,
-            processing_class=self.processing_class,
+        Args:
+            tag: weights or kv_cache.
+        """
+        if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.config.free_cache_engine:
+            await self._engine.resume_memory_occupation(tags=tags)
+
+    async def release(self):
+        """Release weights and kv cache in GPU memory."""
+        if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.config.free_cache_engine:
+            await self._engine.release_memory_occupation(tags=["kv_cache", "weights"])
+
+    async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None], **kwargs):
+        """
+        Update model weights using tensor buckets, similar to THUDM/slime's implementation.
+
+        Notes:
+          - For the best performance of `rebuild_cuda_tensor`, it is recommended to:
+              1. Enable `RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES`.
+              2. Manually set `CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7`
+            when using Tensor Parallelism (TP >= 8).
+          - See reference implementations in SLIME:
+            - Main logic: https://github.com/THUDM/slime/blob/fb7605cc5fb09af0f9369d37f7192f12bddee577/slime/ray/ppo_actor.py#L452
+            - runtime envs: https://github.com/THUDM/slime/blob/fb7605cc5fb09af0f9369d37f7192f12bddee577/slime/ray/ppo_actor.py#L39
+        """
+        update_weights_bucket_bytes = int(self.config.update_weights_bucket_megabytes) << 20
+        for params_batch in get_named_tensor_buckets(weights, update_weights_bucket_bytes):
+            await sgl_update_weights(
+                engine=self._engine,
+                params_batch=params_batch,
+                device_mesh_key="infer_tp",
+                device_mesh=self.device_mesh,
+            )
+
+        if self.device_mesh["infer_tp"].get_local_rank() == 0:
+            await self._engine.flush_cache()
+
+
+class ServerAdapter(BaseRollout):
+    """SGLang server adapter used in native http server mode, serve as http client to request SGLang server
+    to resume/release/update weights and kv_cache.
+
+    - hybrid mode: reside in each hybrid worker to sync weights between training engine and SGLang server.
+    - standalone/colocated mode: just a dummy placeholder to occupy the GPU to prevent ray scheduling new GPU actor.
+    """
+
+    def __init__(
+        self,
+        config: RolloutConfig,
+        model_config: HFModelConfig,
+        device_mesh: DeviceMesh,
+    ):
+        super().__init__(config, model_config, device_mesh)
+        self._engine: AsyncHttpServerAdapter = None
+
+        rank = int(os.environ["RANK"])
+        local_world_size = int(os.environ["RAY_LOCAL_WORLD_SIZE"])
+        rollout_world_size = self.config.tensor_model_parallel_size
+        self.replica_rank = rank // rollout_world_size
+        self.rollout_rank = rank % rollout_world_size
+        self.node_rank = self.rollout_rank // local_world_size
+        self.local_rank = self.rollout_rank % local_world_size
+
+    async def _init_server_adapter(self):
+        if self._engine is not None:
+            return
+
+        # Lazy init http server adapter because http server is launched after hybrid engine.
+        self.server_actor = ray.get_actor(f"sglang_server_{self.replica_rank}_{self.node_rank}")
+        server_address, server_port = await self.server_actor.get_server_address.remote()
+        logger.debug(
+            f"replica_rank={self.replica_rank} node_rank={self.node_rank}, "
+            f"server address: {server_address}, port: {server_port}"
+        )
+        self._engine = AsyncHttpServerAdapter(
+            model_path=self.model_config.local_path, host=server_address, port=server_port, launch_server=False
         )
 
-        # json_request already contains sampling_params
-        # Filter only valid SamplingParams arguments
-        valid_sampling_params = {}
-        temp_sampling_params = SamplingParams()  # Create temporary instance to check valid attributes
-        for k, v in json_request.items():
-            if k not in ["messages", "model", "tools"] and hasattr(temp_sampling_params, k):
-                valid_sampling_params[k] = v
-        output = await self._handle_engine_call(req, valid_sampling_params)
-        # it can be Dict or AsyncIterator[Dict]
-        if isinstance(output, dict):
-            outputs = [output]
-        else:
-            outputs = output
+    async def resume(self, tags: list[str]):
+        """Resume rollout weights or kv cache in GPU memory.
 
-        # build openai chat completion format
-        choices = []
-        id = None
-        for i, content in enumerate(outputs):
-            choices.append(
-                {
-                    "index": i,
-                    "message": {
-                        "role": "assistant",
-                        "content": content["text"],
-                    },
-                    "finish_reason": content["meta_info"]["finish_reason"]["type"],
-                }
+        Args:
+            tag: weights or kv_cache.
+        """
+        await self._init_server_adapter()
+        if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.config.free_cache_engine:
+            await self._engine.resume_memory_occupation(tags=tags)
+
+    async def release(self):
+        """Release weights and kv cache in GPU memory."""
+        await self._init_server_adapter()
+        if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.config.free_cache_engine:
+            await self._engine.release_memory_occupation(tags=["kv_cache", "weights"])
+
+    async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None], **kwargs):
+        """
+        Update model weights using tensor buckets, similar to THUDM/slime's implementation.
+
+        Notes:
+          - For the best performance of `rebuild_cuda_tensor`, it is recommended to:
+              1. Enable `RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES`.
+              2. Manually set `CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7`
+            when using Tensor Parallelism (TP >= 8).
+          - See reference implementations in SLIME:
+            - Main logic: https://github.com/THUDM/slime/blob/fb7605cc5fb09af0f9369d37f7192f12bddee577/slime/ray/ppo_actor.py#L452
+            - runtime envs: https://github.com/THUDM/slime/blob/fb7605cc5fb09af0f9369d37f7192f12bddee577/slime/ray/ppo_actor.py#L39
+        """
+        # FIXME(@wuxibin): device_mesh is not right in multi-node case.
+        await self._init_server_adapter()
+        update_weights_bucket_bytes = int(self.config.update_weights_bucket_megabytes) << 20
+        for params_batch in get_named_tensor_buckets(weights, update_weights_bucket_bytes):
+            await sgl_update_weights(
+                engine=self._engine,
+                params_batch=params_batch,
+                device_mesh_key="infer_tp",
+                device_mesh=self.device_mesh,
             )
-            id = content["meta_info"]["id"]
 
-        return {
-            "id": "chatcmpl-" + id,
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": json_request.get("model", "sglang_model"),
-            "choices": choices,
-        }
-
-        # this function is left for uniform train-inference resharding
-
-    async def generate(
-        self, prompt_ids: torch.Tensor, sampling_params: dict[str, Any], request_id: str
-    ) -> torch.Tensor:
-        request_sampling_params = self.sampling_params.copy()
-        request_sampling_params.update(sampling_params)
-        output = await self._handle_engine_generate(prompt_ids, request_sampling_params)
-        return output["output_ids"]
-
-    async def wake_up(self):
-        if not self.is_sleep:
-            return
-        await self.sharding_manager.wake_up()  # pylint: disable=C2801
-        self.is_sleep = False
-
-    # this function is left for uniform train-inference resharding
-    async def sleep(self):
-        if self.is_sleep:
-            return
-        await self.sharding_manager.sleep()
-        self.is_sleep = True
+        if self.device_mesh["infer_tp"].get_local_rank() == 0:
+            await self._engine.flush_cache()
