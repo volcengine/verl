@@ -55,7 +55,8 @@ You should output a JSON object with two entries:
    1. How do different parts of the conversation contribute to the final output?
    2. How do you make sure you included the most updated and complete information?
    3. How do you make sure you did not include any information that is not necessary?
-- "final_completion" (str): The final and complete version of the code extracted from the conversation. Rename main function name for the task to {entry_point} if needed. Remove any comments wrapped by """.
+- "final_completion" (str): The final and complete version of the code extracted from the conversation. \
+Rename main function name for the task to {entry_point} if needed. Remove any comments wrapped by """.
 
 Note: 
 1. If there are multiple lines, you should use triple quotes (""") to wrap the content. For example, \
@@ -80,13 +81,13 @@ async def compute_score(data_source, messages, ground_truth, extra_info, **kwarg
         import openai
 
         use_litellm = False
-    
+
     chat_history = parse_messages(messages, strip_sys_prompt=True)
 
     prompt = EXTRACT_MULTITURN_COMPLETION_PROMPT.format(
-        chat_history=chat_history, 
+        chat_history=chat_history,
         single_turn_prompt=extra_info["interaction_kwargs"]["single_turn_prompt"],
-        entry_point=extra_info["single_turn_metadata"]["entry_point"]
+        entry_point=extra_info["single_turn_metadata"]["entry_point"],
     )
 
     if use_litellm:
@@ -133,5 +134,6 @@ async def compute_score(data_source, messages, ground_truth, extra_info, **kwarg
         gt_time_limit=60,
     )
     passed = res[0] == "pass"
-    info = res[1]
+
+    # info = res[1] # for printing extra info
     return float(passed)

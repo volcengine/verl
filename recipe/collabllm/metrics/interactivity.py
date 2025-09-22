@@ -51,7 +51,8 @@ Output format (JSON):
 }}
 
 Double check if the JSON object is formatted correctly. Ensure that all fields are present and properly structured. \
-Use " or """ to wrap up the thought and use single quotes inside the "thought" field to avoid JSON escape issues.
+Use " or """ to wrap up the thought. You should not use other triple quotes inside the "thought" field. \
+Instead you should use single quotes to avoid JSON escape issues.
 
 Your evaluation:
 '''
