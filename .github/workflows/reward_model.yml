@@ -81,10 +81,10 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install -e .[test]
-      - name: Download model config files
-        run: |
-          hf download Skywork/Skywork-Reward-V2-Llama-3.2-1B --local-dir $HOME/models/Skywork/Skywork-Reward-V2-Llama-3.2-1B
-          hf download verl-team/GenRM-CI-Test-1.5B --local-dir $HOME/models/verl-team/GenRM-CI-Test-1.5B
+#      - name: Download model config files
+#        run: |
+#          hf download Skywork/Skywork-Reward-V2-Llama-3.2-1B --local-dir $HOME/models/Skywork/Skywork-Reward-V2-Llama-3.2-1B
+#          hf download verl-team/GenRM-CI-Test-1.5B --local-dir $HOME/models/verl-team/GenRM-CI-Test-1.5B
       - name: Running discriminative reward model tests on 8 L20 GPUs
         run: |
           unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY

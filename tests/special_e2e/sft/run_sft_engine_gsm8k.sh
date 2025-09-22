@@ -18,7 +18,7 @@ ckpts_home=${ckpts_home:-~/verl/test/gsm8k-sft-${backend}}
 
 MODEL_ID=${MODEL_ID:-Qwen/Qwen3-0.6B}
 MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
-huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
+#huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
 
 SP_SIZE=${SP_SIZE:-1}
 FSDP_SIZE=${FSDP_SIZE:-${NUM_GPUS}}

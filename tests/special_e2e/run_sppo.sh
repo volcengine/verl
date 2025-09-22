@@ -9,7 +9,7 @@ exp_name="Qwen2.5-0.5B-Instruct-sppo-minimal"
 
 MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B-Instruct}
 MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
-huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
+#huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
 
 python3 -m recipe.sppo.main_sppo \
     data.train_files="${HOME}/data/math/train.parquet" \

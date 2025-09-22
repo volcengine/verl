@@ -124,6 +124,9 @@ class BaseEngine:
             outputs = self.forward_backward_batch(data, loss_function, forward_only=True)
         return outputs
 
+    def get_per_tensor_param(self):
+        raise NotImplementedError
+
     def get_data_parallel_size(self):
         raise NotImplementedError
 

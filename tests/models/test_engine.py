@@ -22,10 +22,13 @@ import numpy as np
 import pytest
 import ray
 import torch
-from transformers import AutoModelForCausalLM, AutoModelForTokenClassification
+import torch.distributed as dist
+import torch.multiprocessing as mp
+from transformers import AutoModelForCausalLM, AutoModelForTokenClassification, Qwen3Config, Qwen3MoeConfig
 
 from verl import DataProto
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
+from verl.trainer.config import CheckpointConfig
 from verl.utils.model import compute_position_id_with_mask, create_random_mask
 from verl.utils.torch_functional import logprobs_from_logits_naive
 from verl.workers.config import (
@@ -267,3 +270,94 @@ def test_critic_engine(strategy):
     print(ppo_metrics)
 
     ray.shutdown()
+
+
+def create_actor_model(tmp_path, config):
+    model = AutoModelForCausalLM.from_config(config)
+    path = os.path.join(tmp_path, "test_model")
+    model.save_pretrained(path)
+    config.save_pretrained(path)
+    return path
+
+
+def _worker(rank: int, world_size: int, rendezvous_file: str, strategy: str, model_path: str):
+    torch.cuda.set_device(rank)
+    dist.init_process_group(
+        backend="nccl",
+        init_method=f"file://{rendezvous_file}",
+        rank=rank,
+        world_size=world_size,
+    )
+
+    with torch.device("meta"):
+        ref_model = AutoModelForCausalLM.from_pretrained(model_path)
+
+    from verl.workers.engine import BaseEngine, EngineRegistry
+
+    # construct configs
+    model_config = HFModelConfig(path=model_path, load_tokenizer=False)
+
+    if strategy == "megatron":
+        engine_config = McoreEngineConfig(
+            forward_only=False,
+            use_mbridge=True,
+            tensor_model_parallel_size=2,
+            pipeline_model_parallel_size=2,
+            context_parallel_size=1,
+        )
+        optimizer_config = McoreOptimizerConfig(lr_decay_steps=10)
+    elif strategy in ["fsdp", "fsdp2"]:
+        engine_config = FSDPEngineConfig(
+            forward_only=False, fsdp_size=4, strategy=strategy, ulysses_sequence_parallel_size=2
+        )
+        optimizer_config = FSDPOptimizerConfig()
+    else:
+        raise NotImplementedError(f"strategy {strategy} is not supported")
+
+    checkpoint_config = CheckpointConfig()
+
+    # build model engine
+    engine: BaseEngine = EngineRegistry.new(
+        model_type="language_model",
+        backend=engine_config.strategy,
+        model_config=model_config,
+        engine_config=engine_config,
+        optimizer_config=optimizer_config,
+        checkpoint_config=checkpoint_config,
+    )
+
+    engine.initialize()
+
+    # get per tensor parameter
+    per_tensor_params = engine.get_per_tensor_param()
+
+    ref_state_dict = ref_model.state_dict()
+
+    # load ground truth and compare
+    for key, value in per_tensor_params:
+        assert key in ref_state_dict, f"{key} not in ref_state_dict"
+        assert value.shape == ref_state_dict[key].shape, (
+            f"{key} shape not equal, {value.shape} != {ref_state_dict[key].shape}"
+        )
+        if rank == 0:
+            print(key, value.shape)
+
+    dist.barrier()
+    dist.destroy_process_group()
+
+
+@pytest.mark.parametrize("world_size", [8])
+@pytest.mark.parametrize("config", [Qwen3Config(num_hidden_layers=2), Qwen3MoeConfig(num_hidden_layers=2)])
+@pytest.mark.parametrize("strategy", ["megatron", "fsdp", "fsdp2"])
+def test_per_tensor_generator(world_size, tmp_path, config, strategy):
+    rendezvous_file = str(tmp_path / "rdzv_mask")
+    os.makedirs(os.path.dirname(rendezvous_file), exist_ok=True)
+    # create a model
+    model_path = create_actor_model(tmp_path, config)
+    # spawn workers
+    mp.spawn(
+        fn=_worker,
+        args=(world_size, rendezvous_file, strategy, model_path),
+        nprocs=world_size,
+        join=True,
+    )
