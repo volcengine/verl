@@ -404,9 +404,29 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
             if enable_gradient_checkpointing:
                 actor_module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
-            if self._is_lora:
-                print("Applying LoRA to actor module")
-                actor_module.enable_input_require_grads()
+        if self._is_lora:
+            print("Applying LoRA to actor module")
+            actor_module.enable_input_require_grads()
+
+            # Check if we should load a pre-trained LoRA adapter
+            if (
+                hasattr(self.config.model, "lora_adapter_path")
+                and self.config.model.get("lora_adapter_path") is not None
+            ):
+                from peft import PeftModel
+
+                from verl.utils.fs import copy_to_local
+
+                print(f"Loading pre-trained LoRA adapter from: {self.config.model.lora_adapter_path}")
+
+                # Copy adapter to local if needed
+                local_adapter_path = copy_to_local(
+                    self.config.model.lora_adapter_path, use_shm=self.config.model.get("use_shm", False)
+                )
+
+                # Load the pre-trained LoRA adapter
+                actor_module = PeftModel.from_pretrained(actor_module, local_adapter_path)
+            else:
                 # Convert config to regular Python types before creating PEFT model
                 lora_config = {
                     "task_type": TaskType.CAUSAL_LM,
@@ -1197,6 +1217,7 @@ class CriticWorker(Worker, DistProfilerExtension):
         # the following line is necessary
         from torch.distributed.fsdp import MixedPrecision
 
+        from verl.utils.fs import copy_to_local
         from verl.utils.model import load_valuehead_model, print_model_size
         from verl.utils.torch_dtypes import PrecisionType
 
@@ -1279,15 +1300,35 @@ class CriticWorker(Worker, DistProfilerExtension):
         if self._is_lora:
             print("Applying LoRA to critic module")
             critic_module.enable_input_require_grads()
-            # Convert config to regular Python types before creating PEFT model
-            lora_config = {
-                "task_type": TaskType.CAUSAL_LM,
-                "r": self.config.model.lora_rank,
-                "lora_alpha": self.config.model.lora_alpha,
-                "target_modules": convert_to_regular_types(self.config.model.target_modules),
-                "bias": "none",
-            }
-            critic_module = get_peft_model(critic_module, LoraConfig(**lora_config))
+
+            # Check if we should load a pre-trained LoRA adapter
+            if (
+                hasattr(self.config.model, "lora_adapter_path")
+                and self.config.model.get("lora_adapter_path") is not None
+            ):
+                from peft import PeftModel
+
+                from verl.utils.fs import copy_to_local
+
+                print(f"Loading pre-trained LoRA adapter for critic from: {self.config.model.lora_adapter_path}")
+
+                # Copy adapter to local if needed
+                local_adapter_path = copy_to_local(
+                    self.config.model.lora_adapter_path, use_shm=self.config.model.get("use_shm", False)
+                )
+
+                # Load the pre-trained LoRA adapter
+                critic_module = PeftModel.from_pretrained(critic_module, local_adapter_path)
+            else:
+                # Convert config to regular Python types before creating PEFT model
+                lora_config = {
+                    "task_type": TaskType.CAUSAL_LM,
+                    "r": self.config.model.lora_rank,
+                    "lora_alpha": self.config.model.lora_alpha,
+                    "target_modules": convert_to_regular_types(self.config.model.target_modules),
+                    "bias": "none",
+                }
+                critic_module = get_peft_model(critic_module, LoraConfig(**lora_config))
 
         if self.rank == 0:
             print_model_size(critic_module)
