@@ -480,8 +480,8 @@ def offload_megatron_optimizer(optimizers):
                     v["exp_avg"] = v["exp_avg"].to("cpu", non_blocking=True)
                 if "exp_avg_sq" in v:
                     v["exp_avg_sq"] = v["exp_avg_sq"].to("cpu", non_blocking=True)
-            gc.collect()
-            get_torch_device().empty_cache()
+        gc.collect()
+        get_torch_device().empty_cache()
 
 
 @torch.no_grad()
@@ -505,8 +505,8 @@ def load_megatron_optimizer(optimizers):
                         v["exp_avg"] = v["exp_avg"].to(get_device_id(), non_blocking=True)
                     if "exp_avg_sq" in v:
                         v["exp_avg_sq"] = v["exp_avg_sq"].to(get_device_id(), non_blocking=True)
-            gc.collect()
-            get_torch_device().empty_cache()
+        gc.collect()
+        get_torch_device().empty_cache()
 
 
 def get_dist_checkpoint_path(checkpoint_path):
