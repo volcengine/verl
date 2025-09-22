@@ -91,7 +91,6 @@ class CollabLLMRewardManager(AbstractRewardManager):
         flattened_extra_infos = [extra_info[i] for _ in range(num_repeat_rollouts) for i in range(batch_size)]
         flattened_messages = [grouped_messages[j][i] for j in range(num_repeat_rollouts) for i in range(batch_size)]
 
-        print("num_repeat_rollouts", num_repeat_rollouts)
         if num_repeat_rollouts > 0:
             tasks = [
                 self.compute_score(
