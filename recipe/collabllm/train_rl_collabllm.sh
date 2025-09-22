@@ -11,20 +11,21 @@ if [ -z "$RESUME_PATH" ]; then
     RESUME_PATH=null
 fi
 
+DATASET=math-hard-large
 PROJECT_DIR="$(pwd)"
+
 python3 -m verl.trainer.main_ppo \
     --config-dir recipe/collabllm/config \
     --config-name collabllm_trainer \
     trainer.val_before_train=False \
     algorithm.adv_estimator=grpo \
-    data.train_files=$HOME/data/collabllm-math-hard-large/rl_train.parquet \
-    data.val_files=$HOME/data/collabllm-math-hard-large/rl_validation.parquet \
-    reward_model.reward_manager=collabllm \
+    data.train_files=$HOME/data/collabllm-$DATASET/rl_train.parquet \
+    data.val_files=$HOME/data/collabllm-$DATASET/rl_validation.parquet \
     +reward_model.reward_kwargs.metric_weights.accuracy=1 \
     +reward_model.reward_kwargs.metric_weights.interactivity=1 \
     +reward_model.reward_kwargs.metric_weights.token_amount=-0.0001 \
     +reward_model.reward_kwargs.llm_judge_kwargs.model=gpt-4o-mini \
-    +reward_model.reward_kwargs.llm_judge_kwargs.max_tokens=1024 \
+    +reward_model.reward_kwargs.llm_judge_kwargs.max_tokens=2048 \
     +reward_model.reward_kwargs.llm_judge_kwargs.temperature=0 \
     data.train_batch_size=16 \
     data.max_prompt_length=8196 \
@@ -60,8 +61,7 @@ python3 -m verl.trainer.main_ppo \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
     trainer.logger='["console", "wandb"]' \
-    trainer.project_name='verlxcollabllm' \
-    trainer.experiment_name='collabllm-qwen2.5-7b-agentloop-large' \
+    trainer.experiment_name=collabllm-qwen2.5-7b-$DATASET \
     trainer.nnodes=1 \
     trainer.n_gpus_per_node=8 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \

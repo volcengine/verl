@@ -26,7 +26,6 @@ python recipe/collabllm/process_dataset.py \
   --local_dir $HOME/data/collabllm-$DATASET \
   --dataset_type sft
 
-
 python recipe/collabllm/process_dataset.py \
   --dataset collabllm/collabllm-multiturn-$DATASET  \
   --local_dir $HOME/data/collabllm-$DATASET \

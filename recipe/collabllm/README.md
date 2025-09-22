@@ -2,6 +2,10 @@
 
 This repository implements [CollabLLM](https://arxiv.org/pdf/2502.00640) (ICML 2025) using the Verl framework. For the original implementation, see the [CollabLLM repository](https://github.com/Wuyxin/collabllm).
 
+
+CollabLLM is a method for training language models to collaborate effectively in multi-turn conversations. This implementation adapts the original imlpementation to work with the Verl training framework.
+
+
 ## Quick Start
 
 ### 1. Prepare Your Dataset
@@ -9,11 +13,12 @@ This repository implements [CollabLLM](https://arxiv.org/pdf/2502.00640) (ICML 2
 First, process your dataset using the provided script:
 
 ```bash
-python process_dataset.py ... --dataset_type <sft or rl>
+python process_dataset.py --dataset <> ... --dataset_type <sft or rl>
 ```
 
+
 **Requirements:**
-- Input: A Hugging Face multiturn dataset
+- Input: A Hugging Face multiturn dataset. Existing datasets: `math-hard(-large)`, `medium(-large)`, `bigcodebench(-large)` (*-large are the datasets used in the CollabLLM paper)
 - Example format: See [collabllm-multiturn-math-hard](https://huggingface.co/datasets/collabllm/collabllm-multiturn-math-hard)
 - To generate your own dataset: Use [build_dataset.py](https://github.com/Wuyxin/collabllm/blob/main/scripts/engine/build_dataset.py) from the original CollabLLM repository
 
@@ -21,19 +26,34 @@ python process_dataset.py ... --dataset_type <sft or rl>
 
 ### 2. Train Your Model
 
-**For Supervised Fine-Tuning (SFT):**
+**(Optional) For Supervised Fine-Tuning (SFT):**
 ```bash
 bash train_sft_collabllm.sh
 ```
 
 **For Reinforcement Learning (RL):**
+
 ```bash
 bash train_rl_collabllm.sh
 ```
 
-## What is CollabLLM?
+The RL script shows an example to train CollabLLM on `math-hard-large`. 
 
-CollabLLM is a method for training language models to collaborate effectively in multi-turn conversations. This implementation adapts the original imlpementation to work with the Verl training framework.
+- The config to sample future conversations are in `recipe/collabllm/config/collabllm_interaction_config.yaml`. 
+- The Multiturn-aware Reward is aggregated from these three conversational-level rewards:
+
+    ```
+    +reward_model.reward_kwargs.metric_weights.accuracy=1 \
+    +reward_model.reward_kwargs.metric_weights.interactivity=1 \
+    +reward_model.reward_kwargs.metric_weights.token_amount=-0.0001 \
+    ```
+
+    You can remove, add, or modify the weights depending on your task. A list of implemented metrics you can already add are under `recipe/collabllm/metrics`. For example, on `medium-large`, you can replace `accuracy` with `bleu_score` via
+    ```
+    +reward_model.reward_kwargs.metric_weights.bleu_score=1 
+    ```
+    which will instead apply bleu score on the sampled future conversations. 
+
 
 # Citation
 If you find CollabLLM useful in your research, please cite the following:

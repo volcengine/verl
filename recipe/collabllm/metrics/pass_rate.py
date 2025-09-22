@@ -18,12 +18,16 @@ from bigcodebench.eval import untrusted_check
 from recipe.collabllm.utils import extract_json, parse_messages
 
 EXTRACT_MULTITURN_COMPLETION_PROMPT = '''You are a thorough and diligent conversation analyzer. \
-Your task is to extract the final and complete version of a code solution that was generated \
+Your task is to extract the final and complete version of a code function {entry_point} that was generated \
 during a multiturn conversation between a user and a chat assistant. \
 The extracted content should reflect the final and comprehensive response provided by the \
 assistant based on the user’s request.
 
-You will be provided with the conversation:
+You will be provided with the task and the conversation:
+
+<|The Start of The Task|>
+{single_turn_prompt}
+<|The End of The Task|>
 
 <|The Start of The Conversation|>
 {chat_history}
@@ -44,20 +48,20 @@ writes a function at the beginning and changes a part, the final output should t
    - For code: Extract a complete and functional code snippet, including all necessary components such as imports, \
      functions, classes, and any other essential elements. The code should be runnable, but you do not need to \
      include any testing examples including the contents after `if __name__ == "__main__":`. Only the function code \
-     is required.
+     is required. 
 
 You should output a JSON object with two entries:
 - "thought" (str): Output your thought process when extracting the final content. 
    1. How do different parts of the conversation contribute to the final output?
    2. How do you make sure you included the most updated and complete information?
    3. How do you make sure you did not include any information that is not necessary?
-- "final_completion" (str): The final and complete version of the code extracted from the conversation.
+- "final_completion" (str): The final and complete version of the code extracted from the conversation. Rename main function name for the task to {entry_point} if needed. Remove any comments wrapped by """.
 
 Note: 
 1. If there are multiple lines, you should use triple quotes (""") to wrap the content. For example, \
    "final_completion": """first line. 
    second line.""" or "thought": """first line;
-   second line.""".
+   second line.""". You should not use other triple quotes inside. 
 2. In the "final_completion" entry, replace all double quotes (") with single quotes (') to prevent JSON formatting \
    issues. For example, you can output "final_completion": "'Hello World' is a common phrase." 
 
@@ -76,9 +80,14 @@ async def compute_score(data_source, messages, ground_truth, extra_info, **kwarg
         import openai
 
         use_litellm = False
-
+    
     chat_history = parse_messages(messages, strip_sys_prompt=True)
-    prompt = EXTRACT_MULTITURN_COMPLETION_PROMPT.format(chat_history=chat_history)
+
+    prompt = EXTRACT_MULTITURN_COMPLETION_PROMPT.format(
+        chat_history=chat_history, 
+        single_turn_prompt=extra_info["interaction_kwargs"]["single_turn_prompt"],
+        entry_point=extra_info["single_turn_metadata"]["entry_point"]
+    )
 
     if use_litellm:
         full_response = (
@@ -124,5 +133,5 @@ async def compute_score(data_source, messages, ground_truth, extra_info, **kwarg
         gt_time_limit=60,
     )
     passed = res[0] == "pass"
-    # info = res[1]
+    info = res[1]
     return float(passed)

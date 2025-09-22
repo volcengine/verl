@@ -10,16 +10,4 @@ reward_model:
   reward_manager: collabllm
 
 trainer:
-  project_name: verl-collabllm
-
-actor_rollout_ref:
-  hybrid_engine: True
-  rollout:
-    name: vllm
-    multi_turn:
-      enable: True
-      # collabllm_rollouts: True
-      max_user_turns: 1
-      max_assistant_turns: 3
-      num_repeat_rollouts: 2 
-      format: hermes
+  project_name: verlxcollabllm
