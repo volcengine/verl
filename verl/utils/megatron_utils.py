@@ -473,18 +473,15 @@ def offload_megatron_optimizer(optimizers):
     for _opt in _iter_opts(optimizers):
         offload_megatron_copy_params(_opt)
         ## worker may hold zero parameter when enabling custom pipeline layout
-        if _opt.optimizer is None:
+        if _opt.optimizer is not None:
+            opt_state_dict_values = _opt.optimizer.state.values()
+            for v in opt_state_dict_values:
+                if "exp_avg" in v:
+                    v["exp_avg"] = v["exp_avg"].to("cpu", non_blocking=True)
+                if "exp_avg_sq" in v:
+                    v["exp_avg_sq"] = v["exp_avg_sq"].to("cpu", non_blocking=True)
             gc.collect()
             get_torch_device().empty_cache()
-            continue
-        opt_state_dict_values = _opt.optimizer.state.values()
-        for v in opt_state_dict_values:
-            if "exp_avg" in v:
-                v["exp_avg"] = v["exp_avg"].to("cpu", non_blocking=True)
-            if "exp_avg_sq" in v:
-                v["exp_avg_sq"] = v["exp_avg_sq"].to("cpu", non_blocking=True)
-        gc.collect()
-        get_torch_device().empty_cache()
 
 
 @torch.no_grad()
@@ -497,22 +494,19 @@ def load_megatron_optimizer(optimizers):
     for _opt in _iter_opts(optimizers):
         load_megatron_copy_params(_opt)
         ## worker may hold zero parameter when enabling custom pipeline layout
-        if _opt.optimizer is None:
+        if _opt.optimizer is not None:
+            # if we are using HybridDeviceOptimizer, we need to only move gpu optimizer state to gpu
+            if hasattr(_opt.optimizer, "_move_new_state_to_right_device"):
+                _opt.optimizer._move_new_state_to_right_device()
+            else:
+                opt_state_dict_values = _opt.optimizer.state.values()
+                for v in opt_state_dict_values:
+                    if "exp_avg" in v:
+                        v["exp_avg"] = v["exp_avg"].to(get_device_id(), non_blocking=True)
+                    if "exp_avg_sq" in v:
+                        v["exp_avg_sq"] = v["exp_avg_sq"].to(get_device_id(), non_blocking=True)
             gc.collect()
             get_torch_device().empty_cache()
-            continue
-        # if we are using HybridDeviceOptimizer, we need to only move gpu optimizer state to gpu
-        if hasattr(_opt.optimizer, "_move_new_state_to_right_device"):
-            _opt.optimizer._move_new_state_to_right_device()
-        else:
-            opt_state_dict_values = _opt.optimizer.state.values()
-            for v in opt_state_dict_values:
-                if "exp_avg" in v:
-                    v["exp_avg"] = v["exp_avg"].to(get_device_id(), non_blocking=True)
-                if "exp_avg_sq" in v:
-                    v["exp_avg_sq"] = v["exp_avg_sq"].to(get_device_id(), non_blocking=True)
-        gc.collect()
-        get_torch_device().empty_cache()
 
 
 def get_dist_checkpoint_path(checkpoint_path):
