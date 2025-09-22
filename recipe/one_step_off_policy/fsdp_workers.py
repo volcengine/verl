@@ -220,6 +220,7 @@ class RolloutWorker(ActorRolloutRefWorker):
 
         rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
         model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model, dataclass_type=HFModelConfig)
+        self.model_config = model_config
 
         log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=logger)
         rollout = get_rollout_class(rollout_config.name, rollout_config.mode)(
