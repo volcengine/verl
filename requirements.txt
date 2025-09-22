@@ -6,7 +6,7 @@ dill
 flash-attn
 hydra-core
 liger-kernel
-numpy<2.0.0
+numpy<3.0.0
 pandas
 peft
 pyarrow>=19.0.0
