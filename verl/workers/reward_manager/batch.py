@@ -62,8 +62,10 @@ class BatchRewardManager(AbstractRewardManager):
         ground_truths = [item.non_tensor_batch["reward_model"].get("ground_truth", None) for item in data]
         data_sources = data.non_tensor_batch[self.reward_fn_key]
         rollout_reward_scores = data.non_tensor_batch.get("reward_scores", [{} for _ in len(data)])
-        extras = data.non_tensor_batch.get("extra_info", [None] * len(data))
-        extras["rollout_reward_scores"] = rollout_reward_scores
+        extras = data.non_tensor_batch.get("extra_info",  [{} for _ in len(data)])
+
+        for i in range(len(data)):
+            extras[i]["rollout_reward_scores"] = rollout_reward_scores[i]
 
         scores = self.compute_score(
             data_sources=data_sources,
