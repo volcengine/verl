@@ -24,7 +24,6 @@ def default_compute_score(
     sandbox_fusion_url=None,
     concurrent_semaphore=None,
     memory_limit_mb=None,
-    **kwargs,
 ):
     """Compute the score for a given solution based on the data source.
 

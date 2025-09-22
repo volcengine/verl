@@ -104,7 +104,7 @@ class CustomRLHFDataset(RLHFDataset):
         return row
 
 
-def compute_score(data_source, solution_str, ground_truth, extra_info, **kwargs):
+def compute_score(data_source, solution_str, ground_truth, extra_info):
     # use \\boxed{...} answer
     result = math_dapo.compute_score(solution_str, ground_truth, strict_box_verify=True)
 

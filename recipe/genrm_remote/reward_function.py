@@ -77,11 +77,11 @@ def compute_reward(response):
     return reward_score
 
 
-def compute_score(data_source, solution_str, ground_truth, extra_info, **kwargs):
+def compute_score(data_source, solution_str, ground_truth, extra_info):
     split = extra_info["split"]
     from verl.utils.reward_score import default_compute_score
 
-    func_rm_score = default_compute_score(data_source, solution_str, ground_truth, extra_info, **kwargs)
+    func_rm_score = default_compute_score(data_source, solution_str, ground_truth, extra_info)
 
     if split == "test":
         return func_rm_score
@@ -96,7 +96,7 @@ def compute_score(data_source, solution_str, ground_truth, extra_info, **kwargs)
         return reward_score
 
 
-def compute_score_batch(data_sources, solution_strs, ground_truths, extra_infos, **kwargs):
+def compute_score_batch(data_sources, solution_strs, ground_truths, extra_infos):
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = []
         for data_source, solution_str, ground_truth, extra_info in zip(
