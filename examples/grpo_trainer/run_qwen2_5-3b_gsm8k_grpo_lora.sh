@@ -1,9 +1,5 @@
 set -x
 
-export CUDA_VISIBLE_DEVICES=2,3
-export PYTHONPATH=/dfs/project/kgrlm/github/verl:$PYTHONPATH
-
-
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     trainer.val_before_train=False \
