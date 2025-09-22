@@ -473,7 +473,7 @@ def offload_megatron_optimizer(optimizers):
     for _opt in _iter_opts(optimizers):
         offload_megatron_copy_params(_opt)
         ## worker may hold zero parameter when enabling custom pipeline layout
-        if _opt.optimizer == None:
+        if _opt.optimizer is None:
             gc.collect()
             get_torch_device().empty_cache()
             continue
