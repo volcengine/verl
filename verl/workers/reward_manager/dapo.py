@@ -94,11 +94,14 @@ class DAPORewardManager(AbstractRewardManager):
 
             extra_info = data_item.non_tensor_batch.get("extra_info", None)
 
+            rollout_reward_scores = data_item.non_tensor_batch.get("reward_scores", {})
+
             result = self.compute_score(
                 data_source=data_source,
                 solution_str=response_str,
                 ground_truth=ground_truth,
                 extra_info=extra_info,
+                rollout_reward_scores=rollout_reward_scores,
             )
 
             score: float

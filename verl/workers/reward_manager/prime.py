@@ -128,7 +128,7 @@ class PrimeRewardManager(AbstractRewardManager):
         ground_truth = [data_item.non_tensor_batch["reward_model"]["ground_truth"] for data_item in data]
         data_sources = data.non_tensor_batch[self.reward_fn_key]
         extra_info = data.non_tensor_batch.get("extra_info", None)
-
+        rollout_reward_scores = data.non_tensor_batch.get("reward_scores", [{} for _ in len(data)])
         assert len(sequences_str) == len(ground_truth) == len(data_sources)
         try:
             scores = run_reward_scoring(
@@ -137,6 +137,7 @@ class PrimeRewardManager(AbstractRewardManager):
                 references=ground_truth,
                 tasks=data_sources,
                 extra_info=extra_info,
+                rollout_reward_scores=rollout_reward_scores,
                 num_processes=64,
             )
         except asyncio.TimeoutError:
