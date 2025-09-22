@@ -179,7 +179,7 @@ class CustomRLHFDataset(RLHFDataset):
         return row_dict
 
 
-def compute_score(data_source: str, solution_str: str, ground_truth: str, extra_info=None) -> float:
+def compute_score(data_source: str, solution_str: str, ground_truth: str, extra_info=None, **kwargs) -> float:
     """
     Compute reward score for model solutions with robust handling of various formats.
 

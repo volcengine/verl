@@ -15,7 +15,7 @@
 from .math_reward import compute_score
 
 
-def compute_score_batched(data_sources, solution_strs, ground_truths, extra_infos):
+def compute_score_batched(data_sources, solution_strs, ground_truths, extra_infos, **kwargs):
     """
     This is a demonstration of how the batched reward function should look like.
     Typically, you want to use batched reward to speed up the process with parallelization
