@@ -15,19 +15,18 @@
 import random
 import unittest
 
+import numpy as np
 import pytest
 import torch
 
 import verl.trainer.ppo.core_algos
 from verl.trainer.ppo.core_algos import (
     compute_gae_advantage_return,
-    get_adv_estimator_fn,
-    register_adv_est,
     compute_rloo_outcome_advantage,
     compute_rloo_vectorized_outcome_advantage,
+    get_adv_estimator_fn,
+    register_adv_est,
 )
-import numpy as np
-from typing import List
 
 
 def mock_test_fn():
@@ -199,7 +198,7 @@ def test_multi_turn_compute_gae_advantage_return():
 def _make_group_index(batch_size: int, num_groups: int) -> np.ndarray:
     """Create a numpy index array ensuring each group has at least 2 samples."""
     assert num_groups * 2 <= batch_size, "batch_size must allow >=2 samples per group"
-    counts: List[int] = [2] * num_groups
+    counts: list[int] = [2] * num_groups
     remaining = batch_size - 2 * num_groups
     for _ in range(remaining):
         counts[random.randrange(num_groups)] += 1
@@ -209,12 +208,14 @@ def _make_group_index(batch_size: int, num_groups: int) -> np.ndarray:
     random.shuffle(index)
     return np.asarray(index, dtype=np.int64)
 
+
 def _rand_mask(batch_size: int, seq_len: int) -> torch.Tensor:
     mask = torch.randint(0, 2, (batch_size, seq_len), dtype=torch.int64).float()
     rows_without_one = (mask.sum(dim=-1) == 0).nonzero(as_tuple=True)[0]
     if len(rows_without_one) > 0:
         mask[rows_without_one, -1] = 1.0
     return mask
+
 
 @pytest.mark.parametrize(
     "batch_size,seq_len,num_groups,seed",
@@ -254,6 +255,7 @@ def test_rloo_and_vectorized_equivalence(batch_size: int, seq_len: int, num_grou
     assert ret1.shape == ret2.shape == (batch_size, seq_len)
     assert torch.allclose(adv1, adv2, rtol=1e-5, atol=1e-6)
     assert torch.allclose(ret1, ret2, rtol=1e-5, atol=1e-6)
+
 
 if __name__ == "__main__":
     unittest.main()
