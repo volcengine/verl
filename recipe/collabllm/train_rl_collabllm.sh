@@ -14,13 +14,13 @@ fi
 DATASET=math-hard-large
 PROJECT_DIR="$(pwd)"
 
+
 python3 -m verl.trainer.main_ppo \
-    --config-dir recipe/collabllm/config \
-    --config-name collabllm_trainer \
     trainer.val_before_train=False \
     algorithm.adv_estimator=grpo \
     data.train_files=$HOME/data/collabllm-$DATASET/rl_train.parquet \
     data.val_files=$HOME/data/collabllm-$DATASET/rl_validation.parquet \
+    reward_model.reward_manager=collabllm \
     +reward_model.reward_kwargs.metric_weights.accuracy=1 \
     +reward_model.reward_kwargs.metric_weights.interactivity=1 \
     +reward_model.reward_kwargs.metric_weights.token_amount=-0.0001 \
@@ -61,7 +61,8 @@ python3 -m verl.trainer.main_ppo \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
     trainer.logger='["console", "wandb"]' \
-    trainer.experiment_name=collabllm-qwen2.5-7b-$DATASET \
+    trainer.project_name=verlxcollabllm \
+    trainer.experiment_name=collabllm-qwen2.5-7B-$DATASET \
     trainer.nnodes=1 \
     trainer.n_gpus_per_node=8 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \

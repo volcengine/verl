@@ -1,12 +1,14 @@
-# Verl x CollabLLM
+# CollabLLM
 
-This repository implements [CollabLLM](https://arxiv.org/pdf/2502.00640) (ICML 2025) using the Verl framework. For the original implementation, see the [CollabLLM repository](https://github.com/Wuyxin/collabllm).
+This repository implements [CollabLLM](https://arxiv.org/pdf/2502.00640) (ICML 2025) using the verl framework. For the original implementation, see the [CollabLLM repository](https://github.com/Wuyxin/collabllm).
 
 
 CollabLLM is a method for training language models to collaborate effectively in multi-turn conversations. This implementation adapts the original imlpementation to work with the Verl training framework.
 
+## Quick start
 
-## Quick Start
+### 0. Environment
+Make sure the required packages for `verl` are installed. Additionally, install `litellm` and export the required API keys. The API model will be used for user simulators and, optionally, LLM Judges (see the Configuration section below).
 
 ### 1. Prepare Your Dataset
 
@@ -18,7 +20,7 @@ python process_dataset.py --dataset <> ... --dataset_type <sft or rl>
 
 
 **Requirements:**
-- Input: A Hugging Face multiturn dataset. Existing datasets: `math-hard(-large)`, `medium(-large)`, `bigcodebench(-large)` (*-large are the datasets used in the CollabLLM paper)
+- Input: A Hugging Face multiturn dataset. Existing datasets: `collabllm/collabllm-multiturn-$DATASET`, with `DATASET` in one of [`math-hard(-large)`, `medium(-large)`, `bigcodebench(-large)`] (*-large are the datasets used in the CollabLLM paper)
 - Example format: See [collabllm-multiturn-math-hard](https://huggingface.co/datasets/collabllm/collabllm-multiturn-math-hard)
 - To generate your own dataset: Use [build_dataset.py](https://github.com/Wuyxin/collabllm/blob/main/scripts/engine/build_dataset.py) from the original CollabLLM repository
 
@@ -54,8 +56,10 @@ The RL script shows an example to train CollabLLM on `math-hard-large`.
     ```
     which will instead apply bleu score on the sampled future conversations. 
 
+## Configuration 
+Read [doc](https://verl.readthedocs.io/en/latest/) for detailed configurations.
 
-# Citation
+## Citation
 If you find CollabLLM useful in your research, please cite the following:
 
 ```bibtex
