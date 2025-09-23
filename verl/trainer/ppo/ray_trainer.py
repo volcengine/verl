@@ -441,6 +441,38 @@ class RayPPOTrainer:
 
         print(f"Dumped generations to {filename}")
 
+    def _log_rollout_data(
+        self, batch: DataProto, reward_extra_infos_dict: dict, timing_raw: dict, rollout_data_dir: str
+    ):
+        """Log rollout data to disk.
+        Args:
+            batch (DataProto): The batch containing rollout data
+            reward_extra_infos_dict (dict): Additional reward information to log
+            timing_raw (dict): Timing information for profiling
+            rollout_data_dir (str): Directory path to save the rollout data
+        """
+        with marked_timer("dump_rollout_generations", timing_raw, color="green"):
+            inputs = self.tokenizer.batch_decode(batch.batch["prompts"], skip_special_tokens=True)
+            outputs = self.tokenizer.batch_decode(batch.batch["responses"], skip_special_tokens=True)
+            scores = batch.batch["token_level_scores"].sum(-1).cpu().tolist()
+            sample_gts = [item.non_tensor_batch.get("reward_model", {}).get("ground_truth", None) for item in batch]
+
+            reward_extra_infos_to_dump = reward_extra_infos_dict.copy()
+            if "request_id" in batch.non_tensor_batch:
+                reward_extra_infos_dict.setdefault(
+                    "request_id",
+                    batch.non_tensor_batch["request_id"].tolist(),
+                )
+
+            self._dump_generations(
+                inputs=inputs,
+                outputs=outputs,
+                gts=sample_gts,
+                scores=scores,
+                reward_extra_infos_dict=reward_extra_infos_to_dump,
+                dump_path=rollout_data_dir,
+            )
+
     def _maybe_log_val_generations(self, inputs, outputs, scores):
         """Log a table of validation samples to the configured logger (wandb or swanlab)"""
 
@@ -1111,29 +1143,7 @@ class RayPPOTrainer:
                     # Log rollout generations if enabled
                     rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)
                     if rollout_data_dir:
-                        with marked_timer("dump_rollout_generations", timing_raw, color="green"):
-                            inputs = self.tokenizer.batch_decode(batch.batch["prompts"], skip_special_tokens=True)
-                            outputs = self.tokenizer.batch_decode(batch.batch["responses"], skip_special_tokens=True)
-                            scores = batch.batch["token_level_scores"].sum(-1).cpu().tolist()
-                            sample_gts = [
-                                item.non_tensor_batch.get("reward_model", {}).get("ground_truth", None)
-                                for item in batch
-                            ]
-
-                            if "request_id" in batch.non_tensor_batch:
-                                reward_extra_infos_dict.setdefault(
-                                    "request_id",
-                                    batch.non_tensor_batch["request_id"].tolist(),
-                                )
-
-                            self._dump_generations(
-                                inputs=inputs,
-                                outputs=outputs,
-                                gts=sample_gts,
-                                scores=scores,
-                                reward_extra_infos_dict=reward_extra_infos_dict,
-                                dump_path=rollout_data_dir,
-                            )
+                        self._log_rollout_data(batch, reward_extra_infos_dict, timing_raw, rollout_data_dir)
 
                 # validate
                 if (
