@@ -457,6 +457,7 @@ class RayPPOTrainer:
             scores = batch.batch["token_level_scores"].sum(-1).cpu().tolist()
             sample_gts = [item.non_tensor_batch.get("reward_model", {}).get("ground_truth", None) for item in batch]
 
+            reward_extra_infos_to_dump = reward_extra_infos_dict.copy()
             if "request_id" in batch.non_tensor_batch:
                 reward_extra_infos_dict.setdefault(
                     "request_id",
@@ -468,7 +469,7 @@ class RayPPOTrainer:
                 outputs=outputs,
                 gts=sample_gts,
                 scores=scores,
-                reward_extra_infos_dict=reward_extra_infos_dict,
+                reward_extra_infos_dict=reward_extra_infos_to_dump,
                 dump_path=rollout_data_dir,
             )
 
