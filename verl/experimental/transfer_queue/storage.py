@@ -25,8 +25,8 @@ import zmq
 from ray.util import get_node_ip_address
 from tensordict import NonTensorStack, TensorDict
 
-from transfer_queue.utils.utils import TransferQueueRole
-from transfer_queue.utils.zmq_utils import (
+from verl.experimental.transfer_queue.utils.utils import TransferQueueRole
+from verl.experimental.transfer_queue.utils.zmq_utils import (
     ZMQMessage,
     ZMQRequestType,
     ZMQServerInfo,
