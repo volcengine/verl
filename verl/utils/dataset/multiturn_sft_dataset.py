@@ -16,10 +16,9 @@
 Multi-turn SFT dataset that supports training on conversation data with multiple turns
 """
 
-import logging
-from typing import Any, Optional
-
+import numpy
 import numpy as np
+import pandas
 import pandas as pd
 import torch
 from omegaconf import ListConfig
@@ -27,20 +26,21 @@ from qwen_vl_utils import process_vision_info
 from torch.utils.data import Dataset
 from transformers import AutoProcessor
 
-from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.fs import copy_local_path_from_hdfs
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.torch_functional import pad_sequence_to_length, postprocess_data
 
 
-def convert_nested_value_to_list_recursive(data_item):
-    if isinstance(data_item, dict):
-        return {k: convert_nested_value_to_list_recursive(v) for k, v in data_item.items()}
+def convert_nested_value_to_list_recursive_if_not_none(data_item):
+    if isinstance(data_item, pandas.core.series.Series | numpy.ndarray) and len(data_item) == 1:
+        return convert_nested_value_to_list_recursive_if_not_none(data_item[0])
+    elif isinstance(data_item, dict):
+        return {k: convert_nested_value_to_list_recursive_if_not_none(v) for k, v in data_item.items() if v is not None}
     elif isinstance(data_item, list):
-        return [convert_nested_value_to_list_recursive(elem) for elem in data_item]
+        return [convert_nested_value_to_list_recursive_if_not_none(elem) for elem in data_item]
     elif isinstance(data_item, np.ndarray):
         # Convert to list, then recursively process the elements of the new list
-        return convert_nested_value_to_list_recursive(data_item.tolist())
+        return convert_nested_value_to_list_recursive_if_not_none(data_item.tolist())
     else:
         # Base case: item is already a primitive type (int, str, float, bool, etc.)
         return data_item
@@ -51,7 +51,7 @@ class MultiTurnSFTDataset(Dataset):
     Dataset for multi-turn conversations where each assistant response should be trained
     """
 
-    def __init__(self, parquet_files: str | list[str], preprocessor_path, config=None):
+    def __init__(self, parquet_files: str | list[str], processor, config=None):
         # Set defaults and extract parameters from config if provided
         config = config or {}
         self.pad_mode = config.get("pad_mode", "right")
@@ -76,9 +76,7 @@ class MultiTurnSFTDataset(Dataset):
             parquet_files = [parquet_files]
 
         self.parquet_files = parquet_files
-        self.processor: AutoProcessor = hf_processor(preprocessor_path)
-        if self.processor is None:
-            self.processor = hf_tokenizer(preprocessor_path)
+        self.processor: AutoProcessor = processor
 
         self._download()
         self._read_files_and_process()
@@ -88,14 +86,6 @@ class MultiTurnSFTDataset(Dataset):
             self.parquet_files[i] = copy_local_path_from_hdfs(parquet_file, verbose=True)
 
     def _read_files_and_process(self):
-        def series_to_item(ls):
-            import numpy
-            import pandas
-
-            while isinstance(ls, pandas.core.series.Series | numpy.ndarray) and len(ls) == 1:
-                ls = ls[0]
-            return ls
-
         dataframes = []
         for parquet_file in self.parquet_files:
             dataframe = pd.read_parquet(parquet_file)
@@ -103,11 +93,15 @@ class MultiTurnSFTDataset(Dataset):
         self.dataframe = pd.concat(dataframes)
 
         # Extract messages list from dataframe
-        self.messages = self.dataframe[self.messages_key].apply(series_to_item).tolist()
+        self.messages = (
+            self.dataframe[self.messages_key].apply(convert_nested_value_to_list_recursive_if_not_none).tolist()
+        )
 
         # Extract tools list from dataframe
         if self.tools_key in self.dataframe.columns:
-            self.tools = self.dataframe[self.tools_key].apply(convert_nested_value_to_list_recursive).tolist()
+            self.tools = (
+                self.dataframe[self.tools_key].apply(convert_nested_value_to_list_recursive_if_not_none).tolist()
+            )
         else:
             self.tools = None
         # Extract enable_thinking list from dataframe
@@ -118,84 +112,6 @@ class MultiTurnSFTDataset(Dataset):
 
     def __len__(self):
         return len(self.messages)
-
-    def _process_message_tokens(
-        self,
-        messages: list[dict[str, Any]],
-        start_idx: int,
-        end_idx: int,
-        is_assistant: bool = False,
-        enable_thinking: Optional[bool] = None,
-        tools: Optional[list[dict[str, Any]]] = None,
-    ) -> tuple[list[int], list[int], list[int]]:
-        """
-        Process tokens for a single message or a group of messages.
-
-        Args:
-            messages: List of message dictionaries
-            start_idx: Start index in messages list
-            end_idx: End index in messages list
-            is_assistant: Whether this is an assistant message
-            enable_thinking: Whether to enable thinking mode
-
-        Returns:
-            Tuple of (tokens, loss_mask, attention_mask)
-        """
-        if start_idx > 0:
-            prev_applied_text = self.tokenizer.apply_chat_template(
-                messages[:start_idx],
-                tokenize=False,
-                add_generation_prompt=False,
-                enable_thinking=enable_thinking,
-                tools=tools,
-                **self.apply_chat_template_kwargs,
-            )
-            if is_assistant:
-                prev_applied_text_w_generation_prompt = self.tokenizer.apply_chat_template(
-                    messages[:start_idx],
-                    tokenize=False,
-                    add_generation_prompt=True,
-                    enable_thinking=enable_thinking,
-                    tools=tools,
-                    **self.apply_chat_template_kwargs,
-                )
-
-        else:
-            prev_applied_text = ""
-
-        cur_applied_text = self.tokenizer.apply_chat_template(
-            messages[:end_idx],
-            tokenize=False,
-            add_generation_prompt=False,
-            enable_thinking=enable_thinking,
-            tools=tools,
-            **self.apply_chat_template_kwargs,
-        )
-        # Get tokens for the current message only
-        if is_assistant:
-            generation_prompt_text = prev_applied_text_w_generation_prompt[len(prev_applied_text) :]
-            generation_prompt_tokens = self.tokenizer.encode(
-                generation_prompt_text,
-                add_special_tokens=False,
-            )
-            _message_tokens = self.tokenizer.encode(
-                cur_applied_text[len(prev_applied_text_w_generation_prompt) :],
-                add_special_tokens=False,
-            )
-            message_tokens = generation_prompt_tokens + _message_tokens
-            loss_mask = [0] * (len(generation_prompt_tokens)) + [1] * (
-                len(message_tokens) - len(generation_prompt_tokens)
-            )
-        else:
-            message_tokens = self.tokenizer.encode(
-                cur_applied_text[len(prev_applied_text) :],
-                add_special_tokens=False,
-            )
-            loss_mask = [0] * len(message_tokens)
-
-        attention_mask = [1] * len(message_tokens)
-
-        return message_tokens, loss_mask, attention_mask
 
     def _get_pad_id(self):
         if hasattr(self.processor, "tokenizer"):
@@ -208,48 +124,6 @@ class MultiTurnSFTDataset(Dataset):
         if getattr(tokenizer, "pad_token_type_id", None) is not None:
             return tokenizer.pad_token_type_id
         return 0
-
-    def _validate_and_convert_tokens(
-        self,
-        full_tokens: torch.Tensor,
-        concat_tokens: list[int],
-        concat_loss_mask: list[int],
-        concat_attention_mask: list[int],
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        Validate tokenization and convert to tensors.
-
-        Args:
-            full_tokens: Full conversation tokens
-            concat_tokens: Concatenated tokens
-            concat_loss_mask: Concatenated loss mask
-            concat_attention_mask: Concatenated attention mask
-
-        Returns:
-            Tuple of (input_ids, loss_mask, attention_mask) as tensors
-        """
-        full_tokens_list = full_tokens.tolist()
-
-        if len(concat_tokens) != len(full_tokens_list) or not all(
-            a == b for a, b in zip(concat_tokens, full_tokens_list, strict=True)
-        ):
-            logging.warning(
-                f"Token mismatch detected! Full tokenization length: {len(full_tokens_list)}, Concatenated tokens "
-                f"length: {len(concat_tokens)}. Using concatenated version."
-                # f"full tokens text: {self.tokenizer.decode(full_tokens_list)}"
-                # f"concat tokens text: {self.tokenizer.decode(concat_tokens)}"
-            )
-            return (
-                torch.tensor(concat_tokens, dtype=torch.long),
-                torch.tensor(concat_loss_mask, dtype=torch.long),
-                torch.tensor(concat_attention_mask, dtype=torch.long),
-            )
-
-        return (
-            full_tokens,
-            torch.tensor(concat_loss_mask, dtype=torch.long),
-            torch.tensor(concat_attention_mask, dtype=torch.long),
-        )
 
     def __getitem__(self, item):
         messages = self.messages[item]
@@ -270,7 +144,7 @@ class MultiTurnSFTDataset(Dataset):
         else:
             tokens = self.processor(text=[full_text], padding=False)
         input_ids = tokens.input_ids[0]
-        attention_mask = tokens.attention_mask
+        attention_mask = tokens.attention_mask[0]
         pixel_values = getattr(tokens, "pixel_values", None)
         image_grid_thw = getattr(tokens, "image_grid_thw", None)
 
@@ -282,7 +156,6 @@ class MultiTurnSFTDataset(Dataset):
             [{"role": "user", "content": "123"}], add_generation_prompt=False, tokenize=False
         )
         gen_prompt = empty_with_gen_prompt[len(empty_without_gen_prompt) :]
-        print(empty_with_gen_prompt, empty_without_gen_prompt, gen_prompt)
         if hasattr(self.processor, "tokenizer"):
             gen_tokens = self.processor.tokenizer.encode(gen_prompt)
             end_tokens = [self.processor.tokenizer.encode(empty_without_gen_prompt.strip())[-1]]
@@ -351,16 +224,37 @@ class MultiTurnSFTDataset(Dataset):
                 else:
                     raise ValueError(f"Unknown truncation method {self.truncation}")
 
-            # Create position IDs
-            position_ids = torch.arange(len(input_ids), dtype=torch.long)
-            # Zero out position IDs for padding
-            position_ids = position_ids * attention_mask
+            if (
+                self.processor is not None
+                and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__
+            ):
+                from verl.models.transformers.qwen2_vl import get_rope_index
+
+                vision_position_ids = get_rope_index(
+                    self.processor,
+                    input_ids=input_ids,
+                    image_grid_thw=image_grid_thw,
+                    video_grid_thw=None,
+                    second_per_grid_ts=None,
+                    attention_mask=attention_mask,
+                )  # (3, seq_length)
+                valid_mask = attention_mask.bool()
+                text_position_ids = torch.ones((1, len(input_ids)), dtype=torch.long)
+                text_position_ids[0, valid_mask] = torch.arange(valid_mask.sum().item())
+                position_ids = torch.cat((text_position_ids, vision_position_ids), dim=0)  # (1, 4, seq_length)
+            else:
+                # Create position IDs
+                position_ids = torch.arange(len(input_ids), dtype=torch.long)
+                # Zero out position IDs for padding
+                position_ids = position_ids * attention_mask
 
             result = {
                 "input_ids": input_ids,
                 "attention_mask": attention_mask,
                 "position_ids": position_ids,
+                "responses": input_ids,
                 "loss_mask": loss_mask,
+                "response_mask": loss_mask,
             }
         elif self.pad_mode == "left_right":
             assert self.truncation == "error", "Only support error truncation for left_right pad mode"
@@ -427,7 +321,7 @@ class MultiTurnSFTDataset(Dataset):
         else:
             raise NotImplementedError("pad_mode only support right or left-right mode!")
         if pixel_values is not None:
-            result["pixel_values"] = torch.tensor(pixel_values)
-        if image_grid_thw is not None:
-            result["image_grid_thw"] = torch.tensor(image_grid_thw)
+            result["multi_modal_inputs"] = {}
+            result["multi_modal_inputs"]["pixel_values"] = torch.tensor(pixel_values)
+            result["multi_modal_inputs"]["image_grid_thw"] = torch.tensor(image_grid_thw)
         return result

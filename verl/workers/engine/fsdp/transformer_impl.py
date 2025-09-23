@@ -705,6 +705,9 @@ class FSDPEngineWithLMHead(FSDPEngine):
             from verl.utils.model import extract_multi_modal_inputs
 
             multi_modal_inputs = extract_multi_modal_inputs(micro_batch["multi_modal_inputs"])
+        for k, v in micro_batch.items():
+            if k.startswith("multi_modal_inputs_"):
+                multi_modal_inputs[k[len("multi_modal_inputs_") :]] = v
 
         input_ids = micro_batch["input_ids"]
         attention_mask = micro_batch["attention_mask"]
@@ -882,11 +885,14 @@ class FSDPEngineWithLMHead(FSDPEngine):
                 entropy = output.entropy[:, -response_length - 1 : -1]  # (bsz, response_length)
 
             else:
-                logits = output.logits
+                if hasattr(output, "last_hidden_state"):
+                    logits = output.last_hidden_state
+                else:
+                    logits = output.logits
 
                 logits.div_(temperature)
                 logits = logits[:, -response_length - 1 : -1, :]  # (bsz, response_length, vocab_size)
-                log_probs = logprobs_from_logits(logits, micro_batch.batch["responses"])
+                log_probs = logprobs_from_logits(logits, micro_batch["responses"][:, 1:])
                 if calculate_entropy:
                     if not self.engine_config.entropy_checkpointing:
                         entropy = verl_F.entropy_from_logits(logits)  # (bsz, response_length)
