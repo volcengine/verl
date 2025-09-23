@@ -1114,98 +1114,55 @@ class SGLangRollout(BaseRollout):
                     )
                 )
             else:
-                if self.config.multi_turn.collabllm_rollouts:
-                    max_assistant_turns = self.config.multi_turn.max_assistant_turns
+                # add progress monitoring and abort function
+                total_requests = len(req_list)
+                target_completion = int(total_requests * (1 - self.config.get("over_sample_rate", 0.0)))
+                # abort when target_completion of requests are completed
 
-                    # for collabllm, firstly generate model reponses
-                    self.config.multi_turn.max_assistant_turns = 1
-                    output_req_list = loop.run_until_complete(
-                        asyncio.gather(
-                            *[self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) for req in req_list],
-                            return_exceptions=False,
-                        )
-                    )
+                completed_count = 0
+                aborted_requests = []
+                all_tasks = []
 
-                    # then, collect interaction rollouts
-                    self.config.multi_turn.max_assistant_turns = max_assistant_turns
-                    for req in output_req_list:
-                        req.state = AsyncRolloutRequestStateEnum.INTERACTING
+                async def rollout_a_request_with_cancellation_handler(req):
+                    try:
+                        result = await self._async_rollout_a_request(req, do_sample, is_validate, **kwargs)
+                        return result
+                    except asyncio.CancelledError:
+                        # request is cancelled, return padding
+                        logger.info(f"Request {req.request_id} was cancelled, creating padding")
+                        aborted_requests.append(req.request_id)
+                        return self._create_padding_request(req)
 
-                    interaction_requests = [
-                        deepcopy(req)
-                        for req in output_req_list
-                        for _ in range(self.config.multi_turn.num_repeat_rollouts)
+                async def run_with_cancellation():
+                    nonlocal all_tasks
+                    nonlocal completed_count
+                    all_tasks = [
+                        asyncio.create_task(rollout_a_request_with_cancellation_handler(req)) for req in req_list
                     ]
-                    interaction_req_list = loop.run_until_complete(
-                        asyncio.gather(
-                            *[
-                                self._async_rollout_a_request(req, do_sample, is_validate, **kwargs)
-                                for req in interaction_requests
-                            ],
-                            return_exceptions=False,
-                        )
-                    )
-                    # merge interaction rollouts back to original responses
-                    num_repeats = self.config.multi_turn.num_repeat_rollouts
-                    for i, req in enumerate(output_req_list):
-                        start_idx = i * num_repeats
-                        end_idx = start_idx + num_repeats
-                        interaction_batch = interaction_req_list[start_idx:end_idx]
 
-                        # Extract messages from interaction rollouts
-                        req.messages = [interaction.messages for interaction in interaction_batch]
-                        req.state = AsyncRolloutRequestStateEnum.COMPLETED
+                    # Wait for target_completion tasks to complete
+                    try:
+                        for completed_task in asyncio.as_completed(all_tasks):
+                            await completed_task
+                            completed_count += 1
+                            if completed_count >= target_completion:
+                                break
+                    finally:
+                        # Cancel remaining tasks
+                        for t in all_tasks:
+                            if not t.done():
+                                t.cancel()
 
-                else:
-                    # add progress monitoring and abort function
-                    total_requests = len(req_list)
-                    target_completion = int(total_requests * (1 - self.config.get("over_sample_rate", 0.0)))
-                    # abort when target_completion of requests are completed
+                        # Wait for all tasks to finish (including cancelled ones)
+                        final_results = await asyncio.gather(*all_tasks, return_exceptions=True)
+                        # Abort all requests in SGLang engine
+                        await self._engine.abort_request(abort_all=True)
+                    return final_results
 
-                    completed_count = 0
-                    aborted_requests = []
-                    all_tasks = []
+                loop = asyncio.get_event_loop()
+                output_req_list = loop.run_until_complete(run_with_cancellation())
 
-                    async def rollout_a_request_with_cancellation_handler(req):
-                        try:
-                            result = await self._async_rollout_a_request(req, do_sample, is_validate, **kwargs)
-                            return result
-                        except asyncio.CancelledError:
-                            # request is cancelled, return padding
-                            logger.info(f"Request {req.request_id} was cancelled, creating padding")
-                            aborted_requests.append(req.request_id)
-                            return self._create_padding_request(req)
-
-                    async def run_with_cancellation():
-                        nonlocal all_tasks
-                        nonlocal completed_count
-                        all_tasks = [
-                            asyncio.create_task(rollout_a_request_with_cancellation_handler(req)) for req in req_list
-                        ]
-
-                        # Wait for target_completion tasks to complete
-                        try:
-                            for completed_task in asyncio.as_completed(all_tasks):
-                                await completed_task
-                                completed_count += 1
-                                if completed_count >= target_completion:
-                                    break
-                        finally:
-                            # Cancel remaining tasks
-                            for t in all_tasks:
-                                if not t.done():
-                                    t.cancel()
-
-                            # Wait for all tasks to finish (including cancelled ones)
-                            final_results = await asyncio.gather(*all_tasks, return_exceptions=True)
-                            # Abort all requests in SGLang engine
-                            await self._engine.abort_request(abort_all=True)
-                        return final_results
-
-                    loop = asyncio.get_event_loop()
-                    output_req_list = loop.run_until_complete(run_with_cancellation())
-
-                sorted_output_req_list = sorted(output_req_list, key=lambda x: (x.batch_data_id, x.rollout_offset))
+            sorted_output_req_list = sorted(output_req_list, key=lambda x: (x.batch_data_id, x.rollout_offset))
         else:
             sorted_output_req_list = None
 
