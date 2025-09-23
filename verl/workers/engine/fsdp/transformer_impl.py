@@ -375,13 +375,13 @@ class FSDPEngine(BaseEngine):
 
         optim_config = self.optimizer_config
 
-        total_steps = optim_config.get("total_training_steps", 0)
-        num_warmup_steps = int(optim_config.get("lr_warmup_steps", -1))
-        warmup_style = optim_config.get("warmup_style", "constant")
-        min_lr_ratio = optim_config.get("min_lr_ratio", 0.0)
-        num_cycles = optim_config.get("num_cycles", 0.5)
-        if num_warmup_steps < 0:
-            num_warmup_steps_ratio = optim_config.get("lr_warmup_steps_ratio", 0.0)
+        total_steps = optim_config.total_training_steps
+        num_warmup_steps = optim_config.lr_warmup_steps
+        warmup_style = optim_config.warmup_style
+        min_lr_ratio = optim_config.min_lr_ratio
+        num_cycles = optim_config.num_cycles
+        if num_warmup_steps <= 0:
+            num_warmup_steps_ratio = optim_config.lr_warmup_steps_ratio
             num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
 
         if self.rank == 0:
