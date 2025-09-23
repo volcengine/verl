@@ -58,6 +58,7 @@ from vllm.worker.worker_base import WorkerWrapperBase
 from verl import DataProto
 from verl.third_party.vllm import VLLM_SLEEP_LEVEL
 from verl.utils.device import is_npu_available
+from verl.utils.model import get_lora_rank_from_adapter
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.ray_utils import ray_noset_visible_devices
 from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
@@ -106,11 +107,13 @@ class vLLMRollout(BaseRollout):
         tokenizer = model_config.tokenizer
         model_hf_config = model_config.hf_config
         trust_remote_code = model_config.trust_remote_code
-        self.lora_kwargs = (
-            {"enable_lora": True, "max_loras": 1, "max_lora_rank": model_config.lora_rank}
-            if model_config.lora_rank > 0
-            else {}
-        )
+
+        if model_config.lora_adapter_path is not None:
+            lora_rank = get_lora_rank_from_adapter(model_config.lora_adapter_path)
+        else:
+            lora_rank = model_config.lora_rank
+
+        self.lora_kwargs = {"enable_lora": True, "max_loras": 1, "max_lora_rank": lora_rank} if lora_rank > 0 else {}
 
         tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
         assert tensor_parallel_size <= torch.distributed.get_world_size(), (
