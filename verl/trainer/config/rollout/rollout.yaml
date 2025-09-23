@@ -193,6 +193,9 @@ agent:
   # Number of agent loop workers
   num_workers: 8
 
+  # Default agent_name is single_turn_agent 
+  agent_name: single_turn_agent
+
   # custom agent loop config path, which should contain list of configs to intialize AgentLoop instances.
   # https://hydra.cc/docs/advanced/instantiate_objects/overview/
   #
