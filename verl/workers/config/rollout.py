@@ -67,6 +67,7 @@ class CustomAsyncServerConfig(BaseConfig):
 class AgentLoopConfig(BaseConfig):
     num_workers: int = 8
     agent_loop_config_path: Optional[str] = None
+    agent_name = "single_turn_agent"
     custom_async_server: CustomAsyncServerConfig = field(default_factory=CustomAsyncServerConfig)
 
 
