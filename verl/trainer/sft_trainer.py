@@ -101,12 +101,20 @@ class SFTTrainer:
         )
 
     def _build_config(self):
+        from verl.trainer.config import CheckpointConfig
         from verl.utils.config import omega_conf_to_dataclass
+        from verl.workers.config import (
+            FSDPEngineConfig,
+            FSDPOptimizerConfig,
+            HFModelConfig,
+            McoreEngineConfig,
+            McoreOptimizerConfig,
+        )
 
-        self.model_config = omega_conf_to_dataclass(self.config.model)
-        self.engine_config = omega_conf_to_dataclass(self.config.engine)
-        self.optimizer_config = omega_conf_to_dataclass(self.config.optim)
-        self.checkpoint_config = omega_conf_to_dataclass(self.config.checkpoint)
+        self.model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model)
+        self.engine_config: FSDPEngineConfig | McoreEngineConfig = omega_conf_to_dataclass(self.config.engine)
+        self.optimizer_config: FSDPOptimizerConfig | McoreOptimizerConfig = omega_conf_to_dataclass(self.config.optim)
+        self.checkpoint_config: CheckpointConfig = omega_conf_to_dataclass(self.config.checkpoint)
 
     def _build_engine(self):
         from verl.workers.engine import BaseEngine, EngineRegistry
