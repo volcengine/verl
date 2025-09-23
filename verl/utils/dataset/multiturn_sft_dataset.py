@@ -428,6 +428,10 @@ class MultiTurnSFTDataset(Dataset):
                 "response_mask": response_loss_mask,
             }
         elif self.pad_mode == DatasetPadMode.NO_PADDING:
+            # truncate input_ids if it is longer than max_length
+            if len(input_ids) > self.max_length:
+                input_ids = input_ids[: self.max_length]
+                loss_mask = loss_mask[: self.max_length]
             # create position IDs
             position_ids = torch.arange(len(input_ids), dtype=torch.long)
             # return nested tensor with out padding
@@ -436,34 +440,3 @@ class MultiTurnSFTDataset(Dataset):
                 "position_ids": position_ids,
                 "loss_mask": loss_mask,
             }
-
-
-class NestedTensorCollator:
-    """
-    A custom collate_fn that handles batching of variable-length sequences
-    into NestedTensors.
-    """
-
-    def __call__(self, batch: list[dict[str, any]]) -> dict[str, any]:
-        """
-        Collates a list of samples into a single batch.
-
-        Args:
-            batch: A list of dictionary samples from the dataset.
-
-        Returns:
-            A dictionary representing the batched data, with variable-length
-            sequences converted to NestedTensors.
-        """
-        # These keys correspond to tensors that will be nested.
-        tensor_keys = ["input_ids", "loss_mask", "position_ids"]
-
-        final_batch = {}
-
-        # Handle tensor values by creating a NestedTensor.
-        for key in tensor_keys:
-            if key in batch[0]:
-                tensors = [item[key] for item in batch]
-                final_batch[key] = torch.nested.as_nested_tensor(tensors, layout=torch.jagged)
-
-        return final_batch

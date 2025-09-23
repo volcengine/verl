@@ -721,7 +721,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
             if pad_mode == DatasetPadMode.NO_PADDING:
                 input_ids_rmpad = input_ids.values().unsqueeze(0)  # (1, total_nnz)
                 position_ids_rmpad = position_ids.values().unsqueeze(0)  # (1, total_nnz)
-            else:
+            elif pad_mode == DatasetPadMode.LEFT_RIGHT:
                 attention_mask = micro_batch["attention_mask"]
                 input_ids_rmpad, indices, cu_seqlens, *_ = unpad_input(
                     input_ids.unsqueeze(-1), attention_mask
@@ -747,6 +747,8 @@ class FSDPEngineWithLMHead(FSDPEngine):
                     multi_modal_inputs = process_multi_modal_inputs_for_minicpmo(
                         input_ids, attention_mask, position_ids, cu_seqlens, multi_modal_inputs
                     )
+            else:
+                raise NotImplementedError(f"pad_mode {pad_mode} not implemented")
 
             # for compute the log_prob
             input_ids_rmpad_rolled = torch.roll(input_ids_rmpad, shifts=-1, dims=1)  # (1, total_nnz)
@@ -795,47 +797,40 @@ class FSDPEngineWithLMHead(FSDPEngine):
                 batch_size = micro_batch.batch_size[0]
 
                 input_ids = micro_batch["input_ids"]
+                position_ids = micro_batch["position_ids"]
+                loss_mask = micro_batch["loss_mask"]
+
+                input_ids_rmpad_rolled = torch.roll(input_ids.values(), shifts=-1, dims=0)
+                output_args["input_ids_rmpad_rolled"] = input_ids_rmpad_rolled
+
                 input_ids = torch.nested.to_padded_tensor(
                     input_ids, padding=pad_token_id, output_size=(batch_size, total_length)
                 )
 
-                position_ids = micro_batch["position_ids"]
                 position_ids = torch.nested.to_padded_tensor(
                     position_ids, padding=0, output_size=(batch_size, total_length)
                 )
 
-                loss_mask = micro_batch["loss_mask"]
                 attention_mask_list = [torch.ones_like(t, dtype=torch.int32) for t in loss_mask]
                 attention_mask = torch.nested.as_nested_tensor(attention_mask_list, layout=torch.jagged)
                 attention_mask = torch.nested.to_padded_tensor(
                     attention_mask, padding=0, output_size=(batch_size, total_length)
                 )
 
-                for i in range(batch_size):
-                    prompt_length = (loss_mask[i] == 0).sum().item()
-                    left_pad = max_prompt_length - prompt_length
-                    # right shift input_ids by left_pad tokens
-                    input_ids[i] = torch.roll(input_ids[i], shifts=left_pad, dims=0)
-                    # right shift position_ids by left_pad tokens
-                    position_ids[i] = torch.roll(position_ids[i], shifts=left_pad, dims=0)
-                    # right shift attention_mask by left_pad tokens
-                    attention_mask[i] = torch.roll(attention_mask[i], shifts=left_pad, dims=0)
-
                 model_inputs = {
                     "input_ids": input_ids,
                     "attention_mask": attention_mask,
                     "position_ids": position_ids,
                 }
-
-                output_args["responses"] = input_ids[:, -max_response_length:]
-                output_args["response_mask"] = attention_mask[:, -max_response_length:]
-            else:
+            elif pad_mode == DatasetPadMode.LEFT_RIGHT:
                 attention_mask = micro_batch["attention_mask"]
                 model_inputs = {
                     "input_ids": input_ids,
                     "attention_mask": attention_mask,
                     "position_ids": position_ids,
                 }
+            else:
+                raise NotImplementedError(f"pad_mode {pad_mode} not implemented")
 
         extra_args = {}
         if use_fused_kernels:
@@ -907,11 +902,11 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
             if pad_mode == DatasetPadMode.NO_PADDING:
                 cu_seqlens = input_ids.offsets()
-                # (bsz, j1) for each sample, j1 is the length of [prompt length + response length]
+                # (bsz, j1) for each sample, is the length of each sample: [real_prompt length + real_response length]
                 log_probs = torch.nested.nested_tensor_from_jagged(log_probs, cu_seqlens)
                 if calculate_entropy:
                     entropy = torch.nested.nested_tensor_from_jagged(entropy_rmpad, cu_seqlens)
-            else:
+            elif pad_mode == DatasetPadMode.LEFT_RIGHT:
                 indices = output_args["indices"]
                 response_length = micro_batch["responses"].size(-1)
                 batch_size, seqlen = input_ids.shape
@@ -934,6 +929,8 @@ class FSDPEngineWithLMHead(FSDPEngine):
                 # only return response part:
                 if calculate_entropy:
                     entropy = full_entropy.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
+            else:
+                raise NotImplementedError(f"pad_mode {pad_mode} not implemented")
 
         else:  # not using rmpad and no ulysses sp
             response_length = tu.get_non_tensor_data(data=micro_batch, key="max_response_length", default=1024)
@@ -943,20 +940,35 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
             else:
                 logits = output.logits
-
                 logits.div_(temperature)
-                logits = logits[:, -response_length - 1 : -1, :]  # (bsz, response_length, vocab_size)
-                if pad_mode == DatasetPadMode.NO_PADDING:
-                    log_probs = logprobs_from_logits(logits, output_args["responses"])
-                    model_output["response_mask"] = output_args["response_mask"]
-                else:
-                    log_probs = logprobs_from_logits(logits, micro_batch["responses"])
 
                 if calculate_entropy:
                     if not self.engine_config.entropy_checkpointing:
-                        entropy = verl_F.entropy_from_logits(logits)  # (bsz, response_length)
+                        entropy = verl_F.entropy_from_logits(logits)
                     else:
                         entropy = torch.utils.checkpoint.checkpoint(verl_F.entropy_from_logits, logits)
+
+                if pad_mode == DatasetPadMode.NO_PADDING:
+                    cu_seqlens = input_ids.offsets()
+                    seq_lengths = cu_seqlens.diff()
+                    starts = torch.zeros_like(seq_lengths, dtype=torch.int64)
+                    logits = torch.nested.narrow(logits, 1, starts, seq_lengths, layout=torch.jagged)
+                    logits_rmpad = torch.cat([t for t in logits.unbind()])
+                    input_ids_rmpad_rolled = output_args["input_ids_rmpad_rolled"]
+                    log_probs = logprobs_from_logits(logits=logits_rmpad, labels=input_ids_rmpad_rolled)
+                    # (bsz, j1) for each sample, length of each sample: [real_prompt_length + real_response_length]
+                    log_probs = torch.nested.nested_tensor_from_jagged(log_probs, cu_seqlens)
+                    if calculate_entropy:
+                        entropy = torch.nested.narrow(entropy, 1, starts, seq_lengths, layout=torch.jagged)
+                        entropy_rmpad = torch.cat([t for t in entropy.unbind()])
+                        entropy = torch.nested.nested_tensor_from_jagged(entropy_rmpad, cu_seqlens)
+                elif pad_mode == DatasetPadMode.LEFT_RIGHT:
+                    logits = logits[:, -response_length - 1 : -1, :]  # (bsz, response_length, vocab_size)
+                    log_probs = logprobs_from_logits(logits, micro_batch["responses"])
+                    if calculate_entropy:
+                        entropy = entropy[:, -response_length - 1 : -1]  # (bsz, response_length)
+                else:
+                    raise NotImplementedError(f"pad_mode {pad_mode} not implemented")
 
         model_output["log_probs"] = log_probs
         if calculate_entropy:

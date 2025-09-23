@@ -25,11 +25,10 @@ from verl.workers.config import ActorConfig, CriticConfig
 
 def sft_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None):
     pad_mode = tu.get_non_tensor_data(data=data, key="pad_mode", default=DatasetPadMode.LEFT_RIGHT)
-    use_remove_padding = tu.get_non_tensor_data(data=data, key="use_remove_padding", default=True)
 
     log_prob = model_output["log_probs"]
 
-    if pad_mode == DatasetPadMode.NO_PADDING and use_remove_padding:
+    if pad_mode == DatasetPadMode.NO_PADDING:
         # log_prob and loss mask are nested tensors of shape [bsz, j1]
         # for each sample, loss mask shape is [1, prompt_length + response_length]
         loss_mask = data["loss_mask"]
@@ -43,14 +42,7 @@ def sft_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
         loss_mask_flatten[cu_seqlens[1:] - 1] = 0
         loss = -masked_mean(log_prob_flatten, loss_mask_flatten)
     else:
-        # log_prob and response_mask are of shape [bsz, response_length]
-        if pad_mode == DatasetPadMode.NO_PADDING:
-            response_mask = model_output["response_mask"].to(
-                bool
-            )  # case: pad_mode == DatasetPadMode.NO_PADDING and have padding
-        else:
-            response_mask = data["response_mask"].to(bool)
-
+        response_mask = data["response_mask"].to(bool)
         loss = -masked_mean(log_prob, response_mask)
 
     return loss, {"loss": loss.detach().item()}

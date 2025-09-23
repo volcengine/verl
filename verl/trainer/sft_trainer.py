@@ -32,8 +32,8 @@ from tqdm import tqdm
 
 from verl.utils import tensordict_utils as tu
 from verl.utils.checkpoint import CheckpointHandler
+from verl.utils.dataset.dataset_utils import SFTTensorCollator
 from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
-from verl.utils.dataset.multiturn_sft_dataset import DatasetPadMode, MultiTurnSFTDataset, NestedTensorCollator
 from verl.utils.device import get_device_name, is_cuda_available, is_npu_available
 from verl.utils.distributed import destroy_global_process_group
 from verl.utils.flops_counter import FlopsCounter
@@ -168,19 +168,13 @@ class SFTTrainer:
 
         self.global_batch_size = config.data.train_batch_size
         self.train_batch_size_per_dp = self.global_batch_size // dp_size
-
-        if config.data.pad_mode == DatasetPadMode.NO_PADDING:
-            collate_fn = NestedTensorCollator()
-        else:
-            from torch.utils.data.dataloader import default_collate
-
-            collate_fn = default_collate
+        self.collate_fn = SFTTensorCollator(config.data.pad_mode)
 
         self.train_dataloader = StatefulDataLoader(
             dataset=self.train_dataset,
             batch_size=self.train_batch_size_per_dp,
             sampler=self.train_sampler,
-            collate_fn=collate_fn,
+            collate_fn=self.collate_fn,
             num_workers=8,
             pin_memory=True,
             drop_last=True,
@@ -194,7 +188,7 @@ class SFTTrainer:
             dataset=self.val_dataset,
             batch_size=self.train_batch_size_per_dp,
             sampler=self.val_sampler,
-            collate_fn=collate_fn,
+            collate_fn=self.collate_fn,
             num_workers=8,
             pin_memory=True,
             drop_last=True,

@@ -63,6 +63,31 @@ def test_union_tensor_dict():
         tu.union_tensor_dict(data1, data2)
 
 
+def test_tensor_dict_constructor():
+    obs = torch.ones(100, 10)
+    act = torch.zeros(100, 10, 3)
+    data_source = ["gsm8k"] * 100
+    non_tensor_dict = {"name": "abdce"}
+
+    data = tu.get_tensordict(
+        tensor_dict={"obs": obs, "act": act, "data_source": data_source}, non_tensor_dict=non_tensor_dict
+    )
+
+    assert data.batch_size == torch.Size([100])
+
+    # test slicing
+    assert torch.all(torch.eq(data[0]["obs"], torch.ones(10))).item()
+    assert torch.all(torch.eq(data[0]["act"], torch.zeros(10, 3))).item()
+    assert data[0]["data_source"] == "gsm8k"
+
+    assert torch.all(torch.eq(data[0:2]["obs"], torch.ones(2, 10))).item()
+    assert torch.all(torch.eq(data[0:2]["act"], torch.zeros(2, 10, 3))).item()
+    assert data[0:2]["data_source"] == ["gsm8k"] * 2
+
+    # test non tensor data
+    assert data["name"] == "abdce"
+
+
 def test_index_select_tensor_dict():
     vocab_size = 128
     a = torch.randint(low=0, high=vocab_size, size=(11,))
