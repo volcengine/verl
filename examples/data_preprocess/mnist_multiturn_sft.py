@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Preprocess the Geometry3k dataset to parquet format
+Preprocess the MNIST multi-turn SFT dataset to parquet format
 """
 
 import argparse

@@ -283,14 +283,17 @@ class MultiTurnSFTDataset(Dataset):
         messages = self.messages[item]
 
         messages_new = []
-        for message in messages:  # remove "image": None, which causes wrong processing in qwen2.5-VL
-            for idx, content in enumerate(message['content']):
-                if content['type'] == 'image':
-                    content = {"image": int(content['image']), "type": "image"}
-                if content['type'] == 'text':
-                    content = {"text": content['text'], "type": "text"}
-                message['content'][idx] = content
-            messages_new.append(message)
+        for message in messages:
+            new_content_list = []
+            for content in message["content"]:
+                if content["type"] == "image":
+                    new_content_list.append({"image": int(content["image"]), "type": "image"})
+                elif content["type"] == "text":
+                    new_content_list.append({"text": content["text"], "type": "text"})
+                else:
+                    new_content_list.append(content)
+            new_message = {**message, "content": new_content_list}
+            messages_new.append(new_message)
         messages = messages_new
         tools = self.tools[item] if self.tools is not None else None
         enable_thinking = self.enable_thinking[item] if self.enable_thinking is not None else None
@@ -300,9 +303,6 @@ class MultiTurnSFTDataset(Dataset):
         prompt_length = -1
         try:
             if self.processor is not None and (images is not None):
-                for img in images:
-                    if type(img) is str:
-                        breakpoint()
                 processed_images = [process_image(img) for img in images]
                 
                 raw_prompt = self.processor.apply_chat_template(
