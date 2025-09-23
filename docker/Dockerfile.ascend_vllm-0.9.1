@@ -1,0 +1,57 @@
+# 1. 基础镜像
+FROM swr.cn-south-1.myhuaweicloud.com/ascendhub/cann:8.2.rc1-910b-ubuntu22.04-py3.11
+
+# 2. 设置代理（非绿区服务器无需配置代理，可删除第二步）
+# ENV ip_addr=90.255.3.138
+# ENV http_proxy="http://p_atlas:proxy%40123@$ip_addr:8080"
+# ENV https_proxy=$http_proxy
+# ENV no_proxy=127.0.0.1,localhost,local,.local
+# ENV GIT_SSL_NO_VERIFY=1
+
+# 3. 安装系统依赖
+RUN apt-get update -y && apt-get install -y --no-install-recommends \
+    gcc g++ cmake libnuma-dev wget git curl jq vim build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# 4. 前置安装基础vllm
+RUN git clone --depth 1 --branch v0.9.1 https://github.com/vllm-project/vllm \
+    && pip config set global.extra-index-url "https://download.pytorch.org/whl/cpu/ https://mirrors.huaweicloud.com/ascend/repos/pypi" \
+    && cd vllm \
+    && VLLM_TARGET_DEVICE=empty pip install -v -e . \
+    && cd ..
+
+# 5. 安装vllm_ascend
+RUN git clone --depth 1 --branch v0.9.1 https://github.com/vllm-project/vllm-ascend.git \
+    && cd vllm-ascend \
+    && export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/8.2.RC1/x86_64-linux/devlib/linux/x86_64/:$LD_LIBRARY_PATH \
+    && source /usr/local/Ascend/ascend-toolkit/set_env.sh \
+    && source /usr/local/Ascend/nnal/atb/set_env.sh \
+    && pip install -v -e . \
+    && cd ..
+
+# 6. 安装verl
+RUN git clone https://github.com/volcengine/verl.git \
+    && cd verl \
+    && pip install -r requirements-npu.txt \
+    && pip install -e . \
+    && cd ..
+
+# 7. 安装MindSpeed
+RUN git clone https://gitee.com/ascend/MindSpeed.git \
+    && pip install -e MindSpeed
+
+# 8. 安装Megatron-LM并配置PYTHONPATH
+RUN git clone https://github.com/NVIDIA/Megatron-LM.git \
+    && cd Megatron-LM \
+    && git checkout core_v0.12.1 \
+    && cd .. \
+    && echo "export PYTHONPATH=\$PYTHONPATH:/app/Megatron-LM" >> ~/.bashrc
+
+
+ENV PYTHONPATH="${PYTHONPATH}:/Megatron-LM"
+
+# 清理pip缓存，减小镜像体积
+RUN pip cache purge
+
+# 设置默认命令
+CMD ["/bin/bash"]
