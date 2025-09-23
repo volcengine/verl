@@ -40,7 +40,7 @@ from verl.utils.config import omega_conf_to_dataclass
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
 from verl.workers.rollout.sglang_rollout.sglang_rollout import ServerAdapter, _set_envs_and_config
-from verl.workers.rollout.utils import get_free_port, run_unvicorn
+from verl.workers.rollout.utils import get_free_port, is_valid_ipv6_address, run_unvicorn
 
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
@@ -125,6 +125,11 @@ class SGLangHttpServer:
 
         engine_kwargs = self.config.get("engine_kwargs", {}).get("sglang", {}) or {}
         attention_backend = engine_kwargs.pop("attention_backend", None)
+        dist_init_addr = (
+            f"[{self._master_address}]:{self._master_port}"
+            if is_valid_ipv6_address(self._master_address)
+            else f"{self._master_address}:{self._master_port}"
+        )
 
         args = {
             "model_path": self.model_config.local_path,
@@ -139,7 +144,7 @@ class SGLangHttpServer:
             "ep_size": self.config.expert_parallel_size,
             "node_rank": self.node_rank,
             "load_format": self.config.load_format,
-            "dist_init_addr": f"{self._master_address}:{self._master_port}",
+            "dist_init_addr": dist_init_addr,
             "nnodes": self.nnodes,
             "trust_remote_code": self.model_config.trust_remote_code,
             "max_running_requests": self.config.get("max_num_seqs", None),
