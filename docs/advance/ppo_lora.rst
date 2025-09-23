@@ -32,7 +32,13 @@ Usage Guide
 - `actor_rollout_ref.rollout.load_format="safetensors"`: required. This enables vLLM to load the base model.
 - `actor_rollout_ref.model.target_modules`: the target modules for LoRA. Typically set to "all-linear".
 
-4. Recommend options:
+4. Optional configurations for LoRA:
+
+- `actor_rollout_ref.model.lora_adapter_path`: string, path to a pretrained LoRA adapter directory. 
+   If provided, loads existing adapter instead of creating new one. Enables multi-stage training from previously saved adapters.
+   Directory need contain `adapter_model.safetensors` and `adapter_config.json`.
+
+5. Recommend options:
 
 - `actor_rollout_ref.model.use_shm=True`: preload the model into `/dev/shm` to improve model loading speed.
 - `actor_rollout_ref.rollout.layered_summon=True`: this enables the actor-model to gather the FSDP shards per layers when synchronizing the LoRA Adapter to vLLM, thereby reducing GPU peak memory. Recommended if the model is very large (70B+) or the GPU memory is limited (< 48GB)
@@ -79,9 +85,10 @@ Best Practices and Notes
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=1 \
 
-Example Script
+Example Scripts
 -------------------
 
-For an end-to-end example, refer to the script below:
+For end-to-end examples, refer to the scripts below:
 
-examples/grpo_trainer/run_qwen2_5-3b_gsm8k_grpo_lora.sh
+- LoRA training from scratch: examples/grpo_trainer/run_qwen2_5-3b_gsm8k_grpo_lora.sh
+- LoRA training from adapter path: examples/grpo_trainer/run_qwen2_5-3b_gsm8k_grpo_lora_from_adapter.sh
