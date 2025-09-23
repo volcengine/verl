@@ -238,8 +238,6 @@ class SFTTrainer:
             "temperature": 1.0,
             "global_batch_size": self.global_batch_size,
             "pad_mode": self.config.data.pad_mode,
-            "max_prompt_length": self.config.data.max_prompt_length,
-            "max_response_length": self.config.data.max_response_length,
             "pad_token_id": self.model_config.tokenizer.pad_token_id,
         }
 

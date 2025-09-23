@@ -790,31 +790,30 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
         else:
             if pad_mode == DatasetPadMode.NO_PADDING:
-                max_prompt_length = tu.get_non_tensor_data(data=micro_batch, key="max_prompt_length", default=1024)
-                max_response_length = tu.get_non_tensor_data(data=micro_batch, key="max_response_length", default=1024)
-                pad_token_id = tu.get_non_tensor_data(data=micro_batch, key="pad_token_id", default=0)
-                total_length = max_prompt_length + max_response_length
-                batch_size = micro_batch.batch_size[0]
-
                 input_ids = micro_batch["input_ids"]
                 position_ids = micro_batch["position_ids"]
                 loss_mask = micro_batch["loss_mask"]
+
+                pad_token_id = tu.get_non_tensor_data(data=micro_batch, key="pad_token_id", default=0)
+                batch_size = micro_batch.batch_size[0]
+                seq_len_effective = input_ids.offsets().diff()
+                max_seq_len = max(seq_len_effective)
 
                 input_ids_rmpad_rolled = torch.roll(input_ids.values(), shifts=-1, dims=0)
                 output_args["input_ids_rmpad_rolled"] = input_ids_rmpad_rolled
 
                 input_ids = torch.nested.to_padded_tensor(
-                    input_ids, padding=pad_token_id, output_size=(batch_size, total_length)
+                    input_ids, padding=pad_token_id, output_size=(batch_size, max_seq_len)
                 )
 
                 position_ids = torch.nested.to_padded_tensor(
-                    position_ids, padding=0, output_size=(batch_size, total_length)
+                    position_ids, padding=0, output_size=(batch_size, max_seq_len)
                 )
 
                 attention_mask_list = [torch.ones_like(t, dtype=torch.int32) for t in loss_mask]
                 attention_mask = torch.nested.as_nested_tensor(attention_mask_list, layout=torch.jagged)
                 attention_mask = torch.nested.to_padded_tensor(
-                    attention_mask, padding=0, output_size=(batch_size, total_length)
+                    attention_mask, padding=0, output_size=(batch_size, max_seq_len)
                 )
 
                 model_inputs = {
