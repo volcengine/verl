@@ -24,7 +24,7 @@ def _initialize_kv_caches(self, vllm_config: VllmConfig) -> tuple[int, int, KVCa
     self.kv_cache_configs = [
         get_kv_cache_config(vllm_config, kv_cache_spec_one_worker, available_gpu_memory_one_worker)
         for kv_cache_spec_one_worker, available_gpu_memory_one_worker in zip(
-            kv_cache_specs, available_gpu_memory
+            kv_cache_specs, available_gpu_memory, strict=False
         )
     ]
 

@@ -16,17 +16,16 @@ The main entry point to run the PPO algorithm
 """
 
 import torch
-from omegaconf import DictConfig
-
-from verl.workers.rollout import base
-from verl.workers.megatron_workers import ActorRolloutRefWorker as ARRWorker
-from verl.workers.megatron_workers import AsyncActorRolloutRefWorker, CriticWorker
+from mindspeed.core.megatron_basic.requirements_basic import dummy_compile
 
 # NPU-ADAPTATION: Save the original and dummy copies of `torch.compile`.
 from mindspeed.patch_utils import MindSpeedPatchesManager
-from mindspeed.core.megatron_basic.requirements_basic import dummy_compile
+from omegaconf import DictConfig
 
-MindSpeedPatchesManager.patches_info['torch.compile'].remove_patch()
+from verl.workers.megatron_workers import ActorRolloutRefWorker as ARRWorker
+from verl.workers.rollout import base
+
+MindSpeedPatchesManager.patches_info["torch.compile"].remove_patch()
 TRUE_COMPILE = torch.compile
 DUMMY_COMPILE = dummy_compile
 # NPU-ADAPTATION END
@@ -38,16 +37,16 @@ base._ROLLOUT_REGISTRY[("vllm", "sync")] = "recipe.r1_ascend.vllm_rollout_spmd.v
 class ActorRolloutRefWorker(ARRWorker):
     def __init__(self, config: DictConfig, role: str, **kwargs):
         super().__init__(config, role)
-    
+
     def _build_rollout(self, *args, **kwargs):
         """
         Build the rollout with temporary reversion to true torch.compile.
         """
         # Temporarily restore true torch.compile for the rollout build
         torch.compile = TRUE_COMPILE
-        
+
         # Call parent method with original torch.compile
         super()._build_rollout(*args, **kwargs)
-        
+
         # Revert to dummy_compile after rollout is built
         torch.compile = DUMMY_COMPILE

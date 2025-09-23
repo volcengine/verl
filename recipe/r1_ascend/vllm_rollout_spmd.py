@@ -19,11 +19,13 @@ from typing import Generator
 
 import torch
 import torch.distributed
-from vllm import LLM, SamplingParams
+from omegaconf import ListConfig
 from torch.distributed.device_mesh import DeviceMesh
+from vllm import LLM, SamplingParams
+from vllm.config import CompilationConfig, CompilationLevel
 
-from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.third_party.vllm import VLLM_SLEEP_LEVEL
+from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.vllm_rollout import vLLMRollout as vLLMRolloutBase
 
 logger = logging.getLogger(__file__)
@@ -36,14 +38,11 @@ class vLLMRollout(vLLMRolloutBase):
         config: RolloutConfig,
         model_config: HFModelConfig,
         device_mesh: DeviceMesh,
-    ):  
+    ):
         self.config = config
         self.model_config = model_config
         self.device_mesh = device_mesh
         # NPU-ADAPTATION: import vLLM-Ascend patch
-        from vllm_ascend.patch import platform
-        from vllm_ascend.patch import worker
-        from recipe.r1_ascend import engine_core
         # NPU-ADAPTATION END
 
         if config.layered_summon:
@@ -66,10 +65,11 @@ class vLLMRollout(vLLMRolloutBase):
             "tensor parallel size should be less than or equal to the world size"
         )
         max_num_batched_tokens = self.config.get("max_num_batched_tokens", 8192)
-        
+
         # NPU-ADAPTATION: VLLM_DP_SIZE is configured, the DP communication domain needs to be explicitly initialized
         if int(os.environ.get("VLLM_DP_SIZE", "1")) > 1:
             from recipe.r1_ascend.vllm_parallel_state import init_parallel_state
+
             init_parallel_state(tensor_parallel_size)
         # NPU-ADAPTATION END
 
@@ -120,7 +120,7 @@ class vLLMRollout(vLLMRolloutBase):
         engine_kwargs = {key: val for key, val in engine_kwargs.items() if val is not None}
         if config.get("limit_images", None):  # support for multi-image data
             engine_kwargs["limit_mm_per_prompt"] = {"image": config.get("limit_images")}
-        
+
         compilation_config = {}
 
         cudagraph_capture_sizes = config.get("cudagraph_capture_sizes")
@@ -257,13 +257,14 @@ class vLLMRollout(vLLMRolloutBase):
             worker = self.inference_engine.llm_engine.model_executor.driver_worker.worker
             ctx = worker.model_runner.vllm_config.compilation_config.static_forward_context
         else:
-            ctx = self.inference_engine.llm_engine.model_executor.driver_worker.worker.compilation_config.static_forward_context
+            compilation_config = self.inference_engine.llm_engine.model_executor.driver_worker.worker.compilation_config
+            ctx = compilation_config.static_forward_context
         from vllm.attention import AttentionType
 
         layer_need_kv_cache = []
         for layer_name in ctx:
-            if hasattr(ctx[layer_name], 'attn_type') and ctx[layer_name].attn_type in (
-                AttentionType.DECODER, 
+            if hasattr(ctx[layer_name], "attn_type") and ctx[layer_name].attn_type in (
+                AttentionType.DECODER,
                 AttentionType.ENCODER_DECODER,
             ):
                 layer_need_kv_cache.append(layer_name)
@@ -291,7 +292,7 @@ class vLLMRollout(vLLMRolloutBase):
 
         gc.collect()
         torch.npu.empty_cache()
-    
+
     def _process_mla(self, load_weight=False):
         for i in range(self.model.model.start_layer, self.model.model.end_layer):
             mla = self.model.model.layers[i].self_attn.mla_attn.impl
@@ -303,7 +304,7 @@ class vLLMRollout(vLLMRolloutBase):
                 mla.W_UK_T = None
             if load_weight:
                 mla.process_weights_after_loading(None)
-    
+
     async def resume(self, tags: list[str]):
         """Resume rollout weights or kv cache in NPU memory.
 
@@ -322,7 +323,7 @@ class vLLMRollout(vLLMRolloutBase):
         """Release weights and kv cache in NPU memory."""
         if not self.config.free_cache_engine:
             return
-        
+
         self.free_cache_engine()
         self.offload_model_weights()
 

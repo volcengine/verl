@@ -26,7 +26,6 @@ import torch.distributed as dist
 
 try:
     # NPU patch
-    import torch_npu
     import mindspeed.megatron_adaptor  # noqa: F401
     from mindspeed.megatron_adaptor import repatch
 except ImportError:
@@ -188,7 +187,9 @@ def convert_checkpoint_from_transformers_to_megatron(
 
             fc1_weight = torch.cat([hf_expert.gate_proj.weight, hf_expert.up_proj.weight])
             numel += safe_copy(fc1_weight, layer.mlp.experts.linear_fc1._parameters[f"weight{local_expert_idx}"])
-            numel += safe_copy(hf_expert.down_proj.weight, layer.mlp.experts.linear_fc2._parameters[f"weight{local_expert_idx}"])
+            numel += safe_copy(
+                hf_expert.down_proj.weight, layer.mlp.experts.linear_fc2._parameters[f"weight{local_expert_idx}"]
+            )
 
         if has_share_expert:
             numel += safe_copy(hf_layer.mlp.shared_expert_gate.weight, layer.mlp.shared_experts.gate_weight)
@@ -441,7 +442,9 @@ def support_distributed_convert(hf_config: AutoConfig) -> bool:
     return False
 
 
-def convert_hf_to_mcore(hf_model_path, output_path, pp_size=1, ep_size=1, use_cpu_initialization=False, test=False, trust_remote_code=False):
+def convert_hf_to_mcore(
+    hf_model_path, output_path, pp_size=1, ep_size=1, use_cpu_initialization=False, test=False, trust_remote_code=False
+):
     os.makedirs(output_path, exist_ok=True)
     if len(os.listdir(output_path)) > 0 and not test:
         print(f"Output path {output_path} is not empty, skipping conversion")
@@ -456,13 +459,12 @@ def convert_hf_to_mcore(hf_model_path, output_path, pp_size=1, ep_size=1, use_cp
 
     torch.distributed.init_process_group("nccl")
 
-    rank = dist.get_rank()
     local_rank = os.getenv("LOCAL_RANK", 0)
     world_size = dist.get_world_size()
     get_torch_device().set_device(f"{get_device_name()}:{local_rank}")
     if ep_size * pp_size != world_size:
         pp_size = world_size
-        print(f'pp_size is set to {pp_size}')
+        print(f"pp_size is set to {pp_size}")
 
     mpu.initialize_model_parallel(
         tensor_model_parallel_size=1,
@@ -598,5 +600,11 @@ def convert_hf_to_mcore(hf_model_path, output_path, pp_size=1, ep_size=1, use_cp
 if __name__ == "__main__":
     args = _init_args()
     convert_hf_to_mcore(
-        args.hf_model_path, args.output_path, args.pp_size, args.ep_size, args.use_cpu_initialization, args.test, args.trust_remote_code
+        args.hf_model_path,
+        args.output_path,
+        args.pp_size,
+        args.ep_size,
+        args.use_cpu_initialization,
+        args.test,
+        args.trust_remote_code,
     )
