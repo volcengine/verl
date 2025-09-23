@@ -83,6 +83,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     data.use_dynamic_bsz=True \
     data.max_token_len_per_gpu=8192 \
     data.messages_key=messages \
+    data.pad_mode=right \
     model.path=$MODEL_PATH \
     ${ENGINE_CONFIG} \
     trainer.test_freq=after_each_epoch \
@@ -91,7 +92,6 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
     trainer.total_epochs=2 \
-    trainer.total_training_steps=2 \
     trainer.default_local_dir="${ckpts_home}" \
     trainer.resume_mode=${RESUME_MODE} \
 

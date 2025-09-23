@@ -180,7 +180,7 @@ class SFTTrainer:
             dataset=self.train_dataset,
             batch_size=self.train_batch_size_per_dp,
             sampler=self.train_sampler,
-            num_workers=8,
+            num_workers=0,
             pin_memory=True,
             drop_last=True,
             pin_memory_device=device_name,
@@ -193,7 +193,7 @@ class SFTTrainer:
             dataset=self.val_dataset,
             batch_size=self.train_batch_size_per_dp,
             sampler=self.val_sampler,
-            num_workers=8,
+            num_workers=0,
             pin_memory=True,
             drop_last=True,
             pin_memory_device=device_name,
@@ -372,7 +372,7 @@ def create_sft_dataset(data_paths, data_config, tokenizer):
         dataset_cls = MultiTurnSFTDataset
 
     # Create datasets based on the selected class
-    dataset = dataset_cls(parquet_files=data_paths, tokenizer=tokenizer, config=data_config)
+    dataset = dataset_cls(parquet_files=data_paths, preprocessor_path=tokenizer, config=data_config)
     return dataset
 
 

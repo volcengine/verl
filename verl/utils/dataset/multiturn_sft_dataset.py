@@ -23,10 +23,11 @@ import numpy as np
 import pandas as pd
 import torch
 from omegaconf import ListConfig
+from qwen_vl_utils import process_vision_info
 from torch.utils.data import Dataset
-from transformers import PreTrainedTokenizer
+from transformers import AutoProcessor
 
-from verl.utils import hf_tokenizer
+from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.fs import copy_local_path_from_hdfs
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.torch_functional import pad_sequence_to_length, postprocess_data
@@ -50,7 +51,7 @@ class MultiTurnSFTDataset(Dataset):
     Dataset for multi-turn conversations where each assistant response should be trained
     """
 
-    def __init__(self, parquet_files: str | list[str], tokenizer, config=None):
+    def __init__(self, parquet_files: str | list[str], preprocessor_path, config=None):
         # Set defaults and extract parameters from config if provided
         config = config or {}
         self.pad_mode = config.get("pad_mode", "right")
@@ -75,9 +76,9 @@ class MultiTurnSFTDataset(Dataset):
             parquet_files = [parquet_files]
 
         self.parquet_files = parquet_files
-        if isinstance(tokenizer, str):
-            tokenizer = hf_tokenizer(tokenizer)
-        self.tokenizer: PreTrainedTokenizer = tokenizer
+        self.processor: AutoProcessor = hf_processor(preprocessor_path)
+        if self.processor is None:
+            self.processor = hf_tokenizer(preprocessor_path)
 
         self._download()
         self._read_files_and_process()
@@ -196,6 +197,18 @@ class MultiTurnSFTDataset(Dataset):
 
         return message_tokens, loss_mask, attention_mask
 
+    def _get_pad_id(self):
+        if hasattr(self.processor, "tokenizer"):
+            tokenizer = self.processor.tokenizer
+        else:
+            tokenizer = self.processor
+        if getattr(tokenizer, "pad_token_id", None) is not None:
+            return tokenizer.pad_token_id
+        # for qwen2.5 vl
+        if getattr(tokenizer, "pad_token_type_id", None) is not None:
+            return tokenizer.pad_token_type_id
+        return 0
+
     def _validate_and_convert_tokens(
         self,
         full_tokens: torch.Tensor,
@@ -239,80 +252,65 @@ class MultiTurnSFTDataset(Dataset):
         )
 
     def __getitem__(self, item):
-        tokenizer = self.tokenizer
         messages = self.messages[item]
         tools = self.tools[item] if self.tools is not None else None
         enable_thinking = self.enable_thinking[item] if self.enable_thinking is not None else None
 
-        # First, get the full conversation tokens
-        try:
-            full_tokens = tokenizer.apply_chat_template(
-                messages,
-                tools=tools,
-                tokenize=True,
-                return_tensors="pt",
-                add_generation_prompt=False,
-                enable_thinking=enable_thinking,
-                **self.apply_chat_template_kwargs,
-            )
-        except Exception as e:
-            logging.error(
-                f"Error applying chat template: {e}\nMessages: {messages}\nTools: {tools}\nEnable thinking: "
-                f"{enable_thinking}"
-            )
-            raise
+        full_text = self.processor.apply_chat_template(
+            messages,
+            tools=tools,
+            tokenize=False,
+            return_tensors="pt",
+            add_generation_prompt=False,
+            enable_thinking=enable_thinking,
+        )
+        if getattr(self.processor, "image_token", None):
+            images, videos = process_vision_info(messages)
+            tokens = self.processor(text=[full_text], images=images, videos=videos, padding=False)
+        else:
+            tokens = self.processor(text=[full_text], padding=False)
+        input_ids = tokens.input_ids[0]
+        attention_mask = tokens.attention_mask
+        pixel_values = getattr(tokens, "pixel_values", None)
+        image_grid_thw = getattr(tokens, "image_grid_thw", None)
 
-        # Track concatenated tokens for validation
-        concat_tokens = []
-        concat_loss_mask = []
-        concat_attention_mask = []
-
+        loss_mask = [0] * len(input_ids)
+        empty_with_gen_prompt = self.processor.apply_chat_template(
+            [{"role": "user", "content": "123"}], add_generation_prompt=True, tokenize=False
+        )
+        empty_without_gen_prompt = self.processor.apply_chat_template(
+            [{"role": "user", "content": "123"}], add_generation_prompt=False, tokenize=False
+        )
+        gen_prompt = empty_with_gen_prompt[len(empty_without_gen_prompt) :]
+        print(empty_with_gen_prompt, empty_without_gen_prompt, gen_prompt)
+        if hasattr(self.processor, "tokenizer"):
+            gen_tokens = self.processor.tokenizer.encode(gen_prompt)
+            end_tokens = [self.processor.tokenizer.encode(empty_without_gen_prompt.strip())[-1]]
+        else:
+            gen_tokens = self.processor.encode(gen_prompt)
+            end_tokens = [self.processor.encode(empty_without_gen_prompt.strip())[-1]]
+        start_indexes = []
+        end_indexes = []
         i = 0
-        while i < len(messages):
-            cur_messages = messages[i]
-            if cur_messages["role"] == "assistant":
-                # Process assistant message
-                tokens, loss_mask, attention_mask = self._process_message_tokens(
-                    messages, i, i + 1, is_assistant=True, enable_thinking=enable_thinking, tools=tools
-                )
-                i += 1
-            elif cur_messages["role"] == "tool":
-                # Process consecutive tool messages
-                st = i
-                ed = i + 1
-                while ed < len(messages) and messages[ed]["role"] == "tool":
-                    ed += 1
-                tokens, loss_mask, attention_mask = self._process_message_tokens(
-                    messages, st, ed, enable_thinking=enable_thinking, tools=tools
-                )
-                i = ed
-            elif cur_messages["role"] in ["user", "system"]:
-                # Process user or system message
-                if cur_messages["role"] == "system" and i != 0:
-                    raise ValueError("System message should be the first message")
-                tokens, loss_mask, attention_mask = self._process_message_tokens(
-                    messages, i, i + 1, enable_thinking=enable_thinking, tools=tools
-                )
-                i += 1
-            else:
-                raise ValueError(f"Unknown role: {cur_messages['role']}")
+        while i < len(input_ids):
+            if input_ids[i : i + len(gen_tokens)] == gen_tokens:
+                start_indexes.append(i + len(gen_tokens))
+                i += len(gen_tokens)
+                while i < len(input_ids):
+                    if input_ids[i : i + len(end_tokens)] == end_tokens:
+                        end_indexes.append(i + len(end_tokens))
+                        break
+                    i += 1
+            i += 1
+        assert len(start_indexes) == len(end_indexes)
+        for start, end in zip(start_indexes, end_indexes, strict=False):
+            assert end > start
+            loss_mask[start:end] = [1] * (end - start)
 
-            # override loss mask with mask in the dataset to handle multi-turn conversation
-            override_loss_mask = cur_messages.get("loss_mask", None)
-            if override_loss_mask is not None:
-                if isinstance(override_loss_mask, np.ndarray):
-                    override_loss_mask = override_loss_mask.item()
-                assert isinstance(override_loss_mask, int), f"loss_mask should be int, got {type(override_loss_mask)}"
-                assert override_loss_mask in [0, 1], f"loss_mask should be 0 or 1, got {override_loss_mask}"
-                loss_mask = [override_loss_mask] * len(tokens)
-
-            concat_tokens.extend(tokens)
-            concat_loss_mask.extend(loss_mask)
-            concat_attention_mask.extend(attention_mask)
-
-        # Validate and convert tokens
-        input_ids, loss_mask, attention_mask = self._validate_and_convert_tokens(
-            full_tokens[0], concat_tokens, concat_loss_mask, concat_attention_mask
+        input_ids, loss_mask, attention_mask = (
+            torch.tensor(input_ids),
+            torch.tensor(loss_mask),
+            torch.tensor(attention_mask),
         )
 
         # encode prompt
@@ -331,7 +329,7 @@ class MultiTurnSFTDataset(Dataset):
         if self.pad_mode == "right":
             if sequence_length < self.max_length:
                 # Pad sequences
-                pad_token_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else 0
+                pad_token_id = self._get_pad_id()
                 padded_input_ids = torch.full((self.max_length - sequence_length,), pad_token_id, dtype=input_ids.dtype)
                 padded_attention_mask = torch.zeros((self.max_length - sequence_length,), dtype=attention_mask.dtype)
                 padded_loss_mask = torch.zeros((self.max_length - sequence_length,), dtype=loss_mask.dtype)
@@ -358,7 +356,7 @@ class MultiTurnSFTDataset(Dataset):
             # Zero out position IDs for padding
             position_ids = position_ids * attention_mask
 
-            return {
+            result = {
                 "input_ids": input_ids,
                 "attention_mask": attention_mask,
                 "position_ids": position_ids,
@@ -366,7 +364,7 @@ class MultiTurnSFTDataset(Dataset):
             }
         elif self.pad_mode == "left_right":
             assert self.truncation == "error", "Only support error truncation for left_right pad mode"
-            prompt_str = self.tokenizer.apply_chat_template(
+            prompt_str = self.processor.apply_chat_template(
                 messages[:prompt_message_length],
                 tools=tools,
                 tokenize=False,
@@ -374,7 +372,7 @@ class MultiTurnSFTDataset(Dataset):
                 enable_thinking=enable_thinking,
                 **self.apply_chat_template_kwargs,
             )
-            prompt_ids = self.tokenizer.encode(prompt_str, add_special_tokens=False)
+            prompt_ids = self.processor.encode(prompt_str, add_special_tokens=False)
             prompt_length = len(prompt_ids)
             prompt_ids = input_ids[:prompt_length].unsqueeze(0)
             prompt_attention_mask = attention_mask[:prompt_length].unsqueeze(0)
@@ -419,10 +417,17 @@ class MultiTurnSFTDataset(Dataset):
             attention_mask = torch.cat((prompt_attention_mask, response_attention_mask), dim=0)
             position_ids = compute_position_id_with_mask(attention_mask)
 
-            return {
+            result = {
                 "input_ids": input_ids,
                 "attention_mask": attention_mask,
                 "position_ids": position_ids,
                 "responses": response_ids,
                 "response_mask": response_loss_mask,
             }
+        else:
+            raise NotImplementedError("pad_mode only support right or left-right mode!")
+        if pixel_values is not None:
+            result["pixel_values"] = torch.tensor(pixel_values)
+        if image_grid_thw is not None:
+            result["image_grid_thw"] = torch.tensor(image_grid_thw)
+        return result
