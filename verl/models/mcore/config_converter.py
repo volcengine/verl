@@ -389,10 +389,8 @@ def hf_to_mcore_config_llama4(
 
 
 def mapping_string_to_attn_backend(args: dict) -> dict:
-    if "attention_backend" in args:
-        if isinstance(args["attention_backend"], str):
-            from megatron.core.transformer.enums import AttnBackend
+    if "attention_backend" in args and isinstance(args["attention_backend"], str):
+        from megatron.core.transformer.enums import AttnBackend
 
-            if isinstance(args["attention_backend"], str):
-                args["attention_backend"] = AttnBackend[args["attention_backend"]]
+        args["attention_backend"] = AttnBackend[args["attention_backend"]]
     return args
