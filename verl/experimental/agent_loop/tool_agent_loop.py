@@ -425,7 +425,7 @@ class ToolAgentLoop(AgentLoopBase):
             logger.warning(f"Error when executing tool: {e}")
             return ToolResponse(
                 text=f"Error when executing tool: {e}",
-            )
+            ), 0.0, {}
         finally:
             if tool and instance_id:
                 await tool.release(instance_id)
