@@ -353,7 +353,7 @@ class RLHFDataset(Dataset):
         row_dict["index"] = index
         row_dict["tools_kwargs"] = tools_kwargs
         row_dict["interaction_kwargs"] = interaction_kwargs
-        if self.agent_name:
+        if self.agent_name is not None:
             row_dict["agent_name"] = self.agent_name
         return row_dict
 
