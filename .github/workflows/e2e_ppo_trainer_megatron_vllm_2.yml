@@ -122,7 +122,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install --no-deps -e .[test]
-          pip3 install transformers==${{ TRANSFORMERS_VERSION }}
+          pip3 install transformers==$TRANSFORMERS_VERSION
       - name: Prepare GSM8K dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
@@ -156,7 +156,7 @@ jobs:
         run: |
           pip3 install --no-deps -e .[test]
           pip3 install mbridge
-          pip3 install transformers==${{ TRANSFORMERS_VERSION }}
+          pip3 install transformers==$TRANSFORMERS_VERSION
       - name: Prepare GSM8K dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
@@ -189,7 +189,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install --no-deps -e .[test]
-          pip3 install transformers==${{ TRANSFORMERS_VERSION }}
+          pip3 install transformers==$TRANSFORMERS_VERSION
       - name: Prepare Geo3k dataset
         run: |
           python3 examples/data_preprocess/geo3k.py --local_dataset_path ${HOME}/models/hf_data/hiyouga/geometry3k/
@@ -224,7 +224,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install --no-deps -e .[test,vllm]
-          pip3 install transformers==${{ TRANSFORMERS_VERSION }}
+          pip3 install transformers==$TRANSFORMERS_VERSION
       - name: Prepare GSM8K dataset
         run: |
           ray stop --force
@@ -364,7 +364,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install --no-deps -e .[test,gpu,vllm,geo,trl]
-          pip3 install transformers==${{ TRANSFORMERS_VERSION }}
+          pip3 install transformers==$TRANSFORMERS_VERSION
       # Geo3k
       - name: Prepare GEO3K dataset
         run: |
