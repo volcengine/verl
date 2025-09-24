@@ -1,7 +1,7 @@
 Frequently Asked Questions
 ====================================
 
-Last updated: 06/25/2025.
+Last updated: 09/24/2025.
 
 Ray related
 ------------
@@ -177,3 +177,33 @@ Comparing to using global https_proxy env variable, this approach won't mess up 
 
   +trainer.wandb_proxy=http://<your proxy and port>
 
+Missmatch between inference and training sequence (high actor/grad_norm)
+------------------------------------------------------------------------------------------
+
+If you encounter the issue of actor/grad_norm metric continuously increasing during training, it might be caused by a significant precision mismatching between the inference engine and training. You can use the following parameter to confirm this:
+
+.. code:: bash
+
+    actor_rollout_ref.rollout.calculate_log_probs=True
+
+This parameter will add metrics like training/rollout_probs_diff_mean , which can be used to verify if there is a precision difference between inference and training.
+
+Under normal circumstances, the value of training/rollout_probs_diff_mean should be below 0.005. If you observe this value to be higher than 0.01, it indicates a precision issue from the inference engine.
+The precision issue is known to occur under the following conditions:
+
+1. Using non-Hopper architecture GPUs, such as A100, L20, B200, etc.
+
+2. Using vLLM `with issue 22103 <https://github.com/vllm-project/vllm/issues/22103>`_ as the inference engine.
+
+3. The input and output texts are long, for example, in multi-turn scenarios using reasioning models like Qwen3 for RL training.
+
+If all three conditions above are met and you observe that rollout_probs_diff_mean is too high, it is recommended to add the following parameter to resolve the precision issue:
+
+.. code:: bash
+
+    +actor_rollout_ref.rollout.engine_kwargs.vllm.disable_cascade_attn=True
+
+The root cause of this issue is a bug in the flash attention used by vLLM. Although it has been fixed, the fix has not yet been released in the latest version of vLLM (v0.10.2).
+For a more detailed explanation of this issue, please refer to `Fix LSE output error in FA2 kv-split <https://github.com/vllm-project/flash-attention/pull/87>`_.
+
+Until vLLM releases a new version with this fix, it is recommended to use the configuration above to disable cascade attention as a workaround.
