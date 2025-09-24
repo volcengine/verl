@@ -118,6 +118,11 @@ jobs:
         run: |
           ray stop --force
           python3 examples/data_preprocess/geo3k.py
+      - name: Running gsm8k e2e qwen3 training tests with PPO on ASCEND NPU
+        run: |
+          ray stop --force
+          bash tests/special_npu/run_qwen3_06b_ppo.sh
+          rm -rf $HOME/ckpts
       - name: Running gsm8k e2e training tests with peft sft on ASCEND NPU
         run: |
           ray stop --force
@@ -148,9 +153,3 @@ jobs:
         run: |
           ray stop --force
           pytest -s -x tests/utils/test_special_mstx_profile.py
-      # TODO (FightingZhen) Reopen this case when error fixed
-#      - name: Running gsm8k e2e qwen3 training tests with PPO on ASCEND NPU
-#        run: |
-#          ray stop --force
-#          bash tests/special_npu/run_qwen3_06b_ppo.sh
-#          rm -rf $HOME/ckpts
