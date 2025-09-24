@@ -1,8 +1,8 @@
 # 1. 基础镜像
 FROM swr.cn-south-1.myhuaweicloud.com/ascendhub/cann:8.2.rc1-910b-ubuntu22.04-py3.11
 
-# 2. 设置代理（非绿区服务器无需配置代理，可删除第二步）
-# ENV ip_addr=90.255.x.xxx
+# 2. 设置代理（可删除第二步，无特殊需求无需配置）
+# ENV ip_addr=xx.xxx.x.xxx
 # ENV http_proxy="http://p_atlas:proxy%40123@$ip_addr:8080"
 # ENV https_proxy=$http_proxy
 # ENV no_proxy=127.0.0.1,localhost,local,.local
