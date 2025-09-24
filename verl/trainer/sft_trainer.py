@@ -26,7 +26,7 @@ import torch
 import torch.distributed
 from codetiming import Timer
 from omegaconf import OmegaConf
-from torch.utils.data import DistributedSampler
+from torch.utils.data import DistributedSampler, default_collate
 from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
 
@@ -46,6 +46,13 @@ elif is_npu_available:
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_SFT_LOGGING_LEVEL", "WARN"))
+
+
+def multi_modal_collect(data):
+    multi_modal_data = [i.pop("multi_modal_inputs", None) for i in data]
+    others = default_collate(data)
+    others["multi_modal_inputs"] = multi_modal_data
+    return others
 
 
 class SFTTrainer:
@@ -101,12 +108,20 @@ class SFTTrainer:
         )
 
     def _build_config(self):
+        from verl.trainer.config import CheckpointConfig
         from verl.utils.config import omega_conf_to_dataclass
+        from verl.workers.config import (
+            FSDPEngineConfig,
+            FSDPOptimizerConfig,
+            HFModelConfig,
+            McoreEngineConfig,
+            McoreOptimizerConfig,
+        )
 
-        self.model_config = omega_conf_to_dataclass(self.config.model)
-        self.engine_config = omega_conf_to_dataclass(self.config.engine)
-        self.optimizer_config = omega_conf_to_dataclass(self.config.optim)
-        self.checkpoint_config = omega_conf_to_dataclass(self.config.checkpoint)
+        self.model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model)
+        self.engine_config: FSDPEngineConfig | McoreEngineConfig = omega_conf_to_dataclass(self.config.engine)
+        self.optimizer_config: FSDPOptimizerConfig | McoreOptimizerConfig = omega_conf_to_dataclass(self.config.optim)
+        self.checkpoint_config: CheckpointConfig = omega_conf_to_dataclass(self.config.checkpoint)
 
     def _build_engine(self):
         from verl.workers.engine import BaseEngine, EngineRegistry
@@ -143,9 +158,9 @@ class SFTTrainer:
 
     def _build_dataset(self):
         config = self.config
-        tokenizer = self.model_config.tokenizer
-        train_dataset = create_sft_dataset(config.data.train_files, config.data, tokenizer)
-        val_dataset = create_sft_dataset(config.data.val_files, config.data, tokenizer)
+        processor = self.model_config.get_processor()
+        train_dataset = create_sft_dataset(config.data.train_files, config.data, processor)
+        val_dataset = create_sft_dataset(config.data.val_files, config.data, processor)
 
         self.train_dataset, self.val_dataset = train_dataset, val_dataset
 
@@ -176,6 +191,7 @@ class SFTTrainer:
             pin_memory=True,
             drop_last=True,
             pin_memory_device=device_name,
+            collate_fn=multi_modal_collect,
         )
 
         self.val_sampler = DistributedSampler(
@@ -185,7 +201,7 @@ class SFTTrainer:
             dataset=self.val_dataset,
             batch_size=self.train_batch_size_per_dp,
             sampler=self.val_sampler,
-            num_workers=8,
+            num_workers=0,
             pin_memory=True,
             drop_last=True,
             pin_memory_device=device_name,
@@ -232,6 +248,7 @@ class SFTTrainer:
             "micro_batch_size_per_gpu": self.config.data.micro_batch_size_per_gpu,
             "temperature": 1.0,
             "global_batch_size": self.global_batch_size,
+            "use_remove_padding": False,
         }
 
         train_time = 0
@@ -351,7 +368,7 @@ def main(config):
     run_sft(config)
 
 
-def create_sft_dataset(data_paths, data_config, tokenizer):
+def create_sft_dataset(data_paths, data_config, processor):
     """Create a dataset."""
     # build dataset
     # First check if a custom dataset class is specified
@@ -364,7 +381,7 @@ def create_sft_dataset(data_paths, data_config, tokenizer):
         dataset_cls = MultiTurnSFTDataset
 
     # Create datasets based on the selected class
-    dataset = dataset_cls(parquet_files=data_paths, tokenizer=tokenizer, config=data_config)
+    dataset = dataset_cls(parquet_files=data_paths, processor=processor, config=data_config)
     return dataset
 
 

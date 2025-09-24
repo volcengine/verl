@@ -5,8 +5,8 @@ ENTRYPOINT=${ENTRYPOINT:-"-m verl.trainer.sft_trainer"}
 
 NUM_GPUS=${NUM_GPUS:-1}
 
-TRAIN_FILES=~/data/gsm8k_sft/train.parquet
-VAL_FILES=~/data/gsm8k_sft/test.parquet
+TRAIN_FILES=~/data/vermouth1992/mnist_multiturn_sft/data/train-00000-of-00001.parquet
+VAL_FILES=~/data/vermouth1992/mnist_multiturn_sft/data/test-00000-of-00001.parquet
 
 backend=${BACKEND:-fsdp}
 
@@ -75,14 +75,14 @@ mkdir -p "${ckpts_home}"
 torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     data.train_files="${TRAIN_FILES}" \
     data.val_files="${VAL_FILES}" \
-    data.train_batch_size=256 \
-    data.max_prompt_length=1024 \
-    data.max_response_length=1024 \
+    data.train_batch_size=16 \
+    data.max_length=4096 \
     data.pad_mode=left_right \
     data.truncation=error \
     data.use_dynamic_bsz=True \
-    data.max_token_len_per_gpu=8192 \
+    data.max_token_len_per_gpu=4096 \
     data.messages_key=messages \
+    data.pad_mode=right \
     model.path=$MODEL_PATH \
     ${ENGINE_CONFIG} \
     trainer.test_freq=after_each_epoch \
@@ -91,7 +91,6 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
     trainer.total_epochs=2 \
-    trainer.total_training_steps=2 \
     trainer.default_local_dir="${ckpts_home}" \
     trainer.resume_mode=${RESUME_MODE} \
 

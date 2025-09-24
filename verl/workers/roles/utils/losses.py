@@ -23,7 +23,7 @@ from verl.workers.config import ActorConfig, CriticConfig
 
 def sft_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None):
     log_prob = model_output["log_probs"]  # [bsz, response_length]
-    response_mask = data["response_mask"].to(bool)
+    response_mask = data["response_mask"][:, 1:].to(bool)
     loss = -torch.mean(log_prob * response_mask)
     return loss, {"loss": loss.detach().item()}
 
