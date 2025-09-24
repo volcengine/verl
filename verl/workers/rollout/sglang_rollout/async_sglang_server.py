@@ -170,7 +170,7 @@ class SGLangHttpServer:
                 scheduler_info=self.scheduler_info,
             )
         )
-
+        app.is_single_tokenizer_mode = True
         self._server_port, self._server_task = await run_unvicorn(app, server_args, self._server_address)
 
     async def wake_up(self):
