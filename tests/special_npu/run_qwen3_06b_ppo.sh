@@ -1,6 +1,7 @@
 set -x
 
-export VLLM_USE_V1=1
+# TODO (FightingZhen) Env VLLM_USE_V1=1 is not supported in vllm==0.7.3
+# export VLLM_USE_V1=1
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=gae \
