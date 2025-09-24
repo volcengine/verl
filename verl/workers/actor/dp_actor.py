@@ -23,6 +23,7 @@ import os
 import torch
 from torch import nn
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.tensor import DTensor
 
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
@@ -283,6 +284,9 @@ class DataParallelPPOActor(BasePPOActor):
             grad_norm = fsdp2_clip_grad_norm_(self.actor_module.parameters(), max_norm=self.config.grad_clip)
         else:
             grad_norm = torch.nn.utils.clip_grad_norm_(self.actor_module.parameters(), max_norm=self.config.grad_clip)
+
+        if isinstance(grad_norm, DTensor):
+            grad_norm = grad_norm.full_tensor()
 
         # if grad_norm is not finite, skip the update
         if not torch.isfinite(grad_norm):
