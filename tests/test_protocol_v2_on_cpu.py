@@ -212,21 +212,33 @@ def test_tensordict_eq():
     with pytest.raises(AssertionError):
         tu.assert_tensordict_eq(data, data2)
 
-    obs = torch.nested.as_nested_tensor([torch.tensor([1, 2, 3]), torch.tensor([4, 5, 6])], layout=torch.jagged)
+    tensor_list = [
+        torch.tensor([1, 2, 3, 3, 2]),
+        torch.tensor([4, 5]),
+        torch.tensor([7, 8, 10, 14]),
+        torch.tensor([10, 11, 12]),
+        torch.tensor([13, 14, 15, 18]),
+        torch.tensor([16, 17]),
+    ]
+    obs = torch.nested.as_nested_tensor(tensor_list, layout=torch.jagged)
     data_sources = ["abc", "def", "abc", "def", "pol", "klj"]
     non_tensor_dict = {"train_sample_kwargs": {"top_p": 1.0}, "val_sample_kwargs": {"top_p": 0.7}}
     data3 = tu.get_tensordict({"obs": obs, "data_sources": data_sources}, non_tensor_dict=non_tensor_dict)
 
-    obs = torch.nested.as_nested_tensor([torch.tensor([1, 2, 3]), torch.tensor([4, 5, 6])], layout=torch.jagged)
+    tensor_list[0] = torch.tensor([1, 2, 3, 3, 2])
+    obs = torch.nested.as_nested_tensor(tensor_list, layout=torch.jagged)
     data4 = tu.get_tensordict({"obs": obs, "data_sources": data_sources}, non_tensor_dict=non_tensor_dict)
     tu.assert_tensordict_eq(data3, data4)
 
-    obs = torch.nested.as_nested_tensor([torch.tensor([1, 2, 4]), torch.tensor([4, 5, 6])], layout=torch.jagged)
+    tensor_list[0] = torch.tensor([1, 2, 4])
+    obs = torch.nested.as_nested_tensor(tensor_list, layout=torch.jagged)
     data5 = tu.get_tensordict({"obs": obs, "data_sources": data_sources}, non_tensor_dict=non_tensor_dict)
     with pytest.raises(AssertionError):
         tu.assert_tensordict_eq(data3, data5)
 
-    obs = torch.nested.as_nested_tensor([torch.tensor([4, 5, 6]), torch.tensor([1, 2, 3])], layout=torch.jagged)
+    tensor_list[0] = torch.tensor([4, 5])
+    tensor_list[1] = torch.tensor([1, 2, 3, 3, 2])
+    obs = torch.nested.as_nested_tensor(tensor_list, layout=torch.jagged)
     data6 = tu.get_tensordict({"obs": obs, "data_sources": data_sources}, non_tensor_dict=non_tensor_dict)
     with pytest.raises(AssertionError):
         tu.assert_tensordict_eq(data3, data6)

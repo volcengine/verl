@@ -77,7 +77,7 @@ def get_tensordict(tensor_dict: dict[str, torch.Tensor | list], non_tensor_dict:
             val_batch_size = val.size(0) if isinstance(val, torch.Tensor) else len(val)
             assert val_batch_size == batch_size, (
                 f"Batch size of tensor {key} is not consistent with other tensors. "
-                f"Expected {batch_size}, got {val.size(0)}"
+                f"Expected {batch_size}, got {val_batch_size}"
             )
 
     if batch_size is None:
