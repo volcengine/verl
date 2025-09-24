@@ -66,6 +66,9 @@ override_transformer_config:
   # 'full' will checkpoint the entire transformer layer and 'selective' only checkpoints memory intensive part of attention
   recompute_num_layers: null
 
+  # Attention backend to use (flash,fused,unfused,local,auto). Defaults to auto in mcore, flash in verl
+  attention_backend: flash
+
 override_mcore_model_config: {}
 
 # oc.select: default val for ref.megatron.use_mbridge
