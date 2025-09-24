@@ -1568,14 +1568,14 @@ class ServerAdapter(BaseRollout):
         Args:
             tag: weights or kv_cache.
         """
-        await self._init_server_adapter()
         if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.config.free_cache_engine:
+            await self._init_server_adapter()
             await self._engine.resume_memory_occupation(tags=tags)
 
     async def release(self):
         """Release weights and kv cache in GPU memory."""
-        await self._init_server_adapter()
         if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.config.free_cache_engine:
+            await self._init_server_adapter()
             await self._engine.release_memory_occupation(tags=["kv_cache", "weights"])
 
     async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None], **kwargs):
@@ -1591,8 +1591,9 @@ class ServerAdapter(BaseRollout):
             - Main logic: https://github.com/THUDM/slime/blob/fb7605cc5fb09af0f9369d37f7192f12bddee577/slime/ray/ppo_actor.py#L452
             - runtime envs: https://github.com/THUDM/slime/blob/fb7605cc5fb09af0f9369d37f7192f12bddee577/slime/ray/ppo_actor.py#L39
         """
-        # FIXME(@wuxibin): device_mesh is not right in multi-node case.
-        await self._init_server_adapter()
+        if self.device_mesh["infer_tp"].get_local_rank() == 0:
+            await self._init_server_adapter()
+
         update_weights_bucket_bytes = int(self.config.update_weights_bucket_megabytes) << 20
         for params_batch in get_named_tensor_buckets(weights, update_weights_bucket_bytes):
             await sgl_update_weights(

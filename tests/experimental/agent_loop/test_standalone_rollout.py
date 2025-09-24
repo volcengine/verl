@@ -17,8 +17,9 @@ import os
 import pytest
 import ray
 from omegaconf import DictConfig
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, OpenAI
 
+from tests.experimental.agent_loop.agent_utils import init_agent_loop_manager
 from verl.workers.rollout.replica import get_rollout_replica_class
 
 
@@ -31,17 +32,18 @@ def init_config() -> DictConfig:
 
     config.trainer.n_gpus_per_node = 4
     config.trainer.nnodes = 2
+    config.actor_rollout_ref.actor.use_dynamic_bsz = True
     config.actor_rollout_ref.model.path = os.path.expanduser("~/models/Qwen/Qwen2.5-1.5B-Instruct")
     config.actor_rollout_ref.rollout.name = os.environ["ROLLOUT_NAME"]
-    config.actor_rollout_ref.rollout.load_format = "auto"
-    config.actor_rollout_ref.rollout.enforce_eager = True
+    config.actor_rollout_ref.rollout.mode = "async"
+    config.actor_rollout_ref.rollout.skip_tokenizer_init = False
 
     return config
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("tp_size", [2, 4])
-async def test_standalone_(init_config, tp_size):
+async def test_standalone_rollout(init_config, tp_size):
     """Test standalone rollout single node and multi nodes."""
     ray.init(
         runtime_env={
@@ -54,7 +56,6 @@ async def test_standalone_(init_config, tp_size):
         }
     )
 
-    init_config.actor_rollout_ref.rollout.skip_tokenizer_init = False
     init_config.actor_rollout_ref.rollout.tensor_model_parallel_size = tp_size
     num_replicas = (init_config.trainer.n_gpus_per_node * init_config.trainer.nnodes) // tp_size
 
@@ -89,14 +90,9 @@ async def test_standalone_(init_config, tp_size):
     ray.shutdown()
 
 
-@pytest.mark.skip(reason="Qwen3-30B-A3B-Instruct-2507 is too large for CI")
-@pytest.mark.asyncio
-async def test_standalone_dp_ep(init_config):
-    """Test standalone rollout with 4 GPUs * 2 nodes.
-
-    - vllm: DP=8, TP=1, EP=8
-    - sglang: DP=1, TP=8, EP=8
-    """
+@pytest.mark.skip(reason="local test only")
+def test_hybrid_rollout_with_ep(init_config):
+    """Test hybrid rollout with expert parallelism."""
     ray.init(
         runtime_env={
             "env_vars": {
@@ -108,8 +104,10 @@ async def test_standalone_dp_ep(init_config):
         }
     )
 
-    init_config.actor_rollout_ref.model.path = os.path.expanduser("~/models/Qwen/Qwen3-30B-A3B-Instruct-2507")
-    init_config.actor_rollout_ref.rollout.skip_tokenizer_init = False
+    model_path = os.path.expanduser("~/models/Qwen/Qwen3-30B-A3B-Instruct-2507")
+    init_config.actor_rollout_ref.model.path = model_path
+
+    # parallelism config
     if init_config.actor_rollout_ref.rollout.name == "vllm":
         init_config.actor_rollout_ref.rollout.tensor_model_parallel_size = 1
         init_config.actor_rollout_ref.rollout.data_parallel_size = 8
@@ -117,34 +115,40 @@ async def test_standalone_dp_ep(init_config):
         init_config.actor_rollout_ref.rollout.tensor_model_parallel_size = 8
         init_config.actor_rollout_ref.rollout.data_parallel_size = 1
     init_config.actor_rollout_ref.rollout.expert_parallel_size = 8
-    num_replicas = 1
 
-    # create standalone rollout server
-    rollout_server_class = get_rollout_replica_class(init_config.actor_rollout_ref.rollout.name)
-    rollout_servers = [
-        rollout_server_class(replica_rank=replica_rank, config=init_config, gpus_per_node=4)
-        for replica_rank in range(num_replicas)
-    ]
-    await asyncio.gather(*[server.init_standalone() for server in rollout_servers])
+    # 1. init hybrid worker: FSDP+rollout
+    # - build FSDP model and optimizer
+    # - offload FSDP model and optimizer, build rollout
+    # - sleep rollout and load FSDP model and optimizer
+    agent_loop_manager = init_agent_loop_manager(init_config)
 
-    server_handles = [server._server_handle for server in rollout_servers]
-    server_addresses = [server._server_address for server in rollout_servers]
-    assert len(server_handles) == num_replicas
-    assert len(server_addresses) == num_replicas
+    # 2. wake up rollout
+    # - wake_up weights
+    # - load_weights from FSDP
+    # - wake_up kv_cache
+    agent_loop_manager.wake_up()
 
-    os.environ.pop("HTTPS_PROXY", None)
-    os.environ.pop("HTTP_PROXY", None)
-    os.environ.pop("NO_PROXY", None)
-
-    client = AsyncOpenAI(
+    # 3. test async openai call
+    server_address = agent_loop_manager.server_addresses[0]
+    client = OpenAI(
         api_key="123-abc",
-        base_url=f"http://{server_addresses[0]}/v1",
+        base_url=f"http://{server_address}/v1",
     )
 
-    completion = await client.chat.completions.create(
-        model=init_config.actor_rollout_ref.model.path,
+    smapling_params = {
+        "temperature": 1.0,
+        "top_p": 1.0,
+        "max_tokens": 512,
+    }
+
+    response = client.chat.completions.create(
+        model=model_path,
         messages=[{"role": "user", "content": "What can you do?"}],
+        **smapling_params,
     )
-    print(completion.choices[0].message.content)
 
+    completion = response.choices[0].message.content
+    print(f"response: {completion}")
+
+    print("Test passed!")
     ray.shutdown()

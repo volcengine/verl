@@ -163,6 +163,10 @@ class SGLangHttpServer:
             server_args=server_args
         )
 
+        # In multi-node cases, non-zero rank nodes should not launch http server.
+        if self.node_rank > 0:
+            return
+
         set_global_state(
             _GlobalState(
                 tokenizer_manager=self.tokenizer_manager,
