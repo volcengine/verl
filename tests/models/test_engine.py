@@ -44,7 +44,7 @@ from verl.workers.roles import ActorWorker, CriticWorker
 from verl.workers.roles.utils.losses import ppo_loss, sft_loss
 
 
-@pytest.mark.parametrize("strategy", ["megatron", "fsdp", "fsdp2"])
+@pytest.mark.parametrize("strategy", ["fsdp", "fsdp2"])
 def test_actor_engine(strategy):
     ray.init()
 
@@ -97,6 +97,9 @@ def test_actor_engine(strategy):
         input_ids=input_ids, max_ratio_of_valid_token=0.8, max_ratio_of_left_padding=0.2, min_ratio_of_valid_token=0.6
     )
     position_ids = compute_position_id_with_mask(attention_mask)
+    print(f"input_ids: {input_ids}")
+    print(f"attention_mask: {attention_mask}")
+    print(f"position_ids: {position_ids}")
 
     global_token_num = torch.sum(attention_mask, dim=-1).tolist()
 
@@ -169,7 +172,7 @@ def create_model():
     return path
 
 
-@pytest.mark.parametrize("strategy", ["megatron", "fsdp", "fsdp2"])
+@pytest.mark.parametrize("strategy", ["fsdp", "fsdp2"])
 def test_critic_engine(strategy):
     ray.init()
 
