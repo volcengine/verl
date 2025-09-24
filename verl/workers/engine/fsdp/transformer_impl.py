@@ -816,7 +816,11 @@ class FSDPEngineWithLMHead(FSDPEngine):
                 log_probs = output.log_probs.squeeze(0)  # (total_nnz,)
                 entropy_rmpad = output.entropy.squeeze(0)  # (total_nnz,)
             else:
-                logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
+                if hasattr(output, "last_hidden_state"):
+                    logits = output.last_hidden_state
+                else:
+                    logits = output.logits
+                logits_rmpad = logits.squeeze(0)  # (total_nnz, vocab_size)
                 logits_rmpad.div_(temperature)
 
                 # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
@@ -882,11 +886,14 @@ class FSDPEngineWithLMHead(FSDPEngine):
                 entropy = output.entropy[:, -response_length - 1 : -1]  # (bsz, response_length)
 
             else:
-                logits = output.logits
+                if hasattr(output, "last_hidden_state"):
+                    logits = output.last_hidden_state
+                else:
+                    logits = output.logits
 
                 logits.div_(temperature)
                 logits = logits[:, -response_length - 1 : -1, :]  # (bsz, response_length, vocab_size)
-                log_probs = logprobs_from_logits(logits, micro_batch.batch["responses"])
+                log_probs = logprobs_from_logits(logits, micro_batch["responses"])
                 if calculate_entropy:
                     if not self.engine_config.entropy_checkpointing:
                         entropy = verl_F.entropy_from_logits(logits)  # (bsz, response_length)

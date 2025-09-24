@@ -21,6 +21,8 @@ from torch import distributed as dist
 
 from verl.protocol import DataProto
 from verl.utils.device import get_device_name
+from tensordict import TensorDict
+from verl.utils import tensordict_utils as tu
 
 
 def karmarkar_karp(seqlen_list: list[int], k_partitions: int, equal_size: bool):
@@ -277,6 +279,10 @@ def rearrange_micro_batches(
     assert max_token_len >= max_seq_len, (
         f"max_token_len must be greater than the sequence length. Got {max_token_len=} and {max_seq_len=}"
     )
+    multi_modal_inputs = batch.pop("multi_modal_inputs", None)
+    if multi_modal_inputs is not None:
+        assert len(multi_modal_inputs) == len(batch["input_ids"]), \
+            "Length of 'multi_modal_inputs' must match the batch size."
     seq_len_effective: torch.Tensor = batch["attention_mask"].sum(dim=1)
     total_seqlen = seq_len_effective.sum().item()
     # NOTE: num_microbatches <= batch_size, so take the min of this two.
@@ -313,6 +319,10 @@ def rearrange_micro_batches(
         for idx in partition:
             curr_micro_batch.append(batch[idx : idx + 1])
         curr_micro_batch = torch.cat(curr_micro_batch)
+        if multi_modal_inputs is not None:
+            # Use a list comprehension to gather the corresponding non-tensor data.
+            multi_modal_inputs_batch = TensorDict.from_list([multi_modal_inputs[i] for i in partition])
+            curr_micro_batch = tu.union_tensor_dict(curr_micro_batch, multi_modal_inputs_batch)
 
         micro_batches.append(curr_micro_batch)
 

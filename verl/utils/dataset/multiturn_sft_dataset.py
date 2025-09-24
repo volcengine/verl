@@ -18,18 +18,20 @@ Multi-turn SFT dataset that supports training on conversation data with multiple
 
 import logging
 from typing import Any, Optional
+from collections import defaultdict
 
 import numpy as np
 import pandas as pd
 import torch
 from omegaconf import ListConfig
 from torch.utils.data import Dataset
-from transformers import PreTrainedTokenizer
+from transformers import PreTrainedTokenizer, ProcessorMixin
 
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_local_path_from_hdfs
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.torch_functional import pad_sequence_to_length, postprocess_data
+from verl.utils.dataset.vision_utils import process_image
 
 
 def convert_nested_value_to_list_recursive(data_item):
@@ -44,13 +46,43 @@ def convert_nested_value_to_list_recursive(data_item):
         # Base case: item is already a primitive type (int, str, float, bool, etc.)
         return data_item
 
+def collate_fn(data_list: list[dict]) -> dict:
+    """
+    Collate a batch of sample dicts into batched tensors and arrays.
+
+    Args:
+        data_list: List of dicts mapping feature names to torch.Tensor or other values.
+
+    Returns:
+        Dict where tensor entries are stacked into a torch.Tensor of shape
+        (batch_size, \*dims) and non-tensor entries are converted to
+        np.ndarray of dtype object with shape (batch_size,).
+    """
+    tensors = defaultdict(list)
+    non_tensors = defaultdict(list)
+
+    for data in data_list:
+        for key, val in data.items():
+            if isinstance(val, torch.Tensor):
+                tensors[key].append(val)
+            else:
+                non_tensors[key].append(val)
+
+    for key, val in tensors.items():
+        tensors[key] = torch.stack(val, dim=0)
+
+    for key, val in non_tensors.items():
+        non_tensors[key] = np.fromiter(val, dtype=object, count=len(val))
+
+    return {**tensors, **non_tensors}
+
 
 class MultiTurnSFTDataset(Dataset):
     """
     Dataset for multi-turn conversations where each assistant response should be trained
     """
 
-    def __init__(self, parquet_files: str | list[str], tokenizer, config=None):
+    def __init__(self, parquet_files: str | list[str], tokenizer, config=None, processor: Optional[ProcessorMixin] = None):
         # Set defaults and extract parameters from config if provided
         config = config or {}
         self.pad_mode = config.get("pad_mode", "right")
@@ -69,6 +101,8 @@ class MultiTurnSFTDataset(Dataset):
         self.tools_key = multiturn_config.get("tools_key", "tools")
         self.enable_thinking_key = multiturn_config.get("enable_thinking_key", "enable_thinking")
         self.apply_chat_template_kwargs = config.get("apply_chat_template_kwargs", {})
+        self.image_key = config.get("image_key", "images")
+        self.processor = processor
         assert self.truncation in ["error", "left", "right"]
 
         if not isinstance(parquet_files, list | ListConfig):
@@ -100,6 +134,12 @@ class MultiTurnSFTDataset(Dataset):
             dataframe = pd.read_parquet(parquet_file)
             dataframes.append(dataframe)
         self.dataframe = pd.concat(dataframes)
+        
+        if self.image_key in self.dataframe.columns:
+            # self.images = self.dataframe[self.image_key].apply(series_to_item).tolist()  # TODO(caiyunke.astra): len(images) == 1 and len(images) == 3 cause different behaviors in var-len dataset, check text-only scenario
+            self.images = self.dataframe[self.image_key].tolist()
+        else:
+            self.images = None
 
         # Extract messages list from dataframe
         self.messages = self.dataframe[self.messages_key].apply(series_to_item).tolist()
@@ -241,20 +281,89 @@ class MultiTurnSFTDataset(Dataset):
     def __getitem__(self, item):
         tokenizer = self.tokenizer
         messages = self.messages[item]
+
+        messages_new = []
+        for message in messages:
+            new_content_list = []
+            for content in message["content"]:
+                if content["type"] == "image":
+                    new_content_list.append({"image": int(content["image"]), "type": "image"})
+                elif content["type"] == "text":
+                    new_content_list.append({"text": content["text"], "type": "text"})
+                else:
+                    new_content_list.append(content)
+            new_message = {**message, "content": new_content_list}
+            messages_new.append(new_message)
+        messages = messages_new
         tools = self.tools[item] if self.tools is not None else None
         enable_thinking = self.enable_thinking[item] if self.enable_thinking is not None else None
+        images = self.images[item] if self.images is not None else None
 
-        # First, get the full conversation tokens
+        multi_modal_inputs = None
+        prompt_length = -1
         try:
-            full_tokens = tokenizer.apply_chat_template(
-                messages,
+            if self.processor is not None and (images is not None):
+                processed_images = [process_image(img) for img in images]
+                
+                raw_prompt = self.processor.apply_chat_template(
+                    messages,
+                    tools=tools, 
+                    tokenize=False,
+                    add_generation_prompt=False,
+                    enable_thinking=enable_thinking,
+                    **self.apply_chat_template_kwargs
+                    )
+                model_inputs = self.processor(
+                    text=[raw_prompt],
+                    images=processed_images,
+                    return_tensors="pt",
+                )
+
+                input_ids = model_inputs.pop("input_ids")[0]
+                attention_mask = model_inputs.pop("attention_mask")[0]     
+                multi_modal_inputs = dict(model_inputs)
+                last_assistant_idx = -1
+                # We use a different loss mask generation pipeline for multi-modal inputs to reuse the model-specific processor
+                for i in range(len(messages) - 1, -1, -1):
+                    if messages[i]["role"] == "assistant":
+                        last_assistant_idx = i
+                        break
+
+                if last_assistant_idx == -1:
+                    loss_mask = torch.zeros_like(input_ids)
+                    prompt_messages = messages
+                else:
+                    loss_mask = torch.ones_like(input_ids)
+                    prompt_messages = messages[:last_assistant_idx]
+                prompt_text = self.processor.apply_chat_template(
+                prompt_messages,
                 tools=tools,
-                tokenize=True,
-                return_tensors="pt",
-                add_generation_prompt=False,
+                tokenize=False,
+                add_generation_prompt=True,
                 enable_thinking=enable_thinking,
                 **self.apply_chat_template_kwargs,
-            )
+                )
+                prompt_inputs = self.processor(
+                text=[prompt_text],
+                images=processed_images,
+                return_tensors="pt",
+                )
+                prompt_length = len(prompt_inputs["input_ids"][0])
+                loss_mask[:prompt_length] = 0
+                override_loss_mask = messages[last_assistant_idx].get("loss_mask", None)
+                if override_loss_mask is not None and override_loss_mask == 0:
+                    loss_mask[prompt_length:] = 0
+            else:
+                full_tokens = tokenizer.apply_chat_template(
+                    messages,
+                    tools=tools,
+                    tokenize=True,
+                    return_tensors="pt",
+                    add_generation_prompt=False,
+                    enable_thinking=enable_thinking,
+                    **self.apply_chat_template_kwargs,
+                )
+
         except Exception as e:
             logging.error(
                 f"Error applying chat template: {e}\nMessages: {messages}\nTools: {tools}\nEnable thinking: "
@@ -262,58 +371,60 @@ class MultiTurnSFTDataset(Dataset):
             )
             raise
 
-        # Track concatenated tokens for validation
-        concat_tokens = []
-        concat_loss_mask = []
-        concat_attention_mask = []
+        # text-only pipeline
+        if self.processor is None or (images is None):
+            # Track concatenated tokens for validation
+            concat_tokens = []
+            concat_loss_mask = []
+            concat_attention_mask = []
 
-        i = 0
-        while i < len(messages):
-            cur_messages = messages[i]
-            if cur_messages["role"] == "assistant":
-                # Process assistant message
-                tokens, loss_mask, attention_mask = self._process_message_tokens(
-                    messages, i, i + 1, is_assistant=True, enable_thinking=enable_thinking, tools=tools
-                )
-                i += 1
-            elif cur_messages["role"] == "tool":
-                # Process consecutive tool messages
-                st = i
-                ed = i + 1
-                while ed < len(messages) and messages[ed]["role"] == "tool":
-                    ed += 1
-                tokens, loss_mask, attention_mask = self._process_message_tokens(
-                    messages, st, ed, enable_thinking=enable_thinking, tools=tools
-                )
-                i = ed
-            elif cur_messages["role"] in ["user", "system"]:
-                # Process user or system message
-                if cur_messages["role"] == "system" and i != 0:
-                    raise ValueError("System message should be the first message")
-                tokens, loss_mask, attention_mask = self._process_message_tokens(
-                    messages, i, i + 1, enable_thinking=enable_thinking, tools=tools
-                )
-                i += 1
-            else:
-                raise ValueError(f"Unknown role: {cur_messages['role']}")
+            i = 0
+            while i < len(messages):
+                cur_messages = messages[i]
+                if cur_messages["role"] == "assistant":
+                    # Process assistant message
+                    tokens, loss_mask, attention_mask = self._process_message_tokens(
+                        messages, i, i + 1, is_assistant=True, enable_thinking=enable_thinking, tools=tools
+                    )
+                    i += 1
+                elif cur_messages["role"] == "tool":
+                    # Process consecutive tool messages
+                    st = i
+                    ed = i + 1
+                    while ed < len(messages) and messages[ed]["role"] == "tool":
+                        ed += 1
+                    tokens, loss_mask, attention_mask = self._process_message_tokens(
+                        messages, st, ed, enable_thinking=enable_thinking, tools=tools
+                    )
+                    i = ed
+                elif cur_messages["role"] in ["user", "system"]:
+                    # Process user or system message
+                    if cur_messages["role"] == "system" and i != 0:
+                        raise ValueError("System message should be the first message")
+                    tokens, loss_mask, attention_mask = self._process_message_tokens(
+                        messages, i, i + 1, enable_thinking=enable_thinking, tools=tools
+                    )
+                    i += 1
+                else:
+                    raise ValueError(f"Unknown role: {cur_messages['role']}")
 
-            # override loss mask with mask in the dataset to handle multi-turn conversation
-            override_loss_mask = cur_messages.get("loss_mask", None)
-            if override_loss_mask is not None:
-                if isinstance(override_loss_mask, np.ndarray):
-                    override_loss_mask = override_loss_mask.item()
-                assert isinstance(override_loss_mask, int), f"loss_mask should be int, got {type(override_loss_mask)}"
-                assert override_loss_mask in [0, 1], f"loss_mask should be 0 or 1, got {override_loss_mask}"
-                loss_mask = [override_loss_mask] * len(tokens)
+                # override loss mask with mask in the dataset to handle multi-turn conversation
+                override_loss_mask = cur_messages.get("loss_mask", None)
+                if override_loss_mask is not None:
+                    if isinstance(override_loss_mask, np.ndarray):
+                        override_loss_mask = override_loss_mask.item()
+                    assert isinstance(override_loss_mask, int), f"loss_mask should be int, got {type(override_loss_mask)}"
+                    assert override_loss_mask in [0, 1], f"loss_mask should be 0 or 1, got {override_loss_mask}"
+                    loss_mask = [override_loss_mask] * len(tokens)
 
-            concat_tokens.extend(tokens)
-            concat_loss_mask.extend(loss_mask)
-            concat_attention_mask.extend(attention_mask)
+                concat_tokens.extend(tokens)
+                concat_loss_mask.extend(loss_mask)
+                concat_attention_mask.extend(attention_mask)
 
-        # Validate and convert tokens
-        input_ids, loss_mask, attention_mask = self._validate_and_convert_tokens(
-            full_tokens[0], concat_tokens, concat_loss_mask, concat_attention_mask
-        )
+            # Validate and convert tokens
+            input_ids, loss_mask, attention_mask = self._validate_and_convert_tokens(
+                full_tokens[0], concat_tokens, concat_loss_mask, concat_attention_mask
+            )
 
         # encode prompt
         if messages[0]["role"] == "system":
@@ -358,24 +469,34 @@ class MultiTurnSFTDataset(Dataset):
             # Zero out position IDs for padding
             position_ids = position_ids * attention_mask
 
-            return {
-                "input_ids": input_ids,
-                "attention_mask": attention_mask,
-                "position_ids": position_ids,
-                "loss_mask": loss_mask,
-            }
+            if multi_modal_inputs is not None:
+                return {
+                    "input_ids": input_ids,
+                    "attention_mask": attention_mask,
+                    "position_ids": position_ids,
+                    "loss_mask": loss_mask,
+                    "multi_modal_inputs": multi_modal_inputs
+                }
+            else:
+                return {
+                    "input_ids": input_ids,
+                    "attention_mask": attention_mask,
+                    "position_ids": position_ids,
+                    "loss_mask": loss_mask,
+                }
         elif self.pad_mode == "left_right":
             assert self.truncation == "error", "Only support error truncation for left_right pad mode"
-            prompt_str = self.tokenizer.apply_chat_template(
-                messages[:prompt_message_length],
-                tools=tools,
-                tokenize=False,
-                add_generation_prompt=True,
-                enable_thinking=enable_thinking,
-                **self.apply_chat_template_kwargs,
-            )
-            prompt_ids = self.tokenizer.encode(prompt_str, add_special_tokens=False)
-            prompt_length = len(prompt_ids)
+            if prompt_length == -1:  # Only for text-only inputs
+                prompt_str = self.tokenizer.apply_chat_template(
+                    messages[:prompt_message_length],
+                    tools=tools,
+                    tokenize=False,
+                    add_generation_prompt=True,
+                    enable_thinking=enable_thinking,
+                    **self.apply_chat_template_kwargs,
+                )
+                prompt_ids = self.tokenizer.encode(prompt_str, add_special_tokens=False)
+                prompt_length = len(prompt_ids)
             prompt_ids = input_ids[:prompt_length].unsqueeze(0)
             prompt_attention_mask = attention_mask[:prompt_length].unsqueeze(0)
             prompt_loss_mask = loss_mask[:prompt_length].unsqueeze(0)
@@ -419,10 +540,20 @@ class MultiTurnSFTDataset(Dataset):
             attention_mask = torch.cat((prompt_attention_mask, response_attention_mask), dim=0)
             position_ids = compute_position_id_with_mask(attention_mask)
 
-            return {
-                "input_ids": input_ids,
-                "attention_mask": attention_mask,
-                "position_ids": position_ids,
-                "responses": response_ids,
-                "response_mask": response_loss_mask,
-            }
+            if multi_modal_inputs is not None:
+                return {
+                    "input_ids": input_ids,
+                    "attention_mask": attention_mask,
+                    "position_ids": position_ids,
+                    "responses": response_ids,
+                    "response_mask": response_loss_mask,
+                    "multi_modal_inputs": multi_modal_inputs
+                }
+            else:
+                return {
+                    "input_ids": input_ids,
+                    "attention_mask": attention_mask,
+                    "position_ids": position_ids,
+                    "responses": response_ids,
+                    "response_mask": response_loss_mask,
+                }

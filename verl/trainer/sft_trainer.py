@@ -32,7 +32,7 @@ from tqdm import tqdm
 
 from verl.utils import tensordict_utils as tu
 from verl.utils.checkpoint import CheckpointHandler
-from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
+from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset, collate_fn
 from verl.utils.device import get_device_name, is_cuda_available, is_npu_available
 from verl.utils.distributed import destroy_global_process_group
 from verl.utils.flops_counter import FlopsCounter
@@ -144,8 +144,10 @@ class SFTTrainer:
     def _build_dataset(self):
         config = self.config
         tokenizer = self.model_config.tokenizer
-        train_dataset = create_sft_dataset(config.data.train_files, config.data, tokenizer)
-        val_dataset = create_sft_dataset(config.data.val_files, config.data, tokenizer)
+        processor = self.model_config.processor
+        print(f"processor: {processor}")
+        train_dataset = create_sft_dataset(config.data.train_files, config.data, tokenizer, processor)
+        val_dataset = create_sft_dataset(config.data.val_files, config.data, tokenizer, processor)
 
         self.train_dataset, self.val_dataset = train_dataset, val_dataset
 
@@ -176,6 +178,7 @@ class SFTTrainer:
             pin_memory=True,
             drop_last=True,
             pin_memory_device=device_name,
+            collate_fn=collate_fn,
         )
 
         self.val_sampler = DistributedSampler(
@@ -189,6 +192,7 @@ class SFTTrainer:
             pin_memory=True,
             drop_last=True,
             pin_memory_device=device_name,
+            collate_fn=collate_fn,
         )
 
     def fit(self):
@@ -232,6 +236,7 @@ class SFTTrainer:
             "micro_batch_size_per_gpu": self.config.data.micro_batch_size_per_gpu,
             "temperature": 1.0,
             "global_batch_size": self.global_batch_size,
+            # "use_remove_padding": True, # TODO(caiyunke.astra): check this branch
         }
 
         train_time = 0
@@ -249,8 +254,11 @@ class SFTTrainer:
             ):
                 global_step += 1
 
+                tensor_data = {k: v for k, v in data.items() if isinstance(v, torch.Tensor)}
+                non_tensor_data = {k: v for k, v in data.items() if not isinstance(v, torch.Tensor)}
+                non_tensor_data.update(meta_info)
                 # construct tensordict
-                data = tu.get_tensordict(tensor_dict=data, non_tensor_dict=meta_info)
+                data = tu.get_tensordict(tensor_dict=tensor_data, non_tensor_dict=non_tensor_data)
 
                 with self.engine.train_mode():
                     with Timer(name="update_policy", logger=None) as timer:
@@ -308,8 +316,11 @@ class SFTTrainer:
                     val_losses = []
                     for val_data in self.val_dataloader:
                         with self.engine.eval_mode():
+                            tensor_data = {k: v for k, v in val_data.items() if isinstance(v, torch.Tensor)}
+                            non_tensor_data = {k: v for k, v in val_data.items() if not isinstance(v, torch.Tensor)}
+                            non_tensor_data.update(meta_info)
                             # construct tensordict
-                            val_data = tu.get_tensordict(tensor_dict=val_data, non_tensor_dict=meta_info)
+                            val_data = tu.get_tensordict(tensor_dict=tensor_data, non_tensor_dict=non_tensor_data)
                             output = self.engine.infer_batch(data=val_data, loss_function=self.loss_fn)
                             if self.engine.is_mp_src_rank_with_outputs():
                                 val_losses.extend(output["metrics"]["loss"])
@@ -351,7 +362,7 @@ def main(config):
     run_sft(config)
 
 
-def create_sft_dataset(data_paths, data_config, tokenizer):
+def create_sft_dataset(data_paths, data_config, tokenizer, processor):
     """Create a dataset."""
     # build dataset
     # First check if a custom dataset class is specified
@@ -364,9 +375,13 @@ def create_sft_dataset(data_paths, data_config, tokenizer):
         dataset_cls = MultiTurnSFTDataset
 
     # Create datasets based on the selected class
-    dataset = dataset_cls(parquet_files=data_paths, tokenizer=tokenizer, config=data_config)
+    dataset = dataset_cls(parquet_files=data_paths, tokenizer=tokenizer, config=data_config, processor=processor)
     return dataset
 
 
 if __name__ == "__main__":
+    # import debugpy
+    # debugpy.listen(("localhost", 5678))
+    # print("Waiting for debugger attach...")
+    # debugpy.wait_for_client()
     main()
