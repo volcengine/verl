@@ -150,6 +150,11 @@ class MegatronWorker(Worker):
         if self.rank == 0:
             print(f"Model config after override: {hf_config}")
 
+        from verl.models.mcore.config_converter import mapping_string_to_attn_backend
+
+        # todo: remove this line after mcore adopt mbridge 0.15, now for compatibility
+        override_transformer_config = mapping_string_to_attn_backend(override_transformer_config)
+
         if use_mbridge:
             from verl.models.mcore.mbridge import AutoBridge
 
@@ -199,7 +204,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 tensor_model_parallel_size=self.config.actor.megatron.tensor_model_parallel_size,
                 pipeline_model_parallel_size=self.config.actor.megatron.pipeline_model_parallel_size,
                 virtual_pipeline_model_parallel_size=self.config.actor.megatron.virtual_pipeline_model_parallel_size,
-                pipeline_model_parallel_split_rank=None,
                 use_sharp=False,
                 context_parallel_size=self.config.actor.megatron.context_parallel_size,
                 expert_model_parallel_size=self.config.actor.megatron.expert_model_parallel_size,
@@ -844,7 +848,6 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
                 tensor_model_parallel_size=self.config.megatron.tensor_model_parallel_size,
                 pipeline_model_parallel_size=self.config.megatron.pipeline_model_parallel_size,
                 virtual_pipeline_model_parallel_size=self.config.megatron.virtual_pipeline_model_parallel_size,
-                pipeline_model_parallel_split_rank=None,
                 use_sharp=False,
                 context_parallel_size=self.config.megatron.context_parallel_size,
                 expert_model_parallel_size=self.config.megatron.expert_model_parallel_size,
@@ -1126,7 +1129,6 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
                 tensor_model_parallel_size=self.config.megatron.tensor_model_parallel_size,
                 pipeline_model_parallel_size=self.config.megatron.pipeline_model_parallel_size,
                 virtual_pipeline_model_parallel_size=self.config.megatron.virtual_pipeline_model_parallel_size,
-                pipeline_model_parallel_split_rank=None,
                 use_sharp=False,
                 context_parallel_size=self.config.megatron.context_parallel_size,
                 expert_model_parallel_size=self.config.megatron.expert_model_parallel_size,

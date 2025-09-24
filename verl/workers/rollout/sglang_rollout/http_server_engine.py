@@ -56,7 +56,7 @@ import aiohttp
 import requests
 from sglang.srt.entrypoints.EngineBase import EngineBase
 from sglang.srt.entrypoints.http_server import launch_server
-from sglang.srt.managers.tokenizer_manager import (
+from sglang.srt.managers.io_struct import (
     UpdateWeightsFromTensorReqInput,
 )
 from sglang.srt.server_args import ServerArgs
