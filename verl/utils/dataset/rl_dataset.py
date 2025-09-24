@@ -319,7 +319,6 @@ class RLHFDataset(Dataset):
                 input_ids=input_ids[0],
                 image_grid_thw=model_inputs.get("image_grid_thw"),
                 video_grid_thw=model_inputs.get("video_grid_thw"),
-                second_per_grid_ts=model_inputs.get("second_per_grid_ts"),
                 attention_mask=attention_mask[0],
             )  # (3, seq_length)
             valid_mask = attention_mask[0].bool()
