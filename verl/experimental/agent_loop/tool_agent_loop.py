@@ -266,12 +266,6 @@ class ToolAgentLoop(AgentLoopBase):
         with simple_timer("tool_calls", agent_data.metrics):
             responses = await asyncio.gather(*tasks)
 
-        # Handle responses for interaction if needed
-        if self.interaction_config_file:
-            for response in responses:
-                if response.text:
-                    agent_data.messages.append({"role": "tool", "content": response.text})
-
         # Process tool responses and update multi_modal_data
         # Removed: agent_data.new_images_this_turn = []
         for tool_response in responses:
