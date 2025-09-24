@@ -69,9 +69,9 @@ from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad, ulysses_pa
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 if is_cuda_available:
-    from flash_attn.bert_padding import pad_input
+    pass
 elif is_npu_available:
-    from transformers.integrations.npu_flash_attention import pad_input
+    pass
 
 from verl.trainer.config import CheckpointConfig
 from verl.workers.config import FSDPEngineConfig, FSDPOptimizerConfig, HFModelConfig
@@ -705,6 +705,8 @@ class FSDPEngineWithLMHead(FSDPEngine):
         use_fused_kernels = tu.get_non_tensor_data(data=micro_batch, key="use_fused_kernels", default=False)
         temperature = micro_batch["temperature"]
 
+        assert pad_mode == DatasetPadMode.NO_PADDING, f"pad_mode {pad_mode} not supported"
+
         multi_modal_inputs = {}
         if "multi_modal_inputs" in micro_batch.keys():
             from verl.utils.model import extract_multi_modal_inputs
@@ -959,7 +961,7 @@ class FSDPEngineWithValueHead(FSDPEngineWithLMHead):
 
     def prepare_model_outputs(self, output, output_args, micro_batch: TensorDict):
         use_remove_padding = tu.get_non_tensor_data(data=micro_batch, key="use_remove_padding", default=True)
-        response_length = micro_batch["responses"].size(-1)
+        pad_mode = tu.get_non_tensor_data(data=micro_batch, key="pad_mode", default=DatasetPadMode.NO_PADDING)
 
         if use_remove_padding:
             input_ids = micro_batch["input_ids"]
@@ -970,24 +972,38 @@ class FSDPEngineWithValueHead(FSDPEngineWithLMHead):
                 values_rmpad = output[2].squeeze(0).unsqueeze(-1)
             else:
                 values_rmpad = output.logits
-                values_rmpad = values_rmpad.squeeze(0)  # (total_nnz)
-
-            indices = output_args["indices"]
+                values_rmpad = values_rmpad.squeeze(0)  # (total_nnz, 1)
+                # FIXME(houmin): confirm why should we squeeze here
+                values_rmpad = values_rmpad.squeeze(-1)
 
             # gather output if sp > 1
             if self.use_ulysses_sp:
                 pad_size = output_args["pad_size"]
                 values_rmpad = gather_outputs_and_unpad(values_rmpad, gather_dim=0, unpad_dim=0, padding_size=pad_size)
 
-            # pad it back
-            values = pad_input(values_rmpad, indices=indices, batch=batch_size, seqlen=seqlen).squeeze(-1)
-            values = values[:, -response_length - 1 : -1]
+            if pad_mode == DatasetPadMode.NO_PADDING:
+                cu_seqlens = input_ids.offsets()
+                # (bsz, j1) for each sample, is the length of each sample: [real_prompt length + real_response length]
+                values = torch.nested.nested_tensor_from_jagged(values_rmpad, cu_seqlens)
+            else:
+                raise NotImplementedError(f"pad_mode {pad_mode} not implemented")
+
         else:
             if hasattr(self.module, "v_head"):
                 # For trl.AutoModelForCausalLMWithValueHead
                 values = output[2]
             else:
                 values = output.logits
-            values = values[:, -response_length - 1 : -1].squeeze(-1)
+
+            if pad_mode == DatasetPadMode.NO_PADDING:
+                cu_seqlens = input_ids.offsets()
+                seq_lengths = cu_seqlens.diff()
+                starts = torch.zeros_like(seq_lengths, dtype=torch.int64)
+                values = torch.nested.narrow(values, 1, starts, seq_lengths, layout=torch.jagged)
+                values_rmpad = torch.cat([t for t in values.unbind()])
+                # (bsz, j1) for each sample, length of each sample: [real_prompt_length + real_response_length]
+                values = torch.nested.nested_tensor_from_jagged(values_rmpad, cu_seqlens)
+            else:
+                raise NotImplementedError(f"pad_mode {pad_mode} not implemented")
 
         return {"values": values}

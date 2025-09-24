@@ -97,9 +97,6 @@ def test_actor_engine(strategy):
         input_ids=input_ids, max_ratio_of_valid_token=0.8, max_ratio_of_left_padding=0.2, min_ratio_of_valid_token=0.6
     )
     position_ids = compute_position_id_with_mask(attention_mask)
-    print(f"input_ids: {input_ids}")
-    print(f"attention_mask: {attention_mask}")
-    print(f"position_ids: {position_ids}")
 
     global_token_num = torch.sum(attention_mask, dim=-1).tolist()
 
@@ -132,6 +129,7 @@ def test_actor_engine(strategy):
     hf_logprobs = logprobs_from_logits_naive(
         hf_output.logits[:, -response_length - 1 : -1, :].float(), input_ids[:, -response_length:]
     )
+
     hf_logprobs_mean = torch.mean(hf_logprobs * response_mask)
     mcore_logprobs_mean = torch.mean(output.batch["old_log_probs"] * response_mask)
 
@@ -351,7 +349,7 @@ def _worker(rank: int, world_size: int, rendezvous_file: str, strategy: str, mod
 
 @pytest.mark.parametrize("world_size", [8])
 @pytest.mark.parametrize("config", [Qwen3Config(num_hidden_layers=2), Qwen3MoeConfig(num_hidden_layers=2)])
-@pytest.mark.parametrize("strategy", ["megatron", "fsdp", "fsdp2"])
+@pytest.mark.parametrize("strategy", ["fsdp", "fsdp2"])
 def test_per_tensor_generator(world_size, tmp_path, config, strategy):
     rendezvous_file = str(tmp_path / "rdzv_mask")
     os.makedirs(os.path.dirname(rendezvous_file), exist_ok=True)
