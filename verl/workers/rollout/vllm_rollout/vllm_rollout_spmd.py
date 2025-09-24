@@ -401,7 +401,6 @@ class vLLMRollout(BaseRollout):
             # we will recompute old log prob with actor
             batch["rollout_log_probs"] = rollout_log_probs
 
-
         return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
 
     async def resume(self, tags: list[str]):
