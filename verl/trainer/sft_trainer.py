@@ -187,7 +187,7 @@ class SFTTrainer:
             dataset=self.train_dataset,
             batch_size=self.train_batch_size_per_dp,
             sampler=self.train_sampler,
-            num_workers=0,
+            num_workers=8,
             pin_memory=True,
             drop_last=True,
             pin_memory_device=device_name,

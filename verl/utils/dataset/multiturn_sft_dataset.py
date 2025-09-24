@@ -16,9 +16,7 @@
 Multi-turn SFT dataset that supports training on conversation data with multiple turns
 """
 
-import numpy
 import numpy as np
-import pandas
 import pandas as pd
 import torch
 from omegaconf import ListConfig
@@ -26,15 +24,14 @@ from qwen_vl_utils import process_vision_info
 from torch.utils.data import Dataset
 from transformers import AutoProcessor
 
+from verl.utils.dataset.vision_utils import process_image
 from verl.utils.fs import copy_local_path_from_hdfs
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.torch_functional import pad_sequence_to_length, postprocess_data
 
 
 def convert_nested_value_to_list_recursive_if_not_none(data_item):
-    if isinstance(data_item, pandas.core.series.Series | numpy.ndarray) and len(data_item) == 1:
-        return convert_nested_value_to_list_recursive_if_not_none(data_item[0])
-    elif isinstance(data_item, dict):
+    if isinstance(data_item, dict):
         return {k: convert_nested_value_to_list_recursive_if_not_none(v) for k, v in data_item.items() if v is not None}
     elif isinstance(data_item, list):
         return [convert_nested_value_to_list_recursive_if_not_none(elem) for elem in data_item]
@@ -67,6 +64,7 @@ class MultiTurnSFTDataset(Dataset):
         # Get messages_key from the new multiturn config structure
         multiturn_config = config.get("multiturn", {})
         self.messages_key = multiturn_config.get("messages_key", "messages")
+        self.images_key = config.get("image_key", "images")
         self.tools_key = multiturn_config.get("tools_key", "tools")
         self.enable_thinking_key = multiturn_config.get("enable_thinking_key", "enable_thinking")
         self.apply_chat_template_kwargs = config.get("apply_chat_template_kwargs", {})
@@ -96,6 +94,13 @@ class MultiTurnSFTDataset(Dataset):
         self.messages = (
             self.dataframe[self.messages_key].apply(convert_nested_value_to_list_recursive_if_not_none).tolist()
         )
+
+        if self.images_key in self.dataframe.columns:
+            self.images = (
+                self.dataframe[self.images_key].apply(convert_nested_value_to_list_recursive_if_not_none).to_list()
+            )
+        else:
+            self.images = None
 
         # Extract tools list from dataframe
         if self.tools_key in self.dataframe.columns:
@@ -129,6 +134,14 @@ class MultiTurnSFTDataset(Dataset):
         messages = self.messages[item]
         tools = self.tools[item] if self.tools is not None else None
         enable_thinking = self.enable_thinking[item] if self.enable_thinking is not None else None
+        if self.images:
+            images = [process_image(img) for img in self.images[item]]
+            for convs in messages:
+                for conv in convs["content"]:
+                    if conv["type"] == "image":
+                        conv["image"] = images[int(conv["image"])]
+        else:
+            images = None
 
         full_text = self.processor.apply_chat_template(
             messages,
@@ -322,6 +335,6 @@ class MultiTurnSFTDataset(Dataset):
             raise NotImplementedError("pad_mode only support right or left-right mode!")
         if pixel_values is not None:
             result["multi_modal_inputs"] = {}
-            result["multi_modal_inputs"]["pixel_values"] = torch.tensor(pixel_values)
-            result["multi_modal_inputs"]["image_grid_thw"] = torch.tensor(image_grid_thw)
+            result["multi_modal_inputs"]["pixel_values"] = pixel_values
+            result["multi_modal_inputs"]["image_grid_thw"] = image_grid_thw
         return result

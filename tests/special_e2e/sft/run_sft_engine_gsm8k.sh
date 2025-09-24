@@ -5,8 +5,8 @@ ENTRYPOINT=${ENTRYPOINT:-"-m verl.trainer.sft_trainer"}
 
 NUM_GPUS=${NUM_GPUS:-1}
 
-TRAIN_FILES=~/data/geo3k_sft/train.parquet
-VAL_FILES=~/data/geo3k_sft/test.parquet
+TRAIN_FILES=~/data/vermouth1992/mnist_multiturn_sft/data/train-00000-of-00001.parquet
+VAL_FILES=~/data/vermouth1992/mnist_multiturn_sft/data/test-00000-of-00001.parquet
 
 backend=${BACKEND:-fsdp}
 
@@ -76,11 +76,11 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     data.train_files="${TRAIN_FILES}" \
     data.val_files="${VAL_FILES}" \
     data.train_batch_size=16 \
-    data.max_length=20480 \
+    data.max_length=4096 \
     data.pad_mode=left_right \
     data.truncation=error \
     data.use_dynamic_bsz=True \
-    data.max_token_len_per_gpu=20480 \
+    data.max_token_len_per_gpu=4096 \
     data.messages_key=messages \
     data.pad_mode=right \
     model.path=$MODEL_PATH \
