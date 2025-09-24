@@ -523,6 +523,9 @@ class FSDPEngine(BaseEngine):
                 self.module.parameters(), max_norm=self.optimizer_config.clip_grad
             )
 
+        if isinstance(grad_norm, DTensor):
+            grad_norm = grad_norm.full_tensor()
+
         # if grad_norm is not finite, skip the update
         if not torch.isfinite(grad_norm):
             print(f"WARN: grad_norm is not finite: {grad_norm}")
