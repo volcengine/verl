@@ -16,6 +16,7 @@ import copy
 import json
 import logging
 import os
+import numpy as np
 from enum import Enum
 from typing import Any, Optional
 from uuid import uuid4
@@ -179,7 +180,11 @@ class ToolAgentLoop(AgentLoopBase):
             metrics=agent_data.metrics,
             extra_fields={},
         )
-        output.extra_fields.update({"turn_scores": agent_data.turn_scores, "tool_rewards": agent_data.tool_rewards})
+        output.extra_fields.update({
+            "turn_scores": agent_data.turn_scores,
+            # Wrap as numpy object array to keep outer shape 1D regardless of inner list lengths
+            "tool_rewards": np.array(agent_data.tool_rewards, dtype=object),
+        })
         return output
 
     async def _handle_pending_state(self, agent_data: AgentData, sampling_params: dict[str, Any]) -> AgentState:
