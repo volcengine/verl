@@ -732,7 +732,28 @@ def extract_multi_modal_inputs(
         if has_image_bound:  # minicpm-o logic
             multi_modal_inputs[key] = values
         else:
-            multi_modal_inputs[key] = torch.cat(values, dim=0)
+            all_keys = set().union(*(set(d.keys()) for d in selected_batch_data))
+            for key in all_keys:
+                values = []
+                if key in ("pixel_values", "pixel_values_videos"):
+                    for d in selected_batch_data:
+                        if key in d and d[key] is not None:
+                            v = d[key]
+                            values.append(v.squeeze(0) if v.ndim == 3 else v)
+                    if len(values) > 0:
+                        multi_modal_inputs[key] = torch.cat(values, dim=0)
+                elif key in ("image_grid_thw", "video_grid_thw", "second_per_grid_ts"):
+                    for d in selected_batch_data:
+                        if key in d and d[key] is not None:
+                            values.append(d[key])
+                    if len(values) > 0:
+                        multi_modal_inputs[key] = torch.cat(values, dim=0)
+                else:
+                    for d in selected_batch_data:
+                        if key in d and d[key] is not None:
+                            values.append(d[key])
+                    if len(values) > 0:
+                        multi_modal_inputs[key] = torch.cat(values, dim=0)
 
     return multi_modal_inputs
 
