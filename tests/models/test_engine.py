@@ -84,6 +84,8 @@ def test_actor_engine(strategy):
     # init model
     wg.init_model()
 
+    print(f"test_actor_engine strategy: {strategy}, config: {config} after init_model")
+
     batch_size = 8
     seqlen = 32
 
@@ -99,8 +101,6 @@ def test_actor_engine(strategy):
     position_ids = compute_position_id_with_mask(attention_mask)
 
     global_token_num = torch.sum(attention_mask, dim=-1).tolist()
-
-    print(input_ids.float().mean(), attention_mask.float().mean())
 
     responses = input_ids[:, response_length:]
     response_mask = attention_mask[:, response_length:]
@@ -129,6 +129,7 @@ def test_actor_engine(strategy):
     hf_logprobs = logprobs_from_logits_naive(
         hf_output.logits[:, -response_length - 1 : -1, :].float(), input_ids[:, -response_length:]
     )
+
     hf_logprobs_mean = torch.mean(hf_logprobs * response_mask)
     mcore_logprobs_mean = torch.mean(output.batch["old_log_probs"] * response_mask)
 
@@ -173,6 +174,8 @@ def create_model():
 def test_critic_engine(strategy):
     ray.init()
 
+    torch.autograd.set_detect_anomaly(True)
+
     path = create_model()
     model_config = HFModelConfig(path=path, load_tokenizer=False)
 
@@ -208,6 +211,8 @@ def test_critic_engine(strategy):
     wg = RayWorkerGroup(resource_pool=resource_pool, ray_cls_with_init=ray_cls_with_init)
     # init model
     wg.init_model()
+
+    print(f"test_critic_engine strategy: {strategy}, config: {config}")
 
     batch_size = 8
     seqlen = 32
@@ -257,6 +262,9 @@ def test_critic_engine(strategy):
 
     engine_values = torch.mean(output.batch["values"] * response_mask)
 
+    print(f"engine_values: {output.batch['values']}")
+    print(f"hf_values_mean: {hf_values_mean}, engine_values: {engine_values}")
+
     torch.testing.assert_close(hf_values_mean, engine_values, atol=1e-2, rtol=1e-2)
 
     data = data.union(output)
@@ -265,6 +273,7 @@ def test_critic_engine(strategy):
     data.batch["values"] = torch.rand_like(responses, dtype=torch.float32)
     data.batch["returns"] = torch.rand_like(responses, dtype=torch.float32)
 
+    print(f"before update critic: {data}")
     # update again
     ppo_metrics = wg.update_critic(data)
     print(ppo_metrics)
@@ -354,6 +363,8 @@ def test_per_tensor_generator(world_size, tmp_path, config, strategy):
     os.makedirs(os.path.dirname(rendezvous_file), exist_ok=True)
     # create a model
     model_path = create_actor_model(tmp_path, config)
+
+    print(f"test_per_tensor_generator world_size: {world_size}, strategy: {strategy}, config: {config}")
     # spawn workers
     mp.spawn(
         fn=_worker,
