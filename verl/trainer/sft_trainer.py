@@ -31,18 +31,13 @@ from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
 
 from verl.utils import tensordict_utils as tu
-from verl.utils.checkpoint import CheckpointHandler
 from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
-from verl.utils.device import get_device_name, is_cuda_available, is_npu_available
+from verl.utils.device import get_device_name, is_npu_available
 from verl.utils.distributed import destroy_global_process_group
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.logger import log_with_rank
 from verl.utils.tracking import Tracking
 
-if is_cuda_available:
-    pass
-elif is_npu_available:
-    pass
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_SFT_LOGGING_LEVEL", "WARN"))
@@ -85,6 +80,8 @@ class SFTTrainer:
             print(self.config)
 
     def _build_ckpt_handler(self):
+        from verl.utils.checkpoint import CheckpointHandler
+
         resume_mode = getattr(self.config.trainer, "resume_mode", "auto")
         resume_from_path = getattr(self.config.trainer, "resume_from_path", None)
         max_ckpt_to_keep = getattr(self.config.trainer, "max_ckpt_to_keep", None)
@@ -109,6 +106,15 @@ class SFTTrainer:
         self.checkpoint_config = omega_conf_to_dataclass(self.config.checkpoint)
 
     def _build_engine(self):
+        # patch for NPU megatron backend
+        if is_npu_available and self.engine_config.strategy == "megatron":
+            from mindspeed.megatron_adaptor import repatch
+
+            repatch_config = {"use_flash_attn": True}
+            if self.engine_config.context_parallel_size > 1:
+                repatch_config["context_parallel_size"] = self.engine_config.context_parallel_size
+            repatch(repatch_config)
+
         from verl.workers.engine import BaseEngine, EngineRegistry
 
         self.engine: BaseEngine = EngineRegistry.new(
