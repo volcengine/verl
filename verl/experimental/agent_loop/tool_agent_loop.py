@@ -410,7 +410,9 @@ class ToolAgentLoop(AgentLoopBase):
         else:
             return AgentState.GENERATING
 
-    async def _call_tool(self, tool_call: FunctionCall, tools_kwargs: dict[str, Any]) -> tuple[ToolResponse, float, dict]:
+    async def _call_tool(
+        self, tool_call: FunctionCall, tools_kwargs: dict[str, Any]
+    ) -> tuple[ToolResponse, float, dict]:
         """Call tool and return tool response."""
         tool, instance_id = None, None
         try:
@@ -423,9 +425,13 @@ class ToolAgentLoop(AgentLoopBase):
             tool_execution_response, tool_reward, res = await tool.execute(instance_id, tool_args)
         except Exception as e:
             logger.warning(f"Error when executing tool: {e}")
-            return ToolResponse(
-                text=f"Error when executing tool: {e}",
-            ), 0.0, {}
+            return (
+                ToolResponse(
+                    text=f"Error when executing tool: {e}",
+                ),
+                0.0,
+                {},
+            )
         finally:
             if tool and instance_id:
                 await tool.release(instance_id)
