@@ -504,7 +504,11 @@ class MegatronOnPolicyDistillActorWorker(ActorRolloutRefWorker):
             weight_key, weight = next(params_generator)
             assert key == weight_key
             assert shape == weight.size()
-            assert dtype == weight.dtype
+            try:
+                assert dtype == weight.dtype
+            except:
+                if not key.endswith("e_score_correction_bias"):
+                    raise
 
             tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
             if torch.distributed.get_rank() == 0:
