@@ -102,6 +102,7 @@ class AdvantageEstimator(str, Enum):
     OPO = "opo"
     GRPO_PASSK = "grpo_passk"
     GPG = "gpg"
+    DISCO = "disco"
 
 
 ADV_ESTIMATOR_REGISTRY: dict[str, Any] = {}
@@ -685,6 +686,48 @@ def compute_gpg_outcome_advantage(
     return scores, scores
 
 
+@register_adv_est(AdvantageEstimator.DISCO)  # or simply: @register_adv_est("disco")
+def compute_disco_outcome_advantage(
+    token_level_rewards: torch.Tensor,
+    response_mask: torch.Tensor,
+    index: np.ndarray,
+    epsilon: float = 1e-6,
+    config=None,
+    **kwargs,
+):
+    """
+    Compute advantage for DisCO, operating only on Outcome reward
+    (with only one binary reward for each response).
+    Since DisCO works on binary rewards and prompt uid without explicit advantage, to comply with verl framework,
+    this function is used to store the binary rewards and prompt 'uid'.
+    Args:
+        token_level_rewards: `(torch.Tensor)`
+            shape: (bs, response_length)
+        response_mask: `(torch.Tensor)`
+            shape: (bs, response_length)
+        index: `(np.ndarray)`
+            shape: (bs,)
+        epsilon: (float)
+        config: (dict) algorithm config
+
+    Returns:
+        advantages: `(torch.Tensor)`
+            shape: (bs, response_length)
+        Returns: `(torch.Tensor)`
+            shape: (bs, response_length)
+    """
+    # Create storage matrix (bs, response_length)
+    matrix = torch.zeros_like(response_mask, dtype=torch.float)
+
+    scores = token_level_rewards.sum(dim=-1)
+    uid = torch.tensor(index.astype(float))
+
+    matrix[:, 0] = scores
+    matrix[:, 1] = uid
+
+    return matrix, matrix
+
+
 def compute_rewards(token_level_scores, old_log_prob, ref_log_prob, kl_ratio):
     """Compute token-level rewards with KL penalty.
 
@@ -1233,6 +1276,131 @@ def compute_policy_loss_geo_mean(
     pg_clipfrac_lower = verl_F.masked_mean((clipped * (advantages < 0)).float(), response_mask)
 
     return pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower
+
+
+@register_policy_loss("disco")
+def compute_policy_loss_disco(
+    old_log_prob: torch.Tensor,
+    log_prob: torch.Tensor,
+    advantages: torch.Tensor,
+    response_mask: torch.Tensor,
+    loss_agg_mode: str = "token-mean",
+    config: Optional[DictConfig | AlgoConfig] = None,
+    rollout_log_probs: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Compute the discriminative objective with log likelihood score function for DisCO.
+
+    Adapted from paper https://arxiv.org/abs/2505.12366
+    https://github.com/Optimization-AI/DisCO/blob/bbfccc44e632b835a0dad907cc446b4c0ed9bfd4/verl/verl/trainer/ppo/core_algos.py#L516
+    Args:
+        old_log_prob (torch.Tensor):
+            Log-probabilities of actions under the old policy, shape (batch_size, response_length).
+        log_prob (torch.Tensor):
+            Log-probabilities of actions under the current policy, shape (batch_size, response_length).
+        advantages (torch.Tensor):
+            Advantage estimates for each action, shape (batch_size, response_length). For DisCO,
+            the first column is the binary reward for each response and the second column is prompt uid.
+        response_mask (torch.Tensor):
+            Mask indicating which tokens to include in the loss, shape (batch_size, response_length).
+        loss_agg_mode (str, optional):
+            not used
+        rollout_log_probs (optional):
+            not used
+    return:
+        pg_loss (torch.Tensor):
+            policy gradient loss computed via DisCO
+        pg_clipfrac (torch.Tensor):
+            the fraction that KL divergence between old policy and
+            current policy is large than the constraint value delta
+        ppo_kl (torch.Tensor):
+            KL divergence between old policy and current policy
+    """
+    assert config is not None
+    assert isinstance(config, ActorConfig)
+
+    score_func = config.policy_loss.score_func
+    delta, beta = config.policy_loss.delta, config.policy_loss.beta
+    tau = config.policy_loss.tau
+
+    ### extract binary rewards and uid
+    seq_level_rewards = advantages[:, 0]
+    uid = advantages[:, 1]
+
+    if torch.distributed.is_initialized():
+        global_old_log_prob = torch.cat(torch.distributed.nn.all_gather(old_log_prob), dim=0)
+        global_log_prob = torch.cat(torch.distributed.nn.all_gather(log_prob), dim=0)
+        global_response_mask = torch.cat(torch.distributed.nn.all_gather(response_mask), dim=0)
+        global_uid = torch.cat(torch.distributed.nn.all_gather(uid), dim=0)
+        global_rewards = torch.cat(torch.distributed.nn.all_gather(seq_level_rewards), dim=0)
+    else:
+        global_old_log_prob = old_log_prob
+        global_log_prob = log_prob
+        global_response_mask = response_mask
+        global_uid = uid
+        global_rewards = seq_level_rewards
+
+    #### do calculation
+    negative_approx_kl = global_log_prob - global_old_log_prob
+    ratio = torch.exp(negative_approx_kl)
+    ppo_kl = verl_F.masked_mean(-negative_approx_kl, global_response_mask)
+
+    if score_func == "logL":
+        global_scores = (global_log_prob * global_response_mask).sum(dim=1) / global_response_mask.sum(dim=1)
+    elif score_func == "Lratio":
+        global_scores = (ratio * global_response_mask).sum(dim=1) / global_response_mask.sum(dim=1)
+    else:
+        raise NotImplementedError
+
+    ### group scores based on global_uid, we assume each question has same number of responses
+    sorted_uid, indices = global_uid.sort()
+    sorted_scores = global_scores[indices]
+    sorted_rewards = global_rewards[indices]
+
+    num_questions = global_uid.unique().numel()
+    num_responses_per_question = global_uid.size(0) // num_questions
+    grouped_scores = sorted_scores.view(num_questions, num_responses_per_question)
+    grouped_rewards = sorted_rewards.view(num_questions, num_responses_per_question)
+
+    pos_mask = grouped_rewards == 1
+    neg_mask = grouped_rewards == 0
+    #### remove all zeros and all ones
+    valid_mask = (pos_mask.sum(dim=1) != 0) & (neg_mask.sum(dim=1) != 0)
+
+    if valid_mask.sum() > 0:
+        grouped_scores = grouped_scores[valid_mask]
+        grouped_rewards = grouped_rewards[valid_mask]
+        pos_mask = pos_mask[valid_mask]
+        neg_mask = neg_mask[valid_mask]
+
+        neg_scores_masked = (grouped_scores / tau).masked_fill(~neg_mask, float("-inf"))
+
+        # Compute stable max while keeping dimension
+        neg_max, _ = neg_scores_masked.max(dim=-1, keepdim=True)
+        # handle all-masked rows safely
+        neg_max = torch.where(neg_max == float("-inf"), torch.zeros_like(neg_max), neg_max)
+
+        # Subtract max, exponentiate, and apply mask
+        neg_exp = torch.exp(((grouped_scores / tau) - neg_max.detach()) * neg_mask) * neg_mask
+        neg_sum_exp = neg_exp.sum(dim=-1, keepdim=True)
+
+        neg_logmeanexp = neg_sum_exp / (neg_sum_exp.detach() + torch.finfo(neg_sum_exp.dtype).eps)
+
+        pg_losses = ((grouped_scores - tau * neg_logmeanexp) * pos_mask).sum(dim=1, keepdim=True) / pos_mask.sum(
+            dim=1, keepdim=True
+        )
+
+        pg_loss = pg_losses.sum() / num_questions
+    else:
+        pg_loss = torch.tensor(0.0) * global_scores.mean()  ### dummy loss
+
+    constraint = torch.maximum(beta * (ppo_kl - delta), torch.zeros_like(ppo_kl)).detach() * ppo_kl
+
+    pg_loss = -pg_loss + constraint
+    pg_clipfrac = torch.gt(ppo_kl, delta).float()
+
+    # pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower
+    return pg_loss, pg_clipfrac, ppo_kl, torch.tensor(0.0)
 
 
 def compute_entropy_loss(logits, response_mask, loss_agg_mode: str = "token-mean"):

@@ -25,3 +25,5 @@ The help the community reproduce experiments, verl team provides a snapshot of t
 - [deepscaler](https://github.com/agentica-project/rllm/tree/deepscaler): iterative context scaling with GRPO ![GitHub Repo stars](https://img.shields.io/github/stars/agentica-project/deepscaler)
 - [DAPO](https://dapo-sia.github.io/): the fully open source SOTA RL algorithm that beats DeepSeek-R1-zero-32B ![GitHub Repo stars](https://img.shields.io/github/stars/volcengine/verl)
 - [NoisyRollout](https://github.com/NUS-TRAIL/NoisyRollout): Reinforcing Visual Reasoning with Data Augmentation ![GitHub Repo stars](https://img.shields.io/github/stars/NUS-TRAIL/NoisyRollout)
+- [DisCO](https://github.com/Optimization-AI/DisCO): Reinforcing Large Reasoning Models with
+Discriminative Constrained Optimization ![GitHub Repo stars](https://img.shields.io/github/stars/Optimization-AI/DisCO)

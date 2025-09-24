@@ -1,0 +1,42 @@
+hydra:
+  searchpath:
+    - file://verl/trainer/config
+
+defaults:
+  - ppo_trainer
+  - _self_
+
+data:
+  gen_batch_size: ${data.train_batch_size}
+
+actor_rollout_ref:
+  actor:
+    policy_loss:
+      loss_mode: 'disco'
+      score_func: 'logL' # score function used in disco. Options: 'logL', 'Lratio'
+      delta: 1e-4    
+      beta: 1e3     
+      tau: 10         
+
+reward_model:
+  reward_manager: naive
+
+custom_reward_function:
+
+  # The path to the file containing your customized reward function.
+  # If not specified, pre-implemented reward functions will be used.
+  path: recipe/disco/reward/deepscaler_reward.py
+
+  # The name of the reward function within the specified file. Default is 'compute_score'.
+  name: deepscaler_reward_fn
+
+algorithm:
+  filter_groups:
+    _target_: verl.trainer.config.FilterGroupsConfig
+    enable: False # We try to avoid forgetting to set enable
+    metric: null # acc / score / seq_reward / seq_final_reward / ...
+    max_num_gen_batches: 0 # Non-positive values mean no upper limit
+
+trainer:
+  project_name: verl-disco
+
