@@ -69,6 +69,7 @@ from verl.workers.rollout.schemas import (
 )
 from verl.workers.rollout.sglang_rollout.http_server_engine import AsyncHttpServerAdapter
 from verl.workers.rollout.sglang_rollout.utils import broadcast_pyobj, get_named_tensor_buckets
+from verl.workers.rollout.utils import is_valid_ipv6_address
 
 try:
     from sglang.srt.function_call.function_call_parser import FunctionCallParser
@@ -1558,8 +1559,9 @@ class ServerAdapter(BaseRollout):
             f"replica_rank={self.replica_rank} node_rank={self.node_rank}, "
             f"server address: {server_address}, port: {server_port}"
         )
+        host = f"[{server_address}]" if is_valid_ipv6_address(server_address) else server_address
         self._engine = AsyncHttpServerAdapter(
-            model_path=self.model_config.local_path, host=server_address, port=server_port, launch_server=False
+            model_path=self.model_config.local_path, host=host, port=server_port, launch_server=False
         )
 
     async def resume(self, tags: list[str]):
