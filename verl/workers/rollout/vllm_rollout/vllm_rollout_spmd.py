@@ -401,21 +401,7 @@ class vLLMRollout(BaseRollout):
             # we will recompute old log prob with actor
             batch["rollout_log_probs"] = rollout_log_probs
 
-        enable_thinking = prompts.meta_info.get("enable_thinking", False)
-        if enable_thinking:
-            think_info = []
-            for i in range(batch_size):
-                response_text = self.tokenizer.decode(response[i], skip_special_tokens=True)
-                think_data = self._extract_think_content(response_text)
-                think_info.append(think_data)
 
-            think_mask = self._create_think_mask(
-                response, self.think_token_id, self.think_end_token_id
-            )
-
-            batch["think_mask"] = think_mask
-            non_tensor_batch["think_info"] = think_info
-        
         return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
 
     async def resume(self, tags: list[str]):
