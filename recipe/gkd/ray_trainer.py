@@ -145,7 +145,8 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
         self.ray_worker_group_cls = ray_worker_group_cls
         self.device_name = device_name
         self.validation_generations_logger = ValidationGenerationsLogger()
-
+        self.use_critic = False
+        
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
         self.teacher_config = self.config.actor_rollout_ref.teacher
         self.n_server_workers = self.teacher_config.n_server_workers
