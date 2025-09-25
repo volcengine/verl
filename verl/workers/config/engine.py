@@ -18,19 +18,36 @@ from typing import Any, Optional
 
 from verl.base_config import BaseConfig
 
-__all__ = ["FSDPEngineConfig", "McoreEngineConfig"]
+__all__ = ["BaseEngineConfig", "FSDPEngineConfig", "McoreEngineConfig"]
 
 
 @dataclass
-class McoreEngineConfig(BaseConfig):
+class BaseEngineConfig(BaseConfig):
+    """Base configuration for engine parallelism.
+
+    Common configuration fields shared between different parallelism strategies.
+
+    Args:
+        param_offload (bool): Whether to offload parameters to CPU.
+        optimizer_offload (bool): Whether to offload optimizer states to CPU.
+        forward_only (bool): Whether to run in forward-only mode.
+        strategy (str): Parallelism strategy name.
+    """
+
+    param_offload: bool = False
+    optimizer_offload: bool = False
+    forward_only: bool = False
+    strategy: str = field(init=False)  # To be set by subclasses
+
+
+@dataclass
+class McoreEngineConfig(BaseEngineConfig):
     """Configuration for Megatron parallelism.
 
     The inheritance from BaseConfig provides omegaconf.DictConfig-like interface for a dataclass config.
 
     Args:
-        param_offload (bool): Whether to offload parameters to CPU.
         grad_offload (bool): Whether to offload gradients to CPU.
-        optimizer_offload (bool): Whether to offload optimizer states to CPU.
         tensor_model_parallel_size (int): Tensor model parallel size.
         expert_model_parallel_size (int): Expert model parallel size for MoE models.
         expert_tensor_parallel_size (Optional[int]): Expert tensor parallel size for MoE models.
@@ -51,9 +68,7 @@ class McoreEngineConfig(BaseConfig):
     # sequence_parallel is not listed as a frozen field for auto-correction purpose
     _mutable_fields = BaseConfig._mutable_fields | {"sequence_parallel"}
 
-    param_offload: bool = False
     grad_offload: bool = False
-    optimizer_offload: bool = False
     tensor_model_parallel_size: int = 1
     expert_model_parallel_size: int = 1
     expert_tensor_parallel_size: Optional[int] = None
@@ -69,8 +84,7 @@ class McoreEngineConfig(BaseConfig):
     override_transformer_config: dict[str, Any] = field(default_factory=dict)
     override_mcore_model_config: dict[str, Any] = field(default_factory=dict)
     use_mbridge: bool = False
-    forward_only: bool = False
-    strategy: str = "megatron"
+    strategy: str = field(default="megatron", init=False)
 
     def __post_init__(self) -> None:
         """config validation logics go here"""
@@ -81,15 +95,13 @@ class McoreEngineConfig(BaseConfig):
 
 
 @dataclass
-class FSDPEngineConfig(BaseConfig):
+class FSDPEngineConfig(BaseEngineConfig):
     """Configuration for FSDP (Fully Sharded Data Parallel).
 
     The inheritance from BaseConfig provides omegaconf.DictConfig-like interface for a dataclass config.
 
     Args:
         wrap_policy (Dict[str, Any]): Configuration for FSDP wrap policy.
-        param_offload (bool): Whether to offload parameters to CPU, default False
-        optimizer_offload (bool): Whether to offload optimizer states to CPU, default False
         offload_policy (bool): Whether to offload policy model parameters, default False
         reshard_after_forward (bool): Whether to reshard parameters after forward pass, default True
         fsdp_size (int): FSDP group size. -1 means use all available GPUs.
@@ -100,8 +112,6 @@ class FSDPEngineConfig(BaseConfig):
     """
 
     wrap_policy: dict[str, Any] = field(default_factory=dict)
-    param_offload: bool = False
-    optimizer_offload: bool = False
     offload_policy: bool = False
     reshard_after_forward: bool = True
     fsdp_size: int = -1
@@ -113,8 +123,17 @@ class FSDPEngineConfig(BaseConfig):
     entropy_from_logits_with_chunking: bool = False
     use_torch_compile: bool = True
     entropy_checkpointing: bool = False
-    forward_only: bool = False
-    strategy: str = "fsdp"
+    strategy: str = field(default="fsdp", init=False)
 
     def __post_init__(self):
         assert self.strategy in ["fsdp", "fsdp2"], f"strategy {self.strategy} not supported"
+
+
+@dataclass
+class AllEngineConfig(FSDPEngineConfig, McoreEngineConfig):
+    """Configuration for all type Engines.
+
+    Used for init config/type hint.
+    """
+
+    pass

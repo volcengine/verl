@@ -5,8 +5,8 @@ ENTRYPOINT=${ENTRYPOINT:-"-m verl.trainer.sft_trainer"}
 
 NUM_GPUS=${NUM_GPUS:-1}
 
-TRAIN_FILES=~/data/gsm8k_sft/train.parquet
-VAL_FILES=~/data/gsm8k_sft/test.parquet
+TRAIN_FILES="/root/data/gsm8k_sft/train.parquet"
+VAL_FILES="/root/data/gsm8k_sft/test.parquet"
 
 backend=${BACKEND:-fsdp}
 
@@ -34,8 +34,6 @@ PAD_MODE=${PAD_MODE:-left_right}
 USE_REMOVE_PADDING=${USE_REMOVE_PADDING:-True}
 
 FSDP_ENGINE_CONFIG="\
-    engine=${backend} \
-    optim=${backend} \
     optim.lr=1e-5 \
     optim.lr_warmup_steps_ratio=0.2 \
     optim.weight_decay=0.1 \
@@ -49,8 +47,6 @@ FSDP_ENGINE_CONFIG="\
 
 
 MEGATRON_ENGINE_CONFIG="\
-    engine=${backend} \
-    optim=${backend} \
     optim.lr=1e-5 \
     optim.lr_warmup_steps_ratio=0.2 \
     optim.weight_decay=0.1 \
@@ -77,8 +73,8 @@ fi
 mkdir -p "${ckpts_home}"
 
 torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
-    data.train_files="${TRAIN_FILES}" \
-    data.val_files="${VAL_FILES}" \
+    data.train_files=[${TRAIN_FILES}] \
+    data.val_files=[${VAL_FILES}] \
     data.train_batch_size=256 \
     data.max_prompt_length=1024 \
     data.max_response_length=1024 \

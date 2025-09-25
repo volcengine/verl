@@ -54,7 +54,11 @@ class SFTTrainer:
         self,
         config,
     ):
-        self.config = config
+        # config is now a strongly typed SFTConfig dataclass instance
+        from verl.trainer.config.sft_config import SFTConfig
+
+        # Type hint the config parameter
+        self.config: SFTConfig = config
 
         self.rank = torch.distributed.get_rank()
 
@@ -102,12 +106,11 @@ class SFTTrainer:
         )
 
     def _build_config(self):
-        from verl.utils.config import omega_conf_to_dataclass
-
-        self.model_config = omega_conf_to_dataclass(self.config.model)
-        self.engine_config = omega_conf_to_dataclass(self.config.engine)
-        self.optimizer_config = omega_conf_to_dataclass(self.config.optim)
-        self.checkpoint_config = omega_conf_to_dataclass(self.config.checkpoint)
+        # No need for omega_conf_to_dataclass since config is already strongly typed
+        self.model_config = self.config.model
+        self.engine_config = self.config.engine
+        self.optimizer_config = self.config.optim
+        self.checkpoint_config = self.config.checkpoint
 
     def _build_engine(self):
         from verl.workers.engine import BaseEngine, EngineRegistry
@@ -204,7 +207,7 @@ class SFTTrainer:
                 project_name=self.config.trainer.project_name,
                 experiment_name=self.config.trainer.experiment_name,
                 default_backend=self.config.trainer.logger,
-                config=OmegaConf.to_container(self.config, resolve=True),
+                config=self.config,
             )
 
         global_step = self.resume_global_step  # Start from resumed step
@@ -349,7 +352,12 @@ class SFTTrainer:
                     return
 
 
-def run_sft(config):
+def run_sft(config) -> None:
+    """Run SFT training with the provided configuration.
+
+    Args:
+        config: SFTConfig instance with all training parameters
+    """
     from verl.utils.distributed import initialize_global_process_group
 
     initialize_global_process_group()
@@ -358,8 +366,15 @@ def run_sft(config):
     destroy_global_process_group()
 
 
-@hydra.main(config_path="config", config_name="sft_trainer_engine", version_base=None)
-def main(config):
+@hydra.main(version_base=None, config_name="sft_config")
+def main(cfg) -> None:
+    """Main entry point with pure dataclass configuration.
+
+    Args:
+        cfg: SimpleSFTConfig instance with all training parameters
+    """
+    # cfg is now a strongly typed SimpleSFTConfig dataclass instance
+    config = OmegaConf.to_object(cfg)
     run_sft(config)
 
 
@@ -381,4 +396,10 @@ def create_sft_dataset(data_paths, data_config, tokenizer):
 
 
 if __name__ == "__main__":
+    # Import and register the simple configuration (no complex dependencies)
+    from verl.trainer.config.sft_config import register_sft_configs
+
+    # Register simple SFT configurations - this avoids model loading issues
+    register_sft_configs()
+
     main()

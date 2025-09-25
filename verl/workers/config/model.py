@@ -90,65 +90,67 @@ class HFModelConfig(BaseConfig):
     def __post_init__(self):
         import_external_libs(self.external_lib)
 
-        if self.hf_config_path is None:
-            self.hf_config_path = self.path
-        if self.tokenizer_path is None:
-            self.tokenizer_path = self.path
+        if self.path != MISSING:
+            if self.hf_config_path is None:
+                self.hf_config_path = self.path
+            if self.tokenizer_path is None:
+                self.tokenizer_path = self.path
 
-        self.local_path = copy_to_local(self.path, use_shm=self.use_shm)
+            self.local_path = copy_to_local(self.path, use_shm=self.use_shm)
+            # constuct tokenizer
+            if self.load_tokenizer:
+                self.local_tokenizer_path = copy_to_local(self.tokenizer_path, use_shm=self.use_shm)
+                self.tokenizer = hf_tokenizer(self.local_tokenizer_path, trust_remote_code=self.trust_remote_code)
+                self.processor = hf_processor(self.local_tokenizer_path, trust_remote_code=self.trust_remote_code)
 
-        # constuct tokenizer
-        if self.load_tokenizer:
-            self.local_tokenizer_path = copy_to_local(self.tokenizer_path, use_shm=self.use_shm)
-            self.tokenizer = hf_tokenizer(self.local_tokenizer_path, trust_remote_code=self.trust_remote_code)
-            self.processor = hf_processor(self.local_tokenizer_path, trust_remote_code=self.trust_remote_code)
+            if self.custom_chat_template is not None:
+                if self.processor is not None:
+                    self.processor.chat_template = self.custom_chat_template
+                else:
+                    self.tokenizer.chat_template = self.custom_chat_template
 
-        if self.custom_chat_template is not None:
-            if self.processor is not None:
-                self.processor.chat_template = self.custom_chat_template
-            else:
-                self.tokenizer.chat_template = self.custom_chat_template
-
-        self.local_hf_config_path = copy_to_local(self.hf_config_path, use_shm=self.use_shm)
-        self.generation_config = get_generation_config(
-            self.local_hf_config_path, trust_remote_code=self.trust_remote_code
-        )
-
-        # constuct hf_config
-        attn_implementation = self.override_config.get("attn_implementation", "flash_attention_2")
-        self.hf_config = AutoConfig.from_pretrained(
-            self.local_hf_config_path, trust_remote_code=self.trust_remote_code, attn_implementation=attn_implementation
-        )
-
-        override_config_kwargs = {}
-
-        if self.tokenizer is not None:
-            override_config_kwargs.update(
-                {
-                    "bos_token_id": self.tokenizer.bos_token_id,
-                    "eos_token_id": self.tokenizer.eos_token_id,
-                    "pad_token_id": self.tokenizer.pad_token_id,
-                }
+            self.local_hf_config_path = copy_to_local(self.hf_config_path, use_shm=self.use_shm)
+            self.generation_config = get_generation_config(
+                self.local_hf_config_path, trust_remote_code=self.trust_remote_code
             )
 
-        # TODO: (vermouth1992). self.config.model in megatron differs from that of fsdp in the override_config.
-        override_config = (
-            self.override_config["model_config"] if "model_config" in self.override_config else self.override_config
-        )
-        override_config_kwargs.update(override_config)
-        update_model_config(self.hf_config, override_config_kwargs=override_config_kwargs)
+            # constuct hf_config
+            attn_implementation = self.override_config.get("attn_implementation", "flash_attention_2")
+            self.hf_config = AutoConfig.from_pretrained(
+                self.local_hf_config_path,
+                trust_remote_code=self.trust_remote_code,
+                attn_implementation=attn_implementation,
+            )
 
-        self.share_embeddings_and_output_weights = getattr(self.hf_config, "tie_word_embeddings", False)
+            override_config_kwargs = {}
 
-        # get model architectures
-        self.architectures = getattr(self.hf_config, "architectures", None)
-        assert self.architectures is not None and len(self.architectures) == 1, (
-            "Expect only one architecture, got {}".format(self.architectures)
-        )
+            if self.tokenizer is not None:
+                override_config_kwargs.update(
+                    {
+                        "bos_token_id": self.tokenizer.bos_token_id,
+                        "eos_token_id": self.tokenizer.eos_token_id,
+                        "pad_token_id": self.tokenizer.pad_token_id,
+                    }
+                )
 
-        # per model patch
-        if getattr(self.hf_config, "model_type", None) == "kimi_vl":
-            self.hf_config.text_config.topk_method = "greedy"
+            # TODO: (vermouth1992). self.config.model in megatron differs from that of fsdp in the override_config.
+            override_config = (
+                self.override_config["model_config"] if "model_config" in self.override_config else self.override_config
+            )
+            override_config_kwargs.update(override_config)
+            update_model_config(self.hf_config, override_config_kwargs=override_config_kwargs)
+
+            self.share_embeddings_and_output_weights = getattr(self.hf_config, "tie_word_embeddings", False)
+
+            # get model architectures
+            self.architectures = getattr(self.hf_config, "architectures", None)
+            assert self.architectures is not None and len(self.architectures) == 1, (
+                "Expect only one architecture, got {}".format(self.architectures)
+            )
+
+            # per model patch
+            if getattr(self.hf_config, "model_type", None) == "kimi_vl":
+                self.hf_config.text_config.topk_method = "greedy"
 
     def get_processor(self):
         return self.processor if self.processor is not None else self.tokenizer
