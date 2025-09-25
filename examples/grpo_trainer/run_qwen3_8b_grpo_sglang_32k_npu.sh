@@ -10,7 +10,6 @@ DATA_HOME=$pwd
 sp_size=4
 num_gpu=8
 tp_size=4
-use_dynamic_bsz=True
 train_prompt_bsz=16
 train_prompt_mini_bsz=16
 
@@ -59,7 +58,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.critic_warmup=0 \
     trainer.logger=console \
     trainer.val_before_train=False \
-    trainer.project_name='verl_grpo_example_dapo_2k_32k' \
+    trainer.project_name='verl_grpo_example_2k_32k' \
     trainer.experiment_name='qwen3_8b_function_rm' \
     trainer.n_gpus_per_node=$num_gpu \
     trainer.nnodes=1 \

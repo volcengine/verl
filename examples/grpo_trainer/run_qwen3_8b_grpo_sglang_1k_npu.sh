@@ -7,9 +7,15 @@ export HCCL_NPU_SOCKET_PORT_RANGE=61000-61050
 WORKSPACE_HOME=$pwd
 DATA_HOME=$pwd
 
-num_npu=4
 sp_size=4
+num_npu=4
 tp_size=4
+train_prompt_bsz=16
+train_prompt_mini_bsz=16
+
+max_prompt_length=512
+max_response_length=1024
+
 CKPTS_DIR=$WORKSPACE_HOME/logs/ckpt/qwen3_8b
 model_path=$DATA_HOME/models/Qwen3-8B
 train_data=$DATA_HOME/datasets/processed_gsm8k/train.parquet
@@ -19,15 +25,15 @@ python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=$train_data \
     data.val_files=$valid_data \
-    data.train_batch_size=16 \
-    data.max_prompt_length=512 \
-    data.max_response_length=1024 \
+    data.train_batch_size=$train_prompt_bsz \
+    data.max_prompt_length=$max_prompt_length \
+    data.max_response_length=$max_response_length \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     actor_rollout_ref.model.path=$model_path \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
-    actor_rollout_ref.actor.ppo_mini_batch_size=16 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=$train_prompt_mini_bsz \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.actor.use_kl_loss=True \
     actor_rollout_ref.actor.entropy_coeff=0 \
@@ -52,8 +58,8 @@ python3 -m verl.trainer.main_ppo \
     trainer.critic_warmup=0 \
     trainer.logger=console \
     trainer.val_before_train=False \
-    trainer.project_name='verl_grpo_example_gsm8k' \
-    trainer.experiment_name='qwen2_5_7b_function_rm' \
+    trainer.project_name='verl_grpo_example_512_1024_gsm8k' \
+    trainer.experiment_name='qwen3_8b_function_rm' \
     trainer.n_gpus_per_node=$num_npu \
     trainer.nnodes=1 \
     trainer.save_freq=1000 \
