@@ -263,10 +263,10 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         # create async rollout manager and request scheduler
         self.async_rollout_mode = False
         if self.config.actor_rollout_ref.rollout.mode == "async" and self._is_rollout:
-            from verl.workers.rollout.async_server import AsyncLLMServerManager
+            from verl.experimental.agent_loop import AgentLoopManager
 
             self.async_rollout_mode = True
-            self.async_rollout_manager = AsyncLLMServerManager(
+            self.async_rollout_manager = AgentLoopManager(
                 config=self.config,
                 worker_group=self.rollout_wg,
             )
@@ -316,26 +316,34 @@ class OneStepOffRayTrainer(RayPPOTrainer):
             print(f"Error in async_gen_next_batch: {e}")
             return None
         batch = DataProto.from_single_dict(batch_dict)
-        # pop those keys for generation
-        batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
-        non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
-        if "multi_modal_data" in batch.non_tensor_batch:
-            non_tensor_batch_keys_to_pop.append("multi_modal_data")
-        if "raw_prompt" in batch.non_tensor_batch:
-            non_tensor_batch_keys_to_pop.append("raw_prompt")
-        if "tools_kwargs" in batch.non_tensor_batch:
-            non_tensor_batch_keys_to_pop.append("tools_kwargs")
-        if "interaction_kwargs" in batch.non_tensor_batch:
-            non_tensor_batch_keys_to_pop.append("interaction_kwargs")
-        gen_batch = batch.pop(
-            batch_keys=batch_keys_to_pop,
-            non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
-        )
+
+        if not self.async_rollout_mode:
+            # pop those keys for generation
+            batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
+            non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
+            if "multi_modal_data" in batch.non_tensor_batch:
+                non_tensor_batch_keys_to_pop.append("multi_modal_data")
+            if "raw_prompt" in batch.non_tensor_batch:
+                non_tensor_batch_keys_to_pop.append("raw_prompt")
+            if "tools_kwargs" in batch.non_tensor_batch:
+                non_tensor_batch_keys_to_pop.append("tools_kwargs")
+            if "interaction_kwargs" in batch.non_tensor_batch:
+                non_tensor_batch_keys_to_pop.append("interaction_kwargs")
+            gen_batch = batch.pop(
+                batch_keys=batch_keys_to_pop,
+                non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
+            )
+        else:
+            gen_batch = self._get_gen_batch(batch)
+            
         gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
         # sync weights from actor to rollout
         self.sync_rollout_weights()
         # async generation
-        gen_batch_output = self.rollout_wg.async_generate_sequences(gen_batch)
+        if not self.async_rollout_mode:
+            gen_batch_output = self.rollout_wg.async_generate_sequences(gen_batch)
+        else:
+            gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
         return GenerationBatchFuture(epoch, batch, gen_batch_output)
 
     def fit(self):
