@@ -371,9 +371,9 @@ def main(cfg) -> None:
     """Main entry point with pure dataclass configuration.
 
     Args:
-        cfg: SimpleSFTConfig instance with all training parameters
+        cfg: SFTConfig instance with all training parameters
     """
-    # cfg is now a strongly typed SimpleSFTConfig dataclass instance
+    # cfg is now a strongly typed SFTConfig dataclass instance
     config = OmegaConf.to_object(cfg)
     run_sft(config)
 
@@ -399,7 +399,7 @@ if __name__ == "__main__":
     # Import and register the simple configuration (no complex dependencies)
     from verl.trainer.config.sft_config import register_sft_configs
 
-    # Register simple SFT configurations - this avoids model loading issues
+    # Register SFT configurations - this avoids model loading issues
     register_sft_configs()
 
     main()
