@@ -76,6 +76,8 @@ jobs:
         - /usr/local/Ascend/driver/lib64/:/usr/local/Ascend/driver/lib64/
         - /usr/local/Ascend/driver/version.info:/usr/local/Ascend/driver/version.info
         - /etc/ascend_install.info:/etc/ascend_install.info
+        - /data00/dataset:/github/home/dataset
+        - /data00/models:/github/home/models
         # Use self-host cache speed up pip and model download
         # - /home/action/actions-runner/_work/cache:/github/home/.cache/
       options: >-
@@ -104,20 +106,18 @@ jobs:
           pip3 install hf_transfer peft
           pip3 install -r requirements-npu.txt
           pip install -e .
-      - name: Install torchviison
+      - name: Install torchvision
         run: |
           pip install torchvision==0.20.1+cpu --index-url https://download.pytorch.org/whl/cpu
       - name: Uninstall Triton
         run: |
           pip uninstall -y triton
-      - name: Prepare gsm8k dataset
+      - name: Preprocess gsm8k dataset
         run: |
-          ray stop --force
-          python3 examples/data_preprocess/gsm8k.py
-      - name: Prepare geo3k dataset
+          python examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/dataset/openai/gsm8k
+      - name: Preprocess geo3k dataset
         run: |
-          ray stop --force
-          python3 examples/data_preprocess/geo3k.py
+          python examples/data_preprocess/geo3k.py --local_dataset_path ${HOME}/dataset/hiyouga/geometry3k
       - name: Running gsm8k e2e qwen3 training tests with PPO on ASCEND NPU
         run: |
           ray stop --force

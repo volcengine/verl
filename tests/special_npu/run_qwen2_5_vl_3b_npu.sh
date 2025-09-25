@@ -5,6 +5,9 @@ ENGINE=${1:-vllm}
 # the optimized model may not be suitable. In this case, set this value to 0 to disable the optimized model.
 export USE_OPTIMIZED_MODEL=0
 
+MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-VL-3B-Instruct}
+MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
+
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=$HOME/data/geo3k/train.parquet \
@@ -15,7 +18,7 @@ python3 -m verl.trainer.main_ppo \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     data.image_key=images \
-    actor_rollout_ref.model.path=Qwen/Qwen2.5-VL-3B-Instruct \
+    actor_rollout_ref.model.path="${MODEL_PATH}" \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=32 \
@@ -49,5 +52,5 @@ python3 -m verl.trainer.main_ppo \
     trainer.save_freq=-1 \
     trainer.test_freq=-1 \
     trainer.total_epochs=1 \
-    trainer.total_training_steps=1 \
+    trainer.total_training_steps=2 \
     trainer.device=npu $@
