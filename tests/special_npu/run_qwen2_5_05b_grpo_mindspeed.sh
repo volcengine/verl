@@ -2,7 +2,6 @@ set -x
 
 MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B-Instruct}
 MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
-huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
 
 USE_DIST_CKPT=${USE_DIST_CKPT:-False}
 DIST_CKPT_PATH=${DIST_CKPT_PATH:-${HOME}/dist_ckpt/qwen2_5_05b_grpo_mindspeed}
@@ -62,7 +61,7 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     trainer.n_gpus_per_node=16 \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
-    trainer.test_freq=5 \
+    trainer.test_freq=-1 \
     trainer.total_epochs=1 \
     trainer.total_training_steps=2 \
     trainer.device=npu \
