@@ -21,8 +21,8 @@ jobs:
       - name: Install dependencies
         run: |
           pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          pip install gitpython packaging numpy
-          pip install -e . --no-deps
+          pip3 install -r requirements.txt
+          pip3 install -e . --no-deps
       - name: Run type annotation coverage check
         run: |
           python3 tests/special_sanity/type_coverage_check.py
