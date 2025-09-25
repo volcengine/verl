@@ -180,11 +180,39 @@ class AsyncTransferQueueClient:
             data_fields (list[str]): List of fields to retrieve metadata for
             batch_size (int): Processing batch size
             global_step (int): Current training/processing step
-            mode (str): Data fetch mode (TODO(hz): more details to be added)
-            get_n_samples (bool): TODO(hz): more details to be added
+            mode (str): Data fetch mode. 'fetch' to get ready data, 'force_fetch' to get data regardless of readiness.
+                        'insert' IS AN INTERNAL USAGE THAT SHOULD NOT BE USED BY USERS.
+            get_n_samples (bool): If True, we arrange the samples of the same prompt in contiguous order. In 'fetch'
+                                  mode, only the samples of the same prompt that are all ready will be returned.
             task_name (str): Optional task name associated with the request
             target_controller (str): ID of the target controller to send the request to
             socket (zmq.asyncio.Socket): ZMQ async socket for message transmission
+
+        Example:
+            >>> batch_size = 4
+            >>> current_step = 0
+            >>> # Example 1: "fetch" a batch of metadata that has been produced
+            >>> batch_meta = asyncio.run(client.async_get_meta(data_fields=["input_ids", "attention_mask"],
+            >>>                                                batch_size=batch_size,
+            >>>                                                global_step=current_step,
+            >>>                                                mode="fetch",
+            >>>                                                get_n_samples=False,
+            >>>                                                task_name="generate_sequences",
+            >>>                                                ))
+            >>> print(batch_meta.is_ready)   # you should get a batch_meta with is_ready=True
+            >>> print([sample_meta.is_ready for sample_meta in batch_meta.samples])  # [True, True, True, True]
+            >>>
+            >>> # Example 2: "force_fetch" a batch of metadata, ignoring their production status (but we still make
+            >>> # sure the corresponding data has not been consumed)
+            >>> batch_meta = asyncio.run(client.async_get_meta(data_fields=["input_ids", "attention_mask"],
+            >>>                                                batch_size=batch_size,
+            >>>                                                global_step=current_step,
+            >>>                                                mode="force_fetch",
+            >>>                                                get_n_samples=False,
+            >>>                                                task_name="generate_sequences",
+            >>>                                                ))
+            >>> print(batch_meta.is_ready)   # you may get a batch_meta with is_ready=False
+            >>> print([sample_meta.is_ready for sample_meta in batch_meta.samples])  # [True, False, False, True]
 
         Returns:
             BatchMeta: Metadata object containing data structure, sample info, etc.
@@ -238,6 +266,30 @@ class AsyncTransferQueueClient:
             data (torch.Tensor | tensordict.TensorDict): Data to write, either a Tensor or TensorDict
             metadata (BatchMeta, optional): Optional metadata containing index and storage unit information
             global_step (int, optional): Current step (required if no metadata is provided)
+
+        Example:
+            >>> batch_size = 4
+            >>> seq_len = 16
+            >>> current_step = 0
+            >>> # Example 1: normal usage
+            >>> batch_meta = asyncio.run(client.async_get_meta(data_fields=["prompts", "attention_mask"],
+            >>>                                   batch_size=batch_size,
+            >>>                                   global_step=current_step,
+            >>>                                   mode="fetch",
+            >>>                                   get_n_samples=False,
+            >>>                                   task_name="generate_sequences",
+            >>>                                   ))
+            >>> batch = asyncio.run(client.async_get_data(batch_meta))
+            >>> output = TensorDict({"response": torch.randn(batch_size, seq_len)})
+            >>> asyncio.run(client.async_put(data=output, metadata=batch_meta))
+            >>>
+            >>> # Example 2: put the initial data into the system without pre-existing metadata
+            >>> # BE CAREFUL: this usage may overwrite any unconsumed data in the given global_step!
+            >>> # So make sure the global_step is empty.
+            >>> prompts = (torch.tensor([[1, 2], [3, 4], [5, 6], [7, 8], [10, 11], [100, 111]]))
+            >>> prompt_batch = TensorDict({"prompts": prompts})
+            >>> # This will create metadata in "insert" mode internally.
+            >>> asyncio.run(client.async_put(data=prompt_batch, global_step=current_step))
 
         """
         if metadata is None:
@@ -346,13 +398,20 @@ class AsyncTransferQueueClient:
                 - "global_indexes" key: Maps each sample to its original global index.
 
         Example:
-            >>> returned_td = await async_get_data(metadata)
-            >>> returned_td.keys()
-            dict_keys(['prompt_token_ids', 'response_token_ids', 'global_indexes'])
-            >>> returned_td["prompt_token_ids"].shape  # Batch size 4, seq length 128
-            torch.Size([4, 128])
-            >>> returned_td["global_indexes"]  # Preserves original global order
-            tensor([7, 4, 6, 5])
+            >>> batch_size = 4
+            >>> seq_len = 16
+            >>> current_step = 0
+            >>> batch_meta = asyncio.run(client.async_get_meta(data_fields=["prompts", "attention_mask"],
+            >>>                                   batch_size=batch_size,
+            >>>                                   global_step=current_step,
+            >>>                                   mode="fetch",
+            >>>                                   get_n_samples=False,
+            >>>                                   task_name="generate_sequences",
+            >>>                                   ))
+            >>> batch = asyncio.run(client.async_get_data(batch_meta))
+            >>> print(batch)
+            >>> # this is a TensorDict with fields "prompts" and "attention_mask".
+            >>> # The order of samples in the TensorDict matches the order of global_indexes in batch_meta
 
         Note:
             Why track `global_indexes`?
@@ -408,6 +467,7 @@ class AsyncTransferQueueClient:
 
         Args:
             global_step (int): The training step associated with the clear operation
+
         """
         try:
             target_controller = next(iter(self._controllers.keys()))
@@ -513,6 +573,16 @@ class AsyncTransferQueueClient:
         except Exception as e:
             logger.error(f"[{self.client_id}]: Error clearing storage unit {target_storage}: {str(e)}")
             raise
+
+    @dynamic_socket(target_role=TransferQueueRole.CONTROLLER, socket_name="request_handle_socket")
+    def check_current_step_consumption(self, task_name: str, global_step: int):
+        # TODO: Implement this method to check if all samples for the current step has been consumed
+        pass
+
+    @dynamic_socket(target_role=TransferQueueRole.CONTROLLER, socket_name="request_handle_socket")
+    def check_current_step_production(self, data_fields: list[str], global_step: int):
+        # TODO: Implement this method to check if all samples for the current step is ready for consumption
+        pass
 
 
 class TransferQueueClient(AsyncTransferQueueClient):
