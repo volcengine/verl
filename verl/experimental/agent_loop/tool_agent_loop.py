@@ -115,6 +115,9 @@ class ToolAgentLoop(AgentLoopBase):
         messages = list(kwargs["raw_prompt"])
         image_data = copy.deepcopy(kwargs.get("multi_modal_data", {}).get("image", None))
         metrics = {}
+        # Reset per-run tool rewards collection
+        self.tool_rewards = 0.0
+        self.tool_metrics = []
         request_id = uuid4().hex
         tools_kwargs = kwargs.get("tools_kwargs", {})
 
@@ -413,7 +416,15 @@ class ToolAgentLoop(AgentLoopBase):
             tool = self.tools[tool_name]
             kwargs = tools_kwargs.get(tool_name, {})
             instance_id, _ = await tool.create(create_kwargs=kwargs.get("create_kwargs", {}))
-            tool_execution_response, _, _ = await tool.execute(instance_id, tool_args)
+            tool_execution_response, tool_reward_score, tool_metrics = await tool.execute(instance_id, tool_args)
+            # Accumulate aggregate tool reward
+            try:
+                if tool_reward_score is not None:
+                    self.tool_rewards += float(tool_reward_score)
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Could not convert tool reward score to float: {e}")
+            # Record per-call metrics and include the per-call reward for downstream consumers
+            self.tool_metrics.append(tool_metrics)
         except Exception as e:
             logger.warning(f"Error when executing tool: {e}")
             return ToolResponse(
