@@ -701,7 +701,9 @@ class AgentLoopWorker:
         extra_fields = {}
         all_keys = set(key for input_item in inputs for key in input_item.extra_fields)
         for key in all_keys:
-            extra_fields[key] = np.array([input.extra_fields.get(key) for input in inputs], dtype=object)
+            temp_arr = np.empty(len(inputs), dtype=object)
+            temp_arr[:] = [input.extra_fields.get(key) for input in inputs]
+            extra_fields[key] = temp_arr
 
         non_tensor_batch.update(extra_fields)
         return DataProto(
