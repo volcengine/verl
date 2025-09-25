@@ -21,7 +21,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=8 \
     trainer.experiment_name=gsm8k-sft-qwen-2.5-0.5b-instruct \
     trainer.logger=console \
     trainer.total_epochs=1 \
-    trainer.total_training_steps=1 $@ \
+    trainer.total_training_steps=2 \
     model.lora_rank=32 \
     model.lora_alpha=16 \
     model.target_modules=all-linear \
