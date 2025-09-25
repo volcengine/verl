@@ -68,6 +68,7 @@ class AgentData:
         self.response_mask: list[int] = []
         self.response_logprobs: list[float] = []
         self.turn_scores: list[float] = []
+        self.tool_rewards: list[float] = []
         self.user_turns = 0
         self.assistant_turns = 0
 
@@ -175,7 +176,7 @@ class ToolAgentLoop(AgentLoopBase):
             metrics=agent_data.metrics,
             extra_fields={},
         )
-        output.extra_fields.update({"turn_scores": agent_data.turn_scores})
+        output.extra_fields.update({"turn_scores": agent_data.turn_scores, "tool_rewards": agent_data.tool_rewards})
         return output
 
     async def _handle_pending_state(self, agent_data: AgentData, sampling_params: dict[str, Any]) -> AgentState:
@@ -268,7 +269,7 @@ class ToolAgentLoop(AgentLoopBase):
 
         # Process tool responses and update multi_modal_data
         # Removed: agent_data.new_images_this_turn = []
-        for tool_response in responses:
+        for tool_response, tool_reward, _ in responses:
             # Create message from tool response
             if tool_response.image or tool_response.video:
                 # Multi-modal content with structured format
@@ -320,6 +321,9 @@ class ToolAgentLoop(AgentLoopBase):
                 raise NotImplementedError(
                     "Multimedia type 'video' is not currently supported. Only 'image' is supported."
                 )
+
+            if tool_reward is not None:
+                agent_data.tool_rewards.append(tool_reward)
 
         # Update prompt with tool responses
         if self.processor is not None:
@@ -403,7 +407,9 @@ class ToolAgentLoop(AgentLoopBase):
         else:
             return AgentState.GENERATING
 
-    async def _call_tool(self, tool_call: FunctionCall, tools_kwargs: dict[str, Any]) -> ToolResponse:
+    async def _call_tool(
+        self, tool_call: FunctionCall, tools_kwargs: dict[str, Any]
+    ) -> tuple[ToolResponse, float, dict]:
         """Call tool and return tool response."""
         tool, instance_id = None, None
         try:
@@ -413,11 +419,15 @@ class ToolAgentLoop(AgentLoopBase):
             tool = self.tools[tool_name]
             kwargs = tools_kwargs.get(tool_name, {})
             instance_id, _ = await tool.create(create_kwargs=kwargs.get("create_kwargs", {}))
-            tool_execution_response, _, _ = await tool.execute(instance_id, tool_args)
+            tool_execution_response, tool_reward, res = await tool.execute(instance_id, tool_args)
         except Exception as e:
             logger.warning(f"Error when executing tool: {e}")
-            return ToolResponse(
-                text=f"Error when executing tool: {e}",
+            return (
+                ToolResponse(
+                    text=f"Error when executing tool: {e}",
+                ),
+                0.0,
+                {},
             )
         finally:
             if tool and instance_id:
@@ -443,7 +453,7 @@ class ToolAgentLoop(AgentLoopBase):
                 if attr_value is not None:
                     tool_response_kwargs[attr_name] = attr_value
 
-        return ToolResponse(**tool_response_kwargs)
+        return ToolResponse(**tool_response_kwargs), tool_reward, res
 
     @classmethod
     def _initialize_interactions(cls, interaction_config_file):
