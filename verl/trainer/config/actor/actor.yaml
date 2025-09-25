@@ -120,7 +120,7 @@ optim:
   # Learning rate
   lr: 1e-6
 
-  # Warmup steps ratio (used if lr_warmup_steps is negative)
+  # Warmup steps ratio (used if lr_warmup_steps is 0 or negative)
   lr_warmup_steps_ratio: 0.0
 
   # Total training steps (must be overridden at runtime)

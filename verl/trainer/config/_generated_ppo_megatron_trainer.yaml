@@ -49,6 +49,7 @@ actor_rollout_ref:
         - core_attn
         recompute_method: null
         recompute_num_layers: null
+        attention_backend: flash
       override_mcore_model_config: {}
       use_mbridge: false
       forward_only: false
@@ -225,6 +226,7 @@ actor_rollout_ref:
       use_inference_chat_template: false
       tokenization_sanity_check_mode: strict
       format: hermes
+      num_repeat_rollouts: null
     calculate_log_probs: false
     agent:
       _target_: verl.workers.config.AgentLoopConfig
@@ -345,6 +347,7 @@ critic:
       - core_attn
       recompute_method: null
       recompute_num_layers: null
+      attention_backend: flash
     override_mcore_model_config: {}
     use_mbridge: false
     forward_only: false

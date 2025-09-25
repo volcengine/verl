@@ -29,7 +29,7 @@ import ray
 import sglang.srt.entrypoints.engine
 import torch
 import torch.distributed as dist
-from sglang.srt.managers.tokenizer_manager import (
+from sglang.srt.managers.io_struct import (
     ReleaseMemoryOccupationReqInput,
     ResumeMemoryOccupationReqInput,
     UpdateWeightsFromTensorReqInput,
@@ -270,6 +270,7 @@ class SGLangRollout(BaseRollout):
             self._function_call_parser,
         ) = self._initialize_tools(config, processing_class)
         self.interaction_map: dict[str, BaseInteraction] = self._initialize_interactions(config)
+
         # If turn on `free_cache_engine`, SGLang engine's KV cache
         # will be freed after each `generate_sequences` call.
         logger.info(
@@ -287,7 +288,6 @@ class SGLangRollout(BaseRollout):
         self._init_sampling_params(**kwargs)
 
         self.processing_class = processing_class
-
         try:
             # This is when processing_class is a tokenizer
             self.pad_token_id = self.processing_class.pad_token_id
@@ -964,6 +964,9 @@ class SGLangRollout(BaseRollout):
                         ):
                             _req.state = AsyncRolloutRequestStateEnum.INTERACTING
                         else:
+                            # Add ending condition
+                            finish_reason_type = FinishReasonTypeEnum.STOP
+                            _req.state = AsyncRolloutRequestStateEnum.COMPLETED
                             break
             elif _req.state == AsyncRolloutRequestStateEnum.INTERACTING:
                 user_turns += 1
@@ -980,11 +983,17 @@ class SGLangRollout(BaseRollout):
                     )
 
                 interaction = self.interaction_map[interaction_name]
+
                 should_terminate_sequence, content, reward, metrics = await interaction.generate_response(
                     _req.request_id, messages, **_req.interaction_kwargs
                 )
                 user_turn_rewards.append(reward)
-                if should_terminate_sequence:
+                # Add turn check
+                if (
+                    should_terminate_sequence
+                    or user_turns > self.config.multi_turn.max_user_turns
+                    or current_turns > self.config.multi_turn.max_assistant_turns
+                ):
                     finish_reason_type = FinishReasonTypeEnum.STOP
                     _req.state = AsyncRolloutRequestStateEnum.COMPLETED
                     break
@@ -1013,6 +1022,7 @@ class SGLangRollout(BaseRollout):
         tool_reward_scores = dict(tool_reward_scores)
         all_rewards = {**tool_reward_scores, **{"user_turn_rewards": user_turn_rewards}}
         _req.finalize(self.processing_class, all_rewards, finish_reason_type)
+
         if self.config.calculate_log_probs:
             debug_sampling_params = {**self.sampling_params}
             debug_sampling_params["max_new_tokens"] = 0

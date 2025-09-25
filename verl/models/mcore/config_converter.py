@@ -156,6 +156,7 @@ def check_and_construct_configs(original_config: dict, cls: type[T]) -> T:
         for key in removed_keys:
             original_config.pop(key)
 
+    original_config = mapping_string_to_attn_backend(original_config)
     if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
         print(f"Overridden {cls.__name__} init config: {original_config}")
     return cls(**original_config)
@@ -376,6 +377,7 @@ def hf_to_mcore_config_qwen2_5_vl(
     )
     # override_transformer_config_kwargs as kwargs shall never be none
     args.update(override_transformer_config_kwargs)
+    args = mapping_string_to_attn_backend(args)
     return TransformerConfig(**args)
 
 
@@ -384,3 +386,11 @@ def hf_to_mcore_config_llama4(
 ) -> TransformerConfig:
     # Llama4ForConditionalGeneration
     raise NotImplementedError("Llama4ForConditionalGeneration is not supported yet")
+
+
+def mapping_string_to_attn_backend(args: dict) -> dict:
+    if "attention_backend" in args and isinstance(args["attention_backend"], str):
+        from megatron.core.transformer.enums import AttnBackend
+
+        args["attention_backend"] = AttnBackend[args["attention_backend"]]
+    return args
