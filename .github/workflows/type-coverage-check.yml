@@ -8,7 +8,15 @@ on:
 
 jobs:
   type-coverage-check:
-    runs-on: ubuntu-latest
+    runs-on: [L20x8]
+    env:
+      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
+      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
+      NO_PROXY: "localhost,127.0.0.1"
+      HF_HUB_ENABLE_HF_TRANSFER: 1
+    container:
+      image: verlai/verl:app-verl0.5-transformers4.55.4-sglang0.4.10.post2-mcore0.13.0-te2.2
+      options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@v4
         with:
@@ -20,8 +28,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install gitpython packaging
-          pip install -e . --no-deps
+          pip install gitpython
+          pip install -e .[sglang]
       - name: Run type annotation coverage check
         run: |
           python3 tests/special_sanity/type_coverage_check.py
