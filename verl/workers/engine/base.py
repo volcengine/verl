@@ -213,10 +213,14 @@ class EngineRegistry:
                 cls._engines[model_type] = {}
 
             backends = backend if isinstance(backend, list) else [backend]
-            for k in backends:
-                if k not in cls._engines[model_type]:
-                    cls._engines[model_type][k] = {}
-                cls._engines[model_type][k][device] = engine_class
+            devices = device if isinstance(device, list) else [device]
+            for current_backend in backends:
+                for current_device in devices:
+                    if current_backend not in cls._engines[model_type]:
+                        cls._engines[model_type][current_backend] = {}
+                    if current_device not in cls._engines[model_type][current_backend]:
+                        cls._engines[model_type][current_backend][current_device] = engine_class
+                    
             return engine_class
 
         return decorator

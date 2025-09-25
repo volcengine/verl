@@ -693,7 +693,7 @@ class EngineTrainModeCtx:
         self.engine.mode = None
 
 
-@EngineRegistry.register(model_type="language_model", backend=["fsdp", "fsdp2"])
+@EngineRegistry.register(model_type="language_model", backend=["fsdp", "fsdp2"], device=["cuda", "npu"])
 class FSDPEngineWithLMHead(FSDPEngine):
     def prepare_model_inputs(self, micro_batch: TensorDict):
         use_remove_padding = tu.get_non_tensor_data(data=micro_batch, key="use_remove_padding", default=True)

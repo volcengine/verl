@@ -15,11 +15,7 @@
 import logging
 import os
 
-try:
-    from mindspeed.megatron_adaptor import repatch
-except ImportError:
-    repatch = None
-
+from mindspeed.megatron_adaptor import repatch
 from verl.trainer.config import CheckpointConfig
 from verl.workers.config import HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
 
@@ -40,5 +36,9 @@ class MindspeedEngineWithLMHead(MegatronEngineWithLMHead):
         checkpoint_config: CheckpointConfig,
     ):
         super().__init__(model_config, engine_config, optimizer_config, checkpoint_config)
-        if repatch is not None:
-            repatch(self.engine_config.override_transformer_config)
+
+        repatch_config = {"use_flash_attn": True}
+        if self.engine_config.context_parallel_size > 1:
+            repatch_config["context_parallel_size"] = self.engine_config.context_parallel_size
+        
+        repatch(repatch_config)

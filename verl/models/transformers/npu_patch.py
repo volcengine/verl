@@ -16,7 +16,7 @@
 
 
 from typing import Optional, Union, Dict
-
+from importlib.metadata import version as get_version
 
 import torch
 import torch.nn.functional as F
@@ -201,4 +201,6 @@ modeling_qwen3_moe.Qwen3MoeSparseMoeBlock.forward = moe_block_forward
 modeling_qwen3_moe.apply_rotary_pos_emb = apply_rotary_pos_emb_qwen3_npu
 modeling_qwen3.Qwen3RMSNorm.forward = rms_norm_forward
 modeling_qwen3.Qwen3MLP.forward = silu_forward
-PreTrainedModel._check_and_enable_flash_attn_2 = _check_and_enable_flash_attn_2
+
+if get_version("transformers") == "4.52.4":
+    PreTrainedModel._check_and_enable_flash_attn_2 = _check_and_enable_flash_attn_2
