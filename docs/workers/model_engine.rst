@@ -68,11 +68,8 @@ This creates massive padding when the discrepancy between response
 length is large. We will start to implement no-padding format throughout
 the whole system.
 
-.. figure::
-   https://github.com/vermouth1992/verl-data/blob/master/images/data_format.png
+.. image:: https://github.com/vermouth1992/verl-data/blob/master/images/data_format.png?raw=true
    :alt: Data Format
-
-   Data Format
 
 Here is the migration plan:
 - Implement no-padding format in engine
@@ -83,11 +80,8 @@ Here is the migration plan:
 Checkpoint System
 -----------------
 
-.. figure::
-   https://github.com/vermouth1992/verl-data/blob/master/images/verl-ckpt.png
+.. image:: https://github.com/vermouth1992/verl-data/blob/master/images/verl-ckpt.png?raw=true
    :alt: Model Engine Checkpoint System
-
-   Model Engine Checkpoint System
 
 The engine constructs the model using huggingface config, then load
 weights from huggingface checkpoint. If the engine directly uses
