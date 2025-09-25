@@ -84,7 +84,7 @@ class StorageUnitData:
                 # The unsqueeze op make the shape from n to (1, n)
                 gathered_item = self.field_data[field][local_indexes[0]]
                 if not isinstance(gathered_item, torch.Tensor):
-                    result[field] = NonTensorStack(gathered_item).unsqueeze(0)
+                    result[field] = NonTensorStack(gathered_item)
                 else:
                     result[field] = gathered_item.unsqueeze(0)
             else:

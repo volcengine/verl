@@ -285,11 +285,16 @@ class AsyncTransferQueueClient:
             >>>
             >>> # Example 2: put the initial data into the system without pre-existing metadata
             >>> # BE CAREFUL: this usage may overwrite any unconsumed data in the given global_step!
-            >>> # So make sure the global_step is empty.
-            >>> prompts = (torch.tensor([[1, 2], [3, 4], [5, 6], [7, 8], [10, 11], [100, 111]]))
-            >>> prompt_batch = TensorDict({"prompts": prompts})
+            >>> # Please make sure the corresponding global_step is empty before calling the async_put()
+            >>> # without metadata.
+            >>> # Now we only support put all the data of the corresponding global step in once. You should repeat with
+            >>> # interleave the initial data if n_sample > 1 before calling the async_put().
+            >>> original_prompts = torch.randn(batch_size, seq_len)
+            >>> n_samples = 4
+            >>> prompts_repeated = torch.repeat_interleave(original_prompts, n_samples, dim=0)
+            >>> prompts_repeated_batch = TensorDict({"prompts": prompts_repeated})
             >>> # This will create metadata in "insert" mode internally.
-            >>> asyncio.run(client.async_put(data=prompt_batch, global_step=current_step))
+            >>> asyncio.run(client.async_put(data=prompts_repeated_batch, global_step=current_step))
 
         """
         if metadata is None:
@@ -299,6 +304,7 @@ class AsyncTransferQueueClient:
                 data_fields=list(data.keys()),
                 batch_size=data.batch_size[0],
                 global_step=global_step,
+                get_n_samples=True,
                 mode="insert",
             )
 

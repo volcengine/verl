@@ -296,10 +296,10 @@ class TransferQueueController:
             TimeoutError: If waiting for sufficient data times out in fetch mode
         """
         if mode == "insert":
-            # TODO: Currently only supports putting entire GBS data, need to extend to support multiple puts to same
-            #  step
-            assert batch_size == self.global_batch_size, (
-                f"batch_size {batch_size} must equal global_batch_size {self.global_batch_size}"
+            # TODO: Currently we only supports put the entire GBS data in one time
+            assert batch_size == self.global_batch_size * self.num_n_samples, (
+                f"batch_size {batch_size} must equal "
+                f"global_batch_size * num_n_samples {self.global_batch_size * self.num_n_samples}"
             )
             start_idx, end_idx = self._step_to_global_index_range(global_step)
             batch_global_indexes = list(range(start_idx, end_idx))
@@ -651,7 +651,7 @@ class TransferQueueController:
                 params = request_msg.body
                 metadata = self._get_metadata(
                     data_fields=[],
-                    batch_size=self.global_batch_size,
+                    batch_size=self.global_batch_size * self.num_n_samples,
                     global_step=params["global_step"],
                     mode="insert",
                 )
