@@ -224,7 +224,7 @@ class vLLMHttpServer:
             "override_generation_config": json.dumps(override_generation_config),
             **engine_kwargs,
         }
-        if self.config.data_parallel_size > 1:
+        if self.config.expert_parallel_size > 1:
             assert self.gpus_per_node % self.config.tensor_model_parallel_size == 0, (
                 "gpus_per_node should be divisible by tensor_model_parallel_size"
             )
