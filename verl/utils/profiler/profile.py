@@ -46,13 +46,13 @@ class Profiler:
             config = ProfilerConfig(ranks=[], enable=False)
         if not tool_config:
             assert not config.enable, "tool_config must be provided when profiler is enabled"
+        self.prof = None
+        self.saved = False
         self.enable = config.enable
         if not config.enable:
             return
         self.config = config
         self.tool_config = tool_config
-        self.saved = False
-        self.prof = None
         self.rank = torch.distributed.get_rank()
         # we need to validate the config before using the profiler
         self._validate()

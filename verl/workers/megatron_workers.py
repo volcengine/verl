@@ -16,7 +16,6 @@ The main entry point to run the PPO algorithm
 """
 
 import asyncio
-import copy
 import datetime
 import logging
 import os
@@ -27,7 +26,7 @@ import psutil
 import torch
 import torch.distributed
 from codetiming import Timer
-from omegaconf import DictConfig, OmegaConf, open_dict
+from omegaconf import DictConfig, OmegaConf
 
 try:
     from mindspeed.megatron_adaptor import repatch
@@ -49,6 +48,7 @@ from verl.utils.device import (
     get_torch_device,
     set_expandable_segments,
 )
+from verl.utils.distributed import set_numa_affinity
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local
 from verl.utils.megatron_utils import (
@@ -150,6 +150,11 @@ class MegatronWorker(Worker):
         if self.rank == 0:
             print(f"Model config after override: {hf_config}")
 
+        from verl.models.mcore.config_converter import mapping_string_to_attn_backend
+
+        # todo: remove this line after mcore adopt mbridge 0.15, now for compatibility
+        override_transformer_config = mapping_string_to_attn_backend(override_transformer_config)
+
         if use_mbridge:
             from verl.models.mcore.mbridge import AutoBridge
 
@@ -186,6 +191,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         # 1, users should disable WorkerDict; 2.assign different ResourcePool to different models,
         # 3. and apply the following patch in ray==2.10, https://github.com/ray-project/ray/pull/44385
         if not torch.distributed.is_initialized():
+            set_numa_affinity()
             rank = int(os.environ["LOCAL_RANK"])
             torch.distributed.init_process_group(
                 backend=get_nccl_backend(),
@@ -198,7 +204,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 tensor_model_parallel_size=self.config.actor.megatron.tensor_model_parallel_size,
                 pipeline_model_parallel_size=self.config.actor.megatron.pipeline_model_parallel_size,
                 virtual_pipeline_model_parallel_size=self.config.actor.megatron.virtual_pipeline_model_parallel_size,
-                pipeline_model_parallel_split_rank=None,
                 use_sharp=False,
                 context_parallel_size=self.config.actor.megatron.context_parallel_size,
                 expert_model_parallel_size=self.config.actor.megatron.expert_model_parallel_size,
@@ -388,15 +393,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         # 1. parse rollout and huggingface model config
         rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
-
-        # (vermouth1992). self.config.model in megatron differs from that of fsdp in the override_config.
-        # To workaround this we deepcopy self.config.model and make them compatible
-        omega_model_config = copy.deepcopy(self.config.model)
-        with open_dict(omega_model_config):
-            override_config = omega_model_config.override_config.pop("model_config")
-            omega_model_config.override_config = override_config
-
-        model_config: HFModelConfig = omega_conf_to_dataclass(omega_model_config, dataclass_type=HFModelConfig)
+        model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model, dataclass_type=HFModelConfig)
 
         # 2. build rollout device mesh
         infer_tp = self.config.rollout.tensor_model_parallel_size
@@ -838,6 +835,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
         # 1, users should disable WorkerDict; 2.assign different ResourcePool to different models,
         # 3. and apply the following patch in ray==2.10, https://github.com/ray-project/ray/pull/44385
         if not torch.distributed.is_initialized():
+            set_numa_affinity()
             rank = int(os.environ["LOCAL_RANK"])
             torch.distributed.init_process_group(
                 backend=get_nccl_backend(),
@@ -850,7 +848,6 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
                 tensor_model_parallel_size=self.config.megatron.tensor_model_parallel_size,
                 pipeline_model_parallel_size=self.config.megatron.pipeline_model_parallel_size,
                 virtual_pipeline_model_parallel_size=self.config.megatron.virtual_pipeline_model_parallel_size,
-                pipeline_model_parallel_split_rank=None,
                 use_sharp=False,
                 context_parallel_size=self.config.megatron.context_parallel_size,
                 expert_model_parallel_size=self.config.megatron.expert_model_parallel_size,
@@ -1119,6 +1116,7 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
         # 1, users should disable WorkerDict; 2.assign different ResourcePool to different models,
         # 3. and apply the following patch in ray==2.10, https://github.com/ray-project/ray/pull/44385
         if not torch.distributed.is_initialized():
+            set_numa_affinity()
             rank = int(os.environ["LOCAL_RANK"])
             torch.distributed.init_process_group(
                 backend=get_nccl_backend(),
@@ -1131,7 +1129,6 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
                 tensor_model_parallel_size=self.config.megatron.tensor_model_parallel_size,
                 pipeline_model_parallel_size=self.config.megatron.pipeline_model_parallel_size,
                 virtual_pipeline_model_parallel_size=self.config.megatron.virtual_pipeline_model_parallel_size,
-                pipeline_model_parallel_split_rank=None,
                 use_sharp=False,
                 context_parallel_size=self.config.megatron.context_parallel_size,
                 expert_model_parallel_size=self.config.megatron.expert_model_parallel_size,

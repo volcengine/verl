@@ -5,7 +5,7 @@ NUM_GPUS=${NUM_GPUS:-8}
 
 MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B}
 MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
-huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
+#huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
 
 TRAIN_FILES=${TRAIN_FILES:-$HOME/data/gsm8k/train.parquet}
 VAL_FILES=${VAL_FILES:-$HOME/data/gsm8k/test.parquet}
@@ -41,7 +41,7 @@ LORA_ALPHA=${LORA_ALPHA:-${LORA_RANK}}
 LORA_TARGET=${LORA_TARGET:-"all-linear"}
 LORA_EXCLUDE=${LORA_EXCLUDE:-"DONT_EXCLUDE"}
 USE_SHM=${USE_SHM:-False}
-LOAD_FORMAT=${LOAD_FORMAT:-dummy_dtensor}
+LOAD_FORMAT=${LOAD_FORMAT:-dummy}
 LAYERED_SUMMON=${LAYERED_SUMMON:-False}
 # Validation
 VAL_BEFORE_TRAIN=${VAL_BEFORE_TRAIN:-False}

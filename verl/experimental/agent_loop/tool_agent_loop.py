@@ -133,7 +133,6 @@ class ToolAgentLoop(AgentLoopBase):
                 )
             interaction = self.interaction_map[interaction_name]
             await interaction.start_interaction(request_id, **interaction_kwargs)
-
         # Create AgentData instance to encapsulate all state
         agent_data = AgentData(
             messages=messages,
@@ -152,12 +151,10 @@ class ToolAgentLoop(AgentLoopBase):
                 state = await self._handle_pending_state(agent_data, sampling_params)
             elif state == AgentState.GENERATING:
                 state = await self._handle_generating_state(agent_data, sampling_params)
-                agent_data.assistant_turns += 1
             elif state == AgentState.PROCESSING_TOOLS:
                 state = await self._handle_processing_tools_state(agent_data)
             elif state == AgentState.INTERACTING:
                 state = await self._handle_interacting_state(agent_data)
-                agent_data.user_turns += 1
             else:
                 logger.error(f"Invalid state: {state}")
                 state = AgentState.TERMINATED
@@ -209,7 +206,9 @@ class ToolAgentLoop(AgentLoopBase):
             )
         return AgentState.GENERATING
 
-    async def _handle_generating_state(self, agent_data: AgentData, sampling_params: dict[str, Any]) -> AgentState:
+    async def _handle_generating_state(
+        self, agent_data: AgentData, sampling_params: dict[str, Any], ignore_termination: bool = False
+    ) -> AgentState:
         """Handle the generating state: generate model response and check for tool calls."""
         add_messages: list[dict[str, Any]] = []
 
@@ -221,6 +220,7 @@ class ToolAgentLoop(AgentLoopBase):
                 image_data=agent_data.image_data,
             )
 
+        agent_data.assistant_turns += 1
         agent_data.response_ids = output.token_ids
         agent_data.prompt_ids += agent_data.response_ids
         agent_data.response_mask += [1] * len(agent_data.response_ids)
@@ -228,7 +228,7 @@ class ToolAgentLoop(AgentLoopBase):
             agent_data.response_logprobs += output.log_probs
 
         # Check termination conditions
-        if len(agent_data.response_mask) >= self.response_length:
+        if not ignore_termination and len(agent_data.response_mask) >= self.response_length:
             return AgentState.TERMINATED
         if self.max_assistant_turns and agent_data.assistant_turns >= self.max_assistant_turns:
             return AgentState.TERMINATED
@@ -241,7 +241,7 @@ class ToolAgentLoop(AgentLoopBase):
         # Handle interaction if needed
         if self.interaction_config_file:
             assistant_message = await self.loop.run_in_executor(
-                None, lambda: self.tokenizer.decode(agent_data.response_ids)
+                None, lambda: self.tokenizer.decode(agent_data.response_ids, skip_special_tokens=True)
             )
             add_messages.append({"role": "assistant", "content": assistant_message})
             agent_data.messages.extend(add_messages)
@@ -368,8 +368,10 @@ class ToolAgentLoop(AgentLoopBase):
         ) = await agent_data.interaction.generate_response(
             agent_data.request_id, agent_data.messages, **agent_data.interaction_kwargs
         )
+        agent_data.user_turns += 1
 
         add_messages: list[dict[str, Any]] = [{"role": "user", "content": interaction_responses}]
+        agent_data.messages.extend(add_messages)
 
         if reward is not None:
             agent_data.turn_scores.append(reward)
@@ -400,6 +402,7 @@ class ToolAgentLoop(AgentLoopBase):
         if agent_data.response_logprobs:
             agent_data.response_logprobs += [0.0] * len(response_ids)
 
+        # double check prompt
         # Check termination condition
         if should_terminate_sequence:
             return AgentState.TERMINATED

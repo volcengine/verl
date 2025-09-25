@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
+Note that we don't combine the main with ray_trainer as ray_trainer is used by other mpain.
 """
 
 import os
@@ -312,6 +312,7 @@ class TaskRunner:
         )
         # Initialize the workers of the trainer.
         trainer.init_workers()
+
         # Start the training process.
         trainer.fit()
 
@@ -349,7 +350,6 @@ def create_rl_dataset(data_paths, data_config, tokenizer, processor, is_train=Tr
 
         dataset_cls = DynamicGenDataset
         print("Using DynamicGenDataset for data generation.")
-
     else:
         # Use the default RLHFDataset class if no custom class is specified
         dataset_cls = RLHFDataset
