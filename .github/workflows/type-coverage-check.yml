@@ -20,7 +20,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install gitpython
+          pip install gitpython packaging
           pip install -e . --no-deps
       - name: Run type annotation coverage check
         run: |
