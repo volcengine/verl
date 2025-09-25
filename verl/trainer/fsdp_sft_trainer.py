@@ -44,6 +44,7 @@ from tqdm import tqdm
 from transformers import AutoConfig, AutoModelForCausalLM, PreTrainedModel
 
 import verl.utils.hdfs_io as hdfs_io
+from verl.utils.attention_imports import index_first_axis, pad_input, rearrange, unpad_input
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, get_checkpoint_tracker_filename
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.utils.dataset import SFTDataset
@@ -66,7 +67,6 @@ from verl.utils.profiler import log_gpu_memory_usage
 from verl.utils.py_functional import convert_to_regular_types
 from verl.utils.torch_dtypes import PrecisionType
 from verl.utils.torch_functional import get_cosine_schedule_with_warmup, get_wsd_schedule_with_warmup
-from verl.utils.attention_imports import index_first_axis, pad_input, rearrange, unpad_input
 from verl.utils.tracking import Tracking
 from verl.utils.ulysses import (
     gather_outputs_and_unpad,

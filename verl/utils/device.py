@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 is_cuda_available = torch.cuda.is_available()
 
+
 def is_npu_available() -> bool:
     """Check the availability of NPU"""
     try:
@@ -91,9 +92,3 @@ def set_expandable_segments(enable: bool) -> None:
     """
     if is_cuda_available:
         torch.cuda.memory._set_allocator_settings(f"expandable_segments:{enable}")
-
-
-def __getattr__(name):
-    if name == "is_npu_available":
-        return is_npu_available()
-    raise AttributeError(f"module {__name__} has no attribute {name}")
