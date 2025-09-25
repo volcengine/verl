@@ -87,6 +87,7 @@ verl is fast with:
    workers/fsdp_workers
    workers/megatron_workers
    workers/sglang_worker
+   workers/model_engine
 
 .. toctree::
    :maxdepth: 1
