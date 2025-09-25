@@ -15,19 +15,18 @@
 # limitations under the License.
 
 
-from typing import Optional, Union, Dict
 from importlib.metadata import version as get_version
+from typing import Optional
 
 import torch
 import torch.nn.functional as F
 import torch_npu
 from torch_npu import npu_rotary_mul as apply_rotary_emb
+from transformers.modeling_utils import PretrainedConfig, PreTrainedModel
 from transformers.models.qwen2_5_vl import modeling_qwen2_5_vl
 from transformers.models.qwen3 import modeling_qwen3
 from transformers.models.qwen3_moe import modeling_qwen3_moe
-from transformers.modeling_utils import PreTrainedModel, PretrainedConfig
 from transformers.utils import logging
-
 
 logger = logging.get_logger(__name__)
 
@@ -171,26 +170,28 @@ def _check_and_enable_flash_attn_2(
     cls,
     config,
     torch_dtype: Optional[torch.dtype] = None,
-    device_map: Optional[Union[str, Dict[str, int]]] = None,
+    device_map: Optional[str | dict[str, int]] = None,
     check_device_map: bool = True,
     hard_check_only: bool = False,
 ) -> PretrainedConfig:
     """
     Checks the availability of Flash Attention 2 and compatibility with the current model.
 
-    If all checks pass and `hard_check_only` is False, the method will set the config attribute `attn_implementation` to "flash_attention_2" so that the model can initialize the correct attention module.
+    If all checks pass and `hard_check_only` is False, the method will set the config attribute
+    `attn_implementation` to "flash_attention_2" so that the model can initialize
+    the correct attention module.
     """
     if not cls._supports_flash_attn_2:
         raise ValueError(
-            f"{cls.__name__} does not support Flash Attention 2.0 yet. Please request to add support where"
-            f" the model is hosted, on its model hub page: https://huggingface.co/{config._name_or_path}/discussions/new"
+            f"{cls.__name__} does not support Flash Attention 2.0 yet. Please request to add support where the"
+            f" model is hosted, on its model hub page: https://huggingface.co/{config._name_or_path}/discussions/new"
             " or in the Transformers GitHub repo: https://github.com/huggingface/transformers/issues/new"
         )
-    
+
     if not hard_check_only:
         config._attn_implementation = "flash_attention_2"
     logger.info("Detect using FlashAttention2 on Ascend NPU.")
-    return config 
+    return config
 
 
 modeling_qwen2_5_vl.Qwen2RMSNorm.forward = rms_norm_forward

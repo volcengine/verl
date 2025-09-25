@@ -220,7 +220,7 @@ class EngineRegistry:
                         cls._engines[model_type][current_backend] = {}
                     if current_device not in cls._engines[model_type][current_backend]:
                         cls._engines[model_type][current_backend][current_device] = engine_class
-                    
+
             return engine_class
 
         return decorator

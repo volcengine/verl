@@ -16,6 +16,7 @@ import logging
 import os
 
 from mindspeed.megatron_adaptor import repatch
+
 from verl.trainer.config import CheckpointConfig
 from verl.workers.config import HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
 
@@ -40,5 +41,5 @@ class MindspeedEngineWithLMHead(MegatronEngineWithLMHead):
         repatch_config = {"use_flash_attn": True}
         if self.engine_config.context_parallel_size > 1:
             repatch_config["context_parallel_size"] = self.engine_config.context_parallel_size
-        
+
         repatch(repatch_config)

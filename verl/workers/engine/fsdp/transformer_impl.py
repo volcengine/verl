@@ -933,7 +933,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
             return loss, output
 
 
-@EngineRegistry.register(model_type="value_model", backend=["fsdp", "fsdp2"])
+@EngineRegistry.register(model_type="value_model", backend=["fsdp", "fsdp2"], device=["cuda", "npu"])
 class FSDPEngineWithValueHead(FSDPEngineWithLMHead):
     """
     The only difference between critic and actor is how the raw model output is processed
