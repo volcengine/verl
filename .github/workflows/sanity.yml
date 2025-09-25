@@ -72,6 +72,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install the current repository
         run: |
+          pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip3 install -r requirements.txt
           pip install -e .[test]
       - name: Run sanity test
         run: |
