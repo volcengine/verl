@@ -95,7 +95,7 @@ jobs:
           pip3 install -e .[test,gpu,sglang]
       - name: Prepare MATH dataset
         run: |
-          python3 examples/data_preprocess/math_dataset.py
+          python3 examples/data_preprocess/math_dataset.py --local_dataset_path $HOME/models/hf_data/DigitalLearningGmbH/MATH-lighteval
       - name: Running the E2E test with the SPPO algorithm
         run: |
           ray stop --force
