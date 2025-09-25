@@ -3,6 +3,9 @@ set -x
 # TODO (FightingZhen) Env VLLM_USE_V1=1 is not supported in vllm==0.7.3
 # export VLLM_USE_V1=1
 
+MODEL_ID=${MODEL_ID:-Qwen/Qwen3-0.6B}
+MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
+
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=gae \
     data.train_files=$HOME/data/gsm8k/train.parquet \
@@ -11,7 +14,7 @@ python3 -m verl.trainer.main_ppo \
     data.max_prompt_length=512 \
     data.max_response_length=128 \
     data.shuffle=False \
-    actor_rollout_ref.model.path=Qwen/Qwen3-0.6B \
+    actor_rollout_ref.model.path="${MODEL_PATH}" \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.optim.lr=1e-6 \
@@ -32,7 +35,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.enforce_eager=False \
     critic.optim.lr=1e-5 \
     critic.model.use_remove_padding=True \
-    critic.model.path=Qwen/Qwen3-0.6B \
+    critic.model.path="${MODEL_PATH}" \
     critic.model.enable_gradient_checkpointing=True \
     critic.ppo_micro_batch_size_per_gpu=8 \
     critic.ulysses_sequence_parallel_size=2 \
@@ -46,7 +49,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
-    trainer.test_freq=5 \
+    trainer.test_freq=-1 \
     trainer.total_epochs=1 \
     trainer.total_training_steps=2 \
     trainer.device=npu $@
