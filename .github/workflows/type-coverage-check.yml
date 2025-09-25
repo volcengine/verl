@@ -20,7 +20,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install gitpython packaging
+          pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install gitpython packaging numpy
           pip install -e . --no-deps
       - name: Run type annotation coverage check
         run: |
