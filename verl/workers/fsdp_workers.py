@@ -883,12 +883,12 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         prompts = prompts.to(get_device_id())
 
         meta_info = {
-            "eos_token_id": self.model_config.generation_config.eos_token_id
-            if self.model_config.generation_config is not None
-            else self.model_config.tokenizer.eos_token_id,
-            "pad_token_id": self.model_config.generation_config.pad_token_id
-            if self.model_config.generation_config is not None
-            else self.model_config.tokenizer.pad_token_id,
+            "eos_token_id": self.generation_config.eos_token_id
+            if self.generation_config is not None
+            else self.tokenizer.eos_token_id,
+            "pad_token_id": self.generation_config.pad_token_id
+            if self.generation_config is not None
+            else self.tokenizer.pad_token_id,
         }
         prompts.meta_info.update(meta_info)
 
