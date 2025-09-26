@@ -20,6 +20,7 @@ import torch
 from torch import distributed as dist
 
 from verl.protocol import DataProto
+from verl.utils import tensordict_utils as tu
 from verl.utils.device import get_device_name
 
 
@@ -273,11 +274,17 @@ def rearrange_micro_batches(
         List[List[int]]: index lists mapping each micro-batch back to original positions.
     """
     # this is per local micro_bsz
-    max_seq_len = batch["attention_mask"].shape[-1]
+    input_ids = batch["input_ids"]
+    if input_ids.is_nested:
+        seq_len_effective: torch.Tensor = input_ids.offsets().diff()
+        max_seq_len = max(seq_len_effective)
+    else:
+        max_seq_len = batch["attention_mask"].shape[-1]
+        seq_len_effective: torch.Tensor = batch["attention_mask"].sum(dim=1)
+
     assert max_token_len >= max_seq_len, (
         f"max_token_len must be greater than the sequence length. Got {max_token_len=} and {max_seq_len=}"
     )
-    seq_len_effective: torch.Tensor = batch["attention_mask"].sum(dim=1)
     total_seqlen = seq_len_effective.sum().item()
     # NOTE: num_microbatches <= batch_size, so take the min of this two.
     num_micro_batches = min(len(seq_len_effective), ceildiv(total_seqlen, max_token_len))
@@ -309,11 +316,7 @@ def rearrange_micro_batches(
     micro_batches = []
 
     for partition in micro_bsz_idx:
-        curr_micro_batch = []
-        for idx in partition:
-            curr_micro_batch.append(batch[idx : idx + 1])
-        curr_micro_batch = torch.cat(curr_micro_batch)
-
+        curr_micro_batch = tu.index_select_tensor_dict(batch, partition)
         micro_batches.append(curr_micro_batch)
 
     return micro_batches, micro_bsz_idx
@@ -388,6 +391,14 @@ def restore_dynamic_batch(data: torch.Tensor, batch_idx_list: list[list[int]]) -
         torch.Tensor: The restored data.
     """
     indices = list(chain.from_iterable(batch_idx_list))
-    assert len(indices) == data.size(0), f"{len(indices)} vs. {data.size()}"
+    batch_size = data.shape[0]
+    assert len(indices) == batch_size, f"{len(indices)} vs. {batch_size}"
     revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
-    return data[revert_indices]
+
+    if data.is_nested:
+        tensors = [data[i] for i in revert_indices]
+        reverted_data = torch.nested.as_nested_tensor(tensors, layout=torch.jagged)
+    else:
+        reverted_data = data[revert_indices]
+
+    return reverted_data

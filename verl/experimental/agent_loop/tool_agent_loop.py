@@ -68,6 +68,7 @@ class AgentData:
         self.response_mask: list[int] = []
         self.response_logprobs: list[float] = []
         self.turn_scores: list[float] = []
+        self.tool_rewards: list[float] = []
         self.user_turns = 0
         self.assistant_turns = 0
 
@@ -133,7 +134,6 @@ class ToolAgentLoop(AgentLoopBase):
                 )
             interaction = self.interaction_map[interaction_name]
             await interaction.start_interaction(request_id, **interaction_kwargs)
-
         # Create AgentData instance to encapsulate all state
         agent_data = AgentData(
             messages=messages,
@@ -152,12 +152,10 @@ class ToolAgentLoop(AgentLoopBase):
                 state = await self._handle_pending_state(agent_data, sampling_params)
             elif state == AgentState.GENERATING:
                 state = await self._handle_generating_state(agent_data, sampling_params)
-                agent_data.assistant_turns += 1
             elif state == AgentState.PROCESSING_TOOLS:
                 state = await self._handle_processing_tools_state(agent_data)
             elif state == AgentState.INTERACTING:
                 state = await self._handle_interacting_state(agent_data)
-                agent_data.user_turns += 1
             else:
                 logger.error(f"Invalid state: {state}")
                 state = AgentState.TERMINATED
@@ -178,7 +176,7 @@ class ToolAgentLoop(AgentLoopBase):
             metrics=agent_data.metrics,
             extra_fields={},
         )
-        output.extra_fields.update({"turn_scores": agent_data.turn_scores})
+        output.extra_fields.update({"turn_scores": agent_data.turn_scores, "tool_rewards": agent_data.tool_rewards})
         return output
 
     async def _handle_pending_state(self, agent_data: AgentData, sampling_params: dict[str, Any]) -> AgentState:
@@ -209,7 +207,9 @@ class ToolAgentLoop(AgentLoopBase):
             )
         return AgentState.GENERATING
 
-    async def _handle_generating_state(self, agent_data: AgentData, sampling_params: dict[str, Any]) -> AgentState:
+    async def _handle_generating_state(
+        self, agent_data: AgentData, sampling_params: dict[str, Any], ignore_termination: bool = False
+    ) -> AgentState:
         """Handle the generating state: generate model response and check for tool calls."""
         add_messages: list[dict[str, Any]] = []
 
@@ -221,6 +221,7 @@ class ToolAgentLoop(AgentLoopBase):
                 image_data=agent_data.image_data,
             )
 
+        agent_data.assistant_turns += 1
         agent_data.response_ids = output.token_ids
         agent_data.prompt_ids += agent_data.response_ids
         agent_data.response_mask += [1] * len(agent_data.response_ids)
@@ -228,7 +229,7 @@ class ToolAgentLoop(AgentLoopBase):
             agent_data.response_logprobs += output.log_probs
 
         # Check termination conditions
-        if len(agent_data.response_mask) >= self.response_length:
+        if not ignore_termination and len(agent_data.response_mask) >= self.response_length:
             return AgentState.TERMINATED
         if self.max_assistant_turns and agent_data.assistant_turns >= self.max_assistant_turns:
             return AgentState.TERMINATED
@@ -241,7 +242,7 @@ class ToolAgentLoop(AgentLoopBase):
         # Handle interaction if needed
         if self.interaction_config_file:
             assistant_message = await self.loop.run_in_executor(
-                None, lambda: self.tokenizer.decode(agent_data.response_ids)
+                None, lambda: self.tokenizer.decode(agent_data.response_ids, skip_special_tokens=True)
             )
             add_messages.append({"role": "assistant", "content": assistant_message})
             agent_data.messages.extend(add_messages)
@@ -266,15 +267,9 @@ class ToolAgentLoop(AgentLoopBase):
         with simple_timer("tool_calls", agent_data.metrics):
             responses = await asyncio.gather(*tasks)
 
-        # Handle responses for interaction if needed
-        if self.interaction_config_file:
-            for response in responses:
-                if response.text:
-                    agent_data.messages.append({"role": "tool", "content": response.text})
-
         # Process tool responses and update multi_modal_data
         # Removed: agent_data.new_images_this_turn = []
-        for tool_response in responses:
+        for tool_response, tool_reward, _ in responses:
             # Create message from tool response
             if tool_response.image or tool_response.video:
                 # Multi-modal content with structured format
@@ -327,6 +322,9 @@ class ToolAgentLoop(AgentLoopBase):
                     "Multimedia type 'video' is not currently supported. Only 'image' is supported."
                 )
 
+            if tool_reward is not None:
+                agent_data.tool_rewards.append(tool_reward)
+
         # Update prompt with tool responses
         if self.processor is not None:
             raw_tool_response = await self.loop.run_in_executor(
@@ -368,8 +366,10 @@ class ToolAgentLoop(AgentLoopBase):
         ) = await agent_data.interaction.generate_response(
             agent_data.request_id, agent_data.messages, **agent_data.interaction_kwargs
         )
+        agent_data.user_turns += 1
 
         add_messages: list[dict[str, Any]] = [{"role": "user", "content": interaction_responses}]
+        agent_data.messages.extend(add_messages)
 
         if reward is not None:
             agent_data.turn_scores.append(reward)
@@ -400,13 +400,16 @@ class ToolAgentLoop(AgentLoopBase):
         if agent_data.response_logprobs:
             agent_data.response_logprobs += [0.0] * len(response_ids)
 
+        # double check prompt
         # Check termination condition
         if should_terminate_sequence:
             return AgentState.TERMINATED
         else:
             return AgentState.GENERATING
 
-    async def _call_tool(self, tool_call: FunctionCall, tools_kwargs: dict[str, Any]) -> ToolResponse:
+    async def _call_tool(
+        self, tool_call: FunctionCall, tools_kwargs: dict[str, Any]
+    ) -> tuple[ToolResponse, float, dict]:
         """Call tool and return tool response."""
         tool, instance_id = None, None
         try:
@@ -416,11 +419,15 @@ class ToolAgentLoop(AgentLoopBase):
             tool = self.tools[tool_name]
             kwargs = tools_kwargs.get(tool_name, {})
             instance_id, _ = await tool.create(create_kwargs=kwargs.get("create_kwargs", {}))
-            tool_execution_response, _, _ = await tool.execute(instance_id, tool_args)
+            tool_execution_response, tool_reward, res = await tool.execute(instance_id, tool_args)
         except Exception as e:
             logger.warning(f"Error when executing tool: {e}")
-            return ToolResponse(
-                text=f"Error when executing tool: {e}",
+            return (
+                ToolResponse(
+                    text=f"Error when executing tool: {e}",
+                ),
+                0.0,
+                {},
             )
         finally:
             if tool and instance_id:
@@ -446,7 +453,7 @@ class ToolAgentLoop(AgentLoopBase):
                 if attr_value is not None:
                     tool_response_kwargs[attr_name] = attr_value
 
-        return ToolResponse(**tool_response_kwargs)
+        return ToolResponse(**tool_response_kwargs), tool_reward, res
 
     @classmethod
     def _initialize_interactions(cls, interaction_config_file):

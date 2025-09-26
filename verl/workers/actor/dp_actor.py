@@ -23,6 +23,7 @@ import os
 import torch
 from torch import nn
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.tensor import DTensor
 
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
@@ -40,7 +41,15 @@ from verl.workers.config import ActorConfig
 if is_cuda_available:
     from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
 elif is_npu_available:
-    from transformers.integrations.npu_flash_attention import index_first_axis, pad_input, rearrange, unpad_input
+    try:
+        from transformers.integrations.npu_flash_attention import index_first_axis, pad_input, rearrange, unpad_input
+    except ImportError:
+        # Since transformers v4.55.1, index_first_axis, pad_input, and unpad_input
+        # have been consolidated into `transformers.modeling_flash_attention_utils`.
+        from einops import rearrange
+        from transformers.modeling_flash_attention_utils import _index_first_axis as index_first_axis
+        from transformers.modeling_flash_attention_utils import _pad_input as pad_input
+        from transformers.modeling_flash_attention_utils import _unpad_input as unpad_input
 
 
 __all__ = ["DataParallelPPOActor"]
@@ -141,7 +150,9 @@ class DataParallelPPOActor(BasePPOActor):
 
                 # pad and slice the inputs if sp > 1
                 if self.use_ulysses_sp:
-                    is_vlm_model = "multi_modal_inputs" in micro_batch.keys()
+                    is_vlm_model = hasattr(
+                        getattr(self.actor_module, "module", self.actor_module).config, "vision_config"
+                    )
                     if is_vlm_model:
                         # vlm model's inputs will be sliced after embedding
                         input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad(
@@ -283,6 +294,9 @@ class DataParallelPPOActor(BasePPOActor):
             grad_norm = fsdp2_clip_grad_norm_(self.actor_module.parameters(), max_norm=self.config.grad_clip)
         else:
             grad_norm = torch.nn.utils.clip_grad_norm_(self.actor_module.parameters(), max_norm=self.config.grad_clip)
+
+        if isinstance(grad_norm, DTensor):
+            grad_norm = grad_norm.full_tensor()
 
         # if grad_norm is not finite, skip the update
         if not torch.isfinite(grad_norm):

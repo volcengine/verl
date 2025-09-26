@@ -32,6 +32,7 @@ from tqdm import tqdm
 
 from verl.utils import tensordict_utils as tu
 from verl.utils.checkpoint import CheckpointHandler
+from verl.utils.dataset.dataset_utils import SFTTensorCollator
 from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
 from verl.utils.device import get_device_name, is_cuda_available, is_npu_available
 from verl.utils.distributed import destroy_global_process_group
@@ -167,11 +168,13 @@ class SFTTrainer:
 
         self.global_batch_size = config.data.train_batch_size
         self.train_batch_size_per_dp = self.global_batch_size // dp_size
+        self.collate_fn = SFTTensorCollator(config.data.pad_mode)
 
         self.train_dataloader = StatefulDataLoader(
             dataset=self.train_dataset,
             batch_size=self.train_batch_size_per_dp,
             sampler=self.train_sampler,
+            collate_fn=self.collate_fn,
             num_workers=8,
             pin_memory=True,
             drop_last=True,
@@ -185,6 +188,7 @@ class SFTTrainer:
             dataset=self.val_dataset,
             batch_size=self.train_batch_size_per_dp,
             sampler=self.val_sampler,
+            collate_fn=self.collate_fn,
             num_workers=8,
             pin_memory=True,
             drop_last=True,
@@ -227,11 +231,14 @@ class SFTTrainer:
         start_epoch = global_step // self.steps_per_epoch
 
         meta_info = {
+            "use_remove_padding": self.config.model.use_remove_padding,
             "use_dynamic_bsz": self.config.data.use_dynamic_bsz,
             "max_token_len_per_gpu": self.config.data.max_token_len_per_gpu,
             "micro_batch_size_per_gpu": self.config.data.micro_batch_size_per_gpu,
             "temperature": 1.0,
             "global_batch_size": self.global_batch_size,
+            "pad_mode": self.config.data.pad_mode,
+            "pad_token_id": self.model_config.tokenizer.pad_token_id,
         }
 
         train_time = 0
@@ -263,7 +270,12 @@ class SFTTrainer:
                     loss = torch.mean(torch.tensor(metrics["loss"], device=self.device_name))
 
                     # mean over dp group
-                    batch_seqlens = data["attention_mask"].sum(dim=-1).to(self.device_name)  # (global_bsz // dp)
+                    is_nested = data["input_ids"].is_nested
+                    if is_nested:
+                        batch_seqlens: torch.Tensor = data["input_ids"].offsets().diff()
+                    else:
+                        batch_seqlens: torch.Tensor = data["attention_mask"].sum(dim=-1)
+                    batch_seqlens = batch_seqlens.to(self.device_name)  # (global_bsz // dp)
 
                     output_tensor = torch.randint(
                         0,

@@ -102,6 +102,7 @@ class AdvantageEstimator(str, Enum):
     OPO = "opo"
     GRPO_PASSK = "grpo_passk"
     GPG = "gpg"
+    RLOO_VECTORIZED = "rloo_vectorized"
 
 
 ADV_ESTIMATOR_REGISTRY: dict[str, Any] = {}
@@ -683,6 +684,44 @@ def compute_gpg_outcome_advantage(
         scores = scores.unsqueeze(-1) * response_mask
 
     return scores, scores
+
+
+@register_adv_est(AdvantageEstimator.RLOO_VECTORIZED)  # or simply: @register_adv_est("rloo_vectorized")
+def compute_rloo_vectorized_outcome_advantage(
+    token_level_rewards: torch.Tensor,
+    response_mask: torch.Tensor,
+    index: np.ndarray,
+    epsilon: float = 1e-6,
+    config: Optional[AlgoConfig] = None,
+    **kwargs,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Compute advantage for RLOO based on https://arxiv.org/abs/2402.14740
+
+    Args:
+        token_level_rewards: `(torch.Tensor)`
+            shape: (bs, response_length)
+        response_mask: `(torch.Tensor)`
+            shape: (bs, response_length)
+        config: (AlgoConfig) algorithm config
+
+    Returns:
+        advantages: `(torch.Tensor)`
+            shape: (bs, response_length)
+        Returns: `(torch.Tensor)`
+            shape: (bs, response_length)
+    """
+    scores = token_level_rewards.sum(dim=-1)
+
+    with torch.no_grad():
+        inv = torch.from_numpy(np.unique(index, return_inverse=True)[1]).to(scores.device)
+
+        c = torch.bincount(inv)[inv].to(scores.dtype)
+        adv = ((c * scores - torch.bincount(inv, weights=scores)[inv]) / (c - 1).clamp_min(1)) * (c > 1)
+
+        adv = adv.unsqueeze(-1) * response_mask
+
+    return adv, adv
 
 
 def compute_rewards(token_level_scores, old_log_prob, ref_log_prob, kl_ratio):

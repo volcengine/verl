@@ -17,14 +17,34 @@ import torch
 from tensordict import TensorDict
 
 from verl.trainer.ppo.core_algos import agg_loss, compute_value_loss, get_policy_loss_fn, kl_penalty
+from verl.utils import tensordict_utils as tu
+from verl.utils.dataset.dataset_utils import DatasetPadMode
 from verl.utils.torch_functional import masked_mean
 from verl.workers.config import ActorConfig, CriticConfig
 
 
 def sft_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None):
-    log_prob = model_output["log_probs"]  # [bsz, response_length]
-    response_mask = data["response_mask"].to(bool)
-    loss = -torch.mean(log_prob * response_mask)
+    pad_mode = tu.get_non_tensor_data(data=data, key="pad_mode", default=DatasetPadMode.LEFT_RIGHT)
+
+    log_prob = model_output["log_probs"]
+
+    if pad_mode == DatasetPadMode.NO_PADDING:
+        # log_prob and loss mask are nested tensors of shape [bsz, j1]
+        # for each sample, loss mask shape is [1, prompt_length + response_length]
+        loss_mask = data["loss_mask"]
+
+        log_prob_flatten = log_prob.values()
+        cu_seqlens = log_prob.offsets()
+        loss_mask_flatten = loss_mask.values()
+
+        # left-shift the loss mask by one token to align with log_prob
+        loss_mask_flatten = torch.roll(loss_mask_flatten, shifts=-1, dims=0)
+        loss_mask_flatten[cu_seqlens[1:] - 1] = 0
+        loss = -masked_mean(log_prob_flatten, loss_mask_flatten)
+    else:
+        response_mask = data["response_mask"].to(bool)
+        loss = -masked_mean(log_prob, response_mask)
+
     return loss, {"loss": loss.detach().item()}
 
 
