@@ -6,6 +6,8 @@ env_vars:
   NVTE_DEBUG: "1"
   NVTE_DEBUG_LEVEL: "2"
   NVTE_FLASH_ATTN: "1" 
+  NVTE_FUSED_ATTN: "0" 
+  NVTE_UNFUSED_ATTN: "0" 
   RAY_DEBUG: "legacy"
   NCCL_DEBUG: "WARN"
   # NCCL_IB_DISABLE: "1"

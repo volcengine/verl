@@ -345,6 +345,7 @@ class OnPolicyDistillActor:
         get_torch_device().empty_cache()
         return metrics
 
+
 class MegatronOnPolicyDistillActorWorker(ActorRolloutRefWorker):
     """
     Actor-only worker: owns the trainable Megatron model and optimizer, performs update_actor.
@@ -534,24 +535,82 @@ class MegatronOnPolicyDistillRolloutWorker(ActorRolloutRefWorker):
 
     def __init__(self, config: DictConfig, role: str):
         # Ensure we run as rollout-only worker
-        is_struct = OmegaConf.is_struct(config) or False
-        OmegaConf.set_struct(config, False)
-        # Set a safe minimal rollout micro-batch size if not provided by config
-        if OmegaConf.select(config, "actor.ppo_mini_batch_size") is None:
-            config.actor.ppo_mini_batch_size = 2
-        if OmegaConf.select(config, "rollout.n") is None:
-            config.rollout.n = 1
-        OmegaConf.set_struct(config, is_struct)
+        # is_struct = OmegaConf.is_struct(config) or False
+        # OmegaConf.set_struct(config, False)
+        # # Set a safe minimal rollout micro-batch size if not provided by config
+        # if OmegaConf.select(config, "actor.ppo_mini_batch_size") is None:
+        #     config.actor.ppo_mini_batch_size = 2
+        # if OmegaConf.select(config, "rollout.n") is None:
+        #     config.rollout.n = 1
+        # OmegaConf.set_struct(config, is_struct)
+        import datetime
+        from verl.workers.megatron_workers import MegatronWorker
+        from verl.utils.distributed import set_numa_affinity
+        from verl.utils.device import (
+            get_device_id,
+            get_device_name,
+            get_nccl_backend,
+            get_torch_device,
+            set_expandable_segments,
+        )
+        from verl.utils.config import omega_conf_to_dataclass
+        from verl.utils.profiler import DistProfilerExtension, ProfilerConfig
+        from verl.utils.model import get_generation_config
+        from verl.utils.fs import copy_to_local
 
-        super().__init__(config, role)
-        assert self._is_rollout and not self._is_actor, "Rollout worker must be rollout-only."
-        self.teacher_config = config.teacher
-        if self.teacher_config.overlap_rollout:
-            self.teacher_client = TeacherClient(
-                self.teacher_config.server_ip,
-                self.teacher_config.server_port,
-                n_server_workers=self.teacher_config.n_server_workers,
+        MegatronWorker.__init__(self)
+        self.config = config
+        self.local_path = copy_to_local(self.config.model.path)
+
+        # NOTE(sgm): We utilize colocate WorkerGroup by default.
+        # As a result, Workers for different model share the same process.
+        # Therefore, we only require one distribute initialization.
+        # To utilize different parallel strategy in different models:
+        # 1, users should disable WorkerDict; 2.assign different ResourcePool to different models,
+        # 3. and apply the following patch in ray==2.10, https://github.com/ray-project/ray/pull/44385
+        if not torch.distributed.is_initialized():
+            set_numa_affinity()
+            rank = int(os.environ["LOCAL_RANK"])
+            torch.distributed.init_process_group(
+                backend=get_nccl_backend(),
+                timeout=datetime.timedelta(seconds=self.config.get("nccl_timeout", 600)),
+                init_method=os.environ.get("DIST_INIT_METHOD", None),
             )
+            get_torch_device().set_device(rank)
+
+        self.role = role
+        assert self.role == "rollout"
+
+        self._is_actor = False
+        self._is_rollout = True
+        self._is_ref = False
+
+        # NOTE: In colocation mode, rollout config may not take effect (follow the actor config)
+        # This is for extendability in AsyncRL cases
+        omega_profiler_config = config.rollout.get("profiler", {})
+       
+        # omega_profiler_config is DictConfig
+        # profiler_config is a ProfilerConfig dataclass
+        profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
+        if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch", "torch_memory"]:
+            tool_config = omega_conf_to_dataclass(
+                omega_profiler_config.get("tool_config", {}).get(omega_profiler_config.get("tool"))
+            )
+        else:
+            tool_config = None
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config)
+        )
+
+        # TODO(sgm): Currently, we only support reference model param offload
+        # will support other offload later
+        self._is_offload_param = False
+        self._is_offload_grad = False
+        self._is_offload_optimizer = False
+        
+        # self._build_rollout will use this variable
+        self.bridge = "none"
+        self.generation_config = get_generation_config(self.local_path)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
@@ -559,29 +618,10 @@ class MegatronOnPolicyDistillRolloutWorker(ActorRolloutRefWorker):
         Build the actor module only for inference + rollout engine; no optimizer/updates.
         """
         from verl.utils.torch_dtypes import PrecisionType
-        override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
-        override_transformer_config = OmegaConf.to_container(
-            self.config.actor.megatron.get("override_transformer_config", OmegaConf.create()), resolve=True
-        )
 
         self.param_dtype = torch.bfloat16
         log_gpu_memory_usage("Before init rollout model", logger=logger)
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
-
-        # Build model WITHOUT optimizer state (build API requires optim_config, we pass but won't use optimizer)
-        optim_config = self.config.actor.optim
-        (
-            self.actor_module,
-            self.actor_optimizer,            # created but never stepped
-            self.actor_optimizer_scheduler,  # created but never stepped
-            self.actor_model_config,
-            self.actor_optim_config,
-        ) = self._build_model_optimizer(
-            model_path=self.config.model.path,
-            optim_config=optim_config,
-            override_model_config=override_model_config,
-            override_transformer_config=override_transformer_config,
-        )
 
         self._build_rollout(
             trust_remote_code=self.config.model.get("trust_remote_code", False)
@@ -615,12 +655,6 @@ class MegatronOnPolicyDistillRolloutWorker(ActorRolloutRefWorker):
 
         with simple_timer("generate_sequences", timing_generate):
             output = self.rollout.generate_sequences(prompts=prompts)
-
-
-        if self.teacher_config.overlap_rollout:
-            with simple_timer("get_teacher_knowledge", timing_generate):
-                teacher_batch_output = get_teacher_knowledge(output, self.teacher_client)
-                output.union(teacher_batch_output)
 
         # We calculate the average timing across all ranks
         # to make sure meta_info["timing"] is the same

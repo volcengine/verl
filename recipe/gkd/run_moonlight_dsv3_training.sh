@@ -1,3 +1,4 @@
+#!/bin/bash
 set -x
 
 # 0. download the config
@@ -33,22 +34,43 @@ ACTOR_OPTIMIZER_OFFLOAD=${ACTOR_OPTIMIZER_OFFLOAD:-$COMMON_OPTIMIZER_OFFLOAD}
 
 # 512 H20(96GB)
 NODES=1
-PP=1
+PP=3
 TP=1
-EP=8
+EP=2
 ETP=1
 INFER_TP=1
+SP=True
+if [ $TP == 1 ]; then
+    SP=False
+fi
 # consider TP/ETP, and enable recompute if short of memory
 
-# full recompute
-# +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_method=uniform \
-# +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_granularity=full \
-# +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_num_layers=1 \
+TEACHER_SERVER_HOST=127.0.0.1
+TEACHER_SERVER_PORT=15555
+
+function check_server_ready() {
+    local server=$1
+    local ip=$2
+    local port=$3
+    
+    echo "check $server server ready at $ip:$port..."
+    result=`echo -e "\n" | telnet $ip $port 2> /dev/null | grep Connected | wc -l`
+    if [ $result -ne 1 ]; then
+        echo "server $server is not ready at $ip:$port, exit..."
+        exit 1
+    fi
+}
+
+check_server_ready teacher $TEACHER_SERVER_HOST $TEACHER_SERVER_PORT
 
 function now() {
     date '+%Y-%m-%d-%H-%M'
 }
 
+# full recompute
+# +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_method=uniform \
+# +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_granularity=full \
+# +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_num_layers=1 \
 
 WORKING_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNTIME_ENV=${RUNTIME_ENV:-"${WORKING_DIR}/config/runtime_env.yaml"}
@@ -65,8 +87,7 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     data.trust_remote_code=True \
     actor_rollout_ref.model.path=$HF_MODEL_PATH \
     actor_rollout_ref.model.trust_remote_code=True \
-    actor_rollout_ref.actor.megatron.sequence_parallel=False \
-    +actor_rollout_ref.actor.megatron.override_transformer_config.sequence_parallel=False \
+    actor_rollout_ref.actor.megatron.sequence_parallel=$SP \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.actor.micro_batch_size=2 \
     actor_rollout_ref.actor.use_torch_compile=True \
@@ -88,7 +109,6 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     actor_rollout_ref.rollout.top_p=0.99 \
     actor_rollout_ref.rollout.top_k=-1 \
     actor_rollout_ref.rollout.enable_chunked_prefill=True \
-    actor_rollout_ref.rollout.max_batch_size=1024 \
     actor_rollout_ref.rollout.enforce_eager=False \
     actor_rollout_ref.rollout.tensor_model_parallel_size=$INFER_TP \
     actor_rollout_ref.rollout.load_format='dummy_megatron' \
@@ -98,8 +118,10 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     trainer.logger=['console'] \
     trainer.project_name='on-policy-distill' \
     trainer.experiment_name="moonlight-dsv3-$(now)" \
-    trainer.n_gpus_per_node=8 \
     trainer.nnodes=$NODES \
+    trainer.n_gpus_per_node=6 \
+    rollout.nnodes=$NODES \
+    rollout.n_gpus_per_node=2 \
     trainer.save_freq=100000 \
     trainer.test_freq=-1 \
     trainer.default_local_dir=$CKPT_PATH \

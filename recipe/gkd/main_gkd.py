@@ -28,7 +28,13 @@ RAY_RUNTIME_ENV = {
     "env_vars": {
         "TOKENIZERS_PARALLELISM": "true",
         "VLLM_LOGGING_LEVEL": "WARN",
-        "VLLM_ALLOW_RUNTIME_LORA_UPDATING": "true",
+        "VLLM_ALLOW_RUNTIME_LORA_UPDATING": "false",
+        "CUDA_DEVICE_MAX_CONNECTIONS": "1",
+        # To prevent hanging or crash during synchronization of weights between actor and rollout
+        # in disaggregated mode. See:
+        # https://docs.vllm.ai/en/latest/usage/troubleshooting.html?h=nccl_cumem_enable#known-issues
+        # https://github.com/vllm-project/vllm/blob/c6b0a7d3ba03ca414be1174e9bd86a97191b7090/vllm/worker/worker_base.py#L445
+        "NCCL_CUMEM_ENABLE": "0",
     },
 }
 
@@ -162,7 +168,6 @@ class TaskRunner:
 
         # Define the resource pool specification.
         # Map roles to the resource pool.
-        global_pool_id = "actor_pool"
         assert config.trainer.n_gpus_per_node > 0, "config.trainer.n_gpus_per_node must be greater than 0"
         assert config.trainer.nnodes > 0, "config.trainer.nnodes must be greater than 0"
         assert config.rollout.n_gpus_per_node > 0, "config.rollout.n_gpus_per_node must be greater than 0"

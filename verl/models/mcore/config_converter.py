@@ -286,6 +286,8 @@ def hf_to_mcore_config_dpskv3(
 ) -> MLATransformerConfig:
     # DeepseekV3ForCausalLM
     from megatron.core.transformer.enums import AttnBackend
+    from megatron.core.config import set_experimental_flag
+    set_experimental_flag(True)
 
     from .patch_v012 import apply_patch
 
