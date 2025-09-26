@@ -146,7 +146,10 @@ class SFTTrainer:
         config = self.config
         tokenizer = self.model_config.tokenizer
         train_dataset = create_sft_dataset(config.data.train_files, config.data, tokenizer)
-        val_dataset = create_sft_dataset(config.data.val_files, config.data, tokenizer)
+        if config.data.val_files:
+            val_dataset = create_sft_dataset(config.data.val_files, config.data, tokenizer)
+        else:
+            val_dataset = None
 
         self.train_dataset, self.val_dataset = train_dataset, val_dataset
 
@@ -181,19 +184,22 @@ class SFTTrainer:
             pin_memory_device=device_name,
         )
 
-        self.val_sampler = DistributedSampler(
-            self.val_dataset, shuffle=False, num_replicas=dp_size, rank=dp_rank, drop_last=True
-        )
-        self.val_dataloader = StatefulDataLoader(
-            dataset=self.val_dataset,
-            batch_size=self.train_batch_size_per_dp,
-            sampler=self.val_sampler,
-            collate_fn=self.collate_fn,
-            num_workers=8,
-            pin_memory=True,
-            drop_last=True,
-            pin_memory_device=device_name,
-        )
+        if self.val_dataset:
+            self.val_sampler = DistributedSampler(
+                self.val_dataset, shuffle=False, num_replicas=dp_size, rank=dp_rank, drop_last=True
+            )
+            self.val_dataloader = StatefulDataLoader(
+                dataset=self.val_dataset,
+                batch_size=self.train_batch_size_per_dp,
+                sampler=self.val_sampler,
+                collate_fn=self.collate_fn,
+                num_workers=8,
+                pin_memory=True,
+                drop_last=True,
+                pin_memory_device=device_name,
+            )
+        else:
+            self.val_dataloader = None
 
     def fit(self):
         is_logging = self.engine.is_mp_src_rank_with_outputs() and self.engine.get_data_parallel_rank() == 0
@@ -315,7 +321,7 @@ class SFTTrainer:
                 is_save_step = global_step % self.save_freq == 0
 
                 # early exit or validation step
-                if is_last_step or (self.test_freq > 0 and is_valid_step):
+                if is_last_step and self.val_dataloader is not None or (self.test_freq > 0 and is_valid_step):
                     # Perform validation
                     val_losses = []
                     for val_data in self.val_dataloader:
