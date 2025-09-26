@@ -28,7 +28,8 @@ from torch.distributed.tensor import DTensor
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, get_policy_loss_fn, kl_penalty
-from verl.utils.device import get_device_id, get_device_name, is_cuda_available, is_npu_available
+from verl.utils.attention_utils import index_first_axis, pad_input, rearrange, unpad_input
+from verl.utils.device import get_device_id, get_device_name
 from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.py_functional import append_to_dict
@@ -37,20 +38,6 @@ from verl.utils.torch_functional import logprobs_from_logits
 from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad, ulysses_pad_and_slice_inputs
 from verl.workers.actor import BasePPOActor
 from verl.workers.config import ActorConfig
-
-if is_cuda_available:
-    from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
-elif is_npu_available:
-    try:
-        from transformers.integrations.npu_flash_attention import index_first_axis, pad_input, rearrange, unpad_input
-    except ImportError:
-        # Since transformers v4.55.1, index_first_axis, pad_input, and unpad_input
-        # have been consolidated into `transformers.modeling_flash_attention_utils`.
-        from einops import rearrange
-        from transformers.modeling_flash_attention_utils import _index_first_axis as index_first_axis
-        from transformers.modeling_flash_attention_utils import _pad_input as pad_input
-        from transformers.modeling_flash_attention_utils import _unpad_input as unpad_input
-
 
 __all__ = ["DataParallelPPOActor"]
 
