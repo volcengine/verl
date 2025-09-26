@@ -7,5 +7,58 @@ defaults:
   - _self_
 
 reward_model:
-  reward_manager: dapo
-  launch_reward_fn_async: False
+  _target_: verl.workers.config.RewardModelConfig
+
+  # enable: False
+  # name: ???
+  # model_type: discriminative
+  # reward_manager: dapo
+  # launch_reward_fn_async: False
+
+  # # resource pool config
+  # enable_resource_pool: False
+  # n_gpus_per_node: 0
+  # nnodes: 0
+
+  # # reward model args
+  # dtype: bfloat16
+  # gpu_memory_utilization: 0.5
+  # enforce_eager: true
+  # cudagraph_capture_sizes: null
+  # free_cache_engine: true
+  # data_parallel_size: 1
+  # expert_parallel_size: 1
+  # tensor_model_parallel_size: 2
+  # max_num_batched_tokens: 8192
+  # max_model_len: null
+  # max_num_seqs: 1024
+  # load_format: auto
+  # engine_kwargs: {}
+  # limit_images: null
+  # enable_chunked_prefill: true
+  # enable_prefix_caching: true
+  # disable_log_stats: true
+  # skip_tokenizer_init: true
+
+  # # generative reward model configs
+  # prompt_length: 1024
+  # response_length: 0
+  # sampling_config: {}
+  # data_processor_config: {}
+
+  # # fusion and profiler
+  # sandbox_fusion:
+  #   url: null
+  #   max_concurrent: 64
+  #   memory_limit_mb: 1024
+
+  # # profiler
+  # profiler:
+  #   _target_: verl.utils.profiler.ProfilerConfig
+
+  #   tool: ${oc.select:global_profiler.tool,null}
+  #   enable: False
+  #   all_ranks: False
+  #   ranks: []
+  #   save_path: ${oc.select:global_profiler.save_path,null}
+  #   tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}
