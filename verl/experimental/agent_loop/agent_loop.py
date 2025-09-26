@@ -788,9 +788,14 @@ class AgentLoopManager:
         num_replicas = world_size // rollout_world_size
 
         rollout_replica_class = get_rollout_replica_class(self.config.actor_rollout_ref.rollout.name)
+        rollout_config = self.config.actor_rollout_ref.rollout
+        model_config = self.config.actor_rollout_ref.model
         self.rollout_replicas = [
             rollout_replica_class(
-                replica_rank=replica_rank, config=self.config, gpus_per_node=self.config.trainer.n_gpus_per_node
+                replica_rank=replica_rank,
+                config=rollout_config,
+                model_config=model_config,
+                gpus_per_node=self.config.trainer.n_gpus_per_node,
             )
             for replica_rank in range(num_replicas)
         ]
