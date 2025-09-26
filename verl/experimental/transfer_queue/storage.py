@@ -334,25 +334,25 @@ class TransferQueueStorageSimpleUnit:
                 request_type=ZMQRequestType.PUT_DATA_RESPONSE, sender_id=self.zmq_server_info.id, body={}
             )
 
-            # Gather per-tensor dtype and shape information for each field
+            # Gather per-field dtype and shape information for each field
             # global_indexes, local_indexes, and field_data correspond one-to-one
-            per_tensor_dtypes: dict[int, torch.dtype] = {}
-            per_tensor_shapes: dict[int, torch.Size] = {}
+            per_field_dtypes = {}
+            per_field_shapes = {}
 
             # Initialize the data structure for each global index
             for global_idx in global_indexes:
-                per_tensor_dtypes[global_idx] = {}
-                per_tensor_shapes[global_idx] = {}
+                per_field_dtypes[global_idx] = {}
+                per_field_shapes[global_idx] = {}
 
             # For each field, extract dtype and shape for each sample
             for field in field_data.keys():
                 for i, data_item in enumerate(field_data[field]):
                     global_idx = global_indexes[i]
-                    per_tensor_dtypes[global_idx][field] = data_item.dtype if hasattr(data_item, "dtype") else None
-                    per_tensor_shapes[global_idx][field] = data_item.shape if hasattr(data_item, "shape") else None
+                    per_field_dtypes[global_idx][field] = data_item.dtype if hasattr(data_item, "dtype") else None
+                    per_field_shapes[global_idx][field] = data_item.shape if hasattr(data_item, "shape") else None
 
-            # Broadcast data update message to all controllers with per-tensor dtype/shape information
-            self._notify_data_update(list(field_data.keys()), global_indexes, per_tensor_dtypes, per_tensor_shapes)
+            # Broadcast data update message to all controllers with per-field dtype/shape information
+            self._notify_data_update(list(field_data.keys()), global_indexes, per_field_dtypes, per_field_shapes)
             return response_msg
         except Exception as e:
             return ZMQMessage.create(
@@ -371,8 +371,8 @@ class TransferQueueStorageSimpleUnit:
         param:
             fields: data update related fields.
             global_indexes: data update related global_indexes.
-            dtypes: per-tensor dtypes for each field, in {global_index: {field: dtype}} format.
-            shapes: per-tensor shapes for each field, in {global_index: {field: shape}} format.
+            dtypes: per-field dtypes for each field, in {global_index: {field: dtype}} format.
+            shapes: per-field shapes for each field, in {global_index: {field: shape}} format.
         """
         # Create zmq poller for notifying data update information
         poller = zmq.Poller()

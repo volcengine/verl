@@ -91,9 +91,9 @@ class TransferQueueController:
         self.field_name_mapping: dict[
             str, int
         ] = {}  # Mapping table from field_name to the column indices in self.data_production_status tables
-        # Per-sample dtype and shape storage: {global_index: {field_name: {'dtype': dtype, 'shape': shape}}}
-        self.per_tensor_dtype_mapping: dict[int, dict[str, torch.dtype]] = {}
-        self.per_tensor_shape_mapping: dict[int, dict[str, torch.Size]] = {}
+        # Per-field dtype and shape storage: {global_index: {field_name: {'dtype': dtype, 'shape': shape}}}
+        self.per_tensor_dtype_mapping: dict[int, dict[str, Any]] = {}
+        self.per_tensor_shape_mapping: dict[int, dict[str, Any]] = {}
 
         self._build_index_storage_mapping()
 
@@ -119,7 +119,7 @@ class TransferQueueController:
             self.data_consumption_status[task_name] = torch.zeros(self.total_storage_size, dtype=torch.int8)
         return self.data_consumption_status[task_name]
 
-    def _get_per_tensor_dtype(self, global_index: int, field_name: str) -> Optional[torch.dtype]:
+    def _get_per_field_dtype(self, global_index: int, field_name: str) -> Optional[torch.dtype]:
         """Get dtype for a specific sample and field.
 
         Args:
@@ -131,7 +131,7 @@ class TransferQueueController:
         """
         return self.per_tensor_dtype_mapping.get(global_index, {}).get(field_name)
 
-    def _get_per_tensor_shape(self, global_index: int, field_name: str) -> Optional[torch.Size]:
+    def _get_per_field_shape(self, global_index: int, field_name: str) -> Optional[torch.Size]:
         """Get shape for a specific sample and field.
 
         Args:
@@ -435,9 +435,9 @@ class TransferQueueController:
             for field_name in data_fields:
                 if mode == "fetch":
                     production_status = ProductionStatus.READY_FOR_CONSUME  # Since we filtered by ready status
-                    # Get per-tensor dtype and shape for this specific global_index and field
-                    dtype = self._get_per_tensor_dtype(global_index, field_name)
-                    shape = self._get_per_tensor_shape(global_index, field_name)
+                    # Get per-field dtype and shape for this specific global_index and field
+                    dtype = self._get_per_field_dtype(global_index, field_name)
+                    shape = self._get_per_field_shape(global_index, field_name)
                 elif mode == "insert":
                     production_status = ProductionStatus.NOT_PRODUCED  # FIXME: not real-time
                     dtype = None
@@ -446,8 +446,8 @@ class TransferQueueController:
                     col_index = self.field_name_mapping.get(field_name)
                     if col_index is not None and self.data_production_status[global_index, col_index] == 1:
                         production_status = ProductionStatus.READY_FOR_CONSUME
-                        dtype = self._get_per_tensor_dtype(global_index, field_name)
-                        shape = self._get_per_tensor_shape(global_index, field_name)
+                        dtype = self._get_per_field_dtype(global_index, field_name)
+                        shape = self._get_per_field_shape(global_index, field_name)
                     else:
                         production_status = ProductionStatus.NOT_PRODUCED
                         dtype = None
@@ -506,7 +506,7 @@ class TransferQueueController:
         global_indexes: list[int],
     ) -> None:
         """
-        Store per-tensor dtype and shape information.
+        Store per-field dtype and shape information.
 
         Args:
             fields: List of field names

@@ -445,9 +445,9 @@ class AsyncTransferQueueClient:
                 for field in fields:
                     storage_data[global_idx][field] = storage_unit_data[field][idx]
 
-        ordered_data: dict[str, torch.Tensor] = {field: [] for field in metadata.fields}
+        ordered_data: dict[str, torch.Tensor] = {field: [] for field in metadata.field_names}
         for global_idx in metadata.global_indexes:
-            for field in metadata.fields:
+            for field in metadata.field_names:
                 ordered_data[field].append(storage_data[global_idx][field])
 
         tensor_data = {
