@@ -76,7 +76,7 @@ fi
 ckpts_home=${ckpts_home:-/mnt/hdfs/zhangchi.usc1992_ssd_hldy/open_verl/sft/${project_name}/${exp_name}}
 mkdir -p "${ckpts_home}"
 
-torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
+/opt/tiger/internal/verl/verl/tools/internal/TORCHRUN ${ENTRYPOINT} \
     data.train_files="${TRAIN_FILES}" \
     data.train_batch_size=16 \
     data.max_length=16384 \
