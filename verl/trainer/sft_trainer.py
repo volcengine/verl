@@ -143,7 +143,7 @@ class SFTTrainer:
             self.total_training_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
         self.optimizer_config.total_training_steps = self.total_training_steps
 
-        self.steps_per_epoch = len(self.train_dataloader)
+        self.steps_per_epoch = min(self.total_training_steps, len(self.train_dataloader))
 
         # manage save and test frequency
         self.save_freq = self.config.trainer.save_freq
@@ -201,10 +201,11 @@ class SFTTrainer:
             dataset=self.val_dataset,
             batch_size=self.train_batch_size_per_dp,
             sampler=self.val_sampler,
-            num_workers=0,
+            num_workers=8,
             pin_memory=True,
             drop_last=True,
             pin_memory_device=device_name,
+            collate_fn=multi_modal_collect,
         )
 
     def fit(self):

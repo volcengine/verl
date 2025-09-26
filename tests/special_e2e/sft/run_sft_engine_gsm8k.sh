@@ -5,8 +5,8 @@ ENTRYPOINT=${ENTRYPOINT:-"-m verl.trainer.sft_trainer"}
 
 NUM_GPUS=${NUM_GPUS:-1}
 
-TRAIN_FILES=~/data/vermouth1992/mnist_multiturn_sft/data/train-00000-of-00001.parquet
-VAL_FILES=~/data/vermouth1992/mnist_multiturn_sft/data/test-00000-of-00001.parquet
+TRAIN_FILES="/file_system/common-data/koch_test_sft/train.parquet"
+VAL_FILES="/file_system/common-data/koch_test_sft/test.parquet"
 
 backend=${BACKEND:-fsdp}
 
@@ -76,21 +76,22 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     data.train_files="${TRAIN_FILES}" \
     data.val_files="${VAL_FILES}" \
     data.train_batch_size=16 \
-    data.max_length=4096 \
+    data.max_length=8192 \
     data.pad_mode=left_right \
     data.truncation=error \
     data.use_dynamic_bsz=True \
-    data.max_token_len_per_gpu=4096 \
+    data.max_token_len_per_gpu=20480 \
     data.messages_key=messages \
     data.pad_mode=right \
     model.path=$MODEL_PATH \
     ${ENGINE_CONFIG} \
-    trainer.test_freq=after_each_epoch \
-    trainer.save_freq=-1 \
-    trainer.logger=['console','file'] \
+    trainer.test_freq=20 \
+    trainer.save_freq=30 \
+    trainer.logger=['console','vemlp_wandb'] \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
-    trainer.total_epochs=2 \
+    trainer.total_epochs=1 \
+    trainer.total_training_steps=100 \
     trainer.default_local_dir="${ckpts_home}" \
     trainer.resume_mode=${RESUME_MODE} \
 
@@ -98,4 +99,4 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     # trainer.checkpoint.save_contents=[model,optimizer,extra,hf_model] \
     # trainer.max_ckpt_to_keep=1 \
     
-rm -rf "${ckpts_home:?}/*"
+# rm -rf "${ckpts_home:?}/*"
