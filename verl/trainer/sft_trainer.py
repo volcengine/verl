@@ -310,7 +310,7 @@ class SFTTrainer:
                     metrics["train/lr"] = lr
                     metrics["train/global_tokens"] = output_tensor.sum().item()
                     total_tokens += metrics["train/global_tokens"]
-                    metrics["train/total_tokens"] = total_tokens
+                    metrics["train/total_tokens(B)"] = total_tokens / 1e9
                     # mfu
                     delta_time = timer.last
                     estimated_flops, promised_flops = self.flops_counter.estimate_flops(batch_seqlens, delta_time)
