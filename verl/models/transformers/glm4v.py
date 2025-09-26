@@ -30,7 +30,6 @@ from transformers.models.glm4v.modeling_glm4v import (
 from transformers.utils import is_flash_attn_2_available, is_flash_attn_greater_or_equal_2_10
 
 from verl.utils.device import is_npu_available
-from verl.utils.transformers_compat import is_transformers_version_in_range
 from verl.utils.ulysses import (
     gather_heads_scatter_seq,
     gather_seq_scatter_heads,
@@ -317,9 +316,6 @@ def glm4v_attn_forward(
     key_states = key_states.transpose(1, 2)
     value_states = value_states.transpose(1, 2)
 
-    if position_ids.ndim == 3:
-        position_ids = position_ids[0]
-
     attn_output = _custom_flash_attention_forward(
         query_states,
         key_states,
@@ -333,10 +329,7 @@ def glm4v_attn_forward(
     )  # (batch_size, seq_length / sp_size, num_head, head_size)
     attn_output = attn_output.reshape(bsz, q_len, self.hidden_size).contiguous()
     attn_output = self.o_proj(attn_output)
-    if is_transformers_version_in_range(min_version="4.54.0"):
-        return attn_output, None
-    else:
-        return attn_output, None, None
+    return attn_output, None
 
 
 def _get_input_embeds(
