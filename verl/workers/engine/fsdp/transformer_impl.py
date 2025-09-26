@@ -32,8 +32,10 @@ from torch.distributed.tensor import DTensor
 
 import verl.utils.torch_functional as verl_F
 from verl.models.transformers.monkey_patch import apply_monkey_patch
+from verl.trainer.config import CheckpointConfig
 from verl.utils import tensordict_utils as tu
 from verl.utils.activation_offload import enable_activation_offloading
+from verl.utils.attention_utils import index_first_axis, pad_input, rearrange, unpad_input
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.utils.dataset.dataset_utils import DatasetPadMode
 from verl.utils.debug import log_gpu_memory_usage
@@ -41,8 +43,6 @@ from verl.utils.device import (
     get_device_id,
     get_device_name,
     get_torch_device,
-    is_cuda_available,
-    is_npu_available,
 )
 from verl.utils.fsdp_utils import (
     CPUOffloadPolicy,
@@ -66,15 +66,8 @@ from verl.utils.model import convert_weight_keys
 from verl.utils.py_functional import convert_to_regular_types
 from verl.utils.torch_functional import logprobs_from_logits
 from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad, ulysses_pad_and_slice_inputs
-from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
-
-if is_cuda_available:
-    from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
-elif is_npu_available:
-    from transformers.integrations.npu_flash_attention import index_first_axis, pad_input, rearrange, unpad_input
-
-from verl.trainer.config import CheckpointConfig
 from verl.workers.config import FSDPEngineConfig, FSDPOptimizerConfig, HFModelConfig
+from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 from ..base import BaseEngine, EngineRegistry
 from ..utils import postprocess_batch_func, prepare_micro_batches
