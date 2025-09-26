@@ -15,10 +15,7 @@ import torch
 logger = logging.getLogger(__name__)
 
 
-is_cuda_available = torch.cuda.is_available()
-
-
-def is_npu_available() -> bool:
+def is_torch_npu_available() -> bool:
     """Check the availability of NPU"""
     try:
         if hasattr(torch, "npu") and callable(getattr(torch.npu, "is_available", None)):
@@ -26,6 +23,10 @@ def is_npu_available() -> bool:
         return False
     except ImportError:
         return False
+
+
+is_cuda_available = torch.cuda.is_available()
+is_npu_available = is_torch_npu_available()
 
 
 def get_visible_devices_keyword() -> str:
