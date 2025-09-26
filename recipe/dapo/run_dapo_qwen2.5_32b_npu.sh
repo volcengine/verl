@@ -28,7 +28,6 @@ train_prompt_bsz=128
 gen_prompt_bsz=$((train_prompt_bsz * 3))
 n_resp_per_prompt=16
 train_prompt_mini_bsz=32
-now=$(date +%Y%m%d_%H%M%S)
 
 # Ray
 PWD=./

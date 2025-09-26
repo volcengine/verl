@@ -18,8 +18,7 @@ The abstract base class defining the interface for model training engines.
 from typing import Any, Callable, Optional
 
 import torch
-
-from verl import DataProto
+from tensordict import TensorDict
 
 
 class BaseEngine:
@@ -79,7 +78,7 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def forward_backward_batch(self, data: DataProto, loss_function: Callable, forward_only=False) -> Any:
+    def forward_backward_batch(self, data: TensorDict, loss_function: Callable, forward_only=False) -> Any:
         """
         Perform a forward pass and optionally a backward pass on a batch of data.
 
@@ -93,7 +92,7 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def train_batch(self, data: DataProto, loss_function: Callable) -> Any:
+    def train_batch(self, data: TensorDict, loss_function: Callable) -> Any:
         """
         Perform a training step on a batch of data.
 
@@ -111,7 +110,7 @@ class BaseEngine:
             outputs["metrics"]["grad_norm"] = grad_norm
         return outputs
 
-    def infer_batch(self, data: DataProto, loss_function: Optional[Callable] = None) -> Any:
+    def infer_batch(self, data: TensorDict, loss_function: Optional[Callable] = None) -> Any:
         """
         Perform inference on a batch of data.
 
@@ -124,6 +123,9 @@ class BaseEngine:
         with torch.no_grad():
             outputs = self.forward_backward_batch(data, loss_function, forward_only=True)
         return outputs
+
+    def get_per_tensor_param(self):
+        raise NotImplementedError
 
     def get_data_parallel_size(self):
         raise NotImplementedError

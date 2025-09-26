@@ -50,6 +50,9 @@ class HFModelConfig(BaseConfig):
     tokenizer_path: Optional[str] = None
     local_tokenizer_path: Optional[str] = None
 
+    # whether to load tokenizer. This is useful when we only want to load model config
+    load_tokenizer: bool = True
+
     hf_config: Any = None
     generation_config: Any = None
     tokenizer: Any = None
@@ -95,9 +98,10 @@ class HFModelConfig(BaseConfig):
         self.local_path = copy_to_local(self.path, use_shm=self.use_shm)
 
         # constuct tokenizer
-        self.local_tokenizer_path = copy_to_local(self.tokenizer_path, use_shm=self.use_shm)
-        self.tokenizer = hf_tokenizer(self.local_tokenizer_path, trust_remote_code=self.trust_remote_code)
-        self.processor = hf_processor(self.local_tokenizer_path, trust_remote_code=self.trust_remote_code)
+        if self.load_tokenizer:
+            self.local_tokenizer_path = copy_to_local(self.tokenizer_path, use_shm=self.use_shm)
+            self.tokenizer = hf_tokenizer(self.local_tokenizer_path, trust_remote_code=self.trust_remote_code)
+            self.processor = hf_processor(self.local_tokenizer_path, trust_remote_code=self.trust_remote_code)
 
         if self.custom_chat_template is not None:
             if self.processor is not None:
@@ -115,12 +119,23 @@ class HFModelConfig(BaseConfig):
         self.hf_config = AutoConfig.from_pretrained(
             self.local_hf_config_path, trust_remote_code=self.trust_remote_code, attn_implementation=attn_implementation
         )
-        override_config_kwargs = {
-            "bos_token_id": self.tokenizer.bos_token_id,
-            "eos_token_id": self.tokenizer.eos_token_id,
-            "pad_token_id": self.tokenizer.pad_token_id,
-        }
-        override_config_kwargs.update(self.override_config)
+
+        override_config_kwargs = {}
+
+        if self.tokenizer is not None:
+            override_config_kwargs.update(
+                {
+                    "bos_token_id": self.tokenizer.bos_token_id,
+                    "eos_token_id": self.tokenizer.eos_token_id,
+                    "pad_token_id": self.tokenizer.pad_token_id,
+                }
+            )
+
+        # TODO: (vermouth1992). self.config.model in megatron differs from that of fsdp in the override_config.
+        override_config = (
+            self.override_config["model_config"] if "model_config" in self.override_config else self.override_config
+        )
+        override_config_kwargs.update(override_config)
         update_model_config(self.hf_config, override_config_kwargs=override_config_kwargs)
 
         self.share_embeddings_and_output_weights = getattr(self.hf_config, "tie_word_embeddings", False)

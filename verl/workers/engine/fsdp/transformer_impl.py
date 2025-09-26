@@ -25,13 +25,17 @@ from typing import Callable
 import torch
 import torch.distributed
 from peft import LoraConfig, TaskType, get_peft_model
+from tensordict import TensorDict
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp.api import FullStateDictConfig, ShardedStateDictConfig, StateDictType
+from torch.distributed.tensor import DTensor
 
 import verl.utils.torch_functional as verl_F
-from verl import DataProto
 from verl.models.transformers.monkey_patch import apply_monkey_patch
+from verl.utils import tensordict_utils as tu
 from verl.utils.activation_offload import enable_activation_offloading
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
+from verl.utils.dataset.dataset_utils import DatasetPadMode
 from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.device import (
     get_device_id,
@@ -45,6 +49,7 @@ from verl.utils.fsdp_utils import (
     FSDPModule,
     MixedPrecisionPolicy,
     apply_fsdp2,
+    collect_lora_params,
     fsdp2_clip_grad_norm_,
     fsdp2_load_full_state_dict,
     fsdp_version,
@@ -55,7 +60,9 @@ from verl.utils.fsdp_utils import (
     load_fsdp_optimizer,
     offload_fsdp_model_to_cpu,
     offload_fsdp_optimizer,
+    replace_lora_wrapper,
 )
+from verl.utils.model import convert_weight_keys
 from verl.utils.py_functional import convert_to_regular_types
 from verl.utils.torch_functional import logprobs_from_logits
 from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad, ulysses_pad_and_slice_inputs
@@ -67,11 +74,10 @@ elif is_npu_available:
     from transformers.integrations.npu_flash_attention import index_first_axis, pad_input, rearrange, unpad_input
 
 from verl.trainer.config import CheckpointConfig
-from verl.utils.seqlen_balancing import prepare_dynamic_batch
 from verl.workers.config import FSDPEngineConfig, FSDPOptimizerConfig, HFModelConfig
 
 from ..base import BaseEngine, EngineRegistry
-from ..utils import postprocess_batch_func
+from ..utils import postprocess_batch_func, prepare_micro_batches
 from .utils import create_device_mesh, get_sharding_strategy
 
 logger = logging.getLogger(__file__)
@@ -135,7 +141,10 @@ class FSDPEngine(BaseEngine):
         )
 
     def is_mp_src_rank_with_outputs(self):
-        is_collect = self.ulysses_device_mesh["sp"].get_local_rank() == 0
+        if self.ulysses_device_mesh is not None:
+            is_collect = self.ulysses_device_mesh["sp"].get_local_rank() == 0
+        else:
+            is_collect = True
         return is_collect
 
     def initialize(self):
@@ -335,6 +344,20 @@ class FSDPEngine(BaseEngine):
         if self.model_config.enable_activation_offload:
             enable_gradient_checkpointing = self.model_config.enable_gradient_checkpointing
             enable_activation_offloading(module, self.engine_config.strategy, enable_gradient_checkpointing)
+
+        if torch.distributed.get_world_size() == 1 and fsdp_version(module) == 1:
+            FSDP.set_state_dict_type(
+                module,
+                state_dict_type=StateDictType.FULL_STATE_DICT,
+                state_dict_config=FullStateDictConfig(),
+            )
+        elif fsdp_version(module) == 1:
+            FSDP.set_state_dict_type(
+                module,
+                state_dict_type=StateDictType.SHARDED_STATE_DICT,
+                state_dict_config=ShardedStateDictConfig(),
+            )
+
         return module
 
     def _build_optimizer(self, module):
@@ -353,13 +376,13 @@ class FSDPEngine(BaseEngine):
 
         optim_config = self.optimizer_config
 
-        total_steps = optim_config.get("total_training_steps", 0)
-        num_warmup_steps = int(optim_config.get("lr_warmup_steps", -1))
-        warmup_style = optim_config.get("warmup_style", "constant")
-        min_lr_ratio = optim_config.get("min_lr_ratio", 0.0)
-        num_cycles = optim_config.get("num_cycles", 0.5)
-        if num_warmup_steps < 0:
-            num_warmup_steps_ratio = optim_config.get("lr_warmup_steps_ratio", 0.0)
+        total_steps = optim_config.total_training_steps
+        num_warmup_steps = optim_config.lr_warmup_steps
+        warmup_style = optim_config.warmup_style
+        min_lr_ratio = optim_config.min_lr_ratio
+        num_cycles = optim_config.num_cycles
+        if num_warmup_steps <= 0:
+            num_warmup_steps_ratio = optim_config.lr_warmup_steps_ratio
             num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
 
         if self.rank == 0:
@@ -443,34 +466,13 @@ class FSDPEngine(BaseEngine):
         else:
             return torch.distributed.group.WORLD
 
-    def prepare_micro_batches(self, data: DataProto):
-        """
-        Prepare micro batches from data.
-        """
-        use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", True)
+    def forward_backward_batch(self, data: TensorDict, loss_function: Callable, forward_only=False) -> list[TensorDict]:
+        # note that the global_batch_size should include data on all the dp
+        tu.assign_non_tensor(data, sp_size=self.ulysses_sequence_parallel_size)
 
-        # # has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
-        # # select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
-        # # non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
-        # batch = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
-
-        # batch.meta_info = copy.deepcopy(data.meta_info)
-
-        if use_dynamic_bsz:
-            assert "max_token_len_per_gpu" in data.meta_info, (
-                "max_token_len_per_gpu must be set when use_dynamic_bsz is True"
-            )
-            max_token_len_per_gpu = data.meta_info.get("max_token_len_per_gpu")
-            max_token_len = max_token_len_per_gpu * self.ulysses_sequence_parallel_size
-            micro_batches, batch_idx_list = prepare_dynamic_batch(data, max_token_len=max_token_len)
-        else:
-            micro_batch_size_per_gpu = data.meta_info.get("micro_batch_size_per_gpu")
-            micro_batches = data.split(micro_batch_size_per_gpu)
-            batch_idx_list = None
-        return micro_batches, batch_idx_list
-
-    def forward_backward_batch(self, data: DataProto, loss_function: Callable, forward_only=False) -> list[DataProto]:
-        micro_batches, indices = self.prepare_micro_batches(data=data)
+        micro_batches, indices = prepare_micro_batches(
+            data=data, dp_group=self.get_data_parallel_group(), same_micro_num_in_dp=True
+        )
 
         output_lst = []
 
@@ -478,10 +480,15 @@ class FSDPEngine(BaseEngine):
 
         for micro_batch in micro_batches:
             with ctx:
-                # note that loss must be scaled in postprocess_micro_batch_func
                 loss, meta_info = self.forward_step(micro_batch, loss_function=loss_function, forward_only=forward_only)
+
                 if not forward_only:
+                    global_bsz = data["global_batch_size"]
+                    local_micro_bsz = micro_batch.batch_size[0]
                     # metrics contain the output, loss is dummy
+                    loss_scale_factor = local_micro_bsz / (global_bsz / self.get_data_parallel_size())
+                    # scale loss
+                    loss = loss * loss_scale_factor
                     loss.backward()
 
             output_lst.append(meta_info)
@@ -489,7 +496,7 @@ class FSDPEngine(BaseEngine):
         # postprocess and return
         return postprocess_batch_func(output_lst=output_lst, indices=indices, data=data)
 
-    def forward_step(self, micro_batch: DataProto, loss_function, forward_only):
+    def forward_step(self, micro_batch: TensorDict, loss_function, forward_only):
         raise NotImplementedError("forward_step must be implemented in subclass")
 
     def optimizer_zero_grad(self):
@@ -516,13 +523,16 @@ class FSDPEngine(BaseEngine):
                 self.module.parameters(), max_norm=self.optimizer_config.clip_grad
             )
 
+        if isinstance(grad_norm, DTensor):
+            grad_norm = grad_norm.full_tensor()
+
         # if grad_norm is not finite, skip the update
         if not torch.isfinite(grad_norm):
             print(f"WARN: grad_norm is not finite: {grad_norm}")
             self.optimizer.zero_grad()
         else:
             self.optimizer.step()
-        return grad_norm
+        return grad_norm.item()
 
     def lr_scheduler_step(self):
         """
@@ -540,8 +550,10 @@ class FSDPEngine(BaseEngine):
             # force cpu_offload
             return
 
-        assert device in ("cuda", "cpu")
-        if device == "cuda":
+        device_name = get_device_name()
+
+        assert device in (device_name, "cpu")
+        if device == device_name:
             if not self.engine_config.param_offload:
                 if model:
                     load_fsdp_model_to_gpu(self.module)
@@ -592,9 +604,48 @@ class FSDPEngine(BaseEngine):
         if self._is_offload_optimizer:
             offload_fsdp_optimizer(self.optimizer)
 
+    def get_per_tensor_param(self, layered_summon=False, base_sync_done=False):
+        log_gpu_memory_usage("Before load_fsdp_model_to_gpu", logger=logger)
+
+        if self._is_offload_param:
+            load_fsdp_model_to_gpu(self.module)
+
+        log_gpu_memory_usage("After load_fsdp_model_to_gpu", logger=logger)
+
+        peft_config = None
+        peft_model = getattr(self.module, "_fsdp_wrapped_module", self.module)
+        if hasattr(peft_model, "peft_config"):  # LoRA
+            peft_config = peft_model.peft_config.get("default", None)
+            params = collect_lora_params(
+                module=self.module,
+                layered_summon=layered_summon,
+                base_sync_done=base_sync_done,
+            )
+            if not base_sync_done:
+                params = {replace_lora_wrapper(k, peft_config): v for k, v in params.items()}
+        else:
+            params = self.module.state_dict()
+
+        params = convert_weight_keys(params, getattr(self.module, "_fsdp_wrapped_module", self.module))
+
+        log_gpu_memory_usage("Before offload_fsdp_model_to_cpu", logger=logger)
+        if self._is_offload_param:
+            offload_fsdp_model_to_cpu(self.module)
+        log_gpu_memory_usage("After offload_fsdp_model_to_cpu", logger=logger)
+
+        if peft_config is not None and base_sync_done:
+            per_tensor_param = params
+        else:
+            device = get_device_id()  # used when fsdp2 set cpu_offload_policy
+            per_tensor_param = (
+                (name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param)
+                for name, param in params.items()
+            )
+        return per_tensor_param
+
 
 class EngineEvalModeCtx:
-    def __init__(self, engine):
+    def __init__(self, engine: FSDPEngine):
         self.engine = engine
 
     def __enter__(self):
@@ -610,8 +661,7 @@ class EngineEvalModeCtx:
 
         # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
         # unshard the root FSDP module
-        world_size = torch.distributed.get_world_size()
-        if world_size > 1:
+        if self.engine.engine_config.fsdp_size > 1:
             if fsdp_version(self.engine.module) == 1:
                 self.engine.module._handle.reshard(True)
             elif fsdp_version(self.engine.module) == 2:
@@ -649,42 +699,37 @@ class EngineTrainModeCtx:
 
 @EngineRegistry.register(model_type="language_model", backend=["fsdp", "fsdp2"])
 class FSDPEngineWithLMHead(FSDPEngine):
-    def forward_step(self, micro_batch: DataProto, loss_function, forward_only):
-        use_remove_padding = micro_batch.meta_info.get("use_remove_padding", True)
-        use_fused_kernels = micro_batch.meta_info.get("use_fused_kernels", False)
-        temperature = micro_batch.meta_info["temperature"]
-        calculate_entropy = micro_batch.meta_info.get("calculate_entropy", False)
+    def prepare_model_inputs(self, micro_batch: TensorDict):
+        use_remove_padding = tu.get_non_tensor_data(data=micro_batch, key="use_remove_padding", default=True)
+        pad_mode = tu.get_non_tensor_data(data=micro_batch, key="pad_mode", default=DatasetPadMode.LEFT_RIGHT)
+        use_fused_kernels = tu.get_non_tensor_data(data=micro_batch, key="use_fused_kernels", default=False)
+        temperature = micro_batch["temperature"]
 
-        device_name = get_device_name()
-        # actually, we should avoid assigning like this...
-        micro_batch = micro_batch.to(get_device_id())
-        micro_batch_tensor = micro_batch.batch
-
-        response_length = micro_batch_tensor["responses"].size(-1)
         multi_modal_inputs = {}
-        if "multi_modal_inputs" in micro_batch_tensor.keys():
-            if "image_bound" in micro_batch_tensor["multi_modal_inputs"][0]:  # minicpm-o logic
-                for key in micro_batch_tensor["multi_modal_inputs"][0].keys():
-                    multi_modal_inputs[key] = [inputs[key] for inputs in micro_batch_tensor["multi_modal_inputs"]]
-            else:
-                for key in micro_batch_tensor["multi_modal_inputs"][0].keys():
-                    multi_modal_inputs[key] = torch.cat(
-                        [inputs[key] for inputs in micro_batch_tensor["multi_modal_inputs"]], dim=0
-                    )
+        if "multi_modal_inputs" in micro_batch.keys():
+            from verl.utils.model import extract_multi_modal_inputs
 
-        with torch.autocast(device_type=device_name, dtype=torch.bfloat16):
-            input_ids = micro_batch_tensor["input_ids"]
-            batch_size, seqlen = input_ids.shape
-            attention_mask = micro_batch_tensor["attention_mask"]
-            position_ids = micro_batch_tensor["position_ids"]
-            entropy = None
-            if position_ids.dim() == 3:  # qwen2vl mrope
-                position_ids = position_ids.transpose(0, 1)  # (bsz, 3, seqlen) -> (3, bsz, seqlen)
+            multi_modal_inputs = extract_multi_modal_inputs(micro_batch["multi_modal_inputs"])
 
-            if use_remove_padding:
+        input_ids = micro_batch["input_ids"]
+        position_ids = micro_batch["position_ids"]
+
+        if position_ids.dim() == 3:  # qwen2vl mrope
+            position_ids = position_ids.transpose(0, 1)  # (bsz, 3, seqlen) -> (3, bsz, seqlen)
+
+        # args used to get outputs
+        output_args = {}
+
+        if use_remove_padding:
+            if pad_mode == DatasetPadMode.NO_PADDING:
+                input_ids_rmpad = input_ids.values().unsqueeze(0)  # (1, total_nnz)
+                position_ids_rmpad = position_ids.values().unsqueeze(0)  # (1, total_nnz)
+            elif pad_mode == DatasetPadMode.LEFT_RIGHT:
+                attention_mask = micro_batch["attention_mask"]
                 input_ids_rmpad, indices, cu_seqlens, *_ = unpad_input(
                     input_ids.unsqueeze(-1), attention_mask
                 )  # input_ids_rmpad (total_nnz, ...)
+                output_args["indices"] = indices
                 input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
 
                 # unpad the position_ids to align the rotary
@@ -705,92 +750,176 @@ class FSDPEngineWithLMHead(FSDPEngine):
                     multi_modal_inputs = process_multi_modal_inputs_for_minicpmo(
                         input_ids, attention_mask, position_ids, cu_seqlens, multi_modal_inputs
                     )
+            else:
+                raise NotImplementedError(f"pad_mode {pad_mode} not implemented")
 
-                # for compute the log_prob
-                input_ids_rmpad_rolled = torch.roll(input_ids_rmpad, shifts=-1, dims=1)  # (1, total_nnz)
+            # for compute the log_prob
+            input_ids_rmpad_rolled = torch.roll(input_ids_rmpad, shifts=-1, dims=1)  # (1, total_nnz)
 
-                # pad and slice the inputs if sp > 1
-                if self.use_ulysses_sp:
-                    is_vlm_model = "multi_modal_inputs" in micro_batch_tensor.keys()
-                    if is_vlm_model:
-                        # vlm model's inputs will be sliced after embedding
-                        input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad(
-                            input_ids_rmpad,
-                            position_ids_rmpad=position_ids_rmpad,
-                            sp_size=self.ulysses_sequence_parallel_size,
-                        )
-                    else:
-                        input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(
-                            input_ids_rmpad,
-                            position_ids_rmpad=position_ids_rmpad,
-                            sp_size=self.ulysses_sequence_parallel_size,
-                        )
-                    input_ids_rmpad_rolled, _, _ = ulysses_pad_and_slice_inputs(
-                        input_ids_rmpad_rolled,
-                        position_ids_rmpad=None,
+            # pad and slice the inputs if sp > 1
+            if self.use_ulysses_sp:
+                is_vlm_model = hasattr(getattr(self.module, "module", self.module).config, "vision_config")
+                if is_vlm_model:
+                    # vlm model's inputs will be sliced after embedding
+                    input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad(
+                        input_ids_rmpad,
+                        position_ids_rmpad=position_ids_rmpad,
                         sp_size=self.ulysses_sequence_parallel_size,
                     )
-
-                input_ids_rmpad_rolled = input_ids_rmpad_rolled.squeeze(0)  # ((total_nnz / sp) + pad)
-
-                # only pass input_ids and position_ids to enable flash_attn_varlen
-                extra_args = {}
-                if use_fused_kernels:
-                    extra_args["temperature"] = temperature
-                    extra_args["return_dict"] = True
-
-                output = self.module(
-                    input_ids=input_ids_rmpad,
-                    attention_mask=None,
-                    position_ids=position_ids_rmpad,
-                    **multi_modal_inputs,
-                    use_cache=False,
-                    **extra_args,
-                )  # prevent model thinks we are generating
-
-                if use_fused_kernels:
-                    log_probs = output.log_probs.squeeze(0)  # (total_nnz,)
-                    entropy_rmpad = output.entropy.squeeze(0)  # (total_nnz,)
-
                 else:
-                    logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
-                    logits_rmpad.div_(temperature)
-
-                    # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
-                    inplace_backward = True
-                    if calculate_entropy:
-                        inplace_backward = False
-                    log_probs = logprobs_from_logits(
-                        logits=logits_rmpad,
-                        labels=input_ids_rmpad_rolled,
-                        inplace_backward=inplace_backward,
+                    input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(
+                        input_ids_rmpad,
+                        position_ids_rmpad=position_ids_rmpad,
+                        sp_size=self.ulysses_sequence_parallel_size,
                     )
+                input_ids_rmpad_rolled, _, _ = ulysses_pad_and_slice_inputs(
+                    input_ids_rmpad_rolled,
+                    position_ids_rmpad=None,
+                    sp_size=self.ulysses_sequence_parallel_size,
+                )
 
-                    # compute entropy
-                    if calculate_entropy:
-                        if not self.engine_config.entropy_checkpointing:
-                            entropy_rmpad = self.compute_entropy_from_logits(logits_rmpad)  # ((total_nnz / sp) + pad)
-                        else:
-                            entropy_rmpad = torch.utils.checkpoint.checkpoint(
-                                self.compute_entropy_from_logits, logits_rmpad
-                            )
+                output_args["pad_size"] = pad_size
 
-                # gather log_prob if sp > 1
-                if self.use_ulysses_sp:
-                    # gather and unpad for the ulysses sp
-                    log_probs = gather_outputs_and_unpad(
-                        log_probs,
+            input_ids_rmpad_rolled = input_ids_rmpad_rolled.squeeze(0)  # ((total_nnz / sp) + pad)
+            output_args["input_ids_rmpad_rolled"] = input_ids_rmpad_rolled
+
+            # only pass input_ids and position_ids to enable flash_attn_varlen
+
+            model_inputs = {
+                "input_ids": input_ids_rmpad,
+                "attention_mask": None,
+                "position_ids": position_ids_rmpad,
+            }
+
+        else:
+            if pad_mode == DatasetPadMode.NO_PADDING:
+                input_ids = micro_batch["input_ids"]
+                position_ids = micro_batch["position_ids"]
+                loss_mask = micro_batch["loss_mask"]
+
+                pad_token_id = tu.get_non_tensor_data(data=micro_batch, key="pad_token_id", default=0)
+                batch_size = micro_batch.batch_size[0]
+                seq_len_effective = input_ids.offsets().diff()
+                max_seq_len = max(seq_len_effective)
+
+                input_ids_rmpad_rolled = torch.roll(input_ids.values(), shifts=-1, dims=0)
+                output_args["input_ids_rmpad_rolled"] = input_ids_rmpad_rolled
+
+                input_ids = torch.nested.to_padded_tensor(
+                    input_ids, padding=pad_token_id, output_size=(batch_size, max_seq_len)
+                )
+
+                position_ids = torch.nested.to_padded_tensor(
+                    position_ids, padding=0, output_size=(batch_size, max_seq_len)
+                )
+
+                attention_mask_list = [torch.ones_like(t, dtype=torch.int32) for t in loss_mask]
+                attention_mask = torch.nested.as_nested_tensor(attention_mask_list, layout=torch.jagged)
+                attention_mask = torch.nested.to_padded_tensor(
+                    attention_mask, padding=0, output_size=(batch_size, max_seq_len)
+                )
+
+                model_inputs = {
+                    "input_ids": input_ids,
+                    "attention_mask": attention_mask,
+                    "position_ids": position_ids,
+                }
+            elif pad_mode == DatasetPadMode.LEFT_RIGHT:
+                attention_mask = micro_batch["attention_mask"]
+                model_inputs = {
+                    "input_ids": input_ids,
+                    "attention_mask": attention_mask,
+                    "position_ids": position_ids,
+                }
+            else:
+                raise NotImplementedError(f"pad_mode {pad_mode} not implemented")
+
+        extra_args = {}
+        if use_fused_kernels:
+            extra_args["temperature"] = temperature
+            extra_args["return_dict"] = True
+
+        model_inputs.update(multi_modal_inputs)
+        model_inputs.update(extra_args)
+
+        return model_inputs, output_args
+
+    def prepare_model_outputs(self, output, output_args, micro_batch: TensorDict):
+        use_remove_padding = tu.get_non_tensor_data(data=micro_batch, key="use_remove_padding", default=True)
+        pad_mode = tu.get_non_tensor_data(data=micro_batch, key="pad_mode", default=DatasetPadMode.LEFT_RIGHT)
+        use_fused_kernels = tu.get_non_tensor_data(data=micro_batch, key="use_fused_kernels", default=False)
+        temperature = micro_batch["temperature"]
+        calculate_entropy = tu.get_non_tensor_data(data=micro_batch, key="calculate_entropy", default=False)
+
+        model_output = {}
+
+        input_ids = micro_batch["input_ids"]
+        if use_remove_padding:
+            input_ids_rmpad_rolled = output_args["input_ids_rmpad_rolled"]
+
+            if use_fused_kernels:
+                log_probs = output.log_probs.squeeze(0)  # (total_nnz,)
+                entropy_rmpad = output.entropy.squeeze(0)  # (total_nnz,)
+            else:
+                logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
+                logits_rmpad.div_(temperature)
+
+                # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
+                inplace_backward = True
+                if calculate_entropy:
+                    inplace_backward = False
+                log_probs = logprobs_from_logits(
+                    logits=logits_rmpad,
+                    labels=input_ids_rmpad_rolled,
+                    inplace_backward=inplace_backward,
+                )
+
+                # compute entropy
+                if calculate_entropy:
+                    if not self.engine_config.entropy_checkpointing:
+                        entropy_rmpad = self.compute_entropy_from_logits(logits_rmpad)  # ((total_nnz / sp) + pad)
+                    else:
+                        entropy_rmpad = torch.utils.checkpoint.checkpoint(
+                            self.compute_entropy_from_logits, logits_rmpad
+                        )
+
+            # gather log_prob if sp > 1
+            if self.use_ulysses_sp:
+                pad_size = output_args["pad_size"]
+
+                # gather and unpad for the ulysses sp
+                log_probs = gather_outputs_and_unpad(
+                    log_probs,
+                    gather_dim=0,
+                    unpad_dim=0,
+                    padding_size=pad_size,
+                )
+                if calculate_entropy:
+                    entropy_rmpad = gather_outputs_and_unpad(
+                        entropy_rmpad,
                         gather_dim=0,
                         unpad_dim=0,
                         padding_size=pad_size,
                     )
-                    if calculate_entropy:
-                        entropy_rmpad = gather_outputs_and_unpad(
-                            entropy_rmpad,
-                            gather_dim=0,
-                            unpad_dim=0,
-                            padding_size=pad_size,
-                        )
+
+            if pad_mode == DatasetPadMode.NO_PADDING:
+                cu_seqlens = input_ids.offsets()
+                # (bsz, j1) for each sample, is the length of each sample: [real_prompt length + real_response length]
+                log_probs = torch.nested.nested_tensor_from_jagged(log_probs, cu_seqlens)
+                if calculate_entropy:
+                    entropy = torch.nested.nested_tensor_from_jagged(entropy_rmpad, cu_seqlens)
+            elif pad_mode == DatasetPadMode.LEFT_RIGHT:
+                indices = output_args["indices"]
+                response_length = micro_batch["responses"].size(-1)
+                batch_size, seqlen = input_ids.shape
+                full_log_probs = pad_input(
+                    hidden_states=log_probs.unsqueeze(-1),
+                    indices=indices,
+                    batch=batch_size,
+                    seqlen=seqlen,
+                )
+                log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
+
                 # pad back to (bsz, seqlen)
                 if calculate_entropy:
                     full_entropy = pad_input(
@@ -799,58 +928,75 @@ class FSDPEngineWithLMHead(FSDPEngine):
                         batch=batch_size,
                         seqlen=seqlen,
                     )
-                full_log_probs = pad_input(
-                    hidden_states=log_probs.unsqueeze(-1),
-                    indices=indices,
-                    batch=batch_size,
-                    seqlen=seqlen,
-                )
-
                 # only return response part:
                 if calculate_entropy:
                     entropy = full_entropy.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
-                log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
+            else:
+                raise NotImplementedError(f"pad_mode {pad_mode} not implemented")
 
-            else:  # not using rmpad and no ulysses sp
-                extra_args = {}
-                if use_fused_kernels:
-                    extra_args["temperature"] = temperature
-                    extra_args["return_dict"] = True
+        else:  # not using rmpad and no ulysses sp
+            response_length = tu.get_non_tensor_data(data=micro_batch, key="max_response_length", default=1024)
+            if use_fused_kernels:
+                log_probs = output.log_probs[:, -response_length - 1 : -1]
+                entropy = output.entropy[:, -response_length - 1 : -1]  # (bsz, response_length)
 
-                output = self.module(
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    position_ids=position_ids,
-                    **multi_modal_inputs,
-                    use_cache=False,
-                    **extra_args,
-                )  # prevent model thinks we are generating
+            else:
+                logits = output.logits
+                logits.div_(temperature)
 
-                if use_fused_kernels:
-                    log_probs = output.log_probs[:, -response_length - 1 : -1]
-                    entropy = output.entropy[:, -response_length - 1 : -1]  # (bsz, response_length)
+                if calculate_entropy:
+                    if not self.engine_config.entropy_checkpointing:
+                        entropy = verl_F.entropy_from_logits(logits)
+                    else:
+                        entropy = torch.utils.checkpoint.checkpoint(verl_F.entropy_from_logits, logits)
 
-                else:
-                    logits = output.logits
-
-                    logits.div_(temperature)
-                    logits = logits[:, -response_length - 1 : -1, :]  # (bsz, response_length, vocab_size)
-                    log_probs = logprobs_from_logits(logits, micro_batch_tensor["responses"])
+                if pad_mode == DatasetPadMode.NO_PADDING:
+                    cu_seqlens = input_ids.offsets()
+                    seq_lengths = cu_seqlens.diff()
+                    starts = torch.zeros_like(seq_lengths, dtype=torch.int64)
+                    logits = torch.nested.narrow(logits, 1, starts, seq_lengths, layout=torch.jagged)
+                    logits_rmpad = torch.cat([t for t in logits.unbind()])
+                    input_ids_rmpad_rolled = output_args["input_ids_rmpad_rolled"]
+                    log_probs = logprobs_from_logits(logits=logits_rmpad, labels=input_ids_rmpad_rolled)
+                    # (bsz, j1) for each sample, length of each sample: [real_prompt_length + real_response_length]
+                    log_probs = torch.nested.nested_tensor_from_jagged(log_probs, cu_seqlens)
                     if calculate_entropy:
-                        if not self.engine_config.entropy_checkpointing:
-                            entropy = verl_F.entropy_from_logits(logits)  # (bsz, response_length)
-                        else:
-                            entropy = torch.utils.checkpoint.checkpoint(verl_F.entropy_from_logits, logits)
+                        entropy = torch.nested.narrow(entropy, 1, starts, seq_lengths, layout=torch.jagged)
+                        entropy_rmpad = torch.cat([t for t in entropy.unbind()])
+                        entropy = torch.nested.nested_tensor_from_jagged(entropy_rmpad, cu_seqlens)
+                elif pad_mode == DatasetPadMode.LEFT_RIGHT:
+                    logits = logits[:, -response_length - 1 : -1, :]  # (bsz, response_length, vocab_size)
+                    log_probs = logprobs_from_logits(logits, micro_batch["responses"])
+                    if calculate_entropy:
+                        entropy = entropy[:, -response_length - 1 : -1]  # (bsz, response_length)
+                else:
+                    raise NotImplementedError(f"pad_mode {pad_mode} not implemented")
 
-            output = {"log_probs": log_probs}
-            if calculate_entropy:
-                output["entropy"] = entropy
+        model_output["log_probs"] = log_probs
+        if calculate_entropy:
+            model_output["entropy"] = entropy
 
-            model_output = output
+        return model_output
+
+    def forward_step(self, micro_batch: TensorDict, loss_function, forward_only):
+        device_name = get_device_name()
+        # actually, we should avoid assigning like this...
+        micro_batch = micro_batch.to(get_device_id())
+        model_inputs, output_args = self.prepare_model_inputs(micro_batch=micro_batch)
+
+        with torch.autocast(device_type=device_name, dtype=torch.bfloat16):
+            raw_output = self.module(
+                **model_inputs,
+                use_cache=False,
+            )  # prevent model thinks we are generating
+
+            model_output = self.prepare_model_outputs(
+                output=raw_output, output_args=output_args, micro_batch=micro_batch
+            )
 
             if loss_function is not None:
                 loss, metrics = loss_function(
-                    model_output=output, data=micro_batch_tensor, dp_group=self.get_data_parallel_group()
+                    model_output=model_output, data=micro_batch, dp_group=self.get_data_parallel_group()
                 )
             else:
                 assert forward_only, "forward_only must be True when loss_function is None"
@@ -864,3 +1010,45 @@ class FSDPEngineWithLMHead(FSDPEngine):
             }
 
             return loss, output
+
+
+@EngineRegistry.register(model_type="value_model", backend=["fsdp", "fsdp2"])
+class FSDPEngineWithValueHead(FSDPEngineWithLMHead):
+    """
+    The only difference between critic and actor is how the raw model output is processed
+    """
+
+    def prepare_model_outputs(self, output, output_args, micro_batch: TensorDict):
+        use_remove_padding = tu.get_non_tensor_data(data=micro_batch, key="use_remove_padding", default=True)
+        response_length = micro_batch["responses"].size(-1)
+
+        if use_remove_padding:
+            input_ids = micro_batch["input_ids"]
+            batch_size, seqlen = input_ids.shape
+
+            if hasattr(self.module, "v_head"):
+                # For trl.AutoModelForCausalLMWithValueHead
+                values_rmpad = output[2].squeeze(0).unsqueeze(-1)
+            else:
+                values_rmpad = output.logits
+                values_rmpad = values_rmpad.squeeze(0)  # (total_nnz)
+
+            indices = output_args["indices"]
+
+            # gather output if sp > 1
+            if self.use_ulysses_sp:
+                pad_size = output_args["pad_size"]
+                values_rmpad = gather_outputs_and_unpad(values_rmpad, gather_dim=0, unpad_dim=0, padding_size=pad_size)
+
+            # pad it back
+            values = pad_input(values_rmpad, indices=indices, batch=batch_size, seqlen=seqlen).squeeze(-1)
+            values = values[:, -response_length - 1 : -1]
+        else:
+            if hasattr(self.module, "v_head"):
+                # For trl.AutoModelForCausalLMWithValueHead
+                values = output[2]
+            else:
+                values = output.logits
+            values = values[:, -response_length - 1 : -1].squeeze(-1)
+
+        return {"values": values}

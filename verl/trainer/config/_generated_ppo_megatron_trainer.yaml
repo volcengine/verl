@@ -33,7 +33,7 @@ actor_rollout_ref:
       optimizer_offload: false
       tensor_model_parallel_size: 1
       expert_model_parallel_size: 1
-      expert_tensor_parallel_size: null
+      expert_tensor_parallel_size: 1
       pipeline_model_parallel_size: 1
       virtual_pipeline_model_parallel_size: null
       context_parallel_size: 1
@@ -49,6 +49,7 @@ actor_rollout_ref:
         - core_attn
         recompute_method: null
         recompute_num_layers: null
+        attention_backend: flash
       override_mcore_model_config: {}
       use_mbridge: false
       forward_only: false
@@ -62,6 +63,7 @@ actor_rollout_ref:
     clip_ratio: 0.2
     clip_ratio_low: 0.2
     clip_ratio_high: 0.2
+    freeze_vision_tower: false
     policy_loss:
       _target_: verl.workers.config.PolicyLossConfig
       loss_mode: vanilla
@@ -155,7 +157,7 @@ actor_rollout_ref:
       optimizer_offload: false
       tensor_model_parallel_size: 1
       expert_model_parallel_size: 1
-      expert_tensor_parallel_size: null
+      expert_tensor_parallel_size: 1
       pipeline_model_parallel_size: 1
       virtual_pipeline_model_parallel_size: null
       context_parallel_size: 1
@@ -185,10 +187,13 @@ actor_rollout_ref:
     enforce_eager: false
     cudagraph_capture_sizes: null
     free_cache_engine: true
-    tensor_model_parallel_size: 1
+    tensor_model_parallel_size: 2
     max_num_batched_tokens: 8192
     max_model_len: null
     max_num_seqs: 1024
+    enable_chunked_prefill: true
+    enable_prefix_caching: true
+    load_format: dummy
     log_prob_micro_batch_size: null
     log_prob_micro_batch_size_per_gpu: null
     log_prob_use_dynamic_bsz: ${oc.select:actor_rollout_ref.actor.use_dynamic_bsz,false}
@@ -221,6 +226,7 @@ actor_rollout_ref:
       use_inference_chat_template: false
       tokenization_sanity_check_mode: strict
       format: hermes
+      num_repeat_rollouts: null
     calculate_log_probs: false
     agent:
       _target_: verl.workers.config.AgentLoopConfig
@@ -237,6 +243,7 @@ actor_rollout_ref:
       token2text: false
     skip_rollout: false
     skip_dump_dir: /tmp/rollout_dump
+    skip_tokenizer_init: true
     profiler:
       _target_: verl.utils.profiler.ProfilerConfig
       tool: ${oc.select:global_profiler.tool,null}
@@ -245,8 +252,6 @@ actor_rollout_ref:
       ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
       save_path: ${oc.select:global_profiler.save_path,null}
       tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}
-    enable_chunked_prefill: false
-    load_format: dummy_megatron
     layer_name_map:
       qkv_layer_name: qkv
       gate_proj_layer_name: gate_up
@@ -262,6 +267,7 @@ actor_rollout_ref:
         freeze_moe_router: false
     use_fused_kernels: false
     trust_remote_code: false
+    use_remove_padding: false
 data:
   tokenizer: null
   use_shm: false
@@ -325,7 +331,7 @@ critic:
     optimizer_offload: false
     tensor_model_parallel_size: 1
     expert_model_parallel_size: 1
-    expert_tensor_parallel_size: null
+    expert_tensor_parallel_size: 1
     pipeline_model_parallel_size: 1
     virtual_pipeline_model_parallel_size: null
     context_parallel_size: 1
@@ -341,6 +347,7 @@ critic:
       - core_attn
       recompute_method: null
       recompute_num_layers: null
+      attention_backend: flash
     override_mcore_model_config: {}
     use_mbridge: false
     forward_only: false
@@ -440,7 +447,7 @@ reward_model:
     param_offload: false
     tensor_model_parallel_size: 1
     expert_model_parallel_size: 1
-    expert_tensor_parallel_size: null
+    expert_tensor_parallel_size: 1
     pipeline_model_parallel_size: 1
     virtual_pipeline_model_parallel_size: null
     context_parallel_size: 1

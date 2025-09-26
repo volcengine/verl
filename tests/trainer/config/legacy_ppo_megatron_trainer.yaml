@@ -165,8 +165,8 @@ actor_rollout_ref:
     ignore_eos: False
     enforce_eager: False
     free_cache_engine: True
-    load_format: dummy_megatron
-    tensor_model_parallel_size: 1
+    load_format: dummy
+    tensor_model_parallel_size: 2
     max_num_batched_tokens: 8192
     max_model_len: null
     max_num_seqs: 1024
@@ -175,7 +175,7 @@ actor_rollout_ref:
     log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
     log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
     disable_log_stats: True
-    enable_chunked_prefill: False # could get higher throughput
+    enable_chunked_prefill: True # could get higher throughput
     # for hf rollout
     do_sample: True
     layer_name_map:

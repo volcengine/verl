@@ -260,16 +260,8 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         self.actor_rollout_wg = self.actor_wg  # to be compatible with the functions that not be modified
         weights_info = self.actor_wg.get_actor_weights_info()[0]
         self.rollout_wg.set_actor_weights_info(weights_info)
-        from ray.util.collective import collective
 
-        actor_rollout_workers = self.actor_wg.workers + self.rollout_wg.workers
-        collective.create_collective_group(
-            actor_rollout_workers,
-            len(actor_rollout_workers),
-            list(range(0, len(actor_rollout_workers))),
-            backend="nccl",
-            group_name="actor_rollout",
-        )
+        self.create_weight_sync_group()
         self.sync_rollout_weights()
 
         # create async rollout manager and request scheduler
@@ -282,6 +274,25 @@ class OneStepOffRayTrainer(RayPPOTrainer):
                 config=self.config,
                 worker_group=self.rollout_wg,
             )
+
+    def create_weight_sync_group(self):
+        master_address = ray.get(self.actor_wg.workers[0]._get_node_ip.remote())
+        master_port = ray.get(self.actor_wg.workers[0]._get_free_port.remote())
+        world_size = len(self.actor_wg.workers + self.rollout_wg.workers)
+        self.actor_wg.create_weight_sync_group(
+            master_address,
+            master_port,
+            0,
+            world_size,
+        )
+        ray.get(
+            self.rollout_wg.create_weight_sync_group(
+                master_address,
+                master_port,
+                len(self.actor_wg.workers),
+                world_size,
+            )
+        )
 
     def sync_rollout_weights(self):
         if not self.hybrid_engine:
@@ -308,10 +319,10 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         except Exception as e:
             print(f"Error in async_gen_next_batch: {e}")
             return None
-        
+
         # Create the initial batch from the data loader
         batch = DataProto.from_single_dict(batch_dict)
-        
+
         # pop those keys for generation
         batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
         non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
@@ -323,7 +334,7 @@ class OneStepOffRayTrainer(RayPPOTrainer):
             non_tensor_batch_keys_to_pop.append("tools_kwargs")
         if "interaction_kwargs" in batch.non_tensor_batch:
             non_tensor_batch_keys_to_pop.append("interaction_kwargs")
-            
+
         gen_batch = batch.pop(
             batch_keys=batch_keys_to_pop,
             non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
@@ -332,10 +343,10 @@ class OneStepOffRayTrainer(RayPPOTrainer):
 
         # sync weights from actor to rollout
         self.sync_rollout_weights()
-        
+
         # async generation
         gen_batch_output = self.rollout_wg.async_generate_sequences(gen_batch)
-        
+
         # Launch individual reward computations as each generation completes
         future_reward = None
         if self.config.reward_model.launch_reward_fn_async:
@@ -343,48 +354,47 @@ class OneStepOffRayTrainer(RayPPOTrainer):
             future_reward = self._launch_individual_rewards.remote(
                 gen_batch_output, self.config, self.tokenizer, batch.non_tensor_batch
             )
-        
+
         # Return the original, now-modified `batch` and the `future_reward`
         return GenerationBatchFuture(epoch, batch, gen_batch_output, future_reward)
-            
+
     @staticmethod
     @ray.remote
     def _launch_individual_rewards(gen_batch_output, config, tokenizer, original_non_tensor_batch):
         # Get generation results
         gen_batch_result = gen_batch_output.get()
-        
+
         # Repeat non_tensor_batch to match the number of responses
         n = config.actor_rollout_ref.rollout.n
         repeated_non_tensor_batch = {}
         for key, value in original_non_tensor_batch.items():
             repeated_non_tensor_batch[key] = np.repeat(value, n, axis=0)
-        
+
         # Split into individual responses with preserved non_tensor_batch
         responses_split = []
         for i in range(len(gen_batch_result)):
-            response_data = gen_batch_result[i:i+1]  # Get single response
+            response_data = gen_batch_result[i : i + 1]  # Get single response
             # Add repeated non_tensor_batch values
             for key in repeated_non_tensor_batch:
-                response_data.non_tensor_batch[key] = repeated_non_tensor_batch[key][i:i+1]
+                response_data.non_tensor_batch[key] = repeated_non_tensor_batch[key][i : i + 1]
             responses_split.append(response_data)
-        
+
         # Launch async reward computation
         reward_futures = [
-            compute_reward_async.remote(response_data, config, tokenizer) 
-            for response_data in responses_split
+            compute_reward_async.remote(response_data, config, tokenizer) for response_data in responses_split
         ]
-        
+
         # Wait for results and combine
         results = ray.get(reward_futures)
         rewards_list = [r[0] for r in results]
         extras_list = [r[1] for r in results]
-        
+
         combined_reward_tensor = torch.cat(rewards_list, dim=0)
         combined_extras_dict = {}
         if extras_list and extras_list[0]:
             for key in extras_list[0].keys():
                 combined_extras_dict[key] = [d[key] for d in extras_list if key in d]
-                
+
         return combined_reward_tensor, combined_extras_dict
 
     def fit(self):
@@ -613,12 +623,6 @@ class OneStepOffRayTrainer(RayPPOTrainer):
                             reward_extra_infos_dict=reward_extra_infos_dict,
                             dump_path=rollout_data_dir,
                         )
-            #########################################################
-            # Print timing info for this step
-            print(f"\nStep {self.global_steps} timing:")
-            for k, v in timing_raw.items():
-                print(f"  {k}: {v:.4f} s")
-            #########################################################
 
             # validate
             if (
