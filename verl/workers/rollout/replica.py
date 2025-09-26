@@ -18,15 +18,13 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Optional
 
-from omegaconf import DictConfig
 from pydantic import BaseModel
 from ray.actor import ActorHandle
 
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.trainer.ppo.ray_trainer import RayResourcePool, ResourcePoolManager
 from verl.utils.config import omega_conf_to_dataclass
-from verl.workers.config.model import HFModelConfig
-from verl.workers.config.rollout import RolloutConfig
+from verl.workers.config import HFModelConfig, RewardModelConfig, RolloutConfig
 
 logger = logging.getLogger(__file__)
 
@@ -72,24 +70,22 @@ class RolloutReplica(ABC):
 
     Args:
         replica_rank: int, rank of this rollout replica.
-        config: DictConfig, full config.
+        config: RolloutConfig | RewardModelConfig, full config.
         gpus_per_node: int, number of gpus per node.
     """
 
     def __init__(
         self,
         replica_rank: int,
-        config: DictConfig,
+        config: RolloutConfig | RewardModelConfig,
+        model_config: HFModelConfig,
         gpus_per_node: int = 8,
     ) -> None:
         self.replica_rank = replica_rank
-        self.config = config
-        self.rollout_config: RolloutConfig = omega_conf_to_dataclass(config.actor_rollout_ref.rollout)
-        self.model_config: HFModelConfig = omega_conf_to_dataclass(
-            config.actor_rollout_ref.model, dataclass_type=HFModelConfig
-        )
+        self.config = omega_conf_to_dataclass(config)
+        self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
 
-        self.world_size = self.rollout_config.tensor_model_parallel_size * self.rollout_config.data_parallel_size
+        self.world_size = self.config.tensor_model_parallel_size * self.config.data_parallel_size
         self.gpus_per_node = min(gpus_per_node, self.world_size)
         assert self.world_size % self.gpus_per_node == 0, (
             f"world_size {self.world_size} must be divisible by gpus_per_node {self.gpus_per_node}"

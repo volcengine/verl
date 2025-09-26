@@ -20,7 +20,6 @@ from typing import Any, Optional
 import ray
 import sglang.srt.entrypoints.engine
 import torch
-from omegaconf import DictConfig
 from ray.actor import ActorHandle
 from sglang.srt.entrypoints.http_server import (
     ServerArgs,
@@ -37,7 +36,7 @@ from sglang.srt.managers.io_struct import (
 
 from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
-from verl.workers.config import HFModelConfig, RolloutConfig
+from verl.workers.config import HFModelConfig, RewardModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
 from verl.workers.rollout.sglang_rollout.sglang_rollout import ServerAdapter, _set_envs_and_config
 from verl.workers.rollout.utils import get_free_port, run_unvicorn
@@ -64,7 +63,8 @@ class SGLangHttpServer:
 
     def __init__(
         self,
-        config: DictConfig,
+        config: RolloutConfig | RewardModelConfig,
+        model_config: HFModelConfig,
         rollout_mode: RolloutMode,
         workers: list[ActorHandle],
         replica_rank: int,
@@ -76,10 +76,8 @@ class SGLangHttpServer:
         os.environ["CUDA_VISIBLE_DEVICES"] = cuda_visible_devices
         assert torch.cuda.is_available(), "SGLang http server should run on GPU node"
 
-        self.config: RolloutConfig = omega_conf_to_dataclass(config.actor_rollout_ref.rollout)
-        self.model_config: HFModelConfig = omega_conf_to_dataclass(
-            config.actor_rollout_ref.model, dataclass_type=HFModelConfig
-        )
+        self.config: RolloutConfig | RewardModelConfig = omega_conf_to_dataclass(config)
+        self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
         self.config.max_model_len = self.config.prompt_length + self.config.response_length
         self.rollout_mode = rollout_mode
         self.workers = workers
@@ -224,7 +222,7 @@ class SGLangReplica(RolloutReplica):
         """Get rollout worker actor class for colocated and standalone mode."""
         worker_dict_cls = RayClassWithInitArgs(
             cls=_rollout_worker_actor_cls,
-            config=self.rollout_config,
+            config=self.config,
             model_config=self.model_config,
             device_mesh=None,
         )
@@ -264,6 +262,7 @@ class SGLangReplica(RolloutReplica):
                 name=f"sglang_server_{self.replica_rank}_{node_rank}",
             ).remote(
                 config=self.config,
+                model_config=self.model_config,
                 rollout_mode=self.rollout_mode,
                 workers=workers,
                 replica_rank=self.replica_rank,

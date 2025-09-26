@@ -106,8 +106,10 @@ def test_reward_model():
     )
     config = RewardModelConfig(
         enable=True,
+        name="sglang",
         model_type="generative",
-        max_new_tokens=4096,
+        prompt_length=2048,
+        response_length=4096,
         dtype="bfloat16",
         model_config=model_config,
         input_model_config=None,
