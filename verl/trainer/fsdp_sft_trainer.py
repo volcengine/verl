@@ -133,6 +133,7 @@ class FSDPSFTTrainer:
 
         if self.device_mesh.get_rank() == 0:
             print(self.config)
+
         self.device_name = self.config.trainer.device
 
     def _normalize_config_bsz(self):
@@ -230,12 +231,16 @@ class FSDPSFTTrainer:
             use_meta_tensor=not config.tie_word_embeddings, mesh=self.device_mesh
         )
 
+        attn_implementation="flash_attention_2"
+        if self.device_name in ["mps", "cpu"]:
+            attn_implementation = "eager"
+
         with init_context():
             self.model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(
                 local_model_path,
                 config=config,
                 torch_dtype=torch_dtype,
-                attn_implementation="flash_attention_2",
+                attn_implementation=attn_implementation,
                 trust_remote_code=trust_remote_code,
             )
 
@@ -286,7 +291,10 @@ class FSDPSFTTrainer:
             cpu_offload = CPUOffload(offload_params=self.config.model.fsdp_config.offload_params)
 
         fsdp_strategy = self.config.model.strategy
-        if fsdp_strategy == "fsdp":
+        if self.device_name in ["mps", "cpu"]:
+            print(f"[Warning] FSDP not supported on device '{self.device_name}'. Falling back to normal module.")
+            self.fsdp_model = self.model.to(self.device_name)
+        elif fsdp_strategy == "fsdp":
             self.fsdp_model = FSDP(
                 self.model,
                 cpu_offload=cpu_offload,
