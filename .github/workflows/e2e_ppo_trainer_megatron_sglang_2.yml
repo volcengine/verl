@@ -86,7 +86,7 @@ permissions:
   contents: read
 
 env:
-  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:app-verl0.5-transformers4.55.4-sglang0.4.10.post2-mcore0.13.0-te2.2"
+  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:app-verl0.6-transformers4.56.1-sglang0.5.2-mcore0.13.0-te2.2"
   DYNAMIC_RUNNER_ENDPOINT: "https://sd10g3clalm04ug7alq90.apigateway-cn-beijing.volceapi.com/runner"
 
 jobs:
@@ -217,7 +217,6 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install -e .[test,geo,gpu,sglang] --no-deps
-          pip install "transformers[hf_xet]==4.54.0"
       # Geo3k
       - name: Prepare GEO3K dataset
         run: |

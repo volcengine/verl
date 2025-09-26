@@ -1,4 +1,4 @@
-name: e2e_sppo
+name: e2e_spin
 
 on:
   # Trigger the workflow on push or pull request,
@@ -19,11 +19,12 @@ on:
       # Megatron
       - "!verl/workers/**/megatron_*.py"
       # Home
-      - "recipe/sppo"
+      - "recipe/spin"
       # Entrypoints
-      - ".github/workflows/e2e_sppo.yml"
+      - ".github/workflows/e2e_spin.yml"
       - "examples/data_preprocess/gsm8k.py"
-      - "tests/special_e2e/run_sppo.sh"
+      - "tests/special_e2e/run_spin.sh"
+      - "!examples"
   pull_request:
     branches:
       - main
@@ -40,25 +41,25 @@ on:
       # Megatron
       - "!verl/workers/**/megatron_*.py"
       # Home
-      - "recipe/sppo"
+      - "recipe/spin"
       # Entrypoints
-      - ".github/workflows/e2e_sppo.yml"
+      - ".github/workflows/e2e_spin.yml"
       - "examples/data_preprocess/gsm8k.py"
-      - "tests/special_e2e/run_sppo.sh"
+      - "tests/special_e2e/run_spin.sh"
+      - "!examples"
 
 # Declare permissions just read content.
 permissions:
   contents: read
 
+env:
+  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:app-verl0.6-transformers4.56.1-sglang0.5.2-mcore0.13.0-te2.2"
+  DYNAMIC_RUNNER_ENDPOINT: "https://sd10g3clalm04ug7alq90.apigateway-cn-beijing.volceapi.com/runner"
+
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
-
-env:
-  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:app-verl0.5-transformers4.55.4-sglang0.4.10.post2-mcore0.13.0-te2.2"
-  DYNAMIC_RUNNER_ENDPOINT: "https://sd10g3clalm04ug7alq90.apigateway-cn-beijing.volceapi.com/runner"
-  TRANSFORMERS_VERSION: "4.56.2"
 
 jobs:
   setup:
@@ -76,7 +77,7 @@ jobs:
           faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
           mlp-image: "${{ env.IMAGE }}"
 
-  e2e_sppo:
+  e2e_spin:
     needs: setup
     runs-on: [ "${{ needs.setup.outputs.runner-label || 'L20x8' }}" ]
     timeout-minutes: 40 # Increase this timeout value as needed
@@ -93,20 +94,20 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install -e .[test,gpu,sglang]
-      - name: Prepare MATH dataset
+      - name: Prepare GSM8K dataset
         run: |
-          python3 examples/data_preprocess/math_dataset.py
-      - name: Running the E2E test with the SPPO algorithm
+          python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
+      - name: Running the E2E test with the spin algorithm
         run: |
           ray stop --force
-          bash tests/special_e2e/run_sppo.sh
+          bash tests/special_e2e/run_spin.sh
 
   cleanup:
     runs-on: ubuntu-latest
     needs:
       [
         setup,
-        e2e_sppo
+        e2e_spin
       ]
     if: always()
     steps:
