@@ -32,6 +32,7 @@ VALID_CONFIG_TYPE = {
     "gemma3_text",
     "seed_oss",
     "apertus",
+    "glm4v",
 }
 
 
@@ -134,6 +135,7 @@ class FlopsCounter:
             "gemma3_text": self._estimate_gemma3_flops,
             "seed_oss": self._estimate_qwen2_flops,
             "apertus": self._estimate_apertus_flops,
+            "glm4v": self._estimate_qwen2_flops,
         }
         self.config = config
 
