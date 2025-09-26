@@ -18,7 +18,7 @@ FSDP PPO Trainer with Ray-based single controller.
 This trainer supports model-agonistic model initialization with huggingface
 """
 
-import json
+import time
 import uuid
 from collections import deque
 from copy import deepcopy
@@ -150,9 +150,8 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
         self.teacher_config = self.config.actor_rollout_ref.teacher
         self.n_server_workers = self.teacher_config.n_server_workers
-        if not self.teacher_config.overlap_rollout:
-            self.teacher_client = TeacherClient(self.teacher_config.server_ip, self.teacher_config.server_port, 
-                                                n_server_workers=self.n_server_workers)
+        self.teacher_client = TeacherClient(self.teacher_config.server_ip, self.teacher_config.server_port, 
+                                            n_server_workers=self.n_server_workers)
 
     def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler: Optional[Sampler]):
         """
@@ -282,6 +281,7 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
             )
             spawn_wg = wg_dict.spawn(prefix_set=class_dict.keys())
             all_wg.update(spawn_wg)
+            time.sleep(5) # avoid port conflict
 
         self.rollout_wg = all_wg["rollout"]
         self.actor_wg = all_wg["actor"]
@@ -303,21 +303,10 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
         )
         self.sync_rollout_weights()
 
-        # create async rollout manager and request scheduler
-        self.async_rollout_mode = False
-        if self.config.actor_rollout_ref.rollout.mode == "async" and self._is_rollout:
-            from verl.workers.rollout.async_server import AsyncLLMServerManager
-
-            self.async_rollout_mode = True
-            self.async_rollout_manager = AsyncLLMServerManager(
-                config=self.config,
-                worker_group=self.rollout_wg,
-            )
-
     def sync_rollout_weights(self):
-        if not self.hybrid_engine:
-            self.actor_wg.sync_rollout_weights()
-            ray.get(self.rollout_wg.sync_rollout_weights())
+        assert not self.hybrid_engine
+        self.actor_wg.sync_rollout_weights()
+        ray.get(self.rollout_wg.sync_rollout_weights())
 
     def _create_continuous_iterator(self):
         """
@@ -418,7 +407,7 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
         batch_data_future = self._async_gen_next_batch(continuous_iterator)
 
         # Main loop
-        while batch_data_future is not None:
+        while True:
             do_profile = (
                 self.global_steps in self.config.trainer.profile_steps
                 if self.config.trainer.profile_steps is not None
@@ -436,8 +425,7 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
                 # wait for the previous batch
                 with marked_timer("wait_prev_gen", timing_raw, color="red"):
                     epoch, batch, gen_batch_output = batch_data_future.get()
-                    timing_raw.update(gen_batch_output.meta_info["timing"])
-                    gen_timing = gen_batch_output.meta_info.pop("timing", None)
+                    gen_timing = gen_batch_output.meta_info.pop("timing", {})
                     for k, v in gen_timing.items():
                         if isinstance(v, list):
                             array_v = np.array(v)
@@ -451,24 +439,18 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
                     response_lens = (gen_batch_output.batch["responses"] != self.tokenizer.pad_token_id).sum(dim=-1).tolist()
                     max_len = max(response_lens)
                     min_len = min(response_lens)
-                    metrics.update(
-                        {
-                            "response_seq_len/average": float(sum(response_lens)) / len(response_lens),
-                            "response_seq_len/max": max_len,
-                            "response_seq_len/min": min_len,
-                            "response_seq_len/max_count": response_lens.count(max_len),
-                            "response_seq_len/min_count": response_lens.count(min_len),
-                        }
-                    )
+                    metrics.update({
+                        "response_seq_len/average": float(sum(response_lens)) / len(response_lens),
+                        "response_seq_len/max": max_len,
+                        "response_seq_len/min": min_len,
+                        "response_seq_len/max_count": response_lens.count(max_len),
+                        "response_seq_len/min_count": response_lens.count(min_len),
+                    })
 
                 # asys next generation (with syns weights from actor to rollout)
                 with marked_timer("sync_rollout_weights", timing_raw, color="purple"):
                     if not is_last_step:
                         batch_data_future = self._async_gen_next_batch(continuous_iterator)
-
-                batch.non_tensor_batch["uid"] = np.array(
-                    [str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object
-                )
 
                 # Merge generated outputs back
                 batch = batch.union(gen_batch_output)
@@ -482,18 +464,17 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
                 # compute global_valid tokens
                 batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
                 
-                if not self.teacher_config.overlap_rollout:
-                    #teacher knowledge distillation
-                    with marked_timer("get_teacher_knowledge" , timing_raw):
-                        #### try continue 
-                        try:
-                            teacher_batch_output = get_teacher_knowledge(batch, self.teacher_client, self.n_server_workers)
-                        except Exception as e:
-                            print(f"[WARN] Teacher fetch failed for this batch: {e}, skip this batch.")
-                            continue
+                #teacher knowledge distillation
+                with marked_timer("get_teacher_knowledge" , timing_raw):
+                    #### try continue 
+                    try:
+                        teacher_batch_output = get_teacher_knowledge(batch, self.teacher_client, self.n_server_workers)
+                    except Exception as e:
+                        print(f"[WARN] Teacher fetch failed for this batch: {e}, skip this batch.")
+                        continue
 
-                    print("INFO:", "get teacher knowledge done.")
-                    batch = batch.union(teacher_batch_output)
+                print("INFO:", "get teacher knowledge done.")
+                batch = batch.union(teacher_batch_output)
                 
                 # update actor
                 with marked_timer("update_actor", timing_raw, color="red"):
@@ -518,11 +499,7 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
             steps_duration = timing_raw["step"]
             max_steps_duration = max(max_steps_duration, steps_duration)
             # training metrics
-            metrics.update(
-                {
-                    "training/global_step": self.global_steps,
-                }
-            )
+            metrics["training/global_step"] = self.global_steps
             # collect metrics
             # metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
             n_gpus = self.resource_pool_manager.get_n_gpus()
