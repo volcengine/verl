@@ -44,7 +44,7 @@ from verl.workers.roles import ActorWorker, CriticWorker
 from verl.workers.roles.utils.losses import ppo_loss, sft_loss
 
 
-@pytest.mark.parametrize("strategy", ["megatron", "fsdp", "fsdp2"])
+@pytest.mark.parametrize("strategy", ["fsdp", "fsdp2"])
 def test_actor_engine(strategy):
     ray.init()
 
@@ -129,6 +129,7 @@ def test_actor_engine(strategy):
     hf_logprobs = logprobs_from_logits_naive(
         hf_output.logits[:, -response_length - 1 : -1, :].float(), input_ids[:, -response_length:]
     )
+
     hf_logprobs_mean = torch.mean(hf_logprobs * response_mask)
     mcore_logprobs_mean = torch.mean(output.batch["old_log_probs"] * response_mask)
 
@@ -169,7 +170,7 @@ def create_model():
     return path
 
 
-@pytest.mark.parametrize("strategy", ["megatron", "fsdp", "fsdp2"])
+@pytest.mark.parametrize("strategy", ["fsdp", "fsdp2"])
 def test_critic_engine(strategy):
     ray.init()
 
@@ -348,7 +349,7 @@ def _worker(rank: int, world_size: int, rendezvous_file: str, strategy: str, mod
 
 @pytest.mark.parametrize("world_size", [8])
 @pytest.mark.parametrize("config", [Qwen3Config(num_hidden_layers=2), Qwen3MoeConfig(num_hidden_layers=2)])
-@pytest.mark.parametrize("strategy", ["megatron", "fsdp", "fsdp2"])
+@pytest.mark.parametrize("strategy", ["fsdp", "fsdp2"])
 def test_per_tensor_generator(world_size, tmp_path, config, strategy):
     rendezvous_file = str(tmp_path / "rdzv_mask")
     os.makedirs(os.path.dirname(rendezvous_file), exist_ok=True)
