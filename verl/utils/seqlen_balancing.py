@@ -298,20 +298,22 @@ def rearrange_micro_batches(
     if num_batches_divided_by is not None:
         num_micro_batches = roundup_divisible(num_micro_batches, num_batches_divided_by)
 
-    seq_len_effective = seq_len_effective.tolist()
     assert num_micro_batches <= len(seq_len_effective)
 
-    micro_bsz_idx = get_seqlen_balanced_partitions(seq_len_effective, num_micro_batches, equal_size=False)
+    # approximate the workload by Attention and MLP FLOPs
+    workloads = seq_len_effective**2 + seq_len_effective * 33024
+    micro_bsz_idx = get_seqlen_balanced_partitions(workloads, num_micro_batches, equal_size=False)
 
     if use_dynamic_bsz_balance:
         # Use the sum of squared sequence lengths to approximate attention computation workload
         micro_bsz_idx.sort(
             key=lambda partition: (
-                sum(seq_len_effective[idx] ** 2 for idx in partition),
-                min(partition) if partition else 0,
+                sum(workloads[idx] for idx in partition),
+                partition[0] if partition else 0,
             ),
             reverse=True,
         )
+        micro_bsz_idx = micro_bsz_idx[::2][::-1] + micro_bsz_idx[1::2]
 
     micro_batches = []
 

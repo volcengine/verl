@@ -16,11 +16,8 @@ import inspect
 from functools import partial, wraps
 from types import FunctionType
 
-import torch
-
 from verl.protocol import DataProtoFuture, _padding_size_key
 from verl.utils.py_functional import DynamicEnum
-from verl.utils.seqlen_balancing import karmarkar_karp
 
 # here we add a magic number of avoid user-defined function already have this attribute
 MAGIC_ATTR = "attrs_3141562937"
@@ -71,33 +68,18 @@ init_predefined_dispatch_mode()
 init_predefined_execute_mode()
 
 
-def _balance_data_proto(data_proto, chunks):
-    if (
-        not isinstance(data_proto, DataProtoFuture)
-        and data_proto.batch is not None
-        and "attention_mask" in data_proto.batch.keys()
-    ):
-        seqlens = data_proto.batch["attention_mask"].sum(dim=1)
-        # approximate workload of transformer block
-        workloads = seqlens**2 + seqlens * 33024
-        partitions = karmarkar_karp(workloads, chunks, True)
-        ordered_indices = torch.tensor(partitions).view(-1)
-        data_proto.reorder(ordered_indices)
-    return data_proto
-
-
 def _split_args_kwargs_data_proto(chunks, *args, **kwargs):
     from verl.protocol import DataProto, DataProtoFuture
 
     splitted_args = []
     for arg in args:
         assert isinstance(arg, DataProto | DataProtoFuture)
-        splitted_args.append(_balance_data_proto(arg, chunks).chunk(chunks=chunks))
+        splitted_args.append(arg.chunk(chunks=chunks))
 
     splitted_kwargs = {}
     for key, val in kwargs.items():
         assert isinstance(val, DataProto | DataProtoFuture)
-        splitted_kwargs[key] = _balance_data_proto(val, chunks).chunk(chunks=chunks)
+        splitted_kwargs[key] = val.chunk(chunks=chunks)
 
     return splitted_args, splitted_kwargs
 
@@ -121,7 +103,7 @@ def _split_args_kwargs_data_proto_with_auto_padding(chunks, *args, **kwargs):
                     f"expecting all arg share same length of {data_proto_len}, but got {len(obj)}"
                 )
             obj.padding(padding_size=padding_size)
-        return _balance_data_proto(obj, chunks).chunk(chunks=chunks)
+        return obj.chunk(chunks=chunks)
 
     splitted_args = [_padding_and_split_data(arg, chunks) for arg in args]
     splitted_kwargs = {key: _padding_and_split_data(val, chunks) for key, val in kwargs.items()}
