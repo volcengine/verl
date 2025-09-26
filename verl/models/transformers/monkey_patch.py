@@ -308,9 +308,9 @@ def apply_monkey_patch(
             from verl.models.transformers.glm4v import ulysses_flash_attn_forward
 
             Glm4vTextAttention.forward = ulysses_flash_attn_forward
-        original_glm4v_model_forward = Glm4vModel.forward
-        Glm4vModel.forward = _intercepted_glm4v_model_forward(original_glm4v_model_forward)
-        print("Monkey patch Glm4vModel.forward for 3D position_ids interception")
+
+        from glm4v import intercepted_glm4v_model_forward
+        Glm4vModel.forward = intercepted_glm4v_model_forward(Glm4vModel.forward)
 
         if ulysses_sp_size > 1:
             from transformers.models.glm4v.modeling_glm4v import Glm4vTextModel

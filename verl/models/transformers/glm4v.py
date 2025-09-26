@@ -542,3 +542,11 @@ def forward_with_triton_backend(
         attentions=outputs.attentions,
         rope_deltas=rope_deltas,
     )
+
+def intercepted_glm4v_model_forward(original_forward):
+    def wrapper(self, *args, **kwargs):
+        position_ids = kwargs.get('position_ids')
+        if position_ids is not None and hasattr(position_ids, 'shape') and position_ids.ndim == 3:
+            kwargs['position_ids'] = None
+        return original_forward(self, *args, **kwargs)
+    return wrapper
