@@ -39,13 +39,15 @@ def test_group_mean_std_simple():
     gidx = as_torch_index([0, 1, 0])
 
     mean_g, std_g, cnt_g = group_mean_std(scores, gidx)
-    # group 0: mean = (1+3)/2 = 2, std = sqrt(( (1^2+3^2) - (4)/2 ) / (2-1)) = sqrt((10 - 2) / 1) = sqrt(8)
+    # group 0: mean = (1+3)/2 = 2
+    # sample std (unbiased) = sqrt( (sum(x^2) - (sum(x)^2)/n) / (n-1) )
+    # = sqrt( (1^2+3^2) - (1+3)^2/2 ) / (2-1) = sqrt(10 - 16/2) = sqrt(2)
     assert torch.allclose(mean_g, torch.tensor([2.0, 0.0]))
     assert torch.allclose(cnt_g, torch.tensor([2.0, 1.0]))
     # singleton group -> std = 1.0
     assert mean_g[1].item() == 0.0
     assert std_g[1].item() == 1.0
-    assert pytest.approx(std_g[0].item(), rel=1e-5) == (8.0 ** 0.5)
+    assert pytest.approx(std_g[0].item(), rel=1e-6) == (2.0 ** 0.5)
 
 
 def test_group_mean_std_empty():
