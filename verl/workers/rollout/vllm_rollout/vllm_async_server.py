@@ -24,7 +24,6 @@ import numpy as np
 import ray
 import vllm.entrypoints.cli.serve
 import zmq
-from omegaconf import DictConfig
 from ray.actor import ActorHandle
 from vllm import SamplingParams
 from vllm.entrypoints.openai.api_server import (
@@ -39,7 +38,7 @@ from vllm.v1.executor.abstract import Executor
 
 from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
-from verl.workers.config import HFModelConfig, RolloutConfig
+from verl.workers.config import HFModelConfig, RewardModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
 from verl.workers.rollout.utils import get_free_port, run_unvicorn
 from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
@@ -109,7 +108,8 @@ class vLLMHttpServer:
 
     def __init__(
         self,
-        config: DictConfig,
+        config: RolloutConfig | RewardModelConfig,
+        model_config: HFModelConfig,
         rollout_mode: RolloutMode,
         workers: list[ActorHandle],
         replica_rank: int,
@@ -119,7 +119,8 @@ class vLLMHttpServer:
     ):
         """
         Args:
-            config (DictConfig): full config.
+            config (RolloutConfig | RewardModelConfig): full config.
+            model_config (HFModelConfig): model config.
             rollout_mode (RolloutMode): rollout mode.
             replica_rank (int): replica rank, a replica may contain multiple nodes.
             node_rank (int): node rank.
@@ -128,10 +129,8 @@ class vLLMHttpServer:
         """
         super().__init__()
 
-        self.config: RolloutConfig = omega_conf_to_dataclass(config.actor_rollout_ref.rollout)
-        self.model_config: HFModelConfig = omega_conf_to_dataclass(
-            config.actor_rollout_ref.model, dataclass_type=HFModelConfig
-        )
+        self.config: RolloutConfig | RewardModelConfig = omega_conf_to_dataclass(config)
+        self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
         self.config.max_model_len = self.config.prompt_length + self.config.response_length
         self.rollout_mode = rollout_mode
         self.workers = workers
@@ -332,7 +331,7 @@ class vLLMReplica(RolloutReplica):
         """Get rollout worker actor class for colocated and standalone mode."""
         worker_dict_cls = RayClassWithInitArgs(
             cls=_rollout_worker_actor_cls,
-            config=self.rollout_config,
+            config=self.config,
             model_config=self.model_config,
             device_mesh=None,
         )
@@ -354,7 +353,7 @@ class vLLMReplica(RolloutReplica):
 
         # For non-data parallel case, there's only one server whether it's single or multi nodes.
         nnodes, gpus_per_node = self.nnodes, self.gpus_per_node
-        if self.rollout_config.data_parallel_size == 1:
+        if self.config.data_parallel_size == 1:
             nnodes = 1
             gpus_per_node = self.world_size
 
@@ -370,6 +369,7 @@ class vLLMReplica(RolloutReplica):
                 name=f"vllm_server_{self.replica_rank}_{node_rank}",
             ).remote(
                 config=self.config,
+                model_config=self.model_config,
                 rollout_mode=self.rollout_mode,
                 workers=workers,
                 replica_rank=self.replica_rank,

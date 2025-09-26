@@ -57,11 +57,15 @@ async def test_standalone_(init_config, tp_size):
     init_config.actor_rollout_ref.rollout.skip_tokenizer_init = False
     init_config.actor_rollout_ref.rollout.tensor_model_parallel_size = tp_size
     num_replicas = (init_config.trainer.n_gpus_per_node * init_config.trainer.nnodes) // tp_size
+    rollout_config = init_config.actor_rollout_ref.rollout
+    model_config = init_config.actor_rollout_ref.model
 
     # create standalone rollout server
     rollout_server_class = get_rollout_replica_class(init_config.actor_rollout_ref.rollout.name)
     rollout_servers = [
-        rollout_server_class(replica_rank=replica_rank, config=init_config, gpus_per_node=2)
+        rollout_server_class(
+            replica_rank=replica_rank, config=rollout_config, model_config=model_config, gpus_per_node=2
+        )
         for replica_rank in range(num_replicas)
     ]
     await asyncio.gather(*[server.init_standalone() for server in rollout_servers])
