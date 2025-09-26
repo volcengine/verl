@@ -12,11 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Callable
 
-def _get_attention_functions():
+_index_first_axis, _pad_input, _rearrange, _unpad_input = None, None, None, None
+
+
+def _get_attention_functions() -> tuple[Callable, Callable, Callable, Callable]:
+    """Dynamically import attention functions based on available hardware."""
+
     from verl.utils.device import is_cuda_available, is_npu_available
 
-    index_first_axis, pad_input, rearrange, unpad_input = None, None, None, None
+    global _index_first_axis, _pad_input, _rearrange, _unpad_input
 
     if is_cuda_available:
         from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
@@ -36,10 +42,72 @@ def _get_attention_functions():
             from transformers.modeling_flash_attention_utils import _pad_input as pad_input
             from transformers.modeling_flash_attention_utils import _unpad_input as unpad_input
 
-    return index_first_axis, pad_input, rearrange, unpad_input
+    _index_first_axis, _pad_input, _rearrange, _unpad_input = index_first_axis, pad_input, rearrange, unpad_input
+
+    return _index_first_axis, _pad_input, _rearrange, _unpad_input
 
 
-index_first_axis, pad_input, rearrange, unpad_input = _get_attention_functions()
+def index_first_axis(*args, **kwargs):
+    """
+    Unified entry point for `index_first_axis` across CUDA and NPU backends.
+
+    Dynamically dispatches to the appropriate device-specific implementation:
+      - On CUDA: `flash_attn.bert_padding.index_first_axis`
+      - On NPU: `transformers.integrations.npu_flash_attention.index_first_axis`
+        (falls back to `transformers.modeling_flash_attention_utils._index_first_axis`
+        in newer versions of transformers).
+
+    Users can call this function directly without worrying about the underlying device.
+    """
+    func, *_ = _get_attention_functions()
+    return func(*args, **kwargs)
+
+
+def pad_input(*args, **kwargs):
+    """
+    Unified entry point for `pad_input` across CUDA and NPU backends.
+
+    Dynamically dispatches to the appropriate device-specific implementation:
+      - On CUDA: `flash_attn.bert_padding.pad_input`
+      - On NPU: `transformers.integrations.npu_flash_attention.pad_input`
+        (falls back to `transformers.modeling_flash_attention_utils._pad_input`
+        in newer versions of transformers).
+
+    Users can call this function directly without worrying about the underlying device.
+    """
+    _, func, *_ = _get_attention_functions()
+    return func(*args, **kwargs)
+
+
+def rearrange(*args, **kwargs):
+    """
+    Unified entry point for `rearrange` across CUDA and NPU backends.
+
+    Dynamically dispatches to the appropriate device-specific implementation:
+      - On CUDA: `flash_attn.bert_padding.rearrange`
+      - On NPU: `transformers.integrations.npu_flash_attention.rearrange`
+        (falls back to `einops.rearrange` if no dedicated NPU implementation exists).
+
+    Users can call this function directly without worrying about the underlying device.
+    """
+    *_, func, _ = _get_attention_functions()
+    return func(*args, **kwargs)
+
+
+def unpad_input(*args, **kwargs):
+    """
+    Unified entry point for `unpad_input` across CUDA and NPU backends.
+
+    Dynamically dispatches to the appropriate device-specific implementation:
+      - On CUDA: `flash_attn.bert_padding.unpad_input`
+      - On NPU: `transformers.integrations.npu_flash_attention.unpad_input`
+        (falls back to `transformers.modeling_flash_attention_utils._unpad_input`
+        in newer versions of transformers).
+
+    Users can call this function directly without worrying about the underlying device.
+    """
+    *_, func = _get_attention_functions()
+    return func(*args, **kwargs)
 
 
 __all__ = ["index_first_axis", "pad_input", "rearrange", "unpad_input"]
