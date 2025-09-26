@@ -392,6 +392,9 @@ class vLLMHttpServer:
         elif self.rollout_mode == RolloutMode.STANDALONE:
             logger.info("skip sleep in standalone mode")
 
+    async def wait_for_requests_to_drain(self):
+        await self.engine.wait_for_requests_to_drain()
+
 
 _rollout_worker_actor_cls = ray.remote(vLLMAsyncRollout)
 
@@ -461,6 +464,12 @@ class vLLMReplica(RolloutReplica):
         server_address, server_port = await self.servers[0].get_server_address.remote()
         self._server_handle = self.servers[0]
         self._server_address = f"{server_address}:{server_port}"
+
+    async def sleep(self):
+        """Sleep each rollout server."""
+        # Drain DP engines for safe sleep.
+        await self.servers[0].wait_for_requests_to_drain.remote()
+        await asyncio.gather(*[server.sleep.remote() for server in self.servers])
 
 
 def _qwen2_5_vl_dedup_image_tokens(prompt_ids: list[int], processor):
