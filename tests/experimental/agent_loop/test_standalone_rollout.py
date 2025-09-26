@@ -92,7 +92,7 @@ async def test_standalone_rollout(init_config, tp_size):
 
 @pytest.mark.skip(reason="local test only")
 def test_hybrid_rollout_with_ep(init_config):
-    """Test hybrid rollout with expert parallelism."""
+    """Test hybrid rollout with expert parallelism, DP=2, TP=4, EP=8."""
     ray.init(
         runtime_env={
             "env_vars": {
@@ -108,12 +108,8 @@ def test_hybrid_rollout_with_ep(init_config):
     init_config.actor_rollout_ref.model.path = model_path
 
     # parallelism config
-    if init_config.actor_rollout_ref.rollout.name == "vllm":
-        init_config.actor_rollout_ref.rollout.tensor_model_parallel_size = 1
-        init_config.actor_rollout_ref.rollout.data_parallel_size = 8
-    elif init_config.actor_rollout_ref.rollout.name == "sglang":
-        init_config.actor_rollout_ref.rollout.tensor_model_parallel_size = 8
-        init_config.actor_rollout_ref.rollout.data_parallel_size = 1
+    init_config.actor_rollout_ref.rollout.tensor_model_parallel_size = 2
+    init_config.actor_rollout_ref.rollout.data_parallel_size = 4
     init_config.actor_rollout_ref.rollout.expert_parallel_size = 8
 
     # 1. init hybrid worker: FSDP+rollout
