@@ -13,15 +13,13 @@ project_name=verl_sft_test
 
 RESUME_MODE=auto
 
-ckpts_home=${ckpts_home:-~/verl/test/nvidia-openmathreasoning-sft-${backend}}
-
 MODEL_ID=${MODEL_ID:-Qwen/Qwen3-0.6B}
 MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
 #huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
 
-MODEL_PATH=/mnt/hdfs/zhangchi.usc1992_lf_lq/models/Qwen3-14B-Base
+MODEL_PATH=/mnt/hdfs/zhangchi.usc1992_lf_lq/models/Qwen3-8B-Base
 
-SP_SIZE=${SP_SIZE:-4}
+SP_SIZE=${SP_SIZE:-8}
 FSDP_SIZE=${FSDP_SIZE:-${NUM_GPUS}}
 FSDP_STRATEGY=${FSDP_STRATEGY:-"fsdp2"}
 
@@ -38,7 +36,7 @@ FSDP_ENGINE_CONFIG="\
     engine=${backend} \
     optim=${backend} \
     optim.lr=2e-5 \
-    optim.lr_warmup_steps_ratio=0.2 \
+    optim.lr_warmup_steps_ratio=0.01 \
     optim.weight_decay=0.1 \
     optim.betas="[0.9,0.95]" \
     optim.clip_grad=1.0 \
@@ -75,6 +73,7 @@ else
     exp_name=nvidia-openmathreasoning-${backend}-tp${TP_SIZE}-pp${PP_SIZE}-vpp${VPP_SIZE}-cp${CP_SIZE}-pad-${PAD_MODE}-use_remove_padding-${USE_REMOVE_PADDING}
 fi
 
+ckpts_home=${ckpts_home:-/mnt/hdfs/zhangchi.usc1992_ssd_hldy/open_verl/sft/${project_name}/${exp_name}}
 mkdir -p "${ckpts_home}"
 
 torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \

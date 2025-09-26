@@ -248,6 +248,7 @@ class SFTTrainer:
         }
 
         train_time = 0
+        total_tokens = 0
         for epoch in range(start_epoch, self.config.trainer.total_epochs):
             self.train_sampler.set_epoch(epoch=epoch)
 
@@ -308,6 +309,8 @@ class SFTTrainer:
                     metrics["train/grad_norm"] = metrics.pop("grad_norm")
                     metrics["train/lr"] = lr
                     metrics["train/global_tokens"] = output_tensor.sum().item()
+                    total_tokens += metrics["train/global_tokens"]
+                    metrics["train/total_tokens"] = total_tokens
                     # mfu
                     delta_time = timer.last
                     estimated_flops, promised_flops = self.flops_counter.estimate_flops(batch_seqlens, delta_time)
