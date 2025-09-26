@@ -86,6 +86,7 @@ MODEL_CONFIG_CONVERTER_REGISTRY: dict[SupportedModel, Callable[[PretrainedConfig
     SupportedModel.LLAMA4: hf_to_mcore_config_llama4,
     SupportedModel.QWEN3: hf_to_mcore_config_dense,
     SupportedModel.QWEN3_MOE: hf_to_mcore_config_qwen3moe,
+    SupportedModel.QWEN2_5_VL: hf_to_mcore_config_qwen2_5_vl,
     SupportedModel.QWEN3_TOKEN_CLASSIFICATION: hf_to_mcore_config_dense,
 }
 
