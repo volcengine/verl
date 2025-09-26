@@ -39,7 +39,7 @@ from verl.utils.config import omega_conf_to_dataclass
 from verl.workers.config import HFModelConfig, RewardModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
 from verl.workers.rollout.sglang_rollout.sglang_rollout import ServerAdapter, _set_envs_and_config
-from verl.workers.rollout.utils import get_free_port, run_unvicorn
+from verl.workers.rollout.utils import get_free_port, is_valid_ipv6_address, run_unvicorn
 
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
@@ -97,7 +97,11 @@ class SGLangHttpServer:
         # used for NCCL process group
         if self.node_rank == 0:
             self._master_address = self._server_address
-            self._master_port = get_free_port()
+            self._master_port, self._master_sock = get_free_port(self._server_address)
+            logger.info(
+                f"SGLangHttpServer, replica_rank: {self.replica_rank}, "
+                f"master address: {self._master_address}, port: {self._master_port}"
+            )
         else:
             self._master_address = None
             self._master_port = None
@@ -119,6 +123,11 @@ class SGLangHttpServer:
 
         engine_kwargs = self.config.get("engine_kwargs", {}).get("sglang", {}) or {}
         attention_backend = engine_kwargs.pop("attention_backend", None)
+        dist_init_addr = (
+            f"[{self._master_address}]:{self._master_port}"
+            if is_valid_ipv6_address(self._master_address)
+            else f"{self._master_address}:{self._master_port}"
+        )
 
         args = {
             "model_path": self.model_config.local_path,
@@ -129,9 +138,11 @@ class SGLangHttpServer:
             "base_gpu_id": 0,
             "gpu_id_step": 1,
             "tp_size": self.config.tensor_model_parallel_size,
+            "dp_size": self.config.data_parallel_size,
+            "ep_size": self.config.expert_parallel_size,
             "node_rank": self.node_rank,
             "load_format": self.config.load_format,
-            "dist_init_addr": f"{self._master_address}:{self._master_port}",
+            "dist_init_addr": dist_init_addr,
             "nnodes": self.nnodes,
             "trust_remote_code": self.model_config.trust_remote_code,
             "max_running_requests": self.config.get("max_num_seqs", None),
@@ -150,6 +161,10 @@ class SGLangHttpServer:
             server_args=server_args
         )
 
+        # In multi-node cases, non-zero rank nodes should not launch http server.
+        if self.node_rank > 0:
+            return
+
         set_global_state(
             _GlobalState(
                 tokenizer_manager=self.tokenizer_manager,
@@ -158,7 +173,7 @@ class SGLangHttpServer:
             )
         )
         app.is_single_tokenizer_mode = True
-        self._server_port, self._server_task = await run_unvicorn(app, server_args)
+        self._server_port, self._server_task = await run_unvicorn(app, server_args, self._server_address)
 
     async def wake_up(self):
         if self.rollout_mode == RolloutMode.HYBRID:
