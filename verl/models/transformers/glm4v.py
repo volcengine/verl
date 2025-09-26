@@ -366,7 +366,7 @@ def forward_base_model(
     )
     return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
-    if position_ids is not None and hasattr(position_ids, 'shape'):
+    if position_ids is not None and hasattr(position_ids, "shape"):
         if position_ids.ndim == 3:
             batch_size = position_ids.shape[1] if position_ids.shape[1] > 1 else 1
             seq_length = position_ids.shape[2]
@@ -374,7 +374,7 @@ def forward_base_model(
                 base_position_ids = torch.arange(seq_length, device=position_ids.device, dtype=position_ids.dtype)
                 base_position_ids = base_position_ids.unsqueeze(0).expand(batch_size, -1)
                 position_ids = base_position_ids.unsqueeze(0).expand(3, -1, -1)
-    
+
     outputs = self.model(
         input_ids=input_ids,
         pixel_values=pixel_values,

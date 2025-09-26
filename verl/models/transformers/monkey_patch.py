@@ -302,16 +302,19 @@ def apply_monkey_patch(
             patch_vlm_for_ulysses_input_slicing(Qwen2VLTextModel)
 
     if model.config.model_type == "glm4v":
-        from transformers.models.glm4v.modeling_glm4v import Glm4vTextAttention, Glm4vModel
+        from transformers.models.glm4v.modeling_glm4v import Glm4vModel, Glm4vTextAttention
+
         if use_remove_padding or ulysses_sp_size > 1:
             from verl.models.transformers.glm4v import ulysses_flash_attn_forward
+
             Glm4vTextAttention.forward = ulysses_flash_attn_forward
         original_glm4v_model_forward = Glm4vModel.forward
         Glm4vModel.forward = _intercepted_glm4v_model_forward(original_glm4v_model_forward)
         print("Monkey patch Glm4vModel.forward for 3D position_ids interception")
-        
+
         if ulysses_sp_size > 1:
             from transformers.models.glm4v.modeling_glm4v import Glm4vTextModel
+
             patch_vlm_for_ulysses_input_slicing(Glm4vTextModel)
 
     elif model.config.model_type == "kimi_vl":
@@ -341,40 +344,3 @@ def apply_monkey_patch(
             print(f"Monkey patch _flash_attention_forward in {flash_attention.__name__}")
 
     patch_forward_with_backends(model, use_fused_kernels=use_fused_kernels, fused_kernels_backend=fused_kernels_backend)
-
-
-def _intercepted_glm4v_model_forward(original_forward):
-    def wrapper(self, *args, **kwargs):
-        position_ids = kwargs.get('position_ids')
-        if position_ids is not None and hasattr(position_ids, 'shape') and position_ids.ndim == 3:
-            kwargs['position_ids'] = None
-        return original_forward(self, *args, **kwargs)
-    return wrapper
-
-import transformers.masking_utils
-
-original_create_causal_mask = transformers.masking_utils.create_causal_mask
-original_preprocess_mask_arguments = transformers.masking_utils._preprocess_mask_arguments
-
-def _intercepted_create_causal_mask(*args, **kwargs):
-    position_ids = kwargs.get('position_ids')
-    if position_ids is not None and hasattr(position_ids, 'ndim') and position_ids.ndim == 3:
-        kwargs['position_ids'] = None
-    return original_create_causal_mask(*args, **kwargs)
-
-def _intercepted_preprocess_mask_arguments(*args, **kwargs):
-    position_ids = kwargs.get('position_ids')
-    if position_ids is None and len(args) >= 3:
-        position_ids = args[2]
-    if position_ids is not None and hasattr(position_ids, 'ndim') and position_ids.ndim == 3:
-        if 'position_ids' in kwargs:
-            kwargs['position_ids'] = None
-        elif len(args) >= 3:
-            args = list(args)
-            args[2] = None
-            args = tuple(args)
-    
-    return original_preprocess_mask_arguments(*args, **kwargs)
-
-transformers.masking_utils.create_causal_mask = _intercepted_create_causal_mask
-transformers.masking_utils._preprocess_mask_arguments = _intercepted_preprocess_mask_arguments
