@@ -1,0 +1,11 @@
+hydra:
+  searchpath:
+    - file://verl/trainer/config
+
+defaults:
+  - ppo_trainer
+  - _self_
+
+reward_model:
+  reward_manager: dapo
+  launch_reward_fn_async: False
