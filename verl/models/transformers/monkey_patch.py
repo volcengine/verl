@@ -302,19 +302,30 @@ def apply_monkey_patch(
             patch_vlm_for_ulysses_input_slicing(Qwen2VLTextModel)
 
     if model.config.model_type == "glm4v":
-        from transformers.models.glm4v.modeling_glm4v import Glm4vModel, Glm4vTextAttention
+        # Step 1: patch model to support image-text mixed data
 
+        from transformers.models.glm4v.modeling_glm4v import (
+            Glm4vForConditionalGeneration,
+            Glm4vModel,
+            Glm4vTextAttention,
+            Glm4vTextModel,
+        )
+
+        from verl.models.transformers.glm4v import forward_with_normal_backend, glm4v_base_forward
+
+        Glm4vModel.forward = glm4v_base_forward
+        Glm4vForConditionalGeneration.forward = forward_with_normal_backend
+        print(f"Monkey patch {model.__class__.__name__} model forward")
+
+        # Step 2: patch attention to support ulysses parallelism
         if use_remove_padding or ulysses_sp_size > 1:
-            from verl.models.transformers.glm4v import ulysses_flash_attn_forward
+            from verl.models.transformers.glm4v import glm4v_attn_forward
 
-            Glm4vTextAttention.forward = ulysses_flash_attn_forward
+            Glm4vTextAttention.forward = glm4v_attn_forward
+            print(f"Monkey patch {model.__class__.__name__} attention layer")
 
-        from glm4v import intercepted_glm4v_model_forward
-        Glm4vModel.forward = intercepted_glm4v_model_forward(Glm4vModel.forward)
-
+        # Step 3: patch input for multimodal sequence parallelism
         if ulysses_sp_size > 1:
-            from transformers.models.glm4v.modeling_glm4v import Glm4vTextModel
-
             patch_vlm_for_ulysses_input_slicing(Glm4vTextModel)
 
     elif model.config.model_type == "kimi_vl":
