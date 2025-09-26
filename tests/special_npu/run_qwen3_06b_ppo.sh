@@ -3,7 +3,7 @@ set -x
 # TODO (FightingZhen) Env VLLM_USE_V1=1 is not supported in vllm==0.7.3
 # export VLLM_USE_V1=1
 
-MODEL_ID=${MODEL_ID:-Qwen/Qwen3-0.6B}
+MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B-Instruct}  # TODO: change to Qwen3-0.6B when CI server is ready
 MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
 
 python3 -m verl.trainer.main_ppo \
