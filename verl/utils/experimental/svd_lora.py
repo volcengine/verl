@@ -17,6 +17,7 @@ import torch.nn as nn
 
 
 class SVDLinear(nn.Module):
+    # Implementation of SVD-LoRA-GRPO method introduced in [ESSA: Evolutionary Strategies for Scalable Alignment](https://arxiv.org/abs/2507.04453)
     U: torch.Tensor
     sigma: torch.Tensor
     V: torch.Tensor
@@ -53,7 +54,7 @@ class SVDLinear(nn.Module):
         return SVDLinear(U, S, V, dtype=weight.dtype, device=weight.device)
 
     def _get_svd_weight(self) -> torch.Tensor:
-        W = (self.U * self.sigma) @ self.V.transpose(0, 1)
+        W = (self.U * self.sigma) @ self.V.T
         return W.contiguous()
 
     @property
@@ -61,7 +62,7 @@ class SVDLinear(nn.Module):
         return self._get_svd_weight()
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        return input @ self.weight.transpose(0, 1)
+        return input @ self.weight.T
 
 
 def apply_svd_lora(model: nn.Module) -> nn.Module:
