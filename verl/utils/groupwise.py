@@ -46,6 +46,8 @@ from typing import Any, Optional
 import numpy as np
 import torch
 
+from verl.utils.device import get_torch_device
+
 __all__ = ["as_torch_index", "group_mean_std"]
 
 
@@ -69,7 +71,7 @@ def _resolve_device(explicit: Optional[torch.device | str]) -> torch.device:
     if "PYTEST_CURRENT_TEST" in os.environ:
         return torch.device("cpu")
 
-    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    return get_torch_device()
 
 
 def _to_1d_numpy_object_array(x: Any) -> np.ndarray:
