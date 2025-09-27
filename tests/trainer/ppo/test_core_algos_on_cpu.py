@@ -22,6 +22,8 @@ import torch
 import verl.trainer.ppo.core_algos
 from verl.trainer.ppo.core_algos import (
     compute_gae_advantage_return,
+    compute_grpo_outcome_advantage,
+    compute_grpo_vectorized_outcome_advantage,
     compute_rloo_outcome_advantage,
     compute_rloo_vectorized_outcome_advantage,
     get_adv_estimator_fn,
@@ -251,6 +253,60 @@ def test_rloo_and_vectorized_equivalence(batch_size: int, seq_len: int, num_grou
         f"[RLOO] seed={seed} groups={num_groups} shape={adv1.shape} "
         f"mask_tokens={total_mask_tokens} adv_max_diff={adv_max_diff:.3e} ret_max_diff={ret_max_diff:.3e}"
     )
+    assert adv1.shape == adv2.shape == (batch_size, seq_len)
+    assert ret1.shape == ret2.shape == (batch_size, seq_len)
+    assert torch.allclose(adv1, adv2, rtol=1e-5, atol=1e-6)
+    assert torch.allclose(ret1, ret2, rtol=1e-5, atol=1e-6)
+
+
+@pytest.mark.parametrize(
+    "batch_size,seq_len,num_groups,seed",
+    [
+        (64, 128, 5, 0),
+        (128, 256, 8, 1),
+        (512, 512, 10, 2),
+    ],
+)
+def test_grpo_and_vectorized_equivalence(batch_size: int, seq_len: int, num_groups: int, seed: int):
+    # Set seeds for reproducibility
+    torch.manual_seed(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+
+    # Generate group indices (numpy array of shape [batch_size])
+    index = _make_group_index(batch_size, num_groups)
+
+    # Generate binary response mask (at least one valid token per row)
+    response_mask = _rand_mask(batch_size, seq_len)
+
+    # Generate token-level rewards and apply mask
+    base_rewards = torch.randn(batch_size, seq_len, dtype=torch.float32)
+    token_level_rewards = base_rewards * response_mask
+
+    # Compute GRPO outcome advantage (original implementation)
+    adv1, ret1 = compute_grpo_outcome_advantage(
+        token_level_rewards=token_level_rewards,
+        response_mask=response_mask,
+        index=index,
+    )
+
+    # Compute GRPO outcome advantage (vectorized implementation)
+    adv2, ret2 = compute_grpo_vectorized_outcome_advantage(
+        token_level_rewards=token_level_rewards,
+        response_mask=response_mask,
+        index=index,
+    )
+
+    # Diagnostic info for visibility (same style as RLOO test)
+    adv_max_diff = (adv1 - adv2).abs().max().item()
+    ret_max_diff = (ret1 - ret2).abs().max().item()
+    total_mask_tokens = int(response_mask.sum().item())
+    print(
+        f"[GRPO] seed={seed} groups={num_groups} shape={adv1.shape} "
+        f"mask_tokens={total_mask_tokens} adv_max_diff={adv_max_diff:.3e} ret_max_diff={ret_max_diff:.3e}"
+    )
+
+    # Assert shape and numerical equivalence
     assert adv1.shape == adv2.shape == (batch_size, seq_len)
     assert ret1.shape == ret2.shape == (batch_size, seq_len)
     assert torch.allclose(adv1, adv2, rtol=1e-5, atol=1e-6)
