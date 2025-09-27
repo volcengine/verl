@@ -26,6 +26,8 @@ from verl.tools.utils.tool_registry import initialize_tools_from_config
 from verl.utils.profiler import simple_timer
 from verl.utils.rollout_trace import rollout_trace_op
 
+DEBUG=True
+
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
@@ -91,17 +93,18 @@ class ToolAgentLoop(AgentLoopBase):
             model_inputs = self.processor(text=[raw_prompt], images=image_data, return_tensors="pt")
             prompt_ids = model_inputs.pop("input_ids").squeeze(0).tolist()
         else:
-            DEBUG_INPUTS = await self.loop.run_in_executor(
-                None,
-                lambda: self.tokenizer.apply_chat_template(
-                    messages,
-                    tools=self.tool_schemas,
-                    add_generation_prompt=True,
-                    tokenize=False,
-                    **self.apply_chat_template_kwargs,
-                ),
-            )
-            print(f"REALLY FINAL PROMPT: {DEBUG_INPUTS}")    
+            if DEBUG:
+                DEBUG_INPUTS = await self.loop.run_in_executor(
+                    None,
+                    lambda: self.tokenizer.apply_chat_template(
+                        messages,
+                        tools=self.tool_schemas,
+                        add_generation_prompt=True,
+                        tokenize=False,
+                        **self.apply_chat_template_kwargs,
+                    ),
+                )
+                print(f"REALLY FINAL PROMPT: {DEBUG_INPUTS}")    
             prompt_ids = await self.loop.run_in_executor(
                 None,
                 lambda: self.tokenizer.apply_chat_template(
