@@ -589,7 +589,7 @@ def gather_svd_params(state_dict, prefix: str) -> OrderedDict:
         U = parts.get("U")
         sigma = parts.get("sigma")
         V = parts.get("V")
-        collected[f"{prefix}.{layer_name}.weight"] = U @ torch.diag(sigma) @ V.T
+        collected[f"{prefix}.{layer_name}.weight"] = ((U * sigma) @ V.T).cpu()
     return collected
 
 

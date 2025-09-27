@@ -27,6 +27,7 @@ class SVDLinear(nn.Module):
         U: torch.Tensor,
         sigma: torch.Tensor,
         V: torch.Tensor,
+        dtype: torch.dtype = None,
         device: torch.device = None,
     ):
         super().__init__()
@@ -50,7 +51,8 @@ class SVDLinear(nn.Module):
 
     @staticmethod
     def create_from_weight(weight: torch.Tensor) -> "SVDLinear":
-        U, S, V = torch.svd(weight.to(torch.float32))
+        U, S, Vh = torch.linalg.svd(weight.to(torch.float32), full_matrices=True)
+        V = Vh.T
         return SVDLinear(U, S, V, dtype=weight.dtype, device=weight.device)
 
     def _get_svd_weight(self) -> torch.Tensor:
