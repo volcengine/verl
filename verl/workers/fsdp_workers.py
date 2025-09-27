@@ -61,6 +61,7 @@ from verl.utils.device import (
     is_npu_available,
     set_expandable_segments,
 )
+from verl.utils.experimental.svd_lora import apply_svd_lora
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local
 from verl.utils.fsdp_utils import (
@@ -420,6 +421,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 }
                 actor_module = get_peft_model(actor_module, LoraConfig(**lora_config))
 
+                if self.config.model.get("use_svd_lora", False) and self.config.actor.strategy == "fsdp2":
+                    actor_module = apply_svd_lora(actor_module)
+
         self.use_orig_params = fsdp_config.get("use_orig_params", False)
         if self.config.actor.get("freeze_vision_tower", False):
             vision_tower = get_vl_model_vision_tower(actor_module)
@@ -647,6 +651,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 module=self.actor_module_fsdp,
                 layered_summon=self.config.rollout.get("layered_summon", False),
                 base_sync_done=self.base_sync_done,
+                use_svd_lora=self.config.model.get("use_svd_lora", False),
             )
             if not self.base_sync_done:
                 params = {replace_lora_wrapper(k, peft_config): v for k, v in params.items()}
@@ -666,6 +671,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 module=self.actor_module_fsdp,
                 layered_summon=self.layered_summon,
                 base_sync_done=False,
+                use_svd_lora=self.config.model.get("use_svd_lora", False),
             )
             base_model_params = {replace_lora_wrapper(k, peft_config): v for k, v in base_model_params.items()}
             base_model_params = convert_weight_keys(
@@ -1040,7 +1046,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             try:
                 if fsdp_version(self.actor_module_fsdp) > 0:
                     self.actor_module_fsdp = self.actor_module_fsdp.to(get_device_name())
-                    lora_params = layered_summon_lora_params(self.actor_module_fsdp)
+                    lora_params = layered_summon_lora_params(
+                        self.actor_module_fsdp, self.config.model.get("use_svd_lora", False)
+                    )
                     if dist.get_rank() == 0:
                         save_file(lora_params, os.path.join(lora_save_path, "adapter_model.safetensors"))
                         with open(os.path.join(lora_save_path, "adapter_config.json"), "w", encoding="utf-8") as f:

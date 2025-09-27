@@ -78,6 +78,7 @@ class HFModelConfig(BaseConfig):
     lora_rank: int = 0
     lora_alpha: int = 16
     target_modules: Optional[str] = "all-linear"
+    use_svd_lora: bool = False
 
     exclude_modules: Optional[str] = None
     use_liger: bool = False
