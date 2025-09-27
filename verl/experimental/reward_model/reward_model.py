@@ -42,25 +42,22 @@ from verl.utils.rollout_trace import RolloutTraceConfig, rollout_trace_attr, rol
 from verl.workers.rollout.replica import TokenOutput, get_rollout_replica_class
 from verl.workers.config import HFModelConfig, RewardModelConfig
 
+from verl.workers.rollout.utils import get_free_port
+from sglang_router.launch_server import RouterArgs, launch_router
+
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
-
-# similar to AgentLoopWorker
-# should be deprecated when router is implemented
-class RewardModelWorker:
-    # def __init__(self, config: RewardModelConfig):
-    #     self.config = config
-    pass
-    
 
 class RewardModelManager:
     def __init__(self, config: RewardModelConfig, worker_group: RayWorkerGroup = None):
         self.config = config
         self.worker_group = worker_group
         self._initialize_llm_servers()
+        self._initialize_router()
 
     def _initialize_llm_servers(self):
+        assert self.config.rollout.name == "sglang", "Only sglang is supported now"
         rollout_world_size = self.config.rollout.tensor_model_parallel_size
         world_size = (
             self.worker_group.world_size
@@ -85,12 +82,20 @@ class RewardModelManager:
             )
             for replica_rank in range(num_replicas)
         ]
-        if self.worker_group:
-            self._run_all([server.init_hybrid(self.worker_group) for server in self.rollout_replicas])
-        else:
-            self._run_all([server.init_standalone() for server in self.rollout_replicas])
+        self._run_all([server.init_hybrid(self.worker_group) for server in self.rollout_replicas])
         self.server_handles = [server._server_handle for server in self.rollout_replicas]
         self.server_addresses = [server._server_address for server in self.rollout_replicas]
+
+    def _initialize_router(self):
+        router_ip = ray.util.get_node_ip_address()
+        router_port = get_free_port()
+        worker_urls = [f"http://{addr}" for addr in self.server_addresses]
+        router_args = RouterArgs(
+            port=router_port,
+            worker_urls=worker_urls,
+        )
+        breakpoint()
+        launch_router(router_args)
 
     def wake_up(self):
         """Wake up all rollout replica instances."""
