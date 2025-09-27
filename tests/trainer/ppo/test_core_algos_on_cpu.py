@@ -22,10 +22,10 @@ import torch
 import verl.trainer.ppo.core_algos
 from verl.trainer.ppo.core_algos import (
     compute_gae_advantage_return,
+    compute_grpo_outcome_advantage,
+    compute_grpo_vectorized_outcome_advantage,
     compute_rloo_outcome_advantage,
     compute_rloo_vectorized_outcome_advantage,
-    compute_grpo_outcome_advantage, 
-    compute_grpo_vectorized_outcome_advantage,
     get_adv_estimator_fn,
     register_adv_est,
 )
@@ -258,6 +258,7 @@ def test_rloo_and_vectorized_equivalence(batch_size: int, seq_len: int, num_grou
     assert torch.allclose(adv1, adv2, rtol=1e-5, atol=1e-6)
     assert torch.allclose(ret1, ret2, rtol=1e-5, atol=1e-6)
 
+
 @pytest.mark.parametrize(
     "batch_size,seq_len,num_groups,seed",
     [
@@ -310,6 +311,7 @@ def test_grpo_and_vectorized_equivalence(batch_size: int, seq_len: int, num_grou
     assert ret1.shape == ret2.shape == (batch_size, seq_len)
     assert torch.allclose(adv1, adv2, rtol=1e-5, atol=1e-6)
     assert torch.allclose(ret1, ret2, rtol=1e-5, atol=1e-6)
+
 
 if __name__ == "__main__":
     unittest.main()

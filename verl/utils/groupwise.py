@@ -1,4 +1,19 @@
-# -*- coding: utf-8 -*-
+# Copyright 2024 Bytedance Ltd. and/or its affiliates
+# Copyright 2023-2024 SGLang Team
+# Copyright 2025 ModelBest Inc. and/or its affiliates
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 Group-wise helpers for RL training utilities.
 
@@ -24,9 +39,10 @@ Notes:
 """
 
 from __future__ import annotations
-from typing import Any, Tuple, Optional
 
 import os
+from typing import Any, Optional
+
 import numpy as np
 import torch
 
@@ -87,7 +103,10 @@ def as_torch_index(index: Any, device: torch.device | str | None = None) -> torc
     if isinstance(index, torch.Tensor):
         t = index.reshape(-1)
         if t.dtype in (
-            torch.int64, torch.int32, torch.int16, torch.int8,
+            torch.int64,
+            torch.int32,
+            torch.int16,
+            torch.int8,
             getattr(torch, "uint8", torch.uint8),
             torch.bool,
         ):
@@ -145,7 +164,7 @@ def group_mean_std(
     gidx: torch.Tensor,
     eps: float = 1e-6,
     device: torch.device | str | None = None,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Compute per-group mean/std/count in pure PyTorch.
 
@@ -182,8 +201,8 @@ def group_mean_std(
     ones = torch.ones_like(scores, dtype=torch.float32)
 
     count = torch.zeros(G, device=target, dtype=torch.float32).index_add_(0, gidx, ones)
-    s1    = torch.zeros(G, device=target, dtype=torch.float32).index_add_(0, gidx, scores)
-    s2    = torch.zeros(G, device=target, dtype=torch.float32).index_add_(0, gidx, scores * scores)
+    s1 = torch.zeros(G, device=target, dtype=torch.float32).index_add_(0, gidx, scores)
+    s2 = torch.zeros(G, device=target, dtype=torch.float32).index_add_(0, gidx, scores * scores)
 
     mean = s1 / count.clamp_min(1.0)
     var_num = s2 - (s1 * s1) / count.clamp_min(1.0)
