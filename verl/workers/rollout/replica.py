@@ -24,7 +24,7 @@ from ray.actor import ActorHandle
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.trainer.ppo.ray_trainer import RayResourcePool, ResourcePoolManager
 from verl.utils.config import omega_conf_to_dataclass
-from verl.workers.config import HFModelConfig, RewardModelConfig, RolloutConfig
+from verl.workers.config import HFModelConfig, RolloutConfig
 
 logger = logging.getLogger(__file__)
 
@@ -70,14 +70,14 @@ class RolloutReplica(ABC):
 
     Args:
         replica_rank: int, rank of this rollout replica.
-        config: RolloutConfig | RewardModelConfig, full config.
+        config: RolloutConfig, full config.
         gpus_per_node: int, number of gpus per node.
     """
 
     def __init__(
         self,
         replica_rank: int,
-        config: RolloutConfig | RewardModelConfig,
+        config: RolloutConfig,
         model_config: HFModelConfig,
         gpus_per_node: int = 8,
     ) -> None:

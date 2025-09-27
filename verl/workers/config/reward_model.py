@@ -102,6 +102,7 @@ class RewardModelConfig(BaseConfig):
     enable: bool = False
     name: Optional[str] = MISSING
     model_type: str = "discriminative"
+    model_path: Optional[str] = None
     prompt_length: int = 1024
     # for generative models, response_length should be set > 0
     response_length: int = 0
@@ -135,12 +136,13 @@ class RewardModelConfig(BaseConfig):
     # ignore_eos: bool = False
 
     # for generative reward model
-    sampling_config: SamplingConfig = field(default_factory=SamplingConfig)
-    data_processor_config: RewardModelDataProcessorConfig = field(default_factory=RewardModelDataProcessorConfig)
+    temperature: float = 1.0
+    top_k: int = -1
+    top_p: float = 1.0
+    data_processor: RewardModelDataProcessorConfig = field(default_factory=RewardModelDataProcessorConfig)
 
     sandbox_fusion: SandboxFusionConfig = field(default_factory=SandboxFusionConfig)
     profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
-    input_model_config: HFModelConfig = field(default_factory=HFModelConfig)
-    model_config: HFModelConfig = field(default_factory=HFModelConfig)
+
     # Server configuration for sglang server mode
-    server_config: ServerConfig = field(default_factory=ServerConfig)
+    server: ServerConfig = field(default_factory=ServerConfig)

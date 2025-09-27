@@ -1,3 +1,7 @@
+export RAY_DATA_HOME=/mnt/hdfs/yyding
+export NNODES=1
+unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
+
 #!/usr/bin/env bash
 set -xeuo pipefail
 
@@ -114,11 +118,28 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.fsdp_config.param_offload=${offload} \
     actor_rollout_ref.ref.ulysses_sequence_parallel_size=${sp_size} \
     actor_rollout_ref.actor.fsdp_config.fsdp_size=${fsdp_size} \
-    reward_model.reward_manager=naive \
+    reward_model.enable=True \
+    reward_model.enable_resource_pool=True \
+    reward_model.n_gpus_per_node=4 \
+    reward_model.nnodes=${NNODES} \
+    reward_model.model.path=/mnt/hdfs/yyding/ckpts/MERGED_HF_MODEL/Qwen3-4B-Ins-GenRM-Step50 \
+    reward_model.model.type=generative \
+    reward_model.rollout.name=vllm \
+    reward_model.rollout.gpu_memory_utilization=0.9 \
+    reward_model.rollout.tensor_model_parallel_size=2 \
+    reward_model.rollout.prompt_length=4096 \
+    reward_model.rollout.response_length=16384 \
+    reward_model.rollout.temperature=0.7 \
+    reward_model.rollout.top_k=0.8 \
+    reward_model.rollout.top_p=20 \
+    reward_model.reward_manager=dapo \
+    reward_model.data_processor.path=recipe/fapo/grm_processor.py \
+    reward_model.data_processor.preprocess_fn_name=preprocess \
+    reward_model.data_processor.postprocess_fn_name=postprocess \
     trainer.logger='["console","wandb"]' \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
-    trainer.n_gpus_per_node=8 \
+    trainer.n_gpus_per_node=4 \
     trainer.nnodes="${NNODES}" \
     trainer.val_before_train=True \
     trainer.test_freq=10 \

@@ -38,7 +38,7 @@ from vllm.v1.executor.abstract import Executor
 
 from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
-from verl.workers.config import HFModelConfig, RewardModelConfig, RolloutConfig
+from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
 from verl.workers.rollout.utils import get_free_port, run_unvicorn
 from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
@@ -108,7 +108,7 @@ class vLLMHttpServer:
 
     def __init__(
         self,
-        config: RolloutConfig | RewardModelConfig,
+        config: RolloutConfig,
         model_config: HFModelConfig,
         rollout_mode: RolloutMode,
         workers: list[ActorHandle],
@@ -119,7 +119,7 @@ class vLLMHttpServer:
     ):
         """
         Args:
-            config (RolloutConfig | RewardModelConfig): full config.
+            config (RolloutConfig): full config.
             model_config (HFModelConfig): model config.
             rollout_mode (RolloutMode): rollout mode.
             replica_rank (int): replica rank, a replica may contain multiple nodes.
@@ -129,7 +129,7 @@ class vLLMHttpServer:
         """
         super().__init__()
 
-        self.config: RolloutConfig | RewardModelConfig = omega_conf_to_dataclass(config)
+        self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
         self.config.max_model_len = self.config.prompt_length + self.config.response_length
         self.rollout_mode = rollout_mode

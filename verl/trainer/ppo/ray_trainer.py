@@ -747,8 +747,13 @@ class RayPPOTrainer:
 
         self.rm_wg = None
         if self.use_rm:
+            from verl.experimental.reward_model import RewardModelManager
+
             self.rm_wg = all_wg["rm"]
-            self.rm_wg.init_model()
+            self.async_reward_model_manager = RewardModelManager(
+                config=self.config.reward_model,
+                worker_group=self.rm_wg,
+            )
 
         # we should create rollout at the end so that vllm can have a better estimation of kv cache memory
         self.actor_rollout_wg = all_wg["actor_rollout"]
