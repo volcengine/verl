@@ -33,6 +33,7 @@ from sglang.srt.managers.io_struct import (
     ReleaseMemoryOccupationReqInput,
     ResumeMemoryOccupationReqInput,
 )
+from sglang.srt.managers.tokenizer_manager import ServerStatus
 
 from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
@@ -174,6 +175,7 @@ class SGLangHttpServer:
         )
         app.is_single_tokenizer_mode = True
         self._server_port, self._server_task = await run_unvicorn(app, server_args, self._server_address)
+        self.tokenizer_manager.server_status = ServerStatus.Up
 
     async def wake_up(self):
         if self.rollout_mode == RolloutMode.HYBRID:

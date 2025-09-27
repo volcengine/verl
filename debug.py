@@ -14,7 +14,8 @@ logger = logging.getLogger(__file__)
 
 def main():
     """
-    CUDA_VISIBLE_DEVICES=0 python -m sglang.launch_server --model-path /mnt/hdfs/yyding/ckpts/MERGED_HF_MODEL/Qwen3-4B-Ins-GenRM-Step50
+    CUDA_VISIBLE_DEVICES=0 python -m sglang.launch_server --model-path /mnt/hdfs/yyding/ckpts/MERGED_HF_MODEL/Qwen3-4B-Ins-GenRM-Step50 --port 30000
+    CUDA_VISIBLE_DEVICES=1 python -m sglang.launch_server --model-path /mnt/hdfs/yyding/ckpts/MERGED_HF_MODEL/Qwen3-4B-Ins-GenRM-Step50 --port 30001
     python -m sglang_router.launch_router --worker-urls http://127.0.0.1:30000 http://127.0.0.1:30001 --port 11111
     """
     # ['127.0.0.1:51451', '127.0.0.1:46649']
@@ -47,5 +48,10 @@ def check_health(url="http://127.0.0.1:8000/health"):
         print(f"❌ Failed to connect: {e}")
         return False
 
+def generate(url="http://127.0.0.1:33959/generate"):
+    r = requests.post(url, json={"input_ids": [0]})
+    print(r.json())
+
 if __name__ == "__main__":
-    check_health("http://127.0.0.1:55865/health")
+    # generate("http://127.0.0.1:44631/generate")
+    check_health("http://127.0.0.1:44631/health")

@@ -717,7 +717,7 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
 
         raise RuntimeError(f"Failed to complete async request to {endpoint} after {self.max_attempts} attempts")
 
-    async def release_memory_occupation(self, tags: Optional[list[str]] = None) -> dict[str, Any]:
+    async def hybria(self, tags: Optional[list[str]] = None) -> dict[str, Any]:
         """Release GPU memory occupation temporarily (async version).
 
         Args:

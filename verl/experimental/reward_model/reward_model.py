@@ -14,6 +14,7 @@
 import asyncio
 import heapq
 import logging
+import multiprocessing
 import os
 import queue
 import random
@@ -41,9 +42,7 @@ from verl.utils.model import compute_position_id_with_mask
 from verl.utils.rollout_trace import RolloutTraceConfig, rollout_trace_attr, rollout_trace_op
 from verl.workers.rollout.replica import TokenOutput, get_rollout_replica_class
 from verl.workers.config import HFModelConfig, RewardModelConfig
-
 from verl.workers.rollout.utils import get_free_port
-from sglang_router.launch_server import RouterArgs, launch_router
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -55,6 +54,7 @@ class RewardModelManager:
         self.worker_group = worker_group
         self._initialize_llm_servers()
         self._initialize_router()
+        breakpoint()
 
     def _initialize_llm_servers(self):
         assert self.config.rollout.name == "sglang", "Only sglang is supported now"
@@ -88,25 +88,31 @@ class RewardModelManager:
 
     def _initialize_router(self):
         router_ip = ray.util.get_node_ip_address()
-        router_port = get_free_port()
+        router_port, _ = get_free_port(router_ip)
+        self.router_address = f"{router_ip}:{router_port}"
+
+        # current implementation only support sglang
+        assert self.config.rollout.name == "sglang", "Only sglang is supported now"
+        from sglang_router.launch_server import RouterArgs, launch_router
+
         worker_urls = [f"http://{addr}" for addr in self.server_addresses]
         router_args = RouterArgs(
+            host=router_ip,
             port=router_port,
             worker_urls=worker_urls,
+            balance_abs_threshold=4,
         )
-        breakpoint()
-        launch_router(router_args)
-
-    def wake_up(self):
-        """Wake up all rollout replica instances."""
-        self._run_all([replica.wake_up() for replica in self.rollout_replicas])
-
-    def sleep(self):
-        """Sleep all rollout replica instances."""
-        self._run_all([replica.sleep() for replica in self.rollout_replicas])
+        self.router_process = multiprocessing.Process(target=launch_router, args=(router_args,))
+        self.router_process.start()
 
     def _run_all(self, tasks: list[asyncio.Task]):
         async def run_all():
             await asyncio.gather(*tasks)
 
         asyncio.run(run_all())
+
+    def wake_up(self):
+        pass
+
+    def sleep(self):
+        pass
