@@ -483,9 +483,7 @@ class vLLMAsyncRollout(BaseRollout):
         self.inference_engine: WorkerWrapperBase = None
         self.address = self._init_zeromq()
         self.lora_config = (
-            {"max_loras": 1, "max_lora_rank": model_config.lora_rank}
-            if model_config.lora_rank > 0
-            else {}
+            {"max_loras": 1, "max_lora_rank": model_config.lora_rank} if model_config.lora_rank > 0 else {}
         )
 
         # https://github.com/vllm-project/vllm/issues/25171
@@ -540,7 +538,6 @@ class vLLMAsyncRollout(BaseRollout):
         """Initialize worker engine."""
         if not torch.distributed.is_initialized():
             initialize_global_process_group_ray()
-
         all_kwargs[0]["rank"] = int(os.environ["RANK"])
         device_name = "NPU" if is_npu_available else "GPU"
         all_kwargs[0]["local_rank"] = (
@@ -606,7 +603,6 @@ class vLLMAsyncRollout(BaseRollout):
             model = self.inference_engine.worker.model_runner.model
             patch_vllm_moe_model_weight_loader(model)
             model.load_weights(weights)
-
 
     def generate_sequences(self, prompts: DataProto) -> DataProto:
         """Batch generate sequences in sync mode."""
