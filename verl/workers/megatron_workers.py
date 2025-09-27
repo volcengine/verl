@@ -396,7 +396,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model, dataclass_type=HFModelConfig)
 
         # 2. build rollout device mesh
-        infer_tp = self.config.rollout.tensor_model_parallel_size
+        infer_tp = self.config.rollout.tensor_model_parallel_size * self.config.rollout.data_parallel_size
         dp = self.world_size // infer_tp
         assert self.world_size % infer_tp == 0, (
             f"rollout world_size: {self.world_size} is not divisible by infer_tp: {infer_tp}"

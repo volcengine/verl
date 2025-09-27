@@ -69,6 +69,7 @@ from verl.workers.rollout.schemas import (
 )
 from verl.workers.rollout.sglang_rollout.http_server_engine import AsyncHttpServerAdapter
 from verl.workers.rollout.sglang_rollout.utils import broadcast_pyobj, get_named_tensor_buckets
+from verl.workers.rollout.utils import is_valid_ipv6_address
 
 try:
     from sglang.srt.function_call.function_call_parser import FunctionCallParser
@@ -1541,7 +1542,7 @@ class ServerAdapter(BaseRollout):
 
         rank = int(os.environ["RANK"])
         local_world_size = int(os.environ["RAY_LOCAL_WORLD_SIZE"])
-        rollout_world_size = self.config.tensor_model_parallel_size
+        rollout_world_size = self.config.tensor_model_parallel_size * self.config.data_parallel_size
         self.replica_rank = rank // rollout_world_size
         self.rollout_rank = rank % rollout_world_size
         self.node_rank = self.rollout_rank // local_world_size
@@ -1558,8 +1559,9 @@ class ServerAdapter(BaseRollout):
             f"replica_rank={self.replica_rank} node_rank={self.node_rank}, "
             f"server address: {server_address}, port: {server_port}"
         )
+        host = f"[{server_address}]" if is_valid_ipv6_address(server_address) else server_address
         self._engine = AsyncHttpServerAdapter(
-            model_path=self.model_config.local_path, host=server_address, port=server_port, launch_server=False
+            model_path=self.model_config.local_path, host=host, port=server_port, launch_server=False
         )
 
     async def resume(self, tags: list[str]):
@@ -1568,14 +1570,14 @@ class ServerAdapter(BaseRollout):
         Args:
             tag: weights or kv_cache.
         """
-        await self._init_server_adapter()
         if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.config.free_cache_engine:
+            await self._init_server_adapter()
             await self._engine.resume_memory_occupation(tags=tags)
 
     async def release(self):
         """Release weights and kv cache in GPU memory."""
-        await self._init_server_adapter()
         if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.config.free_cache_engine:
+            await self._init_server_adapter()
             await self._engine.release_memory_occupation(tags=["kv_cache", "weights"])
 
     async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None], **kwargs):
@@ -1591,8 +1593,9 @@ class ServerAdapter(BaseRollout):
             - Main logic: https://github.com/THUDM/slime/blob/fb7605cc5fb09af0f9369d37f7192f12bddee577/slime/ray/ppo_actor.py#L452
             - runtime envs: https://github.com/THUDM/slime/blob/fb7605cc5fb09af0f9369d37f7192f12bddee577/slime/ray/ppo_actor.py#L39
         """
-        # FIXME(@wuxibin): device_mesh is not right in multi-node case.
-        await self._init_server_adapter()
+        if self.device_mesh["infer_tp"].get_local_rank() == 0:
+            await self._init_server_adapter()
+
         update_weights_bucket_bytes = int(self.config.update_weights_bucket_megabytes) << 20
         for params_batch in get_named_tensor_buckets(weights, update_weights_bucket_bytes):
             await sgl_update_weights(

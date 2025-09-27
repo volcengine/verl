@@ -30,6 +30,7 @@ from omegaconf import DictConfig
 
 import verl.utils.torch_functional as verl_F
 from verl.trainer.config import AlgoConfig
+from verl.utils import as_torch_index, group_mean_std
 from verl.utils.import_utils import deprecated
 from verl.workers.config import ActorConfig
 
@@ -103,6 +104,7 @@ class AdvantageEstimator(str, Enum):
     GRPO_PASSK = "grpo_passk"
     GPG = "gpg"
     RLOO_VECTORIZED = "rloo_vectorized"
+    GRPO_VECTORIZED = "grpo_vectorized"
 
 
 ADV_ESTIMATOR_REGISTRY: dict[str, Any] = {}
@@ -324,6 +326,33 @@ def compute_grpo_outcome_advantage(
         scores = scores.unsqueeze(-1) * response_mask
 
     return scores, scores
+
+
+@register_adv_est(AdvantageEstimator.GRPO_VECTORIZED)
+def compute_grpo_vectorized_outcome_advantage(
+    token_level_rewards: torch.Tensor,
+    response_mask: torch.Tensor,
+    index: np.ndarray,
+    epsilon: float = 1e-6,
+    norm_adv_by_std_in_grpo: bool = True,
+    config: Optional[AlgoConfig] = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Vectorized GRPO（outcome-only）:
+      For each group g:
+      a_i = \\frac{r_i - \\mu_g}{\\sigma_g} (or without dividing by \\sigma_g),
+      then broadcast the scalar across the token dimension (multiplied by response_mask).。
+    """
+    with torch.no_grad():
+        scores = token_level_rewards.sum(dim=-1)
+        g = as_torch_index(index, device=scores.device)
+        mean_g, std_g, _ = group_mean_std(scores, g, eps=epsilon)
+        if norm_adv_by_std_in_grpo:
+            scalars = (scores - mean_g[g]) / (std_g[g] + epsilon)
+        else:
+            scalars = scores - mean_g[g]
+        advantages = scalars.unsqueeze(-1) * response_mask
+        return advantages, advantages
 
 
 @register_adv_est(AdvantageEstimator.GRPO_PASSK)  # or simply: @register_adv_est("grpo_passk")

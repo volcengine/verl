@@ -175,3 +175,10 @@ class RolloutConfig(BaseConfig):
     limit_images: Optional[int] = None
 
     skip_tokenizer_init: bool = False
+
+    def __post_init__(self):
+        """Validate the rollout config"""
+        if self.expert_parallel_size > 1:
+            assert self.expert_parallel_size == (self.tensor_model_parallel_size * self.data_parallel_size), (
+                "expert_parallel_size must be equal to tensor_model_parallel_size * data_parallel_size"
+            )
