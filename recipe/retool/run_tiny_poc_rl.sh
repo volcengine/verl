@@ -7,11 +7,8 @@ HDFS_ROOT=${HDFS_ROOT:-$PWD}
 DATA_ROOT=${DATA_ROOT:-$PWD}
 
 dapo_math_small=$DATA_ROOT/dataset/for_rl/deb-test-rl-dapo-tool-hook
-aime_2024=$DATA_ROOT/dataset/for_rl/Maxwell-Jia/AIME_2024
-aime_2025=$DATA_ROOT/dataset/for_rl/yentinglin/aime_2025
 train_files="['$dapo_math_small']"
 test_files="['$dapo_math_small']"
-#test_files="['$aime_2025', '$aime_2024']"
 model_path=$DATA_ROOT/model/sftd_models/one_merged
 
 # tool
@@ -70,7 +67,6 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.model.path=$model_path \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
-    actor_rollout_ref.actor.num_workers=1 \
     actor_rollout_ref.actor.use_kl_loss=$use_kl_loss \
     actor_rollout_ref.actor.kl_loss_coef=$kl_loss_coef \
     actor_rollout_ref.actor.clip_ratio_low=$clip_ratio_low \
@@ -86,8 +82,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.log_prob_max_token_len_per_gpu=$log_prob_max_token_len_per_gpu \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.mode=async \
-    actor_rollout_ref.rollout.num_workers=1 \
-    actor_rollout_ref.rollout.num_cpus_per_worker=1 \
+    actor_rollout_ref.rollout.agent.num_workers=1 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=$infer_tp \
     actor_rollout_ref.rollout.multi_turn.enable=True \
     actor_rollout_ref.rollout.multi_turn.max_user_turns=$max_turns \
@@ -106,7 +101,6 @@ python3 -m verl.trainer.main_ppo \
     trainer.val_before_train=True \
     trainer.log_val_generations=20 \
     trainer.nnodes=1 \
-    trainer.num_workers=1 \
     trainer.save_freq=20 \
     trainer.default_local_dir=$default_local_dir \
     trainer.test_freq=10 \
