@@ -1,0 +1,2 @@
+_target_: recipe.agent_lightning_like.example.agent_client.AgentClient
+server_address: null  # will be filled by LightningAgentLoop
