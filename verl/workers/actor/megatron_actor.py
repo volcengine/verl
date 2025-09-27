@@ -397,6 +397,7 @@ class MegatronPPOActor(BasePPOActor):
             total_seqlen = micro_batch_size * seq_len
         # compute input shapes for pp stages
         n_micro_batch = len(micro_batches)
+        self.n_micro_batch = n_micro_batch
 
         forward_backward_func = get_forward_backward_func()
 
@@ -419,6 +420,9 @@ class MegatronPPOActor(BasePPOActor):
             response_length = responses.size(1)
             response_mask = data["response_mask"].to(bool)
             loss_agg_mode = self.config.loss_agg_mode
+            n_samples, _ = response_mask.shape
+            loss_scale_factor = n_samples / self.config.ppo_mini_batch_size
+            loss_scale_factor *= self.n_micro_batch  # for megatron backend
 
             # compute policy loss
             log_prob = output["log_probs"][:, -response_length - 1 : -1].contiguous()
@@ -445,7 +449,7 @@ class MegatronPPOActor(BasePPOActor):
 
                 stats.update(
                     {
-                        "actor/pg_loss": pg_loss.detach().item(),
+                        "actor/pg_loss": pg_loss.detach().item() * loss_scale_factor,
                         "actor/pg_clipfrac": pg_clipfrac.detach().item(),
                         "actor/ppo_kl": ppo_kl.detach().item(),
                         "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
@@ -472,12 +476,14 @@ class MegatronPPOActor(BasePPOActor):
                     kl_loss = agg_loss(loss_mat=kld, loss_mask=response_mask, loss_agg_mode=self.config.loss_agg_mode)
 
                     policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
-                    metrics["actor/kl_loss"] = kl_loss.detach().item()
+                    metrics["actor/kl_loss"] = kl_loss.detach().item() * loss_scale_factor
                     metrics["actor/kl_coef"] = self.config.kl_loss_coef
 
                 # return loss and stats
 
             append_to_dict(metrics, stats)
+
+            policy_loss = policy_loss * loss_scale_factor
             return policy_loss, [metrics, ret_entropy]
 
         def forward_step(batch_iter, model):
