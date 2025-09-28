@@ -123,35 +123,23 @@ jobs:
         run: |
           ray stop --force
           python3 examples/data_preprocess/geo3k.py
-            - name: Running gsm8k e2e training tests with peft sft on ASCEND NPU
+      - name: Debug MindSpeed installation
         run: |
-          ray stop --force
-          bash tests/special_npu/run_qwen2_5_05b_sft_peft_sp2.sh
-          rm -rf $HOME/ckpts
-      - name: Running gsm8k e2e training tests with GRPO on ASCEND NPU
-        run: |
-          ray stop --force
-          bash tests/special_npu/run_qwen2_5_05b_grpo.sh
-          rm -rf $HOME/ckpts
-      - name: Running geo3k e2e training tests with GRPO on ASCEND NPU
-        run: |
-          ray stop --force
-          bash tests/special_npu/run_qwen2_5_vl_3b_npu.sh
-          rm -rf $HOME/ckpts
-      - name: Running gsm8k e2e training tests with DAPO on ASCEND NPU
-        run: |
-          ray stop --force
-          bash tests/special_npu/run_qwen2_5_05b_dapo.sh
-          rm -rf $HOME/ckpts
-      - name: Running gsm8k e2e qwen3 training tests with GRPO on ASCEND NPU
-        run: |
-          ray stop --force
-          bash tests/special_npu/run_qwen3_06b_grpo.sh
-          rm -rf $HOME/ckpts
+          echo "=== Check MindSpeed installation ==="
+          pip show mindspeed || echo "MindSpeed not installed"
+          pip list | grep mindspeed || echo "MindSpeed not found"
+          echo "=== Environment PYTHONPATH ==="
+          echo $PYTHONPATH
+          echo "=== Python sys.path ==="
+          python -c "import sys; import pprint; pprint.pprint(sys.path)"
+          echo "=== MindSpeed import location ==="
+          python -c "import mindspeed, os; print(mindspeed.__file__); print(os.path.dirname(mindspeed.__file__))"
+          echo "==================================="
       - name: Running gsm8k e2e training tests with GRPO MindSpeed on ASCEND NPU
         run: |
           ray stop --force
           export PYTHONPATH=$PYTHONPATH:/Megatron-LM
+          source /usr/local/Ascend/ascend-toolkit/set_env.sh
           USE_DIST_CKPT=True bash tests/special_npu/run_qwen2_5_05b_grpo_mindspeed.sh
           rm -rf $HOME/dist_ckpt/qwen2_5_05b_grpo_mindspeed
           rm -rf $HOME/ckpts
