@@ -1679,10 +1679,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
         self.reward_module = self._build_model(config=self.config)
 
     def _forward_micro_batch(self, micro_batch):
-        if is_cuda_available:
-            from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
-        elif is_npu_available:
-            from verl.utils.npu_utils import index_first_axis, pad_input, rearrange, unpad_input
+        from verl.utils.attention_utils import index_first_axis, pad_input, rearrange, unpad_input
 
         from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad_and_slice_inputs
 
