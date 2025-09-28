@@ -18,6 +18,7 @@ from .collabllm import CollabLLMRewardManager
 from .dapo import DAPORewardManager
 from .naive import NaiveRewardManager
 from .prime import PrimeRewardManager
+from .parallel import ParallelRewardManager
 
 # Note(haibin.lin): no need to include all reward managers here in case of complicated dependencies
 __all__ = [
@@ -26,6 +27,7 @@ __all__ = [
     "DAPORewardManager",
     "NaiveRewardManager",
     "PrimeRewardManager",
+    "ParallelRewardManager",
     "register",
     "get_reward_manager_cls",
 ]
