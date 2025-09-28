@@ -3,15 +3,18 @@ set -x
 export VLLM_USE_V1=1
 
 SPO_ENABLE=${SPO_ENABLE:-True}
-SPO_OFFLINE_VALUES=${SPO_OFFLINE_VALUES:-"<PATH_TO_OFFLINE_VALUES_FILE>"}
+SPO_OFFLINE_VALUES=${SPO_OFFLINE_VALUES:-"dingzihan737/SPO_Qwen3-8B_DAPO_16k_ReTool_Binary"}
 EXP_NAME=${EXP_NAME:-spo_test}
 DEBUG=${DEBUG:-False}
 SPO_RHO_CLIP_LOWER=${SPO_RHO_CLIP_LOWER:-0.875}
+MODEL_PATH=${MODEL_PATH:-"Qwen/Qwen3-8B"}
+TENSORBOARD_DIR=${TENSORBOARD_DIR:-"./tensorboard"}
+CKPT_DIR=${CKPT_DIR:-"./checkpoints"}
 # ================= data/model/tool =================
 
 aime_2024=Maxwell-Jia/AIME_2024
 aime_2025=yentinglin/aime_2025
-model_path=Qwen3-8B
+model_path=$MODEL_PATH
 
 train_data_dir=open-r1/DAPO-Math-17k-Processed
 train_files="['$train_data_dir']"
@@ -21,11 +24,9 @@ test_files="['$aime_2025', '$aime_2024']"
 tool_config_path=recipe/retool/sandbox_fusion_tool_config.yaml
 
 # wandb
-project_name=spo_training
+project_name=SPO_Qwen3-8B
 experiment_name=$EXP_NAME
-default_local_dir=checkpoints/$project_name/$experiment_name
-validation_data_dir=validation_dump/$project_name/$experiment_name
-rollout_data_dir=rollout_data/$project_name/$experiment_name
+default_local_dir=${CKPT_DIR}/$project_name/$experiment_name
 
 # ================= algorithm =================
 adv_estimator=grpo
@@ -52,14 +53,14 @@ if [ "$DEBUG" = "True" ]; then
     max_response_length=1024
 elif [ "$SPO_ENABLE" = "True" ]; then
     echo "===== SPO MODE ===="
-    train_batch_size=2048
-    ppo_mini_batch_size=256
+    train_batch_size=768
+    ppo_mini_batch_size=96
     n_resp_per_prompt=1
     gen_batch_size=14000
 else
     echo "===== GRPO MODE ===="
-    train_batch_size=256
-    ppo_mini_batch_size=32
+    train_batch_size=96
+    ppo_mini_batch_size=12
     n_resp_per_prompt=8
     gen_batch_size=$train_batch_size
 fi
@@ -74,7 +75,7 @@ offload=True
 actor_max_token_len_per_gpu=$(( (max_prompt_length + max_response_length) * 1 ))
 log_prob_max_token_len_per_gpu=$(( actor_max_token_len_per_gpu * 4 ))
 
-TENSORBOARD_DIR=tensorboard/${project_name}/${experiment_name} \
+TENSORBOARD_DIR=${TENSORBOARD_DIR}/${project_name}/${experiment_name} \
 python3 -m recipe.spo.main_spo \
     algorithm.adv_estimator=$adv_estimator \
     algorithm.use_kl_in_reward=$use_kl_in_reward \
@@ -87,10 +88,10 @@ python3 -m recipe.spo.main_spo \
     data.max_response_length=$max_response_length \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
-    data.custom_cls.path=recipe/retool/retool.py \
+    data.custom_cls.path=recipe/spo/retool.py \
     data.custom_cls.name=CustomRLHFDataset \
     +data.gen_batch_size=$gen_batch_size \
-    custom_reward_function.path=recipe/retool/retool.py \
+    custom_reward_function.path=recipe/spo/retool.py \
     custom_reward_function.name=compute_score \
     actor_rollout_ref.model.path=$model_path \
     actor_rollout_ref.model.use_remove_padding=True \
@@ -115,7 +116,7 @@ python3 -m recipe.spo.main_spo \
     actor_rollout_ref.rollout.multi_turn.max_user_turns=$max_turns \
     actor_rollout_ref.rollout.multi_turn.max_assistant_turns=$max_turns \
     actor_rollout_ref.rollout.multi_turn.tool_config_path=$tool_config_path \
-    actor_rollout_ref.rollout.multi_turn.format=retool_paper \
+    actor_rollout_ref.rollout.multi_turn.format=hermes\
     actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
     actor_rollout_ref.rollout.n=$n_resp_per_prompt \
     actor_rollout_ref.rollout.val_kwargs.temperature=0.6 \
@@ -133,10 +134,8 @@ python3 -m recipe.spo.main_spo \
     trainer.n_gpus_per_node=8 \
     trainer.val_before_train=False \
     trainer.log_val_generations=20 \
-    trainer.nnodes=2 \
+    trainer.nnodes=1 \
     trainer.save_freq=20 \
     trainer.default_local_dir=$default_local_dir \
-    trainer.validation_data_dir=$validation_data_dir \
-    trainer.rollout_data_dir=$rollout_data_dir \
     trainer.test_freq=20 \
     trainer.total_epochs=500 $@

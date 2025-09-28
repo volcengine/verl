@@ -51,17 +51,20 @@ pip install -e .
 
 ### Basic Training
 
-**Download offline values file:**
+**Generate offline values file:**
+
+If you want to generate offline values file, you can just change the val_files to the training files, and set the following params:
 ```bash
-# Download the pre-computed offline values from HuggingFace
-wget https://huggingface.co/datasets/dingzihan737/SPO_Qwen3-8B_DAPO_16k_ReTool_Binary/resolve/main/offline_values.json
+trainer.val_before_train=True \
+trainer.val_only=True \
+trainer.validation_data_dir=$validation_data_dir
 ```
 
 **Training commands:**
 ```bash
 # Enable SPO training mode
 export SPO_ENABLE=True
-export SPO_OFFLINE_VALUES="./offline_values.json"
+export SPO_OFFLINE_VALUES="dingzihan737/SPO_Qwen3-8B_DAPO_16k_ReTool_Binary"
 export EXP_NAME="spo_experiment"
 
 # Run SPO training

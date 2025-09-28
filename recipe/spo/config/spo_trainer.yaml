@@ -19,3 +19,4 @@ trainer:
       value: null
       clip_lower: 0.875
     no_baseline: False
+  debug: False

@@ -32,6 +32,7 @@ from typing import Optional
 import numpy as np
 import ray
 import torch
+from datasets import load_dataset
 from omegaconf import OmegaConf, open_dict
 from torch.utils.data import Dataset, Sampler
 from torchdata.stateful_dataloader import StatefulDataLoader
@@ -1038,9 +1039,10 @@ class RayPPOTrainer:
         next_step_profile = False
 
         if self.config.trainer.spo.enable:
-            prompt2scores = json.load(open(self.config.trainer.spo.offline_values))
+            dataset = load_dataset(self.config.trainer.spo.offline_values)
+            prompt2scores = {item['prompt']: item['vhat'] for item in dataset['train']}
             Neff = self.config.trainer.spo.offline_N
-            prompt2scores = {k: [int(_ > 0) for _ in v] for k, v in prompt2scores.items()}
+            prompt2scores = {k: [int(_ > 0.5) for _ in v] for k, v in prompt2scores.items()}
             # Randomly select Neff samples for each prompt
             print(f"[DEBUG] Select {Neff} samples for each prompt to calculate offline values.")
             full_prompts = list(prompt2scores.keys())
