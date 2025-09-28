@@ -36,6 +36,7 @@ from transformers import AutoProcessor, AutoTokenizer
 
 from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayWorkerGroup
+from verl.trainer.ppo.ray_trainer import RayResourcePool
 from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.fs import copy_to_local
 from verl.utils.model import compute_position_id_with_mask
@@ -54,7 +55,8 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 class RewardManagerWorker:
     def __init__(self, config: RewardModelConfig, rm_executor: RewardModelManager = None):
         self.config = config
-
+        from verl.workers.reward_manager.dapo import DAPORewardManager
+        self.reward_manager = DAPORewardManager
 
 
 class RewardManager:
@@ -65,7 +67,9 @@ class RewardManager:
                 config=config,
                 worker_group=worker_group,
             )
-            # self.
+            self.reward_model_manager.sleep()
+        else:
+            self.reward_model_manager = None
 
         assert config.reward_manager == "fapo", "Only fapo reward manager is supported now"
 

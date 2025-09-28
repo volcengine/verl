@@ -112,14 +112,19 @@ class RolloutReplica(ABC):
         ]
         await self.launch_servers()
 
-    async def init_colocated(self, resource_pool: RayResourcePool):
+    # TODO(@dyy): should init with resource_pool?
+    async def init_colocated(self, worker_group: RayWorkerGroup):
         """Init colocated rollout server, rollout engine and hybrid engine colocated in same ray placement group
         but in separate processes.
 
         Args:
             resource_pool: RayResourcePool, ray placement group where hybrid engine processes have been launched.
         """
-        raise NotImplementedError
+        self.rollout_mode = RolloutMode.COLOCATED
+        self.workers = worker_group.workers[
+            self.world_size * self.replica_rank : self.world_size * (self.replica_rank + 1)
+        ]
+        await self.launch_servers()
 
     async def init_standalone(self):
         """Init standalone rollout server, create new resource pool for this rollout."""
@@ -133,6 +138,7 @@ class RolloutReplica(ABC):
         self.resource_pool = resource_pool_manager.resource_pool_dict[f"rollout_pool_{self.replica_rank}"]
 
         # create worker group for this rollout
+
         worker_group = RayWorkerGroup(
             resource_pool=self.resource_pool,
             ray_cls_with_init=self.get_ray_class_with_init_args(),

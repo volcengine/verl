@@ -36,6 +36,7 @@ from transformers import AutoProcessor, AutoTokenizer
 
 from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayWorkerGroup
+from verl.trainer.ppo.ray_trainer import RayResourcePool
 from verl.trainer.ppo.reward import load_reward_manager
 from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.fs import copy_to_local
@@ -63,8 +64,8 @@ class RewardModelManager:
         rollout_world_size = self.config.rollout.tensor_model_parallel_size
         world_size = (
             self.worker_group.world_size
-            if self.worker_group
-            else self.config.n_gpus_per_node * self.config.nnodes
+            if self.worker_group  # colocate mode
+            else self.config.n_gpus_per_node * self.config.nnodes  # standalone mode
         )
         num_replicas = world_size // rollout_world_size
 
@@ -84,8 +85,10 @@ class RewardModelManager:
             )
             for replica_rank in range(num_replicas)
         ]
-        # TODO(@dyy): add colocate and standalone mode for GRM
-        self._run_all([server.init_hybrid(self.worker_group) for server in self.rollout_replicas])
+        if self.worker_group:
+            self._run_all([server.init_colocated(self.worker_group) for server in self.rollout_replicas])
+        else:
+            self._run_all([server.init_standalone() for server in self.rollout_replicas])
         self.server_handles = [server._server_handle for server in self.rollout_replicas]
         self.server_addresses = [server._server_address for server in self.rollout_replicas]
 
@@ -95,7 +98,8 @@ class RewardModelManager:
 
         # current implementation only support sglang
         assert self.config.rollout.name == "sglang", "Only sglang is supported now"
-        self.router = SGLangRouter(router_ip, router_port, self.server_addresses, balance_abs_threshold=4)
+        router = SGLangRouter(router_ip, router_port, self.server_addresses, balance_abs_threshold=4)
+        self.router = router
 
     def wake_up(self):
         """Wake up all rollout replica instances."""
