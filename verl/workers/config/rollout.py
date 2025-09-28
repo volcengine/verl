@@ -55,6 +55,7 @@ class MultiTurnConfig(BaseConfig):
     use_inference_chat_template: bool = False
     tokenization_sanity_check_mode: str = "strict"
     format: str = "hermes"
+    num_repeat_rollouts: Optional[int] = None
 
 
 @dataclass
@@ -91,10 +92,11 @@ class ServerConfig(BaseConfig):
 
 @dataclass
 class RolloutConfig(BaseConfig):
-    _mutable_fields = {"max_model_len"}
+    _mutable_fields = {"max_model_len", "load_format"}
 
     name: Optional[str] = MISSING
     mode: str = "sync"
+    skip_tokenizer_init: bool = True
 
     temperature: float = 1.0
     top_k: int = -1
@@ -115,6 +117,8 @@ class RolloutConfig(BaseConfig):
     enforce_eager: bool = True
     cudagraph_capture_sizes: Optional[list] = None
     free_cache_engine: bool = True
+    data_parallel_size: int = 1
+    expert_parallel_size: int = 1
     tensor_model_parallel_size: int = 2
     max_num_batched_tokens: int = 8192
 
@@ -160,7 +164,7 @@ class RolloutConfig(BaseConfig):
 
     enable_prefix_caching: bool = True
 
-    load_format: str = "dummy_dtensor"
+    load_format: str = "dummy"
 
     layered_summon: bool = False
 
@@ -171,3 +175,10 @@ class RolloutConfig(BaseConfig):
     limit_images: Optional[int] = None
 
     skip_tokenizer_init: bool = False
+
+    def __post_init__(self):
+        """Validate the rollout config"""
+        if self.expert_parallel_size > 1:
+            assert self.expert_parallel_size == (self.tensor_model_parallel_size * self.data_parallel_size), (
+                "expert_parallel_size must be equal to tensor_model_parallel_size * data_parallel_size"
+            )
