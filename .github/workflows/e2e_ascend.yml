@@ -74,7 +74,7 @@ jobs:
     runs-on: [self-hosted, npu-0]
     timeout-minutes: 40 # Increase this timeout value as needed
     container:
-      image: crpi-nc9mglthamj2w1bt.cn-hangzhou.personal.cr.aliyuncs.com/ascend_linke/verl:verl_v1_x86
+      image: docker pull crpi-nc9mglthamj2w1bt.cn-hangzhou.personal.cr.aliyuncs.com/ascend_linke/verl_x86:verl_cann82rc1_vllm091
       volumes:
         - /usr/local/dcmi:/usr/local/dcmi
         - /usr/local/bin/npu-smi:/usr/local/bin/npu-smi
