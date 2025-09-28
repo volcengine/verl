@@ -480,6 +480,41 @@ class BatchMeta:
 
         return BatchMeta(samples=merged_samples, extra_info=merged_extra_info)
 
+    def reorder(self, indices: list[int]):
+        """
+        Reorder the SampleMeta in the BatchMeta according to the given indices.
+
+        The operation is performed in-place, modifying the current BatchMeta's SampleMeta order.
+
+        Args:
+            indices : list[int]
+                A list of integers specifying the new order of SampleMeta. Each integer
+                represents the current index of the SampleMeta in the BatchMeta.
+        """
+        # Reorder the samples
+        reordered_samples = [self.samples[i] for i in indices]
+        object.__setattr__(self, "samples", reordered_samples)
+
+        # Update necessary attributes
+        self._update_after_reorder()
+
+    def _update_after_reorder(self) -> None:
+        """Update related attributes specifically for the reorder operation"""
+        # Update batch_index for each sample
+        for idx, sample in enumerate(self.samples):
+            object.__setattr__(sample, "_batch_index", idx)
+
+        # Update cached index lists
+        object.__setattr__(self, "_global_indexes", [sample.global_index for sample in self.samples])
+        object.__setattr__(self, "_local_indexes", [sample.local_index for sample in self.samples])
+        object.__setattr__(self, "_storage_ids", [sample.storage_id for sample in self.samples])
+
+        # Rebuild storage groups
+        storage_meta_groups = self._build_storage_meta_groups()
+        object.__setattr__(self, "_storage_meta_groups", storage_meta_groups)
+
+        # Note: No need to update _size, _field_names, _is_ready, etc., as these remain unchanged after reorder
+
     @classmethod
     def from_samples(
         cls, samples: SampleMeta | list[SampleMeta], extra_info: Optional[dict[str, Any]] = None
