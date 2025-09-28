@@ -1113,15 +1113,15 @@ class RayPPOTrainer:
                         if keep_idx:
                             sampled_batch_dict = {}
                             for k, v in batch_dict.items():
-                                try:
-                                    sampled_batch_dict[k] = v[keep_idx]
-                                    continue
-                                except Exception:
-                                    pass
-
-                                if isinstance(v, (list, tuple)):
-                                    sampled_batch_dict[k] = type(v)(v[i] for i in keep_idx)
+                                if isinstance(v, (list, tuple, np.ndarray, torch.Tensor)) and len(v) == M:
+                                    try:
+                                        # For np.ndarray and torch.Tensor, which support advanced indexing
+                                        sampled_batch_dict[k] = v[keep_idx]
+                                    except TypeError:
+                                        # Fallback for standard Python lists/tuples
+                                        sampled_batch_dict[k] = type(v)(v[i] for i in keep_idx)
                                 else:
+                                    # Not a batched quantity, so just copy it over
                                     sampled_batch_dict[k] = v
 
                             batch_dict = sampled_batch_dict
