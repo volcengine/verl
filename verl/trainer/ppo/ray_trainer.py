@@ -747,10 +747,10 @@ class RayPPOTrainer:
 
         self.rm_wg = None
         if self.use_rm:
-            from verl.experimental.reward_model import RewardModelManager
+            from verl.experimental.reward import RewardManager
 
             self.rm_wg = all_wg["rm"]
-            self.async_reward_model_manager = RewardModelManager(
+            self.async_reward_model_manager = RewardManager(
                 config=self.config.reward_model,
                 worker_group=self.rm_wg,
             )

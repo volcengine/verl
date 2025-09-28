@@ -12,6 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .reward_model import RewardModelManager
+from .reward import RewardManager
 
-__all__ = ["RewardModelManager"]
+__all__ = ["RewardManager"]

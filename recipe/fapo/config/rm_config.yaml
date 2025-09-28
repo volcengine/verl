@@ -9,6 +9,9 @@ defaults:
 reward_model:
   _target_: verl.workers.config.RewardModelConfig
 
+  reward_manager: dapo
+  launch_reward_fn_async: False
+
   enable: False
 
   # Whether to deploy the model to a separate resource pool.
@@ -57,9 +60,6 @@ reward_model:
     path: null
     preprocess_fn_name: null
     postprocess_fn_name: null
-
-  reward_manager: dapo
-  launch_reward_fn_async: False
 
   # fusion and profiler
   sandbox_fusion:

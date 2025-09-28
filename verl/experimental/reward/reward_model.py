@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import asyncio
+import aiohttp
 import heapq
 import logging
 import multiprocessing
@@ -44,6 +45,8 @@ from verl.workers.rollout.replica import TokenOutput, get_rollout_replica_class
 from verl.workers.config import HFModelConfig, RewardModelConfig
 from verl.workers.rollout.utils import get_free_port
 
+from .sglang_router import SGLangRouter
+
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
@@ -54,7 +57,6 @@ class RewardModelManager:
         self.worker_group = worker_group
         self._initialize_llm_servers()
         self._initialize_router()
-        breakpoint()
 
     def _initialize_llm_servers(self):
         assert self.config.rollout.name == "sglang", "Only sglang is supported now"
@@ -82,6 +84,7 @@ class RewardModelManager:
             )
             for replica_rank in range(num_replicas)
         ]
+        # TODO(@dyy): add colocate and standalone mode for GRM
         self._run_all([server.init_hybrid(self.worker_group) for server in self.rollout_replicas])
         self.server_handles = [server._server_handle for server in self.rollout_replicas]
         self.server_addresses = [server._server_address for server in self.rollout_replicas]
@@ -89,21 +92,18 @@ class RewardModelManager:
     def _initialize_router(self):
         router_ip = ray.util.get_node_ip_address()
         router_port, _ = get_free_port(router_ip)
-        self.router_address = f"{router_ip}:{router_port}"
 
         # current implementation only support sglang
         assert self.config.rollout.name == "sglang", "Only sglang is supported now"
-        from sglang_router.launch_server import RouterArgs, launch_router
+        self.router = SGLangRouter(router_ip, router_port, self.server_addresses, balance_abs_threshold=4)
 
-        worker_urls = [f"http://{addr}" for addr in self.server_addresses]
-        router_args = RouterArgs(
-            host=router_ip,
-            port=router_port,
-            worker_urls=worker_urls,
-            balance_abs_threshold=4,
-        )
-        self.router_process = multiprocessing.Process(target=launch_router, args=(router_args,))
-        self.router_process.start()
+    def wake_up(self):
+        """Wake up all rollout replica instances."""
+        self._run_all([replica.wake_up() for replica in self.rollout_replicas])
+
+    def sleep(self):
+        """Sleep all rollout replica instances."""
+        self._run_all([replica.sleep() for replica in self.rollout_replicas])
 
     def _run_all(self, tasks: list[asyncio.Task]):
         async def run_all():
@@ -111,8 +111,25 @@ class RewardModelManager:
 
         asyncio.run(run_all())
 
-    def wake_up(self):
-        pass
+    async def generate(
+        self,
+        prompt_ids: torch.Tensor,
+        sampling_params: dict[str, Any],
+        request_id: str,
+        image_data: Optional[list[Any]] = None,
+    ):
+        return await self.router.generate(
+            prompt_ids=prompt_ids,
+            sampling_params=sampling_params,
+            request_id=request_id,
+            image_data=image_data,
+        )
 
-    def sleep(self):
+    def generate_sequences(
+        self,
+        prompt_ids: torch.Tensor,
+        sampling_params: dict[str, Any],
+        request_id: str,
+        image_data: Optional[list[Any]] = None,
+    ):
         pass
