@@ -1,4 +1,4 @@
-# Copyright 2024 Bytedance Ltd. and/or its affiliates
+# Copyright 2025 Bytedance Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,14 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from . import config, tokenizer
-from .config import omega_conf_to_dataclass, validate_config
-from .groupwise import as_torch_index, group_mean_std
-from .tokenizer import hf_processor, hf_tokenizer
+from .transformer_impl import MindspeedEngineWithLMHead
 
-__all__ = (
-    tokenizer.__all__
-    + config.__all__
-    + ["hf_processor", "hf_tokenizer", "omega_conf_to_dataclass", "validate_config"]
-    + ["as_torch_index", "group_mean_std"]
-)
+__all__ = ["MindspeedEngineWithLMHead"]

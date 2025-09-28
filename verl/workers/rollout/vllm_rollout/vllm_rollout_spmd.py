@@ -58,6 +58,7 @@ from vllm.worker.worker_base import WorkerWrapperBase
 from verl import DataProto
 from verl.third_party.vllm import VLLM_SLEEP_LEVEL
 from verl.utils.device import is_npu_available
+from verl.utils.distributed import initialize_global_process_group_ray
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.ray_utils import ray_noset_visible_devices
 from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
@@ -483,7 +484,8 @@ class vLLMAsyncRollout(BaseRollout):
         self.inference_engine: WorkerWrapperBase = None
         self.address = self._init_zeromq()
 
-        if config.layered_summon:
+        # https://github.com/vllm-project/vllm/issues/25171
+        if config.layered_summon or config.expert_parallel_size > 1:
             self.sleep_level = 1
         else:
             self.sleep_level = VLLM_SLEEP_LEVEL
@@ -532,6 +534,9 @@ class vLLMAsyncRollout(BaseRollout):
 
     def _init_worker(self, all_kwargs: list[dict[str, Any]]):
         """Initialize worker engine."""
+        if not torch.distributed.is_initialized():
+            initialize_global_process_group_ray()
+
         all_kwargs[0]["rank"] = int(os.environ["RANK"])
         device_name = "NPU" if is_npu_available else "GPU"
         all_kwargs[0]["local_rank"] = (
