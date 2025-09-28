@@ -38,11 +38,30 @@ SPO returns to the classic single-stream paradigm with three key innovations:
 
 ## 🎯 Quick Start
 
+### Prerequisites
+**Required verl version:**
+
+This project requires a specific verl commit for SPO implementation. Please use:
+```bash
+git clone https://github.com/volcengine/verl.git
+cd verl
+git checkout 04726dbf12da5352aafbd550bff5093b89ead8c1
+pip install -e .
+```
+
 ### Basic Training
+
+**Download offline values file:**
+```bash
+# Download the pre-computed offline values from HuggingFace
+wget https://huggingface.co/datasets/dingzihan737/SPO_Qwen3-8B_DAPO_16k_ReTool_Binary/resolve/main/offline_values.json
+```
+
+**Training commands:**
 ```bash
 # Enable SPO training mode
 export SPO_ENABLE=True
-export SPO_OFFLINE_VALUES="/path/to/offline/values.json"
+export SPO_OFFLINE_VALUES="./offline_values.json"
 export EXP_NAME="spo_experiment"
 
 # Run SPO training
