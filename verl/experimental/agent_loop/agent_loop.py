@@ -327,12 +327,16 @@ class RewardManagerWorker:
             config, tokenizer, num_examine=0, **config.reward_model.get("reward_kwargs", {})
         )
         self.rm_executor = rm_executor
+        self.loop = asyncio.get_event_loop()
 
-    def compute_score(
+    async def compute_score(
         self,
         data: DataProto,
     ) -> dict:
         """Compute reward score for agent loop output.
+
+        NOTE: Since `reward_manager.__call__` is blocking function, we run it in thread pool to
+        compute multiple samples in parallel.
 
         Args:
             data: reward function input
@@ -340,14 +344,30 @@ class RewardManagerWorker:
         Returns:
             dict: Reward score and reward extra info.
         """
+        result = await self.loop.run_in_executor(
+            None,
+            self.reward_wrapper,
+            data,
+            True,  # return_dict
+        )
+
+        reward_score = result["reward_tensor"].sum(dim=-1).item()
+        reward_extra_info = {k: v[0] for k, v in result.get("reward_extra_info", {}).items()}
+        return {"reward_score": reward_score, "reward_extra_info": reward_extra_info}
+
+    def reward_wrapper(self, data: DataProto, return_dict=False) -> torch.Tensor:
+        """Assemble reward functions and reward model into one function and expose it to the event loop
+        Args:
+            return_dict: whether return as dict
+            data: DataProto from compute reward score
+        Returns:
+            torch.Tensor: Reward score tensor.
+        """
         if self.rm_executor is not None:
             res = ray.get(self.rm_executor.submit_task.remote(data))
             data = data.union(res)
 
-        result = self.reward_manager(data, return_dict=True)
-        reward_score = result["reward_tensor"].sum(dim=-1).item()
-        reward_extra_info = {k: v[0] for k, v in result.get("reward_extra_info", {}).items()}
-        return {"reward_score": reward_score, "reward_extra_info": reward_extra_info}
+        return self.reward_manager(data, return_dict)
 
 
 @ray.remote
@@ -597,6 +617,11 @@ class AgentLoopWorker:
                     **{k: np.array([v]) for k, v in kwargs.items()},
                     "__num_turns__": np.array([output.num_turns]),
                 }
+                extra_fields = {}
+                for key, val in output.extra_fields.items():
+                    extra_fields[key] = np.array([val], dtype=object)
+
+                non_tensor_batch.update(extra_fields)
                 data = DataProto(
                     batch=batch,
                     non_tensor_batch=non_tensor_batch,
@@ -676,7 +701,9 @@ class AgentLoopWorker:
         extra_fields = {}
         all_keys = set(key for input_item in inputs for key in input_item.extra_fields)
         for key in all_keys:
-            extra_fields[key] = np.array([input.extra_fields.get(key) for input in inputs], dtype=object)
+            temp_arr = np.empty(len(inputs), dtype=object)
+            temp_arr[:] = [input.extra_fields.get(key) for input in inputs]
+            extra_fields[key] = temp_arr
 
         non_tensor_batch.update(extra_fields)
         return DataProto(
@@ -752,7 +779,10 @@ class AgentLoopManager:
             self.sleep()
 
     def _initialize_llm_servers(self):
-        rollout_world_size = self.config.actor_rollout_ref.rollout.tensor_model_parallel_size
+        rollout_world_size = (
+            self.config.actor_rollout_ref.rollout.tensor_model_parallel_size
+            * self.config.actor_rollout_ref.rollout.data_parallel_size
+        )
         world_size = (
             self.worker_group.world_size
             if self.worker_group
@@ -761,9 +791,14 @@ class AgentLoopManager:
         num_replicas = world_size // rollout_world_size
 
         rollout_replica_class = get_rollout_replica_class(self.config.actor_rollout_ref.rollout.name)
+        rollout_config = self.config.actor_rollout_ref.rollout
+        model_config = self.config.actor_rollout_ref.model
         self.rollout_replicas = [
             rollout_replica_class(
-                replica_rank=replica_rank, config=self.config, gpus_per_node=self.config.trainer.n_gpus_per_node
+                replica_rank=replica_rank,
+                config=rollout_config,
+                model_config=model_config,
+                gpus_per_node=self.config.trainer.n_gpus_per_node,
             )
             for replica_rank in range(num_replicas)
         ]

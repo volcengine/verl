@@ -472,12 +472,14 @@ def offload_megatron_optimizer(optimizers):
 
     for _opt in _iter_opts(optimizers):
         offload_megatron_copy_params(_opt)
-        opt_state_dict_values = _opt.optimizer.state.values()
-        for v in opt_state_dict_values:
-            if "exp_avg" in v:
-                v["exp_avg"] = v["exp_avg"].to("cpu", non_blocking=True)
-            if "exp_avg_sq" in v:
-                v["exp_avg_sq"] = v["exp_avg_sq"].to("cpu", non_blocking=True)
+        ## worker may hold zero parameter when enabling custom pipeline layout
+        if _opt.optimizer is not None:
+            opt_state_dict_values = _opt.optimizer.state.values()
+            for v in opt_state_dict_values:
+                if "exp_avg" in v:
+                    v["exp_avg"] = v["exp_avg"].to("cpu", non_blocking=True)
+                if "exp_avg_sq" in v:
+                    v["exp_avg_sq"] = v["exp_avg_sq"].to("cpu", non_blocking=True)
         gc.collect()
         get_torch_device().empty_cache()
 
@@ -491,16 +493,18 @@ def load_megatron_optimizer(optimizers):
 
     for _opt in _iter_opts(optimizers):
         load_megatron_copy_params(_opt)
-        # if we are using HybridDeviceOptimizer, we need to only move gpu optimizer state to gpu
-        if hasattr(_opt.optimizer, "_move_new_state_to_right_device"):
-            _opt.optimizer._move_new_state_to_right_device()
-        else:
-            opt_state_dict_values = _opt.optimizer.state.values()
-            for v in opt_state_dict_values:
-                if "exp_avg" in v:
-                    v["exp_avg"] = v["exp_avg"].to(get_device_id(), non_blocking=True)
-                if "exp_avg_sq" in v:
-                    v["exp_avg_sq"] = v["exp_avg_sq"].to(get_device_id(), non_blocking=True)
+        ## worker may hold zero parameter when enabling custom pipeline layout
+        if _opt.optimizer is not None:
+            # if we are using HybridDeviceOptimizer, we need to only move gpu optimizer state to gpu
+            if hasattr(_opt.optimizer, "_move_new_state_to_right_device"):
+                _opt.optimizer._move_new_state_to_right_device()
+            else:
+                opt_state_dict_values = _opt.optimizer.state.values()
+                for v in opt_state_dict_values:
+                    if "exp_avg" in v:
+                        v["exp_avg"] = v["exp_avg"].to(get_device_id(), non_blocking=True)
+                    if "exp_avg_sq" in v:
+                        v["exp_avg_sq"] = v["exp_avg_sq"].to(get_device_id(), non_blocking=True)
         gc.collect()
         get_torch_device().empty_cache()
 
@@ -967,7 +971,9 @@ def get_transformer_layer_offset(pipeline_rank, vp_stage, config: TransformerCon
         inspect.signature(parallel_state.is_pipeline_first_stage).parameters.get("vp_stage", None) is not None
     )
     extra_kwargs = {} if not has_vp_stage else {"ignore_virtual": False, "vp_stage": vp_stage}
-    if not parallel_state.is_inside_encoder():
+    # is_inside_encoder is deprecated and removed in mcore v0.14.0
+    # https://github.com/NVIDIA/Megatron-LM/commit/b600e38d7b2a5b31d8d90e35bcf0cad18977a99c
+    if hasattr(parallel_state, "is_inside_encoder") and not parallel_state.is_inside_encoder():
         pp_decoder_start = parallel_state.get_pipeline_model_parallel_decoder_start()
         if pp_decoder_start is not None:
             pipeline_rank = pipeline_rank - pp_decoder_start

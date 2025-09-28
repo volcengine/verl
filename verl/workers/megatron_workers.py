@@ -150,6 +150,11 @@ class MegatronWorker(Worker):
         if self.rank == 0:
             print(f"Model config after override: {hf_config}")
 
+        from verl.models.mcore.config_converter import mapping_string_to_attn_backend
+
+        # todo: remove this line after mcore adopt mbridge 0.15, now for compatibility
+        override_transformer_config = mapping_string_to_attn_backend(override_transformer_config)
+
         if use_mbridge:
             from verl.models.mcore.mbridge import AutoBridge
 
@@ -391,7 +396,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model, dataclass_type=HFModelConfig)
 
         # 2. build rollout device mesh
-        infer_tp = self.config.rollout.tensor_model_parallel_size
+        infer_tp = self.config.rollout.tensor_model_parallel_size * self.config.rollout.data_parallel_size
         dp = self.world_size // infer_tp
         assert self.world_size % infer_tp == 0, (
             f"rollout world_size: {self.world_size} is not divisible by infer_tp: {infer_tp}"
