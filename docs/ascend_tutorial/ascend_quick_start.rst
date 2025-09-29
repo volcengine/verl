@@ -33,7 +33,7 @@ Atlas 800T A3
 | torch_npu | == 2.5.1    |
 +-----------+-------------+
 
-基础环境准备请参照这份 `文档 <https://gitee.com/ascend/pytorch>`_ 。
+基础环境准备请参照这份 `文档 <https://gitcode.com/Ascend/pytorch>`_ 。
 
 vllm & vllm-ascend
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -160,13 +160,13 @@ DockerFile镜像构建
 
 (可选) 设置MindSpeed训练后端指导
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-1. 参考 `MindSpeed README <https://gitee.com/ascend/MindSpeed>`_ 说明安装 MindSpeed 加速库。
+1. 参考 `MindSpeed README <https://gitcode.com/Ascend/MindSpeed>`_ 说明安装 MindSpeed 加速库。
 
 2. 使能 verl worker 模型 ``strategy`` 配置为 ``megatron`` ，例如 ``actor_rollout_ref.actor.strategy=megatron``。
 
 3. MindSpeed 自定义入参可通过 ``override_transformer_config`` 参数传入，例如对 actor 模型开启 FA 特性可使用 ``+actor_rollout_ref.actor.megatron.override_transformer_config.use_flash_attn=True``。
 
-4. 更多特性信息可参考 `MindSpeed+verl 文档 <https://gitee.com/ascend/MindSpeed/blob/master/docs/user-guide/verl.md>`_ 。
+4. 更多特性信息可参考 `MindSpeed+verl 文档 <https://gitcode.com/Ascend/MindSpeed/blob/master/docs/user-guide/verl.md>`_ 。
 
 支持现状
 -----------------------------------
