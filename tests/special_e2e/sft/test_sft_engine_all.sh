@@ -56,6 +56,12 @@ BACKEND=megatron TP_SIZE=2 PP_SIZE=2 VPP_SIZE=2 CP_SIZE=1 NUM_GPUS=8 bash tests/
 # TODO: toggle with following test when cp is fixed
 # BACKEND=megatron TP_SIZE=2 PP_SIZE=2 VPP_SIZE=2 CP_SIZE=1 NUM_GPUS=8 bash tests/special_e2e/sft/run_sft_engine_gsm8k.sh >& ~/verl/test/log/gsm8k-tp2_pp2_vpp2_cp1_num_gpus8.log
 
+# test with deepspeed
+echo "run deepspeed with single gpu"
+BACKEND=deepspeed SP_SIZE=1 NUM_GPUS=1 PARAM_OFFLOAD=False OPTIMIZER_OFFLOAD=False MIXED_PRECISION=bf16 bash tests/special_e2e/sft/run_sft_engine_gsm8k.sh
+echo "run deepspeed with sp2 num_gpus8"
+BACKEND=deepspeed SP_SIZE=2 NUM_GPUS=8 PARAM_OFFLOAD=False OPTIMIZER_OFFLOAD=False MIXED_PRECISION=bf16 bash tests/special_e2e/sft/run_sft_engine_gsm8k.sh
+
 python3 tests/special_e2e/sft/compare_sft_engine_results.py
 
 rm -rf ~/verl/test/log
