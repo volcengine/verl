@@ -21,7 +21,7 @@ import logging
 import os
 import warnings
 from contextlib import nullcontext
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Optional
 
 import torch
 import torch.distributed
@@ -817,16 +817,14 @@ class DeepSpeedEngine(BaseEngine):
                     return group
         return torch.distributed.group.WORLD
 
-    def _ensure_tensordict(self, data: Union[TensorDict, DataProto]) -> TensorDict:
+    def _ensure_tensordict(self, data: TensorDict | DataProto) -> TensorDict:
         if isinstance(data, TensorDict):
             return data
         if isinstance(data, DataProto):
             return data.to_tensordict()
         raise TypeError(f"Unsupported data type {type(data)} for DeepSpeedEngine.forward_backward_batch")
 
-    def forward_backward_batch(
-        self, data: Union[TensorDict, DataProto], loss_function: Callable, forward_only: bool = False
-    ):
+    def forward_backward_batch(self, data: TensorDict | DataProto, loss_function: Callable, forward_only: bool = False):
         """Forward (and optional backward) pass for a batch using TensorDict interface."""
         tensordict = self._ensure_tensordict(data)
 
