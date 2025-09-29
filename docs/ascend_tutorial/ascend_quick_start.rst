@@ -26,7 +26,7 @@ Atlas 800T A3
 +-----------+-------------+
 | Python    | == 3.10     |
 +-----------+-------------+
-| CANN      | == 8.1.RC1  |
+| CANN      | == 8.2.RC1  |
 +-----------+-------------+
 | torch     | == 2.5.1    |
 +-----------+-------------+
@@ -43,7 +43,7 @@ vllm & vllm-ascend
 .. code-block:: bash
     
     # vllm
-    git clone -b v0.7.3 --depth 1 https://github.com/vllm-project/vllm.git
+    git clone -b v0.9.1 --depth 1 https://github.com/vllm-project/vllm.git
     cd vllm
     pip install -r requirements-build.txt
 
@@ -56,7 +56,7 @@ vllm & vllm-ascend
 .. code-block:: bash
     
     # vllm-ascend
-    git clone -b v0.7.3.post1 --depth 1 https://github.com/vllm-project/vllm-ascend.git
+    git clone -b v0.9.1 --depth 1 https://github.com/vllm-project/vllm-ascend.git
     cd vllm-ascend
     export COMPILE_CUSTOM_KERNELS=1
     python setup.py install
