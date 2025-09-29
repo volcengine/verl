@@ -48,6 +48,91 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_SFT_LOGGING_LEVEL", "WARN"))
 
 
+def patch_llama_attention_for_non_causal():
+    """
+    Monkey patch LlamaAttention to use non-causal attention.
+    This modifies the forward method to change causal attention to non-causal.
+    """
+    try:
+        from transformers.models.llama.modeling_llama import LlamaAttention
+    except ImportError:
+        print("Warning: Could not import LlamaAttention. Skipping monkey patch.")
+        return
+
+    # Store the original forward method
+    original_forward = LlamaAttention.forward
+
+    def non_causal_forward(self, *args, **kwargs):
+        # Get the original implementation result but modify the attention mechanism
+        # We need to intercept before the scaled_dot_product_attention call
+
+        # Check if this is the SDPA version (transformers >= 4.36)
+        if hasattr(self, "_update_causal_mask"):
+            # For newer transformers versions, we need to modify the causal mask
+            def patched_update_causal_mask(
+                self, attention_mask, input_tensor, cache_position, past_key_values, output_attentions
+            ):
+                # Get the original causal mask
+                causal_mask = self._update_causal_mask.__wrapped__(
+                    self, attention_mask, input_tensor, cache_position, past_key_values, output_attentions
+                )
+
+                # Modify causal mask to be non-causal as per your reference code
+                if causal_mask is not None:
+                    D = causal_mask.shape[-1]
+                    last_row = causal_mask[:, :, -1, :].clone()
+                    new_mask = last_row.unsqueeze(2).expand(-1, -1, D, -1)
+                    causal_mask = new_mask
+
+                return causal_mask
+
+            # Wrap the original _update_causal_mask method
+            if not hasattr(self._update_causal_mask, "__wrapped__"):
+                self._update_causal_mask.__wrapped__ = self._update_causal_mask
+                self._update_causal_mask = patched_update_causal_mask.__get__(self, type(self))
+
+        # For direct SDPA calls, we need to patch the actual attention computation
+        original_sdpa = torch.nn.functional.scaled_dot_product_attention
+
+        def non_causal_sdpa(query, key, value, attn_mask=None, dropout_p=0.0, is_causal=False, **kwargs):
+            # Force is_causal to False and modify the mask if needed
+            if attn_mask is not None:
+                D = attn_mask.shape[-1] if attn_mask.ndim >= 2 else None
+                if D is not None and attn_mask.ndim >= 4:
+                    last_row = attn_mask[:, :, -1, :].clone()
+                    new_mask = last_row.unsqueeze(2).expand(-1, -1, D, -1)
+                    attn_mask = new_mask
+
+            return original_sdpa(
+                query,
+                key,
+                value,
+                attn_mask=attn_mask,
+                dropout_p=dropout_p,
+                is_causal=False,  # Force non-causal
+                **kwargs,
+            )
+
+        # Temporarily replace SDPA
+        torch.nn.functional.scaled_dot_product_attention = non_causal_sdpa
+
+        try:
+            # Call the original forward method
+            result = original_forward(self, *args, **kwargs)
+        finally:
+            # Restore the original SDPA
+            torch.nn.functional.scaled_dot_product_attention = original_sdpa
+
+        return result
+
+    # Apply the monkey patch
+    LlamaAttention.forward = non_causal_forward
+    print("Successfully applied monkey patch to LlamaAttention for non-causal attention.")
+
+
+patch_llama_attention_for_non_causal()
+
+
 def multi_modal_collect(data):
     multi_modal_data = [i.pop("multi_modal_inputs", None) for i in data]
     others = default_collate(data)

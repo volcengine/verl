@@ -148,6 +148,8 @@ class MultiTurnSFTDataset(Dataset):
         self.bin_edges = np.linspace(-1.0, 1.0, n_action_bins + 1)
         self.bin_centers = (self.bin_edges[:-1] + self.bin_edges[1:]) / 2.0
 
+        norm_stats_path = os.path.join(parquet_path, "meta/stats.json")
+        unnorm_key = "actions"
         self._setup_action_stats(norm_stats_path, unnorm_key)
 
     def _setup_action_stats(self, norm_stats_path: Optional[str], unnorm_key: Optional[str]) -> None:
@@ -162,7 +164,7 @@ class MultiTurnSFTDataset(Dataset):
             unnorm_key = next(iter(stats.keys()))
         if unnorm_key not in stats:
             raise ValueError(f"unnorm_key '{unnorm_key}' not found in statistics keys {list(stats.keys())}")
-        action_stats = stats[unnorm_key]["action"]
+        action_stats = stats[unnorm_key]
         high_key = "q99" if "q99" in action_stats else "max"
         low_key = "q01" if "q01" in action_stats else "min"
         self._action_high = np.array(action_stats[high_key], dtype=np.float32)
@@ -231,13 +233,13 @@ class MultiTurnSFTDataset(Dataset):
                 input_ids,
                 max_seq_len=self.max_prompt_length,
                 pad_token_id=self.pad_token_id,
-                left_pad=True,
+                left_pad=False,
             )
             attention_mask = pad_sequence_to_length(
                 attention_mask,
                 max_seq_len=self.max_prompt_length,
                 pad_token_id=0,
-                left_pad=True,
+                left_pad=False,
             )
 
         return {
@@ -297,3 +299,28 @@ class MultiTurnSFTDataset(Dataset):
             "finish_step": torch.tensor(valid_steps, dtype=torch.long),
         }
         return output
+
+
+if __name__ == "__main__":
+    from transformers import AutoProcessor
+
+    processor = AutoProcessor.from_pretrained(
+        "/file_system/common-models/Haozhan72-kangsheng/Openvla-oft-SFT-libero10-traj1", trust_remote_code=True
+    )
+    parquet_path = "/file_system/common-data/physical-intelligence/libero/"
+    dataset = MultiTurnSFTDataset(parquet_path, processor, None)
+    actions = torch.tensor(
+        [
+            [-2.0743e-01, -3.8963e-01, 1.3682e-02, 1.3139e-01, 4.5560e-02, -1.4750e-02, 9.9608e-01],
+            [9.5877e-02, -1.7356e-01, -6.6668e-01, 3.6679e-02, -2.8081e-02, -5.3550e-03, 9.9608e-01],
+            [1.1794e-01, -1.7356e-01, 2.8049e-01, 5.1071e-03, -7.5581e-03, 3.2347e-01, -1.5686e-02],
+            [2.9701e-02, -1.9898e-01, 3.4719e-01, 6.9643e-03, -1.5219e-03, 3.2347e-01, -6.2745e-02],
+            [2.1271e-03, -1.7991e-01, -3.1983e-01, 1.6250e-02, -1.6009e-02, 3.2347e-01, 1.5686e-02],
+            [-3.0118e-01, -3.7056e-01, -6.6360e-02, -4.6428e-04, -1.8423e-02, -6.5755e-04, 9.9608e-01],
+            [2.1271e-03, -2.5617e-01, -1.4640e-01, -4.6428e-04, -8.4821e-02, -1.0053e-02, -8.6275e-02],
+            [7.6867e-01, 7.2251e-01, -1.2639e-01, -2.5536e-02, -4.3775e-02, 1.6912e-03, -8.6275e-02],
+        ],
+        dtype=torch.float64,
+    )
+    print(dataset[0])
+    print(dataset._actions_to_token_ids(actions))

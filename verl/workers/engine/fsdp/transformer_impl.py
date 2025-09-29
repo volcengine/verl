@@ -209,6 +209,7 @@ class FSDPEngine(BaseEngine):
             warnings.simplefilter("ignore")
 
             auto_class = get_hf_auto_model_class(hf_config=self.model_config.hf_config)
+            self.model_config.hf_config._attn_implementation = "sdpa"
 
             module = auto_class.from_pretrained(
                 pretrained_model_name_or_path=self.model_config.local_path,
