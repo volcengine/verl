@@ -71,10 +71,10 @@ vllm & vllm-ascend
     pip install -r requirements-npu.txt
     pip install -e .
 
-基础环境准备
+DockerFile镜像构建
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-基础环境准备请参照这份 `文档 <https://gitee.com/ascend/pytorch>`_ 。
+通过DockerFile构建镜像方式请参照这份 `文档 <https://github.com/songyy29/verl/blob/main/docs/ascend_tutorial/Dockerfile%20Build%20Guide%20Ascend%20Adaptation%20for%20vLLM%20%26%20Verl%20(CANN%208.2.RC1).md>`_ 。
 
 其他三方库说明
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
