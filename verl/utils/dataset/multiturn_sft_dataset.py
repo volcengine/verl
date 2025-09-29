@@ -106,7 +106,7 @@ class MultiTurnSFTDataset(Dataset):
         prompt_template: str = DEFAULT_PROMPT_TEMPLATE,
         instruction_key: Optional[str] = None,
         tasks_subdir: str = "meta/tasks.jsonl",
-        include_wrist_image: bool = True,
+        include_wrist_image: bool = False,
         center_crop: bool = True,
         crop_scale: float = 0.9,
         action_chunks_len: int = NUM_ACTIONS_CHUNK,

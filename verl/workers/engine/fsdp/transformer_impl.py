@@ -243,6 +243,8 @@ class FSDPEngine(BaseEngine):
 
             if self.model_config.enable_gradient_checkpointing:
                 module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+            module.vision_backbone.set_num_images_in_input(1)
+
         return module
 
     def _build_lora_module(self, module):
@@ -914,29 +916,28 @@ class FSDPEngineWithLMHead(FSDPEngine):
         model_inputs["pixel_values"] = micro_batch["pixel_values"]
 
         with torch.autocast(device_type=device_name, dtype=torch.bfloat16):
-            import ipdb
-
-            ipdb.set_trace()
             raw_output = self.module(
                 **model_inputs,
                 use_cache=False,
             )  # prevent model thinks we are generating
 
-            model_output = self.prepare_model_outputs(
-                output=raw_output, output_args=output_args, micro_batch=micro_batch
-            )
+            # model_output = self.prepare_model_outputs(
+            #     output=raw_output, output_args=output_args, micro_batch=micro_batch
+            # )
+            model_output = raw_output
+            loss = torch.nn.functional.cross_entropy(model_output.transpose(1, 2), micro_batch["responses"])
+            metrics = {"loss": loss.detach().cpu().item()}
 
-            if loss_function is not None:
-                loss, metrics = loss_function(
-                    model_output=model_output, data=micro_batch, dp_group=self.get_data_parallel_group()
-                )
-            else:
-                assert forward_only, "forward_only must be True when loss_function is None"
-                loss = torch.tensor(1.0, device=device_name)
-                metrics = {}
+            # if loss_function is not None:
+            #     loss, metrics = loss_function(
+            #         model_output=model_output, data=micro_batch, dp_group=self.get_data_parallel_group()
+            #     )
+            # else:
+            #     assert forward_only, "forward_only must be True when loss_function is None"
+            #     loss = torch.tensor(1.0, device=device_name)
+            #     metrics = {}
 
             output = {
-                "model_output": model_output,
                 "loss": loss,
                 "metrics": metrics,
             }

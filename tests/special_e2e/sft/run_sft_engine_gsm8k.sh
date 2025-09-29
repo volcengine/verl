@@ -14,7 +14,7 @@ project_name=verl_sft_test
 
 RESUME_MODE=disable
 
-ckpts_home=${ckpts_home:-~/verl/test/gsm8k-sft-${backend}}
+ckpts_home="checkpoints/"
 
 MODEL_ID=${MODEL_ID:-Qwen/Qwen3-0.6B}
 MODEL_PATH="/file_system/common-models/Haozhan72-kangsheng/Openvla-oft-SFT-libero10-traj1"
@@ -32,8 +32,8 @@ CP_SIZE=${CP_SIZE:-1}
 FSDP_ENGINE_CONFIG="\
     engine=${backend} \
     optim=${backend} \
-    optim.lr=1e-5 \
-    optim.lr_warmup_steps_ratio=0.2 \
+    optim.lr=1e-4 \
+    optim.lr_warmup_steps_ratio=0.02 \
     optim.weight_decay=0.1 \
     optim.betas="[0.9,0.95]" \
     optim.clip_grad=1.0 \
@@ -86,13 +86,13 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     model.path=$MODEL_PATH \
     model.trust_remote_code=True \
     ${ENGINE_CONFIG} \
-    trainer.test_freq=20 \
-    trainer.save_freq=30 \
+    trainer.test_freq=2000000 \
+    trainer.save_freq=3000 \
     trainer.logger=['console','file'] \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
     trainer.total_epochs=1 \
-    trainer.total_training_steps=100 \
+    trainer.total_training_steps=10000 \
     trainer.default_local_dir="${ckpts_home}" \
     trainer.resume_mode=${RESUME_MODE} \
 
