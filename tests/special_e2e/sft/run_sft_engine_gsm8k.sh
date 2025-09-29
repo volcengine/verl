@@ -5,8 +5,8 @@ ENTRYPOINT=${ENTRYPOINT:-"-m verl.trainer.sft_trainer"}
 
 NUM_GPUS=${NUM_GPUS:-1}
 
-TRAIN_FILES="/file_system/common-data/koch_test_sft/train.parquet"
-VAL_FILES="/file_system/common-data/koch_test_sft/test.parquet"
+TRAIN_FILES=libero_dataset
+VAL_FILES=libero_dataset
 
 backend=${BACKEND:-fsdp}
 
@@ -17,7 +17,7 @@ RESUME_MODE=disable
 ckpts_home=${ckpts_home:-~/verl/test/gsm8k-sft-${backend}}
 
 MODEL_ID=${MODEL_ID:-Qwen/Qwen3-0.6B}
-MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
+MODEL_PATH="/file_system/common-models/Haozhan72-kangsheng/Openvla-oft-SFT-libero10-traj1"
 #huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
 
 SP_SIZE=${SP_SIZE:-1}
@@ -79,15 +79,16 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     data.max_length=8192 \
     data.pad_mode=left_right \
     data.truncation=error \
-    data.use_dynamic_bsz=True \
+    data.use_dynamic_bsz=False \
     data.max_token_len_per_gpu=20480 \
     data.messages_key=messages \
     data.pad_mode=right \
     model.path=$MODEL_PATH \
+    model.trust_remote_code=True \
     ${ENGINE_CONFIG} \
     trainer.test_freq=20 \
     trainer.save_freq=30 \
-    trainer.logger=['console','vemlp_wandb'] \
+    trainer.logger=['console','file'] \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
     trainer.total_epochs=1 \

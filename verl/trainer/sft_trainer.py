@@ -51,7 +51,8 @@ logger.setLevel(os.getenv("VERL_SFT_LOGGING_LEVEL", "WARN"))
 def multi_modal_collect(data):
     multi_modal_data = [i.pop("multi_modal_inputs", None) for i in data]
     others = default_collate(data)
-    others["multi_modal_inputs"] = multi_modal_data
+    if multi_modal_data[0] is not None:
+        others["multi_modal_inputs"] = multi_modal_data
     return others
 
 

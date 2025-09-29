@@ -711,14 +711,15 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
         input_ids = micro_batch["input_ids"]
         attention_mask = micro_batch["attention_mask"]
-        position_ids = micro_batch["position_ids"]
-        if position_ids.dim() == 3:  # qwen2vl mrope
-            position_ids = position_ids.transpose(0, 1)  # (bsz, 3, seqlen) -> (3, bsz, seqlen)
+        # position_ids = micro_batch["position_ids"]
+        # if position_ids.dim() == 3:  # qwen2vl mrope
+        #     position_ids = position_ids.transpose(0, 1)  # (bsz, 3, seqlen) -> (3, bsz, seqlen)
 
         # args used to get outputs
         output_args = {}
 
         if use_remove_padding:
+            position_ids = None
             input_ids_rmpad, indices, cu_seqlens, *_ = unpad_input(
                 input_ids.unsqueeze(-1), attention_mask
             )  # input_ids_rmpad (total_nnz, ...)
@@ -787,7 +788,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
             model_inputs = {
                 "input_ids": input_ids,
                 "attention_mask": attention_mask,
-                "position_ids": position_ids,
+                # "position_ids": position_ids,
             }
 
         extra_args = {}
@@ -910,8 +911,12 @@ class FSDPEngineWithLMHead(FSDPEngine):
         # actually, we should avoid assigning like this...
         micro_batch = micro_batch.to(get_device_id())
         model_inputs, output_args = self.prepare_model_inputs(micro_batch=micro_batch)
+        model_inputs["pixel_values"] = micro_batch["pixel_values"]
 
         with torch.autocast(device_type=device_name, dtype=torch.bfloat16):
+            import ipdb
+
+            ipdb.set_trace()
             raw_output = self.module(
                 **model_inputs,
                 use_cache=False,

@@ -1,340 +1,299 @@
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
-# Copyright 2025 ModelBest Inc. and/or its affiliates
-
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-
+#
 #     http://www.apache.org/licenses/LICENSE-2.0
-
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""
-Multi-turn SFT dataset that supports training on conversation data with multiple turns
-"""
+import json
+import os
+from typing import Any, Optional, Sequence
 
 import numpy as np
-import pandas as pd
 import torch
-from omegaconf import ListConfig
-from qwen_vl_utils import process_vision_info
+import torch.nn.functional as F
+from datasets import load_dataset
+from PIL import Image
 from torch.utils.data import Dataset
-from transformers import AutoProcessor
-
-from verl.utils.dataset.vision_utils import process_image
-from verl.utils.fs import copy_local_path_from_hdfs
-from verl.utils.model import compute_position_id_with_mask
-from verl.utils.torch_functional import pad_sequence_to_length, postprocess_data
 
 
-def convert_nested_value_to_list_recursive_if_not_none(data_item):
-    if isinstance(data_item, dict):
-        return {k: convert_nested_value_to_list_recursive_if_not_none(v) for k, v in data_item.items() if v is not None}
-    elif isinstance(data_item, list):
-        return [convert_nested_value_to_list_recursive_if_not_none(elem) for elem in data_item]
-    elif isinstance(data_item, np.ndarray):
-        # Convert to list, then recursively process the elements of the new list
-        return convert_nested_value_to_list_recursive_if_not_none(data_item.tolist())
-    else:
-        # Base case: item is already a primitive type (int, str, float, bool, etc.)
-        return data_item
+def pad_sequence_to_length(tensors, max_seq_len, pad_token_id, left_pad=False):
+    """
+    pad a 2D tensors (e.g. responses, logprobs) in the last dim to max_seq_length.
+    input shape: [bs, seq_length]
+    output shape: [bs, max_seq_length]
+    (0, max_seq_len - tensors.shape[-1]) means right pad to max_seq_length and no left pad
+    """
+    if tensors.shape[-1] >= max_seq_len:
+        return tensors
+    pad_tuple = (max_seq_len - tensors.shape[-1], 0) if left_pad else (0, max_seq_len - tensors.shape[-1])
+    return F.pad(tensors, pad_tuple, "constant", pad_token_id)
+
+
+ACTION_DIM = 7
+NUM_ACTIONS_CHUNK = 8
+
+EMPTY_RESPONSE_TOKEN_ID = 29871
+DEFAULT_PROMPT_TEMPLATE = "In: What action should the robot take to {instruction}?\nOut:"
+
+
+def _center_crop(image: Image.Image, crop_scale: float = 0.9) -> Image.Image:
+    if crop_scale >= 1.0:
+        return image
+    width, height = image.size
+    scale = max(min(crop_scale, 1.0), 0.0) ** 0.5
+    new_width = max(1, int(round(width * scale)))
+    new_height = max(1, int(round(height * scale)))
+    left = (width - new_width) // 2
+    top = (height - new_height) // 2
+    cropped = image.crop((left, top, left + new_width, top + new_height))
+    resample = Image.Resampling.BILINEAR if hasattr(Image, "Resampling") else Image.BILINEAR
+    return cropped.resize((width, height), resample)
+
+
+def _load_task_descriptions(tasks_path: str, instruction_key: Optional[str] = None) -> list[str]:
+    candidates = [instruction_key] if instruction_key else []
+    candidates.extend(
+        [
+            "language_instruction",
+            "instruction",
+            "description",
+            "task",
+            "task_description",
+            "prompt",
+        ]
+    )
+
+    descriptions: list[str] = []
+    with open(tasks_path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                descriptions.append(line)
+                continue
+
+            if isinstance(payload, str):
+                descriptions.append(payload)
+                continue
+
+            for key in candidates:
+                if key and key in payload and payload[key]:
+                    descriptions.append(str(payload[key]))
+                    break
+            else:
+                descriptions.append(json.dumps(payload))
+    return descriptions
 
 
 class MultiTurnSFTDataset(Dataset):
-    """
-    Dataset for multi-turn conversations where each assistant response should be trained
-    """
-
-    def __init__(self, parquet_files: str | list[str], processor, config=None):
-        # Set defaults and extract parameters from config if provided
-        config = config or {}
-        self.pad_mode = config.get("pad_mode", "right")
-        assert self.pad_mode in ["right", "left_right"], (
-            f"Expect pad_mode to be 'right' or 'left_right'. Got {self.pad_mode}"
-        )
-        self.truncation = config.get("truncation", "error")
-        # for right padding
-        self.max_length = config.get("max_length", 1024)
-        # for left right paddding to be consistent with RL
-        self.max_prompt_length = config.get("max_prompt_length", 512)
-        self.max_response_length = config.get("max_response_length", 512)
-        # Get messages_key from the new multiturn config structure
-        multiturn_config = config.get("multiturn", {})
-        self.messages_key = multiturn_config.get("messages_key", "messages")
-        self.images_key = config.get("image_key", "images")
-        self.tools_key = multiturn_config.get("tools_key", "tools")
-        self.enable_thinking_key = multiturn_config.get("enable_thinking_key", "enable_thinking")
-        self.apply_chat_template_kwargs = config.get("apply_chat_template_kwargs", {})
-        assert self.truncation in ["error", "left", "right"]
-
-        if not isinstance(parquet_files, list | ListConfig):
-            parquet_files = [parquet_files]
-
-        self.parquet_files = parquet_files
-        self.processor: AutoProcessor = processor
-
-        self._download()
-        self._read_files_and_process()
-
-    def _download(self):
-        for i, parquet_file in enumerate(self.parquet_files):
-            self.parquet_files[i] = copy_local_path_from_hdfs(parquet_file, verbose=True)
-
-    def _read_files_and_process(self):
-        dataframes = []
-        for parquet_file in self.parquet_files:
-            dataframe = pd.read_parquet(parquet_file)
-            dataframes.append(dataframe)
-        self.dataframe = pd.concat(dataframes)
-
-        # Extract messages list from dataframe
-        self.messages = (
-            self.dataframe[self.messages_key].apply(convert_nested_value_to_list_recursive_if_not_none).tolist()
-        )
-
-        if self.images_key in self.dataframe.columns:
-            self.images = (
-                self.dataframe[self.images_key].apply(convert_nested_value_to_list_recursive_if_not_none).to_list()
-            )
+    # parquet_files=test_file, tokenizer=tokenizer, config=config
+    def __init__(
+        self,
+        parquet_files: str,
+        processor: str,
+        config: None,
+        split: str = "train",
+        prompt_template: str = DEFAULT_PROMPT_TEMPLATE,
+        instruction_key: Optional[str] = None,
+        tasks_subdir: str = "meta/tasks.jsonl",
+        include_wrist_image: bool = True,
+        center_crop: bool = True,
+        crop_scale: float = 0.9,
+        action_chunks_len: int = NUM_ACTIONS_CHUNK,
+        action_chunk_stride: int = 1,
+        n_action_bins: int = 256,
+        max_prompt_length: Optional[int] = 512,
+        norm_stats_path: Optional[str] = None,
+        unnorm_key: Optional[str] = None,
+    ) -> None:
+        super().__init__()
+        self.prompt_template = prompt_template
+        self.include_wrist_image = include_wrist_image
+        self.center_crop = center_crop
+        self.crop_scale = crop_scale
+        self.action_chunks_len = action_chunks_len
+        self.action_chunk_stride = action_chunk_stride
+        self.max_prompt_length = max_prompt_length
+        if isinstance(parquet_files, list):
+            parquet_path = parquet_files[0]
         else:
-            self.images = None
+            parquet_path = parquet_files
 
-        # Extract tools list from dataframe
-        if self.tools_key in self.dataframe.columns:
-            self.tools = (
-                self.dataframe[self.tools_key].apply(convert_nested_value_to_list_recursive_if_not_none).tolist()
-            )
-        else:
-            self.tools = None
-        # Extract enable_thinking list from dataframe
-        if self.enable_thinking_key in self.dataframe.columns:
-            self.enable_thinking = self.dataframe[self.enable_thinking_key].tolist()
-        else:
-            self.enable_thinking = None
+        dataset_dict = load_dataset(parquet_path)
+        if split not in dataset_dict:
+            raise ValueError(f"Split '{split}' not found in dataset. Available splits: {list(dataset_dict.keys())}")
+        self._dataset = dataset_dict[split]
 
-    def __len__(self):
-        return len(self.messages)
+        tasks_path = os.path.join(parquet_path, tasks_subdir)
+        if not os.path.exists(tasks_path):
+            raise FileNotFoundError(f"Task description file not found at {tasks_path}")
+        self.task_descriptions = _load_task_descriptions(tasks_path, instruction_key)
 
-    def _get_pad_id(self):
-        if hasattr(self.processor, "tokenizer"):
-            tokenizer = self.processor.tokenizer
-        else:
-            tokenizer = self.processor
-        if getattr(tokenizer, "pad_token_id", None) is not None:
-            return tokenizer.pad_token_id
-        # for qwen2.5 vl
-        if getattr(tokenizer, "pad_token_type_id", None) is not None:
-            return tokenizer.pad_token_type_id
-        return 0
+        self.processor = processor
+        self.vocab_size = int(self.processor.tokenizer.vocab_size)
+        self.pad_token_id = int(self.processor.tokenizer.pad_token_id)
+        if self.pad_token_id is None:
+            raise ValueError("Tokenizer must define pad_token_id")
 
-    def __getitem__(self, item):
-        messages = self.messages[item]
-        tools = self.tools[item] if self.tools is not None else None
-        enable_thinking = self.enable_thinking[item] if self.enable_thinking is not None else None
-        if self.images:
-            images = [process_image(img) for img in self.images[item]]
-            for convs in messages:
-                for conv in convs["content"]:
-                    if conv["type"] == "image":
-                        conv["image"] = images[int(conv["image"])]
-        else:
-            images = None
+        self.bin_edges = np.linspace(-1.0, 1.0, n_action_bins + 1)
+        self.bin_centers = (self.bin_edges[:-1] + self.bin_edges[1:]) / 2.0
 
-        full_text = self.processor.apply_chat_template(
-            messages,
-            tools=tools,
-            tokenize=False,
-            return_tensors="pt",
-            add_generation_prompt=False,
-            enable_thinking=enable_thinking,
-        )
-        if getattr(self.processor, "image_token", None):
-            images, videos = process_vision_info(messages)
-            tokens = self.processor(text=[full_text], images=images, videos=videos, padding=False)
-        else:
-            tokens = self.processor(text=[full_text], padding=False)
-        input_ids = tokens.input_ids[0]
-        attention_mask = tokens.attention_mask[0]
-        pixel_values = getattr(tokens, "pixel_values", None)
-        image_grid_thw = getattr(tokens, "image_grid_thw", None)
+        self._setup_action_stats(norm_stats_path, unnorm_key)
 
-        loss_mask = [0] * len(input_ids)
-        empty_with_gen_prompt = self.processor.apply_chat_template(
-            [{"role": "user", "content": "123"}], add_generation_prompt=True, tokenize=False
-        )
-        empty_without_gen_prompt = self.processor.apply_chat_template(
-            [{"role": "user", "content": "123"}], add_generation_prompt=False, tokenize=False
-        )
-        gen_prompt = empty_with_gen_prompt[len(empty_without_gen_prompt) :]
-        if hasattr(self.processor, "tokenizer"):
-            gen_tokens = self.processor.tokenizer.encode(gen_prompt)
-            end_tokens = [self.processor.tokenizer.encode(empty_without_gen_prompt.strip())[-1]]
-        else:
-            gen_tokens = self.processor.encode(gen_prompt)
-            end_tokens = [self.processor.encode(empty_without_gen_prompt.strip())[-1]]
-        start_indexes = []
-        end_indexes = []
-        i = 0
-        while i < len(input_ids):
-            if input_ids[i : i + len(gen_tokens)] == gen_tokens:
-                start_indexes.append(i + len(gen_tokens))
-                i += len(gen_tokens)
-                while i < len(input_ids):
-                    if input_ids[i : i + len(end_tokens)] == end_tokens:
-                        end_indexes.append(i + len(end_tokens))
-                        break
-                    i += 1
-            i += 1
-        assert len(start_indexes) == len(end_indexes)
-        for start, end in zip(start_indexes, end_indexes, strict=False):
-            assert end > start
-            loss_mask[start:end] = [1] * (end - start)
+    def _setup_action_stats(self, norm_stats_path: Optional[str], unnorm_key: Optional[str]) -> None:
+        self._action_low = None
+        self._action_high = None
+        self._action_mask = None
+        if not norm_stats_path:
+            return
+        with open(norm_stats_path, encoding="utf-8") as f:
+            stats = json.load(f)
+        if unnorm_key is None:
+            unnorm_key = next(iter(stats.keys()))
+        if unnorm_key not in stats:
+            raise ValueError(f"unnorm_key '{unnorm_key}' not found in statistics keys {list(stats.keys())}")
+        action_stats = stats[unnorm_key]["action"]
+        high_key = "q99" if "q99" in action_stats else "max"
+        low_key = "q01" if "q01" in action_stats else "min"
+        self._action_high = np.array(action_stats[high_key], dtype=np.float32)
+        self._action_low = np.array(action_stats[low_key], dtype=np.float32)
+        mask = action_stats.get("mask", None)
+        self._action_mask = np.array(mask, dtype=bool) if mask is not None else None
 
-        input_ids, loss_mask, attention_mask = (
-            torch.tensor(input_ids),
-            torch.tensor(loss_mask),
-            torch.tensor(attention_mask),
-        )
+    def __len__(self) -> int:
+        return len(self._dataset)
 
-        # encode prompt
-        if messages[0]["role"] == "system":
-            assert messages[1]["role"] == "user"
-            assert messages[2]["role"] == "assistant"
-            prompt_message_length = 2
-        elif messages[0]["role"] == "user":
-            assert messages[1]["role"] == "assistant"
-            prompt_message_length = 1
-        else:
-            raise ValueError(f"Unknown role: {messages[0]['role']}")
+    def _normalize_actions(self, actions: np.ndarray) -> np.ndarray:
+        if self._action_high is None or self._action_low is None:
+            return np.clip(actions, -1.0, 1.0)
+        span = self._action_high - self._action_low
+        span = np.where(span == 0, 1e-6, span)
+        normalized = 2.0 * (actions - self._action_low) / span - 1.0
+        if self._action_mask is not None:
+            normalized = np.where(self._action_mask, normalized, actions)
+        return np.clip(normalized, -1.0, 1.0)
 
-        sequence_length = input_ids.shape[0]
-        # Handle sequence length
-        if self.pad_mode == "right":
-            if sequence_length < self.max_length:
-                # Pad sequences
-                pad_token_id = self._get_pad_id()
-                padded_input_ids = torch.full((self.max_length - sequence_length,), pad_token_id, dtype=input_ids.dtype)
-                padded_attention_mask = torch.zeros((self.max_length - sequence_length,), dtype=attention_mask.dtype)
-                padded_loss_mask = torch.zeros((self.max_length - sequence_length,), dtype=loss_mask.dtype)
+    def _actions_to_token_ids(self, actions: Sequence[Sequence[float]]) -> torch.LongTensor:
+        action_array = np.asarray(actions, dtype=np.float32).reshape(-1, ACTION_DIM)
+        normalized = self._normalize_actions(action_array)
+        diff = np.abs(normalized[..., None] - self.bin_centers)
+        bin_indices = diff.argmin(axis=-1)
+        token_ids = self.vocab_size - (bin_indices + 1)
+        return torch.tensor(token_ids.reshape(-1), dtype=torch.long)
 
-                input_ids = torch.cat((input_ids, padded_input_ids))
-                attention_mask = torch.cat((attention_mask, padded_attention_mask))
-                loss_mask = torch.cat((loss_mask, padded_loss_mask))
-            elif sequence_length > self.max_length:
-                if self.truncation == "left":
-                    input_ids = input_ids[-self.max_length :]
-                    attention_mask = attention_mask[-self.max_length :]
-                    loss_mask = loss_mask[-self.max_length :]
-                elif self.truncation == "right":
-                    input_ids = input_ids[: self.max_length]
-                    attention_mask = attention_mask[: self.max_length]
-                    loss_mask = loss_mask[: self.max_length]
-                elif self.truncation == "error":
-                    raise ValueError(f"{sequence_length=} is larger than {self.max_length=}")
-                else:
-                    raise ValueError(f"Unknown truncation method {self.truncation}")
+    def _prepare_prompt(self, task_index: int) -> str:
+        if task_index >= len(self.task_descriptions):
+            raise IndexError(f"Task index {task_index} exceeds descriptions (len={len(self.task_descriptions)})")
+        instruction = self.task_descriptions[task_index]
+        return self.prompt_template.format(instruction=instruction, task=instruction)
 
-            if (
-                self.processor is not None
-                and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__
-            ):
-                from verl.models.transformers.qwen2_vl import get_rope_index
+    def _prepare_images(self, frame: dict[str, Any]) -> tuple[Image.Image, Optional[Image.Image]]:
+        image = frame["image"]
+        wrist = frame.get("wrist_image") if self.include_wrist_image else None
+        if not isinstance(image, Image.Image):
+            image = Image.fromarray(np.array(image))
+        if wrist is not None and not isinstance(wrist, Image.Image):
+            wrist = Image.fromarray(np.array(wrist))
+        if self.center_crop:
+            image = _center_crop(image, self.crop_scale)
+            if wrist is not None:
+                wrist = _center_crop(wrist, self.crop_scale)
+        return image, wrist
 
-                vision_position_ids = get_rope_index(
-                    self.processor,
-                    input_ids=input_ids,
-                    image_grid_thw=image_grid_thw,
-                    video_grid_thw=None,
-                    second_per_grid_ts=None,
-                    attention_mask=attention_mask,
-                )  # (3, seq_length)
-                valid_mask = attention_mask.bool()
-                text_position_ids = torch.ones((1, len(input_ids)), dtype=torch.long)
-                text_position_ids[0, valid_mask] = torch.arange(valid_mask.sum().item())
-                position_ids = torch.cat((text_position_ids, vision_position_ids), dim=0)  # (1, 4, seq_length)
-            else:
-                # Create position IDs
-                position_ids = torch.arange(len(input_ids), dtype=torch.long)
-                # Zero out position IDs for padding
-                position_ids = position_ids * attention_mask
+    def _tokenize(self, prompt: str, image: Image.Image, wrist: Optional[Image.Image]) -> dict[str, torch.Tensor]:
+        primary = self.processor(prompt, image, return_tensors="pt")
+        input_ids = primary["input_ids"]
+        attention_mask = primary["attention_mask"]
+        pixel_values = primary["pixel_values"]
 
-            result = {
-                "input_ids": input_ids,
-                "attention_mask": attention_mask,
-                "position_ids": position_ids,
-                "responses": input_ids,
-                "loss_mask": loss_mask,
-                "response_mask": loss_mask,
-            }
-        elif self.pad_mode == "left_right":
-            assert self.truncation == "error", "Only support error truncation for left_right pad mode"
-            prompt_str = self.processor.apply_chat_template(
-                messages[:prompt_message_length],
-                tools=tools,
-                tokenize=False,
-                add_generation_prompt=True,
-                enable_thinking=enable_thinking,
-                **self.apply_chat_template_kwargs,
-            )
-            prompt_ids = self.processor.encode(prompt_str, add_special_tokens=False)
-            prompt_length = len(prompt_ids)
-            prompt_ids = input_ids[:prompt_length].unsqueeze(0)
-            prompt_attention_mask = attention_mask[:prompt_length].unsqueeze(0)
-            prompt_loss_mask = loss_mask[:prompt_length].unsqueeze(0)
-            response_ids = input_ids[prompt_length:].unsqueeze(0)
-            response_attention_mask = attention_mask[prompt_length:].unsqueeze(0)
-            response_loss_mask = loss_mask[prompt_length:].unsqueeze(0)
+        if wrist is not None:
+            wrist_batch = self.processor(prompt, wrist, return_tensors="pt")
+            pixel_values = torch.cat([pixel_values, wrist_batch["pixel_values"]], dim=1)
 
-            assert prompt_loss_mask.sum().item() == 0
+        if input_ids[0, -1].item() != EMPTY_RESPONSE_TOKEN_ID:
+            pad = torch.tensor([[EMPTY_RESPONSE_TOKEN_ID]], dtype=input_ids.dtype)
+            mask_pad = torch.ones((1, 1), dtype=attention_mask.dtype)
+            input_ids = torch.cat([input_ids, pad], dim=1)
+            attention_mask = torch.cat([attention_mask, mask_pad], dim=1)
 
-            prompt_ids, prompt_attention_mask = postprocess_data(
-                input_ids=prompt_ids,
-                attention_mask=prompt_attention_mask,
-                max_length=self.max_prompt_length,
-                pad_token_id=self.tokenizer.pad_token_id,
+        if self.max_prompt_length is not None:
+            input_ids = pad_sequence_to_length(
+                input_ids,
+                max_seq_len=self.max_prompt_length,
+                pad_token_id=self.pad_token_id,
                 left_pad=True,
-                truncation=self.truncation,
+            )
+            attention_mask = pad_sequence_to_length(
+                attention_mask,
+                max_seq_len=self.max_prompt_length,
+                pad_token_id=0,
+                left_pad=True,
             )
 
-            response_ids, response_attention_mask = postprocess_data(
-                input_ids=response_ids,
-                attention_mask=response_attention_mask,
-                max_length=self.max_response_length,
-                pad_token_id=self.tokenizer.pad_token_id,
-                left_pad=False,
-                truncation=self.truncation,
-            )
-            response_loss_mask = pad_sequence_to_length(
-                response_loss_mask, max_seq_len=self.max_response_length, pad_token_id=0, left_pad=False
-            )
+        return {
+            "input_ids": input_ids.long(),
+            "attention_mask": attention_mask.long(),
+            "pixel_values": pixel_values.float(),
+        }
 
-            prompt_ids = prompt_ids[0]
-            prompt_attention_mask = prompt_attention_mask[0]
-            response_ids = response_ids[0]
-            response_attention_mask = response_attention_mask[0]
-            response_loss_mask = response_loss_mask[0]
+    def __getitem__(self, index: int) -> dict[str, Any]:
+        index = int(index)
+        first_frame = self._dataset[index]
+        task_index = int(first_frame.get("task_index", 0))
+        episode_index = int(first_frame.get("episode_index", 0))
 
-            assert response_attention_mask[0].item() == 1
-            assert response_loss_mask[0].item() == 1
+        prompt = self._prepare_prompt(task_index)
+        image, wrist = self._prepare_images(first_frame)
+        tokenized = self._tokenize(prompt, image, wrist)
 
-            input_ids = torch.cat((prompt_ids, response_ids), dim=0)
-            attention_mask = torch.cat((prompt_attention_mask, response_attention_mask), dim=0)
-            position_ids = compute_position_id_with_mask(attention_mask)
+        actions: list[Sequence[float]] = [first_frame["actions"]]
+        fill_static = False
+        zero_action = [0.0] * ACTION_DIM
+        valid_steps = 1
+        for offset in range(1, self.action_chunks_len):
+            if fill_static:
+                actions.append(zero_action)
+                continue
+            candidate_idx = index + offset
+            if candidate_idx >= len(self._dataset):
+                actions.append(zero_action)
+                continue
+            candidate = self._dataset[candidate_idx]
+            same_episode = int(candidate.get("episode_index", episode_index)) == episode_index
+            same_task = int(candidate.get("task_index", task_index)) == task_index
+            if same_episode and same_task:
+                actions.append(candidate["actions"])
+                valid_steps += 1
+            else:
+                actions.append(zero_action)
+                fill_static = True
 
-            result = {
-                "input_ids": input_ids,
-                "attention_mask": attention_mask,
-                "position_ids": position_ids,
-                "responses": response_ids,
-                "response_mask": response_loss_mask,
-            }
-        else:
-            raise NotImplementedError("pad_mode only support right or left-right mode!")
-        if pixel_values is not None:
-            result["multi_modal_inputs"] = {}
-            result["multi_modal_inputs"]["pixel_values"] = pixel_values
-            result["multi_modal_inputs"]["image_grid_thw"] = image_grid_thw
-        return result
+        actions_array = np.asarray(actions, dtype=np.float32)
+        action_token_ids = self._actions_to_token_ids(actions_array)
+
+        output: dict[str, Any] = {
+            "input_ids": tokenized["input_ids"][0],
+            "attention_mask": tokenized["attention_mask"][0],
+            "pixel_values": tokenized["pixel_values"][0],
+            "responses": action_token_ids.reshape(-1),
+            "action_token_ids": action_token_ids,
+            "actions": torch.tensor(actions_array, dtype=torch.float32),
+            "state": torch.tensor(np.asarray(first_frame.get("state", []), dtype=np.float32)),
+            "task_index": torch.tensor(task_index, dtype=torch.long),
+            "episode_index": torch.tensor(episode_index, dtype=torch.long),
+            "frame_index": torch.tensor(int(first_frame.get("frame_index", 0)), dtype=torch.long),
+            "timestamp": torch.tensor(float(first_frame.get("timestamp", 0.0)), dtype=torch.float32),
+            "prompt": prompt,
+            "finish_step": torch.tensor(valid_steps, dtype=torch.long),
+        }
+        return output
