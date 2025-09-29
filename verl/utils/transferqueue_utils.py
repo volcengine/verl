@@ -14,7 +14,7 @@
 
 from typing import Any
 
-from transfer_queue.utils.zmq_utils import ZMQServerInfo
+from verl.experimental.transfer_queue import ZMQServerInfo
 
 _TRANSFER_QUEUE_CONTROLLER_INFOS = None
 _TRANSFER_QUEUE_STORAGE_INFOS = None
