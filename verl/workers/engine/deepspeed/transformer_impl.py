@@ -17,20 +17,21 @@ The concrete Engine implementation using DeepSpeed ZeRO optimization
 """
 
 import gc
-import itertools
 import logging
 import os
 import warnings
 from contextlib import nullcontext
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Union
 
 import torch
 import torch.distributed
 from peft import LoraConfig, TaskType, get_peft_model
+from tensordict import TensorDict
 
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.models.transformers.monkey_patch import apply_monkey_patch
+from verl.utils import tensordict_utils as tu
 from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.deepspeed_utils import (
     DEEPSPEED_AVAILABLE,
@@ -48,8 +49,7 @@ from verl.utils.device import (
     is_npu_available,
 )
 from verl.utils.import_utils import import_external_libs
-from verl.utils.py_functional import append_to_dict, convert_to_regular_types
-from verl.utils.seqlen_balancing import get_reverse_idx, prepare_dynamic_batch
+from verl.utils.py_functional import convert_to_regular_types
 from verl.utils.torch_functional import logprobs_from_logits
 from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad, ulysses_pad_and_slice_inputs
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
@@ -67,6 +67,7 @@ from verl.workers.config import (
 )
 
 from ..base import BaseEngine, EngineRegistry
+from ..utils import postprocess_batch_func, prepare_micro_batches
 
 logger = logging.getLogger("verl.engine.deepspeed")
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -352,6 +353,10 @@ class DeepSpeedEngine(BaseEngine):
             return self.ulysses_device_mesh["sp"].get_local_rank() == 0
         # Standard mode: all ranks collect data
         return True
+
+    def is_mp_src_rank_with_outputs(self):
+        """Whether this rank holds the outputs for model parallel groups."""
+        return self.is_collect()
 
     def initialize(self):
         """
@@ -803,90 +808,48 @@ class DeepSpeedEngine(BaseEngine):
         """Get data parallel size."""
         return torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
 
-    def prepare_micro_batches(self, data: DataProto):
-        """Prepare micro batches from data (following FSDP pattern)."""
-        use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", True)
+    def get_data_parallel_group(self):
+        """Return the process group used for data parallel communication."""
+        if hasattr(self, "engine") and self.engine is not None:
+            for attr in ("data_parallel_group", "dp_group"):
+                group = getattr(self.engine, attr, None)
+                if group is not None:
+                    return group
+        return torch.distributed.group.WORLD
 
-        if use_dynamic_bsz:
-            assert "max_token_len_per_gpu" in data.meta_info, (
-                "max_token_len_per_gpu must be set when use_dynamic_bsz is True"
-            )
-            max_token_len_per_gpu = data.meta_info.get("max_token_len_per_gpu")
-            max_token_len = max_token_len_per_gpu * self.ulysses_sequence_parallel_size
-            micro_batches, batch_idx_list = prepare_dynamic_batch(data, max_token_len=max_token_len)
-        else:
-            micro_batch_size_per_gpu = data.meta_info.get("micro_batch_size_per_gpu")
-            micro_batches = data.split(micro_batch_size_per_gpu)
-            batch_idx_list = None
+    def _ensure_tensordict(self, data: Union[TensorDict, DataProto]) -> TensorDict:
+        if isinstance(data, TensorDict):
+            return data
+        if isinstance(data, DataProto):
+            return data.to_tensordict()
+        raise TypeError(f"Unsupported data type {type(data)} for DeepSpeedEngine.forward_backward_batch")
 
-        return micro_batches, batch_idx_list
+    def forward_backward_batch(
+        self, data: Union[TensorDict, DataProto], loss_function: Callable, forward_only: bool = False
+    ):
+        """Forward (and optional backward) pass for a batch using TensorDict interface."""
+        tensordict = self._ensure_tensordict(data)
 
-    def forward_backward_batch(self, data: DataProto, loss_function: Callable, forward_only: bool = False):
-        """Forward (and optional backward) pass for a batch.
+        tu.assign_non_tensor(tensordict, sp_size=self.ulysses_sequence_parallel_size)
 
-        Returns:
-            dict: aggregated metrics when training (forward_only=False)
-            dict[str, torch.Tensor]: concatenated model outputs (e.g. log_probs, entropy) when forward_only=True
-        """
-        micro_batches, indices = self.prepare_micro_batches(data=data)
+        micro_batches, indices = prepare_micro_batches(
+            data=tensordict, dp_group=self.get_data_parallel_group(), same_micro_num_in_dp=True
+        )
 
-        output = []
+        outputs = []
         ctx = torch.no_grad() if forward_only else nullcontext()
 
         for micro_batch in micro_batches:
             with ctx:
-                loss, metrics = self.forward_step(micro_batch, loss_function=loss_function, forward_only=forward_only)
-                if not forward_only:
-                    # For DeepSpeed, use engine.backward() instead of loss.backward()
+                loss, output = self.forward_step(micro_batch, loss_function=loss_function, forward_only=forward_only)
+                if not forward_only and loss is not None:
                     self.engine.backward(loss)
 
-            output.append(metrics)
+            outputs.append(output)
 
-        return self.postprocess_batch_func(output, indices, forward_only, data)
+        return postprocess_batch_func(output_lst=outputs, indices=indices, data=tensordict)
 
-    def postprocess_batch_func(self, losses_reduced, indices, forward_only, data: DataProto):
-        """Postprocess micro-batch outputs.
-
-        Handles two modes:
-          - forward_only=True: concatenate per-micro-batch tensors,
-            optionally reorder back to original sample order if dynamic batch was used
-          - training mode: merge dict metrics into a single aggregated dict (lists of values)
-        """
-        use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", True)
-
-        if forward_only:
-            output = {}
-            # Collect tensors
-            for mb_out in losses_reduced:
-                for key, val in mb_out.items():
-                    output.setdefault(key, []).append(val)
-
-            if use_dynamic_bsz:
-                # indices is list of lists of original sample indices; flatten & build reverse mapping
-                flat_indices = list(itertools.chain.from_iterable(indices))
-                revert_indices = torch.tensor(
-                    get_reverse_idx(flat_indices), dtype=torch.long, device=output[next(iter(output))][0].device
-                )
-            else:
-                flat_indices = None
-                revert_indices = None
-
-            for key, pieces in output.items():
-                cat_val = torch.cat(pieces, dim=0)
-                if use_dynamic_bsz:
-                    assert revert_indices is not None
-                    assert len(flat_indices) == cat_val.size(0), f"{len(flat_indices)} vs. {cat_val.size()}"
-                    cat_val = cat_val[revert_indices]
-                output[key] = cat_val
-
-            return output
-        else:
-            metrics = {}
-            for metric in losses_reduced:
-                append_to_dict(metrics, metric)
-            return metrics
-
-    def forward_step(self, micro_batch: DataProto, loss_function, forward_only):
+    def forward_step(self, micro_batch: TensorDict, loss_function, forward_only):
         """Forward step - to be implemented in subclass."""
         raise NotImplementedError("forward_step must be implemented in subclass")
 
@@ -899,8 +862,16 @@ class DeepSpeedEngine(BaseEngine):
 
     def optimizer_step(self):
         """Optimizer step using DeepSpeed engine."""
-        # DeepSpeed engine handles gradient clipping and optimizer step
-        return self.engine.step()
+        self.engine.step()
+        grad_norm = None
+        if hasattr(self.engine, "get_global_grad_norm"):
+            try:
+                grad_norm = self.engine.get_global_grad_norm()
+                if isinstance(grad_norm, torch.Tensor):
+                    grad_norm = grad_norm.item()
+            except RuntimeError:
+                grad_norm = None
+        return float(grad_norm) if grad_norm is not None else float("nan")
 
     # Convenience wrappers for external code parity with FSDP engine usage
     def backward(self, loss: torch.Tensor):  # type: ignore[name-defined]
@@ -1011,6 +982,22 @@ class DeepSpeedEngine(BaseEngine):
             del_local_after_load=del_local_after_load,
         )
 
+    def get_per_tensor_param(self, layered_summon: bool = False, base_sync_done: bool = False):
+        """Return iterator over parameter tensors for checkpointing compatibility."""
+        _ = layered_summon  # kept for API compatibility with FSDP engine
+        _ = base_sync_done
+
+        should_reload = self._is_offload_param and self.zero_stage < 3
+        if should_reload:
+            load_deepspeed_model_to_gpu(self.engine)
+
+        state_dict = self.module.state_dict()
+
+        if should_reload:
+            offload_deepspeed_model_to_cpu(self.engine)
+
+        return ((name, param) for name, param in state_dict.items())
+
 
 class EngineEvalModeCtx:
     """Context manager for evaluation mode."""
@@ -1063,16 +1050,16 @@ class EngineTrainModeCtx:
 class DeepSpeedEngineWithLMHead(DeepSpeedEngine):
     """DeepSpeed Engine with Language Model Head for text generation tasks."""
 
-    def forward_step(self, micro_batch: DataProto, loss_function, forward_only):
+    def forward_step(self, micro_batch: TensorDict, loss_function, forward_only):
         """Forward step implementation following FSDP pattern."""
-        use_remove_padding = micro_batch.meta_info.get("use_remove_padding", True)
-        use_fused_kernels = micro_batch.meta_info.get("use_fused_kernels", False)
-        temperature = micro_batch.meta_info["temperature"]
-        calculate_entropy = micro_batch.meta_info.get("calculate_entropy", False)
+        use_remove_padding = tu.get_non_tensor_data(data=micro_batch, key="use_remove_padding", default=True)
+        use_fused_kernels = tu.get_non_tensor_data(data=micro_batch, key="use_fused_kernels", default=False)
+        temperature = tu.get_non_tensor_data(data=micro_batch, key="temperature", default=1.0)
+        calculate_entropy = tu.get_non_tensor_data(data=micro_batch, key="calculate_entropy", default=False)
 
         device_name = get_device_name()
         micro_batch = micro_batch.to(get_device_id())
-        micro_batch_tensor = micro_batch.batch.to(device_name)
+        micro_batch_tensor = micro_batch
 
         response_length = micro_batch_tensor["responses"].size(-1)
         # Defensive: ensure we have at least one context token before the response window
@@ -1287,8 +1274,15 @@ class DeepSpeedEngineWithLMHead(DeepSpeedEngine):
             if calculate_entropy:
                 outputs["entropy"] = entropy
 
+            output_meta = {"model_output": outputs, "metrics": {}}
+
             if forward_only:
-                return None, outputs
-            else:
-                policy_loss, metrics = loss_function(model_output=outputs, data=micro_batch_tensor)
-                return policy_loss, metrics
+                return None, output_meta
+
+            if loss_function is None:
+                raise ValueError("loss_function must be provided when forward_only is False")
+
+            policy_loss, metrics = loss_function(model_output=outputs, data=micro_batch_tensor)
+            output_meta["loss"] = policy_loss
+            output_meta["metrics"] = metrics or {}
+            return policy_loss, output_meta
