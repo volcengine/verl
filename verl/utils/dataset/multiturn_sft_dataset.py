@@ -27,6 +27,7 @@ from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer
 
 from verl.utils import hf_tokenizer
+from verl.utils.dataset.dataset_utils import DatasetPadMode
 from verl.utils.fs import copy_local_path_from_hdfs
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.torch_functional import pad_sequence_to_length, postprocess_data
@@ -54,8 +55,8 @@ class MultiTurnSFTDataset(Dataset):
         # Set defaults and extract parameters from config if provided
         config = config or {}
         self.pad_mode = config.get("pad_mode", "right")
-        assert self.pad_mode in ["right", "left_right"], (
-            f"Expect pad_mode to be 'right' or 'left_right'. Got {self.pad_mode}"
+        assert self.pad_mode in ["right", "left_right", "no_padding"], (
+            f"Expect pad_mode to be 'right', 'left_right' or 'no_padding'. Got {self.pad_mode}"
         )
         self.truncation = config.get("truncation", "error")
         # for right padding
@@ -275,9 +276,6 @@ class MultiTurnSFTDataset(Dataset):
                 tokens, loss_mask, attention_mask = self._process_message_tokens(
                     messages, i, i + 1, is_assistant=True, enable_thinking=enable_thinking, tools=tools
                 )
-                concat_tokens.extend(tokens)
-                concat_loss_mask.extend(loss_mask)
-                concat_attention_mask.extend(attention_mask)
                 i += 1
             elif cur_messages["role"] == "tool":
                 # Process consecutive tool messages
@@ -288,9 +286,6 @@ class MultiTurnSFTDataset(Dataset):
                 tokens, loss_mask, attention_mask = self._process_message_tokens(
                     messages, st, ed, enable_thinking=enable_thinking, tools=tools
                 )
-                concat_tokens.extend(tokens)
-                concat_loss_mask.extend(loss_mask)
-                concat_attention_mask.extend(attention_mask)
                 i = ed
             elif cur_messages["role"] in ["user", "system"]:
                 # Process user or system message
@@ -299,12 +294,22 @@ class MultiTurnSFTDataset(Dataset):
                 tokens, loss_mask, attention_mask = self._process_message_tokens(
                     messages, i, i + 1, enable_thinking=enable_thinking, tools=tools
                 )
-                concat_tokens.extend(tokens)
-                concat_loss_mask.extend(loss_mask)
-                concat_attention_mask.extend(attention_mask)
                 i += 1
             else:
                 raise ValueError(f"Unknown role: {cur_messages['role']}")
+
+            # override loss mask with mask in the dataset to handle multi-turn conversation
+            override_loss_mask = cur_messages.get("loss_mask", None)
+            if override_loss_mask is not None:
+                if isinstance(override_loss_mask, np.ndarray):
+                    override_loss_mask = override_loss_mask.item()
+                assert isinstance(override_loss_mask, int), f"loss_mask should be int, got {type(override_loss_mask)}"
+                assert override_loss_mask in [0, 1], f"loss_mask should be 0 or 1, got {override_loss_mask}"
+                loss_mask = [override_loss_mask] * len(tokens)
+
+            concat_tokens.extend(tokens)
+            concat_loss_mask.extend(loss_mask)
+            concat_attention_mask.extend(attention_mask)
 
         # Validate and convert tokens
         input_ids, loss_mask, attention_mask = self._validate_and_convert_tokens(
@@ -324,7 +329,7 @@ class MultiTurnSFTDataset(Dataset):
 
         sequence_length = input_ids.shape[0]
         # Handle sequence length
-        if self.pad_mode == "right":
+        if self.pad_mode == DatasetPadMode.RIGHT:
             if sequence_length < self.max_length:
                 # Pad sequences
                 pad_token_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else 0
@@ -360,7 +365,7 @@ class MultiTurnSFTDataset(Dataset):
                 "position_ids": position_ids,
                 "loss_mask": loss_mask,
             }
-        elif self.pad_mode == "left_right":
+        elif self.pad_mode == DatasetPadMode.LEFT_RIGHT:
             assert self.truncation == "error", "Only support error truncation for left_right pad mode"
             prompt_str = self.tokenizer.apply_chat_template(
                 messages[:prompt_message_length],
@@ -421,4 +426,17 @@ class MultiTurnSFTDataset(Dataset):
                 "position_ids": position_ids,
                 "responses": response_ids,
                 "response_mask": response_loss_mask,
+            }
+        elif self.pad_mode == DatasetPadMode.NO_PADDING:
+            # truncate input_ids if it is longer than max_length
+            if len(input_ids) > self.max_length:
+                input_ids = input_ids[: self.max_length]
+                loss_mask = loss_mask[: self.max_length]
+            # create position IDs
+            position_ids = torch.arange(len(input_ids), dtype=torch.long)
+            # return nested tensor with out padding
+            return {
+                "input_ids": input_ids,
+                "position_ids": position_ids,
+                "loss_mask": loss_mask,
             }

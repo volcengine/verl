@@ -81,7 +81,7 @@ jobs:
       NO_PROXY: "localhost,127.0.0.1"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     container:
-      image: verlai/verl:app-verl0.5-transformers4.55.4-sglang0.4.10.post2-mcore0.13.0-te2.2
+      image: verlai/verl:app-verl0.6-transformers4.56.1-sglang0.5.2-mcore0.13.0-te2.2
       options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -92,8 +92,8 @@ jobs:
           pip3 install -e .[test]
       - name: Download Model to Use
         run: |
-          huggingface-cli download Qwen/Qwen2.5-0.5B --local-dir ${HOME}/models/Qwen/Qwen2.5-0.5B
-          huggingface-cli download deepseek-ai/deepseek-coder-1.3b-instruct --local-dir ${HOME}/models/deepseek-ai/deepseek-coder-1.3b-instruct
+#          huggingface-cli download Qwen/Qwen2.5-0.5B --local-dir ${HOME}/models/Qwen/Qwen2.5-0.5B
+#          huggingface-cli download deepseek-ai/deepseek-coder-1.3b-instruct --local-dir ${HOME}/models/deepseek-ai/deepseek-coder-1.3b-instruct
           export HF_HUB_OFFLINE=1
       - name: Running Huggingface to Megatron dist_ckpt converter (Qwen/Qwen2.5-0.5B)
         run: |
@@ -116,7 +116,7 @@ jobs:
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
       HF_ENDPOINT: "https://hf-mirror.com"
     container:
-      image: verlai/verl:app-verl0.5-transformers4.55.4-sglang0.4.10.post2-mcore0.13.0-te2.2
+      image: verlai/verl:app-verl0.6-transformers4.56.1-sglang0.5.2-mcore0.13.0-te2.2
       options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -127,7 +127,7 @@ jobs:
           pip3 install -e .[test]
       - name: Download Model to Use
         run: |
-          huggingface-cli download Qwen/Qwen1.5-MoE-A2.7B-Chat --local-dir ${HOME}/models/Qwen/Qwen1.5-MoE-A2.7B-Chat
+#          huggingface-cli download Qwen/Qwen1.5-MoE-A2.7B-Chat --local-dir ${HOME}/models/Qwen/Qwen1.5-MoE-A2.7B-Chat
           export HF_HUB_OFFLINE=1
       - name: Running Huggingface to Megatron dist_ckpt CPU converter (Qwen/Qwen1.5-MoE-A2.7B-Chat)
         run: |

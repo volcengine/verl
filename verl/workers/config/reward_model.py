@@ -12,28 +12,51 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import importlib.util
+import os
+import sys
 from dataclasses import dataclass, field
 from typing import Optional
+
+from omegaconf import MISSING
 
 from verl.base_config import BaseConfig
 from verl.utils.profiler import ProfilerConfig
 
 from .model import HFModelConfig
+from .rollout import SamplingConfig, ServerConfig
 
-__all__ = ["ServerConfig", "SandboxFusionConfig", "RewardModelConfig"]
+__all__ = ["SandboxFusionConfig", "RewardModelDataProcessorConfig", "RewardModelConfig"]
 
 
-@dataclass
-class ServerConfig(BaseConfig):
-    """
-    Configuration for SGLang server when running in server mode
-    """
+def get_custome_process_fn(file_path, function_name):
+    if not file_path:
+        return None
 
-    timeout: float = 60.0
-    max_attempts: int = 3
-    retry_delay: float = 2.0
-    max_connections: int = 1000
-    max_start_wait_time: float = 300.0
+    assert function_name is not None
+    module_name = f"custom_reward_module_{function_name}"
+    module = sys.modules.get(module_name, None)
+
+    if module is None:
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Reward process function file '{file_path}' not found.")
+
+        spec = importlib.util.spec_from_file_location(module_name, file_path)
+        assert spec is not None
+        module = importlib.util.module_from_spec(spec)
+        try:
+            sys.modules[module_name] = module
+            assert spec.loader is not None
+            spec.loader.exec_module(module)
+        except Exception as e:
+            raise RuntimeError(f"Error loading module from '{file_path}': {e}") from e
+
+    if not hasattr(module, function_name):
+        raise AttributeError(f"Reward preprocess function '{function_name}' not found in '{module.__file__}'.")
+
+    print(f"using customized reward function '{function_name}' from '{module.__file__}'")
+    raw_fn = getattr(module, function_name)
+    return raw_fn
 
 
 @dataclass
@@ -52,55 +75,72 @@ class SandboxFusionConfig(BaseConfig):
 
 
 @dataclass
+class RewardModelDataProcessorConfig(BaseConfig):
+    path: Optional[str] = None
+    preprocess_fn_name: Optional[str] = None
+    postprocess_fn_name: Optional[str] = None
+
+    def get_process_fn(self):
+        preprocess_fn = get_custome_process_fn(
+            file_path=self.path,
+            function_name=self.preprocess_fn_name,
+        )
+        postprocess_fn = get_custome_process_fn(
+            file_path=self.path,
+            function_name=self.postprocess_fn_name,
+        )
+        return preprocess_fn, postprocess_fn
+
+
+@dataclass
 class RewardModelConfig(BaseConfig):
-    """Configuration for reward model scoring.
+    _mutable_fields = {"max_model_len", "load_format"}
 
-    The inheritance from BaseConfig provides omegaconf.DictConfig-like interface for a dataclass config.
-
-    Args:
-        enable (bool): Whether to enable reward model.
-        enable_resource_pool (bool): Whether to deploy the model to a separate resource pool.
-        n_gpus_per_node (int): Number of GPUs per node when using resource pool.
-        nnodes (int): Number of nodes when using resource pool.
-        strategy (str): FSDP strategy: "fsdp" or "fsdp2".
-        model (Dict[str, Any]): Model configuration for reward scoring.
-        micro_batch_size (Optional[int]): Global micro batch size (deprecated).
-        micro_batch_size_per_gpu (Optional[int]): Local per-GPU micro batch size.
-        max_length (Optional[int]): Maximum sequence length to process for scoring.
-        use_dynamic_bsz (bool): Whether to dynamically adjust batch size at runtime.
-        forward_max_token_len_per_gpu (int): Maximum number of tokens per GPU in one forward pass.
-        reward_manager (str): Reward manager type (naive or prime).
-        launch_reward_fn_async (bool): Whether to launch custom reward function asynchronously during log_prob.
-        sandbox_fusion (Dict[str, Any]): Cloud/local sandbox fusion configuration for custom reward logic.
-        profiler (Dict[str, Any]): Profiler configuration for reward model.
-    """
-
-    _mutable_fields = BaseConfig._mutable_fields
-
-    enable: bool = False
-    enable_resource_pool: bool = False
-    n_gpus_per_node: int = 0
-    nnodes: int = 0
-    # strategy: str = MISSING
-    # model: BaseModelConfig = field(default_factory=BaseModelConfig)
-    # micro_batch_size: Optional[int] = None
-    # micro_batch_size_per_gpu: Optional[int] = None
-    # max_length: Optional[int] = None
-    # use_dynamic_bsz: bool = False
-    # forward_max_token_len_per_gpu: int = 32768
     reward_manager: str = "naive"
     launch_reward_fn_async: bool = False
 
-    tensor_model_parallel_size: int = 2
-    engine_kwargs: dict = field(default_factory=dict)
-    max_num_seqs: int = 1024
+    enable: bool = False
+    name: Optional[str] = MISSING
+    model_type: str = "discriminative"
+    prompt_length: int = 1024
+    # for generative models, response_length should be set > 0
+    response_length: int = 0
+
+    # resource pool config: for colocate / standalone mode
+    enable_resource_pool: bool = False
+    n_gpus_per_node: int = 0
+    nnodes: int = 0
+
+    # reward model args
     dtype: str = "bfloat16"
     gpu_memory_utilization: float = 0.5
+    enforce_eager: bool = True
+    cudagraph_capture_sizes: Optional[list] = None
     free_cache_engine: bool = True
+    data_parallel_size: int = 1
+    expert_parallel_size: int = 1
+    tensor_model_parallel_size: int = 2
+    max_num_batched_tokens: int = 8192
+    max_model_len: Optional[int] = None
+    max_num_seqs: int = 1024
+    load_format: str = "auto"
+    engine_kwargs: dict = field(default_factory=dict)
+    limit_images: Optional[int] = None
+    enable_chunked_prefill: bool = True
+    enable_prefix_caching: bool = True
+    disable_log_stats: bool = True
+    skip_tokenizer_init: bool = True
+
+    # we should deprecate this as it's not used anymore
+    # ignore_eos: bool = False
+
+    # for generative reward model
+    sampling_config: SamplingConfig = field(default_factory=SamplingConfig)
+    data_processor_config: RewardModelDataProcessorConfig = field(default_factory=RewardModelDataProcessorConfig)
 
     sandbox_fusion: SandboxFusionConfig = field(default_factory=SandboxFusionConfig)
     profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
     input_model_config: HFModelConfig = field(default_factory=HFModelConfig)
     model_config: HFModelConfig = field(default_factory=HFModelConfig)
     # Server configuration for sglang server mode
-    server: ServerConfig = field(default_factory=ServerConfig)
+    server_config: ServerConfig = field(default_factory=ServerConfig)

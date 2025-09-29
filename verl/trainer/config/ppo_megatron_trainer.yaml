@@ -1,6 +1,5 @@
 # specify the default per-component configs
 defaults:
-
   # <folder_name>@<field_name>.<field_name>: <yaml_file_name>
   # actor_rollout_ref.actor: trainer/config/actor/megatron_actor.yaml
   - actor@actor_rollout_ref.actor: megatron_actor
@@ -32,25 +31,19 @@ actor_rollout_ref:
     external_lib: null
 
     override_config:
-
       model_config: {}
 
       moe_config:
-
         freeze_moe_router: False
 
     use_fused_kernels: False # Whether to use custom fused kernels (PostProcessing, for memory efficiency)
 
     trust_remote_code: False
 
+    # Whether to remove padding tokens in inputs during training
+    use_remove_padding: false
+
   rollout:
-    # may get higher throughput when set to True. When activated, Please increase max_num_batched_tokens or decrease max_model_len.
-    enable_chunked_prefill: False
-
-    load_format: dummy_megatron
-
-    tensor_model_parallel_size: 1
-
     layer_name_map:
       qkv_layer_name: qkv
       gate_proj_layer_name: gate_up
@@ -67,7 +60,7 @@ algorithm:
   adv_estimator: gae
   norm_adv_by_std_in_grpo: True
   use_kl_in_reward: False
-  kl_penalty: kl  # how to estimate kl divergence
+  kl_penalty: kl # how to estimate kl divergence
   kl_ctrl:
     # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
     _target_: verl.trainer.config.KLControlConfig
@@ -77,7 +70,7 @@ algorithm:
     target_kl: 0.1
   use_pf_ppo: False
   pf_ppo:
-    reweight_method: pow  # ["pow", "max_min", "max_random"]
+    reweight_method: pow # ["pow", "max_min", "max_random"]
     weight_pow: 2.0
 
 trainer:
@@ -86,7 +79,7 @@ trainer:
   total_training_steps: null
   project_name: verl_examples
   experiment_name: gsm8k
-  logger: ['console', 'wandb']
+  logger: ["console", "wandb"]
   log_val_generations: 0
   nnodes: 1
   n_gpus_per_node: 8
@@ -112,16 +105,14 @@ trainer:
 
 global_profiler:
   _target_: verl.utils.profiler.ProfilerConfig
-  tool: null  # choose between nsys, npu, torch, torch_memory
-  steps: null   # profile steps
+  tool: null # choose between nsys, npu, torch, torch_memory
+  steps: null # profile steps
   profile_continuous_steps: False
-  save_path: "outputs/profile"   # profiler saving path
+  save_path: "outputs/profile" # profiler saving path
   # Specific tool configs, can use +profiler.tool_config.[tool].xxx to config
   global_tool_config:
-  
     # nsys config
     nsys:
-
       # True for each task has its own database, False for all tasks in one training step share one database.
       discrete: False
 
@@ -129,7 +120,6 @@ global_profiler:
       ## reference https://docs.nvidia.com/nsight-systems/UserGuide/index.html
       ## reference https://docs.ray.io/en/latest/ray-observability/user-guides/profiling.html
       controller_nsight_options:
-
         # Select the API(s) to be traced.
         trace: "cuda,nvtx,cublas,ucx"
 
@@ -141,7 +131,6 @@ global_profiler:
 
       # worker Nvidia Nsight Systems Options. Must set when profile_steps is not None.
       worker_nsight_options:
-
         # Select the API(s) to be traced.
         trace: "cuda,nvtx,cublas,ucx"
 

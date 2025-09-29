@@ -18,8 +18,9 @@ The abstract base class defining the interface for model training engines.
 from typing import Any, Callable, Optional
 
 import torch
+from tensordict import TensorDict
 
-from verl import DataProto
+from verl.utils.device import get_device_name
 
 
 class BaseEngine:
@@ -79,7 +80,7 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def forward_backward_batch(self, data: DataProto, loss_function: Callable, forward_only=False) -> Any:
+    def forward_backward_batch(self, data: TensorDict, loss_function: Callable, forward_only=False) -> Any:
         """
         Perform a forward pass and optionally a backward pass on a batch of data.
 
@@ -93,7 +94,7 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def train_batch(self, data: DataProto, loss_function: Callable) -> Any:
+    def train_batch(self, data: TensorDict, loss_function: Callable) -> Any:
         """
         Perform a training step on a batch of data.
 
@@ -111,7 +112,7 @@ class BaseEngine:
             outputs["metrics"]["grad_norm"] = grad_norm
         return outputs
 
-    def infer_batch(self, data: DataProto, loss_function: Optional[Callable] = None) -> Any:
+    def infer_batch(self, data: TensorDict, loss_function: Optional[Callable] = None) -> Any:
         """
         Perform inference on a batch of data.
 
@@ -124,6 +125,9 @@ class BaseEngine:
         with torch.no_grad():
             outputs = self.forward_backward_batch(data, loss_function, forward_only=True)
         return outputs
+
+    def get_per_tensor_param(self):
+        raise NotImplementedError
 
     def get_data_parallel_size(self):
         raise NotImplementedError
@@ -187,7 +191,7 @@ class EngineRegistry:
     _engines = {}
 
     @classmethod
-    def register(cls, model_type: str, backend: list[str] | str):
+    def register(cls, model_type: str, backend: list[str] | str, device: list[str] | str = "cuda"):
         """
         A class method decorator that registers an engine class with a given key.
 
@@ -196,6 +200,8 @@ class EngineRegistry:
         Args:
             model_type (str): The type of the model
             backend (list[str] | str): The backend to use for the model type
+            device (list[str] | str): The device type (e.g., "cuda", "npu", "cpu") this engine supports,
+                default is "cuda"
 
         Returns:
             A decorator function that takes an engine class and registers it.
@@ -206,12 +212,15 @@ class EngineRegistry:
             if model_type not in cls._engines:
                 cls._engines[model_type] = {}
 
-            if isinstance(backend, list):
-                for k in backend:
-                    cls._engines[model_type][k] = engine_class
-            else:
-                assert isinstance(backend, str)
-                cls._engines[model_type][backend] = engine_class
+            backends = backend if isinstance(backend, list) else [backend]
+            devices = device if isinstance(device, list) else [device]
+            for current_backend in backends:
+                for current_device in devices:
+                    if current_backend not in cls._engines[model_type]:
+                        cls._engines[model_type][current_backend] = {}
+                    if current_device not in cls._engines[model_type][current_backend]:
+                        cls._engines[model_type][current_backend][current_device] = engine_class
+
             return engine_class
 
         return decorator
@@ -220,7 +229,11 @@ class EngineRegistry:
     def get_engine_cls(cls, model_type: str, backend: str):
         assert model_type in cls._engines, f"Unknown model_type: {model_type}"
         assert backend in cls._engines[model_type], f"Unknown backend: {backend}"
-        return cls._engines[model_type][backend]
+        device = get_device_name()
+        assert device in cls._engines[model_type][backend], (
+            f"Unknown device: {device} for model_type: {model_type} and backend: {backend}"
+        )
+        return cls._engines[model_type][backend][device]
 
     @classmethod
     def new(cls, model_type, backend, *args, **kwargs):
