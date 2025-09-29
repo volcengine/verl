@@ -16,7 +16,7 @@ import logging
 import os
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Optional
+from typing import Optional, Literal
 
 from pydantic import BaseModel
 from ray.actor import ActorHandle
@@ -80,6 +80,7 @@ class RolloutReplica(ABC):
         config: RolloutConfig,
         model_config: HFModelConfig,
         gpus_per_node: int = 8,
+        is_reward_model: bool = False,
     ) -> None:
         self.replica_rank = replica_rank
         self.config = omega_conf_to_dataclass(config)
@@ -91,6 +92,7 @@ class RolloutReplica(ABC):
             f"world_size {self.world_size} must be divisible by gpus_per_node {self.gpus_per_node}"
         )
         self.nnodes = self.world_size // self.gpus_per_node
+        self.is_reward_model = is_reward_model
 
         self.rollout_mode: RolloutMode = None
         self.workers: list[ActorHandle] = []

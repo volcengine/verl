@@ -134,9 +134,8 @@ python3 -m verl.trainer.main_ppo \
     reward_model.rollout.top_k=0.8 \
     reward_model.rollout.top_p=20 \
     reward_model.reward_manager=dapo \
-    reward_model.data_processor.path=recipe/fapo/grm_processor.py \
-    reward_model.data_processor.preprocess_fn_name=preprocess \
-    reward_model.data_processor.postprocess_fn_name=postprocess \
+    custom_reward_function.path=recipe/fapo/reward_fn.py \
+    custom_reward_function.name=compute_score \
     trainer.logger='["console","wandb"]' \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \

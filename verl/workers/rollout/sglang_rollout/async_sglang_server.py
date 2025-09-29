@@ -270,13 +270,18 @@ class SGLangReplica(RolloutReplica):
                 worker_cuda_visible_devices[node_rank * self.gpus_per_node : (node_rank + 1) * self.gpus_per_node]
             )
             node_id = worker_node_ids[node_rank * self.gpus_per_node]
+            name = (
+                f"sglang_server_{self.replica_rank}_{node_rank}"
+                if not self.is_reward_model
+                else f"sglang_server_reward_{self.replica_rank}_{node_rank}"
+            )
             server = SGLangHttpServer.options(
                 scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
                     node_id=node_id,
                     soft=False,
                 ),
                 runtime_env={"env_vars": {"RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "1"}},
-                name=f"sglang_server_{self.replica_rank}_{node_rank}",
+                name=name,
             ).remote(
                 config=self.config,
                 model_config=self.model_config,

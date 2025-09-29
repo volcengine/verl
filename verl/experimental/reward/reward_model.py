@@ -82,6 +82,7 @@ class RewardModelManager:
                 config=rollout_config,
                 model_config=model_config,
                 gpus_per_node=self.config.n_gpus_per_node,
+                is_reward_model=True,
             )
             for replica_rank in range(num_replicas)
         ]

@@ -15,13 +15,17 @@ import asyncio
 import aiohttp
 import heapq
 import logging
+import importlib.util
 import multiprocessing
 import os
+import sys
 import queue
 import random
 import threading
+import inspect
 from abc import ABC, abstractmethod
 from concurrent.futures import Future
+from functools import partial
 from typing import Any, Optional
 
 import hydra
@@ -37,6 +41,7 @@ from transformers import AutoProcessor, AutoTokenizer
 from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayWorkerGroup
 from verl.trainer.ppo.ray_trainer import RayResourcePool
+from verl.trainer.ppo.reward import get_custom_reward_fn
 from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.fs import copy_to_local
 from verl.utils.model import compute_position_id_with_mask
@@ -51,29 +56,48 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-@ray.remote(num_cpus=1)
-class RewardManagerWorker:
-    def __init__(self, config: RewardModelConfig, rm_executor: RewardModelManager = None):
-        self.config = config
-        from verl.workers.reward_manager.dapo import DAPORewardManager
-        self.reward_manager = DAPORewardManager
-
-
 class RewardManager:
-    def __init__(self, config: RewardModelConfig, worker_group: RayWorkerGroup = None):
+    def __init__(self, config: DictConfig, worker_group: RayWorkerGroup = None):
         self.config = config
-        if config.enable and worker_group is not None:
+        self.worker_group = worker_group
+
+    def init_manager(self):
+        self._init_reward_model_manager()
+        self._init_reward_fn()
+        self.reward_model_manager.sleep()
+
+    def wake_up(self):
+        self.reward_model_manager.wake_up()
+
+    def sleep(self):
+        self.reward_model_manager.sleep()
+
+    def _init_reward_model_manager(self):
+        if self.config.reward_model.enable:
             self.reward_model_manager = RewardModelManager(
-                config=config,
-                worker_group=worker_group,
+                config=self.config.reward_model,
+                worker_group=self.worker_group,
             )
             self.reward_model_manager.sleep()
         else:
             self.reward_model_manager = None
 
-        assert config.reward_manager == "fapo", "Only fapo reward manager is supported now"
+    def _init_reward_fn(self):
+        assert self.config.reward_model.reward_manager == "fapo", "Only FAPORewardFunction is supported now."
+        from .reward_function import FAPORewardFunction
+        self.reward_fn = FAPORewardFunction(self.config, self.reward_model_manager)
 
-    def compute_rm_score(self, data: DataProto) -> DataProto:
-        # if self.config.rollout.free_cache_engine:
-        pass
-
+    async def compute_score(self, data: DataProto) -> DataProto:
+        data_source = data.non_tensor_batch["data_source"].tolist()[0]
+        response_ids = data.batch["responses"].tolist()[0]
+        ground_truth = data.non_tensor_batch["reward_model"].tolist()[0]["ground_truth"]
+        extra_info = data.non_tensor_batch["extra_info"].tolist()[0]
+        raw_prompt = data.non_tensor_batch["raw_prompt"].tolist()[0]
+        result = await self.reward_fn.run(
+            data_source=data_source,
+            raw_prompt=raw_prompt,
+            response_ids=response_ids,
+            ground_truth=ground_truth,
+            extra_info=extra_info,
+        )
+        return result

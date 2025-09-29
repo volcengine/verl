@@ -10,7 +10,9 @@ reward_model:
   _target_: verl.workers.config.RewardModelConfig
 
   reward_manager: dapo
-  launch_reward_fn_async: False
+  reward_processor_fn:
+    path: null
+    name: reward_process
 
   enable: False
 
@@ -54,12 +56,6 @@ reward_model:
     temperature: 1
     top_k: -1
     top_p: 1.0
-
-  data_processor:
-    _target_: verl.workers.config.DataProcessorConfig
-    path: null
-    preprocess_fn_name: null
-    postprocess_fn_name: null
 
   # fusion and profiler
   sandbox_fusion:

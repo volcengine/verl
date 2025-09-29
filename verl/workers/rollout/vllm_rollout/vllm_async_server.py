@@ -433,12 +433,17 @@ class vLLMReplica(RolloutReplica):
         for node_rank in range(nnodes):
             workers = self.workers[node_rank * gpus_per_node : (node_rank + 1) * gpus_per_node]
             node_id = worker_node_ids[node_rank * gpus_per_node]
+            name = (
+                f"vllm_server_{self.replica_rank}_{node_rank}"
+                if not self.is_reward_model
+                else f"vllm_server_reward_{self.replica_rank}_{node_rank}"
+            )
             server = vLLMHttpServer.options(
                 scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
                     node_id=node_id,
                     soft=False,
                 ),
-                name=f"vllm_server_{self.replica_rank}_{node_rank}",
+                name=name,
             ).remote(
                 config=self.config,
                 model_config=self.model_config,

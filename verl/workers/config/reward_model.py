@@ -139,7 +139,7 @@ class RewardModelConfig(BaseConfig):
     temperature: float = 1.0
     top_k: int = -1
     top_p: float = 1.0
-    data_processor: RewardModelDataProcessorConfig = field(default_factory=RewardModelDataProcessorConfig)
+    reward_processor: RewardModelDataProcessorConfig = field(default_factory=RewardModelDataProcessorConfig)
 
     sandbox_fusion: SandboxFusionConfig = field(default_factory=SandboxFusionConfig)
     profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
