@@ -125,6 +125,7 @@ jobs:
       - name: Debug MindSpeed installation
         run: |
           echo "=== Check MindSpeed installation ==="
+          export PYTHONPATH=$PYTHONPATH:/Megatron-LM
           pip show mindspeed || echo "MindSpeed not installed"
           pip list | grep mindspeed || echo "MindSpeed not found"
           echo "=== Environment PYTHONPATH ==="
@@ -138,7 +139,6 @@ jobs:
         run: |
           ray stop --force
           export PYTHONPATH=$PYTHONPATH:/Megatron-LM
-          source /usr/local/Ascend/ascend-toolkit/set_env.sh
           USE_DIST_CKPT=True bash tests/special_npu/run_qwen2_5_05b_grpo_mindspeed.sh
           rm -rf $HOME/dist_ckpt/qwen2_5_05b_grpo_mindspeed
           rm -rf $HOME/ckpts
