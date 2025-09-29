@@ -42,13 +42,20 @@ from tqdm import tqdm
 
 from verl import DataProto
 from verl.experimental.dataset.sampler import AbstractCurriculumSampler
-from verl.experimental.transfer_queue.client import AsyncTransferQueueClient, process_zmq_server_info
+from verl.experimental.transfer_queue.client import (
+    AsyncTransferQueueClient,
+    process_zmq_server_info,
+)
 from verl.experimental.transfer_queue.controller import TransferQueueController
 from verl.experimental.transfer_queue.metadata import BatchMeta
 from verl.experimental.transfer_queue.storage import TransferQueueStorageSimpleUnit
 from verl.experimental.transfer_queue.utils.utils import get_placement_group
 from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
-from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
+from verl.single_controller.ray import (
+    RayClassWithInitArgs,
+    RayResourcePool,
+    RayWorkerGroup,
+)
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.config import AlgoConfig
 from verl.trainer.ppo import core_algos
@@ -60,13 +67,25 @@ from verl.trainer.ppo.metric_utils import (
     process_validation_metrics,
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
-from verl.trainer.ppo.utils import Role, WorkerType, need_critic, need_reference_policy, need_reward_model
-from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
+from verl.trainer.ppo.utils import (
+    Role,
+    WorkerType,
+    need_critic,
+    need_reference_policy,
+    need_reward_model,
+)
+from verl.utils.checkpoint.checkpoint_manager import (
+    find_latest_ckpt_path,
+    should_save_ckpt_esi,
+)
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.debug import marked_timer
 from verl.utils.metric import reduce_metrics
 from verl.utils.rollout_skip import RolloutSkip
-from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
+from verl.utils.seqlen_balancing import (
+    get_seqlen_balanced_partitions,
+    log_seqlen_unbalance,
+)
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
 
@@ -827,6 +846,10 @@ class RayPPOTrainer:
         # we should create rollout at the end so that vllm can have a better estimation of kv cache memory
         self.actor_rollout_wg = all_wg["actor_rollout"]
         self.actor_rollout_wg.init_model()
+
+        # set transferqueue server info for each worker group
+        for _, wg in all_wg.items():
+            wg.set_transferqueue_server_info(self.data_system_controller_infos, self.data_system_storage_unit_infos)
 
         # create async rollout manager and request scheduler
         self.async_rollout_mode = False
