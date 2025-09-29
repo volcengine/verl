@@ -43,6 +43,9 @@ class vLLMRollout(vLLMRolloutBase):
         self.model_config = model_config
         self.device_mesh = device_mesh
         # NPU-ADAPTATION: import vLLM-Ascend patch
+        from vllm_ascend.patch import platform
+        from vllm_ascend.patch import worker
+        from recipe.r1_ascend import engine_core
         # NPU-ADAPTATION END
 
         if config.layered_summon:
