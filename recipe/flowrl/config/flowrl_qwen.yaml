@@ -1,0 +1,97 @@
+# FlowRL Configuration for Qwen models
+# Based on PPO config but adapted for FlowRL training
+
+trainer:
+  algorithm: flowrl
+  total_epochs: 20
+  n_gpus_per_node: 4
+  tensor_model_parallel_size: 1
+  save_freq: 5
+  logging_freq: 10
+  evaluation_freq: 5
+  save_dir: './flowrl_checkpoints'
+  project_name: 'flowrl_training'
+  experiment_name: 'flowrl_qwen_experiment'
+  logger: wandb
+
+# Model configuration
+actor_rollout_ref:
+  model:
+    path: 'Qwen/Qwen2.5-7B-Instruct'
+    trust_remote_code: true
+
+  # Actor specific settings
+  actor:
+    ppo_epochs: 1
+    ppo_mini_batch_size: 64
+    ppo_micro_batch_size: 2
+    clip_ratio: 0.2
+    temperature: 1.0
+
+    # FlowRL specific settings
+    proj_layer: 3
+    proj_dropout: 0.1
+
+    # Learning rate
+    lr: 1e-6
+    adam_eps: 1e-8
+    weight_decay: 0.01
+
+  # Rollout settings
+  rollout:
+    tensor_model_parallel_size: 1
+    n: 1
+    temperature: 1.0
+    top_p: 1.0
+    max_new_tokens: 512
+
+# Data configuration
+data:
+  train_batch_size: 256
+  val_batch_size: 64
+  train_files: ['path/to/your/train/data']
+  val_files: ['path/to/your/val/data']
+  prompt_key: 'prompt'
+  response_key: 'response'
+  max_prompt_length: 1024
+  max_response_length: 512
+
+# FlowRL Algorithm configuration
+algorithm:
+  name: 'FlowRL'
+  gamma: 0.99
+  lam: 0.95
+  adv_estimator: 'gae'
+
+  # FlowRL specific parameters
+  tb_coef: 15.0  # Trajectory balance coefficient (β)
+  importance_sampling: true
+
+  # KL control (optional)
+  use_kl_in_reward: false
+  kl_penalty: 'kl'
+  kl_ctrl:
+    type: 'fixed'
+    kl_coef: 0.001
+
+# Reward model configuration (if using external RM)
+reward_model:
+  path: 'path/to/reward/model'
+  tensor_model_parallel_size: 1
+  micro_batch_size: 8
+
+# Infrastructure settings
+device_mesh:
+  actor_mesh_devices: [0, 1]
+  critic_mesh_devices: [2, 3]
+  ref_mesh_devices: [0, 1]
+  rollout_mesh_devices: [0, 1, 2, 3]
+
+# Optional: Critic settings (if using value function)
+critic:
+  model:
+    path: 'Qwen/Qwen2.5-7B-Instruct'
+  ppo_epochs: 1
+  ppo_mini_batch_size: 64
+  ppo_micro_batch_size: 2
+  lr: 1e-5
