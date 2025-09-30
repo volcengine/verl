@@ -23,7 +23,9 @@ from contextlib import contextmanager, nullcontext
 
 import torch
 import torch.distributed as dist
+from torch.distributed._tensor import DTensor
 import torch.nn as nn
+from typing import List
 from packaging import version
 from torch.distributed import DeviceMesh
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
@@ -550,19 +552,92 @@ def get_shard_placement_fn(fsdp_size):
     return shard_placement_fn
 
 
-def fsdp2_clip_grad_norm_(parameters, max_norm, norm_type=2.0, error_if_nonfinite=False, foreach=None):
-    """torch.nn.utils.clip_grad_norm_ cann't run on cpu parameter DTensor"""
-    from torch.nn.utils.clip_grad import _clip_grads_with_norm_, _get_total_norm
+def _local_pth_sum(params: List[torch.nn.Parameter], p: float) -> torch.Tensor:
+    dev = None
+    acc = None
+    for q in params:
+        g = q.grad
+        if g is None:
+            continue
+        if isinstance(g, DTensor):
+            g_local = g.to_local()
+        else:
+            g_local = g
+        if dev is None:
+            dev = g_local.device
+            acc = torch.tensor(0.0, device=dev, dtype=torch.float32)
+        # compute in FP32 for stability
+        gn = torch.norm(g_local.detach().to(torch.float32), p=p)
+        acc = acc + (gn**p)
+    if acc is None:
+        # no grads; choose a reasonable device
+        dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        acc = torch.tensor(0.0, device=dev, dtype=torch.float32)
+    return acc
 
-    if isinstance(parameters, torch.Tensor):
-        parameters = [parameters]
+
+def _local_max(params: List[torch.nn.Parameter]) -> torch.Tensor:
+    dev = None
+    mx = None
+    for q in params:
+        g = q.grad
+        if g is None:
+            continue
+        if isinstance(g, DTensor):
+            g_local = g.to_local()
+        else:
+            g_local = g
+        if dev is None:
+            dev = g_local.device
+            mx = torch.tensor(0.0, device=dev, dtype=torch.float32)
+        gn = torch.max(torch.abs(g_local.detach().to(torch.float32)))
+        mx = torch.maximum(mx, gn)
+    if mx is None:
+        dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        mx = torch.tensor(0.0, device=dev, dtype=torch.float32)
+    return mx
+
+
+def _fsdp2_reduce_group(
+    params: List[torch.nn.Parameter],
+    norm_type: float,
+    reduce_groups: List[tuple[str, dist.ProcessGroup | None]],
+) -> torch.Tensor:
+    """Compute local group statistic and reduce over provided groups.
+
+    For finite p, returns the globally-reduced sum of p-th powers (not the final norm).
+    For inf, returns the globally-reduced max.
+    """
+    if math.isinf(norm_type):
+        val = _local_max(params)
+        for _, group in reduce_groups:
+            if group is not None:
+                dist.all_reduce(val, op=dist.ReduceOp.MAX, group=group)
+        return val
     else:
-        # prevent generators from being exhausted
-        parameters = list(parameters)
-    grads = [p.grad for p in parameters if p.grad is not None]
-    total_norm = _get_total_norm(grads, norm_type, error_if_nonfinite, foreach)
-    total_norm = total_norm.to(get_device_id(), non_blocking=True)
-    _clip_grads_with_norm_(parameters, max_norm, total_norm, foreach)
+        p = float(norm_type)
+        val = _local_pth_sum(params, p)
+        for _, group in reduce_groups:
+            if group is not None:
+                dist.all_reduce(val, op=dist.ReduceOp.SUM, group=group)
+        return val
+
+
+def fsdp2_clip_grad_norm_(
+    params: List[torch.nn.Parameter],
+    max_norm: float,
+    norm_type: float = 2.0,
+    error_if_nonfinite: bool = False,
+    foreach: bool | None = None,
+    reduce_groups: List[tuple[str, dist.ProcessGroup | None]] = None,
+) -> torch.Tensor:
+    if math.isinf(norm_type):
+        total_norm = _fsdp2_reduce_group(params, norm_type, reduce_groups)
+    else:
+        total_p = _fsdp2_reduce_group(params, norm_type, reduce_groups)
+        total_norm = total_p ** (1.0 / float(norm_type))
+
+    torch.nn.utils.clip_grads_with_norm_(params, max_norm, total_norm, foreach=foreach)
     return total_norm
 
 
