@@ -9,7 +9,7 @@
 | (actor_rollout_ref.actor.)ppo_mini_batch_size=1     | works                              |
 | infer_tp=1                                          | works                              |
 | train_sp=1                                          | works                              |
-
+| actor_rollout_ref.rollout.mode=sync                 | actually had an effect             |
 
 
 # Resources

@@ -127,6 +127,8 @@ def compute_score(data_source, solution_str, ground_truth, extra_info):
 
     # encourage model to call tools
     num_turns = extra_info["num_turns"]
+    if num_turns is None:
+        num_turns = 1
     if result["score"] < 0:
         tool_call_reward = (num_turns - 2) / 2 * 0.1
         result["score"] = min(-0.6, result["score"] + tool_call_reward)
