@@ -14,12 +14,8 @@
 import inspect
 import logging
 import os
-from typing import Any, Dict, List
 
-from verl.utils import hf_processor, hf_tokenizer
-from verl.utils.fs import copy_to_local
-from verl.trainer.ppo.reward import get_custom_reward_fn
-from verl.experimental.reward.reward_model import RewardModelManager
+from verl import DataProto
 
 from .base import RewardLoopBase
 
@@ -28,8 +24,12 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 class DAPORewardLoop(RewardLoopBase):
-    def __init__(self, config, tokenizer, compute_score, reward_model = None, reward_model_tokenizer = None):
+    def __init__(self, config, tokenizer, compute_score, reward_model=None, reward_model_tokenizer=None):
         super().__init__(config, tokenizer, compute_score)
+
+        assert inspect.iscoroutinefunction(self.compute_score), (
+            f"compute_score must be a coroutine function, but got {self.compute_score}"
+        )
 
         overlong_buffer_cfg = config.reward_model.get("reward_kwargs", {}).get("overlong_buffer_cfg", None)
         self.overlong_buffer_cfg = overlong_buffer_cfg
@@ -45,32 +45,23 @@ class DAPORewardLoop(RewardLoopBase):
                 "max_resp_len must be larger than overlong_buffer.len"
             )
 
-    async def run(
-        self, data_source: str, response_ids: List[int], ground_truth: str, extra_info: Dict[str, Any],
-    ) -> dict:
+    async def run_single(self, data: DataProto) -> dict:
+        data_source = data.non_tensor_batch["data_source"].tolist()[0]
+        response_ids = data.batch["responses"].tolist()[0]
+        ground_truth = data.non_tensor_batch["reward_model"].tolist()[0]["ground_truth"]
+        extra_info = data.non_tensor_batch["extra_info"].tolist()[0]
+
         response_str = await self.loop.run_in_executor(
             None, lambda: self.tokenizer.decode(response_ids, skip_special_tokens=True)
         )
-        if inspect.iscoroutinefunction(self.compute_score):
-            result = await self.compute_score(
-                data_source=data_source,
-                solution_str=response_str,
-                ground_truth=ground_truth,
-                extra_info=extra_info,
-                reward_model=self.reward_model,
-                reward_model_tokenizer=self.reward_model_tokenizer,
-            )
-        else:
-            result = await self.loop.run_in_executor(
-                None,
-                lambda: self.compute_score(
-                    data_source=data_source,
-                    solution_str=response_str,
-                    ground_truth=ground_truth,
-                    extra_info=extra_info,
-                    reward_model=self.reward_model,
-                ),
-            )
+        result = await self.compute_score(
+            data_source=data_source,
+            solution_str=response_str,
+            ground_truth=ground_truth,
+            extra_info=extra_info,
+            reward_model=self.reward_model,
+            reward_model_tokenizer=self.reward_model_tokenizer,
+        )
 
         reward_extra_info = {}
 

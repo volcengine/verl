@@ -11,6 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import ray
+from transformers import PreTrainedTokenizer
+
 from verl.utils.reward_score.math_dapo import last_boxed_only_string, normalize_final_answer, remove_boxed
 
 
@@ -28,6 +31,7 @@ def verify(
     gt = normalize_final_answer(gt)
     return (pred == gt), pred
 
+
 def compute_score_rule(
     solution_str: str,
     ground_truth: str,
@@ -43,10 +47,13 @@ def compute_score_rule(
     acc = correct
 
     return {
-        "score": reward, "acc": acc, "pred": pred,
+        "score": reward,
+        "acc": acc,
+        "pred": pred,
     }
 
 
+# FAPO Hyper-parameters
 FAPO_GENRM_TEMPLATE = (
     "The following is a math problem with its ground truth answer, along with an AI solution (split into steps):\n\n"
     "[Math Problem]\n\n"
@@ -55,15 +62,37 @@ FAPO_GENRM_TEMPLATE = (
     "{ground_truth}\n\n"
     "[AI Solution]\n\n"
     "{solution}\n\n"
-    "Your task is to review and critique the solution step by step. Once you identify an error in a step, return the index of the step where the earliest error occurs. Otherwise, return the index of -1 (which typically denotes 'not found').\n\n"
+    "Your task is to review and critique the solution step by step. "
+    "Once you identify an error in a step, return the index of the step where the earliest error occurs. "
+    "Otherwise, return the index of -1 (which typically denotes 'not found').\n\n"
     "Please reason step by step, put your final answer (i.e., the index) in \\boxed{{}}."
 )
+GRM_SAMPLING_PARAMS = {
+    "temperature": 0.7,
+    "top_p": 0.8,
+    "top_k": 20,
+    "max_new_tokens": 16384,
+}
+FLAWED_REWARD_PENALTY = 1.0
 
-async def compute_score_fapo(data_source, solution_str, ground_truth, extra_info, reward_model, reward_model_tokenizer):
+
+async def compute_score_fapo(
+    data_source: str,
+    solution_str: str,
+    ground_truth: str,
+    extra_info: dict,
+    reward_model: ray.actor.ActorHandle,
+    reward_model_tokenizer: PreTrainedTokenizer,
+):
+    """Compute the reward score for FAPO."""
     question, split = extra_info["question"], extra_info["split"]
     solution_str = solution_str[-300:]
     correct, pred = verify(solution_str, ground_truth)
     reward_score = 1.0 if correct else -1.0
+
+    # for test set, directly return the reward score
+    if split == "test":
+        return {"score": reward_score, "acc": correct, "pred": pred}
 
     grm_prompt = FAPO_GENRM_TEMPLATE.format(
         problem=question,
@@ -72,30 +101,20 @@ async def compute_score_fapo(data_source, solution_str, ground_truth, extra_info
     )
     grm_prompt_ids = reward_model_tokenizer.apply_chat_template(
         [{"role": "user", "content": grm_prompt}],
-        tokenize=True, add_generation_prompt=True,
+        tokenize=True,
+        add_generation_prompt=True,
     )
-    sampling_params = {
-        "temperature": 0.7,
-        "top_p": 0.8,
-        "top_k": 20,
-    }
-    grm_outputs = await reward_model.generate.remote(
-        prompt_ids=grm_prompt_ids, sampling_params=sampling_params
-    )
+    grm_outputs = await reward_model.generate.remote(prompt_ids=grm_prompt_ids, sampling_params=GRM_SAMPLING_PARAMS)
     grm_response_ids = grm_outputs.get("output_ids", None)
     if grm_response_ids is not None:
         grm_response = reward_model_tokenizer.decode(grm_response_ids, skip_special_tokens=True)
         try:
             err_location = remove_boxed(last_boxed_only_string(grm_response))
             is_flawed_positive = int(eval(err_location)) != -1
+        except Exception:
+            is_flawed_positive = False
 
-    # if not correct:
-    #     return {"score": -1.0, "acc": correct, "pred": pred}
-    # else:
-    #     grm_prompt = FAPO_GENRM_TEMPLATE.format(
-    #         problem=question,
-    #         ground_truth=ground_truth,
-    #         solution=solution_str,
-    #     )
-    #     grm_response = await reward_model.generate(grm_prompt)
-    
+        if is_flawed_positive:
+            reward_score -= FLAWED_REWARD_PENALTY
+
+    return {"score": reward_score, "acc": correct, "pred": pred}

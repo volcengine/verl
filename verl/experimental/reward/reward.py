@@ -48,15 +48,4 @@ class RewardManagerWorker:
         )
 
     async def compute_score(self, data: DataProto) -> DataProto:
-        data_source = data.non_tensor_batch["data_source"].tolist()[0]
-        response_ids = data.batch["responses"].tolist()[0]
-        ground_truth = data.non_tensor_batch["reward_model"].tolist()[0]["ground_truth"]
-        extra_info = data.non_tensor_batch["extra_info"].tolist()[0]
-        raw_prompt = data.non_tensor_batch["raw_prompt"].tolist()[0]
-        result = await self.reward_fn.run(
-            data_source=data_source,
-            response_ids=response_ids,
-            ground_truth=ground_truth,
-            extra_info=extra_info,
-        )
-        return result
+        return await self.reward_fn.compute_score(data)

@@ -16,7 +16,7 @@ import logging
 import os
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Optional, Literal
+from typing import Optional
 
 from pydantic import BaseModel
 from ray.actor import ActorHandle

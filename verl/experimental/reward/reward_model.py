@@ -19,8 +19,6 @@ from typing import Any, Optional
 import ray
 import torch
 
-from verl.utils import hf_processor, hf_tokenizer
-from verl.utils.fs import copy_to_local
 from verl.single_controller.ray.base import RayWorkerGroup
 from verl.workers.config import HFModelConfig, RewardModelConfig
 from verl.workers.rollout.replica import get_rollout_replica_class

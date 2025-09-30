@@ -11,43 +11,18 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import asyncio
-import aiohttp
-import heapq
 import logging
 import multiprocessing
 import os
-import queue
-import random
-import threading
-from abc import ABC, abstractmethod
-from concurrent.futures import Future
-from contextlib import asynccontextmanager
 from typing import Any, Optional
 
-import hydra
-import numpy as np
+import aiohttp
 import ray
 import torch
-from cachetools import LRUCache
-from omegaconf import DictConfig, OmegaConf
-from pydantic import BaseModel, ConfigDict
-from tensordict import TensorDict
-from transformers import AutoProcessor, AutoTokenizer
-
-from verl.protocol import DataProto
-from verl.single_controller.ray.base import RayWorkerGroup
-from verl.trainer.ppo.reward import load_reward_manager
-from verl.utils import hf_processor, hf_tokenizer
-from verl.utils.fs import copy_to_local
-from verl.utils.model import compute_position_id_with_mask
-from verl.utils.rollout_trace import RolloutTraceConfig, rollout_trace_attr, rollout_trace_op
-from verl.workers.rollout.replica import TokenOutput, get_rollout_replica_class
-from verl.workers.config import HFModelConfig, RewardModelConfig
-from verl.workers.rollout.utils import get_free_port
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
+
 
 @ray.remote
 class SGLangRouter:
@@ -56,7 +31,10 @@ class SGLangRouter:
 
         self.router_address = f"{router_ip}:{router_port}"
         router_args = RouterArgs(
-            host=router_ip, port=router_port, worker_urls=worker_urls, **kwargs,
+            host=router_ip,
+            port=router_port,
+            worker_urls=worker_urls,
+            **kwargs,
         )
         self.router_process = multiprocessing.Process(target=launch_router, args=(router_args,))
         self.router_process.start()

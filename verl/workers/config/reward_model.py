@@ -23,8 +23,7 @@ from omegaconf import MISSING
 from verl.base_config import BaseConfig
 from verl.utils.profiler import ProfilerConfig
 
-from .model import HFModelConfig
-from .rollout import SamplingConfig, ServerConfig
+from .rollout import ServerConfig
 
 __all__ = ["SandboxFusionConfig", "RewardModelDataProcessorConfig", "RewardModelConfig"]
 

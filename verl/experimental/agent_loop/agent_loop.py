@@ -281,6 +281,7 @@ class AgentLoopWorker:
             self.tokenizer.chat_template = self.config.actor_rollout_ref.model.custom_chat_template
 
         from verl.experimental.reward import RewardManagerWorker
+
         self.reward_manager_worker = RewardManagerWorker.options(
             scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
                 node_id=ray.get_runtime_context().get_node_id(),
