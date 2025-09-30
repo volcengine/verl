@@ -59,22 +59,35 @@ FAPO_GENRM_TEMPLATE = (
     "Please reason step by step, put your final answer (i.e., the index) in \\boxed{{}}."
 )
 
-async def compute_score_fapo(data_source, solution_str, ground_truth, extra_info, reward_model):
+async def compute_score_fapo(data_source, solution_str, ground_truth, extra_info, reward_model, reward_model_tokenizer):
     question, split = extra_info["question"], extra_info["split"]
     solution_str = solution_str[-300:]
     correct, pred = verify(solution_str, ground_truth)
+    reward_score = 1.0 if correct else -1.0
 
     grm_prompt = FAPO_GENRM_TEMPLATE.format(
         problem=question,
         ground_truth=ground_truth,
         solution=solution_str,
     )
-    grm_prompt_ids = tokenizer.apply_chat_template(
+    grm_prompt_ids = reward_model_tokenizer.apply_chat_template(
         [{"role": "user", "content": grm_prompt}],
         tokenize=True, add_generation_prompt=True,
     )
-    grm_response = await reward_model.generate.remote(prompt_ids=grm_prompt_ids)
-    breakpoint()
+    sampling_params = {
+        "temperature": 0.7,
+        "top_p": 0.8,
+        "top_k": 20,
+    }
+    grm_outputs = await reward_model.generate.remote(
+        prompt_ids=grm_prompt_ids, sampling_params=sampling_params
+    )
+    grm_response_ids = grm_outputs.get("output_ids", None)
+    if grm_response_ids is not None:
+        grm_response = reward_model_tokenizer.decode(grm_response_ids, skip_special_tokens=True)
+        try:
+            err_location = remove_boxed(last_boxed_only_string(grm_response))
+            is_flawed_positive = int(eval(err_location)) != -1
 
     # if not correct:
     #     return {"score": -1.0, "acc": correct, "pred": pred}

@@ -51,11 +51,11 @@ reward_model:
     skip_tokenizer_init: true
 
     # generative reward model configs
-    prompt_length: 1024
-    response_length: 0
-    temperature: 1
-    top_k: -1
-    top_p: 1.0
+    # prompt_length: 1024
+    # response_length: 0
+    # temperature: 1
+    # top_k: -1
+    # top_p: 1.0
 
   # fusion and profiler
   sandbox_fusion:

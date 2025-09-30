@@ -128,11 +128,6 @@ python3 -m verl.trainer.main_ppo \
     reward_model.rollout.name=sglang \
     reward_model.rollout.gpu_memory_utilization=0.9 \
     reward_model.rollout.tensor_model_parallel_size=2 \
-    reward_model.rollout.prompt_length=4096 \
-    reward_model.rollout.response_length=16384 \
-    reward_model.rollout.temperature=0.7 \
-    reward_model.rollout.top_k=0.8 \
-    reward_model.rollout.top_p=20 \
     reward_model.reward_manager=dapo \
     custom_reward_function.path=recipe/fapo/reward_fn.py \
     custom_reward_function.name=compute_score_fapo \

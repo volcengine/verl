@@ -78,9 +78,11 @@ class RewardModelManager:
     def _initialize_router(self):
         router_ip = ray.util.get_node_ip_address()
         router_port, _ = get_free_port(router_ip)
+        worker_urls = [f"http://{server_address}" for server_address in self.server_addresses]
 
         # current implementation only support sglang
         assert self.config.rollout.name == "sglang", "Only sglang is supported now"
+
         router = SGLangRouter.options(
             name="reward_model_router",
             scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
@@ -90,7 +92,7 @@ class RewardModelManager:
         ).remote(
             router_ip=router_ip,
             router_port=router_port,
-            worker_urls=self.server_addresses,
+            worker_urls=worker_urls,
             balance_abs_threshold=4,
         )
         self.router_handle = router

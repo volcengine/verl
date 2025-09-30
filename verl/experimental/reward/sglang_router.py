@@ -81,13 +81,13 @@ class SGLangRouter:
         self,
         prompt_ids: torch.Tensor,
         sampling_params: dict[str, Any],
-        request_id: str,
+        # request_id: str,
         image_data: Optional[list[Any]] = None,
     ):
         payload = {
-            "prompt_ids": prompt_ids,
+            "input_ids": prompt_ids,
             "sampling_params": sampling_params,
-            "request_id": request_id,
+            # "request_id": request_id,
             "image_data": image_data,
         }
         payload = {k: v for k, v in payload.items() if v is not None}

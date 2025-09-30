@@ -625,11 +625,13 @@ class AgentLoopManager:
         """
         self.config = config
         self.worker_group = worker_group
+        self.reward_model_manager = None
         self.reward_model_handle = None
         if rm_wg:
             from verl.experimental.reward import RewardModelManager
 
-            self.reward_model_handle = RewardModelManager(config.reward_model, rm_wg).get_handle()
+            self.reward_model_manager = RewardModelManager(config.reward_model, rm_wg)
+            self.reward_model_handle = self.reward_model_manager.get_handle()
 
         self._initialize_llm_servers()
         self._init_agent_loop_workers()
@@ -698,6 +700,9 @@ class AgentLoopManager:
 
         if self.config.actor_rollout_ref.rollout.free_cache_engine:
             self.wake_up()
+        if self.reward_model_manager and self.config.reward_model.rollout.free_cache_engine:
+            self.reward_model_manager.wake_up()
+
         chunkes = prompts.chunk(len(self.agent_loop_workers))
         outputs = ray.get(
             [
@@ -708,6 +713,8 @@ class AgentLoopManager:
         output = DataProto.concat(outputs)
         if self.config.actor_rollout_ref.rollout.free_cache_engine:
             self.sleep()
+        if self.reward_model_manager and self.config.reward_model.rollout.free_cache_engine:
+            self.reward_model_manager.sleep()
 
         # calculate performance metrics
         metrics = [output.meta_info.pop("metrics") for output in outputs]  # List[List[Dict[str, str]]]
