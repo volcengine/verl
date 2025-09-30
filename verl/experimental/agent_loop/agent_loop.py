@@ -254,7 +254,7 @@ class AgentLoopWorker:
     """Agent loop worker takes a batch of messages and run each message in an agent loop."""
 
     def __init__(
-        self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], reward_manager: RewardManager,
+        self, config: DictConfig, server_handles: list[ray.actor.ActorHandle],
     ):
         """Initialize agent loop manager.
 
@@ -264,7 +264,7 @@ class AgentLoopWorker:
         """
         self.config = config
         self.server_manager = AsyncLLMServerManager(config, server_handles)
-        self.reward_manager = reward_manager
+        self.reward_manager = ray.get_actor("RewardManager")
 
         model_path = config.actor_rollout_ref.model.path
         self.model_name = "/".join(model_path.split("/")[-2:])
@@ -630,7 +630,8 @@ class AgentLoopManager:
                 )
             ).remote(self.config, rm_wg)
             ray.get(self.reward_manager.init_manager.remote())
-        breakpoint()
+            # reward_manager = ray.get_actor("reward_manager")
+            # breakpoint()
 
         self._initialize_llm_servers()
         self._init_agent_loop_workers()

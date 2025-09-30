@@ -114,7 +114,7 @@ class RewardModelManager:
         async def run_all():
             await asyncio.gather(*tasks)
 
-        asyncio.run(run_all())
+        return asyncio.create_task(run_all())
 
     async def generate(
         self,

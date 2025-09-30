@@ -66,12 +66,6 @@ class RewardManager:
         self._init_reward_fn()
         self.reward_model_manager.sleep()
 
-    def wake_up(self):
-        self.reward_model_manager.wake_up()
-
-    def sleep(self):
-        self.reward_model_manager.sleep()
-
     def _init_reward_model_manager(self):
         if self.config.reward_model.enable:
             self.reward_model_manager = RewardModelManager(
@@ -83,9 +77,9 @@ class RewardManager:
             self.reward_model_manager = None
 
     def _init_reward_fn(self):
-        assert self.config.reward_model.reward_manager == "fapo", "Only FAPORewardFunction is supported now."
-        from .reward_function import FAPORewardFunction
-        self.reward_fn = FAPORewardFunction(self.config, self.reward_model_manager)
+        assert self.config.reward_model.reward_manager == "dapo", "Only DAPORewardFunction is supported now."
+        from .reward_function import DAPORewardFunction
+        self.reward_fn = DAPORewardFunction(self.config, self.reward_model_manager)
 
     async def compute_score(self, data: DataProto) -> DataProto:
         data_source = data.non_tensor_batch["data_source"].tolist()[0]

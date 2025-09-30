@@ -25,7 +25,7 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-class FAPORewardFunction:
+class DAPORewardFunction:
     def __init__(self, config, reward_model: RewardModelManager = None):
         self.compute_score = get_custom_reward_fn(config)
         local_path = copy_to_local(config.actor_rollout_ref.model.path)
