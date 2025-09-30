@@ -34,7 +34,7 @@ import torch.distributed
 from omegaconf import DictConfig, OmegaConf
 from peft import LoraConfig, TaskType, get_peft_model
 from tensordict import TensorDict
-from torch import nn, optim
+from torch import nn
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 from torch.distributed.fsdp import CPUOffload, MixedPrecision, ShardingStrategy
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
@@ -73,6 +73,7 @@ from verl.utils.ulysses import (
     get_ulysses_sequence_parallel_world_size,
     ulysses_pad_and_slice_inputs,
 )
+from verl.workers.config.optimizer import build_optimizer
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 logger = logging.getLogger(__file__)
@@ -317,14 +318,7 @@ class FSDPSFTTrainer:
 
         log_gpu_memory_usage("After FSDP wrapping", logger=logger)
 
-        self.optimizer = optim.AdamW(
-            self.fsdp_model.parameters(),
-            lr=self.config.optim.lr,
-            betas=self.config.optim.betas,
-            weight_decay=self.config.optim.weight_decay,
-            eps=self.config.optim.get("eps", 1e-08),
-            fused=True,
-        )
+        self.optimizer = build_optimizer(self.fsdp_model.parameters(), self.config.optim)
 
         log_gpu_memory_usage("After initialize optimizer", logger=logger)
 
