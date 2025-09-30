@@ -13,6 +13,7 @@
 # limitations under the License.
 import json
 import os
+import random
 from typing import Any, Optional, Sequence
 
 import numpy as np
@@ -112,7 +113,7 @@ class MultiTurnSFTDataset(Dataset):
         action_chunks_len: int = NUM_ACTIONS_CHUNK,
         action_chunk_stride: int = 1,
         n_action_bins: int = 256,
-        max_prompt_length: Optional[int] = 512,
+        max_prompt_length: Optional[int] = 64,
         norm_stats_path: Optional[str] = None,
         unnorm_key: Optional[str] = None,
     ) -> None:
@@ -347,13 +348,13 @@ class MultiTurnSFTDataset(Dataset):
                 input_ids,
                 max_seq_len=self.max_prompt_length,
                 pad_token_id=self.pad_token_id,
-                left_pad=False,
+                left_pad=True,
             )
             attention_mask = pad_sequence_to_length(
                 attention_mask,
                 max_seq_len=self.max_prompt_length,
                 pad_token_id=0,
-                left_pad=False,
+                left_pad=True,
             )
 
         return {
@@ -393,6 +394,9 @@ class MultiTurnSFTDataset(Dataset):
             else:
                 actions.append(zero_action)
                 fill_static = True
+        if valid_steps != len(actions):
+            print(f"not enough actions, skip at {index}!")
+            return self[random.randint(0, len(self) - 1)]
 
         actions_array = np.asarray(actions, dtype=np.float32)
         action_token_ids = self._actions_to_token_ids(actions_array)
@@ -426,78 +430,79 @@ if __name__ == "__main__":
     actions = torch.tensor(
         [
             [
-                2.12711899e-03,
-                2.71297271e-01,
-                -1.99763658e-01,
-                -4.64279854e-04,
+                1.31565308e-02,
+                -7.70929637e-01,
+                -7.60057782e-01,
+                9.75000610e-03,
                 -3.14699528e-04,
-                -6.57548380e-04,
-                0.00000000e00,
+                -5.35502744e-03,
+                -1.72549020e-01,
             ],
             [
-                1.86712368e-02,
-                -1.96954026e-03,
-                3.41386353e-04,
-                -4.64279854e-04,
+                4.62447664e-02,
+                -2.73897088e-02,
+                -7.60057782e-01,
+                9.75000610e-03,
                 -3.14699528e-04,
-                -6.57548380e-04,
-                0.00000000e00,
+                -5.35502744e-03,
+                -1.72549020e-01,
             ],
             [
-                -1.19196411e-01,
-                -1.96954026e-03,
-                3.41386353e-04,
-                -4.64279854e-04,
+                4.62447664e-02,
+                -2.73897088e-02,
+                -7.60057782e-01,
+                9.75000610e-03,
                 -3.14699528e-04,
-                -6.57548380e-04,
-                0.00000000e00,
+                -5.35502744e-03,
+                -1.72549020e-01,
             ],
             [
-                6.27888841e-02,
-                -1.96954026e-03,
-                3.41386353e-04,
-                -4.64279854e-04,
-                -3.14699528e-04,
-                -6.57548380e-04,
-                0.00000000e00,
+                4.62447664e-02,
+                -2.73897088e-02,
+                2.03518908e-02,
+                -9.70357107e-02,
+                -8.76528812e-03,
+                1.34348888e-02,
+                -1.01960784e-01,
             ],
             [
-                -3.64758225e-02,
-                -1.96954026e-03,
-                3.41386353e-04,
-                -4.64279854e-04,
-                -3.14699528e-04,
-                -6.57548380e-04,
-                0.00000000e00,
+                -5.30199402e-02,
+                1.07405440e-02,
+                2.03518908e-02,
+                -9.70357107e-02,
+                -8.76528812e-03,
+                1.34348888e-02,
+                -1.01960784e-01,
             ],
             [
-                -3.64758225e-02,
-                -1.96954026e-03,
-                3.41386353e-04,
-                -4.64279854e-04,
-                -3.14699528e-04,
-                -6.57548380e-04,
-                0.00000000e00,
+                -5.30199402e-02,
+                -2.73897088e-02,
+                2.03518908e-02,
+                -9.70357107e-02,
+                -8.76528812e-03,
+                1.34348888e-02,
+                -1.01960784e-01,
             ],
             [
-                2.12711899e-03,
-                -1.96954026e-03,
-                7.37132359e-02,
-                -4.64279854e-04,
-                -3.14699528e-04,
-                -6.57548380e-04,
-                9.96078431e-01,
+                -5.30199402e-02,
+                -2.73897088e-02,
+                2.03518908e-02,
+                -9.70357107e-02,
+                -8.76528812e-03,
+                1.34348888e-02,
+                -1.01960784e-01,
             ],
             [
-                2.12711899e-03,
-                -1.96954026e-03,
-                3.41386353e-04,
-                -4.64279854e-04,
-                -3.14699528e-04,
-                2.75273260e-02,
-                -8.62745098e-02,
+                -5.30199402e-02,
+                1.07405440e-02,
+                2.03518908e-02,
+                -9.70357107e-02,
+                -8.76528812e-03,
+                1.34348888e-02,
+                -1.01960784e-01,
             ],
         ]
     )
     print(dataset[0])
     print(dataset._actions_to_token_ids(actions))
+    print(dataset[0]["pixel_values"].mean(dim=(-1, -2)))
