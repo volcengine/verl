@@ -61,6 +61,13 @@ class IsaacEnv(gym.Env):
 
         from isaaclab_tasks.utils import parse_env_cfg
 
+        # import isaaclab_tasks.manager_based.manipulation.libero.config.franka
+
+        if hasattr(self.cfg, "task_suite") and self.cfg.task_suite is not None:
+            os.environ["LIBERO_TASK_SUITE"] = self.cfg.task_suite
+        if hasattr(self.cfg, "task_id") and self.cfg.task_id is not None:
+            os.environ["LIBERO_TASK_ID"] = str(self.cfg.task_id)
+
         self.env_cfg = parse_env_cfg(self.task_name, num_envs=self.num_envs)
         self.env_cfg.sim.device = self.cfg.device
 

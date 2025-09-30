@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import imageio
 import numpy as np
-import torch
 from omegaconf import OmegaConf
 
 from verl.envs.isaac.isaac_env import IsaacEnv
@@ -25,8 +25,11 @@ if __name__ == "__main__":
     # Basic configuration for the Isaac environment
     cfg = OmegaConf.create(
         {
-            "task_name": "Isaac-Cartpole-v0",
-            "num_envs": 4,
+            # "task_name": "Isaac-Libero-Franka-Replay-Camera-v0",
+            "task_name": "Isaac-Stack-Cube-Franka-v0",
+            "task_suite": "libero_10",
+            "task_id": 8,
+            "num_envs": 1,
             "device": "cuda:0",
             "headless": True,
             "seed": 42,
@@ -39,6 +42,30 @@ if __name__ == "__main__":
             "ignore_terminations": False,
             "auto_reset": True,
             "use_rel_reward": False,
+            # "init_params": {
+            #     "camera_depths": False,
+            #     "camera_heights": 512,
+            #     "camera_widths": 512,
+            #     "camera_names": ["agentview", "robot0_eye_in_hand"],
+            # },
+            # "controller_configs": {
+            #     "type": "OSC_POSE",
+            #     "input_max": 1,
+            #     "input_min": -1,
+            #     "output_max": [0.05, 0.05, 0.05, 0.5, 0.5, 0.5],
+            #     "output_min": [-0.05, -0.05, -0.05, -0.5, -0.5, -0.5],
+            #     "kp": 150,
+            #     "damping_ratio": 1,
+            #     "impedance_mode": "fixed",
+            #     "kp_limits": [0, 300],
+            #     "damping_ratio_limits": [0, 10],
+            #     "position_limits": None,
+            #     "orientation_limits": None,
+            #     "uncouple_pos_ori": True,
+            #     "control_delta": True,
+            #     "interpolation": None,
+            #     "ramp_ratio": 0.2,
+            # },
         }
     )
 
@@ -57,7 +84,7 @@ if __name__ == "__main__":
         isaac_env.is_start = True
         # The first call to step with actions=None will reset the environment
         obs_venv, _, terminated_venv, truncated_venv, info_venv = isaac_env.step(actions=None)
-
+        all_frames = []
         for step in range(steps):
             # Generate random actions
             actions = np.random.randn(n_envs, action_dim) * 0.5
@@ -65,30 +92,34 @@ if __name__ == "__main__":
 
             # Step the environment
             # For CartPole, action dimension is 1
-            actions = torch.rand(isaac_env.num_envs, 1, device=cfg.device)
+            # actions = torch.rand(isaac_env.num_envs, 1, device=cfg.device)
             for i in range(10):
                 obs_venv, reward_venv, terminated_venv, truncated_venv, info_venv = isaac_env.step(actions)
                 print("obs keys:", obs_venv.keys())
                 if "pixels" in obs_venv:
+                    all_frames.append(obs_venv["pixels"])
                     print("pixels shape:", obs_venv["pixels"].shape)
                     print("pixels dtype:", obs_venv["pixels"].dtype)
                 else:
                     print("no pixels in obs {obs_venv}")
 
-            print(
-                f"obs_venv {obs_venv}\n, reward_venv {reward_venv}\n, \
-                terminated_venv {terminated_venv}\n, truncated_venv \
-                {truncated_venv}\n, info_venv {info_venv}\n"
-            )
-            if terminated_venv.any() or truncated_venv.any():
-                print(f"Step {step}:")
-                if terminated_venv.any():
-                    print(f"  Terminated: {terminated_venv.cpu().numpy()}")
-                if truncated_venv.any():
-                    print(f"  Truncated: {truncated_venv.cpu().numpy()}")
-                if info_venv:
-                    print(f"  Info: {info_venv}")
-
+            # print(
+            #     f"obs_venv {obs_venv}\n, reward_venv {reward_venv}\n, \
+            #     terminated_venv {terminated_venv}\n, truncated_venv \
+            #     {truncated_venv}\n, info_venv {info_venv}\n"
+            # )
+            # if terminated_venv.any() or truncated_venv.any():
+            #     print(f"Step {step}:")
+            #     if terminated_venv.any():
+            #         print(f"  Terminated: {terminated_venv.cpu().numpy()}")
+            #     if truncated_venv.any():
+            #         print(f"  Truncated: {truncated_venv.cpu().numpy()}")
+            #     if info_venv:
+            #         print(f"  Info: {info_venv}")
+        if len(all_frames) > 0:
+            video_path = f"/tmp/videos/episode_{t}.mp4"
+            imageio.mimsave(video_path, all_frames, fps=30)
+            print(f"Video saved to {video_path}")
         if cfg.video_cfg.save_video:
             isaac_env.flush_video(video_sub_dir=f"episode_{t}")
 
