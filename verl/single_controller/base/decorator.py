@@ -429,10 +429,13 @@ def register(dispatch_mode=Dispatch.ALL_TO_ALL, execute_mode=Execute.ALL, blocki
         A decorator that wraps the original function with distributed execution
         configuration.
     """
+    from verl.utils.transferqueue_utils import batchmeta_dataproto_pipe
+
     _check_dispatch_mode(dispatch_mode=dispatch_mode)
     _check_execute_mode(execute_mode=execute_mode)
 
     def decorator(func):
+        func = batchmeta_dataproto_pipe()(func)
         @wraps(func)
         def inner(*args, **kwargs):
             if materialize_futures:

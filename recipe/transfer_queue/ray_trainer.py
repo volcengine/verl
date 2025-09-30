@@ -88,6 +88,10 @@ from verl.utils.seqlen_balancing import (
 )
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
+from verl.utils.transferqueue_utils import (
+    create_transferqueue_client,
+    get_transferqueue_client,
+)
 
 
 @dataclass
@@ -421,12 +425,12 @@ class RayPPOTrainer:
 
         # 4. create client
         # each client should be allocated to exactly one controller
-        self.data_system_client = AsyncTransferQueueClient(
+        create_transferqueue_client(
             client_id="Trainer",
-            controller_infos=self.data_system_controller_infos[0],
+            controller_infos=self.data_system_controller_infos,
             storage_infos=self.data_system_storage_unit_infos,
         )
-
+        self.data_system_client = get_transferqueue_client()
         return self.data_system_client
 
     def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler: Optional[Sampler]):
@@ -847,9 +851,9 @@ class RayPPOTrainer:
         self.actor_rollout_wg = all_wg["actor_rollout"]
         self.actor_rollout_wg.init_model()
 
-        # set transferqueue server info for each worker group
+        # set transferqueue server info for each worker
         for _, wg in all_wg.items():
-            wg.set_transferqueue_server_info(self.data_system_controller_infos, self.data_system_storage_unit_infos)
+            wg.create_transferqueue_client(self.data_system_controller_infos, self.data_system_storage_unit_infos)
 
         # create async rollout manager and request scheduler
         self.async_rollout_mode = False

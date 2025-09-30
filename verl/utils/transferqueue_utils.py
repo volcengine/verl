@@ -12,24 +12,126 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
+import inspect
+from functools import wraps
 from typing import Any
 
-from verl.experimental.transfer_queue import ZMQServerInfo
+import numpy as np
+import torch
+from tensordict import NonTensorData, NonTensorStack, TensorDict
 
-_TRANSFER_QUEUE_CONTROLLER_INFOS = None
-_TRANSFER_QUEUE_STORAGE_INFOS = None
+from verl.experimental.transfer_queue import (
+    AsyncTransferQueueClient,
+    BatchMeta,
+    ZMQServerInfo,
+)
+from verl.protocol import DataProto
+
+_TRANSFER_QUEUE_CLIENT = None
 
 
-def set_transferqueue_server_info(controller_infos: dict[Any, ZMQServerInfo], storage_infos: dict[Any, ZMQServerInfo]):
-    global _TRANSFER_QUEUE_CONTROLLER_INFOS, _TRANSFER_QUEUE_STORAGE_INFOS
-    if _TRANSFER_QUEUE_CONTROLLER_INFOS is not None and _TRANSFER_QUEUE_STORAGE_INFOS is not None:
-        return
-    _TRANSFER_QUEUE_CONTROLLER_INFOS = controller_infos
-    _TRANSFER_QUEUE_STORAGE_INFOS = storage_infos
+def create_transferqueue_client(
+    client_id: str,
+    controller_infos: dict[Any, ZMQServerInfo],
+    storage_infos: dict[Any, ZMQServerInfo],
+) -> None:
+    global _TRANSFER_QUEUE_CLIENT
+    _TRANSFER_QUEUE_CLIENT = AsyncTransferQueueClient(client_id, controller_infos, storage_infos)
 
 
-def get_transferqueue_server_info():
-    assert _TRANSFER_QUEUE_CONTROLLER_INFOS is not None and _TRANSFER_QUEUE_STORAGE_INFOS is not None, (
-        "TransferQueue server infos have not been set yet."
+def get_transferqueue_client() -> AsyncTransferQueueClient:
+    return _TRANSFER_QUEUE_CLIENT
+
+
+def _find_batchmeta(*args, **kwargs):
+    for arg in args:
+        if isinstance(arg, BatchMeta):
+            return arg
+    for v in kwargs.values():
+        if isinstance(v, BatchMeta):
+            return v
+    return None
+
+
+def _batchmeta_to_dataproto(batchmeta: BatchMeta):
+    tensordict = asyncio.run(_TRANSFER_QUEUE_CLIENT.async_get_data(batchmeta))
+
+    batch = {}
+    non_tensor_batch = {}
+    batch_size = None
+    for k, v in tensordict.items():
+        if isinstance(v, torch.Tensor):
+            batch[k] = v
+            if batch_size is None:
+                batch_size = v.shape[:1]
+        elif isinstance(v, NonTensorStack):
+            non_tensor_batch[k] = np.array([elem.data for elem in v], dtype=object)
+        else:
+            non_tensor_batch[k] = v
+    return DataProto(
+        batch=TensorDict(batch, batch_size=batch_size),
+        non_tensor_batch=non_tensor_batch,
+        meta_info=batchmeta.extra_info.copy(),
     )
-    return _TRANSFER_QUEUE_CONTROLLER_INFOS, _TRANSFER_QUEUE_STORAGE_INFOS
+
+
+def _dataproto_to_tensordict(data: DataProto):
+    result_dict = {}
+
+    if data.batch is not None:
+        result_dict.update(data.batch)
+
+    batch_size = data.batch.batch_size if data.batch is not None else (len(list(data.non_tensor_batch.values())[0]),)    
+    if data.non_tensor_batch is not None:
+        for k, v in data.non_tensor_batch.items():
+            result_dict[k] = NonTensorData(data=v, batch_size=batch_size)
+    
+    if data.meta_info == {} or data.meta_info is None:
+        result_dict["meta_info"] = NonTensorData(data=[None] * batch_size[0], batch_size=batch_size)
+    else:
+        result_dict["meta_info"] = NonTensorData(data=[data.meta_info] * batch_size[0], batch_size=batch_size)
+    return TensorDict(result_dict, batch_size=batch_size)
+
+
+def _update_batchmeta_with_output(output: DataProto, batchmeta: BatchMeta):
+    tensordict = _dataproto_to_tensordict(output)
+    batchmeta.add_fields(tensordict)
+    asyncio.run(_TRANSFER_QUEUE_CLIENT.async_put(data=tensordict, metadata=batchmeta))
+
+
+async def _async_update_batchmeta_with_output(output, batchmeta: BatchMeta):
+    tensordict = _dataproto_to_tensordict(output)
+    batchmeta.add_fields(tensordict)
+    await _TRANSFER_QUEUE_CLIENT.async_put(data=tensordict, metadata=batchmeta)
+
+
+def batchmeta_dataproto_pipe():
+    def decorator(func):
+        @wraps(func)
+        def inner(*args, **kwargs):
+            batchmeta = _find_batchmeta(*args, **kwargs)
+            if batchmeta is None:
+                return func(*args, **kwargs)
+            else:
+                args = [_batchmeta_to_dataproto(arg) if isinstance(arg, BatchMeta) else arg for arg in args]
+                kwargs = {k: _batchmeta_to_dataproto(v) if isinstance(v, BatchMeta) else v for k, v in kwargs.items()}
+                output = func(*args, **kwargs)
+                _update_batchmeta_with_output(output, batchmeta)
+                return batchmeta
+            
+        @wraps(func)
+        async def async_inner(*args, **kwargs):
+            batchmeta = _find_batchmeta(*args, **kwargs)
+            if batchmeta is None:
+                return await func(*args, **kwargs)
+            else:
+                args = [_batchmeta_to_dataproto(arg) if isinstance(arg, BatchMeta) else arg for arg in args]
+                kwargs = {k: _batchmeta_to_dataproto(v) if isinstance(v, BatchMeta) else v for k, v in kwargs.items()}
+                output = await func(*args, **kwargs)
+                await _async_update_batchmeta_with_output(output, batchmeta)
+                return batchmeta
+
+        wrapper = async_inner if inspect.iscoroutinefunction(func) else inner
+        return wrapper
+    return decorator
