@@ -74,7 +74,7 @@ vllm & vllm-ascend
 DockerFile镜像构建
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-通过DockerFile构建镜像方式请参照这份 `文档 <https://github.com/songyy29/verl/blob/main/docs/ascend_tutorial/Dockerfile%20Build%20Guide%20Ascend%20Adaptation%20for%20vLLM%20%26%20Verl%20(CANN%208.2.RC1).md>`_ 。
+通过DockerFile构建镜像方式请参照这份 `文档 <https://github.com/songyy29/verl/blob/main/docs/ascend_tutorial/dockerfile_build_guide_ascend_adaptation_for_vllm_and_verl_cann_8_2_rc1.rst>`_ 。
 
 其他三方库说明
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
