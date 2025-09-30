@@ -12,38 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import asyncio
-import aiohttp
-import heapq
 import logging
-import multiprocessing
 import os
-import queue
-import random
-import threading
-from abc import ABC, abstractmethod
-from concurrent.futures import Future
 from typing import Any, Optional
 
-import hydra
-import numpy as np
 import ray
 import torch
-from cachetools import LRUCache
-from omegaconf import DictConfig, OmegaConf
-from pydantic import BaseModel, ConfigDict
-from tensordict import TensorDict
-from transformers import AutoProcessor, AutoTokenizer
 
-from verl.protocol import DataProto
-from verl.single_controller.ray.base import RayWorkerGroup
-from verl.trainer.ppo.ray_trainer import RayResourcePool
-from verl.trainer.ppo.reward import load_reward_manager
 from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.fs import copy_to_local
-from verl.utils.model import compute_position_id_with_mask
-from verl.utils.rollout_trace import RolloutTraceConfig, rollout_trace_attr, rollout_trace_op
-from verl.workers.rollout.replica import TokenOutput, get_rollout_replica_class
+from verl.single_controller.ray.base import RayWorkerGroup
 from verl.workers.config import HFModelConfig, RewardModelConfig
+from verl.workers.rollout.replica import get_rollout_replica_class
 from verl.workers.rollout.utils import get_free_port
 
 from .sglang_router import SGLangRouter
@@ -58,6 +38,8 @@ class RewardModelManager:
         self.worker_group = worker_group
         self._initialize_llm_servers()
         self._initialize_router()
+        if self.config.rollout.free_cache_engine:
+            self.sleep()
 
     def _initialize_llm_servers(self):
         assert self.config.rollout.name == "sglang", "Only sglang is supported now"
@@ -99,8 +81,22 @@ class RewardModelManager:
 
         # current implementation only support sglang
         assert self.config.rollout.name == "sglang", "Only sglang is supported now"
-        router = SGLangRouter(router_ip, router_port, self.server_addresses, balance_abs_threshold=4)
-        self.router = router
+        router = SGLangRouter.options(
+            name="reward_model_router",
+            scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
+                node_id=ray.get_runtime_context().get_node_id(),
+                soft=False,
+            ),
+        ).remote(
+            router_ip=router_ip,
+            router_port=router_port,
+            worker_urls=self.server_addresses,
+            balance_abs_threshold=4,
+        )
+        self.router_handle = router
+
+    def get_handle(self):
+        return self.router_handle
 
     def wake_up(self):
         """Wake up all rollout replica instances."""
@@ -114,7 +110,7 @@ class RewardModelManager:
         async def run_all():
             await asyncio.gather(*tasks)
 
-        return asyncio.create_task(run_all())
+        asyncio.run(run_all())
 
     async def generate(
         self,

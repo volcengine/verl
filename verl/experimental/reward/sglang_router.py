@@ -49,6 +49,7 @@ from verl.workers.rollout.utils import get_free_port
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
+@ray.remote
 class SGLangRouter:
     def __init__(self, router_ip: str, router_port: int, worker_urls: list[str], **kwargs):
         from sglang_router.launch_server import RouterArgs, launch_router
@@ -84,7 +85,7 @@ class SGLangRouter:
         image_data: Optional[list[Any]] = None,
     ):
         payload = {
-            "prompt_ids": prompt_ids.tolist(),
+            "prompt_ids": prompt_ids,
             "sampling_params": sampling_params,
             "request_id": request_id,
             "image_data": image_data,

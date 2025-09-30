@@ -15,11 +15,8 @@ import asyncio
 import heapq
 import logging
 import os
-import queue
 import random
-import threading
 from abc import ABC, abstractmethod
-from concurrent.futures import Future
 from typing import Any, Optional
 
 import hydra
@@ -34,13 +31,11 @@ from transformers import AutoProcessor, AutoTokenizer
 
 from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayWorkerGroup
-from verl.trainer.ppo.reward import load_reward_manager
 from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.fs import copy_to_local
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.rollout_trace import RolloutTraceConfig, rollout_trace_attr, rollout_trace_op
 from verl.workers.rollout.replica import TokenOutput, get_rollout_replica_class
-from verl.experimental.reward import RewardManager
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -254,7 +249,10 @@ class AgentLoopWorker:
     """Agent loop worker takes a batch of messages and run each message in an agent loop."""
 
     def __init__(
-        self, config: DictConfig, server_handles: list[ray.actor.ActorHandle],
+        self,
+        config: DictConfig,
+        server_handles: list[ray.actor.ActorHandle],
+        reward_model_handle: ray.actor.ActorHandle = None,
     ):
         """Initialize agent loop manager.
 
@@ -264,7 +262,7 @@ class AgentLoopWorker:
         """
         self.config = config
         self.server_manager = AsyncLLMServerManager(config, server_handles)
-        self.reward_manager = ray.get_actor("RewardManager")
+        self.reward_model_handle = reward_model_handle
 
         model_path = config.actor_rollout_ref.model.path
         self.model_name = "/".join(model_path.split("/")[-2:])
@@ -281,6 +279,14 @@ class AgentLoopWorker:
             if self.processor is not None:
                 self.processor.chat_template = self.config.actor_rollout_ref.model.custom_chat_template
             self.tokenizer.chat_template = self.config.actor_rollout_ref.model.custom_chat_template
+
+        from verl.experimental.reward import RewardManagerWorker
+        self.reward_manager_worker = RewardManagerWorker.options(
+            scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
+                node_id=ray.get_runtime_context().get_node_id(),
+                soft=False,
+            ),
+        ).remote(self.config, self.reward_model_handle)
 
         trace_config = self.config.actor_rollout_ref.rollout.get("trace", {})
         RolloutTraceConfig.init(
@@ -472,7 +478,7 @@ class AgentLoopWorker:
             else:
                 position_ids = compute_position_id_with_mask(attention_mask)  # (1, seq_len)
             enable_async_reward = (
-                self.reward_manager is not None and self.config.reward_model.enable_resource_pool
+                self.reward_model_handle is not None and self.config.reward_model.enable_resource_pool
             ) or not self.config.reward_model.enable
             if output.reward_score is None and enable_async_reward:
                 batch = TensorDict(
@@ -498,7 +504,7 @@ class AgentLoopWorker:
                     batch=batch,
                     non_tensor_batch=non_tensor_batch,
                 )
-                result = await self.reward_manager.compute_score.remote(data)
+                result = await self.reward_manager_worker.compute_score.remote(data)
                 output.reward_score = result["reward_score"]
                 output.extra_fields["reward_extra_info"] = result["reward_extra_info"]
 
@@ -619,19 +625,11 @@ class AgentLoopManager:
         """
         self.config = config
         self.worker_group = worker_group
+        self.reward_model_handle = None
         if rm_wg:
-            from verl.experimental.reward import RewardManager
-            RewardManagerActor = ray.remote(RewardManager)
-            self.reward_manager = RewardManagerActor.options(
-                name="reward_manager",
-                scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
-                    node_id=ray.get_runtime_context().get_node_id(),
-                    soft=False,
-                )
-            ).remote(self.config, rm_wg)
-            ray.get(self.reward_manager.init_manager.remote())
-            # reward_manager = ray.get_actor("reward_manager")
-            # breakpoint()
+            from verl.experimental.reward import RewardModelManager
+
+            self.reward_model_handle = RewardModelManager(config.reward_model, rm_wg).get_handle()
 
         self._initialize_llm_servers()
         self._init_agent_loop_workers()
@@ -685,7 +683,7 @@ class AgentLoopManager:
                     scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
                         node_id=node_id, soft=True
                     ),
-                ).remote(self.config, self.server_handles, self.reward_manager)
+                ).remote(self.config, self.server_handles, self.reward_model_handle)
             )
 
     def generate_sequences(self, prompts: DataProto) -> DataProto:
