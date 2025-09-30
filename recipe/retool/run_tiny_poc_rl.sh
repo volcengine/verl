@@ -37,7 +37,7 @@ actor_lr=1e-6
 
 train_batch_size=1
 ppo_mini_batch_size=1
-n_resp_per_prompt=1
+n_resp_per_prompt=16
 n_resp_per_prompt_val=1
 
 # ================= perfomance =================
