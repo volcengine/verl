@@ -15,10 +15,11 @@ import asyncio
 import logging
 import os
 from abc import ABC, abstractmethod
-from typing import Any
 
 from omegaconf import DictConfig
 from transformers import AutoTokenizer
+
+from verl import DataProto
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -48,5 +49,5 @@ class RewardLoopBase(ABC):
         cls._class_initialized = True
 
     @abstractmethod
-    async def run(self, data_source: str, response_ids: list[int], ground_truth: str, extra_info: dict[str, Any]):
+    async def run_single(self, data: DataProto):
         raise NotImplementedError

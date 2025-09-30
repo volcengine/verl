@@ -51,7 +51,7 @@ top_k=-1 # 0 for HF rollout, -1 for vLLM rollout
 val_top_p=0.7
 
 # Performance Related Parameter
-sp_size=4
+sp_size=2
 use_dynamic_bsz=True
 actor_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 2))
 infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 3))
@@ -73,6 +73,8 @@ python3 -m verl.trainer.main_ppo \
     data.max_response_length=${max_response_length} \
     data.train_batch_size=${train_prompt_bsz} \
     data.return_raw_chat=True \
+    data.filter_overlong_prompts=True \
+    data.truncation='error' \
     actor_rollout_ref.rollout.n=${n_resp_per_prompt} \
     algorithm.adv_estimator=${adv_estimator} \
     algorithm.use_kl_in_reward=${use_kl_in_reward} \
@@ -121,13 +123,13 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.fsdp_config.fsdp_size=${fsdp_size} \
     reward_model.enable=True \
     reward_model.enable_resource_pool=True \
-    reward_model.n_gpus_per_node=4 \
+    reward_model.n_gpus_per_node=2 \
     reward_model.nnodes=${NNODES} \
     reward_model.model.path=/mnt/hdfs/yyding/ckpts/MERGED_HF_MODEL/Qwen3-4B-Ins-GenRM-Step50 \
     reward_model.model.type=generative \
     reward_model.rollout.name=sglang \
     reward_model.rollout.gpu_memory_utilization=0.9 \
-    reward_model.rollout.tensor_model_parallel_size=2 \
+    reward_model.rollout.tensor_model_parallel_size=1 \
     reward_model.rollout.free_cache_engine=False \
     reward_model.reward_manager=dapo \
     custom_reward_function.path=recipe/fapo/reward_fn.py \
@@ -135,7 +137,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.logger='["console","wandb"]' \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
-    trainer.n_gpus_per_node=4 \
+    trainer.n_gpus_per_node=6 \
     trainer.nnodes="${NNODES}" \
     trainer.val_before_train=True \
     trainer.test_freq=10 \

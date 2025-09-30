@@ -24,6 +24,8 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 class DAPORewardLoop(RewardLoopBase):
+    """Reward loop for DAPO."""
+
     def __init__(self, config, tokenizer, compute_score, reward_model=None, reward_model_tokenizer=None):
         super().__init__(config, tokenizer, compute_score)
 

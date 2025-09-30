@@ -90,8 +90,8 @@ async def compute_score_fapo(
     correct, pred = verify(solution_str, ground_truth)
     reward_score = 1.0 if correct else -1.0
 
-    # for test set, directly return the reward score
-    if split == "test":
+    # for test set or incorrect solution, directly return the reward score
+    if split == "test" or not correct:
         return {"score": reward_score, "acc": correct, "pred": pred}
 
     grm_prompt = FAPO_GENRM_TEMPLATE.format(

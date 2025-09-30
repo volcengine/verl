@@ -19,6 +19,7 @@ from typing import Any, Optional
 import aiohttp
 import ray
 import torch
+from sglang_router.launch_server import RouterArgs, launch_router
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -26,8 +27,18 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 @ray.remote
 class SGLangRouter:
+    """Router for SGLang."""
+
     def __init__(self, router_ip: str, router_port: int, worker_urls: list[str], **kwargs):
-        from sglang_router.launch_server import RouterArgs, launch_router
+        """
+        Initialize the router.
+
+        Args:
+            router_ip (str): IP address of the router.
+            router_port (int): Port number of the router.
+            worker_urls (list[str]): List of worker URLs.
+            **kwargs: Additional keyword arguments.
+        """
 
         self.router_address = f"{router_ip}:{router_port}"
         router_args = RouterArgs(

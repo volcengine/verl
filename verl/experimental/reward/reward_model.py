@@ -14,10 +14,8 @@
 import asyncio
 import logging
 import os
-from typing import Any, Optional
 
 import ray
-import torch
 
 from verl.single_controller.ray.base import RayWorkerGroup
 from verl.workers.config import HFModelConfig, RewardModelConfig
@@ -32,6 +30,13 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 class RewardModelManager:
     def __init__(self, config: RewardModelConfig, worker_group: RayWorkerGroup = None):
+        """
+        Initialize the reward model manager.
+
+        Args:
+            config (RewardModelConfig): Reward model configuration.
+            worker_group (RayWorkerGroup, optional): Worker group. Defaults to None.
+        """
         self.config = config
         self.worker_group = worker_group
         self._initialize_llm_servers()
@@ -111,26 +116,3 @@ class RewardModelManager:
             await asyncio.gather(*tasks)
 
         asyncio.run(run_all())
-
-    async def generate(
-        self,
-        prompt_ids: torch.Tensor,
-        sampling_params: dict[str, Any],
-        request_id: str,
-        image_data: Optional[list[Any]] = None,
-    ):
-        return await self.router.generate(
-            prompt_ids=prompt_ids,
-            sampling_params=sampling_params,
-            request_id=request_id,
-            image_data=image_data,
-        )
-
-    def generate_sequences(
-        self,
-        prompt_ids: torch.Tensor,
-        sampling_params: dict[str, Any],
-        request_id: str,
-        image_data: Optional[list[Any]] = None,
-    ):
-        pass
