@@ -30,6 +30,7 @@ from omegaconf import DictConfig
 
 import verl.utils.torch_functional as verl_F
 from verl.trainer.config import AlgoConfig
+from verl.utils import as_torch_index, group_mean_std
 from verl.utils.import_utils import deprecated
 from verl.workers.config import ActorConfig
 
@@ -102,6 +103,8 @@ class AdvantageEstimator(str, Enum):
     OPO = "opo"
     GRPO_PASSK = "grpo_passk"
     GPG = "gpg"
+    RLOO_VECTORIZED = "rloo_vectorized"
+    GRPO_VECTORIZED = "grpo_vectorized"
 
 
 ADV_ESTIMATOR_REGISTRY: dict[str, Any] = {}
@@ -323,6 +326,33 @@ def compute_grpo_outcome_advantage(
         scores = scores.unsqueeze(-1) * response_mask
 
     return scores, scores
+
+
+@register_adv_est(AdvantageEstimator.GRPO_VECTORIZED)
+def compute_grpo_vectorized_outcome_advantage(
+    token_level_rewards: torch.Tensor,
+    response_mask: torch.Tensor,
+    index: np.ndarray,
+    epsilon: float = 1e-6,
+    norm_adv_by_std_in_grpo: bool = True,
+    config: Optional[AlgoConfig] = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Vectorized GRPO（outcome-only）:
+      For each group g:
+      a_i = \\frac{r_i - \\mu_g}{\\sigma_g} (or without dividing by \\sigma_g),
+      then broadcast the scalar across the token dimension (multiplied by response_mask).。
+    """
+    with torch.no_grad():
+        scores = token_level_rewards.sum(dim=-1)
+        g = as_torch_index(index, device=scores.device)
+        mean_g, std_g, _ = group_mean_std(scores, g, eps=epsilon)
+        if norm_adv_by_std_in_grpo:
+            scalars = (scores - mean_g[g]) / (std_g[g] + epsilon)
+        else:
+            scalars = scores - mean_g[g]
+        advantages = scalars.unsqueeze(-1) * response_mask
+        return advantages, advantages
 
 
 @register_adv_est(AdvantageEstimator.GRPO_PASSK)  # or simply: @register_adv_est("grpo_passk")
@@ -683,6 +713,44 @@ def compute_gpg_outcome_advantage(
         scores = scores.unsqueeze(-1) * response_mask
 
     return scores, scores
+
+
+@register_adv_est(AdvantageEstimator.RLOO_VECTORIZED)  # or simply: @register_adv_est("rloo_vectorized")
+def compute_rloo_vectorized_outcome_advantage(
+    token_level_rewards: torch.Tensor,
+    response_mask: torch.Tensor,
+    index: np.ndarray,
+    epsilon: float = 1e-6,
+    config: Optional[AlgoConfig] = None,
+    **kwargs,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Compute advantage for RLOO based on https://arxiv.org/abs/2402.14740
+
+    Args:
+        token_level_rewards: `(torch.Tensor)`
+            shape: (bs, response_length)
+        response_mask: `(torch.Tensor)`
+            shape: (bs, response_length)
+        config: (AlgoConfig) algorithm config
+
+    Returns:
+        advantages: `(torch.Tensor)`
+            shape: (bs, response_length)
+        Returns: `(torch.Tensor)`
+            shape: (bs, response_length)
+    """
+    scores = token_level_rewards.sum(dim=-1)
+
+    with torch.no_grad():
+        inv = torch.from_numpy(np.unique(index, return_inverse=True)[1]).to(scores.device)
+
+        c = torch.bincount(inv)[inv].to(scores.dtype)
+        adv = ((c * scores - torch.bincount(inv, weights=scores)[inv]) / (c - 1).clamp_min(1)) * (c > 1)
+
+        adv = adv.unsqueeze(-1) * response_mask
+
+    return adv, adv
 
 
 def compute_rewards(token_level_scores, old_log_prob, ref_log_prob, kl_ratio):

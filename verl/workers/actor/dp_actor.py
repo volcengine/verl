@@ -23,11 +23,13 @@ import os
 import torch
 from torch import nn
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.tensor import DTensor
 
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, get_policy_loss_fn, kl_penalty
-from verl.utils.device import get_device_id, get_device_name, is_cuda_available, is_npu_available
+from verl.utils.attention_utils import index_first_axis, pad_input, rearrange, unpad_input
+from verl.utils.device import get_device_id, get_device_name
 from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.py_functional import append_to_dict
@@ -36,12 +38,6 @@ from verl.utils.torch_functional import logprobs_from_logits
 from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad, ulysses_pad_and_slice_inputs
 from verl.workers.actor import BasePPOActor
 from verl.workers.config import ActorConfig
-
-if is_cuda_available:
-    from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
-elif is_npu_available:
-    from transformers.integrations.npu_flash_attention import index_first_axis, pad_input, rearrange, unpad_input
-
 
 __all__ = ["DataParallelPPOActor"]
 
@@ -98,14 +94,9 @@ class DataParallelPPOActor(BasePPOActor):
         response_length = micro_batch["responses"].size(-1)
         multi_modal_inputs = {}
         if "multi_modal_inputs" in micro_batch.keys():
-            if "image_bound" in micro_batch["multi_modal_inputs"][0]:  # minicpm-o logic
-                for key in micro_batch["multi_modal_inputs"][0].keys():
-                    multi_modal_inputs[key] = [inputs[key] for inputs in micro_batch["multi_modal_inputs"]]
-            else:
-                for key in micro_batch["multi_modal_inputs"][0].keys():
-                    multi_modal_inputs[key] = torch.cat(
-                        [inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0
-                    )
+            from verl.utils.model import extract_multi_modal_inputs
+
+            multi_modal_inputs = extract_multi_modal_inputs(micro_batch["multi_modal_inputs"])
 
         with torch.autocast(device_type=self.device_name, dtype=torch.bfloat16):
             input_ids = micro_batch["input_ids"]
@@ -114,7 +105,7 @@ class DataParallelPPOActor(BasePPOActor):
             position_ids = micro_batch["position_ids"]
             entropy = None
             if position_ids.dim() == 3:  # qwen2vl mrope
-                position_ids = position_ids.transpose(0, 1)  # (bsz, 3, seqlen) -> (3, bsz, seqlen)
+                position_ids = position_ids.transpose(0, 1)  # (bsz, 4, seqlen) -> (4, bsz, seqlen)
 
             if self.use_remove_padding:
                 input_ids_rmpad, indices, cu_seqlens, *_ = unpad_input(
@@ -128,7 +119,7 @@ class DataParallelPPOActor(BasePPOActor):
                         index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices)
                         .transpose(0, 1)
                         .unsqueeze(1)
-                    )  # (3, bsz, seqlen) -> (3, 1, bsz * seqlen)
+                    )  # (4, bsz, seqlen) -> (4, 1, bsz * seqlen)
                 else:
                     position_ids_rmpad = index_first_axis(
                         rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices
@@ -146,7 +137,9 @@ class DataParallelPPOActor(BasePPOActor):
 
                 # pad and slice the inputs if sp > 1
                 if self.use_ulysses_sp:
-                    is_vlm_model = "multi_modal_inputs" in micro_batch.keys()
+                    is_vlm_model = hasattr(
+                        getattr(self.actor_module, "module", self.actor_module).config, "vision_config"
+                    )
                     if is_vlm_model:
                         # vlm model's inputs will be sliced after embedding
                         input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad(
@@ -288,6 +281,9 @@ class DataParallelPPOActor(BasePPOActor):
             grad_norm = fsdp2_clip_grad_norm_(self.actor_module.parameters(), max_norm=self.config.grad_clip)
         else:
             grad_norm = torch.nn.utils.clip_grad_norm_(self.actor_module.parameters(), max_norm=self.config.grad_clip)
+
+        if isinstance(grad_norm, DTensor):
+            grad_norm = grad_norm.full_tensor()
 
         # if grad_norm is not finite, skip the update
         if not torch.isfinite(grad_norm):

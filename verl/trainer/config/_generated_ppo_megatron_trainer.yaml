@@ -49,6 +49,7 @@ actor_rollout_ref:
         - core_attn
         recompute_method: null
         recompute_num_layers: null
+        attention_backend: flash
       override_mcore_model_config: {}
       use_mbridge: false
       forward_only: false
@@ -187,6 +188,8 @@ actor_rollout_ref:
     cudagraph_capture_sizes: null
     free_cache_engine: true
     tensor_model_parallel_size: 2
+    data_parallel_size: 1
+    expert_parallel_size: 1
     max_num_batched_tokens: 8192
     max_model_len: null
     max_num_seqs: 1024
@@ -225,6 +228,7 @@ actor_rollout_ref:
       use_inference_chat_template: false
       tokenization_sanity_check_mode: strict
       format: hermes
+      num_repeat_rollouts: null
     calculate_log_probs: false
     agent:
       _target_: verl.workers.config.AgentLoopConfig
@@ -345,6 +349,7 @@ critic:
       - core_attn
       recompute_method: null
       recompute_num_layers: null
+      attention_backend: flash
     override_mcore_model_config: {}
     use_mbridge: false
     forward_only: false
