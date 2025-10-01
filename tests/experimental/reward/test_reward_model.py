@@ -14,16 +14,10 @@
 import os
 
 import ray
-from hydra import compose, initialize_config_dir
-from torchdata.stateful_dataloader import StatefulDataLoader
-from transformers import AutoTokenizer
 
 from verl.experimental.reward import RewardModelManager
 from verl.protocol import DataProto
-from verl.trainer.main_ppo import create_rl_sampler
-from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
-from verl.workers.config import HFModelConfig, RolloutConfig, RewardModelConfig
-
+from verl.workers.config import HFModelConfig, RewardModelConfig, RolloutConfig
 
 GRM_PROMPT_TEMPLATE = """
 You are given a problem and a proposed solution.
@@ -61,7 +55,7 @@ def create_data_samples(tokenizer) -> DataProto:
         {
             "problem": "What is the capital of Australia?",
             "solution": "Sydney is the capital city of Australia.",
-        }
+        },
     ]
 
     raw_prompt_ids = [
@@ -71,7 +65,8 @@ def create_data_samples(tokenizer) -> DataProto:
             ],
             tokenize=True,
             add_generation_prompt=True,
-        ) for conv in convs
+        )
+        for conv in convs
     ]
     prompts = DataProto.from_dict(
         non_tensors={
@@ -128,7 +123,7 @@ def test_reward_model_manager():
     outputs = reward_model_manager.generate_sequences(prompts, sampling_params)
     responses = [tokenizer.decode(output["output_ids"], skip_special_tokens=True) for output in outputs]
 
-    for idx, (conv, response) in enumerate(zip(convs, responses)):
+    for idx, (conv, response) in enumerate(zip(convs, responses, strict=False)):
         print(f"Problem {idx}:\n{conv['problem']}\n")
         print(f"AI Solution {idx}:\n{conv['solution']}\n")
         print(f"GRM Response {idx}:\n{response}\n")

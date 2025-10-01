@@ -19,8 +19,8 @@ import time
 from typing import Any, Optional
 
 import aiohttp
-import requests
 import ray
+import requests
 import torch
 from sglang_router.launch_server import RouterArgs, launch_router
 

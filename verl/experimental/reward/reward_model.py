@@ -20,7 +20,7 @@ import ray
 
 from verl import DataProto
 from verl.single_controller.ray.base import RayWorkerGroup
-from verl.workers.config import RewardModelConfig
+from verl.workers.config import HFModelConfig, RewardModelConfig
 from verl.workers.rollout.replica import get_rollout_replica_class
 from verl.workers.rollout.utils import get_free_port
 
@@ -58,7 +58,11 @@ class RewardModelManager:
 
         rollout_replica_class = get_rollout_replica_class(self.config.rollout.name)
         rollout_config = self.config.rollout
-        model_config = self.config.model
+        model_config = HFModelConfig(
+            path=self.config.model.path,
+            external_lib=self.config.model.external_lib,
+            trust_remote_code=self.config.model.trust_remote_code,
+        )
         self.rollout_replicas = [
             rollout_replica_class(
                 replica_rank=replica_rank,
