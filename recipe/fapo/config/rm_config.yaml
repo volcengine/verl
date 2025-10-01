@@ -10,10 +10,6 @@ reward_model:
   _target_: verl.workers.config.RewardModelConfig
 
   reward_manager: dapo
-  reward_processor_fn:
-    path: null
-    name: reward_process
-
   enable: False
 
   # Whether to deploy the model to a separate resource pool.
@@ -22,7 +18,6 @@ reward_model:
   nnodes: 0
 
   model:
-    input_tokenizer: ${actor_rollout_ref.model.path}
     type: discriminative
     path: ~/models/FsfairX-LLaMA3-RM-v0.1
     external_lib: ${actor_rollout_ref.model.external_lib}
@@ -49,28 +44,3 @@ reward_model:
     enable_prefix_caching: true
     disable_log_stats: true
     skip_tokenizer_init: true
-
-    # generative reward model configs
-    # prompt_length: 1024
-    # response_length: 0
-    # temperature: 1
-    # top_k: -1
-    # top_p: 1.0
-
-  # fusion and profiler
-  sandbox_fusion:
-    _target_: verl.workers.config.SandboxFusionConfig
-    url: null
-    max_concurrent: 64
-    memory_limit_mb: 1024
-
-  # profiler
-  profiler:
-    _target_: verl.utils.profiler.ProfilerConfig
-
-    tool: ${oc.select:global_profiler.tool,null}
-    enable: False
-    all_ranks: False
-    ranks: []
-    save_path: ${oc.select:global_profiler.save_path,null}
-    tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}

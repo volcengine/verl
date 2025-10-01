@@ -11,14 +11,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import asyncio
 import logging
 import os
 
 import ray
 
+from verl import DataProto
 from verl.single_controller.ray.base import RayWorkerGroup
-from verl.workers.config import HFModelConfig, RewardModelConfig
+from verl.workers.config import RewardModelConfig
 from verl.workers.rollout.replica import get_rollout_replica_class
 from verl.workers.rollout.utils import get_free_port
 
@@ -56,11 +58,7 @@ class RewardModelManager:
 
         rollout_replica_class = get_rollout_replica_class(self.config.rollout.name)
         rollout_config = self.config.rollout
-        model_config = HFModelConfig(
-            path=self.config.model.path,
-            external_lib=self.config.model.external_lib,
-            trust_remote_code=self.config.model.trust_remote_code,
-        )
+        model_config = self.config.model
         self.rollout_replicas = [
             rollout_replica_class(
                 replica_rank=replica_rank,
@@ -116,3 +114,20 @@ class RewardModelManager:
             await asyncio.gather(*tasks)
 
         asyncio.run(run_all())
+
+    # just for test purpose
+    def generate_sequences(self, prompts: DataProto, sampling_params: dict):
+        router_inputs = [
+            {"prompt_token_ids": raw_prompt_ids} for raw_prompt_ids in prompts.non_tensor_batch.get("raw_prompt_ids")
+        ]
+        responses = ray.get(
+            [
+                self.router_handle.generate.remote(
+                    prompt_ids=router_input["prompt_token_ids"],
+                    sampling_params=sampling_params,
+                )
+                for router_input in router_inputs
+            ]
+        )
+
+        return responses

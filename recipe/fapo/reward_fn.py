@@ -32,27 +32,6 @@ def verify(
     return (pred == gt), pred
 
 
-def compute_score_rule(
-    solution_str: str,
-    ground_truth: str,
-    **kwargs,
-) -> float:
-    # Limit solution length for efficiency
-    solution_str = solution_str[-300:]  # The longest answer in MATH-500 has 159 characters
-
-    # Verify the solution
-    correct, pred = verify(solution_str, ground_truth)
-
-    reward = 1.0 if correct else -1.0
-    acc = correct
-
-    return {
-        "score": reward,
-        "acc": acc,
-        "pred": pred,
-    }
-
-
 # FAPO Hyper-parameters
 FAPO_GENRM_TEMPLATE = (
     "The following is a math problem with its ground truth answer, along with an AI solution (split into steps):\n\n"

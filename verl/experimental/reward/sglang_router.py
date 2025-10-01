@@ -11,12 +11,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import logging
 import multiprocessing
 import os
+import time
 from typing import Any, Optional
 
 import aiohttp
+import requests
 import ray
 import torch
 from sglang_router.launch_server import RouterArgs, launch_router
@@ -49,6 +52,26 @@ class SGLangRouter:
         )
         self.router_process = multiprocessing.Process(target=launch_router, args=(router_args,))
         self.router_process.start()
+        self._wait_for_health_check()
+
+    def _wait_for_health_check(self, max_wait_time=300, timeout=30):
+        start_time = time.time()
+        url = f"http://{self.router_address}/health"
+        with requests.Session() as session:
+            while time.time() - start_time < max_wait_time:
+                if not self.router_process.is_alive():
+                    raise RuntimeError("Router process is not alive.")
+                try:
+                    response = session.get(url, timeout=timeout)
+                    if response.status_code == 200:
+                        break
+                except requests.RequestException as e:
+                    logger.debug(f"Health check failed: {e}")
+
+                time.sleep(2)
+            else:
+                self.router_process.terminate()
+                raise RuntimeError(f"Router health check failed after {max_wait_time} seconds.")
 
     async def _read_async_response(self, resp: aiohttp.ClientResponse) -> dict[str, Any]:
         if resp.status == 204 or (resp.content_length == 0):
@@ -70,13 +93,11 @@ class SGLangRouter:
         self,
         prompt_ids: torch.Tensor,
         sampling_params: dict[str, Any],
-        # request_id: str,
         image_data: Optional[list[Any]] = None,
     ):
         payload = {
             "input_ids": prompt_ids,
             "sampling_params": sampling_params,
-            # "request_id": request_id,
             "image_data": image_data,
         }
         payload = {k: v for k, v in payload.items() if v is not None}
