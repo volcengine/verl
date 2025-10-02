@@ -71,70 +71,30 @@ class SumbitTool:
 
 
 
-answer_format = """\nThe answer format must be: \\boxed{'The final answer goes here.'}"""
-
-
 class CustomRLHFDataset(RLHFDataset):
-    """Custom dataset class to process Maxwell-Jia/AIME_2024, yentinglin/aime_2025 datasets."""
-
     def _read_files_and_tokenize(self):
         dataframes = []
         for parquet_file in self.data_files:
             # read parquet files and cache
             dataframe = datasets.load_dataset(parquet_file)["train"]
-            data_source = "/".join(parquet_file.split("/")[-2:])
-            if data_source in ["Maxwell-Jia/AIME_2024", "yentinglin/aime_2025"]:
-                dataframe = dataframe.map(
-                    self.map_fn, fn_kwargs={"data_source": data_source}, remove_columns=dataframe.column_names
-                )
-            else:
-                dataframe = dataframe.map(self.map_fn2, num_proc=16)
             dataframes.append(dataframe)
         self.dataframe: datasets.Dataset = datasets.concatenate_datasets(dataframes)
 
         print(f"dataset len: {len(self.dataframe)}")
-        save_key = "___".join(f.replace("/", "_") for f in self.data_files)    
-        save_path = Path("~/Documents/arc-agi/data/misc").expanduser() / f"data_{save_key}.pq"
-        self.dataframe.to_parquet(save_path)
-        print("="*200+f"\nSAVED DATASET TO {save_path}\n"+"="*200)
-
-    def map_fn(self, row: dict, *, data_source: str = None):
-        if data_source == "Maxwell-Jia/AIME_2024":
-            problem, answer = row["Problem"], row["Answer"]
-        elif data_source == "yentinglin/aime_2025":
-            problem, answer = row["problem"], row["answer"]
-
-        prompt = problem + answer_format
-        data = {
-            "data_source": data_source.split("/")[1].lower(),  # aime_2024, aime_2025
-            "prompt": [{"role": "user", "content": prompt}],
-            "ability": "MATH",
-            "reward_model": {"ground_truth": str(answer)},
-            "agent_name": "tool_agent",
-        }
-        return data
-
-    def map_fn2(self, row: dict):
-        content = row["prompt"][0]["content"]
-        row["prompt"][0]["content"] = content + answer_format
-        row["agent_name"] = "tool_agent"
-        return row
 
 
 def compute_score(data_source, solution_str, ground_truth, extra_info):
-    # use \\boxed{...} answer
-    print(f"SOLUTION_STR: {solution_str}")
-    result = math_dapo.compute_score(solution_str, ground_truth, strict_box_verify=True)
-
-    # encourage model to call tools
-    num_turns = extra_info["num_turns"]
-    if num_turns is None:
-        num_turns = 1
-    if result["score"] < 0:
-        tool_call_reward = (num_turns - 2) / 2 * 0.1
-        result["score"] = min(-0.6, result["score"] + tool_call_reward)
-
-    if result["pred"] is None:
-        result["pred"] = ""
-
-    return result
+#    # use \\boxed{...} answer
+#    result = math_dapo.compute_score(solution_str, ground_truth, strict_box_verify=True)
+#
+#    # encourage model to call tools
+#    num_turns = extra_info["num_turns"]
+#    if num_turns is None:
+#        num_turns = 1
+#    if result["score"] < 0:
+#        tool_call_reward = (num_turns - 2) / 2 * 0.1
+#        result["score"] = min(-0.6, result["score"] + tool_call_reward)
+#
+#    if result["pred"] is None:
+#        result["pred"] = ""
+    return 0.0
