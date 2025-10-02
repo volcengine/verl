@@ -149,7 +149,14 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None, **kwargs):
+    def save_checkpoint(
+        self,
+        local_path: str,
+        hdfs_path: Optional[str] = None,
+        global_step: int = 0,
+        max_ckpt_to_keep: Optional[int] = None,
+        **kwargs,
+    ):
         """
         Save model, optimizer, and scheduler states to a checkpoint.
 
@@ -162,7 +169,9 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=True, **kwargs):
+    def load_checkpoint(
+        self, local_path: str, hdfs_path: Optional[str] = None, del_local_after_load: bool = True, **kwargs
+    ):
         """
         Load model, optimizer, and scheduler states from a checkpoint.
 
