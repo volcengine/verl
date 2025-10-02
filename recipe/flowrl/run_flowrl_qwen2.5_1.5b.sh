@@ -25,7 +25,7 @@ clip_ratio_high=0.28
 
 # Sequence lengths (same as larger models for consistency)
 max_prompt_length=$((1024 * 1))
-max_prompt_length=$((1024 * 1))
+max_response_length=$((1024 * 1))
 
 # Overlong buffer for very long responses
 enable_overlong_buffer=True
@@ -81,9 +81,10 @@ gen_tp=1
 #   actor_rollout_ref.rollout.calculate_log_probs=True
 
 
-ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
-    --working-dir "${WORKING_DIR}" \
-    -- python3 -m recipe.flowrl.main_flowrl \
+# ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
+#     --working-dir "${WORKING_DIR}" \ -- 
+    
+python3 -m recipe.flowrl.main_flowrl \
     data.train_files="${TRAIN_FILE}" \
     data.val_files="${TEST_FILE}" \
     data.prompt_key=prompt \
