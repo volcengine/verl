@@ -1,12 +1,8 @@
 #!/usr/bin/env bash
 set -xeuo pipefail
 
-# FlowRL SOTA Training Script with DAPO tricks for 7B models
-# Incorporates: Dual-clip, TIS, Dynamic Sampling, Filter Groups
-# Optimized for single/few nodes
-
 project_name='FlowRL-SOTA'
-exp_name='FlowRL-Qwen2.5-7B-TIS-DualClip'  # Truncated Importance Sampling (TIS) -> https://fengyao.notion.site/off-policy-rl
+exp_name='FlowRL-Qwen2.5-7B-TIS'
 
 # Algorithm settings
 adv_estimator=grpo
@@ -27,7 +23,7 @@ tis_imp_ratio_cap=2.0
 clip_ratio_low=0.2
 clip_ratio_high=0.28
 
-# Sequence lengths (same as 32B for consistency)
+# Sequence lengths
 max_prompt_length=$((1024 * 2))
 max_response_length=$((1024 * 20))
 
@@ -39,64 +35,43 @@ overlong_penalty_factor=1.0
 # Loss aggregation
 loss_agg_mode="token-mean"
 
-# Filter groups - dynamic sampling
+# Filter groups
 enable_filter_groups=True
 filter_groups_metric=acc
 max_num_gen_batches=10
 
-# Batch sizes (can be larger for 7B)
+# Batch sizes
 train_prompt_bsz=512
 gen_prompt_bsz=$((train_prompt_bsz * 3))
 n_resp_per_prompt=16
 train_prompt_mini_bsz=32
 
-# Ray configuration
+# Ray
 RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
 WORKING_DIR=${WORKING_DIR:-"${PWD}"}
 RUNTIME_ENV=${RUNTIME_ENV:-"${WORKING_DIR}/verl/trainer/runtime_env.yaml"}
-NNODES=${NNODES:-1}  # 7B can run on single node
+NNODES=${NNODES:-1}
 
 # Paths
 RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
-MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen2.5-7B-Instruct"}  # 7B model
+MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen2.5-7B-Instruct"}
 CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/ckpts/${project_name}/${exp_name}"}
 TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/dapo-math-17k.parquet"}
 TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/aime-2024.parquet"}
 
-# Algorithm sampling parameters
+# Sampling
 temperature=1.0
 top_p=1.0
-top_k=-1  # -1 for vLLM rollout
+top_k=-1
 val_top_p=0.7
 
-# Performance parameters (optimized for 7B)
+# Performance
 sp_size=8
 use_dynamic_bsz=True
 actor_ppo_max_token_len=$((max_prompt_length + max_response_length))
 infer_ppo_max_token_len=$((max_prompt_length + max_response_length))
-offload=False  # 7B typically doesn't need offloading
-gen_tp=2  # Lower TP for 7B
-
-echo "========================================"
-echo "FlowRL SOTA Training - 7B Model"
-echo "========================================"
-echo "Project: ${project_name}"
-echo "Experiment: ${exp_name}"
-echo "Model: ${MODEL_PATH}"
-echo "Training Data: ${TRAIN_FILE}"
-echo "Test Data: ${TEST_FILE}"
-echo "Nodes: ${NNODES}"
-echo "GPUs per Node: 8"
-echo "Total GPUs: $((NNODES * 8))"
-echo "Offload: ${offload}"
-echo "========================================"
-
-# Truncated Importance Sampling (TIS) -> https://fengyao.notion.site/off-policy-rl
-# To turn on TIS, you need to set:
-#   actor_rollout_ref.actor.tis_imp_ratio_cap=2.0
-#   actor_rollout_ref.rollout.calculate_log_probs=True
-
-# Run FlowRL training with Ray
+offload=False
+gen_tp=2
 ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     --working-dir "${WORKING_DIR}" \
     -- python3 -m recipe.flowrl.main_flowrl \
@@ -175,9 +150,3 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     trainer.total_epochs=1 \
     trainer.default_local_dir="${CKPTS_DIR}" \
     trainer.resume_mode=auto
-
-echo "========================================"
-echo "FlowRL SOTA training job submitted!"
-echo "Monitor at: ${RAY_ADDRESS}"
-echo "Checkpoints: ${CKPTS_DIR}"
-echo "========================================"

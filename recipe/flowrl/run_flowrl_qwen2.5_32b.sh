@@ -1,12 +1,8 @@
 #!/usr/bin/env bash
 set -xeuo pipefail
 
-# FlowRL SOTA Training Script with DAPO tricks for 32B models
-# Incorporates: Dual-clip, TIS, Dynamic Sampling, Filter Groups
-# Based on DAPO Qwen2.5-32B configuration
-
 project_name='FlowRL-SOTA'
-exp_name='FlowRL-Qwen2.5-32B-TIS-DualClip'  # Truncated Importance Sampling (TIS) -> https://fengyao.notion.site/off-policy-rl
+exp_name='FlowRL-Qwen2.5-32B-TIS'
 
 # Algorithm settings
 adv_estimator=grpo
@@ -76,19 +72,6 @@ actor_ppo_max_token_len=$((max_prompt_length + max_response_length))
 infer_ppo_max_token_len=$((max_prompt_length + max_response_length))
 offload=True
 gen_tp=4
-
-echo "========================================"
-echo "FlowRL SOTA Training - 32B Model"
-echo "========================================"
-echo "Project: ${project_name}"
-echo "Experiment: ${exp_name}"
-echo "Model: ${MODEL_PATH}"
-echo "Training Data: ${TRAIN_FILE}"
-echo "Test Data: ${TEST_FILE}"
-echo "Nodes: ${NNODES}"
-echo "GPUs per Node: 8"
-echo "Total GPUs: $((NNODES * 8))"
-echo "========================================"
 
 # Run FlowRL training with Ray
 ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
@@ -169,9 +152,3 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     trainer.total_epochs=1 \
     trainer.default_local_dir="${CKPTS_DIR}" \
     trainer.resume_mode=auto
-
-echo "========================================"
-echo "FlowRL SOTA training job submitted!"
-echo "Monitor at: ${RAY_ADDRESS}"
-echo "Checkpoints: ${CKPTS_DIR}"
-echo "========================================"

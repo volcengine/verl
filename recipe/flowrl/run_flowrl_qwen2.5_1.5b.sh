@@ -1,12 +1,8 @@
 #!/usr/bin/env bash
 set -xeuo pipefail
 
-# FlowRL SOTA Training Script with DAPO tricks for 1.5B models
-# Incorporates: Dual-clip, TIS, Dynamic Sampling, Filter Groups
-# Optimized for small-scale single node training
-
 project_name='FlowRL-SOTA'
-exp_name='FlowRL-Qwen2.5-1.5B-TIS-DualClip'  # Truncated Importance Sampling (TIS) -> https://fengyao.notion.site/off-policy-rl
+exp_name='FlowRL-Qwen2.5-1.5B-TIS'
 
 # Algorithm settings
 adv_estimator=grpo
@@ -50,55 +46,32 @@ gen_prompt_bsz=$((train_prompt_bsz * 3))
 n_resp_per_prompt=16
 train_prompt_mini_bsz=64  # Increased mini batch size
 
-# Ray configuration
+# Ray
 RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
 WORKING_DIR=${WORKING_DIR:-"${PWD}"}
 RUNTIME_ENV=${RUNTIME_ENV:-"${WORKING_DIR}/verl/trainer/runtime_env.yaml"}
-NNODES=${NNODES:-1}  # 1.5B runs efficiently on single node
+NNODES=${NNODES:-1}
 
 # Paths
 RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
-MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen2.5-1.5B-Instruct"}  # 1.5B model
+MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen2.5-1.5B-Instruct"}
 CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/ckpts/${project_name}/${exp_name}"}
 TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/dapo-math-17k.parquet"}
 TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/aime-2024.parquet"}
 
-# Algorithm sampling parameters
+# Sampling
 temperature=1.0
 top_p=1.0
-top_k=-1  # -1 for vLLM rollout
+top_k=-1
 val_top_p=0.7
 
-# Performance parameters (optimized for 1.5B - minimal parallelism)
-sp_size=4  # Reduced sequence parallelism for small model
+# Performance
+sp_size=4
 use_dynamic_bsz=True
 actor_ppo_max_token_len=$((max_prompt_length + max_response_length))
 infer_ppo_max_token_len=$((max_prompt_length + max_response_length))
-offload=False  # No offloading needed for 1.5B
-gen_tp=1  # No tensor parallelism needed for 1.5B
-
-echo "========================================"
-echo "FlowRL SOTA Training - 1.5B Model"
-echo "========================================"
-echo "Project: ${project_name}"
-echo "Experiment: ${exp_name}"
-echo "Model: ${MODEL_PATH}"
-echo "Training Data: ${TRAIN_FILE}"
-echo "Test Data: ${TEST_FILE}"
-echo "Nodes: ${NNODES}"
-echo "GPUs per Node: 8"
-echo "Total GPUs: $((NNODES * 8))"
-echo "Offload: ${offload}"
-echo "Tensor Parallelism: ${gen_tp}"
-echo "Batch Size: ${train_prompt_bsz}"
-echo "========================================"
-
-# Truncated Importance Sampling (TIS) -> https://fengyao.notion.site/off-policy-rl
-# To turn on TIS, you need to set:
-#   actor_rollout_ref.actor.tis_imp_ratio_cap=2.0
-#   actor_rollout_ref.rollout.calculate_log_probs=True
-
-# Run FlowRL training with Ray
+offload=False
+gen_tp=1
 ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     --working-dir "${WORKING_DIR}" \
     -- python3 -m recipe.flowrl.main_flowrl \
@@ -177,9 +150,3 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     trainer.total_epochs=1 \
     trainer.default_local_dir="${CKPTS_DIR}" \
     trainer.resume_mode=auto
-
-echo "========================================"
-echo "FlowRL SOTA training job submitted!"
-echo "Monitor at: ${RAY_ADDRESS}"
-echo "Checkpoints: ${CKPTS_DIR}"
-echo "========================================"
