@@ -331,7 +331,7 @@ class MegatronEngine(BaseEngine):
     def get_data_parallel_group(self):
         return mpu.get_data_parallel_group()
 
-    def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
+    def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None, **kwargs):
         """
         Save model, optimizer, and scheduler states to a checkpoint.
 
@@ -350,7 +350,7 @@ class MegatronEngine(BaseEngine):
         if self._is_offload_param:
             offload_megatron_model_to_cpu(self.module)
 
-    def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=True):
+    def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=True, **kwargs):
         """
         Load model, optimizer, and scheduler states from a checkpoint.
 
