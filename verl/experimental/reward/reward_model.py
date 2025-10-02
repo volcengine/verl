@@ -81,7 +81,7 @@ class RewardModelManager:
         self.server_addresses = [server._server_address for server in self.rollout_replicas]
 
     def _initialize_router(self):
-        router_ip = ray.util.get_node_ip_address()
+        router_ip = ray.util.get_node_ip_address().strip("[]")
         router_port, _ = get_free_port(router_ip)
         worker_urls = [f"http://{server_address}" for server_address in self.server_addresses]
 
