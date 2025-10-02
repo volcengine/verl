@@ -16,98 +16,171 @@
 """Main training script for FlowRL algorithm."""
 
 import os
-import sys
+import socket
+
+import hydra
+import ray
 from omegaconf import OmegaConf
 
-# Add VERL to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
-
-from verl.trainer.ppo import PPOTrainer
-from verl.utils.config import load_config_from_file
-from recipe.flowrl.flowrl_actor import FlowRLActor
+from verl.trainer.ppo.reward import load_reward_manager
+from verl.utils.device import is_cuda_available
 
 # Import and register FlowRL advantage estimator
 from recipe.flowrl.flowrl_adv_estimator import register_flowrl_estimator
+
 register_flowrl_estimator()
 
 
-class FlowRLTrainer(PPOTrainer):
-    """FlowRL Trainer that extends PPOTrainer with FlowRL-specific components."""
+@hydra.main(config_path="config", config_name="flowrl_trainer", version_base=None)
+def main(config):
+    run_flowrl(config)
 
-    def __init__(self, config):
-        super().__init__(config)
 
-    def _create_actor_worker(self, config):
-        """Create FlowRL actor worker instead of standard PPO actor."""
-        return FlowRLActor(config)
+def run_flowrl(config) -> None:
+    if not ray.is_initialized():
+        # this is for local ray cluster
+        default_runtime_env = {
+            "env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN", "VLLM_LOGGING_LEVEL": "WARN"}
+        }
+        ray_init_kwargs = config.ray_kwargs.get("ray_init", {})
+        runtime_env_kwargs = ray_init_kwargs.get("runtime_env", {})
+        runtime_env = OmegaConf.merge(default_runtime_env, runtime_env_kwargs)
+        ray_init_kwargs = OmegaConf.create({**ray_init_kwargs, "runtime_env": runtime_env})
+        print(f"ray init kwargs: {ray_init_kwargs}")
+        ray.init(**OmegaConf.to_container(ray_init_kwargs))
 
-    def _filter_proj_z_params(self, model_state_dict):
-        """Filter out proj_z parameters when loading to vLLM for inference."""
-        filtered_params = {}
-        for name, param in model_state_dict.items():
-            if not name.startswith("proj_z"):
-                filtered_params[name] = param
-        return filtered_params
+    try:
+        if (
+            is_cuda_available
+            and config.global_profiler.tool == "nsys"
+            and OmegaConf.select(config.global_profiler, "steps") is not None
+            and len(OmegaConf.select(config.global_profiler, "steps")) > 0
+        ):
+            nsight_options = OmegaConf.to_container(
+                config.global_profiler.global_tool_config.nsys.controller_nsight_options
+            )
+            runner = TaskRunner.options(runtime_env={"nsight": nsight_options}).remote()
+        else:
+            runner = TaskRunner.remote()
+        ray.get(runner.run.remote(config))
+    finally:
+        if ray.is_initialized():
+            ray.shutdown()
 
-    def _save_checkpoint(self, step):
-        """Override to handle proj_z parameters in checkpointing."""
-        # Save full model including proj_z
-        checkpoint = {
-            'step': step,
-            'model_state_dict': self.actor_worker.actor_module.state_dict(),
-            'optimizer_state_dict': self.actor_worker.optimizer.state_dict(),
-            'config': self.config
+
+@ray.remote(num_cpus=1)  # please make sure main_task is not scheduled on head
+class TaskRunner:
+    def run(self, config):
+        # print initial config
+        from pprint import pprint
+
+        from omegaconf import OmegaConf
+
+        from verl.utils.fs import copy_to_local
+
+        print(f"TaskRunner hostname: {socket.gethostname()}, PID: {os.getpid()}")
+
+        pprint(OmegaConf.to_container(config, resolve=True))  # resolve=True will eval symbol values
+        OmegaConf.resolve(config)
+
+        # download the checkpoint from hdfs
+        local_path = copy_to_local(config.actor_rollout_ref.model.path)
+
+        # instantiate tokenizer
+        from verl.utils import hf_processor, hf_tokenizer
+
+        tokenizer = hf_tokenizer(local_path)
+        processor = hf_processor(local_path, use_fast=True)  # used for multimodal LLM, could be none
+
+        from verl.single_controller.ray import RayWorkerGroup
+
+        # define worker classes
+        if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
+            assert config.critic.strategy in {"fsdp", "fsdp2"}
+
+            from verl.workers.fsdp_workers import ActorRolloutRefWorker, CriticWorker
+
+            ray_worker_group_cls = RayWorkerGroup
+
+        elif config.actor_rollout_ref.actor.strategy == "megatron":
+            assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
+            from verl.workers.megatron_workers import ActorRolloutRefWorker, CriticWorker
+
+            ray_worker_group_cls = RayWorkerGroup
+
+        else:
+            raise NotImplementedError
+
+        from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
+
+        role_worker_mapping = {
+            Role.ActorRollout: ray.remote(ActorRolloutRefWorker),
+            Role.Critic: ray.remote(CriticWorker),
         }
 
-        checkpoint_path = os.path.join(self.config.trainer.save_dir, f'checkpoint_{step}.pt')
-        torch.save(checkpoint, checkpoint_path)
+        global_pool_id = "global_pool"
+        resource_pool_spec = {
+            global_pool_id: [config.trainer.n_gpus_per_node] * config.trainer.nnodes,
+        }
+        mapping = {
+            Role.ActorRollout: global_pool_id,
+            Role.Critic: global_pool_id,
+        }
 
-        # Also save inference-ready version without proj_z
-        inference_state_dict = self._filter_proj_z_params(
-            self.actor_worker.actor_module.state_dict()
+        # we should adopt a multi-source reward function here
+        # - for rule-based rm, we directly call a reward score
+        # - for model-based rm, we call a model
+        # - for code related prompt, we send to a sandbox if there are test cases
+        # - finally, we combine all the rewards together
+        # - The reward type depends on the tag of the data
+        if config.reward_model.enable:
+            if config.reward_model.strategy in {"fsdp", "fsdp2"}:
+                from verl.workers.fsdp_workers import RewardModelWorker
+            elif config.reward_model.strategy == "megatron":
+                from verl.workers.megatron_workers import RewardModelWorker
+            else:
+                raise NotImplementedError
+            role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
+            mapping[Role.RewardModel] = global_pool_id
+
+        # reference model
+        if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
+            role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
+            mapping[Role.RefPolicy] = global_pool_id
+
+        reward_fn = load_reward_manager(
+            config,
+            tokenizer,
+            0,
+            max_resp_len=config.data.max_response_length,
+            overlong_buffer_cfg=config.reward_model.overlong_buffer,
         )
-        inference_checkpoint = {
-            'step': step,
-            'model_state_dict': inference_state_dict,
-            'config': self.config
-        }
 
-        inference_path = os.path.join(self.config.trainer.save_dir, f'inference_checkpoint_{step}.pt')
-        torch.save(inference_checkpoint, inference_path)
+        # Note that we always use function-based RM for validation
+        val_reward_fn = load_reward_manager(
+            config,
+            tokenizer,
+            1,
+            max_resp_len=config.data.max_response_length,
+            overlong_buffer_cfg=config.reward_model.overlong_buffer,
+        )
+        resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
-        return checkpoint_path
+        from recipe.flowrl.flowrl_ray_trainer import RayFlowRLTrainer
 
-
-def main():
-    """Main training function."""
-
-    # Load configuration
-    config_path = os.path.join(os.path.dirname(__file__), 'config', 'flowrl_config.yaml')
-    if not os.path.exists(config_path):
-        # Fallback to a default PPO config as base
-        config_path = 'examples/ppo_trainer/config/qwen2_ppo.yaml'
-
-    config = load_config_from_file(config_path)
-
-    # Override config for FlowRL specific settings
-    if not hasattr(config.algorithm, 'tb_coef'):
-        config.algorithm.tb_coef = 15.0
-
-    if not hasattr(config.actor, 'proj_layer'):
-        config.actor.proj_layer = 3
-
-    if not hasattr(config.actor, 'proj_dropout'):
-        config.actor.proj_dropout = 0.1
-
-    # Set algorithm type for logging
-    config.algorithm.name = 'FlowRL'
-
-    # Initialize trainer
-    trainer = FlowRLTrainer(config)
-
-    # Start training
-    trainer.fit()
+        trainer = RayFlowRLTrainer(
+            config=config,
+            tokenizer=tokenizer,
+            processor=processor,
+            role_worker_mapping=role_worker_mapping,
+            resource_pool_manager=resource_pool_manager,
+            ray_worker_group_cls=ray_worker_group_cls,
+            reward_fn=reward_fn,
+            val_reward_fn=val_reward_fn,
+        )
+        trainer.init_workers()
+        trainer.fit()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
