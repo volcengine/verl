@@ -18,6 +18,8 @@ reward_model:
     log: False
 
 algorithm:
+  _target_: verl.trainer.config.AlgoConfig
+
   # FlowRL trajectory balance coefficient (β)
   tb_coef: 15.0
 
