@@ -26,6 +26,10 @@ from verl.trainer.ppo import PPOTrainer
 from verl.utils.config import load_config_from_file
 from recipe.flowrl.flowrl_actor import FlowRLActor
 
+# Import and register FlowRL advantage estimator
+from recipe.flowrl.flowrl_adv_estimator import register_flowrl_estimator
+register_flowrl_estimator()
+
 
 class FlowRLTrainer(PPOTrainer):
     """FlowRL Trainer that extends PPOTrainer with FlowRL-specific components."""

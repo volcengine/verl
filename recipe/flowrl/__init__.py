@@ -11,3 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+"""FlowRL recipe package."""
+
+from recipe.flowrl.flowrl_adv_estimator import register_flowrl_estimator
+
+# Auto-register FlowRL advantage estimator when package is imported
+register_flowrl_estimator()
+
+__all__ = ['register_flowrl_estimator']

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -xeuo pipefail
 
-project_name='FlowRL-SOTA'
-exp_name='FlowRL-Qwen2.5-1.5B-TIS'
+project_name='FlowRL'
+exp_name='FlowRL-Plus-Qwen2.5-1.5B'
 
 # Algorithm settings
-adv_estimator=grpo
+adv_estimator=flowrl
 
 # KL settings (disabled for FlowRL)
 use_kl_in_reward=False
@@ -40,11 +40,11 @@ enable_filter_groups=True
 filter_groups_metric=acc
 max_num_gen_batches=10
 
-# Batch sizes (can be much larger for 1.5B)
-train_prompt_bsz=1024  # Increased for small model
+# Batch sizes
+train_prompt_bsz=512  # Increased for small model
 gen_prompt_bsz=$((train_prompt_bsz * 3))
 n_resp_per_prompt=16
-train_prompt_mini_bsz=64  # Increased mini batch size
+train_prompt_mini_bsz=32  
 
 # Ray
 RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
@@ -62,16 +62,24 @@ TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/aime-2024.parquet"}
 # Sampling
 temperature=1.0
 top_p=1.0
-top_k=-1
+top_k=-1 # 0 for HF rollout, -1 for vLLM rollout
 val_top_p=0.7
 
-# Performance
-sp_size=4
+# Performance Related Parameter
+sp_size=1
 use_dynamic_bsz=True
 actor_ppo_max_token_len=$((max_prompt_length + max_response_length))
 infer_ppo_max_token_len=$((max_prompt_length + max_response_length))
-offload=False
+offload=True
 gen_tp=1
+# Truncated Importance Sampling (TIS) -> https://fengyao.notion.site/off-policy-rl
+
+# Please note that server mode(agent loop) hasn't return rollout_log_probs for now.
+# so currently, server mode is not supported for TIS.
+
+# To turn on TIS, you need to set the following parameters. Note 2.0 is a hyper-parameter and can be tuned.
+#   actor_rollout_ref.actor.tis_imp_ratio_cap=2.0
+#   actor_rollout_ref.rollout.calculate_log_probs=True
 ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     --working-dir "${WORKING_DIR}" \
     -- python3 -m recipe.flowrl.main_flowrl \
