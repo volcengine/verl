@@ -982,11 +982,15 @@ class RayPPOTrainer:
 
                 with marked_timer("step", timing_raw):
                     # generate a batch
-                    with marked_timer("gen", timing_raw, color="red"):
-                        if not self.async_rollout_mode:
-                            gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
-                        else:
-                            gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
+                    with marked_timer("gen_multi_round", timing_raw, color="red"):
+                        gen_batch_output, rounds_info = self._generate_multi_round_with_early_downsampling(
+                            orig_prompt_batch=gen_batch,
+                            max_round=4, # maximum downsampling rounds
+                            round_repeat=round_repeat, # rollout numbers per prompt ineach round
+                            final_keep_per_prompt=final_keep_per_prompt, # finall kept number per prompt
+                            timing_raw=timing_raw, # for timing
+                            context_batch=batch, # original prompts
+                        )
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)
 
