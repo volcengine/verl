@@ -205,6 +205,7 @@ class SGLangRouter:
                 await asyncio.sleep(self.retry_delay * (2**attempt))
 
         logger.error(f"Failed to complete async request to {endpoint} after {self.max_attempts} attempts")
+        return {}
 
     async def generate(
         self,
