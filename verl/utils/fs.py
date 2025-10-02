@@ -218,8 +218,10 @@ def copy_to_local(
             resolved = snapshot_download(local_path)
             if isinstance(resolved, str) and os.path.exists(resolved):
                 local_path = resolved
-        except Exception:
+        except ImportError:
             pass
+        except Exception as e:
+            print(f"WARNING: Failed to download model from Hugging Face: {e}")
 
     # Load into shm to improve efficiency.
     if use_shm:
