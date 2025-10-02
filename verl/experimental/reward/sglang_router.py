@@ -114,7 +114,6 @@ class SGLangRouter:
                 url=request_url,
                 json=payload,
             ) as response:
-                response.raise_for_status()
                 return await self._read_async_response(response)
         finally:
             await session.close()
