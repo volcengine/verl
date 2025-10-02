@@ -24,6 +24,8 @@ import requests
 import torch
 from sglang_router.launch_server import RouterArgs, launch_router
 
+from verl.workers.rollout.utils import is_valid_ipv6_address
+
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
@@ -43,7 +45,9 @@ class SGLangRouter:
             **kwargs: Additional keyword arguments.
         """
 
-        self.router_address = f"{router_ip}:{router_port}"
+        self.router_address = (
+            f"[{router_ip}]:{router_port}" if is_valid_ipv6_address(router_ip) else f"{router_ip}:{router_port}"
+        )
         router_args = RouterArgs(
             host=router_ip,
             port=router_port,
