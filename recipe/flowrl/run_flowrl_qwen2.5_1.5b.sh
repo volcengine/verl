@@ -24,8 +24,8 @@ clip_ratio_low=0.2
 clip_ratio_high=0.28
 
 # Sequence lengths (same as larger models for consistency)
-max_prompt_length=$((1024 * 2))
-max_response_length=$((1024 * 20))
+max_prompt_length=$((1024 * 1))
+max_prompt_length=$((1024 * 1))
 
 # Overlong buffer for very long responses
 enable_overlong_buffer=True
@@ -53,11 +53,10 @@ RUNTIME_ENV=${RUNTIME_ENV:-"${WORKING_DIR}/verl/trainer/runtime_env.yaml"}
 NNODES=${NNODES:-1}
 
 # Paths
-RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
-MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen2.5-1.5B-Instruct"}
-CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/ckpts/${project_name}/${exp_name}"}
-TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/dapo-math-17k.parquet"}
-TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/aime-2024.parquet"}
+MODEL_PATH=${MODEL_PATH:-"${WORKING_DIR}/downloads/models/Qwen2.5-1.5B-Instruct"}
+CKPTS_DIR=${CKPTS_DIR:-"${WORKING_DIR}/outputs/ckpts/${project_name}/${exp_name}"}
+TRAIN_FILE=${TRAIN_FILE:-"${WORKING_DIR}/downloads/data/dapo-math-17k.parquet"}
+TEST_FILE=${TEST_FILE:-"${WORKING_DIR}/downloads/data/aime-2024.parquet"}
 
 # Sampling
 temperature=1.0
