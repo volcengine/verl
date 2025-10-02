@@ -55,11 +55,13 @@ async def _read_async_response(resp: aiohttp.ClientResponse) -> dict[str, Any]:
             "text": text,
         }
 
+
 @ray.remote
 class SGLangRouter:
     """Router for SGLang."""
 
-    def __init__(self,
+    def __init__(
+        self,
         router_ip: str,
         router_port: int,
         worker_urls: list[str],
@@ -77,11 +79,11 @@ class SGLangRouter:
             router_ip (str): IP address of the router.
             router_port (int): Port number of the router.
             worker_urls (list[str]): List of worker URLs.
-            timeout (float, optional): Timeout for requests in seconds. Defaults to DEFAULT_TIMEOUT.
-            max_attempts (int, optional): Maximum number of retry attempts. Defaults to DEFAULT_MAX_ATTEMPTS.
-            retry_delay (float, optional): Delay between retry attempts in seconds. Defaults to DEFAULT_RETRY_DELAY.
-            max_connections (int, optional): Maximum number of concurrent connections. Defaults to DEFAULT_MAX_CONNECTIONS.
-            max_start_wait_time (float, optional): Maximum time to wait for router startup in seconds. Defaults to DEFAULT_MAX_WAIT_TIME.
+            timeout (float, optional): Timeout for requests in seconds.
+            max_attempts (int, optional): Maximum number of retry attempts.
+            retry_delay (float, optional): Delay between retry attempts in seconds.
+            max_connections (int, optional): Maximum number of concurrent connections.
+            max_start_wait_time (float, optional): Maximum time to wait for router startup in seconds.
             **kwargs: Additional keyword arguments.
         """
         self.timeout: float = timeout
@@ -203,7 +205,6 @@ class SGLangRouter:
                 await asyncio.sleep(self.retry_delay * (2**attempt))
 
         raise RuntimeError(f"Failed to complete async request to {endpoint} after {self.max_attempts} attempts")
-
 
     async def generate(
         self,
