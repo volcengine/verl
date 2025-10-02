@@ -28,14 +28,14 @@ from sglang_router.launch_server import RouterArgs, launch_router
 
 from verl.workers.rollout.utils import is_valid_ipv6_address
 
-logger = logging.getLogger(__file__)
+logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 # Default configuration constants
 DEFAULT_TIMEOUT = 60.0
 DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_RETRY_DELAY = 2.0
-DEFAULT_MAX_CONNECTIONS = 10000
+DEFAULT_MAX_CONNECTIONS = 2000
 DEFAULT_MAX_WAIT_TIME = 300.0
 
 
@@ -204,7 +204,7 @@ class SGLangRouter:
             if attempt < self.max_attempts - 1:
                 await asyncio.sleep(self.retry_delay * (2**attempt))
 
-        raise RuntimeError(f"Failed to complete async request to {endpoint} after {self.max_attempts} attempts")
+        logger.error(f"Failed to complete async request to {endpoint} after {self.max_attempts} attempts")
 
     async def generate(
         self,

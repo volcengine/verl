@@ -40,7 +40,7 @@ class SandboxFusionConfig(BaseConfig):
 
 @dataclass
 class RewardModelConfig(BaseConfig):
-    _mutable_fields = {"max_model_len", "load_format"}
+    _mutable_fields = BaseConfig._mutable_fields
 
     reward_manager: str = "naive"
 
