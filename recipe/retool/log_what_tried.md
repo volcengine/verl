@@ -22,3 +22,12 @@
 - https://bytedance.github.io/SandboxFusion/docs/docs/reference/dataset-detail/common-oj
 - https://verl.readthedocs.io/en/latest/examples/sandbox_fusion_example.html
 - https://github.com/volcengine/verl/blob/main/examples/ppo_trainer/run_deepseek7b_llm_sandbox_fusion.sh
+
+
+# Understanding the data flow
+- `ToolAgentLoop.run`: produces `AgentLoopOutput`: Contains `token_id`s.
+- `AgentLoopWorker`: receives `AgentLoopOutput` and computes reward.
+  + Uses `RewardManagerWorker.compute_score`.
+  + This in turn uses `AbstractRewardManager.__call__`.
+  + One example of this can be found in `DAPORewardManager.__call__`.
+    - This does `self.tokenizer.decode(valid_response_ids, skip_special_tokens=True)`.

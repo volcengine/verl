@@ -125,6 +125,9 @@ class ToolAgentLoop(AgentLoopBase):
                     request_id=request_id, prompt_ids=prompt_ids, sampling_params=sampling_params, image_data=image_data
                 )
             response_ids = output.token_ids
+            if DEBUG:
+                RESPONSE_STR = self.tokenizer.decode(response_ids, skip_special_tokens=False)
+                print(f"RESPONSE STR: {RESPONSE_STR}")
             prompt_ids += response_ids
             response_mask += [1] * len(response_ids)
             if output.log_probs:
@@ -241,6 +244,9 @@ class ToolAgentLoop(AgentLoopBase):
 
         multi_modal_data = {"image": image_data} if image_data is not None else {}
 
+        if DEBUG:
+            response_str = self.tokenizer.decode(response_ids, skip_special_tokens=False)
+            print(f"RESPONSE STR: {response_str}")
         output = AgentLoopOutput(
             prompt_ids=prompt_ids,
             response_ids=response_ids[: self.response_length],
