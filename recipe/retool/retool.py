@@ -71,7 +71,8 @@ class SumbitTool:
 
 
 
-answer_format = """\nThe answer format must be: \\boxed{'The final answer goes here.'}"""
+#answer_format = """\nThe answer format must be: \\boxed{'The final answer goes here.'}"""
+answer_format = """\nSubmit the answer by calling the `submit` tool with the solution as the argument `solution`."""
 
 
 class CustomRLHFDataset(RLHFDataset):
@@ -123,7 +124,9 @@ class CustomRLHFDataset(RLHFDataset):
 
 def compute_score(data_source, solution_str, ground_truth, extra_info):
     # use \\boxed{...} answer
-    print(f"SOLUTION_STR: {solution_str}")
+    print(f"SOLUTION_STR_IN_COMPUTE_SCORE:\n {solution_str}\nEND SOLUTION_STR_IN_COMPUTE_SCORE")
+    print(f"EXTRA_INFO_IN_COMPUTE_SCORE:\n {extra_info}\nEND EXTRA_INFO_IN_COMPUTE_SCORE")
+
     result = math_dapo.compute_score(solution_str, ground_truth, strict_box_verify=True)
 
     # encourage model to call tools

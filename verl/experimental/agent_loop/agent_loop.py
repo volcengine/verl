@@ -38,6 +38,8 @@ from verl.utils.model import compute_position_id_with_mask
 from verl.utils.rollout_trace import RolloutTraceConfig, rollout_trace_attr, rollout_trace_op
 from verl.workers.rollout.async_server import TokenOutput, async_server_class
 
+DEBUG = True
+
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
@@ -278,9 +280,14 @@ class RewardManagerWorker:
             },
             batch_size=1,
         )
+        solution_tool_call_args = output.extra_fields["solution_tool_call_args"]
+        if DEBUG:
+            logger.warning(f"SOLUTION_TOOL_CALL_ARGS_IN_REWARD_MANAGER_WORKER:\n {solution_tool_call_args}\nEND_SOLUTION_TOOL_CALL_ARGS_IN_REWARD_MANAGER_WORKER")
+
         non_tensor_batch = {
             **{k: np.array([v]) for k, v in kwargs.items()},
             "__num_turns__": np.array([output.num_turns]),
+            "solution_tool_call_args": np.array([solution_tool_call_args]),
         }
         data = DataProto(
             batch=batch,

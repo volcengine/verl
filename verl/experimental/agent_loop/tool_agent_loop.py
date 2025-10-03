@@ -104,7 +104,7 @@ class ToolAgentLoop(AgentLoopBase):
                         **self.apply_chat_template_kwargs,
                     ),
                 )
-                print(f"REALLY FINAL PROMPT: {DEBUG_INPUTS}")    
+                print(f"REALLY FINAL PROMPT:\n {DEBUG_INPUTS}\nEND REALLY FINAL PROMPT")    
             prompt_ids = await self.loop.run_in_executor(
                 None,
                 lambda: self.tokenizer.apply_chat_template(
@@ -119,6 +119,7 @@ class ToolAgentLoop(AgentLoopBase):
         tools_kwargs = kwargs.get("tools_kwargs", {})
 
         user_turns, assistant_turns = 0, 0
+        solution_tool_call_args = "{}" # default value
         while True:
             with simple_timer("generate_sequences", metrics):
                 output = await self.server_manager.generate(
@@ -127,7 +128,7 @@ class ToolAgentLoop(AgentLoopBase):
             response_ids = output.token_ids
             if DEBUG:
                 RESPONSE_STR = self.tokenizer.decode(response_ids, skip_special_tokens=False)
-                print(f"RESPONSE STR: {RESPONSE_STR}")
+                logger.warning(f"RESPONSE STR:\n {RESPONSE_STR}\nEND RESPONSE STR")
             prompt_ids += response_ids
             response_mask += [1] * len(response_ids)
             if output.log_probs:
@@ -150,9 +151,19 @@ class ToolAgentLoop(AgentLoopBase):
             _, tool_calls = await self.tool_parser.extract_tool_calls(response_ids)
             if not tool_calls:
                 break
-            if any(fc.name=="submit" for fc in tool_calls):
-                # we need to submit now
+            submit_found = False
+            for tool_call in tool_calls:
+                if tool_call.name=="submit":
+                    #tool_args = json.loads(tool_call.arguments)
+                    if DEBUG:
+                        solution_tool_call_args = tool_call.arguments
+                        logger.warning(f"SOLUTION_TOOL_CALL_ARGS:\n {solution_tool_call_args}\nEND SOLUTION_TOOL_CALL_ARGS")
+                    # we need to submit now
+                    submit_found = True
+                    break
+            if submit_found:
                 break
+                    
 
             # call tools
             tasks = []
@@ -246,7 +257,7 @@ class ToolAgentLoop(AgentLoopBase):
 
         if DEBUG:
             response_str = self.tokenizer.decode(response_ids, skip_special_tokens=False)
-            print(f"RESPONSE STR: {response_str}")
+            print(f"TOTAL_RESPONSE STR:\n {response_str}\nEND TOTAL_RESPONSE STR")
         output = AgentLoopOutput(
             prompt_ids=prompt_ids,
             response_ids=response_ids[: self.response_length],
@@ -255,6 +266,7 @@ class ToolAgentLoop(AgentLoopBase):
             response_logprobs=response_logprobs[: self.response_length] if response_logprobs else None,
             num_turns=user_turns + assistant_turns + 1,
             metrics=metrics,
+            extra_fields={"solution_tool_call_args": solution_tool_call_args},
         )
         return output
 

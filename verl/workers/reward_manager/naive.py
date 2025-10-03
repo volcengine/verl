@@ -76,14 +76,16 @@ class NaiveRewardManager(AbstractRewardManager):
 
             # decode
             prompt_str = self.tokenizer.decode(valid_prompt_ids, skip_special_tokens=True)
-            response_str = self.tokenizer.decode(valid_response_ids, skip_special_tokens=True)
 
+            response_str = self.tokenizer.decode(valid_response_ids, skip_special_tokens=True)
+            print(f"RESPONSE STR IN REWARD_MANAGER: {response_str}")
             ground_truth = data_item.non_tensor_batch["reward_model"]["ground_truth"]
             data_source = data_item.non_tensor_batch[self.reward_fn_key]
             extra_info = data_item.non_tensor_batch.get("extra_info", {})
             num_turns = data_item.non_tensor_batch.get("__num_turns__", None)
             extra_info["num_turns"] = num_turns
-
+            solution_tool_call_args = data_item.non_tensor_batch.get("solution_tool_call_args", "{}")
+            extra_info["solution_tool_call_args"] = solution_tool_call_args
             score = self.compute_score(
                 data_source=data_source,
                 solution_str=response_str,

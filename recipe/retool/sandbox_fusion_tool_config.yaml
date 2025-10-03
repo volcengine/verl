@@ -37,7 +37,7 @@ tools:
         parameters:
           type: "object"
           properties:
-            code:
+            solution:
               type: "string"
-              description: "Executable code block containing the solution to the puzzle in the form of a Python function called `solution`, along with all imports and helper functions required by the `solution` function."
+              description: "The solution to the problem as a string."
           required: ["code"]
