@@ -5,7 +5,8 @@ project_name='FlowRL'
 exp_name='FlowRL-Plus-Qwen2.5-1.5B'
 
 # Algorithm settings
-adv_estimator=flowrl
+# adv_estimator=flowrl
+adv_estimator=grpo
 
 # KL settings (disabled for FlowRL)
 use_kl_in_reward=False
@@ -23,9 +24,9 @@ tis_imp_ratio_cap=2.0
 clip_ratio_low=0.2
 clip_ratio_high=0.28
 
-# Sequence lengths (same as larger models for consistency)
+# Sequence lengths (increased for overlong buffer support)
 max_prompt_length=$((1024 * 1))
-max_response_length=$((1024 * 1))
+max_response_length=$((1024 * 5))
 
 # Overlong buffer for very long responses
 enable_overlong_buffer=True
@@ -53,7 +54,7 @@ RUNTIME_ENV=${RUNTIME_ENV:-"${WORKING_DIR}/verl/trainer/runtime_env.yaml"}
 NNODES=${NNODES:-1}
 
 # Paths
-MODEL_PATH=${MODEL_PATH:-"${WORKING_DIR}/downloads/models/Qwen2.5-1.5B-Instruct"}
+MODEL_PATH=${MODEL_PATH:-"${WORKING_DIR}/downloads/models/Qwen/Qwen2.5-1.5B"}
 CKPTS_DIR=${CKPTS_DIR:-"${WORKING_DIR}/outputs/ckpts/${project_name}/${exp_name}"}
 TRAIN_FILE=${TRAIN_FILE:-"${WORKING_DIR}/downloads/data/dapo-math-17k.parquet"}
 TEST_FILE=${TEST_FILE:-"${WORKING_DIR}/downloads/data/aime-2024.parquet"}
@@ -98,7 +99,6 @@ python3 -m recipe.flowrl.main_flowrl \
     algorithm.adv_estimator=${adv_estimator} \
     algorithm.use_kl_in_reward=${use_kl_in_reward} \
     algorithm.kl_ctrl.kl_coef=${kl_coef} \
-    algorithm.tb_coef=${tb_coef} \
     actor_rollout_ref.actor.use_kl_loss=${use_kl_loss} \
     actor_rollout_ref.actor.kl_loss_coef=${kl_loss_coef} \
     actor_rollout_ref.actor.clip_ratio_low=${clip_ratio_low} \
@@ -127,8 +127,6 @@ python3 -m recipe.flowrl.main_flowrl \
     actor_rollout_ref.actor.loss_agg_mode=${loss_agg_mode} \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=${sp_size} \
     actor_rollout_ref.actor.tis_imp_ratio_cap=${tis_imp_ratio_cap} \
-    actor_rollout_ref.actor.proj_layer=3 \
-    actor_rollout_ref.actor.proj_dropout=0.1 \
     actor_rollout_ref.rollout.calculate_log_probs=True \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.90 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=${gen_tp} \
@@ -161,3 +159,6 @@ python3 -m recipe.flowrl.main_flowrl \
     trainer.total_epochs=1 \
     trainer.default_local_dir="${CKPTS_DIR}" \
     trainer.resume_mode=auto
+
+# todo: algorithm.tb_coef=${tb_coef} \
+# +actor_rollout_ref.actor.proj_layer=3 \

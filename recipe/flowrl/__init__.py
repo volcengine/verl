@@ -14,9 +14,4 @@
 
 """FlowRL recipe package."""
 
-from recipe.flowrl.flowrl_adv_estimator import register_flowrl_estimator
-
-# Auto-register FlowRL advantage estimator when package is imported
-register_flowrl_estimator()
-
-__all__ = ['register_flowrl_estimator']
+__all__ = []

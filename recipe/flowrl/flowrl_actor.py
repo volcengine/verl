@@ -12,11 +12,37 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
-from typing import Tuple, Dict, Any
-from verl.workers.actor.dp_actor import DPActor
-import verl.utils.torch_functional as verl_F
+import logging
+import os
+from typing import Any, Dict, Tuple
 
+import torch
+from torch import nn
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.tensor import DTensor
+
+import verl.utils.torch_functional as verl_F
+from verl import DataProto
+from verl.trainer.ppo.core_algos import agg_loss, get_policy_loss_fn, kl_penalty
+from verl.utils.attention_utils import index_first_axis, pad_input, rearrange, unpad_input
+from verl.utils.device import get_device_id, get_device_name
+from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
+from verl.utils.profiler import GPUMemoryLogger
+from verl.utils.py_functional import append_to_dict
+from verl.utils.seqlen_balancing import prepare_dynamic_batch, restore_dynamic_batch
+from verl.utils.torch_functional import logprobs_from_logits
+from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad, ulysses_pad_and_slice_inputs
+from verl.workers.actor import BasePPOActor
+from verl.workers.config import ActorConfig
+
+import verl.utils.torch_functional as verl_F
+from verl.workers.actor.dp_actor import DataParallelPPOActor
+from verl.utils.profiler import GPUMemoryLogger
+from verl.utils.py_functional import append_to_dict
+from verl.utils.seqlen_balancing import prepare_dynamic_batch
+
+logger = logging.getLogger(__file__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 class ProjZModule(torch.nn.Module):
     """Projection network for estimating log partition function Z in FlowRL."""
@@ -39,173 +65,425 @@ class ProjZModule(torch.nn.Module):
     def forward(self, x):
         return self.net(x)
 
-
-class FlowRLActor(DPActor):
-    """FlowRL Actor that extends DPActor with partition function estimation."""
+class FlowRLActor(DataParallelPPOActor):
+    """FlowRL Actor that extends DataParallelPPOActor with partition function estimation."""
 
     def __init__(self, config, *args, **kwargs):
         super().__init__(config, *args, **kwargs)
-        self.tb_coef = getattr(config.algorithm, 'tb_coef', 15.0)
+        self.flowrl_beta_coef = getattr(config.algorithm, 'flowrl_beta_coef', 15.0)
 
-    def _post_init_model(self):
-        """Initialize the projection network after model loading."""
-        super()._post_init_model()
+    def _forward_micro_batch(
+        self, micro_batch, temperature, calculate_entropy=False, return_log_z=False
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Returns:
+            entropy: # (bs, response_len)
+            log_probs: # (bs, response_len)
+        """
+        response_length = micro_batch["responses"].size(-1)
+        multi_modal_inputs = {}
+        if "multi_modal_inputs" in micro_batch.keys():
+            from verl.utils.model import extract_multi_modal_inputs
 
-        # Add projection network for log Z estimation
-        if hasattr(self.actor_module.config, 'hidden_size'):
-            hidden_size = self.actor_module.config.hidden_size
-        else:
-            # Fallback for different model architectures
-            hidden_size = getattr(self.actor_module.config, 'd_model', 4096)
+            multi_modal_inputs = extract_multi_modal_inputs(micro_batch["multi_modal_inputs"])
 
-        proj_layers = getattr(self.config.actor, 'proj_layer', 3)
-        proj_dropout = getattr(self.config.actor, 'proj_dropout', 0.1)
+        with torch.autocast(device_type=self.device_name, dtype=torch.bfloat16):
+            input_ids = micro_batch["input_ids"]
+            batch_size, seqlen = input_ids.shape
+            attention_mask = micro_batch["attention_mask"]
+            position_ids = micro_batch["position_ids"]
+            entropy = None
+            if position_ids.dim() == 3:  # qwen2vl mrope
+                position_ids = position_ids.transpose(0, 1)  # (bsz, 4, seqlen) -> (4, bsz, seqlen)
 
-        self.actor_module.proj_z = ProjZModule(
-            hidden_size=hidden_size,
-            num_layers=proj_layers,
-            dropout=proj_dropout
-        )
+            if self.use_remove_padding:
+                input_ids_rmpad, indices, cu_seqlens, *_ = unpad_input(
+                    input_ids.unsqueeze(-1), attention_mask
+                )  # input_ids_rmpad (total_nnz, ...)
+                input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
 
-    def _forward_micro_batch(self, micro_batch, temperature, calculate_entropy=False, return_log_z=False) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Enhanced forward pass that can return log Z values."""
+                # unpad the position_ids to align the rotary
+                if position_ids.dim() == 3:
+                    position_ids_rmpad = (
+                        index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices)
+                        .transpose(0, 1)
+                        .unsqueeze(1)
+                    )  # (4, bsz, seqlen) -> (4, 1, bsz * seqlen)
+                else:
+                    position_ids_rmpad = index_first_axis(
+                        rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices
+                    ).transpose(0, 1)
 
-        # Standard forward pass
-        logits, attention_mask, packed_input_ids = self._prepare_inputs(micro_batch, temperature)
+                if "image_bound" in multi_modal_inputs:
+                    from verl.utils.dataset.vision_utils import process_multi_modal_inputs_for_minicpmo
 
-        # Extract batch and sequence information
-        batch_size = micro_batch['batch_size']
-        response_length = micro_batch['response_length']
+                    multi_modal_inputs = process_multi_modal_inputs_for_minicpmo(
+                        input_ids, attention_mask, position_ids, cu_seqlens, multi_modal_inputs
+                    )
 
-        # Compute log probabilities and entropy
-        log_probs = self._compute_log_probs(logits, packed_input_ids, attention_mask)
+                # for compute the log_prob
+                input_ids_rmpad_rolled = torch.roll(input_ids_rmpad, shifts=-1, dims=1)  # (1, total_nnz)
 
-        entropy = None
-        if calculate_entropy:
-            entropy = self._compute_entropy(logits, attention_mask)
+                # pad and slice the inputs if sp > 1
+                if self.use_ulysses_sp:
+                    is_vlm_model = hasattr(
+                        getattr(self.actor_module, "module", self.actor_module).config, "vision_config"
+                    )
+                    if is_vlm_model:
+                        # vlm model's inputs will be sliced after embedding
+                        input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad(
+                            input_ids_rmpad,
+                            position_ids_rmpad=position_ids_rmpad,
+                            sp_size=self.ulysses_sequence_parallel_size,
+                        )
+                    else:
+                        input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(
+                            input_ids_rmpad,
+                            position_ids_rmpad=position_ids_rmpad,
+                            sp_size=self.ulysses_sequence_parallel_size,
+                        )
+                    input_ids_rmpad_rolled, _, _ = ulysses_pad_and_slice_inputs(
+                        input_ids_rmpad_rolled,
+                        position_ids_rmpad=None,
+                        sp_size=self.ulysses_sequence_parallel_size,
+                    )
 
-        if not return_log_z:
-            return entropy, log_probs
+                input_ids_rmpad_rolled = input_ids_rmpad_rolled.squeeze(0)  # ((total_nnz / sp) + pad)
 
-        # FlowRL specific: compute log Z
-        # Get hidden states from the model output
-        with torch.no_grad():
-            outputs = self.actor_module(
-                input_ids=packed_input_ids,
-                attention_mask=attention_mask,
-                output_hidden_states=True,
-                use_cache=False
+                # only pass input_ids and position_ids to enable flash_attn_varlen
+                extra_args = {}
+                if self.use_fused_kernels:
+                    extra_args["temperature"] = temperature
+                    extra_args["return_dict"] = True
+
+                output = self.actor_module(
+                    input_ids=input_ids_rmpad,
+                    attention_mask=None,
+                    position_ids=position_ids_rmpad,
+                    **multi_modal_inputs,
+                    use_cache=False,
+                    **extra_args,
+                )  # prevent model thinks we are generating
+
+                if self.use_fused_kernels:
+                    log_probs = output.log_probs.squeeze(0)  # (total_nnz,)
+                    entropy_rmpad = output.entropy.squeeze(0)  # (total_nnz,)
+
+                else:
+                    logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
+                    logits_rmpad.div_(temperature)
+
+                    # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
+                    inplace_backward = True
+                    if calculate_entropy:
+                        inplace_backward = False
+                    log_probs = logprobs_from_logits(
+                        logits=logits_rmpad,
+                        labels=input_ids_rmpad_rolled,
+                        inplace_backward=inplace_backward,
+                    )
+
+                    # compute entropy
+                    if calculate_entropy:
+                        if not self.config.entropy_checkpointing:
+                            entropy_rmpad = self.compute_entropy_from_logits(logits_rmpad)  # ((total_nnz / sp) + pad)
+                        else:
+                            entropy_rmpad = torch.utils.checkpoint.checkpoint(
+                                self.compute_entropy_from_logits, logits_rmpad
+                            )
+
+                # gather log_prob if sp > 1
+                if self.use_ulysses_sp:
+                    # gather and unpad for the ulysses sp
+                    log_probs = gather_outputs_and_unpad(
+                        log_probs,
+                        gather_dim=0,
+                        unpad_dim=0,
+                        padding_size=pad_size,
+                    )
+                    if calculate_entropy:
+                        entropy_rmpad = gather_outputs_and_unpad(
+                            entropy_rmpad,
+                            gather_dim=0,
+                            unpad_dim=0,
+                            padding_size=pad_size,
+                        )
+                # pad back to (bsz, seqlen)
+                if calculate_entropy:
+                    full_entropy = pad_input(
+                        hidden_states=entropy_rmpad.unsqueeze(-1),
+                        indices=indices,
+                        batch=batch_size,
+                        seqlen=seqlen,
+                    )
+                full_log_probs = pad_input(
+                    hidden_states=log_probs.unsqueeze(-1),
+                    indices=indices,
+                    batch=batch_size,
+                    seqlen=seqlen,
+                )
+
+                # only return response part:
+                if calculate_entropy:
+                    entropy = full_entropy.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
+                log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
+
+            else:  # not using rmpad and no ulysses sp
+                extra_args = {}
+                if self.use_fused_kernels:
+                    extra_args["temperature"] = temperature
+                    extra_args["return_dict"] = True
+
+                output = self.actor_module(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    position_ids=position_ids,
+                    **multi_modal_inputs,
+                    use_cache=False,
+                    **extra_args,
+                )  # prevent model thinks we are generating
+
+                if self.use_fused_kernels:
+                    log_probs = output.log_probs[:, -response_length - 1 : -1]
+                    entropy = output.entropy[:, -response_length - 1 : -1]  # (bsz, response_length)
+
+                else:
+                    logits = output.logits
+
+                    logits.div_(temperature)
+                    logits = logits[:, -response_length - 1 : -1, :]  # (bsz, response_length, vocab_size)
+                    log_probs = logprobs_from_logits(logits, micro_batch["responses"])
+                    if calculate_entropy:
+                        if not self.config.entropy_checkpointing:
+                            entropy = verl_F.entropy_from_logits(logits)  # (bsz, response_length)
+                        else:
+                            entropy = torch.utils.checkpoint.checkpoint(verl_F.entropy_from_logits, logits)
+            
+            # ==== FlowRL: use proj_z to estimate log Z ====
+            if return_log_z:
+                last_hidden = output.hidden_states[-1].squeeze(0) # (total_nnz, hidden size)
+                if self.use_ulysses_sp:
+                        last_hidden = gather_outputs_and_unpad(
+                            last_hidden,
+                            gather_dim=0,
+                            unpad_dim=0,
+                            padding_size=pad_size, 
+                        )
+                full_last_hidden = pad_input(hidden_states=last_hidden,
+                                        indices=indices,
+                                        batch=batch_size,
+                                        seqlen=seqlen)
+                # extract pormpt hiddenstate for log z
+                prompts_last_hidden = full_last_hidden[:, : -response_length - 1]
+                prompt_attention_mask = attention_mask[:, : -response_length - 1]
+                avg_hidden = verl_F.masked_mean(prompts_last_hidden, prompt_attention_mask.unsqueeze(-1), axis=1)
+
+                log_z = self.actor_module.proj_z(avg_hidden) 
+
+                return entropy, log_probs, log_z
+                
+            else:
+                return entropy, log_probs
+
+
+    @GPUMemoryLogger(role="dp actor", logger=logger)
+    def update_policy(self, data: DataProto):
+        # make sure we are in training mode
+        self.actor_module.train()
+
+        temperature = data.meta_info["temperature"]  # temperature must be in the data.meta_info to avoid silent error
+
+        select_keys = [
+            "responses",
+            "response_mask",
+            "input_ids",
+            "attention_mask",
+            "position_ids",
+            "old_log_probs",
+            "advantages",
+            "ref_log_prob",  # FlowRL requires reference log probs
+        ]
+        if self.config.use_kl_loss:
+            select_keys.append("ref_log_prob")
+        if self.config.tis_imp_ratio_cap > 0:
+            assert "rollout_log_probs" in data.batch.keys(), (
+                "Truncated Importance Sampling (TIS) requires to configure "
+                "`actor_rollout_ref.rollout.calculate_log_probs=True` "
+                "and is not currently supported in Server mode (agent loop)."
             )
+            select_keys.append("rollout_log_probs")
 
-        last_hidden = outputs.hidden_states[-1]  # Get last layer hidden states
+        has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
+        non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
 
-        # Handle sequence packing if used
-        if hasattr(self, 'use_ulysses_sp') and self.use_ulysses_sp:
-            # Implementation depends on your specific setup
-            pass
+        data = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
 
-        # Reshape and extract prompt hidden states
-        seqlen = attention_mask.size(1)
-        full_last_hidden = last_hidden.view(batch_size, seqlen, -1)
+        # Split to make minibatch iterator for updating the actor
+        # See PPO paper for details. https://arxiv.org/abs/1707.06347
+        mini_batches = data.split(self.config.ppo_mini_batch_size)
 
-        # Extract prompt hidden states (excluding response)
-        prompts_last_hidden = full_last_hidden[:, :-response_length-1, :]
-        prompt_attention_mask = attention_mask[:, :-response_length-1]
+        on_policy = len(mini_batches) == 1 and self.config.ppo_epochs == 1
 
-        # Compute average hidden state over prompt tokens
-        avg_hidden = verl_F.masked_mean(
-            prompts_last_hidden,
-            prompt_attention_mask.unsqueeze(-1),
-            axis=1
-        )
+        metrics = {}
+        for _ in range(self.config.ppo_epochs):
+            for batch_idx, mini_batch in enumerate(mini_batches):
+                if self.config.use_dynamic_bsz:
+                    max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
+                    micro_batches, _ = prepare_dynamic_batch(mini_batch, max_token_len=max_token_len)
+                else:
+                    self.gradient_accumulation = (
+                        self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
+                    )
+                    micro_batches = mini_batch.split(self.config.ppo_micro_batch_size_per_gpu)
 
-        # Compute log Z using projection network
-        log_z = self.actor_module.proj_z(avg_hidden)
+                self.actor_optimizer.zero_grad()
 
-        return entropy, log_probs, log_z
+                for micro_batch in micro_batches:
+                    micro_batch = micro_batch.to(get_device_id())
+                    micro_batch_metrics = {}
+                    model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch}
+                    response_mask = model_inputs["response_mask"]
+                    old_log_prob = model_inputs["old_log_probs"]
+                    rollout_log_probs = model_inputs["rollout_log_probs"] if self.config.tis_imp_ratio_cap > 0 else None
+                    advantages = model_inputs["advantages"]
+                    ref_log_prob = model_inputs["ref_log_prob"]
 
-    def compute_flowrl_objective(self, logpf=None, logf_ref=None, logpf_old=None,
-                                log_z=None, reward=None, response_mask=None, clip_ratio=None):
-        """Compute FlowRL trajectory balance objective."""
+                    entropy_coeff = self.config.entropy_coeff
+                    loss_agg_mode = self.config.loss_agg_mode
 
-        # Squeeze log_z to (B,)
+                    if self.config.use_dynamic_bsz:
+                        loss_scale_factor = response_mask.shape[0] / self.config.ppo_mini_batch_size
+                    else:
+                        loss_scale_factor = 1 / self.gradient_accumulation
+
+                    # all return: (bsz, response_length)
+                    calculate_entropy = False
+                    if entropy_coeff != 0:
+                        calculate_entropy = True
+                    # entropy, log_prob = self._forward_micro_batch(
+                    #     model_inputs, temperature=temperature, calculate_entropy=calculate_entropy
+                    # )
+                    entropy, log_prob, log_z = self._forward_micro_batch(
+                        model_inputs, temperature=temperature, calculate_entropy=False, return_log_z=True
+                    )
+
+                    if on_policy:
+                        old_log_prob = log_prob.detach()
+                    else:
+                        old_log_prob = model_inputs["old_log_probs"]
+
+                    # loss_mode = self.config.policy_loss.get("loss_mode", "vanilla")
+                    # vanilla -> verl.trainer.ppo.core_algos.compute_policy_loss_vanilla
+                    # gpg -> verl.trainer.ppo.core_algos.compute_policy_loss_gpg
+                    # clip_cov -> verl.trainer.ppo.core_algos.compute_policy_loss_clip_cov
+                    # policy_loss_fn = get_policy_loss_fn(loss_mode)
+                    # pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = policy_loss_fn(
+                    #     old_log_prob=old_log_prob,
+                    #     log_prob=log_prob,
+                    #     advantages=advantages,
+                    #     response_mask=response_mask,
+                    #     loss_agg_mode=loss_agg_mode,
+                    #     config=self.config,
+                    #     rollout_log_probs=rollout_log_probs,
+                    # )
+                    # Compute FlowRL trajectory balance loss
+                    policy_loss, flowrl_metrics = self.compute_flowrl_objective(
+                        logpf=log_prob,
+                        logf_ref=ref_log_prob,
+                        logpf_old=old_log_prob,
+                        log_z=log_z,
+                        reward=advantages,
+                        response_mask=response_mask,
+                        clip_ratio=self.config.clip_ratio
+                    )
+
+                    # if entropy_coeff != 0:
+                    #     entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+
+                    #     # compute policy loss
+                    #     policy_loss = pg_loss - entropy_loss * entropy_coeff
+                    # else:
+                    #     policy_loss = pg_loss
+
+                    # if self.config.use_kl_loss:
+                    #     ref_log_prob = model_inputs["ref_log_prob"]
+                    #     # compute kl loss
+                    #     kld = kl_penalty(
+                    #         logprob=log_prob, ref_logprob=ref_log_prob, kl_penalty=self.config.kl_loss_type
+                    #     )
+                    #     kl_loss = agg_loss(loss_mat=kld, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+
+                    #     policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
+                    #     micro_batch_metrics["actor/kl_loss"] = kl_loss.detach().item() * loss_scale_factor
+                    #     micro_batch_metrics["actor/kl_coef"] = self.config.kl_loss_coef
+
+                    if self.config.use_dynamic_bsz:
+                        # relative to the dynamic bsz
+                        loss = policy_loss * loss_scale_factor
+                    else:
+                        loss = policy_loss * loss_scale_factor
+                    loss.backward()
+
+                    micro_batch_metrics.update(flowrl_metrics)
+                    # micro_batch_metrics.update(
+                    #     {
+                    #         "actor/pg_loss": pg_loss.detach().item() * loss_scale_factor,
+                    #         "actor/pg_clipfrac": pg_clipfrac.detach().item(),
+                    #         "actor/ppo_kl": ppo_kl.detach().item(),
+                    #         "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
+                    #     }
+                    # )
+                    append_to_dict(metrics, micro_batch_metrics)
+
+                grad_norm = self._optimizer_step()
+                mini_batch_metrics = {"actor/grad_norm": grad_norm.detach().item()}
+                append_to_dict(metrics, mini_batch_metrics)
+        self.actor_optimizer.zero_grad()
+        return metrics
+
+    
+    def compute_flowrl_objective(self, logpf=None, logf_ref=None, logpf_old=None, log_z=None, reward=None, response_mask=None, clip_ratio=None):
+        """Compute FlowRL trajectory balance objective.
+
+        Args:
+            logpf: log probabilities from current policy (bsz, response_length)
+            logf_ref: log probabilities from reference policy (bsz, response_length)
+            logpf_old: old log probabilities from policy (bsz, response_length)
+            log_z: log partition function estimates (bsz, 1)
+            reward: token-level rewards/advantages (bsz, response_length)
+            response_mask: mask for valid tokens (bsz, response_length)
+            clip_ratio: clipping ratio for importance weights
+        """
+        # squeeze log_z to (B,)
         log_z = log_z.squeeze(-1)
-        B = log_z.shape[0]
 
-        # Mean of log p_f / log p_ref over valid tokens
+        # mean of log p_f / log p_ref over valid tokens
         avg_logpf = verl_F.masked_mean(logpf, response_mask, axis=1)
         avg_logp_ref = verl_F.masked_mean(logf_ref, response_mask, axis=1)
 
-        # Mean of token-level reward → log
-        # We set R = exp(advantage); then log_reward = advantage
+        # mean of token-level reward → log
+        # we set R = exp(advantage); then log_reward = advantage
         seq_log_reward = verl_F.masked_mean(reward, response_mask, axis=1)
 
-        # TB loss residual: log Z + log p_f - β * reward - log p_ref
-        delta = log_z + avg_logpf - self.tb_coef * seq_log_reward - avg_logp_ref
+        # TB loss residual: delta = log Z + log p_f - β * log R - log p_ref
+        delta = log_z + avg_logpf - self.flowrl_beta_coef * seq_log_reward - avg_logp_ref
 
-        # Importance sampling
-        log_w = verl_F.masked_sum(logpf - logpf_old, response_mask, axis=1)
+        # importance sampling with clipping
+        log_w = verl_F.masked_sum(logpf - logpf_old, response_mask, axis=1)  # sum over valid tokens per trajectory
         importance_weight = torch.exp(log_w).detach()
         clip_importance_weight = torch.clamp(importance_weight, 1 - clip_ratio, 1 + clip_ratio)
 
-        # Weighted trajectory balance loss
         weighted_losses = clip_importance_weight * (delta ** 2)
         avg_loss = torch.mean(weighted_losses)
 
-        # Loss statistics for monitoring
+        # Loss statistics
         loss_term_dict = {
             "actor/logpf": verl_F.masked_mean(logpf, response_mask).detach().item(),
             "actor/logp_ref": verl_F.masked_mean(logf_ref, response_mask).detach().item(),
             "actor/log_z": log_z.mean().detach().item(),
             "actor/log_reward": verl_F.masked_mean(reward, response_mask).detach().item(),
             "actor/tb_loss": avg_loss.detach().item(),
-            "actor/delta_mean": delta.mean().detach().item(),
-            "actor/delta_std": delta.std().detach().item(),
-            "actor/importance_weight_mean": importance_weight.mean().detach().item(),
+            "actor/importance_weight": importance_weight.mean().detach().item(),
         }
 
         return avg_loss, loss_term_dict
-
-    def _compute_actor_loss(self, data):
-        """Override to use FlowRL objective instead of PPO loss."""
-
-        micro_batch = data
-        temperature = self.config.actor_rollout_ref.actor.temperature
-        calculate_entropy = self.entropy_bonus > 0
-
-        # FlowRL forward pass with log Z
-        entropy, log_prob, log_z = self._forward_micro_batch(
-            micro_batch=micro_batch,
-            temperature=temperature,
-            calculate_entropy=calculate_entropy,
-            return_log_z=True
-        )
-
-        # Extract data for FlowRL objective
-        old_log_prob = data['old_log_prob']
-        ref_log_prob = data['ref_log_prob']
-        advantages = data['advantages']
-        response_mask = data['response_mask']
-
-        # Compute FlowRL trajectory balance loss
-        policy_loss, loss_stats = self.compute_flowrl_objective(
-            logpf=log_prob,
-            logf_ref=ref_log_prob,
-            logpf_old=old_log_prob,
-            log_z=log_z,
-            reward=advantages,
-            response_mask=response_mask,
-            clip_ratio=self.config.clip_ratio
-        )
-
-        # Add entropy bonus if configured
-        total_loss = policy_loss
-        if calculate_entropy and entropy is not None:
-            entropy_loss = -self.entropy_bonus * verl_F.masked_mean(entropy, response_mask)
-            total_loss += entropy_loss
-            loss_stats['actor/entropy'] = verl_F.masked_mean(entropy, response_mask).detach().item()
-            loss_stats['actor/entropy_loss'] = entropy_loss.detach().item()
-
-        loss_stats['actor/total_loss'] = total_loss.detach().item()
-
-        return total_loss, loss_stats

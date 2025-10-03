@@ -25,11 +25,6 @@ from omegaconf import OmegaConf
 from verl.trainer.ppo.reward import load_reward_manager
 from verl.utils.device import is_cuda_available
 
-# Import and register FlowRL advantage estimator
-from recipe.flowrl.flowrl_adv_estimator import register_flowrl_estimator
-
-register_flowrl_estimator()
-
 
 @hydra.main(config_path="config", config_name="flowrl_trainer", version_base=None)
 def main(config):
@@ -98,8 +93,11 @@ class TaskRunner:
         if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
             assert config.critic.strategy in {"fsdp", "fsdp2"}
 
-            from verl.workers.fsdp_workers import ActorRolloutRefWorker, CriticWorker
+            # Use FlowRL custom worker instead of standard worker
+            from recipe.flowrl.flowrl_fsdp_worker import FlowRLActorRolloutRefWorker
+            from verl.workers.fsdp_workers import CriticWorker
 
+            ActorRolloutRefWorker = FlowRLActorRolloutRefWorker
             ray_worker_group_cls = RayWorkerGroup
 
         elif config.actor_rollout_ref.actor.strategy == "megatron":
