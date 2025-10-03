@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import asyncio
+import json
 import logging
 import multiprocessing
 import os
@@ -30,13 +31,6 @@ from verl.workers.rollout.utils import is_valid_ipv6_address
 
 logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
-
-# Default configuration constants
-DEFAULT_TIMEOUT = 180
-DEFAULT_MAX_ATTEMPTS = 2
-DEFAULT_RETRY_DELAY = 2.0
-DEFAULT_MAX_CONNECTIONS = 2000
-DEFAULT_MAX_WAIT_TIME = 300.0
 
 
 async def _read_async_response(resp: aiohttp.ClientResponse) -> dict[str, Any]:
@@ -65,11 +59,6 @@ class SGLangRouter:
         router_ip: str,
         router_port: int,
         worker_urls: list[str],
-        timeout: float = DEFAULT_TIMEOUT,
-        max_attempts: int = DEFAULT_MAX_ATTEMPTS,
-        retry_delay: float = DEFAULT_RETRY_DELAY,
-        max_connections: int = DEFAULT_MAX_CONNECTIONS,
-        max_start_wait_time: float = DEFAULT_MAX_WAIT_TIME,
         **kwargs,
     ):
         """
@@ -86,11 +75,6 @@ class SGLangRouter:
             max_start_wait_time (float, optional): Maximum time to wait for router startup in seconds.
             **kwargs: Additional keyword arguments.
         """
-        self.timeout: float = timeout
-        self.max_attempts: int = max_attempts
-        self.retry_delay: float = retry_delay
-        self.max_connections: int = max_connections
-        self.max_start_wait_time: float = max_start_wait_time
 
         self.router_address = (
             f"[{router_ip}]:{router_port}" if is_valid_ipv6_address(router_ip) else f"{router_ip}:{router_port}"
@@ -124,40 +108,11 @@ class SGLangRouter:
                 self.router_process.terminate()
                 raise RuntimeError(f"Router health check failed after {max_wait_time} seconds.")
 
-    @asynccontextmanager
-    async def _get_session(self) -> aiohttp.ClientSession:
-        """Context manager for safe session access with proper connection pooling.
-
-        Yields:
-            aiohttp.ClientSession: Session instance for making HTTP requests
-
-        Note:
-            This method creates a new session for each request to avoid resource competition
-            while still maintaining proper connection pooling through the shared connector.
-        """
-        # Create a new session for each request to avoid resource competition
-        connector = aiohttp.TCPConnector(
-            limit=self.max_connections,
-            limit_per_host=self.max_connections // 4,
-            ttl_dns_cache=300,
-            use_dns_cache=True,
-        )
-        timeout = aiohttp.ClientTimeout(total=self.timeout)
-        session = aiohttp.ClientSession(connector=connector, timeout=timeout)
-
-        try:
-            yield session
-        finally:
-            # Always close the session to free up resources
-            if not session.closed:
-                await session.close()
-
     async def _make_async_request(
         self,
         endpoint: str,
         payload: Optional[dict[str, Any]] = None,
         method: str = "POST",
-        timeout: float = DEFAULT_TIMEOUT,
     ) -> dict[str, Any]:
         """Make an async HTTP request with retry logic and consistent error handling.
 
@@ -176,36 +131,22 @@ class SGLangRouter:
         """
 
         url = f"http://{self.router_address}/{endpoint}"
-
-        for attempt in range(self.max_attempts):
-            try:
-                async with self._get_session() as session:
-                    if method.upper() == "GET":
-                        async with session.get(url, timeout=timeout) as response:
-                            response.raise_for_status()
-                            return await _read_async_response(response)
-                    else:
-                        async with session.post(url, json=payload or {}, timeout=timeout) as response:
-                            response.raise_for_status()
-                            return await _read_async_response(response)
-
-            except asyncio.TimeoutError:
-                logger.warning(f"Async request to {endpoint} timed out (attempt {attempt + 1})")
-            except aiohttp.ClientConnectorError:
-                logger.warning(f"Connection error for {endpoint} (attempt {attempt + 1})")
-            except aiohttp.ClientResponseError as e:
-                logger.error(f"HTTP error for {endpoint}: {e}")
-                raise
-            except Exception as e:
-                logger.error(f"Unexpected error for {endpoint}: {e}")
-                if attempt == self.max_attempts - 1:
-                    raise
-
-            if attempt < self.max_attempts - 1:
-                await asyncio.sleep(self.retry_delay * (2**attempt))
-
-        logger.error(f"Failed to complete async request to {endpoint} after {self.max_attempts} attempts")
-        return {}
+        try:
+            timeout = aiohttp.ClientTimeout(total=None)
+            session = aiohttp.ClientSession(timeout=timeout)
+            async with session.post(
+                url=url,
+                json=payload,
+            ) as response:
+                output = await response.text()
+                try:
+                    output = json.loads(output)
+                    return output
+                except Exception as e:
+                    print(f"Error: {e}. Output: {output}")
+                    return ""
+        finally:
+            await session.close()
 
     async def generate(
         self,
@@ -219,5 +160,5 @@ class SGLangRouter:
             "image_data": image_data,
         }
         payload = {k: v for k, v in payload.items() if v is not None}
-        responses = await self._make_async_request("generate", payload, timeout=self.timeout)
+        responses = await self._make_async_request("generate", payload)
         return responses
