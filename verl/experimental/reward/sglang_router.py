@@ -144,7 +144,7 @@ class SGLangRouter:
                     return output
                 except Exception as e:
                     print(f"Error: {e}. Output: {output}")
-                    return ""
+                    return {}
         finally:
             await session.close()
 
