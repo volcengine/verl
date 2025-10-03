@@ -15,7 +15,15 @@
 
 import logging
 import os
-
+from verl.utils.fsdp_utils import (
+    collect_lora_params,
+    layered_summon_lora_params,
+    replace_lora_wrapper,
+    fsdp_version,
+)
+from verl.utils.vllm.utils import TensorLoRARequest
+from dataclasses import asdict
+import time
 import torch
 import torch.distributed
 from omegaconf import DictConfig, OmegaConf
@@ -34,6 +42,9 @@ from verl.utils.device import (
 )
 from verl.utils.fs import copy_to_local
 from verl.utils.fsdp_utils import (
+    collect_lora_params,
+    layered_summon_lora_params,
+    replace_lora_wrapper,
     fsdp_version,
 )
 from verl.utils.import_utils import import_external_libs
@@ -46,7 +57,15 @@ from verl.workers.fsdp_workers import CriticWorker
 from verl.workers.rollout import get_rollout_class
 
 from .distributed_util import stateless_init_process_group
+from peft import LoraConfig, TaskType, get_peft_model
+from codetiming import Timer
 
+import torch.distributed as dist
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from peft import PeftModel
+from safetensors.torch import save_file
+from dataclasses import asdict
+import json
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
@@ -56,6 +75,10 @@ __all__ = ["ActorRolloutRefWorker", "AsyncActorRolloutRefWorker", "CriticWorker"
 
 
 class ActorRolloutRefWorker(ARRWorker):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.base_sync_done = False
+
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
     def create_weight_sync_group(self, master_address, master_port, rank_offset, world_size):
         rank = torch.distributed.get_rank() + rank_offset
@@ -69,55 +92,124 @@ class ActorRolloutRefWorker(ARRWorker):
 
     def _get_actor_params(self):
         assert self._is_actor
-        params = self.actor_module_fsdp.state_dict()
+        #Check if model has LoRA
+        peft_model = getattr(self.actor_module_fsdp, "_fsdp_wrapped_module", self.actor_module_fsdp)
+        peft_config = None
+
+        if hasattr(peft_model, "peft_config"):
+            peft_config = peft_model.peft_config.get("default", None)
+            params = collect_lora_params(
+                module=self.actor_module_fsdp,
+                layered_summon=False,  # Always False for one-step off-policy
+                base_sync_done=self.base_sync_done,
+            )
+            # On first sync, transform keys to match vLLM's expected format
+            if not self.base_sync_done:
+                params = {replace_lora_wrapper(k, peft_config): v for k, v in params.items()}
+        else:
+            params = self.actor_module_fsdp.state_dict()
+
         from verl.utils.model import convert_weight_keys
 
         params = convert_weight_keys(
             params, getattr(self.actor_module_fsdp, "_fsdp_wrapped_module", self.actor_module_fsdp)
         )
-        return params
+        return params, peft_config
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
     def sync_rollout_weights(self):
         assert (self._is_actor or self._is_rollout) and not self.config.hybrid_engine
         assert hasattr(self, "_weights_info") and self._weights_info is not None
-
-        params = self._get_actor_params() if self._is_actor else None
+        
+        # Actor side: get params and detect LoRA
+        params = None
+        peft_config = None
+        if self._is_actor:
+            params, peft_config = self._get_actor_params()
+        
+        # Rollout side: prepare vLLM model
         if self._is_rollout:
             inference_model = (
                 self.rollout.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
             )
             from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
-
             patch_vllm_moe_model_weight_loader(inference_model)
-        for key, shape, dtype in self._weights_info:
-            tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
-            if self._is_actor:
-                assert key in params
-                origin_data = params[key]
-                if hasattr(origin_data, "full_tensor"):
-                    origin_data = origin_data.full_tensor()
-                if torch.distributed.get_rank() == 0:
-                    tensor.copy_(origin_data)
-
-            self._weight_sync_group.broadcast(tensor, src=0, stream=get_torch_device().current_stream())
+        
+        # If this is a LoRA model and base weights are already synced, use vLLM LoRA interface
+        if peft_config is not None and self.base_sync_done:
+            # Sync only LoRA adapters via vLLM's add_lora
             if self._is_rollout:
-                inference_model.load_weights([(key, tensor)])
+                import time
+                from dataclasses import asdict
+                from verl.utils.vllm.utils import TensorLoRARequest
+                
+                # Prepare LoRA tensors
+                lora_tensors = {}
+                for key, shape, dtype in self._weights_info:
+                    tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
+                    if self._is_actor:
+                        assert key in params
+                        origin_data = params[key]
+                        if hasattr(origin_data, "full_tensor"):
+                            origin_data = origin_data.full_tensor()
+                        if torch.distributed.get_rank() == 0:
+                            tensor.copy_(origin_data)
+                    
+                    self._weight_sync_group.broadcast(tensor, src=0, stream=get_torch_device().current_stream())
+                    
+                    if self._is_rollout:
+                        lora_tensors[key] = tensor
+                
+                # Load LoRA via vLLM
+                if self._is_rollout:
+                    lora_int_id = int(time.time_ns() % 0x7FFFFFFF)
+                    lora_request = TensorLoRARequest(
+                        lora_name=f"{lora_int_id}",
+                        lora_int_id=lora_int_id,
+                        lora_path="verl_lora_path",
+                        peft_config=asdict(peft_config),
+                        lora_tensors=lora_tensors,
+                    )
+                    self.rollout.inference_engine.llm_engine.add_lora(lora_request)
+        else:
+            # Full weight sync (first time, or non-LoRA model)
+            for key, shape, dtype in self._weights_info:
+                tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
+                if self._is_actor:
+                    assert key in params
+                    origin_data = params[key]
+                    if hasattr(origin_data, "full_tensor"):
+                        origin_data = origin_data.full_tensor()
+                    if torch.distributed.get_rank() == 0:
+                        tensor.copy_(origin_data)
+                
+                self._weight_sync_group.broadcast(tensor, src=0, stream=get_torch_device().current_stream())
+                if self._is_rollout:
+                    inference_model.load_weights([(key, tensor)])
+        
+        # Mark base sync as done for actor workers
+        if self._is_actor and peft_config is not None:
+            self.base_sync_done = True
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def get_actor_weights_info(self):
         assert self._is_actor
-        if hasattr(self, "_weights_info"):
+        
+        # Return cached info if available and still valid
+        # (Note: for LoRA, info changes after base_sync_done)
+        if hasattr(self, "_weights_info") and not (self._is_lora and not self.base_sync_done):
             return self._weights_info
+        
         if fsdp_version(self.actor_module_fsdp) == 1:
             from torch.distributed.fsdp.api import ShardedStateDictConfig, StateDictType
-
+            
             FSDP.set_state_dict_type(
                 self.actor_module_fsdp,
                 state_dict_type=StateDictType.SHARDED_STATE_DICT,
                 state_dict_config=ShardedStateDictConfig(),
             )
-        params = self._get_actor_params()
+        
+        params, _ = self._get_actor_params()
         ret = []
         for key, tensor in params.items():
             ret.append((key, tensor.size(), tensor.dtype))
