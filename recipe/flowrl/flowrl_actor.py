@@ -389,6 +389,7 @@ class FlowRLActor(DataParallelPPOActor):
                     #     rollout_log_probs=rollout_log_probs,
                     # )
                     # Compute FlowRL trajectory balance loss
+                    
                     policy_loss, flowrl_metrics = self.compute_flowrl_objective(
                         logpf=log_prob,
                         logf_ref=ref_log_prob,
@@ -396,7 +397,8 @@ class FlowRLActor(DataParallelPPOActor):
                         log_z=log_z,
                         reward=advantages,
                         response_mask=response_mask,
-                        clip_ratio=self.config.clip_ratio
+                        clip_ratio=self.config.clip_ratio,
+                        rollout_log_probs=rollout_log_probs
                     )
 
                     # if entropy_coeff != 0:
@@ -442,66 +444,13 @@ class FlowRLActor(DataParallelPPOActor):
                 append_to_dict(metrics, mini_batch_metrics)
         self.actor_optimizer.zero_grad()
         return metrics
-
     
-    def compute_flowrl_objective(self, logpf=None, logf_ref=None, logpf_old=None, log_z=None, reward=None, response_mask=None, clip_ratio=None):
-        """Compute FlowRL trajectory balance objective.
-
-        Args:
-            logpf: log probabilities from current policy (bsz, response_length)
-            logf_ref: log probabilities from reference policy (bsz, response_length)
-            logpf_old: old log probabilities from policy (bsz, response_length)
-            log_z: log partition function estimates (bsz, 1)
-            reward: token-level rewards/advantages (bsz, response_length)
-            response_mask: mask for valid tokens (bsz, response_length)
-            clip_ratio: clipping ratio for importance weights
+    
+    def compute_flowrl_objective(self, logpf=None, logf_ref=None, logpf_old=None, log_z=None, reward=None,
+                                          response_mask=None, clip_ratio=None, rollout_log_probs=None):
         """
-        # squeeze log_z to (B,)
-        log_z = log_z.squeeze(-1)
-
-        # mean of log p_f / log p_ref over valid tokens
-        avg_logpf = verl_F.masked_mean(logpf, response_mask, axis=1)
-        avg_logp_ref = verl_F.masked_mean(logf_ref, response_mask, axis=1)
-
-        # mean of token-level reward → log
-        # we set R = exp(advantage); then log_reward = advantage
-        seq_log_reward = verl_F.masked_mean(reward, response_mask, axis=1)
-
-        # TB loss residual: delta = log Z + log p_f - β * log R - log p_ref
-        delta = log_z + avg_logpf - self.flowrl_beta_coef * seq_log_reward - avg_logp_ref
-
-        # importance sampling with clipping
-        log_w = verl_F.masked_sum(logpf - logpf_old, response_mask, axis=1)  # sum over valid tokens per trajectory
-        importance_weight = torch.exp(log_w).detach()
-        clip_importance_weight = torch.clamp(importance_weight, 1 - clip_ratio, 1 + clip_ratio)
-
-        weighted_losses = clip_importance_weight * (delta ** 2)
-        avg_loss = torch.mean(weighted_losses)
-
-        # Loss statistics
-        loss_term_dict = {
-            "actor/logpf": verl_F.masked_mean(logpf, response_mask).detach().item(),
-            "actor/logp_ref": verl_F.masked_mean(logf_ref, response_mask).detach().item(),
-            "actor/log_z": log_z.mean().detach().item(),
-            "actor/log_reward": verl_F.masked_mean(reward, response_mask).detach().item(),
-            "actor/tb_loss": avg_loss.detach().item(),
-            "actor/importance_weight": importance_weight.mean().detach().item(),
-        }
-        return avg_loss, loss_term_dict
-    
-    def compute_flowrl_objective(
-        self,
-        logpf=None,
-        logf_ref=None,
-        logpf_old=None,
-        log_z=None,
-        reward=None,
-        response_mask=None,
-        clip_ratio=None,
-        rollout_log_probs=None,
-        tis_cap: float = 0.0,
-    ):
-        """Compute FlowRL trajectory balance loss with clipping and optional TIS."""
+        FlowRL enhanced with Clip-High (https://arxiv.org/pdf/2503.14476) and TIS (https://fengyao.notion.site/off-policy-rl)
+        """
 
         # log_z: (B, 1) → (B,)
         log_z = log_z.squeeze(-1)
@@ -518,14 +467,19 @@ class FlowRLActor(DataParallelPPOActor):
         log_w = verl_F.masked_sum(logpf - logpf_old, response_mask, axis=1)
         imp_w = torch.exp(log_w).detach()
 
-        # PPO-style clipping
-        imp_w = torch.clamp(imp_w, 1 - clip_ratio, 1 + clip_ratio)
+        # PPO-style clipping with separate clip_low and clip_high (asymmetric clipping)
+        clip_ratio_low = self.config.clip_ratio_low if hasattr(self.config, 'clip_ratio_low') else clip_ratio
+        clip_ratio_high = self.config.clip_ratio_high if hasattr(self.config, 'clip_ratio_high') else clip_ratio
+        imp_w = torch.clamp(imp_w, 1 - clip_ratio_low, 1 + clip_ratio_high)
 
-        # Truncated Importance Sampling (optional)
-        if tis_cap > 0 and rollout_log_probs is not None:
-            log_w_rollout = verl_F.masked_sum(old_log_prob - rollout_log_probs, response_mask, axis=1)
-            tis_ratio = torch.clamp(torch.exp(log_w_rollout).detach(), max=tis_cap)
-            imp_w = imp_w * tis_ratio
+        # Truncated Importance Sampling (optional) - applied at token level per official verl
+        if self.config.tis_imp_ratio_cap > 0 and rollout_log_probs is not None:
+            # Apply TIS at token level as in official verl implementation
+            tis_imp_ratio = torch.exp(logpf_old - rollout_log_probs)  # (B, response_length)
+            tis_imp_ratio = torch.clamp(tis_imp_ratio, max=self.config.tis_imp_ratio_cap)
+            # Aggregate to trajectory level for FlowRL
+            tis_ratio = verl_F.masked_mean(tis_imp_ratio, response_mask, axis=1)  # (B,)
+            imp_w = imp_w * tis_ratio.detach()
 
         # Loss: weighted squared residual
         weighted_losses = imp_w * (delta ** 2)
@@ -541,4 +495,7 @@ class FlowRLActor(DataParallelPPOActor):
             "actor/importance_weight": imp_w.mean().detach().item(),
         }
 
+        if self.config.tis_imp_ratio_cap > 0 and rollout_log_probs is not None:
+            loss_term_dict["actor/tis_ratio"] = tis_ratio.mean().detach().item()
+        
         return avg_loss, loss_term_dict

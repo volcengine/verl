@@ -5,7 +5,6 @@ project_name='FlowRL'
 exp_name='FlowRL-Plus-Qwen2.5-1.5B'
 
 # Algorithm settings
-# adv_estimator=flowrl
 adv_estimator=grpo
 
 # KL settings (ref policy needed for FlowRL, but KL penalty disabled)
@@ -36,8 +35,8 @@ enable_overlong_buffer=False  # Disabled for debugging
 # Loss aggregation
 loss_agg_mode="token-mean"
 
-# Filter groups - dynamic sampling (DISABLED FOR DEBUGGING)
-enable_filter_groups=False
+# Filter groups - dynamic sampling
+enable_filter_groups=True
 filter_groups_metric=acc
 max_num_gen_batches=10
 
@@ -82,9 +81,6 @@ gen_tp=1
 #   actor_rollout_ref.actor.tis_imp_ratio_cap=2.0
 #   actor_rollout_ref.rollout.calculate_log_probs=True
 
-
-# ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
-#     --working-dir "${WORKING_DIR}" \ -- 
     
 python3 -m recipe.flowrl.main_flowrl \
     data.train_files="${TRAIN_FILE}" \
