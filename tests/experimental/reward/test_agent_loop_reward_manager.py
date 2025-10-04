@@ -71,7 +71,7 @@ def test_agent_loop_reward_manager():
     config.reward_model.rollout.tensor_model_parallel_size = 2
     config.custom_reward_function.path = "recipe/fapo/reward_fn.py"
     config.custom_reward_function.name = "compute_score_fapo"
-    # config.reward_model.rollout.skip_tokenizer_init = True
+    config.reward_model.rollout.skip_tokenizer_init = True
 
     # 1. init reward model manager
     agent_loop_manager = AgentLoopManager(config)
@@ -89,7 +89,7 @@ def test_agent_loop_reward_manager():
         processor=None,
     )
 
-    batch_size = 128
+    batch_size = 256
     sampler = create_rl_sampler(config.data, dataset)
     dataloader = StatefulDataLoader(
         dataset=dataset,

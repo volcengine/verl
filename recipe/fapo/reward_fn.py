@@ -11,6 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import asyncio
+
 import ray
 from transformers import PreTrainedTokenizer
 
@@ -33,15 +35,13 @@ def verify(
 
 
 async def compute_score_baseline(
-    data_source: str,
     solution_str: str,
     ground_truth: str,
-    extra_info: dict,
-    **kwargs,
 ):
+    loop = asyncio.get_running_loop()
     """Compute the reward score for Baseline."""
     solution_str = solution_str[-300:]
-    correct, pred = verify(solution_str, ground_truth)
+    correct, pred = await loop.run_in_executor(None, lambda: verify(solution_str, ground_truth))
     reward_score = 1.0 if correct else -1.0
     return {"score": reward_score, "acc": correct, "pred": pred}
 
@@ -75,29 +75,37 @@ async def compute_score_fapo(
     reward_model_tokenizer: PreTrainedTokenizer,
 ):
     """Compute the reward score for FAPO."""
+    loop = asyncio.get_running_loop()
+
     question, split = extra_info["question"], extra_info["split"]
     solution_str = solution_str[-300:]
-    correct, pred = verify(solution_str, ground_truth)
+    correct, pred = await loop.run_in_executor(None, lambda: verify(solution_str, ground_truth))
     reward_score = 1.0 if correct else -1.0
+    is_flawed_positive = False
 
     # for test set or incorrect solution, directly return the reward score
     if split == "test" or not correct:
-        return {"score": reward_score, "acc": correct, "pred": pred}
+        return {"score": reward_score, "acc": correct, "pred": pred, "is_flawed_positive": is_flawed_positive}
 
     grm_prompt = FAPO_GENRM_TEMPLATE.format(
         problem=question,
         ground_truth=ground_truth,
         solution=solution_str,
     )
-    grm_prompt_ids = reward_model_tokenizer.apply_chat_template(
-        [{"role": "user", "content": grm_prompt}],
-        tokenize=True,
-        add_generation_prompt=True,
+    grm_prompt_ids = await loop.run_in_executor(
+        None,
+        lambda: reward_model_tokenizer.apply_chat_template(
+            [{"role": "user", "content": grm_prompt}],
+            tokenize=True,
+            add_generation_prompt=True,
+        ),
     )
     grm_outputs = await reward_model.generate.remote(prompt_ids=grm_prompt_ids, sampling_params=GRM_SAMPLING_PARAMS)
     grm_response_ids = grm_outputs.get("output_ids", None)
     if grm_response_ids is not None:
-        grm_response = reward_model_tokenizer.decode(grm_response_ids, skip_special_tokens=True)
+        grm_response = await loop.run_in_executor(
+            None, lambda: reward_model_tokenizer.decode(grm_response_ids, skip_special_tokens=True)
+        )
         try:
             err_location = remove_boxed(last_boxed_only_string(grm_response))
             is_flawed_positive = int(eval(err_location)) != -1
@@ -107,4 +115,4 @@ async def compute_score_fapo(
         if is_flawed_positive:
             reward_score -= FLAWED_REWARD_PENALTY
 
-    return {"score": reward_score, "acc": correct, "pred": pred}
+    return {"score": reward_score, "acc": correct, "pred": pred, "is_flawed_positive": is_flawed_positive}

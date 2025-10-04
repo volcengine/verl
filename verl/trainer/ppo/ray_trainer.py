@@ -746,9 +746,10 @@ class RayPPOTrainer:
             self.ref_policy_wg.init_model()
 
         self.rm_wg = None
-        if self.use_rm:
+        # initalization of rm_wg will be deprecated in the future
+        if self.use_rm and not self.config.reward_model.enable_resource_pool:
             self.rm_wg = all_wg["rm"]
-            # self.rm_wg.init_model()
+            self.rm_wg.init_model()
 
         # we should create rollout at the end so that vllm can have a better estimation of kv cache memory
         self.actor_rollout_wg = all_wg["actor_rollout"]

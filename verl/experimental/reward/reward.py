@@ -27,7 +27,7 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-@ray.remote(num_cpus=1)
+@ray.remote
 class RewardManagerWorker:
     def __init__(self, config: DictConfig, reward_model_handle: ray.actor.ActorHandle = None):
         self.config = config

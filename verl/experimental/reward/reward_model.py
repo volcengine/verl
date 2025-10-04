@@ -99,6 +99,7 @@ class RewardModelManager:
             router_port=router_port,
             worker_urls=worker_urls,
             balance_abs_threshold=4,
+            max_concurrent_requests=2000,
         )
         self.router_handle = router
 

@@ -31,23 +31,6 @@ logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-async def _read_async_response(resp: aiohttp.ClientResponse) -> dict[str, Any]:
-    if resp.status == 204 or (resp.content_length == 0):
-        return {}
-
-    try:
-        return await resp.json(content_type=None)
-    except Exception:
-        try:
-            text = await resp.text()
-        except Exception:
-            return {}
-        return {
-            "content_type": (resp.headers.get("Content-Type") or ""),
-            "text": text,
-        }
-
-
 @ray.remote
 class SGLangRouter:
     """Router for SGLang."""
@@ -59,21 +42,6 @@ class SGLangRouter:
         worker_urls: list[str],
         **kwargs,
     ):
-        """
-        Initialize the router.
-
-        Args:
-            router_ip (str): IP address of the router.
-            router_port (int): Port number of the router.
-            worker_urls (list[str]): List of worker URLs.
-            timeout (float, optional): Timeout for requests in seconds.
-            max_attempts (int, optional): Maximum number of retry attempts.
-            retry_delay (float, optional): Delay between retry attempts in seconds.
-            max_connections (int, optional): Maximum number of concurrent connections.
-            max_start_wait_time (float, optional): Maximum time to wait for router startup in seconds.
-            **kwargs: Additional keyword arguments.
-        """
-
         self.router_address = (
             f"[{router_ip}]:{router_port}" if is_valid_ipv6_address(router_ip) else f"{router_ip}:{router_port}"
         )
@@ -106,29 +74,20 @@ class SGLangRouter:
                 self.router_process.terminate()
                 raise RuntimeError(f"Router health check failed after {max_wait_time} seconds.")
 
-    async def _make_async_request(
+    async def generate(
         self,
-        endpoint: str,
-        payload: Optional[dict[str, Any]] = None,
-        method: str = "POST",
-    ) -> dict[str, Any]:
-        """Make an async HTTP request with retry logic and consistent error handling.
+        prompt_ids: torch.Tensor,
+        sampling_params: dict[str, Any],
+        image_data: Optional[list[Any]] = None,
+    ):
+        payload = {
+            "input_ids": prompt_ids,
+            "sampling_params": sampling_params,
+            "image_data": image_data,
+        }
 
-        Args:
-            endpoint (str): The API endpoint to call (without leading slash)
-            payload (Optional[Dict[str, Any]], optional): The JSON payload to send.
-                Defaults to empty dict if None.
-            method (str, optional): HTTP method to use. Defaults to "POST".
-
-        Returns:
-            Dict[str, Any]: The JSON response from the server
-
-        Raises:
-            aiohttp.ClientResponseError: If the HTTP request fails with a client/server error
-            RuntimeError: If all retry attempts are exhausted
-        """
-
-        url = f"http://{self.router_address}/{endpoint}"
+        payload = {k: v for k, v in payload.items() if v is not None}
+        url = f"http://{self.router_address}/generate"
         try:
             timeout = aiohttp.ClientTimeout(total=None)
             session = aiohttp.ClientSession(timeout=timeout)
@@ -145,18 +104,3 @@ class SGLangRouter:
                     return {}
         finally:
             await session.close()
-
-    async def generate(
-        self,
-        prompt_ids: torch.Tensor,
-        sampling_params: dict[str, Any],
-        image_data: Optional[list[Any]] = None,
-    ):
-        payload = {
-            "input_ids": prompt_ids,
-            "sampling_params": sampling_params,
-            "image_data": image_data,
-        }
-        payload = {k: v for k, v in payload.items() if v is not None}
-        responses = await self._make_async_request("generate", payload)
-        return responses
