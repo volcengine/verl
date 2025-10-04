@@ -32,6 +32,21 @@ def verify(
     return (pred == gt), pred
 
 
+async def compute_score_baseline(
+    data_source: str,
+    solution_str: str,
+    ground_truth: str,
+    extra_info: dict,
+    **kwargs,
+):
+    """Compute the reward score for Baseline."""
+    question, split = extra_info["question"], extra_info["split"]
+    solution_str = solution_str[-300:]
+    correct, pred = verify(solution_str, ground_truth)
+    reward_score = 1.0 if correct else -1.0
+    return {"score": reward_score, "acc": correct, "pred": pred}
+
+
 # FAPO Hyper-parameters
 FAPO_GENRM_TEMPLATE = (
     "The following is a math problem with its ground truth answer, along with an AI solution (split into steps):\n\n"
@@ -47,9 +62,6 @@ FAPO_GENRM_TEMPLATE = (
     "Please reason step by step, put your final answer (i.e., the index) in \\boxed{{}}."
 )
 GRM_SAMPLING_PARAMS = {
-    "temperature": 0.7,
-    "top_p": 0.8,
-    "top_k": 20,
     "max_new_tokens": 16384,
 }
 FLAWED_REWARD_PENALTY = 1.0
