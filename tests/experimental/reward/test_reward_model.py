@@ -128,7 +128,3 @@ def test_reward_model_manager():
         print("=" * 50 + "\n")
 
     ray.shutdown()
-
-
-if __name__ == "__main__":
-    test_reward_model_manager()

@@ -37,6 +37,7 @@ def verify(
 async def compute_score_baseline(
     solution_str: str,
     ground_truth: str,
+    **kwargs,
 ):
     loop = asyncio.get_running_loop()
     """Compute the reward score for Baseline."""
@@ -108,7 +109,7 @@ async def compute_score_fapo(
         )
         try:
             err_location = remove_boxed(last_boxed_only_string(grm_response))
-            is_flawed_positive = int(eval(err_location)) != -1
+            is_flawed_positive = int(err_location) != -1
         except Exception:
             is_flawed_positive = False
 

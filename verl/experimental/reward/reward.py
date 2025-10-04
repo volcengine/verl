@@ -39,10 +39,11 @@ class RewardManagerWorker:
         from .reward_loop import DAPORewardLoop
 
         input_tokenizer_local_path = copy_to_local(self.config.actor_rollout_ref.model.path)
-        reward_model_tokenizer_local_path = copy_to_local(self.config.reward_model.model.path)
-
         self.input_tokenizer = hf_tokenizer(input_tokenizer_local_path, trust_remote_code=True)
-        self.reward_model_tokenizer = hf_tokenizer(reward_model_tokenizer_local_path, trust_remote_code=True)
+        self.reward_model_tokenizer = None
+        if self.config.reward_model.enable:
+            reward_model_tokenizer_local_path = copy_to_local(self.config.reward_model.model.path)
+            self.reward_model_tokenizer = hf_tokenizer(reward_model_tokenizer_local_path, trust_remote_code=True)
         self.compute_score = get_custom_reward_fn(self.config)
         self.reward_fn = DAPORewardLoop(
             self.config, self.input_tokenizer, self.compute_score, self.reward_model_handle, self.reward_model_tokenizer

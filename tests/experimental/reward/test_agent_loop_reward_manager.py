@@ -38,10 +38,8 @@ def test_agent_loop_reward_manager():
     with initialize_config_dir(config_dir=os.path.abspath("recipe/fapo/config")):
         config = compose("rm_config")
 
-    # rollout_model_path = os.path.expanduser("~/models/Qwen/Qwen2.5-1.5B-Instruct")
-    rollout_model_path = "/mnt/hdfs/yyding/models/Qwen2.5-7B-Instruct"
-    # reward_model_path = os.path.expanduser("~/models/Qwen/Qwen3-1.7B")
-    reward_model_path = "/mnt/hdfs/yyding/models/FAPO-GenRM-4B"
+    rollout_model_path = os.path.expanduser("~/models/Qwen/Qwen2.5-1.5B-Instruct")
+    reward_model_path = os.path.expanduser("~/models/Qwen/Qwen3-1.7B")
 
     # actor_rollout_ref config
     config.data.return_raw_chat = True
@@ -77,9 +75,8 @@ def test_agent_loop_reward_manager():
     agent_loop_manager = AgentLoopManager(config)
 
     # 2. init test data
-    # local_folder = os.path.expanduser("~/data/gsm8k/")
-    # data_files = [os.path.join(local_folder, "train.parquet")]
-    data_files = ["/mnt/hdfs/yyding/data/dapo-test-full-boxed.parquet"]
+    local_folder = os.path.expanduser("~/data/math/")
+    data_files = [os.path.join(local_folder, "train.parquet")]
     tokenizer = AutoTokenizer.from_pretrained(rollout_model_path)
 
     dataset = RLHFDataset(
@@ -110,7 +107,3 @@ def test_agent_loop_reward_manager():
     print(sample_scores)
 
     ray.shutdown()
-
-
-if __name__ == "__main__":
-    test_agent_loop_reward_manager()
