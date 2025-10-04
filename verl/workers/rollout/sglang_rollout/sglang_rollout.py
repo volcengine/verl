@@ -227,8 +227,8 @@ def get_tool_call_parser_type(
 ) -> str:
     items = FunctionCallParser.ToolCallParserEnum.items()
     if "gpt-oss" in getattr(processing_class, "name_or_path", "").lower():
-        logger.info(f"gpt-oss found in processing_class.name_or_path: {processing_class.name_or_path}")
-        logger.info(f"use gpt-oss tool call parser")
+        logger.debug(f"gpt-oss model detected from name_or_path: {processing_class.name_or_path}")
+        logger.debug("Using 'gpt-oss' tool call parser.")
         return "gpt-oss"
     for parser_type, parser_cls in items:
         parser = parser_cls()
