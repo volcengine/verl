@@ -45,20 +45,28 @@ from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import AdvantageEstimator, agg_loss
 from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
+    compute_raw_reward_metrics,
     compute_throughout_metrics,
     compute_timing_metrics,
     process_validation_metrics,
 )
-from verl.trainer.ppo.reward import compute_reward, compute_reward_async
-from verl.trainer.ppo.utils import Role, WorkerType, need_critic, need_reference_policy, need_reward_model
+from verl.trainer.ppo.reward import compute_reward, compute_reward_async, extract_reward_extra_infos
+from verl.trainer.ppo.utils import (
+    Role,
+    WorkerType,
+    need_critic,
+    need_reference_policy,
+    need_reward_model,
+)
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.debug import marked_timer
+from verl.utils.filtering.dynamic_filtering import DynamicFilter
 from verl.utils.metric import reduce_metrics
 from verl.utils.rollout_skip import RolloutSkip
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
-from verl.utils.tracking import ValidationGenerationsLogger
+from verl.utils.tracking import Tracking, ValidationGenerationsLogger
 
 
 @dataclass
@@ -337,6 +345,12 @@ class RayPPOTrainer:
         # kl loss control currently not suppoorted
         if self.config.algorithm.use_kl_in_reward:
             self.kl_ctrl_in_reward = core_algos.get_kl_controller(self.config.algorithm.kl_ctrl)
+
+        self.dynamic_filter = (
+            DynamicFilter(config=self.config)
+            if self.config.algorithm.filter_groups and self.config.algorithm.filter_groups.enable
+            else None
+        )
 
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
 
@@ -927,15 +941,12 @@ class RayPPOTrainer:
         """
         from omegaconf import OmegaConf
 
-        from verl.utils.tracking import Tracking
-
         logger = Tracking(
             project_name=self.config.trainer.project_name,
             experiment_name=self.config.trainer.experiment_name,
             default_backend=self.config.trainer.logger,
             config=OmegaConf.to_container(self.config, resolve=True),
         )
-
         self.global_steps = 0
 
         # load checkpoint before doing anything
@@ -975,6 +986,10 @@ class RayPPOTrainer:
             for batch_dict in self.train_dataloader:
                 metrics = {}
                 timing_raw = {}
+
+                # dynamic filter
+                if self.dynamic_filter:
+                    self.dynamic_filter.increment_gen_batches()
 
                 with marked_timer("start_profile", timing_raw):
                     self._start_profiling(
@@ -1033,6 +1048,51 @@ class RayPPOTrainer:
 
                     if "response_mask" not in batch.batch.keys():
                         batch.batch["response_mask"] = compute_response_mask(batch)
+
+                    # Compute all reward scores in one consolidated block
+                    with marked_timer("reward", timing_raw, color="yellow"):
+                        # compute reward model score
+                        if self.use_rm and "rm_scores" not in batch.batch.keys():
+                            reward_tensor = self.rm_wg.compute_rm_score(batch)
+                            batch = batch.union(reward_tensor)
+
+                        # compute reward function score
+                        reward_extra_infos_dict = {}
+                        if self.config.reward_model.launch_reward_fn_async:
+                            future_reward = compute_reward_async.remote(data=batch, reward_fn=self.reward_fn)
+                        else:
+                            reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
+                            # Set token_level_scores immediately for sync case (needed for compute_raw_reward_metrics)
+                            batch.batch["token_level_scores"] = reward_tensor
+
+                            if reward_extra_infos_dict:
+                                batch.non_tensor_batch.update(
+                                    {k: np.array(v) for k, v in reward_extra_infos_dict.items()}
+                                )
+
+                    # Apply dynamic filtering after reward computation
+                    if self.dynamic_filter:
+                        # Compute reward metrics from the FIRST generation batch (BEFORE filtering)
+                        # These metrics capture the raw reward distribution of ALL generated responses,
+                        # including those that will be filtered out by dynamic filtering (DAPO).
+                        # This provides insight into the reward signal quality before diversity filtering.
+                        # NOTE: compute_raw_reward_metrics() produces "before_filtering/reward/*" metrics
+                        # to distinguish them from "critic/rewards/*" metrics computed later after filtering.
+                        if self.dynamic_filter.increment_reward_step(self.global_steps):
+                            reward_metrics = compute_raw_reward_metrics(batch)
+                            metrics.update(reward_metrics)
+
+                        # Apply dynamic filtering and handle batch accumulation
+                        processed_batch, should_continue = self.dynamic_filter.process_batch_with_filtering(
+                            batch,
+                            self.config,
+                        )
+
+                        if should_continue:
+                            continue
+
+                        batch = processed_batch
+
                     # Balance the number of valid tokens across DP ranks.
                     # NOTE: This usually changes the order of data in the `batch`,
                     # which won't affect the advantage calculation (since it's based on uid),
@@ -1043,17 +1103,6 @@ class RayPPOTrainer:
 
                     # compute global_valid tokens
                     batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
-
-                    with marked_timer("reward", timing_raw, color="yellow"):
-                        # compute reward model score
-                        if self.use_rm and "rm_scores" not in batch.batch.keys():
-                            reward_tensor = self.rm_wg.compute_rm_score(batch)
-                            batch = batch.union(reward_tensor)
-
-                        if self.config.reward_model.launch_reward_fn_async:
-                            future_reward = compute_reward_async.remote(data=batch, reward_fn=self.reward_fn)
-                        else:
-                            reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
 
                     # recompute old_log_probs
                     with marked_timer("old_log_prob", timing_raw, color="blue"):
@@ -1090,14 +1139,16 @@ class RayPPOTrainer:
 
                     with marked_timer("adv", timing_raw, color="brown"):
                         # we combine with rule-based rm
-                        reward_extra_infos_dict: dict[str, list]
                         if self.config.reward_model.launch_reward_fn_async:
                             reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
-                        batch.batch["token_level_scores"] = reward_tensor
+                            # Set token_level_scores for async case
+                            batch.batch["token_level_scores"] = reward_tensor
 
-                        if reward_extra_infos_dict:
-                            batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
-
+                            if reward_extra_infos_dict:
+                                batch.non_tensor_batch.update(
+                                    {k: np.array(v) for k, v in reward_extra_infos_dict.items()}
+                                )
+                            # For sync case, token_level_scores and extra_infos are already set above
                         # compute rewards. apply_kl_penalty if available
                         if self.config.algorithm.use_kl_in_reward:
                             batch, kl_metrics = apply_kl_penalty(
@@ -1141,6 +1192,33 @@ class RayPPOTrainer:
                     # Log rollout generations if enabled
                     rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)
                     if rollout_data_dir:
+                        with marked_timer("dump_rollout_generations", timing_raw, color="green"):
+                            inputs = self.tokenizer.batch_decode(batch.batch["prompts"], skip_special_tokens=True)
+                            outputs = self.tokenizer.batch_decode(batch.batch["responses"], skip_special_tokens=True)
+                            scores = batch.batch["token_level_scores"].sum(-1).cpu().tolist()
+                            sample_gts = [
+                                item.non_tensor_batch.get("reward_model", {}).get("ground_truth", None)
+                                for item in batch
+                            ]
+
+                            reward_extra_infos_dict = extract_reward_extra_infos(
+                                batch, set(reward_extra_infos_dict.keys())
+                            )
+
+                            if "request_id" in batch.non_tensor_batch:
+                                reward_extra_infos_dict.setdefault(
+                                    "request_id",
+                                    batch.non_tensor_batch["request_id"].tolist(),
+                                )
+
+                            self._dump_generations(
+                                inputs=inputs,
+                                outputs=outputs,
+                                gts=sample_gts,
+                                scores=scores,
+                                reward_extra_infos_dict=reward_extra_infos_dict,
+                                dump_path=rollout_data_dir,
+                            )
                         self._log_rollout_data(batch, reward_extra_infos_dict, timing_raw, rollout_data_dir)
 
                 # validate
@@ -1215,6 +1293,10 @@ class RayPPOTrainer:
 
                 progress_bar.update(1)
                 self.global_steps += 1
+
+                # Reset dynamic filter state for next training step
+                if self.dynamic_filter:
+                    self.dynamic_filter.clear()
 
                 if (
                     hasattr(self.config.actor_rollout_ref.actor, "profiler")
