@@ -73,6 +73,7 @@ permissions:
 
 jobs:
   checkpoint_converter:
+    if: github.repository_owner == 'volcengine'
     runs-on: [L20x8]
     timeout-minutes: 20 # Increase this timeout value as needed
     env:
@@ -107,6 +108,7 @@ jobs:
         run: |
           rm -rf checkpoints
   checkpoint_converter_large_moe_models:
+    if: github.repository_owner == 'volcengine'
     runs-on: [L20x8]
     timeout-minutes: 30 # Increase this timeout value as needed
     env:
