@@ -412,12 +412,12 @@ class FlowRLActorRolloutRefWorker(ActorRolloutRefWorker):
         return actor_module_fsdp, actor_optimizer, actor_lr_scheduler, actor_model_config
 
     
-
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
         """Override init_model to use FlowRLActor instead of DataParallelPPOActor."""
         # Call parent's init_model to set up the FSDP model (with proj_z already added)
         super().init_model()
-
+        
         # Replace the actor with FlowRLActor if this worker is an actor
         if self._is_actor:
             if self.rank == 0:

@@ -70,7 +70,8 @@ class FlowRLActor(DataParallelPPOActor):
 
     def __init__(self, config, *args, **kwargs):
         super().__init__(config, *args, **kwargs)
-        self.flowrl_beta_coef = getattr(config.algorithm, 'flowrl_beta_coef', 15.0)
+        # FlowRL hyperparameters (hardcoded as per paper)
+        self.flowrl_beta_coef = 15.0  # β coefficient for reward scaling in flowrl loss
 
     def _forward_micro_batch(
         self, micro_batch, temperature, calculate_entropy=False, return_log_z=False
@@ -160,6 +161,7 @@ class FlowRLActor(DataParallelPPOActor):
                     input_ids=input_ids_rmpad,
                     attention_mask=None,
                     position_ids=position_ids_rmpad,
+                    output_hidden_states=True if return_log_z else False,  # FlowRL: for log_z estimation
                     **multi_modal_inputs,
                     use_cache=False,
                     **extra_args,
@@ -238,6 +240,7 @@ class FlowRLActor(DataParallelPPOActor):
                     input_ids=input_ids,
                     attention_mask=attention_mask,
                     position_ids=position_ids,
+                    output_hidden_states=True if return_log_z else False,  # FlowRL: for log_z estimation
                     **multi_modal_inputs,
                     use_cache=False,
                     **extra_args,
@@ -279,9 +282,8 @@ class FlowRLActor(DataParallelPPOActor):
                 avg_hidden = verl_F.masked_mean(prompts_last_hidden, prompt_attention_mask.unsqueeze(-1), axis=1)
 
                 log_z = self.actor_module.proj_z(avg_hidden) 
-
-                return entropy, log_probs, log_z
                 
+                return entropy, log_probs, log_z
             else:
                 return entropy, log_probs
 
@@ -484,6 +486,59 @@ class FlowRLActor(DataParallelPPOActor):
             "actor/log_reward": verl_F.masked_mean(reward, response_mask).detach().item(),
             "actor/tb_loss": avg_loss.detach().item(),
             "actor/importance_weight": importance_weight.mean().detach().item(),
+        }
+        return avg_loss, loss_term_dict
+    
+    def compute_flowrl_objective(
+        self,
+        logpf=None,
+        logf_ref=None,
+        logpf_old=None,
+        log_z=None,
+        reward=None,
+        response_mask=None,
+        clip_ratio=None,
+        rollout_log_probs=None,
+        tis_cap: float = 0.0,
+    ):
+        """Compute FlowRL trajectory balance loss with clipping and optional TIS."""
+
+        # log_z: (B, 1) → (B,)
+        log_z = log_z.squeeze(-1)
+
+        # Average token log-probs & rewards over valid positions
+        avg_logpf = verl_F.masked_mean(logpf, response_mask, axis=1)
+        avg_logp_ref = verl_F.masked_mean(logf_ref, response_mask, axis=1)
+        seq_log_reward = verl_F.masked_mean(reward, response_mask, axis=1)
+
+        # Trajectory Balance residual: logZ + logpf - β*R - logpref
+        delta = log_z + avg_logpf - self.flowrl_beta_coef * seq_log_reward - avg_logp_ref
+
+        # Importance ratio from current vs old policy (trajectory level)
+        log_w = verl_F.masked_sum(logpf - logpf_old, response_mask, axis=1)
+        imp_w = torch.exp(log_w).detach()
+
+        # PPO-style clipping
+        imp_w = torch.clamp(imp_w, 1 - clip_ratio, 1 + clip_ratio)
+
+        # Truncated Importance Sampling (optional)
+        if tis_cap > 0 and rollout_log_probs is not None:
+            log_w_rollout = verl_F.masked_sum(old_log_prob - rollout_log_probs, response_mask, axis=1)
+            tis_ratio = torch.clamp(torch.exp(log_w_rollout).detach(), max=tis_cap)
+            imp_w = imp_w * tis_ratio
+
+        # Loss: weighted squared residual
+        weighted_losses = imp_w * (delta ** 2)
+        avg_loss = torch.mean(weighted_losses)
+
+        # Metrics
+        loss_term_dict = {
+            "actor/logpf": verl_F.masked_mean(logpf, response_mask).detach().item(),
+            "actor/logp_ref": verl_F.masked_mean(logf_ref, response_mask).detach().item(),
+            "actor/log_z": log_z.mean().detach().item(),
+            "actor/log_reward": verl_F.masked_mean(reward, response_mask).detach().item(),
+            "actor/tb_loss": avg_loss.detach().item(),
+            "actor/importance_weight": imp_w.mean().detach().item(),
         }
 
         return avg_loss, loss_term_dict
