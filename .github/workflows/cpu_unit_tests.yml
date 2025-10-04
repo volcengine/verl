@@ -59,6 +59,7 @@ permissions:
 
 jobs:
   cpu_unit_tests:
+    if: github.repository_owner == 'volcengine'
     runs-on: [L20x8]
     timeout-minutes: 20 # Increase this timeout value as needed
     env:
