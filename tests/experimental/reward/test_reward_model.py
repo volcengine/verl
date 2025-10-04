@@ -14,10 +14,11 @@
 import os
 
 import ray
+from hydra import compose, initialize_config_dir
+from transformers import AutoTokenizer
 
 from verl.experimental.reward import RewardModelManager
 from verl.protocol import DataProto
-from verl.workers.config import HFModelConfig, RewardModelConfig, RolloutConfig
 
 GRM_PROMPT_TEMPLATE = """
 You are given a problem and a proposed solution.
@@ -87,30 +88,27 @@ def test_reward_model_manager():
             }
         }
     )
+    with initialize_config_dir(config_dir=os.path.abspath("recipe/fapo/config")):
+        config = compose("rm_config")
 
     model_path = os.path.expanduser("~/models/Qwen/Qwen3-1.7B")
 
-    model_config = HFModelConfig(path=model_path)
-    reward_rollout_config = RolloutConfig(
-        name="sglang",
-        gpu_memory_utilization=0.9,
-        tensor_model_parallel_size=2,
-        skip_tokenizer_init=True,
-    )
-    reward_model_config = RewardModelConfig(
-        reward_manager="dapo",
-        enable=True,
-        nnodes=1,
-        n_gpus_per_node=4,
-        model=model_config,
-        rollout=reward_rollout_config,
-    )
+    config.reward_model.reward_manager = "dapo"
+    config.reward_model.enable = True
+    config.reward_model.enable_resource_pool = True
+    config.reward_model.n_gpus_per_node = 8
+    config.reward_model.nnodes = 1
+    config.reward_model.model.path = model_path
+    config.reward_model.rollout.name = "sglang"
+    config.reward_model.rollout.gpu_memory_utilization = 0.9
+    config.reward_model.rollout.tensor_model_parallel_size = 2
+    config.reward_model.rollout.skip_tokenizer_init = True
 
     # 1. init reward model manager
-    reward_model_manager = RewardModelManager(reward_model_config)
+    reward_model_manager = RewardModelManager(config.reward_model)
 
     # 2. init test data
-    tokenizer = model_config.get_processor()
+    tokenizer = AutoTokenizer.from_pretrained(model_path)
     convs, prompts = create_data_samples(tokenizer=tokenizer)
 
     # 3. generate responses
@@ -130,3 +128,7 @@ def test_reward_model_manager():
         print("=" * 50 + "\n")
 
     ray.shutdown()
+
+
+if __name__ == "__main__":
+    test_reward_model_manager()

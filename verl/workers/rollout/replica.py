@@ -132,12 +132,17 @@ class RolloutReplica(ABC):
         """Init standalone rollout server, create new resource pool for this rollout."""
         # create resource pool for this rollout
         self.rollout_mode = RolloutMode.STANDALONE
+        resource_pool_name = (
+            f"rollout_pool_{self.replica_rank}"
+            if self.is_reward_model
+            else f"rollout_pool_reward_{self.replica_rank}"
+        )
         resource_pool_spec = {
-            f"rollout_pool_{self.replica_rank}": [self.gpus_per_node] * self.nnodes,
+            resource_pool_name: [self.gpus_per_node] * self.nnodes,
         }
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=None)
         resource_pool_manager.create_resource_pool()
-        self.resource_pool = resource_pool_manager.resource_pool_dict[f"rollout_pool_{self.replica_rank}"]
+        self.resource_pool = resource_pool_manager.resource_pool_dict[resource_pool_name]
 
         # create worker group for this rollout
 

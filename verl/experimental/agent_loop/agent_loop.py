@@ -628,7 +628,7 @@ class AgentLoopManager:
         self.worker_group = worker_group
         self.reward_model_manager = None
         self.reward_model_handle = None
-        if rm_wg:
+        if self.config.reward_model.enable:
             from verl.experimental.reward import RewardModelManager
 
             self.reward_model_manager = RewardModelManager(config.reward_model, rm_wg)

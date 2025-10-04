@@ -40,7 +40,6 @@ async def compute_score_baseline(
     **kwargs,
 ):
     """Compute the reward score for Baseline."""
-    question, split = extra_info["question"], extra_info["split"]
     solution_str = solution_str[-300:]
     correct, pred = verify(solution_str, ground_truth)
     reward_score = 1.0 if correct else -1.0
