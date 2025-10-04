@@ -20,7 +20,6 @@ from transformers import AutoTokenizer
 
 from verl.experimental.agent_loop import AgentLoopManager
 from verl.protocol import DataProto
-from verl.workers.config import HFModelConfig, RewardModelConfig, RolloutConfig
 from verl.trainer.main_ppo import create_rl_sampler
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
 
@@ -74,7 +73,6 @@ def test_agent_loop_reward_manager():
     config.custom_reward_function.name = "compute_score_fapo"
     # config.reward_model.rollout.skip_tokenizer_init = True
 
-
     # 1. init reward model manager
     agent_loop_manager = AgentLoopManager(config)
 
@@ -112,6 +110,7 @@ def test_agent_loop_reward_manager():
     print(sample_scores)
 
     ray.shutdown()
+
 
 if __name__ == "__main__":
     test_agent_loop_reward_manager()

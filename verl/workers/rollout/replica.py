@@ -133,9 +133,7 @@ class RolloutReplica(ABC):
         # create resource pool for this rollout
         self.rollout_mode = RolloutMode.STANDALONE
         resource_pool_name = (
-            f"rollout_pool_{self.replica_rank}"
-            if self.is_reward_model
-            else f"rollout_pool_reward_{self.replica_rank}"
+            f"rollout_pool_{self.replica_rank}" if self.is_reward_model else f"rollout_pool_reward_{self.replica_rank}"
         )
         resource_pool_spec = {
             resource_pool_name: [self.gpus_per_node] * self.nnodes,
