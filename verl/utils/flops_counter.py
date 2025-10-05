@@ -141,7 +141,7 @@ class FlopsCounter:
             "apertus": self._estimate_apertus_flops,
             "glm4v": self._estimate_qwen2_flops,
         }
-        self.config = config
+        self.config = getattr(config, "text_config", config)
 
     def _estimate_unknown_flops(self, tokens_sum, batch_seqlens, delta_time):
         return 0
