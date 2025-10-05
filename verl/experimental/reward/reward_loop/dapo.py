@@ -49,13 +49,19 @@ class DAPORewardLoop(RewardLoopBase):
             )
 
     async def run_single(self, data: DataProto) -> dict:
-        data_source = data.non_tensor_batch["data_source"].tolist()[0]
-        response_ids = data.batch["responses"].tolist()[0]
-        ground_truth = data.non_tensor_batch["reward_model"].tolist()[0]["ground_truth"]
-        extra_info = data.non_tensor_batch["extra_info"].tolist()[0]
+        assert len(data) == 1, "Only support single data item"
+        data_item = data[0]
+        response_ids = data_item.batch["responses"]
+        response_length = response_ids.shape[-1]
+        valid_response_length = data_item.batch["attention_mask"][-response_length:].sum()
+        valid_response_ids = response_ids[:valid_response_length]
+
+        data_source = data_item.non_tensor_batch["data_source"].tolist()
+        ground_truth = data_item.non_tensor_batch["reward_model"].tolist()["ground_truth"]
+        extra_info = data_item.non_tensor_batch["extra_info"].tolist()
 
         response_str = await self.loop.run_in_executor(
-            None, lambda: self.tokenizer.decode(response_ids, skip_special_tokens=True)
+            None, lambda: self.tokenizer.decode(valid_response_ids, skip_special_tokens=True)
         )
         result = await self.compute_score(
             data_source=data_source,
@@ -79,10 +85,9 @@ class DAPORewardLoop(RewardLoopBase):
         reward = score
 
         if self.overlong_buffer_cfg is not None and self.overlong_buffer_cfg.enable:
-            response_length = len(response_ids)
             overlong_buffer_len = self.overlong_buffer_cfg.len
             expected_len = self.max_resp_len - overlong_buffer_len
-            exceed_len = response_length - expected_len
+            exceed_len = valid_response_length - expected_len
             overlong_penalty_factor = self.overlong_buffer_cfg.penalty_factor
             overlong_reward = min(-exceed_len / overlong_buffer_len * overlong_penalty_factor, 0)
             reward += overlong_reward

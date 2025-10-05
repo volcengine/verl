@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -xeuo pipefail
 
-project_name='VERL-DEV'
-exp_name='GRM'
+project_name='FAPO-Reproduce'
+exp_name='FAPO-7B'
 
 adv_estimator=grpo
 
@@ -47,13 +47,13 @@ top_k=-1 # 0 for HF rollout, -1 for vLLM rollout
 val_top_p=0.7
 
 # Performance Related Parameter
-sp_size=2
+sp_size=1
 use_dynamic_bsz=True
 actor_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 2))
 infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 3))
 offload=True
 gen_tp=1
-fsdp_size=-1
+fsdp_size=8
 
 PROJECT_DIR="$(pwd)"
 CONFIG_PATH="$PROJECT_DIR/recipe/fapo/config"
@@ -88,7 +88,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=${actor_ppo_max_token_len} \
     actor_rollout_ref.ref.log_prob_max_token_len_per_gpu=${infer_ppo_max_token_len} \
     actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=${infer_ppo_max_token_len} \
-    actor_rollout_ref.rollout.name=sglang \
+    actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.mode=async \
     actor_rollout_ref.model.path="${MODEL_PATH}" \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
@@ -121,9 +121,9 @@ python3 -m verl.trainer.main_ppo \
     reward_model.enable_resource_pool=True \
     reward_model.n_gpus_per_node=8 \
     reward_model.nnodes="${RM_NODES}" \
-    reward_model.model.path=xxxxxx \
+    reward_model.model.path=/mnt/hdfs/yyding/ckpts/MERGED_HF_MODEL/Qwen3-4B-Ins-GenRM-Step50 \
     reward_model.rollout.name=sglang \
-    reward_model.rollout.gpu_memory_utilization=0.9 \
+    reward_model.rollout.gpu_memory_utilization=0.95 \
     reward_model.rollout.tensor_model_parallel_size=1 \
     reward_model.rollout.free_cache_engine=False \
     reward_model.reward_manager=dapo \
@@ -141,10 +141,9 @@ python3 -m verl.trainer.main_ppo \
     trainer.nnodes="${NNODES}" \
     trainer.val_before_train=True \
     trainer.test_freq=10 \
-    trainer.save_freq=10 \
+    trainer.save_freq=-1 \
     trainer.total_epochs=10 \
     trainer.total_training_steps=200 \
     trainer.default_local_dir="${CKPTS_DIR}" \
     trainer.resume_mode=auto \
     trainer.log_val_generations=10
-

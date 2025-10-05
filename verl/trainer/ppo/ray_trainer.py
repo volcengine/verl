@@ -747,7 +747,7 @@ class RayPPOTrainer:
 
         self.rm_wg = None
         # initalization of rm_wg will be deprecated in the future
-        if self.use_rm and not self.config.reward_model.enable_resource_pool:
+        if self.use_rm:
             self.rm_wg = all_wg["rm"]
             self.rm_wg.init_model()
 
