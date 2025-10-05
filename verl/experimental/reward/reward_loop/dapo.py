@@ -56,9 +56,9 @@ class DAPORewardLoop(RewardLoopBase):
         valid_response_length = data_item.batch["attention_mask"][-response_length:].sum()
         valid_response_ids = response_ids[:valid_response_length]
 
-        data_source = data_item.non_tensor_batch["data_source"].tolist()
-        ground_truth = data_item.non_tensor_batch["reward_model"].tolist()["ground_truth"]
-        extra_info = data_item.non_tensor_batch["extra_info"].tolist()
+        data_source = data_item.non_tensor_batch["data_source"]
+        ground_truth = data_item.non_tensor_batch["reward_model"]["ground_truth"]
+        extra_info = data_item.non_tensor_batch.get("extra_info", {})
 
         response_str = await self.loop.run_in_executor(
             None, lambda: self.tokenizer.decode(valid_response_ids, skip_special_tokens=True)

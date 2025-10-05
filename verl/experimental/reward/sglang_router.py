@@ -49,6 +49,7 @@ class SGLangRouter:
             host=router_ip,
             port=router_port,
             worker_urls=worker_urls,
+            log_level="debug",
             **kwargs,
         )
         self.router_process = multiprocessing.Process(target=launch_router, args=(router_args,))
