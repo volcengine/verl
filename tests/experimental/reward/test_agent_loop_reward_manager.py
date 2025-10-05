@@ -67,15 +67,13 @@ def test_agent_loop_reward_manager():
     config.reward_model.rollout.name = "sglang"
     config.reward_model.rollout.gpu_memory_utilization = 0.9
     config.reward_model.rollout.tensor_model_parallel_size = 2
-    config.custom_reward_function.path = "recipe/fapo/reward_fn.py"
-    config.custom_reward_function.name = "compute_score_fapo"
     config.reward_model.rollout.skip_tokenizer_init = True
 
     # 1. init reward model manager
     agent_loop_manager = AgentLoopManager(config)
 
     # 2. init test data
-    local_folder = os.path.expanduser("~/data/math/")
+    local_folder = os.path.expanduser("~/data/gsm8k/")
     data_files = [os.path.join(local_folder, "train.parquet")]
     tokenizer = AutoTokenizer.from_pretrained(rollout_model_path)
 

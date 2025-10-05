@@ -17,6 +17,7 @@ import logging
 import os
 
 from verl import DataProto
+from verl.utils.reward_score import default_compute_score
 
 from .base import RewardLoopBase
 
@@ -27,13 +28,12 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 class DAPORewardLoop(RewardLoopBase):
     """Reward loop for DAPO."""
 
-    def __init__(self, config, tokenizer, compute_score, reward_model=None, reward_model_tokenizer=None):
-        super().__init__(config, tokenizer, compute_score)
+    def __init__(self, config, tokenizer, compute_score=None, reward_model=None, reward_model_tokenizer=None):
+        super().__init__(config, tokenizer)
+        self.compute_score = compute_score or default_compute_score
+        self.is_async_reward_score = inspect.iscoroutinefunction(self.compute_score)
 
-        assert inspect.iscoroutinefunction(self.compute_score), (
-            f"compute_score must be a coroutine function, but got {self.compute_score}"
-        )
-
+        # DAPO Reward Config
         overlong_buffer_cfg = config.reward_model.get("reward_kwargs", {}).get("overlong_buffer_cfg", None)
         self.overlong_buffer_cfg = overlong_buffer_cfg
         self.max_resp_len = config.reward_model.get("reward_kwargs", {}).get("max_resp_len", None)
@@ -63,14 +63,27 @@ class DAPORewardLoop(RewardLoopBase):
         response_str = await self.loop.run_in_executor(
             None, lambda: self.tokenizer.decode(valid_response_ids, skip_special_tokens=True)
         )
-        result = await self.compute_score(
-            data_source=data_source,
-            solution_str=response_str,
-            ground_truth=ground_truth,
-            extra_info=extra_info,
-            reward_model=self.reward_model,
-            reward_model_tokenizer=self.reward_model_tokenizer,
-        )
+        if self.is_async_reward_score:
+            result = await self.compute_score(
+                data_source=data_source,
+                solution_str=response_str,
+                ground_truth=ground_truth,
+                extra_info=extra_info,
+                reward_model=self.reward_model,
+                reward_model_tokenizer=self.reward_model_tokenizer,
+            )
+        else:
+            result = await self.loop.run_in_executor(
+                None,
+                lambda: self.compute_score(
+                    data_source=data_source,
+                    solution_str=response_str,
+                    ground_truth=ground_truth,
+                    extra_info=extra_info,
+                    reward_model=self.reward_model,
+                    reward_model_tokenizer=self.reward_model_tokenizer,
+                ),
+            )
 
         reward_extra_info = {}
 
@@ -81,6 +94,7 @@ class DAPORewardLoop(RewardLoopBase):
                 reward_extra_info[key] = value
         else:
             score = result
+            reward_extra_info["acc"] = score
 
         reward = score
 

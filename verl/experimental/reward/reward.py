@@ -44,10 +44,10 @@ class RewardManagerWorker:
         if self.config.reward_model.enable:
             reward_model_tokenizer_local_path = copy_to_local(self.config.reward_model.model.path)
             self.reward_model_tokenizer = hf_tokenizer(reward_model_tokenizer_local_path, trust_remote_code=True)
-        self.compute_score = get_custom_reward_fn(self.config)
-        self.reward_fn = DAPORewardLoop(
-            self.config, self.input_tokenizer, self.compute_score, self.reward_model_handle, self.reward_model_tokenizer
+        self.reward_fn = get_custom_reward_fn(self.config)
+        self.reward_loop = DAPORewardLoop(
+            self.config, self.input_tokenizer, self.reward_fn, self.reward_model_handle, self.reward_model_tokenizer
         )
 
     async def compute_score(self, data: DataProto) -> DataProto:
-        return await self.reward_fn.run_single(data)
+        return await self.reward_loop.run_single(data)

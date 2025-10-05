@@ -29,7 +29,7 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 class RewardLoopBase(ABC):
     _class_initialized = False
 
-    def __init__(self, config: DictConfig, tokenizer: AutoTokenizer, compute_score):
+    def __init__(self, config: DictConfig, tokenizer: AutoTokenizer):
         """Initialize agent loop.
 
         Args:
@@ -38,12 +38,11 @@ class RewardLoopBase(ABC):
         """
         self.config = config
         self.tokenizer = tokenizer
-        self.compute_score = compute_score
         self.loop = asyncio.get_running_loop()
-        self.init_class(config, tokenizer, compute_score)
+        self.init_class(config, tokenizer)
 
     @classmethod
-    def init_class(cls, config: DictConfig, tokenizer: AutoTokenizer, compute_score):
+    def init_class(cls, config: DictConfig, tokenizer: AutoTokenizer):
         """Initialize class state shared across all instances."""
         if cls._class_initialized:
             return

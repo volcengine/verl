@@ -24,8 +24,6 @@ from verl.workers.config import HFModelConfig, RewardModelConfig
 from verl.workers.rollout.replica import get_rollout_replica_class
 from verl.workers.rollout.utils import get_free_port
 
-from .sglang_router import SGLangRouter
-
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
@@ -87,6 +85,8 @@ class RewardModelManager:
 
         # current implementation only support sglang
         assert self.config.rollout.name == "sglang", "Only sglang is supported now"
+
+        from .sglang_router import SGLangRouter
 
         router = SGLangRouter.options(
             name="reward_model_router",

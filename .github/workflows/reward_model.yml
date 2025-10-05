@@ -101,6 +101,11 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install -e .[test]
+          pip3 install sglang-router
+      - name: Prepare gsm8k dataset
+        run: |
+          ray stop --force
+          python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
       - name: Running reward model tests on 8 L20 GPUs
         run: |
           unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
