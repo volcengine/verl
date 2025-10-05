@@ -589,7 +589,7 @@ class AgentLoopWorker:
                 video_grid_thw = multi_modal_inputs.get("video_grid_thw")
                 second_per_grid_ts = multi_modal_inputs.get("second_per_grid_ts")
 
-                position_ids = get_rope_index(
+                vision_position_ids = get_rope_index(
                     self.processor,
                     input_ids=input_ids.squeeze(0),
                     image_grid_thw=image_grid_thw,
@@ -597,6 +597,12 @@ class AgentLoopWorker:
                     second_per_grid_ts=second_per_grid_ts,
                     attention_mask=attention_mask.squeeze(0),
                 ).unsqueeze(0)  # (1, 3, seq_len)
+
+                valid_mask = attention_mask[0].bool()
+                text_position_ids = torch.ones((1, len(input_ids[0])), dtype=torch.long)
+                text_position_ids[0, valid_mask] = torch.arange(valid_mask.sum().item())
+                text_position_ids = text_position_ids.unsqueeze(0)
+                position_ids = torch.cat((text_position_ids, vision_position_ids), dim=1)  # (1, 4, seq_length)
             else:
                 position_ids = compute_position_id_with_mask(attention_mask)  # (1, seq_len)
             enable_async_reward = (
