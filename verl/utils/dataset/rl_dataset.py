@@ -256,7 +256,7 @@ class RLHFDataset(Dataset):
                 multi_modal_data["video"] = [video.numpy() for video in videos]
 
             model_inputs = self.processor(
-                text=[raw_prompt.removeprefix(self.tokenizer.bos_token)],
+                text=[raw_prompt.removeprefix(self.tokenizer.bos_token or "")],
                 images=images,
                 videos=videos,
                 return_tensors="pt",
