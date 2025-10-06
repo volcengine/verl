@@ -13,17 +13,14 @@
 # limitations under the License.
 
 import inspect
-import logging
-import os
 
 from verl import DataProto
+from verl.experimental.reward.reward_loop import RewardLoopManagerBase, register
 from verl.utils.reward_score import default_compute_score
-
-from verl.experimental.reward.reward_loop import register, RewardLoopBase
 
 
 @register("dapo")
-class DAPORewardLoopManager(RewardLoopBase):
+class DAPORewardLoopManager(RewardLoopManagerBase):
     """Reward loop for DAPO."""
 
     def __init__(self, config, tokenizer, compute_score=None, reward_model=None, reward_model_tokenizer=None):

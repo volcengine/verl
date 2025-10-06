@@ -18,11 +18,11 @@ import os
 import ray
 from omegaconf import DictConfig
 
+from verl.experimental.reward.reward_loop import get_reward_loop_manager_cls
 from verl.protocol import DataProto
 from verl.trainer.ppo.reward import get_custom_reward_fn
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_to_local
-from verl.experimental.reward.reward_loop import get_reward_loop_manager_cls
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))

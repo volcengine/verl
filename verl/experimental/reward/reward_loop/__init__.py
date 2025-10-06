@@ -12,13 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .registry import register, get_reward_loop_manager_cls
-from .base import RewardLoopBase
-from .naive import NaiveRewardLoopManager
+from .base import RewardLoopManagerBase
 from .dapo import DAPORewardLoopManager
+from .naive import NaiveRewardLoopManager
+from .registry import get_reward_loop_manager_cls, register
 
 __all__ = [
+    "RewardLoopManagerBase",
     "DAPORewardLoopManager",
+    "NaiveRewardLoopManager",
     "register",
     "get_reward_loop_manager_cls",
 ]
