@@ -638,7 +638,7 @@ Optim
      optimizer_impl: torch.optim
      lr: 1e-5
      weight_decay: 0.01
-     warmup_steps_ratio: 0.1
+     lr_warmup_steps_ratio: 0.1
      clip_grad: 1.0
      lr_scheduler: cosine
      override_optimizer_config: null
@@ -647,7 +647,7 @@ Optim
 - ``optimizer_impl``: Module path to import optimizer from (e.g., ``"torch.optim"``, ``"torchao.optim"``, ``"bitsandbytes.optim"``).
 - ``optim.lr``: Learning rate for the optimizer.
 - ``optim.weight_decay``: Weight decay for the optimizer.
-- ``optim.warmup_steps_ratio``: Ratio of warmup steps to total training steps.
+- ``optim.lr_warmup_steps_ratio``: Ratio of warmup steps to total training steps.
 - ``optim.clip_grad``: Gradient clipping value.
 - ``optim.lr_scheduler``: Learning rate scheduler type. Options:
 

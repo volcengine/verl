@@ -331,7 +331,7 @@ class FSDPSFTTrainer:
                 f"{self.config.trainer.total_epochs}, total number of steps {self.total_steps}"
             )
 
-        num_warmup_steps = int(self.total_steps * self.config.optim.warmup_steps_ratio)
+        num_warmup_steps = int(self.total_steps * self.config.optim.lr_warmup_steps_ratio)
 
         if not hasattr(self.config.optim, "lr_scheduler") or self.config.optim.lr_scheduler == "cosine":
             self.lr_scheduler = get_cosine_schedule_with_warmup(
