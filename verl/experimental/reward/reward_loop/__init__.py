@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from .registry import get_reward_loop_manager_cls, register  # noqa: I001
 from .dapo import DAPORewardLoopManager
 from .naive import NaiveRewardLoopManager
-from .registry import get_reward_loop_manager_cls, register
 
 __all__ = [
     "DAPORewardLoopManager",
