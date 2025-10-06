@@ -29,6 +29,8 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 class RewardModelManager:
+    """Reward model manager."""
+
     def __init__(self, config: RewardModelConfig, worker_group: RayWorkerGroup = None):
         """
         Initialize the reward model manager.
