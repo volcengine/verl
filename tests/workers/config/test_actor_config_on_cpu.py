@@ -16,7 +16,12 @@ import os
 import unittest
 
 from verl.utils.config import omega_conf_to_dataclass
-from verl.workers.config import ActorConfig, FSDPActorConfig, McoreActorConfig, OptimizerConfig, FSDPOptimizerConfig, McoreOptimizerConfig
+from verl.workers.config import (
+    ActorConfig,
+    FSDPActorConfig,
+    McoreActorConfig,
+    OptimizerConfig,
+)
 
 
 class TestActorConfig(unittest.TestCase):

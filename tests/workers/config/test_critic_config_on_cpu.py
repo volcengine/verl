@@ -23,10 +23,10 @@ from verl.utils.profiler import ProfilerConfig
 from verl.workers.config import (
     CriticConfig,
     FSDPCriticConfig,
-    McoreCriticConfig,
-    OptimizerConfig,
     FSDPOptimizerConfig,
+    McoreCriticConfig,
     McoreOptimizerConfig,
+    OptimizerConfig,
 )
 
 
