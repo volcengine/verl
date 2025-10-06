@@ -1,64 +1,110 @@
-# FlowRL: Flow Matching for Reinforcement Learning
+<h1 align="center" style="color:#1976D2; font-size:42px; font-weight:bold; margin-bottom:0;">
+  FlowRL
+</h1>
 
-FlowRL is a novel reinforcement learning algorithm that leverages flow matching techniques for policy optimization. This implementation provides a clean integration with VERL without modifying the core framework.
+<p align="center" style="color:#42A5F5; font-size:16px; margin-top:0;">
+  Matching Reward Distributions via Flow Balance
+</p>
+<p align="center" style="color:#42A5F5; font-size:15px; margin-top:4px;">
+  <a href="https://arxiv.org/abs/2509.15207" target="_blank">📄 arXiv Paper</a> |
+  <a href="https://huggingface.co/papers/2509.15207" target="_blank">🤗 HF Daily</a>
+</p>
 
-## Key Features
+<p align="center">
+  <img src="figures/flowrl.png" alt="FlowRL Overview" width="95%"/>
+</p>
 
-- **Flow Matching Integration**: Uses partition function Z for improved policy optimization
-- **Trajectory Balance Loss**: Replaces traditional PPO loss with FlowRL objective
-- **Clean Architecture**: Implements FlowRL as a recipe without modifying VERL core code
-- **Efficient Training**: Maintains compatibility with existing VERL training infrastructure
+## FlowRL Objective:
 
-## Algorithm Overview
+$$
+\mathcal{L}_{\text{FlowRL}} = w \cdot \left( \log Z_{\phi}(x) + \frac{1}{|y|} \log \pi_{\theta}(y \mid x) - \beta \hat{r}(x, y) - \frac{1}{|y|} \log \pi_{\text{ref}}(y \mid x) \right)^2
+$$
 
-FlowRL modifies the standard RL training pipeline in four key ways:
+FlowRL is a flow-balanced reinforcement learning method that matches full reward distributions instead of maximizing rewards, promoting diverse exploration and generalizable reasoning trajectories in LLMs.
 
-1. **Partition Function Z**: Adds a projection module `ProjZModule` to estimate log partition function
-2. **Enhanced Forward Pass**: Modifies actor forward pass to return log Z values
-3. **FlowRL Objective**: Replaces PPO loss with trajectory balance (TB) loss
-4. **Parameter Management**: Handles proj_z parameters separately during model loading
+## 🚀 Implementation Guide
+
+- ⚙️ If you want to implement by yourself, we provide a simple guideline to apply FlowRL in your code: [FlowRL Implementation Guide](FLOWRL_SIMPLE_GUIDE.md).
+
+- 📢 TODO: We are preparing to contribute FlowRL implementation to official repositories [veRL](https://github.com/volcengine/verl)
+ and [SLIME](https://github.com/THUDM/slime). Stay tuned.
+
 
 ## Quick Start
 
-```bash
-# Basic FlowRL training
-bash recipe/flowrl/run_flowrl_qwen.sh
+### Installation
 
-# Custom configuration
-python recipe/flowrl/main_flowrl.py \
-    --config recipe/flowrl/config/flowrl_config.yaml \
-    --model.path "your-model-path"
+Install [veRL](https://github.com/volcengine/verl) first before using FlowRL.
+
+### Data Preparation
+
+```bash
+# Option 1: Download our pre-processed datasets directly.
+bash preprocess/down_load_dataset.sh
+# Move data to default directory
+mv data/xuekai/flowrl-data-collection/math_data data/math_data
+mv data/xuekai/flowrl-data-collection/code_data data/code_data
 ```
 
-## Configuration
+```bash
+# Option 2: Process Data from Source. 
+Process data from original sources. 
+```
+For detailed processing instructions, see [data/README.md](data/README.md).
 
-Key FlowRL-specific parameters:
+### Model Preparation
 
-- `actor.proj_layer`: Number of layers in projection network (default: 3)
-- `actor.proj_dropout`: Dropout rate for projection network (default: 0.1)
-- `algorithm.tb_coef`: Trajectory balance loss coefficient (default: 15.0)
-- `algorithm.importance_sampling`: Enable importance sampling (default: True)
+For Math Tasks: `Qwen/Qwen2.5-7B` (default in script) ; `Qwen/Qwen2.5-32B`
 
-## Reference
+For Code Tasks: `deepseek-ai/DeepSeek-R1-Distill-Qwen-7B`
 
-If you use FlowRL in your research, please cite:
+```bash
+# Download default model (Qwen2.5-7B for math)
+bash preprocess/down_load_model.sh
+
+# For other models, modify MODEL_NAME in the script before running
+```
+
+### Training
+
+```bash
+cd verl_FlowRL
+
+# For 7B math training
+bash command/training/math/flowrl_7B_math.sh
+
+# For 32B math training
+bash command/training/math/flowrl_32B_math.sh
+
+# For 7B code training
+bash command/training/code/flowrl_7B_code.sh
+```
+
+### Testing
+
+```bash
+cd verl_Test
+
+# First merge the model
+bash command/eval/merge_model.sh
+
+# For math testing
+bash command/eval/math/flowrl_math_test.sh
+
+# For code testing
+bash command/eval/code/flowrl_code_test.sh
+```
+
+
+## Citation
+
+If you think this repo helps you, please kindly consider citing our paper:
 
 ```bibtex
-@article{flowrl2024,
-  title={FlowRL: Flow Matching for Reinforcement Learning},
-  author={Your Name},
-  journal={arXiv preprint},
-  year={2024}
+@article{zhu2025flowrl,
+  title={FlowRL: Matching Reward Distributions for LLM Reasoning},
+  author={Zhu, Xuekai and Cheng, Daixuan and Zhang, Dinghuai and Li, Hengli and Zhang, Kaiyan and Jiang, Che and Sun, Youbang and Hua, Ermo and Zuo, Yuxin and Lv, Xingtai and others},
+  journal={arXiv preprint arXiv:2509.15207},
+  year={2025}
 }
 ```
-
-## Implementation Details
-
-This recipe implements FlowRL by:
-
-1. Extending the standard actor with a projection network for log Z estimation
-2. Implementing a custom FlowRL trainer that uses trajectory balance loss
-3. Providing configuration templates for different model sizes
-4. Maintaining full compatibility with VERL's distributed training infrastructure
-
-For detailed implementation, see the source files in this directory.

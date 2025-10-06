@@ -23,23 +23,22 @@ from torch.distributed.tensor import DTensor
 
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
-from verl.trainer.ppo.core_algos import agg_loss, get_policy_loss_fn, kl_penalty
-from verl.utils.attention_utils import index_first_axis, pad_input, rearrange, unpad_input
+from verl.trainer.ppo.core_algos import (agg_loss, get_policy_loss_fn,
+                                         kl_penalty)
+from verl.utils.attention_utils import (index_first_axis, pad_input, rearrange,
+                                        unpad_input)
 from verl.utils.device import get_device_id, get_device_name
 from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.py_functional import append_to_dict
-from verl.utils.seqlen_balancing import prepare_dynamic_batch, restore_dynamic_batch
+from verl.utils.seqlen_balancing import (prepare_dynamic_batch,
+                                         restore_dynamic_batch)
 from verl.utils.torch_functional import logprobs_from_logits
-from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad, ulysses_pad_and_slice_inputs
+from verl.utils.ulysses import (gather_outputs_and_unpad, ulysses_pad,
+                                ulysses_pad_and_slice_inputs)
 from verl.workers.actor import BasePPOActor
-from verl.workers.config import ActorConfig
-
-import verl.utils.torch_functional as verl_F
 from verl.workers.actor.dp_actor import DataParallelPPOActor
-from verl.utils.profiler import GPUMemoryLogger
-from verl.utils.py_functional import append_to_dict
-from verl.utils.seqlen_balancing import prepare_dynamic_batch
+from verl.workers.config import ActorConfig
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -116,7 +115,8 @@ class FlowRLActor(DataParallelPPOActor):
                     ).transpose(0, 1)
 
                 if "image_bound" in multi_modal_inputs:
-                    from verl.utils.dataset.vision_utils import process_multi_modal_inputs_for_minicpmo
+                    from verl.utils.dataset.vision_utils import \
+                        process_multi_modal_inputs_for_minicpmo
 
                     multi_modal_inputs = process_multi_modal_inputs_for_minicpmo(
                         input_ids, attention_mask, position_ids, cu_seqlens, multi_modal_inputs
@@ -391,9 +391,9 @@ class FlowRLActor(DataParallelPPOActor):
                     # Compute FlowRL trajectory balance loss
                     
                     policy_loss, flowrl_metrics = self.compute_flowrl_objective(
-                        logpf=log_prob,
-                        logf_ref=ref_log_prob,
-                        logpf_old=old_log_prob,
+                        log_prob=log_prob,
+                        ref_log_prob=ref_log_prob,
+                        old_log_prob=old_log_prob,
                         log_z=log_z,
                         reward=advantages,
                         response_mask=response_mask,
@@ -445,9 +445,65 @@ class FlowRLActor(DataParallelPPOActor):
         self.actor_optimizer.zero_grad()
         return metrics
     
-    
-    def compute_flowrl_objective(self, logpf=None, logf_ref=None, logpf_old=None, log_z=None, reward=None,
-                                          response_mask=None, clip_ratio=None, rollout_log_probs=None):
+    def compute_vanilla_flowrl_objective(self,
+                                         logpf=None,
+                                         logf_ref=None,
+                                         logpf_old=None,
+                                         log_z=None,
+                                         reward=None,
+                                         response_mask=None,
+                                         clip_ratio=None):
+                                         
+        # squeeze log_z to (B,)
+        log_z = log_z.squeeze(-1)
+        B = log_z.shape[0]
+
+        # mean of log p_f / log p_ref over valid tokens
+        avg_logpf = verl_F.masked_mean(logpf, response_mask, axis=1)
+        avg_logp_ref = verl_F.masked_mean(logf_ref, response_mask, axis=1)
+
+        # mean of token-level reward → log
+        # we set R = exp(advantage); then log_reward = advantage
+        seq_log_reward = verl_F.masked_mean(reward, response_mask, axis=1)
+
+        # TB loss residual
+        delta = log_z + avg_logpf - 15 * seq_log_reward - avg_logp_ref
+
+        # important sampling (without clipping)
+        log_w = verl_F.masked_sum(logpf - logpf_old, response_mask, axis=1)  # sum over valid tokens per trajectory
+        importance_weight = torch.exp(log_w).detach()
+
+        # Vanilla loss: no clipping on importance weights
+        weighted_losses = importance_weight * (delta ** 2)
+        avg_loss = torch.mean(weighted_losses)
+
+        # Loss statistics
+        negative_approx_kl = logpf - logf_ref
+        ratio = torch.exp(negative_approx_kl)
+        loss_term_dict = {
+            "actor/logpf": verl_F.masked_mean(logpf, response_mask).detach().item(),
+            "actor/logp_ref": verl_F.masked_mean(logf_ref, response_mask).detach().item(),
+            "actor/log_z": log_z.mean().detach().item(),
+            "actor/log_reward": verl_F.masked_mean(reward, response_mask).detach().item(),
+            "actor/tb_loss": avg_loss.detach().item(),
+            "actor/pos_high_ratio_frac": ((reward > 0) & (ratio > 1 + clip_ratio)).float().detach().mean().item(),
+            "actor/pos_low_ratio_frac": ((reward > 0) & (ratio < 1 - clip_ratio)).float().detach().mean().item(),
+            "actor/neg_high_ratio_frac": ((reward < 0) & (ratio > 1 + clip_ratio)).float().detach().mean().item(),
+            "actor/neg_low_ratio_frac": ((reward < 0) & (ratio < 1 - clip_ratio)).float().detach().mean().item(),
+        }
+
+        return avg_loss, loss_term_dict
+
+
+    def compute_flowrl_objective(self, 
+                            log_prob=None,              
+                            ref_log_prob=None,           
+                            old_log_prob=None,          
+                            log_z=None, 
+                            reward=None, 
+                            response_mask=None, 
+                            clip_ratio=None, 
+                            rollout_log_probs=None):
         """
         FlowRL enhanced with Clip-High (https://arxiv.org/pdf/2503.14476) and TIS (https://fengyao.notion.site/off-policy-rl)
         """
@@ -456,15 +512,15 @@ class FlowRLActor(DataParallelPPOActor):
         log_z = log_z.squeeze(-1)
 
         # Average token log-probs & rewards over valid positions
-        avg_logpf = verl_F.masked_mean(logpf, response_mask, axis=1)
-        avg_logp_ref = verl_F.masked_mean(logf_ref, response_mask, axis=1)
+        avg_log_prob = verl_F.masked_mean(log_prob, response_mask, axis=1)
+        avg_ref_log_prob = verl_F.masked_mean(ref_log_prob, response_mask, axis=1)
         seq_log_reward = verl_F.masked_mean(reward, response_mask, axis=1)
 
         # Trajectory Balance residual: logZ + logpf - β*R - logpref
-        delta = log_z + avg_logpf - self.flowrl_beta_coef * seq_log_reward - avg_logp_ref
+        delta = log_z + avg_log_prob - self.flowrl_beta_coef * seq_log_reward - avg_ref_log_prob
 
-        # Importance ratio from current vs old policy (trajectory level)
-        log_w = verl_F.masked_sum(logpf - logpf_old, response_mask, axis=1)
+        # Importance ratio from current vs old policy (geometric mean for numerical stability)
+        log_w = verl_F.masked_mean(log_prob - old_log_prob, response_mask, axis=1)
         imp_w = torch.exp(log_w).detach()
 
         # PPO-style clipping with separate clip_low and clip_high (asymmetric clipping)
@@ -472,14 +528,15 @@ class FlowRLActor(DataParallelPPOActor):
         clip_ratio_high = self.config.clip_ratio_high if hasattr(self.config, 'clip_ratio_high') else clip_ratio
         imp_w = torch.clamp(imp_w, 1 - clip_ratio_low, 1 + clip_ratio_high)
 
-        # Truncated Importance Sampling (optional) - applied at token level per official verl
+        # Truncated Importance Sampling (TIS): w_TIS = min(π_old / π_rollout, C_TIS)
         if self.config.tis_imp_ratio_cap > 0 and rollout_log_probs is not None:
-            # Apply TIS at token level as in official verl implementation
-            tis_imp_ratio = torch.exp(logpf_old - rollout_log_probs)  # (B, response_length)
-            tis_imp_ratio = torch.clamp(tis_imp_ratio, max=self.config.tis_imp_ratio_cap)
-            # Aggregate to trajectory level for FlowRL
-            tis_ratio = verl_F.masked_mean(tis_imp_ratio, response_mask, axis=1)  # (B,)
-            imp_w = imp_w * tis_ratio.detach()
+            # Compute TIS weight using mean in log space to keep values in reasonable range
+            # This computes: min((π_old / π_rollout)^(1/T), C_TIS) where T = sequence length
+            # Equivalent to geometric mean of token-level ratios, avoiding numerical overflow
+            log_w_tis = verl_F.masked_mean(old_log_prob - rollout_log_probs, response_mask, axis=1)  # (B,)
+            w_tis = torch.exp(log_w_tis).detach()  # Geometric mean of π_old / π_rollout
+            w_tis = torch.clamp(w_tis, max=self.config.tis_imp_ratio_cap)  # min(w_tis, C_TIS)
+            imp_w = imp_w * w_tis
 
         # Loss: weighted squared residual
         weighted_losses = imp_w * (delta ** 2)
@@ -487,8 +544,8 @@ class FlowRLActor(DataParallelPPOActor):
 
         # Metrics
         loss_term_dict = {
-            "actor/logpf": verl_F.masked_mean(logpf, response_mask).detach().item(),
-            "actor/logp_ref": verl_F.masked_mean(logf_ref, response_mask).detach().item(),
+            "actor/logpf": verl_F.masked_mean(log_prob, response_mask).detach().item(),
+            "actor/logp_ref": verl_F.masked_mean(ref_log_prob, response_mask).detach().item(),
             "actor/log_z": log_z.mean().detach().item(),
             "actor/log_reward": verl_F.masked_mean(reward, response_mask).detach().item(),
             "actor/tb_loss": avg_loss.detach().item(),
@@ -496,6 +553,6 @@ class FlowRLActor(DataParallelPPOActor):
         }
 
         if self.config.tis_imp_ratio_cap > 0 and rollout_log_probs is not None:
-            loss_term_dict["actor/tis_ratio"] = tis_ratio.mean().detach().item()
-        
+            loss_term_dict["actor/tis_weight"] = w_tis.mean().detach().item()
+
         return avg_loss, loss_term_dict
