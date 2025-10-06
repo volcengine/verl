@@ -180,6 +180,11 @@ def patch_forward_with_backends(
 
         forward_with_torch_backend_function = forward_with_torch_backend
         forward_with_triton_backend_function = forward_with_triton_backend
+    elif model.config.model_type in ["qwen3_vl", "qwen3_vl_moe"]:
+        from verl.models.transformers.qwen3_vl import forward_with_torch_backend, forward_with_triton_backend
+
+        forward_with_torch_backend_function = forward_with_torch_backend
+        forward_with_triton_backend_function = forward_with_triton_backend
     elif model.config.model_type == "glm4v":
         from verl.models.transformers.glm4v import forward_with_torch_backend, forward_with_triton_backend
 
@@ -301,7 +306,33 @@ def apply_monkey_patch(
             patch_vlm_for_ulysses_input_slicing(Qwen2_5_VLTextModel)
             patch_vlm_for_ulysses_input_slicing(Qwen2VLTextModel)
 
-    if model.config.model_type == "glm4v":
+    elif model.config.model_type in ["qwen3_vl", "qwen3_vl_moe"]:
+        # Step 1: patch model to support image-text mixed data
+        from transformers.models.qwen3_vl.modeling_qwen3_vl import (
+            Qwen3VLForConditionalGeneration,
+            Qwen3VLModel,
+            Qwen3VLTextModel,
+        )
+        from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import (
+            Qwen3VLMoeForConditionalGeneration,
+            Qwen3VLMoeModel,
+            Qwen3VLMoeTextModel,
+        )
+
+        from verl.models.transformers.qwen3_vl import forward_with_normal_backend, qwen3_vl_base_forward
+
+        Qwen3VLModel.forward = qwen3_vl_base_forward
+        Qwen3VLMoeModel.forward = qwen3_vl_base_forward
+        Qwen3VLForConditionalGeneration.forward = forward_with_normal_backend
+        Qwen3VLMoeForConditionalGeneration.forward = forward_with_normal_backend
+        print(f"Monkey patch {model.__class__.__name__} model forward")
+
+        # Step 2: patch input for multimodal sequence parallelism
+        if ulysses_sp_size > 1:
+            patch_vlm_for_ulysses_input_slicing(Qwen3VLTextModel)
+            patch_vlm_for_ulysses_input_slicing(Qwen3VLMoeTextModel)
+
+    elif model.config.model_type == "glm4v":
         # Step 1: patch model to support image-text mixed data
 
         from transformers.models.glm4v.modeling_glm4v import (
