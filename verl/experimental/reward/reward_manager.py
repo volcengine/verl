@@ -22,6 +22,7 @@ from verl.protocol import DataProto
 from verl.trainer.ppo.reward import get_custom_reward_fn
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_to_local
+from verl.experimental.reward.reward_loop import get_reward_loop_manager_cls
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -35,9 +36,6 @@ class RewardManagerWorker:
         self._init_reward_fn()
 
     def _init_reward_fn(self):
-        assert self.config.reward_model.reward_manager == "dapo", "Only DAPORewardFunction is supported now."
-        from .reward_loop import DAPORewardLoop
-
         input_tokenizer_local_path = copy_to_local(self.config.actor_rollout_ref.model.path)
         self.input_tokenizer = hf_tokenizer(input_tokenizer_local_path, trust_remote_code=True)
         self.reward_model_tokenizer = None
@@ -45,7 +43,8 @@ class RewardManagerWorker:
             reward_model_tokenizer_local_path = copy_to_local(self.config.reward_model.model.path)
             self.reward_model_tokenizer = hf_tokenizer(reward_model_tokenizer_local_path, trust_remote_code=True)
         self.reward_fn = get_custom_reward_fn(self.config)
-        self.reward_loop = DAPORewardLoop(
+        reward_loop_manager_cls = get_reward_loop_manager_cls(self.config.reward_model.reward_manager)
+        self.reward_loop = reward_loop_manager_cls(
             self.config, self.input_tokenizer, self.reward_fn, self.reward_model_handle, self.reward_model_tokenizer
         )
 

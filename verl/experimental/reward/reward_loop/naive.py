@@ -22,29 +22,16 @@ from verl.utils.reward_score import default_compute_score
 from verl.experimental.reward.reward_loop import register, RewardLoopBase
 
 
-@register("dapo")
-class DAPORewardLoopManager(RewardLoopBase):
-    """Reward loop for DAPO."""
+@register("naive")
+class NaiveRewardLoopManager(RewardLoopBase):
+    """The reward manager."""
 
     def __init__(self, config, tokenizer, compute_score=None, reward_model=None, reward_model_tokenizer=None):
         super().__init__(config, tokenizer)
         self.compute_score = compute_score or default_compute_score
         self.is_async_reward_score = inspect.iscoroutinefunction(self.compute_score)
-
-        # DAPO Reward Config
-        overlong_buffer_cfg = config.reward_model.get("reward_kwargs", {}).get("overlong_buffer_cfg", None)
-        self.overlong_buffer_cfg = overlong_buffer_cfg
-        self.max_resp_len = config.reward_model.get("reward_kwargs", {}).get("max_resp_len", None)
         self.reward_model = reward_model
         self.reward_model_tokenizer = reward_model_tokenizer
-
-        if self.overlong_buffer_cfg is not None:
-            assert self.max_resp_len is not None, (
-                f"max_resp_len must be provided if {overlong_buffer_cfg=}, but got None"
-            )
-            assert self.max_resp_len >= self.overlong_buffer_cfg.len, (
-                "max_resp_len must be larger than overlong_buffer.len"
-            )
 
     async def run_single(self, data: DataProto) -> dict:
         assert len(data) == 1, "Only support single data item"
@@ -95,16 +82,5 @@ class DAPORewardLoopManager(RewardLoopBase):
             reward_extra_info["acc"] = score
 
         reward = score
-
-        if self.overlong_buffer_cfg is not None and self.overlong_buffer_cfg.enable:
-            overlong_buffer_len = self.overlong_buffer_cfg.len
-            expected_len = self.max_resp_len - overlong_buffer_len
-            exceed_len = valid_response_length - expected_len
-            overlong_penalty_factor = self.overlong_buffer_cfg.penalty_factor
-            overlong_reward = min(-exceed_len / overlong_buffer_len * overlong_penalty_factor, 0)
-            reward += overlong_reward
-            if self.overlong_buffer_cfg.log:
-                reward_extra_info["overlong_reward"] = overlong_reward
-                reward_extra_info["overlong"] = overlong_reward < 0
 
         return {"reward_score": reward, "reward_extra_info": reward_extra_info}
