@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --partition=plm
-#SBATCH --job-name=xuekai_7b_vanilla
+#SBATCH --job-name=xuekai_verl_7b_vanilla
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:8
 #SBATCH --cpus-per-task=64
