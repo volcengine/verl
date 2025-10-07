@@ -316,6 +316,13 @@ class MegatronPPOActor(BasePPOActor):
         ]
         if self.config.use_kl_loss:
             select_keys.append("ref_log_prob")
+        if self.config.tis_imp_ratio_cap > 0:
+            assert "rollout_log_probs" in data.batch.keys(), (
+                "Truncated Importance Sampling (TIS) requires to configure "
+                "`actor_rollout_ref.rollout.calculate_log_probs=True` "
+                "and is not currently supported in Server mode (agent loop)."
+            )
+            select_keys.append("rollout_log_probs")
         self.has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
         if self.has_multi_modal_inputs:
             data = data.select(select_keys, ["multi_modal_inputs"])
@@ -419,6 +426,7 @@ class MegatronPPOActor(BasePPOActor):
             responses = data["responses"]
             response_length = responses.size(1)
             response_mask = data["response_mask"].to(bool)
+            rollout_log_probs = data["rollout_log_probs"] if self.config.tis_imp_ratio_cap > 0 else None
             loss_agg_mode = self.config.loss_agg_mode
             n_samples, _ = response_mask.shape
             loss_scale_factor = n_samples / self.config.ppo_mini_batch_size
@@ -445,6 +453,7 @@ class MegatronPPOActor(BasePPOActor):
                     response_mask=response_mask,
                     loss_agg_mode=loss_agg_mode,
                     config=self.config,
+                    rollout_log_probs=rollout_log_probs,
                 )
 
                 stats.update(

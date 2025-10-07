@@ -931,10 +931,76 @@ def compute_policy_loss_vanilla(
     pg_losses = torch.where(advantages < 0, clip_pg_losses2, clip_pg_losses1)
 
     if config.tis_imp_ratio_cap > 0 and rollout_log_probs is not None:
-        # Apply truncated importance sampling -> https://fengyao.notion.site/off-policy-rl
-        tis_imp_ratio = torch.exp(old_log_prob - rollout_log_probs)
-        tis_imp_ratio = torch.clamp(tis_imp_ratio, max=config.tis_imp_ratio_cap)
-        pg_losses = pg_losses * tis_imp_ratio
+        # Apply truncated importance sampling
+        # Three modes: "token", "sequence" (seq-level TIS), "sequence_mask" (seq-level MIS)
+        # Reference: https://fengyao.notion.site/off-policy-rl
+        # Reference: https://yingru.notion.site/When-Speed-Kills-Stability-271211a558b7808d8b12d403fd15edda
+
+        tis_mode = config.get("tis_mode", "token")
+
+        if tis_mode == "token":
+            tis_imp_ratio = torch.exp(old_log_prob - rollout_log_probs)
+            tis_imp_ratio = torch.clamp(tis_imp_ratio, max=config.tis_imp_ratio_cap)
+            pg_losses = pg_losses * tis_imp_ratio
+
+        elif tis_mode == "token_mask":
+            # Token-Level TIS (original implementation)
+            # Ratio: π_fsdp(a|s) / π_vllm(a|s) for each token
+            tis_imp_ratio = torch.exp(old_log_prob - rollout_log_probs)
+            # Create mask for elements that are NOT clamped (keep only valid elements)
+            tis_mask = (tis_imp_ratio <= config.tis_imp_ratio_cap).float()
+            tis_imp_ratio = torch.clamp(tis_imp_ratio, max=config.tis_imp_ratio_cap)
+            pg_losses = pg_losses * tis_imp_ratio
+            # Combine with response_mask to exclude clamped elements
+            response_mask = response_mask * tis_mask
+
+        elif tis_mode == "sequence":
+            # Sequence-Level TIS (theoretically sound for autoregressive models)
+            # Ratio: ∏_t π_fsdp(y_t|x,y_<t) / π_vllm(y_t|x,y_<t)
+            # In log space: Σ_t [log π_fsdp(y_t|x,y_<t) - log π_vllm(y_t|x,y_<t)]
+
+            # Compute sequence-level log ratio
+            seq_log_ratio = (old_log_prob - rollout_log_probs) * response_mask  # (batch_size, seq_len)
+            seq_log_ratio = seq_log_ratio.sum(dim=-1)  # (batch_size,)
+
+            # Clamp for numerical stability
+            seq_log_ratio = torch.clamp(seq_log_ratio, min=-20.0, max=20.0)
+
+            # Convert to ratio and truncate
+            seq_ratio = torch.exp(seq_log_ratio).clamp(max=config.tis_imp_ratio_cap)  # (batch_size,)
+
+            # Apply to each token in the sequence (broadcast)
+            pg_losses = pg_losses * seq_ratio.unsqueeze(-1)  # (batch_size, seq_len)
+
+        elif tis_mode == "sequence_mask":
+            # Sequence-Level MIS (Masked Importance Sampling)
+            # Same as sequence TIS, but MASK sequences where ratio > C instead of clamping
+            # This is more principled: ρ(y|x) ← ρ(y|x) * I{ρ(y|x) ≤ C}
+
+            # Compute sequence-level log ratio
+            seq_log_ratio = (old_log_prob - rollout_log_probs) * response_mask  # (batch_size, seq_len)
+            seq_log_ratio = seq_log_ratio.sum(dim=-1)  # (batch_size,)
+
+            # Clamp for numerical stability
+            seq_log_ratio = torch.clamp(seq_log_ratio, min=-20.0, max=20.0)
+
+            # Convert to ratio
+            seq_ratio = torch.exp(seq_log_ratio)  # (batch_size,)
+
+            # Create mask for sequences with ratio <= C
+            seq_mask = (seq_ratio <= config.tis_imp_ratio_cap).float()  # (batch_size,)
+
+            # Apply ratio AND mask (sequences with ratio > C will be zeroed out)
+            seq_ratio = seq_ratio * seq_mask
+
+            # Apply to each token in the sequence (broadcast)
+            pg_losses = pg_losses * seq_ratio.unsqueeze(-1)  # (batch_size, seq_len)
+
+            # Update response_mask to exclude masked sequences
+            response_mask = response_mask * seq_mask.unsqueeze(-1)
+
+        else:
+            raise ValueError(f"Invalid tis_mode: {tis_mode}. Valid options: 'token', 'sequence', 'sequence_mask'")
 
     pg_loss = agg_loss(loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
 

@@ -107,6 +107,7 @@ class ActorConfig(BaseConfig):
     loss_agg_mode: str = "token-mean"
     entropy_coeff: float = 0
     tis_imp_ratio_cap: float = -1
+    tis_mode: str = "token"  # Options: "token", "sequence", "token_mask", "sequence_mask" (MIS)
     use_kl_loss: bool = False
     use_torch_compile: bool = True
     kl_loss_coef: float = 0.001
