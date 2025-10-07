@@ -65,7 +65,7 @@ top_k=-1 # 0 for HF rollout, -1 for vLLM rollout
 val_top_p=0.7
 
 # Performance Related Parameter
-n_gpus=2
+n_gpus=8
 sp_size=1
 use_dynamic_bsz=True  # DISABLED FOR DEBUGGING - easier to track batch sizes
 actor_ppo_max_token_len=$((max_prompt_length + max_response_length))
