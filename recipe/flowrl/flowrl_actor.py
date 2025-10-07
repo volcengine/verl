@@ -497,7 +497,7 @@ class FlowRLActor(DataParallelPPOActor):
             "actor/logp_ref": verl_F.masked_mean(ref_log_prob, response_mask).detach().item(),
             "actor/log_z": log_z.mean().detach().item(),
             "actor/log_reward": verl_F.masked_mean(reward, response_mask).detach().item(),
-            "actor/tb_loss": avg_loss.detach().item(),
+            "actor/final_loss": avg_loss.detach().item(),
             "actor/pos_high_ratio_frac": ((reward > 0) & (ratio > 1 + clip_ratio)).float().detach().mean().item(),
             "actor/pos_low_ratio_frac": ((reward > 0) & (ratio < 1 - clip_ratio)).float().detach().mean().item(),
             "actor/neg_high_ratio_frac": ((reward < 0) & (ratio > 1 + clip_ratio)).float().detach().mean().item(),
@@ -560,7 +560,7 @@ class FlowRLActor(DataParallelPPOActor):
             "actor/logp_ref": verl_F.masked_mean(ref_log_prob, response_mask).detach().item(),
             "actor/log_z": log_z.mean().detach().item(),
             "actor/log_reward": verl_F.masked_mean(reward, response_mask).detach().item(),
-            "actor/tb_loss": avg_loss.detach().item(),
+            "actor/final_loss": avg_loss.detach().item(),
             "actor/importance_weight": imp_w.mean().detach().item(),
         }
 
