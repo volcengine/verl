@@ -148,8 +148,8 @@ python3 -m recipe.flowrl.main_flowrl \
     trainer.n_gpus_per_node=${n_gpus} \
     trainer.nnodes="${NNODES}" \
     trainer.val_before_train=False \
-    trainer.test_freq=5 \
-    trainer.save_freq=5 \
+    trainer.test_freq=10 \
+    trainer.save_freq=50 \
     trainer.total_epochs=1 \
     trainer.default_local_dir="${CKPTS_DIR}" \
     trainer.resume_mode=auto
