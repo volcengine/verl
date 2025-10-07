@@ -117,6 +117,7 @@ class RLHFDataset(Dataset):
         self.filter_prompts = config.get("filter_prompts", True)
         self.serialize_dataset = False
         self.return_multi_modal_inputs = config.get("return_multi_modal_inputs", True)
+        self.agent_name = config.get("agent_name", None)
 
         self._download()
         self._read_files_and_tokenize()
@@ -370,6 +371,8 @@ class RLHFDataset(Dataset):
         row_dict["index"] = index
         row_dict["tools_kwargs"] = tools_kwargs
         row_dict["interaction_kwargs"] = interaction_kwargs
+        if self.agent_name:
+            row_dict["agent_name"] = self.agent_name
         return row_dict
 
     def __getstate__(self):
