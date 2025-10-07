@@ -390,7 +390,7 @@ class FlowRLActor(DataParallelPPOActor):
                     # )
                     # Compute FlowRL trajectory balance loss
                     
-                    policy_loss, flowrl_metrics = self.compute_flowrl_objective(
+                    policy_loss, flowrl_metrics = self.compute_vanilla_flowrl_objective(
                         log_prob=log_prob,
                         ref_log_prob=ref_log_prob,
                         old_log_prob=old_log_prob,
@@ -400,6 +400,17 @@ class FlowRLActor(DataParallelPPOActor):
                         clip_ratio=self.config.clip_ratio,
                         rollout_log_probs=rollout_log_probs
                     )
+
+                    # policy_loss, flowrl_metrics = self.compute_flowrl_objective(
+                    #     log_prob=log_prob,
+                    #     ref_log_prob=ref_log_prob,
+                    #     old_log_prob=old_log_prob,
+                    #     log_z=log_z,
+                    #     reward=advantages,
+                    #     response_mask=response_mask,
+                    #     clip_ratio=self.config.clip_ratio,
+                    #     rollout_log_probs=rollout_log_probs
+                    # )
 
                     # if entropy_coeff != 0:
                     #     entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
@@ -446,21 +457,22 @@ class FlowRLActor(DataParallelPPOActor):
         return metrics
     
     def compute_vanilla_flowrl_objective(self,
-                                         logpf=None,
-                                         logf_ref=None,
-                                         logpf_old=None,
+                                         log_prob=None,
+                                         ref_log_prob=None,
+                                         old_log_prob=None,
                                          log_z=None,
                                          reward=None,
                                          response_mask=None,
-                                         clip_ratio=None):
+                                         clip_ratio=None,
+                                         rollout_log_probs=None):
                                          
         # squeeze log_z to (B,)
         log_z = log_z.squeeze(-1)
         B = log_z.shape[0]
 
         # mean of log p_f / log p_ref over valid tokens
-        avg_logpf = verl_F.masked_mean(logpf, response_mask, axis=1)
-        avg_logp_ref = verl_F.masked_mean(logf_ref, response_mask, axis=1)
+        avg_logpf = verl_F.masked_mean(log_prob, response_mask, axis=1)
+        avg_logp_ref = verl_F.masked_mean(ref_log_prob, response_mask, axis=1)
 
         # mean of token-level reward → log
         # we set R = exp(advantage); then log_reward = advantage
@@ -470,7 +482,7 @@ class FlowRLActor(DataParallelPPOActor):
         delta = log_z + avg_logpf - 15 * seq_log_reward - avg_logp_ref
 
         # important sampling (without clipping)
-        log_w = verl_F.masked_sum(logpf - logpf_old, response_mask, axis=1)  # sum over valid tokens per trajectory
+        log_w = verl_F.masked_sum(log_prob - old_log_prob, response_mask, axis=1)  # sum over valid tokens per trajectory
         importance_weight = torch.exp(log_w).detach()
 
         # Vanilla loss: no clipping on importance weights
@@ -478,11 +490,11 @@ class FlowRLActor(DataParallelPPOActor):
         avg_loss = torch.mean(weighted_losses)
 
         # Loss statistics
-        negative_approx_kl = logpf - logf_ref
+        negative_approx_kl = log_prob - ref_log_prob
         ratio = torch.exp(negative_approx_kl)
         loss_term_dict = {
-            "actor/logpf": verl_F.masked_mean(logpf, response_mask).detach().item(),
-            "actor/logp_ref": verl_F.masked_mean(logf_ref, response_mask).detach().item(),
+            "actor/logpf": verl_F.masked_mean(log_prob, response_mask).detach().item(),
+            "actor/logp_ref": verl_F.masked_mean(ref_log_prob, response_mask).detach().item(),
             "actor/log_z": log_z.mean().detach().item(),
             "actor/log_reward": verl_F.masked_mean(reward, response_mask).detach().item(),
             "actor/tb_loss": avg_loss.detach().item(),
