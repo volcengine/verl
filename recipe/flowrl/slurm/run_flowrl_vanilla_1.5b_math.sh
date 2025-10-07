@@ -18,8 +18,8 @@ echo "Node: $SLURM_NODELIST"
 echo "Start Time: $(date)"
 echo "=========================================="
 
-export RAY_TMPDIR=$HOME/ray_tmp
-mkdir -p $RAY_TMPDIR
+export RAY_TMPDIR=/mnt/hwfile/linzhouhan/rt
+mkdir -p "$RAY_TMPDIR"
 
 # Print GPU info
 nvidia-smi
