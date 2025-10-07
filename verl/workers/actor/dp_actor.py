@@ -373,9 +373,9 @@ class DataParallelPPOActor(BasePPOActor):
         ]
         if self.config.use_kl_loss:
             select_keys.append("ref_log_prob")
-        if self.config.tis_imp_ratio_cap > 0:
+        if self.config.rollout_is_threshold is not None:
             assert "rollout_log_probs" in data.batch.keys(), (
-                "Truncated Importance Sampling (TIS) requires to configure "
+                "Rollout Importance Sampling requires to configure "
                 "`actor_rollout_ref.rollout.calculate_log_probs=True` "
                 "and is not currently supported in Server mode (agent loop)."
             )
@@ -412,7 +412,9 @@ class DataParallelPPOActor(BasePPOActor):
                     model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch}
                     response_mask = model_inputs["response_mask"]
                     old_log_prob = model_inputs["old_log_probs"]
-                    rollout_log_probs = model_inputs["rollout_log_probs"] if self.config.tis_imp_ratio_cap > 0 else None
+                    rollout_log_probs = (
+                        model_inputs["rollout_log_probs"] if self.config.rollout_is_threshold is not None else None
+                    )
                     advantages = model_inputs["advantages"]
 
                     entropy_coeff = self.config.entropy_coeff
@@ -441,15 +443,52 @@ class DataParallelPPOActor(BasePPOActor):
                     # gpg -> verl.trainer.ppo.core_algos.compute_policy_loss_gpg
                     # clip_cov -> verl.trainer.ppo.core_algos.compute_policy_loss_clip_cov
                     policy_loss_fn = get_policy_loss_fn(loss_mode)
-                    pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = policy_loss_fn(
-                        old_log_prob=old_log_prob,
-                        log_prob=log_prob,
-                        advantages=advantages,
-                        response_mask=response_mask,
-                        loss_agg_mode=loss_agg_mode,
-                        config=self.config,
-                        rollout_log_probs=rollout_log_probs,
-                    )
+
+                    # Check if we should request rollout IS metrics
+                    request_rollout_is_metrics = loss_mode == "vanilla" and self.config.rollout_is_threshold is not None
+
+                    if request_rollout_is_metrics:
+                        result = policy_loss_fn(
+                            old_log_prob=old_log_prob,
+                            log_prob=log_prob,
+                            advantages=advantages,
+                            response_mask=response_mask,
+                            loss_agg_mode=loss_agg_mode,
+                            config=self.config,
+                            rollout_log_probs=rollout_log_probs,
+                            return_rollout_is_metrics=True,
+                        )
+                        if len(result) == 5:
+                            pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower, rollout_is_metrics = result
+                            # Add rollout IS metrics with "actor/" prefix
+                            for key, value in rollout_is_metrics.items():
+                                if isinstance(value, torch.Tensor):
+                                    micro_batch_metrics[f"actor/{key}"] = value.detach().item()
+                                else:
+                                    micro_batch_metrics[f"actor/{key}"] = value
+
+                            # Compute and add mismatch metrics (PPL, KL, etc.)
+                            from verl.trainer.ppo.mismatch_helper import compute_mismatch_metrics
+
+                            mismatch_metrics = compute_mismatch_metrics(
+                                old_log_prob=old_log_prob,
+                                rollout_log_prob=rollout_log_probs,
+                                response_mask=response_mask,
+                            )
+                            for key, value in mismatch_metrics.items():
+                                micro_batch_metrics[f"actor/{key}"] = value
+                        else:
+                            pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = result
+                    else:
+                        pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = policy_loss_fn(
+                            old_log_prob=old_log_prob,
+                            log_prob=log_prob,
+                            advantages=advantages,
+                            response_mask=response_mask,
+                            loss_agg_mode=loss_agg_mode,
+                            config=self.config,
+                            rollout_log_probs=rollout_log_probs,
+                        )
 
                     if entropy_coeff != 0:
                         entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)

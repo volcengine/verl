@@ -106,7 +106,13 @@ class ActorConfig(BaseConfig):
     clip_ratio_c: float = 3.0
     loss_agg_mode: str = "token-mean"
     entropy_coeff: float = 0
-    tis_imp_ratio_cap: float = -1
+    # Rollout Importance Sampling (mismatch correction between rollout and training)
+    rollout_is: bool = False
+    rollout_is_threshold: Optional[float] = None
+    rollout_is_threshold_lower: Optional[float] = None
+    rollout_is_level: str = "token"
+    rollout_is_mode: str = "truncate"
+    rollout_is_veto_threshold: Optional[float] = 1e-4
     use_kl_loss: bool = False
     use_torch_compile: bool = True
     kl_loss_coef: float = 0.001

@@ -881,7 +881,7 @@ def compute_policy_loss(
     return pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower
 
 
-@register_policy_loss("vanilla")
+@register_policy_loss("vanilla")  # type: ignore[arg-type]
 def compute_policy_loss_vanilla(
     old_log_prob: torch.Tensor,
     log_prob: torch.Tensor,
@@ -890,7 +890,11 @@ def compute_policy_loss_vanilla(
     loss_agg_mode: str = "token-mean",
     config: Optional[DictConfig | AlgoConfig] = None,
     rollout_log_probs: torch.Tensor | None = None,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    return_rollout_is_metrics: bool = False,
+) -> (
+    tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
+    | tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, dict]
+):
     """
     Compute the clipped policy objective and related metrics for PPO.
 
@@ -959,13 +963,31 @@ def compute_policy_loss_vanilla(
 
     pg_losses = torch.where(advantages < 0, clip_pg_losses2, clip_pg_losses1)
 
-    if config.tis_imp_ratio_cap > 0 and rollout_log_probs is not None:
-        # Apply truncated importance sampling -> https://fengyao.notion.site/off-policy-rl
-        tis_imp_ratio = torch.exp(old_log_prob - rollout_log_probs)
-        tis_imp_ratio = torch.clamp(tis_imp_ratio, max=config.tis_imp_ratio_cap)
-        pg_losses = pg_losses * tis_imp_ratio
+    # Apply rollout importance sampling if threshold is set
+    rollout_is_metrics: dict = {}
+    if config.get("rollout_is_threshold") is not None and rollout_log_probs is not None:
+        from verl.trainer.ppo.mismatch_helper import compute_rollout_importance_weights
+
+        rollout_is_weights, rollout_is_metrics = compute_rollout_importance_weights(
+            old_log_prob=old_log_prob,
+            rollout_log_prob=rollout_log_probs,
+            eos_mask=response_mask,
+            rollout_is_level=config.get("rollout_is_level", "token"),
+            rollout_is_mode=config.get("rollout_is_mode", "truncate"),
+            rollout_is_threshold=config.rollout_is_threshold,
+            rollout_is_threshold_lower=config.get("rollout_is_threshold_lower"),
+            rollout_is_veto_threshold=config.get("rollout_is_veto_threshold"),
+        )
+
+        # Apply IS correction to loss if enabled
+        if config.get("rollout_is", False) and rollout_is_weights is not None:
+            pg_losses = pg_losses * rollout_is_weights
 
     pg_loss = agg_loss(loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+
+    # Return rollout IS metrics if requested
+    if return_rollout_is_metrics and rollout_is_metrics:
+        return pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower, rollout_is_metrics
 
     return pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower
 

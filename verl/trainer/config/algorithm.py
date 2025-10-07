@@ -73,6 +73,12 @@ class AlgoConfig(BaseConfig):
         use_pf_ppo (bool): Whether to enable preference feedback PPO.
         pf_ppo (dict[str, Any]): Preference feedback PPO settings.
         filter_groups (Optional[FilterGroupsConfig]): Filter groups configuration, used in DAPO and Entropy
+        rollout_is (bool): Whether to enable rollout importance sampling correction.
+        rollout_is_threshold (Optional[float]): Upper threshold for IS weights. If None, IS is disabled.
+        rollout_is_threshold_lower (Optional[float]): Lower threshold for IS weights. If None, defaults to 1/upper.
+        rollout_is_level (str): Aggregation level: "token", "sequence", or "geometric".
+        rollout_is_mode (str): Bounding mode: "truncate" (cap upper only) or "clip" (zero outside bounds).
+        rollout_is_veto_threshold (float): Per-token veto threshold for catastrophic outliers.
     """
 
     gamma: float = 1.0
@@ -85,3 +91,10 @@ class AlgoConfig(BaseConfig):
     use_pf_ppo: bool = False
     pf_ppo: dict[str, Any] = field(default_factory=dict)
     filter_groups: Optional[FilterGroupsConfig] = None
+    # Rollout Importance Sampling (replaces legacy tis_imp_ratio_cap)
+    rollout_is: bool = False
+    rollout_is_threshold: Optional[float] = None
+    rollout_is_threshold_lower: Optional[float] = None
+    rollout_is_level: str = "token"
+    rollout_is_mode: str = "truncate"
+    rollout_is_veto_threshold: Optional[float] = 1e-4
