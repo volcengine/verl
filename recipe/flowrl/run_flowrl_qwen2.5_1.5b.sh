@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -xeuo pipefail
 
+unset ROCR_VISIBLE_DEVICES
 project_name='FlowRL'
 exp_name='FlowRL-Plus-Qwen2.5-1.5B'
 
