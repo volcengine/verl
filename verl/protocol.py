@@ -882,7 +882,7 @@ class DataProto:
     @staticmethod
     def concat(data: list["DataProto"]) -> "DataProto":
         """Concat a list of DataProto. The batch is concatenated among dim=0.
-        The meta_info is assumed to be identical and will use the first one.
+        The meta_info is merged, with special handling for metrics from different workers.
 
         Args:
             data (List[DataProto]): list of DataProto
@@ -899,8 +899,25 @@ class DataProto:
         for key, val in non_tensor_batch.items():
             non_tensor_batch[key] = np.concatenate(val, axis=0)
 
+        # Merge meta_info with special handling for metrics
+        merged_meta_info = {}
+        if data:
+            # Copy non-metric meta_info from the first worker, assuming they are identical across workers.
+            merged_meta_info = {k: v for k, v in data[0].meta_info.items() if k != "metrics"}
+            # Aggregate 'metrics' from all workers into a single list.
+            all_metrics = []
+            for d in data:
+                worker_metrics = d.meta_info.get("metrics")
+                if worker_metrics is not None:
+                    if isinstance(worker_metrics, list):
+                        all_metrics.extend(worker_metrics)
+                    else:
+                        all_metrics.append(worker_metrics)
+            if all_metrics:
+                merged_meta_info["metrics"] = all_metrics
+
         cls = type(data[0]) if len(data) > 0 else DataProto
-        return cls(batch=new_batch, non_tensor_batch=non_tensor_batch, meta_info=data[0].meta_info)
+        return cls(batch=new_batch, non_tensor_batch=non_tensor_batch, meta_info=merged_meta_info)
 
     def reorder(self, indices):
         """

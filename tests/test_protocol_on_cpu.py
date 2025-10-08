@@ -215,6 +215,105 @@ def test_chunk_concat():
     assert concat_data.meta_info == data.meta_info
 
 
+def test_concat_metrics_from_multiple_workers():
+    """Test that concat() properly merges metrics from all workers in distributed training."""
+    # Simulate 3 workers each with their own metrics
+    obs1 = torch.tensor([1, 2])
+    obs2 = torch.tensor([3, 4])
+    obs3 = torch.tensor([5, 6])
+
+    # Each worker has different metrics
+    worker1_metrics = [{"loss": 0.5, "accuracy": 0.9}]
+    worker2_metrics = [{"loss": 0.6, "accuracy": 0.85}]
+    worker3_metrics = [{"loss": 0.55, "accuracy": 0.88}]
+
+    data1 = DataProto.from_dict(tensors={"obs": obs1}, meta_info={"metrics": worker1_metrics, "config_flag": True})
+    data2 = DataProto.from_dict(tensors={"obs": obs2}, meta_info={"metrics": worker2_metrics, "config_flag": True})
+    data3 = DataProto.from_dict(tensors={"obs": obs3}, meta_info={"metrics": worker3_metrics, "config_flag": True})
+
+    # Concat all workers' data
+    concat_data = DataProto.concat([data1, data2, data3])
+
+    # Verify tensors are concatenated
+    assert torch.all(torch.eq(concat_data.batch["obs"], torch.tensor([1, 2, 3, 4, 5, 6])))
+
+    # Verify ALL workers' metrics are preserved (not just worker1's)
+    expected_metrics = worker1_metrics + worker2_metrics + worker3_metrics
+    assert concat_data.meta_info["metrics"] == expected_metrics
+    assert len(concat_data.meta_info["metrics"]) == 3
+
+    # Verify config flags are preserved from first worker
+    assert concat_data.meta_info["config_flag"] is True
+
+
+def test_concat_with_empty_and_non_list_meta_info():
+    """Test concat() handles edge cases: empty meta_info, non-list values, and None."""
+    obs1 = torch.tensor([1, 2])
+    obs2 = torch.tensor([3, 4])
+
+    # Worker 1 has metrics, worker 2 doesn't
+    data1 = DataProto.from_dict(tensors={"obs": obs1}, meta_info={"metrics": [{"loss": 0.5}], "flag": True})
+    data2 = DataProto.from_dict(tensors={"obs": obs2}, meta_info={"flag": True})
+
+    concat_data = DataProto.concat([data1, data2])
+
+    # Should only have worker1's metrics
+    assert concat_data.meta_info["metrics"] == [{"loss": 0.5}]
+    assert concat_data.meta_info["flag"] is True
+
+    # Test with non-list meta_info value
+    data3 = DataProto.from_dict(tensors={"obs": obs1}, meta_info={"single_value": 42})
+    data4 = DataProto.from_dict(tensors={"obs": obs2}, meta_info={"single_value": 42})
+
+    concat_data2 = DataProto.concat([data3, data4])
+    assert concat_data2.meta_info["single_value"] == 42
+
+
+def test_concat_first_worker_missing_metrics():
+    """Test that metrics from other workers are preserved even when first worker has no metrics.
+
+    This is a critical edge case - the old buggy implementation only checked data[0].meta_info
+    and would lose all metrics if the first worker didn't have any.
+    """
+    obs1 = torch.tensor([1, 2])
+    obs2 = torch.tensor([3, 4])
+    obs3 = torch.tensor([5, 6])
+
+    # First worker has NO metrics, but workers 2 and 3 do
+    data1 = DataProto.from_dict(tensors={"obs": obs1}, meta_info={"config_flag": True})
+    data2 = DataProto.from_dict(tensors={"obs": obs2}, meta_info={"metrics": [{"loss": 0.6}], "config_flag": True})
+    data3 = DataProto.from_dict(tensors={"obs": obs3}, meta_info={"metrics": [{"loss": 0.55}], "config_flag": True})
+
+    concat_data = DataProto.concat([data1, data2, data3])
+
+    # Should have metrics from workers 2 and 3
+    expected_metrics = [{"loss": 0.6}, {"loss": 0.55}]
+    assert concat_data.meta_info["metrics"] == expected_metrics
+    assert len(concat_data.meta_info["metrics"]) == 2
+    assert concat_data.meta_info["config_flag"] is True
+
+
+def test_concat_non_list_metrics():
+    """Test that concat() handles non-list metrics (single dict) correctly.
+
+    In some cases, metrics might be a single dict instead of a list.
+    The implementation should wrap it in a list for consistency.
+    """
+    obs1 = torch.tensor([1, 2])
+    obs2 = torch.tensor([3, 4])
+
+    # Metrics as single dict (not wrapped in list)
+    data1 = DataProto.from_dict(tensors={"obs": obs1}, meta_info={"metrics": {"loss": 0.5, "accuracy": 0.9}})
+    data2 = DataProto.from_dict(tensors={"obs": obs2}, meta_info={"metrics": {"loss": 0.6, "accuracy": 0.85}})
+
+    concat_data = DataProto.concat([data1, data2])
+
+    # Should wrap single dicts in a list
+    expected_metrics = [{"loss": 0.5, "accuracy": 0.9}, {"loss": 0.6, "accuracy": 0.85}]
+    assert concat_data.meta_info["metrics"] == expected_metrics
+    assert len(concat_data.meta_info["metrics"]) == 2
+
+
 def test_pop():
     obs = torch.randn(100, 10)
     act = torch.randn(100, 3)
