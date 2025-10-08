@@ -80,14 +80,8 @@ actor_ppo_max_token_len=$((max_prompt_length + max_response_length))
 infer_ppo_max_token_len=$((max_prompt_length + max_response_length))
 offload=False
 gen_tp=1
-# Truncated Importance Sampling (TIS) -> https://fengyao.notion.site/off-policy-rl
 
-# Please note that server mode(agent loop) hasn't return rollout_log_probs for now.
-# so currently, server mode is not supported for TIS.
 
-# To turn on TIS, you need to set the following parameters. Note 2.0 is a hyper-parameter and can be tuned.
-#   actor_rollout_ref.actor.tis_imp_ratio_cap=2.0
-#   actor_rollout_ref.rollout.calculate_log_probs=True
 
     
 python3 -m recipe.flowrl.main_flowrl \
@@ -108,7 +102,6 @@ python3 -m recipe.flowrl.main_flowrl \
     actor_rollout_ref.actor.clip_ratio_low=${clip_ratio_low} \
     actor_rollout_ref.actor.clip_ratio_high=${clip_ratio_high} \
     actor_rollout_ref.actor.clip_ratio_c=10.0 \
-    +loss_variant=${loss_variant} \
     algorithm.filter_groups.enable=${enable_filter_groups} \
     algorithm.filter_groups.max_num_gen_batches=${max_num_gen_batches} \
     algorithm.filter_groups.metric=${filter_groups_metric} \
