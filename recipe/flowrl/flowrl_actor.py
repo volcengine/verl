@@ -515,7 +515,6 @@ class FlowRLActor(DataParallelPPOActor):
             "actor/log_reward": verl_F.masked_mean(reward, response_mask).detach().item(),
             "actor/final_loss": avg_loss.detach().item(),
             "actor/importance_weight": imp_w.mean().detach().item(),
-            "actor/loss_variant": "vanilla",
         }
 
         return avg_loss, loss_term_dict
@@ -565,7 +564,6 @@ class FlowRLActor(DataParallelPPOActor):
             "actor/log_reward": verl_F.masked_mean(reward, response_mask).detach().item(),
             "actor/final_loss": avg_loss.detach().item(),
             "actor/importance_weight": imp_w.mean().detach().item(),
-            "actor/loss_variant": "clip_only",
         }
 
         return avg_loss, loss_term_dict
@@ -626,7 +624,6 @@ class FlowRLActor(DataParallelPPOActor):
             "actor/log_reward": verl_F.masked_mean(reward, response_mask).detach().item(),
             "actor/final_loss": avg_loss.detach().item(),
             "actor/importance_weight": imp_w.mean().detach().item(),
-            "actor/loss_variant": "tis_clip",
         }
 
         if w_tis is not None:
