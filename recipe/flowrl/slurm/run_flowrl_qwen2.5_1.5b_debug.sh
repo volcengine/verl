@@ -30,6 +30,7 @@ clip_ratio_high=0.28
 # FlowRL Loss Variant Selection
 # Options: "vanilla" (no TIS/clip), "clip_only" (clip IS only), "tis_clip" (both TIS + clip)
 loss_variant="tis_clip"
+export FLOWRL_LOSS_VARIANT=${loss_variant}
 
 # Sequence lengths (REDUCED FOR DEBUGGING)
 max_prompt_length=256  # Reduced from 1024 for debugging

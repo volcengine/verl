@@ -390,9 +390,10 @@ class FlowRLActor(DataParallelPPOActor):
                     # )
                     # Compute FlowRL trajectory balance loss
 
-                    # Select loss variant from top-level config (passed as +loss_variant in script)
-                    # Default to 'tis_clip' if not specified
-                    loss_variant = "tis_clip"
+                    # Select loss variant from environment variable or default to 'tis_clip'
+                    # Set in script: export FLOWRL_LOSS_VARIANT="vanilla" or "clip_only" or "tis_clip"
+                    import os
+                    loss_variant = os.getenv("FLOWRL_LOSS_VARIANT", "tis_clip")
 
                     if loss_variant == "vanilla":
                         policy_loss, flowrl_metrics = self.compute_flowrl_objective_vanilla(
