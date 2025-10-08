@@ -174,7 +174,7 @@ actor_rollout_ref:
 
 ### Step 2: Monitor New Metrics
 
-Add monitoring for these key metrics (all prefixed with `actor/`):
+Add monitoring for these key metrics (all prefixed with `mismatch/`):
 
 **Health Indicators:**
 - `rollout_is_mean`: Mean IS weight across sequences

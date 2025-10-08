@@ -889,12 +889,8 @@ def compute_policy_loss_vanilla(
     response_mask: torch.Tensor,
     loss_agg_mode: str = "token-mean",
     config: Optional[DictConfig | AlgoConfig] = None,
-    rollout_log_probs: torch.Tensor | None = None,
-    return_rollout_is_metrics: bool = False,
-) -> (
-    tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
-    | tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, dict]
-):
+    rollout_is_weights: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Compute the clipped policy objective and related metrics for PPO.
 
@@ -963,31 +959,11 @@ def compute_policy_loss_vanilla(
 
     pg_losses = torch.where(advantages < 0, clip_pg_losses2, clip_pg_losses1)
 
-    # Apply rollout importance sampling if threshold is set
-    rollout_is_metrics: dict = {}
-    if config.get("rollout_is_threshold") is not None and rollout_log_probs is not None:
-        from verl.trainer.ppo.mismatch_helper import compute_rollout_importance_weights
-
-        rollout_is_weights, rollout_is_metrics = compute_rollout_importance_weights(
-            old_log_prob=old_log_prob,
-            rollout_log_prob=rollout_log_probs,
-            eos_mask=response_mask,
-            rollout_is_level=config.get("rollout_is_level", "token"),
-            rollout_is_mode=config.get("rollout_is_mode", "truncate"),
-            rollout_is_threshold=config.rollout_is_threshold,
-            rollout_is_threshold_lower=config.get("rollout_is_threshold_lower"),
-            rollout_is_veto_threshold=config.get("rollout_is_veto_threshold"),
-        )
-
-        # Apply IS correction to loss if enabled
-        if config.get("rollout_is", False) and rollout_is_weights is not None:
-            pg_losses = pg_losses * rollout_is_weights
+    # Apply rollout importance sampling weights if provided
+    if rollout_is_weights is not None:
+        pg_losses = pg_losses * rollout_is_weights
 
     pg_loss = agg_loss(loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
-
-    # Return rollout IS metrics if requested
-    if return_rollout_is_metrics and rollout_is_metrics:
-        return pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower, rollout_is_metrics
 
     return pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower
 
@@ -1000,7 +976,7 @@ def compute_policy_loss_gspo(
     response_mask: torch.Tensor,
     loss_agg_mode: str = "seq-mean-token-mean",
     config: Optional[DictConfig | ActorConfig] = None,
-    rollout_log_probs: torch.Tensor | None = None,
+    rollout_is_weights: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Compute the clipped policy objective and related metrics for GSPO.
@@ -1046,6 +1022,10 @@ def compute_policy_loss_gspo(
     pg_losses2 = -advantages * torch.clamp(seq_importance_ratio, 1 - clip_ratio_low, 1 + clip_ratio_high)
     pg_losses = torch.maximum(pg_losses1, pg_losses2)
 
+    # Apply rollout importance sampling weights if provided
+    if rollout_is_weights is not None:
+        pg_losses = pg_losses * rollout_is_weights
+
     # for GSPO, we need to aggregate the loss at the sequence level (seq-mean-token-mean)
     pg_loss = agg_loss(loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode="seq-mean-token-mean")
 
@@ -1066,7 +1046,7 @@ def compute_policy_loss_gpg(
     response_mask: torch.Tensor,
     loss_agg_mode: str = "token-mean",
     config: Optional[DictConfig | AlgoConfig] = None,
-    rollout_log_probs: torch.Tensor | None = None,
+    rollout_is_weights: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Adapted from
     https://github.com/AMAP-ML/GPG/blob/main/VisualThinker-R1-Zero/src/open-r1-multimodal/src/open_r1/trainer/grpo_trainer.py#L495
@@ -1083,6 +1063,10 @@ def compute_policy_loss_gpg(
     """
     pg_losses = -log_prob * advantages
 
+    # Apply rollout importance sampling weights if provided
+    if rollout_is_weights is not None:
+        pg_losses = pg_losses * rollout_is_weights
+
     pg_loss = agg_loss(loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
     return pg_loss, torch.tensor(0.0), torch.tensor(0.0), torch.tensor(0.0)
 
@@ -1095,7 +1079,7 @@ def compute_policy_loss_clip_cov(
     response_mask: torch.Tensor,
     loss_agg_mode: str = "token-mean",
     config: Optional[DictConfig | AlgoConfig] = None,
-    rollout_log_probs: torch.Tensor | None = None,
+    rollout_is_weights: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Compute the clipped policy objective and related metrics for Clip-Cov.
@@ -1177,6 +1161,11 @@ def compute_policy_loss_clip_cov(
     pg_clipfrac = verl_F.masked_mean((corr == 0).float(), response_mask)
 
     pg_losses = torch.maximum(pg_losses1, pg_losses2) * corr
+
+    # Apply rollout importance sampling weights if provided
+    if rollout_is_weights is not None:
+        pg_losses = pg_losses * rollout_is_weights
+
     pg_loss = agg_loss(loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
 
     return pg_loss, pg_clipfrac, ppo_kl, torch.tensor(0.0)
@@ -1190,7 +1179,7 @@ def compute_policy_loss_kl_cov(
     response_mask: torch.Tensor,
     loss_agg_mode: str = "token-mean",
     config: Optional[DictConfig | AlgoConfig] = None,
-    rollout_log_probs: torch.Tensor | None = None,
+    rollout_is_weights: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Compute the clipped policy objective and related metrics for Clip-Cov.
@@ -1249,6 +1238,10 @@ def compute_policy_loss_kl_cov(
                 large_cov_idxs // advantages.shape[1], large_cov_idxs % advantages.shape[1]
             ]
 
+    # Apply rollout importance sampling weights if provided
+    if rollout_is_weights is not None:
+        pg_losses = pg_losses * rollout_is_weights
+
     pg_loss = agg_loss(loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
 
     return pg_loss, torch.tensor(0.0), ppo_kl_abs, torch.tensor(0.0)
@@ -1262,7 +1255,7 @@ def compute_policy_loss_geo_mean(
     response_mask: torch.Tensor,
     loss_agg_mode: str = "token-mean",
     config: Optional[DictConfig | AlgoConfig] = None,
-    rollout_log_probs: torch.Tensor | None = None,
+    rollout_is_weights: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Compute the clipped policy objective and related metrics for GMPO.
@@ -1315,6 +1308,17 @@ def compute_policy_loss_geo_mean(
     # otherwise, below would be not consistent with the paper
     advantage = (advantages * response_mask).sum(dim=-1) / (response_mask_sum + 1e-8)
     pg_losses = -advantage * ratio
+
+    # Apply rollout importance sampling weights if provided
+    # For geo_mean, IS weights are 2D (batch_size, seq_length) and need to be aggregated to sequence level
+    if rollout_is_weights is not None:
+        # Aggregate token-level weights to sequence level using geometric mean for consistency
+        # Note: rollout_is_weights is always 2D regardless of rollout_is_level
+        seq_is_weights = torch.exp(
+            (torch.log(rollout_is_weights + 1e-10) * response_mask).sum(dim=-1) / (response_mask_sum + 1e-8)
+        )
+        pg_losses = pg_losses * seq_is_weights
+
     pg_loss = torch.mean(pg_losses)
 
     # higher: ratio is too large that need clamp to clip_high (when adv > 0)

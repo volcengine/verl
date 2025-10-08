@@ -440,55 +440,60 @@ class DataParallelPPOActor(BasePPOActor):
 
                     loss_mode = self.config.policy_loss.get("loss_mode", "vanilla")
                     # vanilla -> verl.trainer.ppo.core_algos.compute_policy_loss_vanilla
+                    # Compute rollout importance sampling weights and metrics if enabled
+                    rollout_is_weights = None
+                    if self.config.rollout_is_threshold is not None and rollout_log_probs is not None:
+                        from verl.trainer.ppo.mismatch_helper import (
+                            compute_mismatch_metrics,
+                            compute_rollout_importance_weights,
+                        )
+
+                        # Compute rollout IS weights and metrics once
+                        rollout_is_weights, rollout_is_metrics = compute_rollout_importance_weights(
+                            old_log_prob=old_log_prob,
+                            rollout_log_prob=rollout_log_probs,
+                            eos_mask=response_mask,
+                            rollout_is_level=self.config.get("rollout_is_level", "token"),
+                            rollout_is_mode=self.config.get("rollout_is_mode", "truncate"),
+                            rollout_is_threshold=self.config.rollout_is_threshold,
+                            rollout_is_threshold_lower=self.config.get("rollout_is_threshold_lower"),
+                            rollout_is_veto_threshold=self.config.get("rollout_is_veto_threshold"),
+                        )
+
+                        # Only apply weights if rollout_is is enabled
+                        if not self.config.get("rollout_is", False):
+                            rollout_is_weights = None
+
+                        # Add rollout IS metrics with "mismatch/" prefix
+                        for key, value in rollout_is_metrics.items():
+                            if isinstance(value, torch.Tensor):
+                                micro_batch_metrics[f"mismatch/{key}"] = value.detach().item()
+                            else:
+                                micro_batch_metrics[f"mismatch/{key}"] = value
+
+                        # Compute and add mismatch diagnostic metrics (PPL, KL, etc.)
+                        mismatch_metrics = compute_mismatch_metrics(
+                            old_log_prob=old_log_prob,
+                            rollout_log_prob=rollout_log_probs,
+                            response_mask=response_mask,
+                        )
+                        for key, value in mismatch_metrics.items():
+                            micro_batch_metrics[f"mismatch/{key}"] = value
+
                     # gpg -> verl.trainer.ppo.core_algos.compute_policy_loss_gpg
                     # clip_cov -> verl.trainer.ppo.core_algos.compute_policy_loss_clip_cov
                     policy_loss_fn = get_policy_loss_fn(loss_mode)
 
-                    # Check if we should request rollout IS metrics
-                    request_rollout_is_metrics = loss_mode == "vanilla" and self.config.rollout_is_threshold is not None
-
-                    if request_rollout_is_metrics:
-                        result = policy_loss_fn(
-                            old_log_prob=old_log_prob,
-                            log_prob=log_prob,
-                            advantages=advantages,
-                            response_mask=response_mask,
-                            loss_agg_mode=loss_agg_mode,
-                            config=self.config,
-                            rollout_log_probs=rollout_log_probs,
-                            return_rollout_is_metrics=True,
-                        )
-                        if len(result) == 5:
-                            pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower, rollout_is_metrics = result
-                            # Add rollout IS metrics with "actor/" prefix
-                            for key, value in rollout_is_metrics.items():
-                                if isinstance(value, torch.Tensor):
-                                    micro_batch_metrics[f"actor/{key}"] = value.detach().item()
-                                else:
-                                    micro_batch_metrics[f"actor/{key}"] = value
-
-                            # Compute and add mismatch metrics (PPL, KL, etc.)
-                            from verl.trainer.ppo.mismatch_helper import compute_mismatch_metrics
-
-                            mismatch_metrics = compute_mismatch_metrics(
-                                old_log_prob=old_log_prob,
-                                rollout_log_prob=rollout_log_probs,
-                                response_mask=response_mask,
-                            )
-                            for key, value in mismatch_metrics.items():
-                                micro_batch_metrics[f"actor/{key}"] = value
-                        else:
-                            pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = result
-                    else:
-                        pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = policy_loss_fn(
-                            old_log_prob=old_log_prob,
-                            log_prob=log_prob,
-                            advantages=advantages,
-                            response_mask=response_mask,
-                            loss_agg_mode=loss_agg_mode,
-                            config=self.config,
-                            rollout_log_probs=rollout_log_probs,
-                        )
+                    # Compute policy loss (all functions return 4 values)
+                    pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = policy_loss_fn(
+                        old_log_prob=old_log_prob,
+                        log_prob=log_prob,
+                        advantages=advantages,
+                        response_mask=response_mask,
+                        loss_agg_mode=loss_agg_mode,
+                        config=self.config,
+                        rollout_is_weights=rollout_is_weights,
+                    )
 
                     if entropy_coeff != 0:
                         entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
