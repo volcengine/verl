@@ -902,17 +902,23 @@ class DataProto:
         # Merge meta_info with special handling for metrics
         merged_meta_info = {}
         if data:
-            # Copy non-metric meta_info from the first worker, assuming they are identical across workers.
-            merged_meta_info = {k: v for k, v in data[0].meta_info.items() if k != "metrics"}
-            # Aggregate 'metrics' from all workers into a single list.
+            # Merge non-metric meta_info and aggregate metrics from all workers.
             all_metrics = []
             for d in data:
-                worker_metrics = d.meta_info.get("metrics")
-                if worker_metrics is not None:
-                    if isinstance(worker_metrics, list):
-                        all_metrics.extend(worker_metrics)
+                for k, v in d.meta_info.items():
+                    if k == "metrics":
+                        if v is not None:
+                            if isinstance(v, list):
+                                all_metrics.extend(v)
+                            else:
+                                all_metrics.append(v)
                     else:
-                        all_metrics.append(worker_metrics)
+                        if k in merged_meta_info:
+                            # Ensure consistency for overlapping non-metric keys
+                            assert merged_meta_info[k] == v, f"Conflicting values for meta_info key '{k}'"
+                        else:
+                            merged_meta_info[k] = v
+
             if all_metrics:
                 merged_meta_info["metrics"] = all_metrics
 

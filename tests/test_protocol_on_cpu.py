@@ -314,6 +314,48 @@ def test_concat_non_list_metrics():
     assert len(concat_data.meta_info["metrics"]) == 2
 
 
+def test_concat_merge_different_non_metric_keys():
+    """Test that concat() merges non-metric meta_info keys from all workers.
+
+    When different workers have different non-metric keys, all keys should be preserved.
+    This prevents silent data loss and aligns with the docstring stating meta_info is "merged".
+    """
+    obs1 = torch.tensor([1, 2])
+    obs2 = torch.tensor([3, 4])
+    obs3 = torch.tensor([5, 6])
+
+    # Each worker has some unique non-metric keys
+    data1 = DataProto.from_dict(tensors={"obs": obs1}, meta_info={"config": "A", "shared_key": "X"})
+    data2 = DataProto.from_dict(tensors={"obs": obs2}, meta_info={"extra_key": "B", "shared_key": "X"})
+    data3 = DataProto.from_dict(tensors={"obs": obs3}, meta_info={"another_key": "C", "shared_key": "X"})
+
+    concat_data = DataProto.concat([data1, data2, data3])
+
+    # All unique keys should be preserved
+    assert concat_data.meta_info["config"] == "A"
+    assert concat_data.meta_info["extra_key"] == "B"
+    assert concat_data.meta_info["another_key"] == "C"
+    assert concat_data.meta_info["shared_key"] == "X"
+
+
+def test_concat_conflicting_non_metric_keys():
+    """Test that concat() raises an assertion error when non-metric keys have conflicting values.
+
+    This ensures data integrity by catching cases where workers have different values
+    for what should be the same configuration parameter.
+    """
+    obs1 = torch.tensor([1, 2])
+    obs2 = torch.tensor([3, 4])
+
+    # Same key "config" but different values
+    data1 = DataProto.from_dict(tensors={"obs": obs1}, meta_info={"config": "A"})
+    data2 = DataProto.from_dict(tensors={"obs": obs2}, meta_info={"config": "B"})
+
+    # Should raise an assertion error due to conflicting values
+    with pytest.raises(AssertionError, match="Conflicting values for meta_info key 'config'"):
+        DataProto.concat([data1, data2])
+
+
 def test_pop():
     obs = torch.randn(100, 10)
     act = torch.randn(100, 3)
