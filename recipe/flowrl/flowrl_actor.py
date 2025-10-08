@@ -392,7 +392,7 @@ class FlowRLActor(DataParallelPPOActor):
 
                     # Select loss variant from top-level config (passed as +loss_variant in script)
                     # Default to 'tis_clip' if not specified
-                    loss_variant = getattr(self.config, 'loss_variant', 'tis_clip')
+                    loss_variant = "tis_clip"
 
                     if loss_variant == "vanilla":
                         policy_loss, flowrl_metrics = self.compute_flowrl_objective_vanilla(
