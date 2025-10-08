@@ -113,7 +113,7 @@ class MultiTurnSFTDataset(Dataset):
         action_chunks_len: int = NUM_ACTIONS_CHUNK,
         action_chunk_stride: int = 1,
         n_action_bins: int = 256,
-        max_prompt_length: Optional[int] = 64,
+        max_prompt_length: Optional[int] = 256,
         norm_stats_path: Optional[str] = None,
         unnorm_key: Optional[str] = None,
     ) -> None:
@@ -327,7 +327,10 @@ class MultiTurnSFTDataset(Dataset):
                 wrist = _center_crop(wrist, self.crop_scale)
         return image, wrist
 
-    def _tokenize(self, prompt: str, image: Image.Image, wrist: Optional[Image.Image]) -> dict[str, torch.Tensor]:
+    def _tokenize(
+        self, prompt: str, image: Image.Image, wrist: Optional[Image.Image], action_ids: torch.tensor
+    ) -> dict[str, torch.Tensor]:
+        action_ids = action_ids.reshape(1, -1)
         primary = self.processor(prompt, image, return_tensors="pt")
         input_ids = primary["input_ids"]
         attention_mask = primary["attention_mask"]
@@ -342,37 +345,42 @@ class MultiTurnSFTDataset(Dataset):
             mask_pad = torch.ones((1, 1), dtype=attention_mask.dtype)
             input_ids = torch.cat([input_ids, pad], dim=1)
             attention_mask = torch.cat([attention_mask, mask_pad], dim=1)
+        labels = torch.ones_like(input_ids) * -100
+
+        input_ids = torch.cat((input_ids, action_ids), dim=1)
+        attention_mask = torch.cat([attention_mask, torch.ones_like(action_ids)], dim=1)
+        labels = torch.cat((labels, action_ids), dim=1)
 
         if self.max_prompt_length is not None:
             input_ids = pad_sequence_to_length(
                 input_ids,
                 max_seq_len=self.max_prompt_length,
                 pad_token_id=self.pad_token_id,
-                left_pad=True,
+                left_pad=False,
             )
             attention_mask = pad_sequence_to_length(
                 attention_mask,
                 max_seq_len=self.max_prompt_length,
                 pad_token_id=0,
-                left_pad=True,
+                left_pad=False,
+            )
+            labels = pad_sequence_to_length(
+                labels,
+                max_seq_len=self.max_prompt_length,
+                pad_token_id=-100,
+                left_pad=False,
             )
 
         return {
             "input_ids": input_ids.long(),
             "attention_mask": attention_mask.long(),
             "pixel_values": pixel_values.float(),
+            "labels": labels.long(),
         }
 
-    def __getitem__(self, index: int) -> dict[str, Any]:
-        index = int(index)
-        first_frame = self._dataset[index]
+    def get_actions(self, first_frame, index):
         task_index = int(first_frame.get("task_index", 0))
         episode_index = int(first_frame.get("episode_index", 0))
-
-        prompt = self._prepare_prompt(task_index)
-        image, wrist = self._prepare_images(first_frame)
-        tokenized = self._tokenize(prompt, image, wrist)
-
         actions: list[Sequence[float]] = [first_frame["actions"]]
         fill_static = False
         zero_action = [0.0] * ACTION_DIM
@@ -396,15 +404,30 @@ class MultiTurnSFTDataset(Dataset):
                 fill_static = True
         if valid_steps != len(actions):
             print(f"not enough actions, skip at {index}!")
-            return self[random.randint(0, len(self) - 1)]
+            return None, None
 
         actions_array = np.asarray(actions, dtype=np.float32)
         action_token_ids = self._actions_to_token_ids(actions_array)
+        return actions_array, action_token_ids
+
+    def __getitem__(self, index: int) -> dict[str, Any]:
+        index = int(index)
+        first_frame = self._dataset[index]
+        task_index = int(first_frame.get("task_index", 0))
+        episode_index = int(first_frame.get("episode_index", 0))
+
+        actions_array, action_token_ids = self.get_actions(first_frame, index)
+        if actions_array is None:
+            return self[random.randint(0, len(self) - 1)]
+        prompt = self._prepare_prompt(task_index)
+        image, wrist = self._prepare_images(first_frame)
+        tokenized = self._tokenize(prompt, image, wrist, action_token_ids)
 
         output: dict[str, Any] = {
             "input_ids": tokenized["input_ids"][0],
             "attention_mask": tokenized["attention_mask"][0],
             "pixel_values": tokenized["pixel_values"][0],
+            "labels": tokenized["labels"][0],
             "responses": action_token_ids.reshape(-1),
             "action_token_ids": action_token_ids,
             "actions": torch.tensor(actions_array, dtype=torch.float32),
@@ -414,7 +437,6 @@ class MultiTurnSFTDataset(Dataset):
             "frame_index": torch.tensor(int(first_frame.get("frame_index", 0)), dtype=torch.long),
             "timestamp": torch.tensor(float(first_frame.get("timestamp", 0.0)), dtype=torch.float32),
             "prompt": prompt,
-            "finish_step": torch.tensor(valid_steps, dtype=torch.long),
         }
         return output
 

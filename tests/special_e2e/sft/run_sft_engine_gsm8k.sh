@@ -17,7 +17,7 @@ RESUME_MODE=disable
 ckpts_home="checkpoints/simple-vla-all-sft"
 
 MODEL_ID=${MODEL_ID:-Qwen/Qwen3-0.6B}
-MODEL_PATH="/file_system/common-models/Haozhan72-kangsheng/Openvla-oft-SFT-libero10-trajall"
+MODEL_PATH="/file_system/common-models/Haozhan72-kangsheng/openvla-oft"
 #huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
 
 SP_SIZE=${SP_SIZE:-1}
@@ -91,7 +91,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     trainer.logger=['console','file'] \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
-    trainer.total_epochs=20 \
+    trainer.total_epochs=10 \
     trainer.total_training_steps=10000 \
     trainer.default_local_dir="${ckpts_home}" \
     trainer.resume_mode=${RESUME_MODE} \

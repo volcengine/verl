@@ -184,9 +184,7 @@ class BaseModelMerger(ABC):
     def __init__(self, config: ModelMergerConfig):
         self.config = config
         self.hf_model_config_path = config.hf_model_config_path
-        self.model_config = AutoConfig.from_pretrained(
-            self.hf_model_config_path, trust_remote_code=self.config.trust_remote_code
-        )
+        self.model_config = AutoConfig.from_pretrained(self.hf_model_config_path)
 
     def get_transformers_auto_model_class(self):
         has_remote_code = hasattr(self.model_config, "auto_map") and any(

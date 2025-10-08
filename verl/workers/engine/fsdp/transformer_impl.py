@@ -915,6 +915,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
         micro_batch = micro_batch.to(get_device_id())
         model_inputs, output_args = self.prepare_model_inputs(micro_batch=micro_batch)
         model_inputs["pixel_values"] = micro_batch["pixel_values"]
+        model_inputs["labels"] = micro_batch["labels"]
 
         with torch.autocast(device_type=device_name, dtype=torch.bfloat16):
             raw_output = self.module(
@@ -925,8 +926,9 @@ class FSDPEngineWithLMHead(FSDPEngine):
             # model_output = self.prepare_model_outputs(
             #     output=raw_output, output_args=output_args, micro_batch=micro_batch
             # )
-            model_output = raw_output
-            loss = torch.nn.functional.cross_entropy(model_output.transpose(1, 2), micro_batch["responses"])
+            # model_output = raw_output
+            # loss = torch.nn.functional.cross_entropy(model_output.transpose(1, 2), micro_batch["responses"])
+            loss = raw_output["loss"]
             metrics = {"loss": loss.detach().cpu().item()}
 
             # if loss_function is not None:
