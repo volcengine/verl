@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -xeuo pipefail
 
+export RAY_TMPDIR=/mnt/hwfile/linzhouhan/rt
+mkdir -p "$RAY_TMPDIR"
+
 unset ROCR_VISIBLE_DEVICES
 project_name='FlowRL'
 exp_name='test-debug'
