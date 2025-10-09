@@ -241,7 +241,7 @@ class FSDPEngine(BaseEngine):
     def _build_lora_module(self, module):
         module.enable_input_require_grads()
 
-        lora_adapter_path = getattr(self.model_config, 'lora_adapter_path', None)
+        lora_adapter_path = getattr(self.model_config, "lora_adapter_path", None)
         if lora_adapter_path is not None:
             from peft import PeftModel
 

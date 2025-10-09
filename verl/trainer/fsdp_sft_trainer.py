@@ -258,9 +258,7 @@ class FSDPSFTTrainer:
 
                     print(f"Loading pre-trained LoRA adapter for sft from: {lora_adapter_path}")
 
-                    local_adapter_path = copy_to_local(
-                        lora_adapter_path, use_shm=self.config.model.use_shm
-                    )
+                    local_adapter_path = copy_to_local(lora_adapter_path, use_shm=self.config.model.use_shm)
 
                     self.model = PeftModel.from_pretrained(self.model, local_adapter_path, is_trainable=True)
                     peft_config = self.model.peft_config["default"]

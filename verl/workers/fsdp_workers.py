@@ -416,9 +416,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 print(f"Loading pre-trained LoRA adapter to {role} from: {lora_adapter_path}")
 
                 # Copy adapter to local if needed
-                local_adapter_path = copy_to_local(
-                    lora_adapter_path, use_shm=self.config.model.get("use_shm", False)
-                )
+                local_adapter_path = copy_to_local(lora_adapter_path, use_shm=self.config.model.get("use_shm", False))
 
                 actor_module = PeftModel.from_pretrained(actor_module, local_adapter_path, is_trainable=True)
                 peft_config = actor_module.peft_config["default"]
@@ -1210,7 +1208,9 @@ class CriticWorker(Worker, DistProfilerExtension):
                 f"normalized ppo_mini_batch_size {self.config.ppo_mini_batch_size} should be larger than "
                 f"ppo_micro_batch_size_per_gpu {self.config.ppo_micro_batch_size_per_gpu}"
             )
-        self._is_lora = self.config.model.get("lora_adapter_path") is not None or self.config.model.get("lora_rank", 0) > 0
+        self._is_lora = (
+            self.config.model.get("lora_adapter_path") is not None or self.config.model.get("lora_rank", 0) > 0
+        )
         self.use_orig_params = self.config.model.fsdp_config.get("use_orig_params", False)
 
     def _build_critic_model_optimizer(self, config):
@@ -1308,9 +1308,7 @@ class CriticWorker(Worker, DistProfilerExtension):
                 print(f"Loading pre-trained LoRA adapter to critic from: {lora_adapter_path}")
 
                 # Copy adapter to local if needed
-                local_adapter_path = copy_to_local(
-                    lora_adapter_path, use_shm=self.config.model.get("use_shm", False)
-                )
+                local_adapter_path = copy_to_local(lora_adapter_path, use_shm=self.config.model.get("use_shm", False))
 
                 critic_module = PeftModel.from_pretrained(critic_module, local_adapter_path, is_trainable=True)
                 peft_config = critic_module.peft_config["default"]

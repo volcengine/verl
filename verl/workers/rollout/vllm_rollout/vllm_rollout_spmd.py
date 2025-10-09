@@ -129,7 +129,7 @@ class vLLMRollout(BaseRollout):
         model_hf_config = model_config.hf_config
         trust_remote_code = model_config.trust_remote_code
 
-        lora_adapter_path = getattr(model_config, 'lora_adapter_path', None)
+        lora_adapter_path = getattr(model_config, "lora_adapter_path", None)
         if lora_adapter_path is not None:
             lora_rank = get_lora_rank_from_adapter(lora_adapter_path)
         else:
