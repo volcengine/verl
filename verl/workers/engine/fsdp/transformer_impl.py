@@ -241,14 +241,15 @@ class FSDPEngine(BaseEngine):
     def _build_lora_module(self, module):
         module.enable_input_require_grads()
 
-        if self.model_config.lora_adapter_path is not None:
+        lora_adapter_path = getattr(self.model_config, 'lora_adapter_path', None)
+        if lora_adapter_path is not None:
             from peft import PeftModel
 
             from verl.utils.fs import copy_to_local
 
-            print(f"Loading pre-trained LoRA adapter to from: {self.model_config.lora_adapter_path}")
+            print(f"Loading pre-trained LoRA adapter to from: {lora_adapter_path}")
             # Copy adapter to local if needed
-            local_adapter_path = copy_to_local(self.model_config.lora_adapter_path, use_shm=self.model_config.use_shm)
+            local_adapter_path = copy_to_local(lora_adapter_path, use_shm=self.model_config.use_shm)
 
             module = PeftModel.from_pretrained(module, local_adapter_path, is_trainable=True)
             peft_config = module.peft_config["default"]

@@ -117,7 +117,7 @@ class FSDPSFTTrainer:
 
         self._build_dataloader(train_dataset, val_dataset)
 
-        self.lora = self.config.model.lora_adapter_path is not None or self.config.model.lora_rank > 0
+        self.lora = self.config.model.get("lora_adapter_path") is not None or self.config.model.lora_rank > 0
 
         # Initialize resume-related variables
         self.resume_global_step = 0
@@ -252,13 +252,14 @@ class FSDPSFTTrainer:
             if self.lora:
                 self.model.enable_input_require_grads()
 
-                if self.config.model.lora_adapter_path is not None:
+                lora_adapter_path = self.config.model.get("lora_adapter_path")
+                if lora_adapter_path is not None:
                     from peft import PeftModel
 
-                    print(f"Loading pre-trained LoRA adapter for sft from: {self.config.model.lora_adapter_path}")
+                    print(f"Loading pre-trained LoRA adapter for sft from: {lora_adapter_path}")
 
                     local_adapter_path = copy_to_local(
-                        self.config.model.lora_adapter_path, use_shm=self.config.model.use_shm
+                        lora_adapter_path, use_shm=self.config.model.use_shm
                     )
 
                     self.model = PeftModel.from_pretrained(self.model, local_adapter_path, is_trainable=True)

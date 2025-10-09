@@ -179,7 +179,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
         self._lora_rank = self.config.model.get("lora_rank", 0)
-        self._is_lora = self.config.model.lora_adapter_path is not None or self._lora_rank > 0
+        self._is_lora = self.config.model.get("lora_adapter_path") is not None or self._lora_rank > 0
 
         self.role = role
         assert self.role in ["actor", "rollout", "ref", "actor_rollout", "actor_rollout_ref"]
@@ -409,14 +409,15 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             print("Applying LoRA to actor module")
             actor_module.enable_input_require_grads()
 
-            if self.config.model.lora_adapter_path is not None:
+            lora_adapter_path = self.config.model.get("lora_adapter_path")
+            if lora_adapter_path is not None:
                 from peft import PeftModel
 
-                print(f"Loading pre-trained LoRA adapter to {role} from: {self.config.model.lora_adapter_path}")
+                print(f"Loading pre-trained LoRA adapter to {role} from: {lora_adapter_path}")
 
                 # Copy adapter to local if needed
                 local_adapter_path = copy_to_local(
-                    self.config.model.lora_adapter_path, use_shm=self.config.model.get("use_shm", False)
+                    lora_adapter_path, use_shm=self.config.model.get("use_shm", False)
                 )
 
                 actor_module = PeftModel.from_pretrained(actor_module, local_adapter_path, is_trainable=True)
@@ -1209,7 +1210,7 @@ class CriticWorker(Worker, DistProfilerExtension):
                 f"normalized ppo_mini_batch_size {self.config.ppo_mini_batch_size} should be larger than "
                 f"ppo_micro_batch_size_per_gpu {self.config.ppo_micro_batch_size_per_gpu}"
             )
-        self._is_lora = self.config.model.lora_adapter_path is not None or self.config.model.get("lora_rank", 0) > 0
+        self._is_lora = self.config.model.get("lora_adapter_path") is not None or self.config.model.get("lora_rank", 0) > 0
         self.use_orig_params = self.config.model.fsdp_config.get("use_orig_params", False)
 
     def _build_critic_model_optimizer(self, config):
@@ -1300,14 +1301,15 @@ class CriticWorker(Worker, DistProfilerExtension):
             critic_module.enable_input_require_grads()
 
             # Check if we should load a pre-trained LoRA adapter
-            if self.config.model.lora_adapter_path is not None:
+            lora_adapter_path = self.config.model.get("lora_adapter_path")
+            if lora_adapter_path is not None:
                 from peft import PeftModel
 
-                print(f"Loading pre-trained LoRA adapter to critic from: {self.config.model.lora_adapter_path}")
+                print(f"Loading pre-trained LoRA adapter to critic from: {lora_adapter_path}")
 
                 # Copy adapter to local if needed
                 local_adapter_path = copy_to_local(
-                    self.config.model.lora_adapter_path, use_shm=self.config.model.get("use_shm", False)
+                    lora_adapter_path, use_shm=self.config.model.get("use_shm", False)
                 )
 
                 critic_module = PeftModel.from_pretrained(critic_module, local_adapter_path, is_trainable=True)
