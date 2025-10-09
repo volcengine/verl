@@ -24,5 +24,8 @@ mkdir -p "$RAY_TMPDIR"
 # Print GPU info
 nvidia-smi
 
+proxy_on
+
+
 # Run the training script
 bash recipe/flowrl/run_flowrl_vanilla_qwen2.5_7b.sh
