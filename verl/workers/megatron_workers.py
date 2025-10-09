@@ -439,7 +439,8 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         # For sync mode, we directly switch to trainer mode here.
         # For async mode, we can't call run_until_complete here, so we will switch to trainer mode in AgentLoopManager.
         if rollout_config.mode == "sync" and self._is_actor:
-            asyncio.run(self.trainer_mode())
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(self.trainer_mode())
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
@@ -668,14 +669,19 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         timing_generate = {}
         if self._is_actor:  # For rollout only, we do not switch context.
-            asyncio.run(self.rollout_mode())
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            loop.run_until_complete(self.rollout_mode())
             log_gpu_memory_usage("After switch to rollout mode", logger=logger)
 
         with simple_timer("generate_sequences", timing_generate):
             output = self.rollout.generate_sequences(prompts=prompts)
 
         if self._is_actor:
-            asyncio.run(self.trainer_mode())
+            loop.run_until_complete(self.trainer_mode())
             log_gpu_memory_usage("After switch to trainer mode", logger=logger)
 
         # We calculate the average timing across all ranks
