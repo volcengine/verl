@@ -21,6 +21,8 @@ echo "=========================================="
 export RAY_TMPDIR=/mnt/hwfile/linzhouhan/rt
 mkdir -p "$RAY_TMPDIR"
 
+proxy_on
+
 # Print GPU info
 nvidia-smi
 
