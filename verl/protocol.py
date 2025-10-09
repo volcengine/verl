@@ -919,8 +919,9 @@ class DataProto:
                         else:
                             merged_meta_info[k] = v
 
+            # Flatten list of dicts to dict of lists for consistent metrics structure
             if all_metrics:
-                merged_meta_info["metrics"] = all_metrics
+                merged_meta_info["metrics"] = list_of_dict_to_dict_of_list(all_metrics)
 
         cls = type(data[0]) if len(data) > 0 else DataProto
         return cls(batch=new_batch, non_tensor_batch=non_tensor_batch, meta_info=merged_meta_info)

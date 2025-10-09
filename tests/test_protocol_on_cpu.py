@@ -281,15 +281,14 @@ def test_concat_first_worker_missing_metrics():
 
     # First worker has NO metrics, but workers 2 and 3 do
     data1 = DataProto.from_dict(tensors={"obs": obs1}, meta_info={"config_flag": True})
-    data2 = DataProto.from_dict(tensors={"obs": obs2}, meta_info={"metrics": [{"loss": 0.6}], "config_flag": True})
-    data3 = DataProto.from_dict(tensors={"obs": obs3}, meta_info={"metrics": [{"loss": 0.55}], "config_flag": True})
+    data2 = DataProto.from_dict(tensors={"obs": obs2}, meta_info={"metrics": {"loss": 0.6}, "config_flag": True})
+    data3 = DataProto.from_dict(tensors={"obs": obs3}, meta_info={"metrics": {"loss": 0.55}, "config_flag": True})
 
     concat_data = DataProto.concat([data1, data2, data3])
 
-    # Should have metrics from workers 2 and 3
-    expected_metrics = [{"loss": 0.6}, {"loss": 0.55}]
+    # Should flatten metrics from workers 2 and 3 into dict of lists
+    expected_metrics = {"loss": [0.6, 0.55]}
     assert concat_data.meta_info["metrics"] == expected_metrics
-    assert len(concat_data.meta_info["metrics"]) == 2
     assert concat_data.meta_info["config_flag"] is True
 
 
@@ -297,7 +296,7 @@ def test_concat_non_list_metrics():
     """Test that concat() handles non-list metrics (single dict) correctly.
 
     In some cases, metrics might be a single dict instead of a list.
-    The implementation should wrap it in a list for consistency.
+    The implementation should flatten them into a dict of lists.
     """
     obs1 = torch.tensor([1, 2])
     obs2 = torch.tensor([3, 4])
@@ -308,10 +307,9 @@ def test_concat_non_list_metrics():
 
     concat_data = DataProto.concat([data1, data2])
 
-    # Should wrap single dicts in a list
-    expected_metrics = [{"loss": 0.5, "accuracy": 0.9}, {"loss": 0.6, "accuracy": 0.85}]
+    # Should flatten to dict of lists
+    expected_metrics = {"loss": [0.5, 0.6], "accuracy": [0.9, 0.85]}
     assert concat_data.meta_info["metrics"] == expected_metrics
-    assert len(concat_data.meta_info["metrics"]) == 2
 
 
 def test_concat_merge_different_non_metric_keys():
