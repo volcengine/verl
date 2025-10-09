@@ -2,7 +2,7 @@
 set -xeuo pipefail
 
 project_name='FlowRL'
-exp_name='FlowRL-vanilla-Qwen2.5-7B-wo-dynamic-sampling-n-8'
+exp_name='FlowRL-vanilla-Qwen2.5-7B-1009'
 
 # Algorithm settings
 adv_estimator=grpo
@@ -22,6 +22,11 @@ tis_imp_ratio_cap=2.0
 # DAPO Dual-clip parameters
 clip_ratio_low=0.2
 clip_ratio_high=0.28
+
+# FlowRL Loss Variant Selection
+# Options: "vanilla" (no TIS/clip), "clip_only" (clip IS only), "tis_clip" (both TIS + clip)
+loss_variant="vanilla"
+export FLOWRL_LOSS_VARIANT=${loss_variant}
 
 # Sequence lengths 
 max_prompt_length=$((1024 * 2))

@@ -393,7 +393,7 @@ class FlowRLActor(DataParallelPPOActor):
                     # Select loss variant from environment variable or default to 'tis_clip'
                     # Set in script: export FLOWRL_LOSS_VARIANT="vanilla" or "clip_only" or "tis_clip"
                     import os
-                    loss_variant = os.getenv("FLOWRL_LOSS_VARIANT", "tis_clip")
+                    loss_variant = os.getenv("FLOWRL_LOSS_VARIANT", "vanilla")
 
                     if loss_variant == "vanilla":
                         policy_loss, flowrl_metrics = self.compute_flowrl_objective_vanilla(
