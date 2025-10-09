@@ -70,10 +70,17 @@ ARM 架构与 X86 架构镜像的核心差异如下：
        gcc g++ cmake libnuma-dev wget git curl jq vim build-essential \
        && rm -rf /var/lib/apt/lists/*
 
-   # 4. Pre-installation foundation vllm
-   RUN git clone --depth 1 --branch v0.9.1 https://github.com/vllm-project/vllm \
-       && if [ "$(uname -m)" = "x86_64" ]; then \
+   # 4. Pre-installation foundation vllm with architecture echo
+   RUN echo "===== Current system architecture check =====" && \
+       arch=$(uname -m) && \
+       echo "Detected architecture: $arch" && \
+       echo "============================================" && \
+       git clone --depth 1 --branch v0.9.1 https://github.com/vllm-project/vllm \
+       && if [ "$arch" = "x86_64" ]; then \
+            echo "===== Entering x86_64 branch: Setting pip extra index url ====="; \
             pip config set global.extra-index-url "https://download.pytorch.org/whl/cpu/ https://mirrors.huaweicloud.com/ascend/repos/pypi"; \
+          else \
+            echo "===== Entering non-x86_64 branch: No extra pip index url set ====="; \
           fi \
        && cd vllm \
        && VLLM_TARGET_DEVICE=empty pip install -v -e . \
@@ -82,9 +89,11 @@ ARM 架构与 X86 架构镜像的核心差异如下：
    # 5. Install vllm_ascend
    RUN git clone --depth 1 --branch v0.9.1 https://github.com/vllm-project/vllm-ascend.git \
        && cd vllm-ascend \
-       && if [ "$(uname -m)" = "aarch64" ]; then \
+       && arch=$(uname -m) && \
+       echo "===== Configuring LD_LIBRARY_PATH for $arch =====" && \
+       if [ "$arch" = "aarch64" ]; then \
             export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/8.2.RC1/aarch64-linux/devlib/linux/aarch64:$LD_LIBRARY_PATH; \
-          elif [ "$(uname -m)" = "x86_64" ]; then \
+          elif [ "$arch" = "x86_64" ]; then \
             export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/8.2.RC1/x86_64-linux/devlib/linux/x86_64/:$LD_LIBRARY_PATH; \
           fi \
        && source /usr/local/Ascend/ascend-toolkit/set_env.sh \
