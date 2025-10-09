@@ -316,6 +316,13 @@ class MegatronPPOActor(BasePPOActor):
         ]
         if self.config.use_kl_loss:
             select_keys.append("ref_log_prob")
+        if self.config.rollout_is_threshold is not None:
+            assert "rollout_log_probs" in data.batch.keys(), (
+                "Rollout Importance Sampling requires to configure "
+                "`actor_rollout_ref.rollout.calculate_log_probs=True` "
+                "and is not currently supported in Server mode (agent loop)."
+            )
+            select_keys.append("rollout_log_probs")
         self.has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
         if self.has_multi_modal_inputs:
             data = data.select(select_keys, ["multi_modal_inputs"])
@@ -419,7 +426,7 @@ class MegatronPPOActor(BasePPOActor):
             response_length = responses.size(1)
             response_mask = data["response_mask"].to(bool)
             loss_agg_mode = self.config.loss_agg_mode
-
+            rollout_log_probs = data["rollout_log_probs"] if self.config.rollout_is_threshold is not None else None
             # compute policy loss
             log_prob = output["log_probs"][:, -response_length - 1 : -1].contiguous()
             ret_entropy = None
@@ -434,6 +441,41 @@ class MegatronPPOActor(BasePPOActor):
                 loss_mode = self.config.policy_loss.get("loss_mode", "vanilla")
 
                 policy_loss_fn = get_policy_loss_fn(loss_mode)
+
+                # vanilla -> verl.trainer.ppo.core_algos.compute_policy_loss_vanilla
+                # Compute rollout importance sampling weights and metrics if enabled
+                rollout_is_weights = None
+                if self.config.rollout_is_threshold is not None and rollout_log_probs is not None:
+                    from verl.trainer.ppo.mismatch_helper import compute_rollout_importance_weights
+
+                    # Compute rollout IS weights and metrics once
+                    rollout_is_weights, rollout_is_metrics = compute_rollout_importance_weights(
+                        old_log_prob=old_log_prob,
+                        rollout_log_prob=rollout_log_probs,
+                        eos_mask=response_mask,
+                        rollout_is_level=self.config.get("rollout_is_level", "token"),
+                        rollout_is_mode=self.config.get("rollout_is_mode", "truncate"),
+                        rollout_is_threshold=self.config.rollout_is_threshold,
+                        rollout_is_threshold_lower=self.config.get("rollout_is_threshold_lower"),
+                        rollout_is_veto_threshold=self.config.get("rollout_is_veto_threshold"),
+                    )
+
+                    # Only apply weights if rollout_is is enabled
+                    if not self.config.get("rollout_is", False):
+                        rollout_is_weights = None
+
+                    # Add rollout IS metrics with "mismatch/" prefix
+                    for key, value in rollout_is_metrics.items():
+                        if isinstance(value, torch.Tensor):
+                            stats[f"mismatch/{key}"] = value.detach().item()
+                        else:
+                            stats[f"mismatch/{key}"] = value
+
+                # NOTE: Mismatch diagnostic metrics (PPL, KL, etc.) are now computed centrally
+                # in ray_trainer.py via compute_mismatch_metrics_batch() for consistency.
+                # This avoids duplicate computation and ensures metrics are computed uniformly
+                # across all batches at the trainer level, not scattered in individual workers.
+                # The IS weight metrics above are still unique to the worker and not duplicated.
                 pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = policy_loss_fn(
                     old_log_prob=old_log_prob,
                     log_prob=log_prob,
@@ -441,6 +483,7 @@ class MegatronPPOActor(BasePPOActor):
                     response_mask=response_mask,
                     loss_agg_mode=loss_agg_mode,
                     config=self.config,
+                    rollout_is_weights=rollout_is_weights,
                 )
 
                 stats.update(
