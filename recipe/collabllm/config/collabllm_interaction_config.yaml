@@ -1,6 +1,6 @@
 interaction:
   - name: "collabllm"
-    class_name: "verl.interactions.collabllm_interation.CollabLLMInteraction"
+    class_name: "recipe.collabllm.collabllm_interation.CollabLLMInteraction"
     config: {
       "user_model": "gpt-4o-mini",
       "num_retries": 3,
