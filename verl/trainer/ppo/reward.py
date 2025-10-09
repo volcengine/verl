@@ -26,6 +26,7 @@ from omegaconf import DictConfig
 
 from verl import DataProto
 from verl.utils.reward_score import default_compute_score
+from verl.utils.transferqueue_utils import batchmeta_dataproto_pipe
 from verl.workers.reward_manager import get_reward_manager_cls
 from verl.workers.reward_manager.abstract import AbstractRewardManager, RawRewardFn
 
@@ -151,6 +152,7 @@ def load_reward_manager(
     )
 
 
+@batchmeta_dataproto_pipe(put_data=False)
 def compute_reward(data: DataProto, reward_fn: AbstractRewardManager) -> tuple[torch.Tensor, dict[str, Any]]:
     """
     Compute reward for a batch of data.

@@ -69,7 +69,7 @@ init_predefined_execute_mode()
 
 
 def _split_args_kwargs_data_proto(chunks, *args, **kwargs):
-    from verl.experimental.transfer_queue.metadata import BatchMeta
+    from verl.experimental.transfer_queue import BatchMeta
     from verl.protocol import DataProto, DataProtoFuture
 
     splitted_args = []
@@ -135,7 +135,7 @@ def collect_all_to_all(worker_group, output):
 def _concat_data_proto_or_future(output: list):
     import ray
 
-    from verl.experimental.transfer_queue.metadata import BatchMeta
+    from verl.experimental.transfer_queue import BatchMeta
     from verl.protocol import DataProto, DataProtoFuture
 
     # make sure all the elements in output has the same type
@@ -266,7 +266,7 @@ def collect_nd_compute_dataproto(collect_mask: list[bool], worker_group, output)
     output = collect_nd_compute(collect_mask, worker_group, output)
     import ray
 
-    from verl.experimental.transfer_queue.metadata import BatchMeta
+    from verl.experimental.transfer_queue import BatchMeta
     from verl.protocol import DataProto
 
     for o in output:

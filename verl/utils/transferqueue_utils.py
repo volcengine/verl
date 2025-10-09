@@ -99,14 +99,20 @@ def _update_batchmeta_with_output(output: DataProto, batchmeta: BatchMeta):
     batchmeta.add_fields(tensordict)
     asyncio.run(_TRANSFER_QUEUE_CLIENT.async_put(data=tensordict, metadata=batchmeta))
 
+    for k, v in output.meta_info.items():
+        batchmeta.set_extra_info(k, v)
+
 
 async def _async_update_batchmeta_with_output(output, batchmeta: BatchMeta):
     tensordict = _dataproto_to_tensordict(output)
     batchmeta.add_fields(tensordict)
     await _TRANSFER_QUEUE_CLIENT.async_put(data=tensordict, metadata=batchmeta)
 
+    for k, v in output.meta_info.items():
+        batchmeta.set_extra_info(k, v)
 
-def batchmeta_dataproto_pipe():
+
+def batchmeta_dataproto_pipe(put_data=True):
     def decorator(func):
         @wraps(func)
         def inner(*args, **kwargs):
@@ -117,8 +123,11 @@ def batchmeta_dataproto_pipe():
                 args = [_batchmeta_to_dataproto(arg) if isinstance(arg, BatchMeta) else arg for arg in args]
                 kwargs = {k: _batchmeta_to_dataproto(v) if isinstance(v, BatchMeta) else v for k, v in kwargs.items()}
                 output = func(*args, **kwargs)
-                _update_batchmeta_with_output(output, batchmeta)
-                return batchmeta
+                if put_data:
+                    _update_batchmeta_with_output(output, batchmeta)
+                    return batchmeta
+                else:
+                    return output
             
         @wraps(func)
         async def async_inner(*args, **kwargs):
@@ -129,8 +138,11 @@ def batchmeta_dataproto_pipe():
                 args = [_batchmeta_to_dataproto(arg) if isinstance(arg, BatchMeta) else arg for arg in args]
                 kwargs = {k: _batchmeta_to_dataproto(v) if isinstance(v, BatchMeta) else v for k, v in kwargs.items()}
                 output = await func(*args, **kwargs)
-                await _async_update_batchmeta_with_output(output, batchmeta)
-                return batchmeta
+                if put_data:
+                    await _async_update_batchmeta_with_output(output, batchmeta)
+                    return batchmeta
+                else:
+                    return output
 
         wrapper = async_inner if inspect.iscoroutinefunction(func) else inner
         return wrapper
