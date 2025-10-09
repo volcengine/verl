@@ -25,6 +25,14 @@ Key Features:
 4. Memory-efficient computation to prevent CUDA OOM
 5. Comprehensive metrics tracking
 
+Usage Notes:
+- For centralized metrics computation at the trainer level, use:
+  verl.trainer.ppo.metric_utils.compute_mismatch_metrics_batch()
+- This module provides lower-level functions used by the centralized system
+  and by workers for IS weight computation.
+- compute_rollout_importance_weights() is actively used in dp_actor.py
+- compute_mismatch_metrics() is used internally by metric_utils.py
+
 References:
 - When Speed Kills Stability: https://yingru.notion.site/When-Speed-Kills-Stability-271211a558b7808d8b12d403fd15edda
 - Off-policy RL: https://fengyao.notion.site/off-policy-rl
@@ -363,7 +371,15 @@ def compute_mismatch_metrics(
     rollout_log_prob: Optional[torch.Tensor],
     response_mask: torch.Tensor,
 ) -> dict[str, Any]:
-    """Compute training-inference mismatch metrics.
+    """Compute training-inference mismatch metrics (helper function).
+
+    NOTE: For centralized metrics computation at the trainer level, prefer using:
+        verl.trainer.ppo.metric_utils.compute_mismatch_metrics_batch(batch)
+
+    This is a lower-level helper function that operates on raw tensors.
+    It is used internally by:
+    - compute_mismatch_metrics_batch() in metric_utils.py
+    - Tests (test_rollout_is.py, test_rollout_is_integration.py)
 
     These metrics help diagnose the mismatch between the rollout policy (e.g., vLLM)
     and the training policy (e.g., FSDP), which can cause training instability.
@@ -382,7 +398,7 @@ def compute_mismatch_metrics(
         response_mask: Mask for valid tokens, shape (batch_size, seq_length)
 
     Returns:
-        Dictionary of mismatch metrics
+        Dictionary of mismatch metrics (without prefix)
 
     Reference:
     - When Speed Kills Stability: https://yingru.notion.site/When-Speed-Kills-Stability-271211a558b7808d8b12d403fd15edda
