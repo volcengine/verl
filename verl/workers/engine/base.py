@@ -149,7 +149,14 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
+    def save_checkpoint(
+        self,
+        local_path: str,
+        hdfs_path: Optional[str] = None,
+        global_step: int = 0,
+        max_ckpt_to_keep: Optional[int] = None,
+        **kwargs,
+    ) -> None:
         """
         Save model, optimizer, and scheduler states to a checkpoint.
 
@@ -158,10 +165,13 @@ class BaseEngine:
             hdfs_path: Optional HDFS path to copy checkpoint.
             global_step: Integer training step number for naming.
             max_ckpt_to_keep: Maximum number of recent checkpoints to retain.
+            **kwargs: Arbitrary keyword arguments.
         """
         raise NotImplementedError
 
-    def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=True):
+    def load_checkpoint(
+        self, local_path: str, hdfs_path: Optional[str] = None, del_local_after_load: bool = True, **kwargs
+    ) -> None:
         """
         Load model, optimizer, and scheduler states from a checkpoint.
 
@@ -169,6 +179,7 @@ class BaseEngine:
             local_path: Local filesystem path of the checkpoint.
             hdfs_path: Optional HDFS path where checkpoint is stored.
             del_local_after_load: Whether to delete local copy after loading.
+            **kwargs: Arbitrary keyword arguments.
         """
         raise NotImplementedError
 
