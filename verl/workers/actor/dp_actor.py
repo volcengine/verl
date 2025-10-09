@@ -443,10 +443,7 @@ class DataParallelPPOActor(BasePPOActor):
                     # Compute rollout importance sampling weights and metrics if enabled
                     rollout_is_weights = None
                     if self.config.rollout_is_threshold is not None and rollout_log_probs is not None:
-                        from verl.trainer.ppo.mismatch_helper import (
-                            compute_mismatch_metrics,
-                            compute_rollout_importance_weights,
-                        )
+                        from verl.trainer.ppo.mismatch_helper import compute_rollout_importance_weights
 
                         # Compute rollout IS weights and metrics once
                         rollout_is_weights, rollout_is_metrics = compute_rollout_importance_weights(
@@ -471,14 +468,11 @@ class DataParallelPPOActor(BasePPOActor):
                             else:
                                 micro_batch_metrics[f"mismatch/{key}"] = value
 
-                        # Compute and add mismatch diagnostic metrics (PPL, KL, etc.)
-                        mismatch_metrics = compute_mismatch_metrics(
-                            old_log_prob=old_log_prob,
-                            rollout_log_prob=rollout_log_probs,
-                            response_mask=response_mask,
-                        )
-                        for key, value in mismatch_metrics.items():
-                            micro_batch_metrics[f"mismatch/{key}"] = value
+                        # NOTE: Mismatch diagnostic metrics (PPL, KL, etc.) are now computed centrally
+                        # in ray_trainer.py via compute_mismatch_metrics_batch() for consistency.
+                        # This avoids duplicate computation and ensures metrics are computed uniformly
+                        # across all batches at the trainer level, not scattered in individual workers.
+                        # The IS weight metrics above are still unique to the worker and not duplicated.
 
                     # gpg -> verl.trainer.ppo.core_algos.compute_policy_loss_gpg
                     # clip_cov -> verl.trainer.ppo.core_algos.compute_policy_loss_clip_cov
