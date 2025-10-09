@@ -15,7 +15,7 @@
 import logging
 import os
 from functools import partial
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Iterator, Optional
 
 import torch
 import torch.distributed
@@ -331,7 +331,14 @@ class MegatronEngine(BaseEngine):
     def get_data_parallel_group(self):
         return mpu.get_data_parallel_group()
 
-    def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
+    def save_checkpoint(
+        self,
+        local_path: str,
+        hdfs_path: Optional[str] = None,
+        global_step: int = 0,
+        max_ckpt_to_keep: Optional[int] = None,
+        **kwargs,
+    ) -> None:
         """
         Save model, optimizer, and scheduler states to a checkpoint.
 
@@ -350,7 +357,9 @@ class MegatronEngine(BaseEngine):
         if self._is_offload_param:
             offload_megatron_model_to_cpu(self.module)
 
-    def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=True):
+    def load_checkpoint(
+        self, local_path: str, hdfs_path: Optional[str] = None, del_local_after_load: bool = True, **kwargs
+    ) -> None:
         """
         Load model, optimizer, and scheduler states from a checkpoint.
 
