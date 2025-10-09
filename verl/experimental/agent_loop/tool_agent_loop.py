@@ -128,7 +128,7 @@ class ToolAgentLoop(AgentLoopBase):
             response_ids = output.token_ids
             if DEBUG:
                 RESPONSE_STR = self.tokenizer.decode(response_ids, skip_special_tokens=False)
-                logger.warning(f"RESPONSE STR:\n {RESPONSE_STR}\nEND RESPONSE STR")
+                logger.warning(f"RESPONSE_STR:\n {RESPONSE_STR}\nEND_RESPONSE_STR")
             prompt_ids += response_ids
             response_mask += [1] * len(response_ids)
             if output.log_probs:
@@ -161,6 +161,9 @@ class ToolAgentLoop(AgentLoopBase):
                     # we need to submit now
                     submit_found = True
                     break
+                else:
+                    if DEBUG:
+                        logger.warning(f"NORMAL TOOL CALL: {tool_call.name=},  {tool_call.arguments=}")
             if submit_found:
                 break
                     

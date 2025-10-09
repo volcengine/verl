@@ -22,7 +22,10 @@
 - https://bytedance.github.io/SandboxFusion/docs/docs/reference/dataset-detail/common-oj
 - https://verl.readthedocs.io/en/latest/examples/sandbox_fusion_example.html
 - https://github.com/volcengine/verl/blob/main/examples/ppo_trainer/run_deepseek7b_llm_sandbox_fusion.sh
-
+- "To further reduce code verification time, enable parallel processing with:
+  reward_model.reward_manager=prime: The Prime reward manager verifies code
+  across multiple subprocesses concurrently."
+  + See https://verl.readthedocs.io/en/latest/examples/sandbox_fusion_example.html
 
 # Understanding the data flow
 - `ToolAgentLoop.run`: produces `AgentLoopOutput`: Contains `token_id`s.

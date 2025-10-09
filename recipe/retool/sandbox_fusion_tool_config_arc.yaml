@@ -33,11 +33,11 @@ tools:
       type: "function"
       function:
         name: "submit"
-        description: "Submits the solution to the puzzle as executable python code"
+        description: "Submits the solution to the puzzle as an executable transform function that produces the output grid for each input grid"
         parameters:
           type: "object"
           properties:
             code:
               type: "string"
-              description: "Python code which produces the solution when executed"
+              description: "executable python function named transform"
           required: ["code"]

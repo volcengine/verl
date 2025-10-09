@@ -12,7 +12,7 @@ test_files="['$arc_small']"
 model_path=$DATA_ROOT/model/sftd_models/one_merged_arc
 
 # tool
-tool_config_path=recipe/retool/sandbox_fusion_tool_config.yaml
+tool_config_path=recipe/retool/sandbox_fusion_tool_config_arc.yaml
 
 # wandb
 project_name=arc-sft
@@ -31,8 +31,8 @@ clip_ratio_low=0.2
 clip_ratio_high=0.28
 
 max_turns=16
-max_prompt_length=18872 
-max_response_length=13896
+max_prompt_length=17000
+max_response_length=5000
 actor_lr=1e-6
 
 train_batch_size=1
@@ -60,9 +60,9 @@ python3 -m verl.trainer.main_ppo \
     data.max_response_length=$max_response_length \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
-    data.custom_cls.path=recipe/retool/retool.py \
+    data.custom_cls.path=recipe/retool/arcagi2.py \
     data.custom_cls.name=CustomRLHFDataset \
-    custom_reward_function.path=recipe/retool/retool.py \
+    custom_reward_function.path=recipe/retool/arcagi2.py \
     custom_reward_function.name=compute_score \
     actor_rollout_ref.model.path=$model_path \
     actor_rollout_ref.model.use_remove_padding=True \
