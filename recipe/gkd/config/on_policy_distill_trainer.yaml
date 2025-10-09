@@ -112,6 +112,7 @@ actor_rollout_ref:
       # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
       save_contents: ['model', 'optimizer', 'extra']
       load_contents: ${actor_rollout_ref.actor.checkpoint.save_contents}
+    max_seq_len: ${data.max_prompt_length} + ${data.max_response_length} 
     use_dynamic_bsz: False
     use_torch_compile: False
     shuffle: False
@@ -307,6 +308,7 @@ trainer:
   # The timeout for ray worker group to wait for the register center to be ready
   ray_wait_register_center_timeout: 300
   device: cuda
+  scheduler: one_step_off
 
 rollout:
   nnodes: 1

@@ -1,21 +1,29 @@
 import asyncio
 import os
 import logging
+from functools import partial
 from typing import Dict, List, Any
 
 import torch
 from torch import nn
+from torch.nn import functional as F
+import numpy as np
 import psutil
 from codetiming import Timer
 from omegaconf import DictConfig, OmegaConf
 
+from megatron.core import mpu
 from megatron.core.optimizer import DistributedOptimizer
 from megatron.core.distributed import finalize_model_grads
 from megatron.core.pipeline_parallel import get_forward_backward_func
 from megatron.core import parallel_state as mpu
 from verl import DataProto
 from verl.workers.megatron_workers import ActorRolloutRefWorker
-from verl.single_controller.base.decorator import Dispatch, register, make_nd_compute_dataproto_dispatch_fn
+from verl.single_controller.base.decorator import (
+    Dispatch, 
+    register, 
+    make_nd_compute_dataproto_dispatch_fn,
+)
 from verl.utils.device import get_device_id, get_device_name, get_torch_device
 from verl.utils.megatron_utils import get_model_config
 from verl.utils.torch_functional import broadcast_dict_tensor
@@ -38,12 +46,10 @@ from verl.utils.profiler import (
     simple_timer,
 )
 from verl.utils.profiler.performance import gather_timing
+from megatron_kl_loss import vocab_parallel_kl_divergence
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
-
-from recipe.gkd.teacher import TeacherClient
-from recipe.gkd.teacher_utils import get_teacher_knowledge
 
 
 class OnPolicyDistillActor:
@@ -154,14 +160,13 @@ class OnPolicyDistillActor:
         """
         # broadcast from last pp rank to all other pp ranks
         # TODO: actually, we just need to control the sampling order.
-        mini_batch = data
-        broadcast_dict_tensor(
-            mini_batch.batch,
-            src=mpu.get_pipeline_model_parallel_last_rank(),
-            group=mpu.get_pipeline_model_parallel_group(),
-        )
+        # broadcast_dict_tensor(
+        #     data.batch,
+        #     src=mpu.get_pipeline_model_parallel_last_rank(),
+        #     group=mpu.get_pipeline_model_parallel_group(),
+        # )
         # split into micro-batches
-        mini_batch.batch["attention_mask"] = mini_batch.batch["attention_mask"].to(bool)
+        data.batch["attention_mask"] = data.batch["attention_mask"].to(bool)
 
         indices = None
         if use_dynamic_bsz:
@@ -170,7 +175,7 @@ class OnPolicyDistillActor:
             if vpp_size is not None and vpp_size > 1:
                 microbatch_group_size_per_vp_stage = self.tf_config.microbatch_group_size_per_vp_stage
                 micro_batches, indices = rearrange_micro_batches(
-                    batch=mini_batch.batch,
+                    batch=data.batch,
                     num_batches_divided_by=microbatch_group_size_per_vp_stage,
                     max_token_len=max_token_len,
                 )
@@ -179,13 +184,27 @@ class OnPolicyDistillActor:
                     f"{microbatch_group_size_per_vp_stage} for megatron backend"
                 )
             else:
-                micro_batches, indices = rearrange_micro_batches(batch=mini_batch.batch, max_token_len=max_token_len)
+                micro_batches, indices = rearrange_micro_batches(batch=data.batch, max_token_len=max_token_len)
             total_seqlen = max_token_len
         else:
             assert micro_batch_size is not None, (
                 "micro_batch_size is needed to be passed in when not using dynamic batch size"
             )
-            micro_batches = mini_batch.batch.split(micro_batch_size)
+            micro_batches = data.batch.split(micro_batch_size)
+
+            if mpu.is_pipeline_last_stage():
+                teacher_topk_logps = np.array_split(data.non_tensor_batch["teacher_topk_logps"], len(micro_batches))
+                teacher_topk_indices = np.array_split(data.non_tensor_batch["teacher_topk_indices"], len(micro_batches))
+                for i, mb in enumerate(micro_batches):
+                    responses = mb["responses"]
+                    response_length = responses.size(1)
+                    calc_kl_mask = mb["attention_mask"].clone()
+                    calc_kl_mask[:, :(-response_length - 1)] = False
+                    mb["calc_kl_mask"] = calc_kl_mask
+                    mb["kl_losses"] = torch.zeros_like(calc_kl_mask, dtype=torch.float32)
+                    mb["teacher_topk_logps"] = torch.tensor(teacher_topk_logps[i]).pin_memory()
+                    mb["teacher_topk_indices"] = torch.tensor(teacher_topk_indices[i]).pin_memory()
+
             seq_len = micro_batches[0]["input_ids"].shape[1]
             total_seqlen = micro_batch_size * seq_len
         # compute input shapes for pp stages
@@ -202,16 +221,12 @@ class OnPolicyDistillActor:
             stats = {}
             kl_losses = output["kl_losses"]
             calc_kl_mask = output["calc_kl_mask"]
-
-            rank = torch.distributed.get_rank()
-            masked_kl_losses = kl_losses[calc_kl_mask]
-
             # inf_cnt = masked_kl_lossed.isinf().sum().item()
             # nan_cnt = masked_kl_lossed.isnan().sum().item()
             # total_cnt = masked_kl_lossed.nelement()
             # print(f"rank: {rank}, kl_loss inf_cnt/nan_cnt/total_cnt: {inf_cnt} / {nan_cnt} /{total_cnt}")
-
-            mean_kl_loss = masked_kl_losses.mean()
+            masked_kl_lossed = kl_losses[calc_kl_mask]
+            mean_kl_loss = masked_kl_lossed.mean()
             stats.update({"actor/kl_loss": mean_kl_loss.detach().item()})
                 
             append_to_dict(metrics, stats)
@@ -222,40 +237,32 @@ class OnPolicyDistillActor:
             input_ids = batch["input_ids"]
             attention_mask = batch["attention_mask"]
             position_ids = batch["position_ids"]
-            teacher_topk_logps = batch["teacher_topk_logps"]
-            teacher_topk_indices = batch["teacher_topk_indices"]
-            responses = batch["responses"]
-            response_length = responses.size(1)
             
-            calc_kl_mask = torch.empty_like(attention_mask)
-            calc_kl_mask[...] = attention_mask[...]
-            calc_kl_mask[:, :(-response_length-1)] = False
-            calc_kl_mask[:, -1] = False
-
-            def logits_processor(logits, teacher_topk_logps, teacher_topk_indices, calc_kl_mask):
+            def logits_processor(logits, teacher_topk_logps, teacher_topk_indices, calc_kl_mask, kl_losses):
                 assert logits.shape[:2] == calc_kl_mask.shape[:2]
                 assert logits.shape[:2] == teacher_topk_indices.shape[:2]
                 assert logits.shape[:2] == teacher_topk_logps.shape[:2]
 
-                # log_probs = vocab_parallel_log_probs_from_logits(logits, traget, traget_logprob)
-                from megatron_kl_loss import vocab_parallel_kl_divergence
-
-                kl_losses = torch.zeros_like(calc_kl_mask, dtype=torch.float32)
-
                 masked_logits = logits[calc_kl_mask]
                 masked_teacher_topk_logps = teacher_topk_logps[calc_kl_mask]
                 masked_teacher_topk_indices = teacher_topk_indices[calc_kl_mask]
+
                 kl_losses[calc_kl_mask] = vocab_parallel_kl_divergence(masked_logits, 
                                                                        masked_teacher_topk_logps, 
                                                                        masked_teacher_topk_indices)
-
                 return {"kl_losses": kl_losses, "calc_kl_mask": calc_kl_mask}
 
-            logits_processor_args = {
-                "calc_kl_mask": calc_kl_mask, 
-                "teacher_topk_logps": teacher_topk_logps,
-                "teacher_topk_indices": teacher_topk_indices
-            }
+            if mpu.is_pipeline_last_stage():
+                teacher_topk_logps = batch["teacher_topk_logps"].cuda(non_blocking=True)
+                teacher_topk_indices = batch["teacher_topk_indices"].cuda(non_blocking=True)
+                logits_processor_args = {
+                    "calc_kl_mask": batch["calc_kl_mask"], 
+                    "kl_losses": batch["kl_losses"],
+                    "teacher_topk_logps": teacher_topk_logps,
+                    "teacher_topk_indices": teacher_topk_indices
+                }
+            else:
+                logits_processor_args = None
 
             from verl.models.mcore import get_mcore_forward_fn
 
@@ -304,8 +311,9 @@ class OnPolicyDistillActor:
 
         """
         metrics = {}
-        self.prof.start()
+        # self.prof.start()
         data.to(get_device_id())
+
         self.actor_optimizer.zero_grad()
         # use use_contiguous_buffers_in_local_ddp and no overlap_dp_param_comm
         for chunk in self.actor_module:
@@ -315,7 +323,7 @@ class OnPolicyDistillActor:
         micro_batch_size = self.config.micro_batch_size
         max_token_len = None
         if self.config.use_dynamic_bsz:
-            max_token_len = self.config.ppo_max_token_len_per_gpu * self.config.megatron.context_parallel_size
+            max_token_len = self.config.max_seq_len * self.config.megatron.context_parallel_size
 
         metric_micro_batch = self.forward_backward_batch(
             data,
@@ -338,10 +346,10 @@ class OnPolicyDistillActor:
             pass
         else:
             raise NotImplementedError
-        self.prof.step()
+        # self.prof.step()
         # add empty cache after each compute
-        self.prof.stop_and_save()
-        self.prof.stop_trace()
+        # self.prof.stop_and_save()
+        # self.prof.stop_trace()
         get_torch_device().empty_cache()
         return metrics
 
@@ -509,7 +517,6 @@ class MegatronOnPolicyDistillActorWorker(ActorRolloutRefWorker):
             except:
                 if not key.endswith("e_score_correction_bias"):
                     raise
-
             tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
             if torch.distributed.get_rank() == 0:
                 tensor.copy_(weight)
@@ -679,7 +686,6 @@ class MegatronOnPolicyDistillRolloutWorker(ActorRolloutRefWorker):
         assert self._is_rollout and not self.config.hybrid_engine
         assert hasattr(self, "_weights_info") and self._weights_info is not None
 
-        params_generator = None
         inference_model = (
             self.rollout.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
         )

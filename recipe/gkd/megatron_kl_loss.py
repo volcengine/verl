@@ -116,7 +116,6 @@ class _VocabParallelKLDivergence(torch.autograd.Function):
             vocab_parallel_target_topk_probs.view(-1, topk)
 
         grad_input.mul_(grad_output.unsqueeze(dim=-1))
-        # grad_input = grad_input.to(torch.bfloat16)
 
         return grad_input, None, None  # 返回给第一个输入 vocab_parallel_logits 的梯度
 
