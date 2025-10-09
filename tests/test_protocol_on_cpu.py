@@ -222,7 +222,7 @@ def test_concat_metrics_from_multiple_workers():
     obs2 = torch.tensor([3, 4])
     obs3 = torch.tensor([5, 6])
 
-    # Each worker has different metrics
+    # Each worker has different metrics (as list of dict format)
     worker1_metrics = [{"loss": 0.5, "accuracy": 0.9}]
     worker2_metrics = [{"loss": 0.6, "accuracy": 0.85}]
     worker3_metrics = [{"loss": 0.55, "accuracy": 0.88}]
@@ -237,10 +237,9 @@ def test_concat_metrics_from_multiple_workers():
     # Verify tensors are concatenated
     assert torch.all(torch.eq(concat_data.batch["obs"], torch.tensor([1, 2, 3, 4, 5, 6])))
 
-    # Verify ALL workers' metrics are preserved (not just worker1's)
-    expected_metrics = worker1_metrics + worker2_metrics + worker3_metrics
+    # Verify ALL workers' metrics are flattened to dict of lists
+    expected_metrics = {"loss": [0.5, 0.6, 0.55], "accuracy": [0.9, 0.85, 0.88]}
     assert concat_data.meta_info["metrics"] == expected_metrics
-    assert len(concat_data.meta_info["metrics"]) == 3
 
     # Verify config flags are preserved from first worker
     assert concat_data.meta_info["config_flag"] is True
@@ -257,8 +256,8 @@ def test_concat_with_empty_and_non_list_meta_info():
 
     concat_data = DataProto.concat([data1, data2])
 
-    # Should only have worker1's metrics
-    assert concat_data.meta_info["metrics"] == [{"loss": 0.5}]
+    # Should flatten worker1's metrics to dict of lists
+    assert concat_data.meta_info["metrics"] == {"loss": [0.5]}
     assert concat_data.meta_info["flag"] is True
 
     # Test with non-list meta_info value
