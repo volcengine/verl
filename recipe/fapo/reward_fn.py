@@ -11,9 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import asyncio
 
-import ray
+import asyncio
+import json
+
+import aiohttp
 from transformers import PreTrainedTokenizer
 
 from verl.utils.reward_score.math_dapo import last_boxed_only_string, normalize_final_answer, remove_boxed
@@ -67,12 +69,30 @@ GRM_SAMPLING_PARAMS = {
 FLAWED_REWARD_PENALTY = 1.0
 
 
+async def generate_aiohttp(router_address: str, prompt_ids: list[int], sampling_params: dict):
+    payload = {
+        "input_ids": prompt_ids,
+        "sampling_params": sampling_params,
+    }
+    url = f"http://{router_address}/generate"
+    try:
+        session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=None))
+        async with session.post(url, json=payload) as resp:
+            output = await resp.text()
+            output = json.loads(output)
+            return output
+    except Exception as e:
+        raise e
+    finally:
+        await session.close()
+
+
 async def compute_score_fapo(
     data_source: str,
     solution_str: str,
     ground_truth: str,
     extra_info: dict,
-    reward_model: ray.actor.ActorHandle,
+    reward_router_address: str,
     reward_model_tokenizer: PreTrainedTokenizer,
 ):
     """Compute the reward score for FAPO."""
@@ -101,7 +121,11 @@ async def compute_score_fapo(
             add_generation_prompt=True,
         ),
     )
-    grm_outputs = await reward_model.generate.remote(prompt_ids=grm_prompt_ids, sampling_params=GRM_SAMPLING_PARAMS)
+    grm_outputs = await generate_aiohttp(
+        router_address=reward_router_address,
+        prompt_ids=grm_prompt_ids,
+        sampling_params=GRM_SAMPLING_PARAMS,
+    )
     grm_response_ids = grm_outputs.get("output_ids", None)
     if grm_response_ids is not None:
         grm_response = await loop.run_in_executor(

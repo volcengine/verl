@@ -24,11 +24,11 @@ from verl.utils.reward_score import default_compute_score
 class NaiveRewardLoopManager(RewardLoopManagerBase):
     """The reward manager."""
 
-    def __init__(self, config, tokenizer, compute_score=None, reward_model=None, reward_model_tokenizer=None):
+    def __init__(self, config, tokenizer, compute_score=None, reward_router_address=None, reward_model_tokenizer=None):
         super().__init__(config, tokenizer)
         self.compute_score = compute_score or default_compute_score
         self.is_async_reward_score = inspect.iscoroutinefunction(self.compute_score)
-        self.reward_model = reward_model
+        self.reward_router_address = reward_router_address
         self.reward_model_tokenizer = reward_model_tokenizer
 
     async def run_single(self, data: DataProto) -> dict:
@@ -52,7 +52,7 @@ class NaiveRewardLoopManager(RewardLoopManagerBase):
                 solution_str=response_str,
                 ground_truth=ground_truth,
                 extra_info=extra_info,
-                reward_model=self.reward_model,
+                reward_router_address=self.reward_router_address,
                 reward_model_tokenizer=self.reward_model_tokenizer,
             )
         else:
@@ -63,7 +63,7 @@ class NaiveRewardLoopManager(RewardLoopManagerBase):
                     solution_str=response_str,
                     ground_truth=ground_truth,
                     extra_info=extra_info,
-                    reward_model=self.reward_model,
+                    reward_router_address=self.reward_router_address,
                     reward_model_tokenizer=self.reward_model_tokenizer,
                 ),
             )

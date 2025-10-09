@@ -252,7 +252,7 @@ class AgentLoopWorker:
         self,
         config: DictConfig,
         server_handles: list[ray.actor.ActorHandle],
-        reward_model_handle: ray.actor.ActorHandle = None,
+        reward_router_address: str = None,
     ):
         """Initialize agent loop manager.
 
@@ -262,7 +262,7 @@ class AgentLoopWorker:
         """
         self.config = config
         self.server_manager = AsyncLLMServerManager(config, server_handles)
-        self.reward_model_handle = reward_model_handle
+        self.reward_router_address = reward_router_address
 
         model_path = config.actor_rollout_ref.model.path
         self.model_name = "/".join(model_path.split("/")[-2:])
@@ -287,7 +287,7 @@ class AgentLoopWorker:
                 node_id=ray.get_runtime_context().get_node_id(),
                 soft=False,
             ),
-        ).remote(self.config, self.reward_model_handle)
+        ).remote(self.config, self.reward_router_address)
 
         trace_config = self.config.actor_rollout_ref.rollout.get("trace", {})
         RolloutTraceConfig.init(
@@ -479,7 +479,7 @@ class AgentLoopWorker:
             else:
                 position_ids = compute_position_id_with_mask(attention_mask)  # (1, seq_len)
             enable_async_reward = (
-                self.reward_model_handle is not None and self.config.reward_model.enable_resource_pool
+                self.reward_router_address is not None and self.config.reward_model.enable_resource_pool
             ) or not self.config.reward_model.enable
             if output.reward_score is None and enable_async_reward:
                 batch = TensorDict(
@@ -627,12 +627,12 @@ class AgentLoopManager:
         self.config = config
         self.worker_group = worker_group
         self.reward_model_manager = None
-        self.reward_model_handle = None
+        self.reward_router_address = None
         if self.config.reward_model.enable and self.config.reward_model.enable_resource_pool:
             from verl.experimental.reward import RewardModelManager
 
             self.reward_model_manager = RewardModelManager(config.reward_model, rm_wg)
-            self.reward_model_handle = self.reward_model_manager.get_handle()
+            self.reward_router_address = self.reward_model_manager.get_router_address()
 
         self._initialize_llm_servers()
         self._init_agent_loop_workers()
@@ -686,7 +686,7 @@ class AgentLoopManager:
                     scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
                         node_id=node_id, soft=True
                     ),
-                ).remote(self.config, self.server_handles, self.reward_model_handle)
+                ).remote(self.config, self.server_handles, self.reward_router_address)
             )
 
     def generate_sequences(self, prompts: DataProto) -> DataProto:

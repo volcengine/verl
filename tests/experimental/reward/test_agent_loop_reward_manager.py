@@ -68,6 +68,8 @@ def test_agent_loop_reward_manager():
     config.reward_model.rollout.gpu_memory_utilization = 0.9
     config.reward_model.rollout.tensor_model_parallel_size = 2
     config.reward_model.rollout.skip_tokenizer_init = True
+    config.custom_reward_function.path = "tests/experimental/reward/reward_fn.py"
+    config.custom_reward_function.name = "compute_score_gsm8k"
 
     # 1. init reward model manager
     agent_loop_manager = AgentLoopManager(config)

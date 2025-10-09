@@ -13,16 +13,16 @@
 # limitations under the License.
 
 import asyncio
+import json
 import logging
 import os
 
-import ray
+import aiohttp
 
 from verl import DataProto
 from verl.single_controller.ray.base import RayWorkerGroup
 from verl.workers.config import HFModelConfig, RewardModelConfig
 from verl.workers.rollout.replica import get_rollout_replica_class
-from verl.workers.rollout.utils import get_free_port
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -81,32 +81,17 @@ class RewardModelManager:
         self.server_addresses = [server._server_address for server in self.rollout_replicas]
 
     def _initialize_router(self):
-        router_ip = ray.util.get_node_ip_address().strip("[]")
-        router_port, _ = get_free_port(router_ip)
         worker_urls = [f"http://{server_address}" for server_address in self.server_addresses]
 
         # current implementation only support sglang
         assert self.config.rollout.name == "sglang", "Only sglang is supported now"
 
-        from .sglang_router import SGLangRouter
+        from .sglang_router import launch_router_process
 
-        router = SGLangRouter.options(
-            name="reward_model_router",
-            scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
-                node_id=ray.get_runtime_context().get_node_id(),
-                soft=False,
-            ),
-        ).remote(
-            router_ip=router_ip,
-            router_port=router_port,
-            worker_urls=worker_urls,
-            balance_abs_threshold=4,
-            max_concurrent_requests=2000,
-        )
-        self.router_handle = router
+        self.router_address, _ = launch_router_process(worker_urls=worker_urls)
 
-    def get_handle(self):
-        return self.router_handle
+    def get_router_address(self):
+        return self.router_address
 
     def wake_up(self):
         """Wake up all rollout replica instances."""
@@ -118,23 +103,34 @@ class RewardModelManager:
 
     def _run_all(self, tasks: list[asyncio.Task]):
         async def run_all():
-            await asyncio.gather(*tasks)
+            return await asyncio.gather(*tasks)
 
-        asyncio.run(run_all())
+        return asyncio.run(run_all())
 
     # just for test purpose
+    async def generate(self, prompt_token_ids: list[int], sampling_params: dict):
+        payload = {
+            "input_ids": prompt_token_ids,
+            "sampling_params": sampling_params,
+        }
+        url = f"http://{self.router_address}/generate"
+        try:
+            session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=None))
+            async with session.post(url, json=payload) as resp:
+                output = await resp.text()
+                output = json.loads(output)
+                return output
+        except Exception as e:
+            logger.error(f"Error in generate_single: {e}")
+            raise e
+        finally:
+            await session.close()
+
     def generate_sequences(self, prompts: DataProto, sampling_params: dict):
         router_inputs = [
-            {"prompt_token_ids": raw_prompt_ids} for raw_prompt_ids in prompts.non_tensor_batch.get("raw_prompt_ids")
+            {"prompt_token_ids": raw_prompt_ids, "sampling_params": sampling_params}
+            for raw_prompt_ids in prompts.non_tensor_batch.get("raw_prompt_ids")
         ]
-        responses = ray.get(
-            [
-                self.router_handle.generate.remote(
-                    prompt_ids=router_input["prompt_token_ids"],
-                    sampling_params=sampling_params,
-                )
-                for router_input in router_inputs
-            ]
-        )
-
+        tasks = [self.generate(**router_input) for router_input in router_inputs]
+        responses = self._run_all(tasks)
         return responses

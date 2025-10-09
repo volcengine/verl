@@ -12,96 +12,61 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
 import logging
 import multiprocessing
 import os
 import time
-from typing import Any, Optional
 
-import aiohttp
 import ray
 import requests
-import torch
 from sglang_router.launch_server import RouterArgs, launch_router
 
-from verl.workers.rollout.utils import is_valid_ipv6_address
+from verl.workers.rollout.utils import get_free_port, is_valid_ipv6_address
 
 logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-@ray.remote
-class SGLangRouter:
-    """Router for SGLang."""
+def launch_router_process(
+    worker_urls: list[str],
+    request_timeout: int = 60,
+    max_wait_time: int = 300,
+    timeout: int = 30,
+) -> str:
+    router_ip = ray.util.get_node_ip_address().strip("[]")
+    router_port, _ = get_free_port(router_ip)
+    router_address = (
+        f"[{router_ip}]:{router_port}" if is_valid_ipv6_address(router_ip) else f"{router_ip}:{router_port}"
+    )
+    router_args = RouterArgs(
+        host=router_ip,
+        port=router_port,
+        worker_urls=worker_urls,
+        balance_abs_threshold=0,
+        log_level="warn",
+        request_timeout_secs=request_timeout,
+    )
+    router_process = multiprocessing.Process(target=launch_router, args=(router_args,))
+    router_process.daemon = True
+    router_process.start()
+    time.sleep(3)
+    assert router_process.is_alive()
 
-    def __init__(
-        self,
-        router_ip: str,
-        router_port: int,
-        worker_urls: list[str],
-        **kwargs,
-    ):
-        self.router_address = (
-            f"[{router_ip}]:{router_port}" if is_valid_ipv6_address(router_ip) else f"{router_ip}:{router_port}"
-        )
-        router_args = RouterArgs(
-            host=router_ip,
-            port=router_port,
-            worker_urls=worker_urls,
-            log_level="debug",
-            **kwargs,
-        )
-        self.router_process = multiprocessing.Process(target=launch_router, args=(router_args,))
-        self.router_process.start()
-        self._wait_for_health_check()
+    # health check
+    start_time = time.time()
+    url = f"http://{router_address}/health"
+    with requests.Session() as session:
+        while time.time() - start_time < max_wait_time:
+            try:
+                response = session.get(url, timeout=timeout)
+                if response.status_code == 200:
+                    break
+            except requests.RequestException as e:
+                logger.debug(f"Health check failed: {e}")
 
-    def _wait_for_health_check(self, max_wait_time=300, timeout=30):
-        start_time = time.time()
-        url = f"http://{self.router_address}/health"
-        with requests.Session() as session:
-            while time.time() - start_time < max_wait_time:
-                if not self.router_process.is_alive():
-                    raise RuntimeError("Router process is not alive.")
-                try:
-                    response = session.get(url, timeout=timeout)
-                    if response.status_code == 200:
-                        break
-                except requests.RequestException as e:
-                    logger.debug(f"Health check failed: {e}")
+            time.sleep(2)
+        else:
+            router_process.terminate()
+            raise RuntimeError(f"Router health check failed after {max_wait_time} seconds.")
 
-                time.sleep(2)
-            else:
-                self.router_process.terminate()
-                raise RuntimeError(f"Router health check failed after {max_wait_time} seconds.")
-
-    async def generate(
-        self,
-        prompt_ids: torch.Tensor,
-        sampling_params: dict[str, Any],
-        image_data: Optional[list[Any]] = None,
-    ):
-        payload = {
-            "input_ids": prompt_ids,
-            "sampling_params": sampling_params,
-            "image_data": image_data,
-        }
-
-        payload = {k: v for k, v in payload.items() if v is not None}
-        url = f"http://{self.router_address}/generate"
-        try:
-            timeout = aiohttp.ClientTimeout(total=None)
-            session = aiohttp.ClientSession(timeout=timeout)
-            async with session.post(
-                url=url,
-                json=payload,
-            ) as response:
-                output = await response.text()
-                try:
-                    output = json.loads(output)
-                    return output
-                except Exception as e:
-                    print(f"Error: {e}. Output: {output}")
-                    return {}
-        finally:
-            await session.close()
+    return router_address, router_process
