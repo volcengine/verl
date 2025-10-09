@@ -569,7 +569,7 @@ class FSDPEngine(BaseEngine):
         global_step: int = 0,
         max_ckpt_to_keep: Optional[int] = None,
         **kwargs,
-    ):
+    ) -> None:
         """
         Save FSDP checkpoint, handling parameter offload as needed.
         """
@@ -586,7 +586,7 @@ class FSDPEngine(BaseEngine):
 
     def load_checkpoint(
         self, local_path: str, hdfs_path: Optional[str] = None, del_local_after_load: int = True, **kwargs
-    ):
+    ) -> None:
         """
         Load FSDP checkpoint, restoring parameters and optimizer state.
         """

@@ -156,7 +156,7 @@ class BaseEngine:
         global_step: int = 0,
         max_ckpt_to_keep: Optional[int] = None,
         **kwargs,
-    ):
+    ) -> None:
         """
         Save model, optimizer, and scheduler states to a checkpoint.
 
@@ -171,7 +171,7 @@ class BaseEngine:
 
     def load_checkpoint(
         self, local_path: str, hdfs_path: Optional[str] = None, del_local_after_load: bool = True, **kwargs
-    ):
+    ) -> None:
         """
         Load model, optimizer, and scheduler states from a checkpoint.
 
