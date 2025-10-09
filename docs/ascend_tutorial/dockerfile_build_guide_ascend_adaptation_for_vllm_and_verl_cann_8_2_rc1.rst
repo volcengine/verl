@@ -15,7 +15,7 @@ Python      3.11
 二、镜像差异说明
 ----------------
 
-ARM 架构与 x86 架构镜像的核心差异如下：
+ARM 架构与 X86 架构镜像的核心差异如下：
 
 1. **pip 源配置差异**
 
@@ -50,96 +50,43 @@ ARM 架构与 x86 架构镜像的核心差异如下：
       # Load Ascend toolchain environment variables 
       source /usr/local/Ascend/ascend-toolkit/set_env.sh
 
-三、ARM 架构镜像 Dockerfile
+三、ARM 架构镜像 与 X86 架构镜像 Dockerfile 构建
 ---------------------------
 
 .. code:: dockerfile
 
-   # 1. Base Image 
+   # 1. Base Image
    FROM swr.cn-south-1.myhuaweicloud.com/ascendhub/cann:8.2.rc1-910b-ubuntu22.04-py3.11
 
-   # 2. Set up a network proxy (add as needed) 
+   # 2. Set up a network proxy (add as needed)
    # ENV ip_addr=xx.xxx.x.xxx
    # ENV http_proxy="http://p_atlas:proxy%40123@$ip_addr:8080"
    # ENV https_proxy=$http_proxy
    # ENV no_proxy=127.0.0.1,localhost,local,.local
    # ENV GIT_SSL_NO_VERIFY=1
 
-   # 3. Install system dependencies 
+   # 3. Install system dependencies
    RUN apt-get update -y && apt-get install -y --no-install-recommends \
        gcc g++ cmake libnuma-dev wget git curl jq vim build-essential \
        && rm -rf /var/lib/apt/lists/*
 
-   # 4. Pre-installation foundation vllm 
-   RUN git clone --branch v0.9.1 https://github.com/vllm-project/vllm \
-       && cd vllm \
-       && VLLM_TARGET_DEVICE=empty pip install -v -e . \
-       && cd ..
-
-   # 5. Install vllm_ascend 
-   RUN git clone --depth 1 --branch v0.9.1 https://github.com/vllm-project/vllm-ascend.git \
-       && cd vllm-ascend \
-       && export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/8.2.RC1/aarch64-linux/devlib/linux/aarch64:$LD_LIBRARY_PATH \
-       && source /usr/local/Ascend/ascend-toolkit/set_env.sh \
-       && source /usr/local/Ascend/nnal/atb/set_env.sh \
-       && pip install -v -e . \
-       && cd ..
-
-   # 6. Install verl
-   RUN git clone https://github.com/volcengine/verl.git \
-       && cd verl \
-       && pip install -r requirements-npu.txt \
-       && pip install -e . \
-       && cd ..
-
-   # 7. Install MindSpeed
-   RUN git clone https://gitee.com/ascend/MindSpeed.git \
-       && pip install -e MindSpeed
-
-   # 8. Install Megatron-LM and configure PYTHONPATH 
-   RUN git clone https://github.com/NVIDIA/Megatron-LM.git \
-       && cd Megatron-LM \
-       && git checkout core_v0.12.1 \
-       && cd .. \
-       && echo "export PYTHONPATH=\$PYTHONPATH:/Megatron-LM" >> ~/.bashrc
-
-   # Clear pip cache to reduce image size 
-   RUN pip cache purge
-
-   # Setting Default Commands
-   CMD ["/bin/bash"]
-
-四、x86 架构镜像 Dockerfile
----------------------------
-
-.. code:: dockerfile
-
-   # 1. Base Image 
-   FROM swr.cn-south-1.myhuaweicloud.com/ascendhub/cann:8.2.rc1-910b-ubuntu22.04-py3.11
-
-   # 2. Set up a network proxy (add as needed) 
-   # ENV ip_addr=xx.xxx.x.xxx
-   # ENV http_proxy="http://p_atlas:proxy%40123@$ip_addr:8080"
-   # ENV https_proxy=$http_proxy
-   # ENV no_proxy=127.0.0.1,localhost,local,.local
-   # ENV GIT_SSL_NO_VERIFY=1
-
-   # 3. Install system dependencies 
-   RUN apt-get update -y && apt-get install -y --no-install-recommends \
-       gcc g++ cmake libnuma-dev wget git curl jq vim build-essential \
-       && rm -rf /var/lib/apt/lists/*
-
-   # 4. Pre-installation foundation vllm (additional pip source configuration required for x86) 
+   # 4. Pre-installation foundation vllm
    RUN git clone --depth 1 --branch v0.9.1 https://github.com/vllm-project/vllm \
-       && pip config set global.extra-index-url "https://download.pytorch.org/whl/cpu/ https://mirrors.huaweicloud.com/ascend/repos/pypi" \
+       && if [ "$(uname -m)" = "x86_64" ]; then \
+            pip config set global.extra-index-url "https://download.pytorch.org/whl/cpu/ https://mirrors.huaweicloud.com/ascend/repos/pypi"; \
+          fi \
        && cd vllm \
        && VLLM_TARGET_DEVICE=empty pip install -v -e . \
        && cd ..
 
-   # 5. Install vllm_ascend 
+   # 5. Install vllm_ascend
    RUN git clone --depth 1 --branch v0.9.1 https://github.com/vllm-project/vllm-ascend.git \
        && cd vllm-ascend \
-       && export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/8.2.RC1/x86_64-linux/devlib/linux/x86_64/:$LD_LIBRARY_PATH \
+       && if [ "$(uname -m)" = "aarch64" ]; then \
+            export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/8.2.RC1/aarch64-linux/devlib/linux/aarch64:$LD_LIBRARY_PATH; \
+          elif [ "$(uname -m)" = "x86_64" ]; then \
+            export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/8.2.RC1/x86_64-linux/devlib/linux/x86_64/:$LD_LIBRARY_PATH; \
+          fi \
        && source /usr/local/Ascend/ascend-toolkit/set_env.sh \
        && source /usr/local/Ascend/nnal/atb/set_env.sh \
        && pip install -v -e . \
@@ -156,38 +103,28 @@ ARM 架构与 x86 架构镜像的核心差异如下：
    RUN git clone https://gitee.com/ascend/MindSpeed.git \
        && pip install -e MindSpeed
 
-   # 8. Install Megatron-LM and configure PYTHONPATH 
+   # 8. Install Megatron-LM and configure PYTHONPATH
    RUN git clone https://github.com/NVIDIA/Megatron-LM.git \
        && cd Megatron-LM \
        && git checkout core_v0.12.1 \
        && cd .. \
        && echo "export PYTHONPATH=\$PYTHONPATH:/Megatron-LM" >> ~/.bashrc
 
-   # Clear pip cache to reduce image size 
+   # Clear pip cache to reduce image size
    RUN pip cache purge
 
    # Setting Default Commands
    CMD ["/bin/bash"]
 
-五、镜像构建命令示例
+四、镜像构建命令示例
 --------------------
 
-1. ARM 架构镜像构建
+1. ARM 与 X86 架构镜像构建
 ~~~~~~~~~~~~~~~~~~~
 
 .. code:: bash
 
    # Navigate to the directory containing the Dockerfile 
    cd /path/to/arm-dockerfile
-   # Build the image (specified tag: ascend-verl:arm_cann82rc1_vllm091) 
-   docker build -f [创建的Dockerfile文件] -t ascend-verl:arm_cann82rc1_vllm091 .
-
-2. x86 架构镜像构建
-~~~~~~~~~~~~~~~~~~~
-
-.. code:: bash
-
-   # Navigate to the directory containing the Dockerfile 
-   cd /path/to/x86-dockerfile
-   # Build the image (specified tag: ascend-verl:x86_cann82rc1_vllm091) 
-   docker build -f [创建的Dockerfile文件] -t ascend-verl:x86_cann82rc1_vllm091 .
+   # Build the image (specified tag: ascend-verl:[x86_64/aarch64]_cann82rc1_vllm091) 
+   docker build -f [created Dockerfile] -t ascend-verl:[x86_64/aarch64]_cann82rc1_vllm091 .
