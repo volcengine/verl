@@ -208,7 +208,7 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
         total_training_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
 
         if self.config.trainer.total_training_steps is not None:
-            total_training_steps = self.config.trainer.total_training_steps
+            total_training_steps = min(self.config.trainer.total_training_steps, total_training_steps)
 
         self.total_training_steps = total_training_steps
         print(f"Total training steps: {self.total_training_steps}")
@@ -471,6 +471,11 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
                         teacher_batch_output = get_teacher_knowledge(batch, self.teacher_client, self.n_server_workers)
                     except Exception as e:
                         print(f"[WARN] Teacher fetch failed for this batch: {e}, skip this batch.")
+                        progress_bar.update(1)
+                        self.global_steps += 1
+                        if is_last_step:
+                            progress_bar.close()
+                            return
                         continue
 
                 print("INFO:", "get teacher knowledge done.")
@@ -521,6 +526,6 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
                 self.rollout_wg.stop_profile()
                 self.actor_wg.stop_profile()
 
-            if self.global_steps > self.total_training_steps:
+            if is_last_step:
                 progress_bar.close()
                 return
