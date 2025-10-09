@@ -13,11 +13,10 @@
 # limitations under the License.
 
 import asyncio
-import aiohttp
 import json
 
+import aiohttp
 from transformers import PreTrainedTokenizer
-
 
 GRM_PROMPT_TEMPLATE = """
 You are given a problem and a proposed solution.
@@ -45,9 +44,7 @@ async def generate_aiohttp(router_address: str, prompt_ids: list[int], sampling_
     }
     url = f"http://{router_address}/generate"
     try:
-        session = aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=None)
-        )
+        session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=None))
         async with session.post(url, json=payload) as resp:
             output = await resp.text()
             output = json.loads(output)
@@ -69,9 +66,7 @@ async def compute_score_gsm8k(
     """Compute the reward score for FAPO."""
     loop = asyncio.get_running_loop()
 
-    grm_prompt = GRM_PROMPT_TEMPLATE.format(
-        problem=extra_info["question"], solution=solution_str
-    )
+    grm_prompt = GRM_PROMPT_TEMPLATE.format(problem=extra_info["question"], solution=solution_str)
     grm_prompt_ids = await loop.run_in_executor(
         None,
         lambda: reward_model_tokenizer.apply_chat_template(
@@ -92,6 +87,6 @@ async def compute_score_gsm8k(
     )
     try:
         score = int(grm_response.split("\n\n")[-1].strip())
-    except Exception as e:
+    except Exception:
         score = 0
     return {"score": score, "acc": score == 10}
