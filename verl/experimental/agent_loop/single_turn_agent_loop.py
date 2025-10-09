@@ -48,7 +48,7 @@ class SingleTurnAgentLoop(AgentLoopBase):
 
         with simple_timer("generate_sequences", metrics):
             output = await self.server_manager.generate(
-                request_id=request_id, prompt_ids=prompt_ids, sampling_params=sampling_params, image_data=image_data['image']
+                request_id=request_id, prompt_ids=prompt_ids, sampling_params=sampling_params, image_data=image_data.get("image") if image_data else None
             )
         response_mask = [1] * len(output.token_ids)
 
