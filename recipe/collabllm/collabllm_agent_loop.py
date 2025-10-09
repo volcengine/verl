@@ -20,7 +20,7 @@ from typing import Any
 from uuid import uuid4
 
 from recipe.collabllm.utils import is_valid_messages
-from verl.experimental.agent_loop.agent_loop import AgentLoopOutput, register
+from verl.experimental.agent_loop.agent_loop import AgentLoopOutput
 from verl.experimental.agent_loop.tool_agent_loop import AgentData, AgentState, ToolAgentLoop
 from verl.utils.rollout_trace import rollout_trace_op
 from verl.workers.rollout.schemas import Message
@@ -29,7 +29,6 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-@register("collabllm_agent")
 class CollabLLMAgentLoop(ToolAgentLoop):
     @rollout_trace_op
     async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
