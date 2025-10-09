@@ -515,6 +515,53 @@ class RayPPOTrainer:
 
         return gen_batch
 
+    @staticmethod
+    def _summarize_reward_extras(reward_extra_infos: dict[str, list]) -> dict[str, float]:
+        metrics: dict[str, float] = {}
+        if not reward_extra_infos:
+            return metrics
+
+        for key, values in reward_extra_infos.items():
+            if not values:
+                continue
+
+            flattened: list = []
+            for value in values:
+                if isinstance(value, (list, tuple)):
+                    flattened.extend(value)
+                else:
+                    flattened.append(value)
+
+            numeric_vals: list[float] = []
+            for value in flattened:
+                scalar: float | None = None
+                if isinstance(value, torch.Tensor):
+                    if value.numel() == 1:
+                        scalar = float(value.item())
+                elif isinstance(value, np.ndarray):
+                    if value.size == 1:
+                        scalar = float(value.item())
+                elif isinstance(value, (np.floating, np.integer, int, float, bool)):
+                    scalar = float(value)
+                else:
+                    try:
+                        scalar = float(value)
+                    except (TypeError, ValueError):
+                        scalar = None
+
+                if scalar is not None:
+                    numeric_vals.append(scalar)
+
+            if not numeric_vals:
+                continue
+
+            numeric_array = np.array(numeric_vals, dtype=float)
+            metrics[f"reward_extra/{key}/mean"] = float(np.mean(numeric_array))
+            metrics[f"reward_extra/{key}/max"] = float(np.max(numeric_array))
+            metrics[f"reward_extra/{key}/min"] = float(np.min(numeric_array))
+
+        return metrics
+
     def _validate(self):
         data_source_lst = []
         reward_extra_infos_dict: dict[str, list] = defaultdict(list)
@@ -975,6 +1022,7 @@ class RayPPOTrainer:
             for batch_dict in self.train_dataloader:
                 metrics = {}
                 timing_raw = {}
+                reward_extra_metrics: dict[str, float] = {}
 
                 with marked_timer("start_profile", timing_raw):
                     self._start_profiling(
@@ -1027,6 +1075,7 @@ class RayPPOTrainer:
                             batch.batch["reward_baselines"] = reward_baseline_tensor
 
                             del gen_baseline_batch, gen_baseline_output
+
                     # repeat to align with repeated responses in rollout
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_batch_output)
@@ -1054,6 +1103,9 @@ class RayPPOTrainer:
                             future_reward = compute_reward_async.remote(data=batch, reward_fn=self.reward_fn)
                         else:
                             reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
+                            reward_extra_metrics.update(
+                                self._summarize_reward_extras(reward_extra_infos_dict)
+                            )
 
                     # recompute old_log_probs
                     with marked_timer("old_log_prob", timing_raw, color="blue"):
@@ -1093,6 +1145,9 @@ class RayPPOTrainer:
                         reward_extra_infos_dict: dict[str, list]
                         if self.config.reward_model.launch_reward_fn_async:
                             reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
+                            reward_extra_metrics.update(
+                                self._summarize_reward_extras(reward_extra_infos_dict)
+                            )
                         batch.batch["token_level_scores"] = reward_tensor
 
                         if reward_extra_infos_dict:
@@ -1199,6 +1254,7 @@ class RayPPOTrainer:
                         "training/epoch": epoch,
                     }
                 )
+                metrics.update(reward_extra_metrics)
                 # collect metrics
                 metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
                 metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
