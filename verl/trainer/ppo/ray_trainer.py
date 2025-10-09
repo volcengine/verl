@@ -527,7 +527,7 @@ class RayPPOTrainer:
 
             flattened: list = []
             for value in values:
-                if isinstance(value, (list, tuple)):
+                if isinstance(value, list | tuple):
                     flattened.extend(value)
                 else:
                     flattened.append(value)
@@ -541,7 +541,7 @@ class RayPPOTrainer:
                 elif isinstance(value, np.ndarray):
                     if value.size == 1:
                         scalar = float(value.item())
-                elif isinstance(value, (np.floating, np.integer, int, float, bool)):
+                elif isinstance(value, np.floating | np.integer | int | float | bool):
                     scalar = float(value)
                 else:
                     try:
@@ -1103,9 +1103,7 @@ class RayPPOTrainer:
                             future_reward = compute_reward_async.remote(data=batch, reward_fn=self.reward_fn)
                         else:
                             reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
-                            reward_extra_metrics.update(
-                                self._summarize_reward_extras(reward_extra_infos_dict)
-                            )
+                            reward_extra_metrics.update(self._summarize_reward_extras(reward_extra_infos_dict))
 
                     # recompute old_log_probs
                     with marked_timer("old_log_prob", timing_raw, color="blue"):
@@ -1145,9 +1143,7 @@ class RayPPOTrainer:
                         reward_extra_infos_dict: dict[str, list]
                         if self.config.reward_model.launch_reward_fn_async:
                             reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
-                            reward_extra_metrics.update(
-                                self._summarize_reward_extras(reward_extra_infos_dict)
-                            )
+                            reward_extra_metrics.update(self._summarize_reward_extras(reward_extra_infos_dict))
                         batch.batch["token_level_scores"] = reward_tensor
 
                         if reward_extra_infos_dict:
