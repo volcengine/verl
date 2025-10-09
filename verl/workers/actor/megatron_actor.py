@@ -316,6 +316,13 @@ class MegatronPPOActor(BasePPOActor):
         ]
         if self.config.use_kl_loss:
             select_keys.append("ref_log_prob")
+        if self.config.rollout_is_threshold is not None:
+            assert "rollout_log_probs" in data.batch.keys(), (
+                "Rollout Importance Sampling requires to configure "
+                "`actor_rollout_ref.rollout.calculate_log_probs=True` "
+                "and is not currently supported in Server mode (agent loop)."
+            )
+            select_keys.append("rollout_log_probs")
         self.has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
         if self.has_multi_modal_inputs:
             data = data.select(select_keys, ["multi_modal_inputs"])
@@ -419,7 +426,7 @@ class MegatronPPOActor(BasePPOActor):
             response_length = responses.size(1)
             response_mask = data["response_mask"].to(bool)
             loss_agg_mode = self.config.loss_agg_mode
-
+            rollout_log_probs = data["rollout_log_probs"] if self.config.rollout_is_threshold is not None else None
             # compute policy loss
             log_prob = output["log_probs"][:, -response_length - 1 : -1].contiguous()
             ret_entropy = None
@@ -434,14 +441,50 @@ class MegatronPPOActor(BasePPOActor):
                 loss_mode = self.config.policy_loss.get("loss_mode", "vanilla")
 
                 policy_loss_fn = get_policy_loss_fn(loss_mode)
-                pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = policy_loss_fn(
-                    old_log_prob=old_log_prob,
-                    log_prob=log_prob,
-                    advantages=advantages,
-                    response_mask=response_mask,
-                    loss_agg_mode=loss_agg_mode,
-                    config=self.config,
-                )
+                request_rollout_is_metrics = loss_mode == "vanilla" and self.config.rollout_is_threshold is not None
+
+                if request_rollout_is_metrics:
+                    result = policy_loss_fn(
+                        old_log_prob=old_log_prob,
+                        log_prob=log_prob,
+                        advantages=advantages,
+                        response_mask=response_mask,
+                        loss_agg_mode=loss_agg_mode,
+                        config=self.config,
+                        rollout_log_probs=rollout_log_probs,
+                        return_rollout_is_metrics=True,
+                    )
+                    if len(result) == 5:
+                        pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower, rollout_is_metrics = result
+                        # Add rollout IS metrics with "actor/" prefix
+                        for key, value in rollout_is_metrics.items():
+                            if isinstance(value, torch.Tensor):
+                                stats[f"actor/{key}"] = value.detach().item()
+                            else:
+                                stats[f"actor/{key}"] = value
+
+                        # Compute and add mismatch metrics (PPL, KL, etc.)
+                        from verl.trainer.ppo.mismatch_helper import compute_mismatch_metrics
+
+                        mismatch_metrics = compute_mismatch_metrics(
+                            old_log_prob=old_log_prob,
+                            rollout_log_prob=rollout_log_probs,
+                            response_mask=response_mask,
+                        )
+                        for key, value in mismatch_metrics.items():
+                            stats[f"actor/{key}"] = value
+                    else:
+                        pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = result
+                else:
+                    pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = policy_loss_fn(
+                        old_log_prob=old_log_prob,
+                        log_prob=log_prob,
+                        advantages=advantages,
+                        response_mask=response_mask,
+                        loss_agg_mode=loss_agg_mode,
+                        config=self.config,
+                        rollout_log_probs=rollout_log_probs,
+                    )
 
                 stats.update(
                     {

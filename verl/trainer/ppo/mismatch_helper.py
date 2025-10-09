@@ -210,13 +210,6 @@ def compute_rollout_importance_weights(
     # Detach to prevent gradients through importance weights
     rollout_is_weights = rollout_is_weights.detach()
 
-    # Add configuration to metrics
-    metrics["rollout_is_threshold_upper"] = upper_threshold
-    metrics["rollout_is_threshold_lower"] = lower_threshold
-    metrics["rollout_is_level"] = rollout_is_level
-    metrics["rollout_is_mode"] = rollout_is_mode
-    metrics["rollout_is_veto_threshold"] = rollout_is_veto_threshold
-
     return rollout_is_weights, metrics
 
 
