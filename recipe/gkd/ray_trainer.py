@@ -23,6 +23,7 @@ import uuid
 from collections import deque
 from copy import deepcopy
 from typing import Optional, Type
+from functools import lru_cache
 
 import numpy as np
 import ray
@@ -53,7 +54,7 @@ from recipe.gkd.teacher import TeacherClient
 from recipe.gkd.teacher_utils import get_teacher_knowledge
 
 from verl.trainer.ppo.ray_trainer import Role, ResourcePoolManager, RayPPOTrainer
-
+from verl.utils.torch_dtypes import PrecisionType
 
 WorkerType = Type[Worker]
 
@@ -71,6 +72,17 @@ class GenerationBatchFuture:
         self.epoch = epoch
         self.batch = batch
         self.gen_batch_output = gen_batch_output
+        self.teacher_batch_output = None
+
+    def set_teacher_batch_output(self, teacher_batch_output):
+        """Set the teacher batch output for this generation batch.
+
+        Args:
+            teacher_batch_output: The teacher model's output (DataProtoFuture or raw output)
+                to be associated with this generation batch. This will be used for
+                distillation or guidance during training.
+        """
+        self.teacher_batch_output = teacher_batch_output
 
     def get(self):
         """
@@ -84,10 +96,20 @@ class GenerationBatchFuture:
         # Call get() method on gen_batch_output if available
         if hasattr(self.gen_batch_output, "get"):
             gen_batch_result = self.gen_batch_output.get()
+            self.gen_batch_output = gen_batch_result
         else:
             gen_batch_result = self.gen_batch_output
 
-        return self.epoch, self.batch, gen_batch_result
+        if self.teacher_batch_output is None:
+            return self.epoch, self.batch, gen_batch_result
+
+        if hasattr(self.teacher_batch_output, "get"):
+            teacher_batch_result = self.teacher_batch_output.get()
+            self.teacher_batch_output = teacher_batch_result
+        else:
+            teacher_batch_result = self.teacher_batch_output
+
+        return self.epoch, self.batch, gen_batch_result, teacher_batch_result
 
 
 class OnPolicyDistillTrainer(RayPPOTrainer):
@@ -152,6 +174,8 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
         self.n_server_workers = self.teacher_config.n_server_workers
         self.teacher_client = TeacherClient(self.teacher_config.server_ip, self.teacher_config.server_port, 
                                             n_server_workers=self.n_server_workers)
+
+        self.params_dtype = PrecisionType.to_dtype("bfloat16")
 
     def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler: Optional[Sampler]):
         """
@@ -281,14 +305,17 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
             )
             spawn_wg = wg_dict.spawn(prefix_set=class_dict.keys())
             all_wg.update(spawn_wg)
-            time.sleep(5) # avoid port conflict
+
+            # avoid port conflict
+            for role in spawn_wg.values():
+                role.init_model()
 
         self.rollout_wg = all_wg["rollout"]
         self.actor_wg = all_wg["actor"]
 
         # Initialize both groups
-        self.rollout_wg.init_model()
-        self.actor_wg.init_model()
+        # self.rollout_wg.init_model()
+        # self.actor_wg.init_model()
         weights_info = self.actor_wg.get_actor_weights_info()[0]
         self.rollout_wg.set_actor_weights_info(weights_info)
         from ray.util.collective import collective
@@ -301,7 +328,6 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
             backend="nccl",
             group_name="actor_rollout",
         )
-        self.sync_rollout_weights()
 
     def sync_rollout_weights(self):
         assert not self.hybrid_engine
@@ -317,17 +343,10 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
             for batch_dict in iterator:
                 yield epoch, batch_dict
 
-    def _async_gen_next_batch(self, continuous_iterator):
+    def _async_gen_next_batch(self, epoch, batch_dict):
         """
         Call parameter synchronization and asynchronous sequence generation.
         """
-        try:
-            epoch, batch_dict = next(continuous_iterator)
-        except StopIteration:
-            return None
-        except Exception as e:
-            print(f"Error in async_gen_next_batch: {e}")
-            return None
         batch = DataProto.from_single_dict(batch_dict)
         # pop those keys for generation
         batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
@@ -354,6 +373,30 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
         gen_batch_output = self.rollout_wg.async_generate_sequences(gen_batch)
         return GenerationBatchFuture(epoch, batch, gen_batch_output)
 
+    def _async_get_teacher_knowledge(self, future: GenerationBatchFuture):
+        """Asynchronously obtain teacher model knowledge for generated sequences.
+        
+        This method retrieves generated sequences from the future object, adds response length metadata,
+        and asynchronously queries the teacher model for knowledge distillation. The teacher model's output
+        is set in the future object for subsequent processing.
+        
+        Args:
+            future (GenerationBatchFuture): Future object containing generated sequences and metadata
+            
+        Returns:
+            GenerationBatchFuture: The same future object with teacher knowledge set
+            
+        Raises:
+            RuntimeError: If teacher client initialization fails or knowledge retrieval fails
+        """
+        _, _, gen_batch_output = future.get()
+        gen_batch_output.meta_info["response_length"] = self.config.data.max_response_length
+
+        future.set_teacher_batch_output(
+            get_teacher_knowledge(gen_batch_output, self.teacher_client, 
+                                  self.n_server_workers, is_async=True))
+        return future
+    
     def _maybe_reload_rollout_from_ckpt(self, last_ckpt_path: Optional[str]):
         """
         Optionally reload rollout weights from the latest actor checkpoint.
@@ -367,6 +410,150 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
         except Exception as e:
             print(f"[WARN] Exception reloading rollout from checkpoint: {e}")
 
+    def one_step_off_scheduler_v0(self, continuous_iterator):
+        """One-step-off scheduler implementation (version 0) for GKD training.
+        
+        This scheduler manages the asynchronous execution of rollout generation and
+        teacher knowledge distillation in a pipelined fashion. It alternates between:
+        1. Generating new sequences while waiting for teacher knowledge from previous batch
+        2. Processing completed teacher knowledge while starting new generation
+        
+        The timing metrics collected include:
+        - sync_rollout_weights: Time taken to synchronize rollout weights
+        - wait_prev_gen: Time waiting for previous generation to complete
+        - wait_prev_teacher: Time waiting for teacher knowledge to be ready
+        
+        Args:
+            continuous_iterator: Iterator providing (epoch, batch_dict) tuples for training
+            
+        Yields:
+            tuple: Contains (batch, gen_batch_output, teacher_batch_output, timing_metrics)
+                - batch: Original input batch data
+                - gen_batch_output: Generated sequences from main model
+                - teacher_batch_output: Knowledge distillation from teacher model
+                - timing_metrics: Dictionary of timing measurements
+        """
+        timing = {}
+        for i, (epoch, batch_dict) in enumerate(continuous_iterator):
+            with marked_timer("sync_rollout_weights", timing):
+                self.sync_rollout_weights()
+            if i == 0:
+                fut = self._async_gen_next_batch(epoch, batch_dict)
+                continue
+            else:
+                with marked_timer("wait_prev_gen", timing):
+                    prev_fut = self._async_get_teacher_knowledge(fut)
+                fut = self._async_gen_next_batch(epoch, batch_dict)
+                with marked_timer("wait_prev_teacher", timing):
+                    prev_result = prev_fut.get()
+
+                yield *prev_result, timing
+                timing = {}
+
+    def one_step_off_scheduler_v1(self, continuous_iterator):
+        """One-step-off scheduler implementation (version 1) for GKD training with improved pipeline.
+        
+        This scheduler optimizes the training pipeline by:
+        1. Overlapping rollout weight synchronization with teacher knowledge processing
+        2. Maintaining consistent timing measurement across iterations
+        3. Reducing idle time between generation and knowledge distillation phases
+        
+        The scheduler maintains the following timing metrics:
+        - sync_rollout_weights: Time taken to synchronize rollout weights
+        - wait_prev_gen: Time waiting for previous generation to complete
+        - wait_prev_teacher: Time waiting for teacher knowledge to be ready
+        
+        Args:
+            continuous_iterator: Iterator providing (epoch, batch_dict) tuples for training
+            
+        Yields:
+            tuple: Contains (batch, gen_batch_output, teacher_batch_output, timing_metrics)
+                - batch: Original input batch data
+                - gen_batch_output: Generated sequences from main model
+                - teacher_batch_output: Knowledge distillation from teacher model
+                - timing_metrics: Dictionary of timing measurements
+        """
+        timing = {}
+        for i, (epoch, batch_dict) in enumerate(continuous_iterator):
+            if i == 0:
+                with marked_timer("sync_rollout_weights", timing):
+                    self.sync_rollout_weights()
+               
+                fut = self._async_gen_next_batch(epoch, batch_dict)
+                with marked_timer("wait_prev_gen", timing):
+                    prev_fut = self._async_get_teacher_knowledge(fut)
+            else:
+                fut = self._async_gen_next_batch(epoch, batch_dict)
+                with marked_timer("wait_prev_teacher", timing):
+                    prev_result = prev_fut.get()
+                yield *prev_result, timing
+                timing = {}
+                with marked_timer("wait_prev_gen", timing):
+                    prev_fut = self._async_get_teacher_knowledge(fut)
+                with marked_timer("sync_rollout_weights", timing):
+                    self.sync_rollout_weights()
+
+    def two_step_off_scheduler(self, continuous_iterator):
+        """Two-step-off scheduler implementation for GKD training with optimized pipeline.
+        
+        This scheduler implements a double-buffered pipeline that overlaps:
+        1. Sequence generation with teacher knowledge distillation
+        2. Weight synchronization with previous batch processing
+        
+        Key features:
+        - Maintains two parallel processing streams (current and previous batches)
+        - Overlaps computation and communication where possible
+        - Provides consistent timing metrics across iterations
+        
+        Pipeline stages:
+        1. Initialization: Start first generation without teacher processing
+        2. Steady state: Alternate between processing teacher knowledge and starting new generation
+        3. Final state: Process last batch of teacher knowledge
+        
+        Timing metrics collected:
+        - sync_rollout_weights: Time for weight synchronization between actor and rollout workers
+        - wait_prev_prev_teacher: Time waiting for teacher knowledge from two batches ago
+        - wait_prev_gen: Time waiting for previous generation to complete
+        
+        Args:
+            continuous_iterator: Iterator providing (epoch, batch_dict) tuples for training
+            
+        Yields:
+            tuple: Contains (batch, gen_batch_output, teacher_batch_output, timing_metrics)
+                - batch: Original input batch data
+                - gen_batch_output: Generated sequences from main model
+                - teacher_batch_output: Knowledge distillation from teacher model
+                - timing_metrics: Dictionary of timing measurements
+        """
+        timing = {}
+        for i, (epoch, batch_dict) in enumerate(continuous_iterator):
+            if i == 0:
+                self.sync_rollout_weights()
+                prev_fut = self._async_gen_next_batch(epoch, batch_dict)
+                continue
+            elif i == 1:
+                prev_prev_fut = self._async_get_teacher_knowledge(prev_fut)
+                prev_fut = self._async_gen_next_batch(epoch, batch_dict)
+                continue
+            elif i == 3:
+                with marked_timer("wait_prev_prev_teacher", timing):
+                    prev_prev_result = prev_prev_fut.get()
+                with marked_timer("wait_prev_gen", timing):
+                    prev_prev_fut = self._async_get_teacher_knowledge(prev_fut)
+                prev_fut = self._async_gen_next_batch(epoch, batch_dict)
+                yield *prev_prev_result, timing
+                timing = {}
+            else:
+                with marked_timer("wait_prev_prev_teacher", timing):
+                    prev_prev_result = prev_prev_fut.get()
+                with marked_timer("wait_prev_gen", timing):
+                    prev_prev_fut = self._async_get_teacher_knowledge(prev_fut)
+                with marked_timer("sync_rollout_weights", timing):
+                    self.sync_rollout_weights()
+                prev_fut = self._async_gen_next_batch(epoch, batch_dict)
+                yield *prev_prev_result, timing
+                timing = {}
+                
     def fit(self):
         """
         The training loop of PPO.
@@ -391,7 +578,8 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
         self._load_checkpoint()
 
         # add tqdm
-        progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps, desc="Training Progress")
+        progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps, 
+                            desc="Training Progress")
 
         # we start from step 1
         self.global_steps += 1
@@ -402,9 +590,16 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
         # Pre-warm: submit the first rollout
         continuous_iterator = self._create_continuous_iterator()
 
-        # Submit until we have one pending rollout to start the pipeline
-        # Start the first asynchronous generation task.
-        batch_data_future = self._async_gen_next_batch(continuous_iterator)
+        scheduler_type = self.config.trainer.scheduler
+
+        if scheduler_type == "one_step_off_v0":
+            scheduler = self.one_step_off_scheduler_v0(continuous_iterator)
+        elif scheduler_type == "one_step_off" or scheduler_type == "one_step_off_v1":
+            scheduler = self.one_step_off_scheduler_v1(continuous_iterator)
+        elif scheduler_type == "two_step_off":
+            scheduler = self.two_step_off_scheduler(continuous_iterator)
+        else:
+            raise TypeError(f"unrecognized scheduler type: {scheduler_type}")
 
         # Main loop
         while True:
@@ -420,38 +615,37 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
             metrics = {}
             timing_raw = {}
             is_last_step = self.global_steps >= self.total_training_steps
-
+                
             with marked_timer("step", timing_raw):
-                # wait for the previous batch
-                with marked_timer("wait_prev_gen", timing_raw, color="red"):
-                    epoch, batch, gen_batch_output = batch_data_future.get()
-                    gen_timing = gen_batch_output.meta_info.pop("timing", {})
-                    for k, v in gen_timing.items():
-                        if isinstance(v, list):
-                            array_v = np.array(v)
-                            timing_raw[k+"_mean"] = array_v.mean().item()
-                            timing_raw[k+"_min"] = array_v.min().item()
-                            timing_raw[k+"_max"] = array_v.max().item()
-                            timing_raw[k] = array_v.max().item()
-                        else:
-                            timing_raw[k] = v
-                    # Compute statistics of generated response lengths distribution
-                    response_lens = (gen_batch_output.batch["responses"] != self.tokenizer.pad_token_id).sum(dim=-1).tolist()
-                    max_len = max(response_lens)
-                    min_len = min(response_lens)
-                    metrics.update({
-                        "response_seq_len/average": float(sum(response_lens)) / len(response_lens),
-                        "response_seq_len/max": max_len,
-                        "response_seq_len/min": min_len,
-                        "response_seq_len/max_count": response_lens.count(max_len),
-                        "response_seq_len/min_count": response_lens.count(min_len),
-                    })
+                _, batch, gen_batch_output, teacher_batch_output, schedule_timing = next(scheduler)
+                timing_raw.update(schedule_timing)
 
-                # asys next generation (with syns weights from actor to rollout)
-                with marked_timer("sync_rollout_weights", timing_raw, color="purple"):
-                    if not is_last_step:
-                        batch_data_future = self._async_gen_next_batch(continuous_iterator)
+                gen_timing = gen_batch_output.meta_info.pop("timing", {})
+                for k, v in gen_timing.items():
+                    if isinstance(v, list):
+                        array_v = np.array(v)
+                        timing_raw[k + "_mean"] = array_v.mean().item()
+                        timing_raw[k + "_min"] = array_v.min().item()
+                        timing_raw[k + "_max"] = array_v.max().item()
+                        timing_raw[k] = array_v.max().item()
+                    else:
+                        timing_raw[k] = v
 
+                timing_raw.update(teacher_batch_output.meta_info.pop("timing"))
+                
+                # Compute statistics of generated response lengths distribution
+                response_lens = (gen_batch_output.batch["responses"] != 
+                    self.tokenizer.pad_token_id).sum(dim=-1).tolist()
+                metrics.update(
+                    {
+                        "response_seq_len/average": sum(response_lens) / len(response_lens),
+                        "response_seq_len/max": max(response_lens),
+                        "response_seq_len/min": min(response_lens),
+                        "response_seq_len/max_count": response_lens.count(max(response_lens)),
+                        "response_seq_len/min_count": response_lens.count(min(response_lens)),
+                    }
+                )
+                
                 # Merge generated outputs back
                 batch = batch.union(gen_batch_output)
 
@@ -464,26 +658,16 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
                 # compute global_valid tokens
                 batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
                 
-                #teacher knowledge distillation
-                with marked_timer("get_teacher_knowledge" , timing_raw):
-                    #### try continue 
-                    try:
-                        teacher_batch_output = get_teacher_knowledge(batch, self.teacher_client, self.n_server_workers)
-                    except Exception as e:
-                        print(f"[WARN] Teacher fetch failed for this batch: {e}, skip this batch.")
-                        progress_bar.update(1)
-                        self.global_steps += 1
-                        if is_last_step:
-                            progress_bar.close()
-                            return
-                        continue
-
-                print("INFO:", "get teacher knowledge done.")
                 batch = batch.union(teacher_batch_output)
+
+                # # update actor
+                # with marked_timer("send_teacher_knowledge", timing_raw, color="red"):
+                #     self.actor_wg.send_teacher_knowledge(teacher_batch_output)
                 
                 # update actor
                 with marked_timer("update_actor", timing_raw, color="red"):
                     actor_output = self.actor_wg.update_actor(batch)
+
                 print("INFO:", "update actor done.")
                 actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
                 metrics.update(actor_output_metrics)
