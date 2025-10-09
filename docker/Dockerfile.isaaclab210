@@ -1,0 +1,107 @@
+
+FROM nvcr.nju.edu.cn/nvidia/isaac-lab:2.1.0
+
+ARG http_proxy=http://100.68.175.150:3128
+ARG https_proxy=http://100.68.175.150:3128
+ARG no_proxy=localhost,127.0.0.1,.ivolces.com,192.168.0.0/16,10.0.0.0/8
+
+ARG HTTP_PROXY=${http_proxy}
+ARG HTTPS_PROXY=${https_proxy}
+ARG NO_PROXY=${no_proxy}
+ENV ACCEPT_EULA=Y
+ENTRYPOINT []
+
+# desktop
+RUN --mount=type=cache,target=/var/cache/apt \
+    sed -i 's/archive.ubuntu.com/mirrors.ivolces.com/g' /etc/apt/sources.list && \
+    sed -i 's/security.ubuntu.com/mirrors.ivolces.com/g' /etc/apt/sources.list && \
+    apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y locales && \
+    locale-gen en_US.UTF-8 && \
+    update-locale LANG=en_US.UTF-8 LC_CTYPE=en_US.UTF-8 && \
+    apt-get install -y wget curl \
+        xfce4 \
+        xfce4-goodies \
+        xorg \
+        dbus-x11 \
+        x11-xserver-utils \
+        tigervnc-standalone-server \
+        tigervnc-common \
+        tigervnc-tools \
+        fonts-dejavu \
+        fonts-liberation
+# cuda 12.8
+RUN --mount=type=cache,target=/var/cache/apt \
+    cd /tmp && \
+    wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/3bf863cc.pub && \
+    apt-key add 3bf863cc.pub && \
+    echo "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64 /" > /etc/apt/sources.list.d/cuda.list && \
+    apt-get update && \
+    apt-get install -y cuda-toolkit-12-2 libcusparselt0 libnccl2 && \
+    rm -f 3bf863cc.pub
+
+# libero
+RUN --mount=type=cache,target=/root/.cache/pip \
+    /workspace/isaaclab/_isaac_sim/python.sh -m pip install easydict==1.9 robosuite==1.4.0 bddl==1.0.1 future==0.18.2 cloudpickle==2.1.0
+
+# verl
+RUN --mount=type=cache,target=/root/.cache/pip \
+    /workspace/isaaclab/_isaac_sim/python.sh -m pip install --upgrade tensordict==0.10.0 torch==2.7.0 \
+    transformers[hf_xet]==4.53.2 torchvision==0.22.0 numpy==1.26.4 ray[default] 
+
+# flash_attn
+# RUN rm -r /workspace/isaaclab/_isaac_sim/kit/python/lib/python3.10/site-packages/pip-24.3.1.dist-info; \
+#     rm -r /workspace/isaaclab/_isaac_sim/kit/python/lib/python3.10/site-packages/pip; \
+#     /workspace/isaaclab/_isaac_sim/python.sh -m ensurepip --upgrade --default-pip && \
+RUN cd /tmp && \
+    wget -nv https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.0.post2/flash_attn-2.8.0.post2+cu12torch2.7cxx11abiFALSE-cp310-cp310-linux_x86_64.whl && \
+    /workspace/isaaclab/_isaac_sim/python.sh -m pip install /tmp/flash_attn-2.8.0.post2+cu12torch2.7cxx11abiFALSE-cp310-cp310-linux_x86_64.whl && \
+    rm -f /tmp/flash_attn-2.8.0.post2+cu12torch2.7cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
+
+RUN mkdir -p /root/.vnc && \
+    cat <<'EOP' > /root/.vnc/xstartup 
+#!/bin/sh
+unset SESSION_MANAGER
+unset DBUS_SESSION_BUS_ADDRESS
+[ -r \$HOME/.Xresources ] && xrdb \$HOME/.Xresources
+xsetroot -solid grey
+exec startxfce4
+EOP
+
+RUN echo <<'EOP' > /root/.vnc/config
+geometry=1920x1080
+depth=24
+desktop=Isaac-Sim-Desktop
+dpi=96
+localhost=no
+EOP
+
+RUN echo <<'EOP' > /root/start_isaac_vnc.sh
+#!/bin/bash
+# 设置显示变量
+export DISPLAY=:1
+
+# 检查VNC是否运行
+if ! pgrep -f "Xvnc.*:1" > /dev/null; then
+    echo "Starting VNC server..."
+    vncserver :1 -localhost no -geometry 1920x1080 -depth 24 -desktop "Isaac-Sim-Desktop"
+    sleep 3
+fi
+
+# 启动Isaac Sim
+echo "Starting Isaac Sim..."
+/workspace/isaaclab/_isaac_sim/isaac-sim.sh --allow-root
+EOP
+
+RUN chmod +x /root/.vnc/xstartup && \
+    chmod +x /root/start_isaac_vnc.sh
+
+RUN /workspace/isaaclab/_isaac_sim/isaac-sim.sh --allow-root --ext-precache-mode
+
+# RUN apt update && \
+#     apt install -y git screen vim \
+#        libglu1-mesa mesa-utils libegl1-mesa-dev \
+#        libgl1-mesa-glx libxrandr2 libxss1 libxcursor1 libxcomposite1 \
+#        libasound2 libxi6 libxtst6 libxt6 zenity; \
+#     mv /root/miniconda3/lib/libstdc++.so.6 /root/miniconda3/lib/libstdc++.so.6.old; \
+#     ln -s /usr/lib/x86_64-linux-gnu/libstdc++.so.6 /root/miniconda3/lib/libstdc++.so.6

@@ -23,11 +23,11 @@ from verl.utils.logger import print_rank_0
 
 def init_megatron_optim_config(optim_config: dict) -> OptimizerConfig:
     optim_args = {
-        "optimizer": optim_config.get("optimizer", "adam"),
-        "lr": optim_config.get("lr"),
-        "min_lr": optim_config.get("min_lr", None),
-        "clip_grad": optim_config.get("clip_grad", 1.0),
-        "weight_decay": optim_config.get("weight_decay", 0.01),
+        "optimizer": optim_config.optimizer,
+        "lr": optim_config.lr,
+        "min_lr": optim_config.min_lr,
+        "clip_grad": optim_config.clip_grad,
+        "weight_decay": optim_config.weight_decay,
         "bf16": True,
         "params_dtype": torch.bfloat16,
         "use_distributed_optimizer": True,
