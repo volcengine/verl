@@ -551,7 +551,8 @@ class vLLMAsyncRollout(BaseRollout):
         )
         self.vllm_config = all_kwargs[0]["vllm_config"]
         if self.lora_config:
-            self.vllm_config.lora_config = LoRAConfig(**self.lora_config)
+            lora_dtype = getattr(torch, self.config.dtype)
+            self.vllm_config.lora_config = LoRAConfig(lora_dtype=lora_dtype, **self.lora_config)
         self.inference_engine = WorkerWrapperBase(vllm_config=self.vllm_config)
         self.inference_engine.init_worker(all_kwargs)
 
