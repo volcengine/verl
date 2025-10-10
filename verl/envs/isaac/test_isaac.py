@@ -25,8 +25,7 @@ if __name__ == "__main__":
     # Basic configuration for the Isaac environment
     cfg = OmegaConf.create(
         {
-            # "task_name": "Isaac-Libero-Franka-Replay-Camera-v0",
-            "task_name": "Isaac-Stack-Cube-Franka-v0",
+            "task_name": "Isaac-Libero-Franka-Replay-Camera-v0",
             "task_suite": "libero_10",
             "task_id": 8,
             "num_envs": 1,
