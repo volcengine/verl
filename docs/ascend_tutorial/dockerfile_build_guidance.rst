@@ -21,9 +21,6 @@ Dockerfile 脚本请参照 `此处 <https://github.com/songyy29/verl/blob/main/d
 三、镜像构建命令示例
 --------------------
 
-1. 镜像构建
-~~~~~~~~~~~~~~~~~~~
-
 .. code:: bash
 
    # Navigate to the directory containing the Dockerfile 
