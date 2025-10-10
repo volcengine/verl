@@ -44,7 +44,6 @@ def gptmodel_forward(
     if pack_seqs:
         batch_size, seq_len = attention_mask.shape[:2]
         input_ids_rmpad, packed_seq_params = preprocess_packed_seqs(input_ids, attention_mask, pre_process=pre_process)
-        print(f"input_ids_rmpad shape: {input_ids_rmpad.shape}, packed_seq_params: {packed_seq_params}")
         input_ids_rmpad = input_ids_rmpad.contiguous()
         output_orig = model(
             input_ids=input_ids_rmpad,
@@ -52,8 +51,6 @@ def gptmodel_forward(
             position_ids=position_ids,
             packed_seq_params=packed_seq_params,
         )
-        print(f"output_orig: {output_orig}")
-
         if post_process and logits_processor is not None:
             args = {
                 k: preprocess_packed_seqs(v, attention_mask, pre_process=True)[0]
