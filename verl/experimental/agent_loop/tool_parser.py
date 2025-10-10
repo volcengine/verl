@@ -118,6 +118,7 @@ class GptOssToolParser(ToolParser):
 
     def __init__(self, tokenizer) -> None:
         super().__init__(tokenizer)
+        # check https://cookbook.openai.com/articles/openai-harmony for more details.
         self.cot_pattern = r"<\|start\|>assistant<\|channel\|>analysis<\|message\|>.*?<\|end\|>"
         # <|start|>assistant may be pre-appended in prompts, so we need to remove it.
         self.partial_cot_pattern = r"<\|channel\|>analysis<\|message\|>(.*?)<\|end\|>"
