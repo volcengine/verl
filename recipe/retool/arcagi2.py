@@ -14,6 +14,8 @@
 import logging
 import re
 from typing import Any
+import json
+import subprocess
 
 import datasets
 from pathlib import Path
@@ -87,6 +89,18 @@ class CustomRLHFDataset(RLHFDataset):
         print("="*200+f"\nSAVED DATASET TO {save_path}\n"+"="*200)
 
 
+def check_submitted_code_on_single_grid_pair(input_grid: str, output_grid: str, submitted_code: str):
+    validation_code = """
+    input_grid = {input_grid}
+    output_grid = {output_grid}
+
+    {submitted_code}
+
+    assert solution(input_grid) == output_grid
+    """
+    result = subprocess.run(["python", "-c", validation_code])
+    return result.returncode == 0
+
 
 def compute_score(data_source, solution_str, ground_truth, extra_info):
     print(f"SOLUTION_STR_IN_COMPUTE_SCORE:\n {solution_str}\nEND SOLUTION_STR_IN_COMPUTE_SCORE")
@@ -104,4 +118,13 @@ def compute_score(data_source, solution_str, ground_truth, extra_info):
 #
 #    if result["pred"] is None:
 #        result["pred"] = ""
-    return 0.0
+    score = 0.0
+    for pair in ground_truth:
+        input_grid = pair["input_grid"]
+        output_grid = pair["output_grid"]
+        submitted_code = json.loads(extra_info["solution_tool_call_args"])["code"]
+        
+        single_pair_score = check_submitted_code_on_single_grid_pair(input_grid, output_grid, submitted_code)
+
+        score += single_pair_score
+    return score / len(ground_truth)
