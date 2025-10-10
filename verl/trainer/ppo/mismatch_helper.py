@@ -26,12 +26,10 @@ Key Features:
 5. Comprehensive metrics tracking
 
 Usage Notes:
-- For centralized metrics computation at the trainer level, use:
-  verl.trainer.ppo.metric_utils.compute_mismatch_metrics_batch()
-- This module provides lower-level functions used by the centralized system
-  and by workers for IS weight computation.
-- compute_rollout_importance_weights() is actively used in dp_actor.py
-- compute_mismatch_metrics() is used internally by metric_utils.py
+- compute_rollout_importance_weights() computes both IS weights and mismatch metrics
+- Used in ray_trainer.py via compute_rollout_importance_weights_and_add_to_batch()
+- Also used in dp_actor.py for distributed worker computations
+- compute_mismatch_metrics() is called internally by compute_rollout_importance_weights()
 
 References:
 - When Speed Kills Stability: https://yingru.notion.site/When-Speed-Kills-Stability-271211a558b7808d8b12d403fd15edda
@@ -89,7 +87,8 @@ def compute_rollout_importance_weights(
         Tuple of (weights_proto, metrics) where:
             weights_proto: DataProto containing IS weights with key "rollout_is_weights",
                 shape (batch_size, seq_length). Returns None if rollout_is_threshold is None.
-            metrics: Dictionary of IS statistics (all converted to scalars) for logging
+            metrics: Dictionary of IS statistics and mismatch metrics (KL, PPL, etc.),
+                all converted to scalars and prefixed with "mismatch/"
     """
     if rollout_is_threshold is None:
         return None, {}
@@ -216,6 +215,12 @@ def compute_rollout_importance_weights(
 
     # Wrap in DataProto for consistency with worker methods
     rollout_is_weights_proto = DataProto.from_dict(tensors={"rollout_is_weights": rollout_is_weights})
+
+    # Compute mismatch metrics (KL, PPL, etc.) and merge with IS metrics
+    mismatch_metrics = compute_mismatch_metrics(
+        old_log_prob=old_log_prob, rollout_log_prob=rollout_log_prob, response_mask=response_mask
+    )
+    metrics.update(mismatch_metrics)
 
     # Convert all tensor metrics to scalars for logging
     # Note: No need to detach since old_log_prob and rollout_log_prob are computed with torch.no_grad()
@@ -371,12 +376,8 @@ def compute_mismatch_metrics(
 ) -> dict[str, Any]:
     """Compute training-inference mismatch metrics (helper function).
 
-    NOTE: For centralized metrics computation at the trainer level, prefer using:
-        verl.trainer.ppo.metric_utils.compute_mismatch_metrics_batch(batch)
-
-    This is a lower-level helper function that operates on raw tensors.
-    It is used internally by:
-    - compute_mismatch_metrics_batch() in metric_utils.py
+    This helper function operates on raw tensors and is used internally by:
+    - compute_rollout_importance_weights() in this module (automatically included)
     - Tests (test_rollout_is.py, test_rollout_is_integration.py)
 
     These metrics help diagnose the mismatch between the rollout policy (e.g., vLLM)

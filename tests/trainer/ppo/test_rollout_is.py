@@ -24,8 +24,7 @@ Usage:
 
 This tests:
 - Basic rollout IS functionality (3 levels, 2 modes)
-- Metrics completeness (26 rollout IS metrics)
-- Mismatch metrics (11 diagnostic metrics)
+- Metrics completeness (32 total: 21 IS + 11 mismatch metrics)
 - Veto mechanism
 - Edge cases
 """
@@ -170,7 +169,8 @@ def test_metrics_completeness():
         rollout_is_threshold=2.5,
     )
 
-    expected_metrics = [
+    # Expected IS metrics
+    expected_is_metrics = [
         "mismatch/rollout_is_mean",
         "mismatch/rollout_is_max",
         "mismatch/rollout_is_min",
@@ -186,6 +186,23 @@ def test_metrics_completeness():
         "mismatch/rollout_is_p95",
         "mismatch/rollout_is_p99",
     ]
+
+    # Expected mismatch/diagnostic metrics (also included now)
+    expected_mismatch_metrics = [
+        "mismatch/mismatch_training_ppl",
+        "mismatch/mismatch_training_log_ppl",
+        "mismatch/mismatch_kl",
+        "mismatch/mismatch_k3_kl",
+        "mismatch/mismatch_rollout_ppl",
+        "mismatch/mismatch_rollout_log_ppl",
+        "mismatch/mismatch_log_ppl_diff",
+        "mismatch/mismatch_log_ppl_abs_diff",
+        "mismatch/mismatch_log_ppl_diff_max",
+        "mismatch/mismatch_log_ppl_diff_min",
+        "mismatch/mismatch_ppl_ratio",
+    ]
+
+    expected_metrics = expected_is_metrics + expected_mismatch_metrics
 
     missing_metrics = [m for m in expected_metrics if m not in metrics]
     if missing_metrics:
