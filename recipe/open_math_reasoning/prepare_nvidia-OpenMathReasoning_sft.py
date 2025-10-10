@@ -13,7 +13,8 @@
 # limitations under the License.
 
 
-# huggingface-cli download nvidia/OpenMathReasoning --repo-type dataset --include data/genselect* --local-dir /path/to/nvidia/OpenMathReasoning
+# huggingface-cli download nvidia/OpenMathReasoning --repo-type dataset --include data/cot* --local-dir /path/to/nvidia/OpenMathReasoning
+# huggingface-cli download nvidia/OpenMathReasoning --repo-type dataset --include data/cot* --local-dir /opt/tiger/nvidia/OpenMathReasoning
 
 import argparse
 import datasets
@@ -32,9 +33,9 @@ if __name__ == "__main__":
     data_source = "nvidia/OpenMathReasoning"
 
     if local_dataset_path is not None:
-        dataset = datasets.load_dataset(local_dataset_path)
+        dataset = datasets.load_dataset(local_dataset_path, split='cot')
     else:
-        dataset = datasets.load_dataset(data_source)
+        dataset = datasets.load_dataset(data_source, split='cot')
 
     def make_map_fn(split):
         def process_fn(example, idx):
@@ -65,7 +66,8 @@ if __name__ == "__main__":
 
         return process_fn
 
-    dataset = dataset.map(function=make_map_fn("genselect"), with_indices=True)
-    genselect_dataset = dataset['genselect']
+    # filter out data where the problem_type is not has_answer_extracted
+    dataset = dataset.filter(lambda example: example["problem_type"] == "has_answer_extracted")
+    dataset = dataset.map(function=make_map_fn("cot"), with_indices=True)
     local_save_dir = args.local_save_dir
-    genselect_dataset.to_parquet(os.path.join(local_save_dir, "genselect_dataset.parquet"))
+    dataset.to_parquet(os.path.join(local_save_dir, "cot_dataset.parquet"))
