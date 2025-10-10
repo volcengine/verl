@@ -289,7 +289,6 @@ data:
   image_key: images
   video_key: videos
   trust_remote_code: false
-  agent_name: single_turn_agent
   custom_cls:
     path: null
     name: null

@@ -75,9 +75,6 @@ video_key: videos
 # If the remote tokenizer has a Python file, this flag determines whether to allow using it.
 trust_remote_code: False
 
-# The default agent_loop used. single_turn_agent for pure LLM, and tool_agent for tool+vlm
-agent_name: single_turn_agent
-
 # Optional: specify a custom dataset class path and name if overriding default loading behavior.
 custom_cls:
 

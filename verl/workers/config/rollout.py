@@ -183,3 +183,9 @@ class RolloutConfig(BaseConfig):
             assert self.expert_parallel_size == (self.tensor_model_parallel_size * self.data_parallel_size), (
                 "expert_parallel_size must be equal to tensor_model_parallel_size * data_parallel_size"
             )
+
+        if self.pipeline_model_parallel_size > 1:
+            if self.name == "vllm" or self.name == "sglang":
+                raise NotImplementedError(
+                    f"Current rollout {self.name=} not implemented pipeline_model_parallel_size > 1 yet."
+                )
