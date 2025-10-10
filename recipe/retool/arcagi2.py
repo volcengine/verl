@@ -89,6 +89,8 @@ class CustomRLHFDataset(RLHFDataset):
 
 
 def compute_score(data_source, solution_str, ground_truth, extra_info):
+    print(f"SOLUTION_STR_IN_COMPUTE_SCORE:\n {solution_str}\nEND SOLUTION_STR_IN_COMPUTE_SCORE")
+    print(f"EXTRA_INFO_IN_COMPUTE_SCORE:\n {extra_info}\nEND EXTRA_INFO_IN_COMPUTE_SCORE")
 #    # use \\boxed{...} answer
 #    result = math_dapo.compute_score(solution_str, ground_truth, strict_box_verify=True)
 #
