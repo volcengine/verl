@@ -505,8 +505,8 @@ class FlowRLActor(DataParallelPPOActor):
         avg_loss = torch.mean(weighted_losses)
 
         # Loss statistics
-        negative_approx_kl = log_prob - ref_log_prob
-        ratio = torch.exp(negative_approx_kl)
+        # negative_approx_kl = log_prob - ref_log_prob
+        # ratio = torch.exp(negative_approx_kl)
               
         # Metrics
         loss_term_dict = {
@@ -565,6 +565,7 @@ class FlowRLActor(DataParallelPPOActor):
             "actor/log_reward": verl_F.masked_mean(reward, response_mask).detach().item(),
             "actor/final_loss": avg_loss.detach().item(),
             "actor/importance_weight": imp_w.mean().detach().item(),
+            "actor/importance_weight_clipped": imp_w_clipped.mean().detach().item(),
         }
 
         return avg_loss, loss_term_dict
