@@ -62,59 +62,59 @@ The new implementation:
 
 ### **Core Implementation**
 
-1. **NEW**: [verl/trainer/ppo/mismatch_helper.py](verl/trainer/ppo/mismatch_helper.py)
+1. **NEW**: `verl/trainer/ppo/mismatch_helper.py`
    - Contains `compute_rollout_importance_weights()` - main function
    - Contains `compute_is_metrics()` - comprehensive metrics
 
-2. **MODIFIED**: [verl/trainer/ppo/core_algos.py](verl/trainer/ppo/core_algos.py#L962-991)
+2. **MODIFIED**: `verl/trainer/ppo/core_algos.py` (lines 962-991)
    - Replaced old TIS implementation (lines 962-967)
    - Added new rollout IS with metrics support
 
-3. **MODIFIED**: [verl/workers/actor/dp_actor.py](verl/workers/actor/dp_actor.py)
+3. **MODIFIED**: `verl/workers/actor/dp_actor.py`
    - Updated to use `rollout_is_threshold` instead of `tis_imp_ratio_cap`
    - Collects and logs all rollout IS metrics
 
 ### **Configuration Files**
 
-4. **MODIFIED**: [verl/trainer/config/algorithm.py](verl/trainer/config/algorithm.py#L95-100)
+4. **MODIFIED**: `verl/trainer/config/algorithm.py` (lines 95-100)
    - Added 6 new rollout IS parameters to `AlgoConfig`
 
-5. **MODIFIED**: [verl/workers/config/actor.py](verl/workers/config/actor.py#L110-115)
+5. **MODIFIED**: `verl/workers/config/actor.py` (lines 110-115)
    - Added 6 new rollout IS parameters to `ActorConfig`
 
-6. **MODIFIED**: [verl/trainer/config/actor/actor.yaml](verl/trainer/config/actor/actor.yaml#L77-89)
+6. **MODIFIED**: `verl/trainer/config/actor/actor.yaml` (lines 77-89)
    - Added rollout IS configuration section
 
-7. **MODIFIED**: [verl/trainer/config/ppo_trainer.yaml](verl/trainer/config/ppo_trainer.yaml#L116-133)
+7. **MODIFIED**: `verl/trainer/config/ppo_trainer.yaml` (lines 116-133)
    - Added rollout IS to algorithm config
 
 ### **Documentation**
 
-8. **MODIFIED**: [docs/examples/config.rst](docs/examples/config.rst)
+8. **MODIFIED**: `docs/examples/config.rst`
    - Updated actor config with rollout IS parameters
    - Updated algorithm config with rollout IS parameters
    - Added detailed parameter descriptions
 
 ### **Example Scripts**
 
-9. **MODIFIED**: [recipe/dapo/run_dapo_qwen2.5_32b_tis.sh](recipe/dapo/run_dapo_qwen2.5_32b_tis.sh)
+9. **MODIFIED**: `recipe/dapo/run_dapo_qwen2.5_32b_tis.sh`
    - Updated from `tis_imp_ratio_cap` to rollout IS parameters
    - Added comprehensive comments
 
-10. **NEW**: [examples/rollout_importance_sampling/README.md](examples/rollout_importance_sampling/README.md)
+10. **NEW**: `examples/rollout_importance_sampling/README.md`
     - Comprehensive guide with usage patterns
     - Troubleshooting section
     - Performance considerations
 
-11. **NEW**: [examples/rollout_importance_sampling/run_with_rollout_is.sh](examples/rollout_importance_sampling/run_with_rollout_is.sh)
+11. **NEW**: `examples/rollout_importance_sampling/run_with_rollout_is.sh`
     - Basic example with token-level truncate
 
 ### **Tests**
 
-12. **NEW**: [test_rollout_is.py](test_rollout_is.py)
+12. **NEW**: `tests/trainer/ppo/test_rollout_is.py`
     - Unit tests for rollout IS functionality
 
-13. **NEW**: [tests/trainer/ppo/test_rollout_is_integration.py](tests/trainer/ppo/test_rollout_is_integration.py)
+13. **NEW**: `tests/trainer/ppo/test_rollout_is_integration.py`
     - Integration tests with PPO
 
 ## Configuration Parameters
@@ -304,9 +304,9 @@ Expected output: All tests pass ✓
 
 ## Additional Resources
 
-- **Implementation**: [verl/trainer/ppo/mismatch_helper.py](verl/trainer/ppo/mismatch_helper.py)
-- **Examples**: [examples/rollout_importance_sampling/](examples/rollout_importance_sampling/)
-- **DAPO Example**: [recipe/dapo/run_dapo_qwen2.5_32b_tis.sh](recipe/dapo/run_dapo_qwen2.5_32b_tis.sh)
+- **Implementation**: `verl/trainer/ppo/mismatch_helper.py`
+- **Examples**: `examples/rollout_importance_sampling/`
+- **DAPO Example**: `recipe/dapo/run_dapo_qwen2.5_32b_tis.sh`
 
 ## Summary
 

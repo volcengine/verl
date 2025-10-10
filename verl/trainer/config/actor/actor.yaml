@@ -77,14 +77,19 @@ entropy_coeff: 0
 # Rollout Importance Sampling: corrects distribution mismatch between rollout and training policies
 # Enable/disable IS correction (set rollout_is_threshold to enable)
 rollout_is: false
+
 # Upper threshold for IS weights (null to disable IS completely)
 rollout_is_threshold: null
+
 # Lower threshold for IS weights (null = auto-reciprocal of upper)
 rollout_is_threshold_lower: null
+
 # Aggregation level: "token" (biased), "sequence" (unbiased), "geometric" (experimental)
 rollout_is_level: token
+
 # Bounding mode: "truncate" (cap upper only), "clip" (zero outside bounds)
 rollout_is_mode: truncate
+
 # Per-token veto threshold for catastrophic outliers
 rollout_is_veto_threshold: 1e-4
 
