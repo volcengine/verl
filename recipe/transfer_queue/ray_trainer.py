@@ -27,7 +27,7 @@ import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pprint import pprint
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 import ray
@@ -43,10 +43,10 @@ from tqdm import tqdm
 from verl import DataProto
 from verl.experimental.dataset.sampler import AbstractCurriculumSampler
 from verl.experimental.transfer_queue import (
-    TransferQueueController,
-    process_zmq_server_info,
     BatchMeta,
+    TransferQueueController,
     TransferQueueStorageSimpleUnit,
+    process_zmq_server_info,
     get_placement_group,
 )
 from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
@@ -90,6 +90,7 @@ from verl.utils.tracking import ValidationGenerationsLogger
 from verl.utils.transferqueue_utils import (
     create_transferqueue_client,
     get_transferqueue_client,
+    batchmeta_dataproto_pipe,
 )
 
 
@@ -149,7 +150,15 @@ class ResourcePoolManager:
                 f"Total available GPUs {total_available_gpus} is less than total desired GPUs {total_required_gpus}"
             )
 
+@batchmeta_dataproto_pipe(put_data=False)
+def compute_reward_decorated(data, reward_fn):
+    return compute_reward(data, reward_fn)
 
+@batchmeta_dataproto_pipe(put_data=False)
+def compute_reward_async_decorated(data, reward_fn):
+    return compute_reward_async.remote(data, reward_fn)
+
+@batchmeta_dataproto_pipe(put_data=False)
 def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, kl_penalty="kl"):
     """Apply KL penalty to the token-level rewards.
 
@@ -185,12 +194,10 @@ def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, 
 
     # according to https://github.com/huggingface/trl/blob/951ca1841f29114b969b57b26c7d3e80a39f75a0/trl/trainer/ppo_trainer.py#L837
     kl_ctrl.update(current_kl=current_kl, n_steps=batch_size)
-    data.batch["token_level_rewards"] = token_level_rewards
 
     metrics = {"actor/reward_kl_penalty": current_kl, "actor/reward_kl_penalty_coeff": beta}
 
-    return data, metrics
-
+    return token_level_rewards, metrics
 
 def compute_response_mask(batch_meta: BatchMeta, data_system_client):
     """Compute the attention mask for the response part of the sequence.
@@ -217,7 +224,7 @@ def compute_response_mask(batch_meta: BatchMeta, data_system_client):
 
     return batch_meta
 
-
+@batchmeta_dataproto_pipe(put_data=False)
 def compute_advantage(
     data: DataProto,
     adv_estimator: AdvantageEstimator,
@@ -226,7 +233,7 @@ def compute_advantage(
     num_repeat: int = 1,
     norm_adv_by_std_in_grpo: bool = True,
     config: Optional[AlgoConfig] = None,
-) -> DataProto:
+) -> tuple[Any, Any]:
     """Compute advantage estimates for policy optimization.
 
     This function computes advantage estimates using various estimators like GAE, GRPO, REINFORCE++, etc.
@@ -243,11 +250,10 @@ def compute_advantage(
         config (dict, optional): Configuration dictionary for algorithm settings. Defaults to None.
 
     Returns:
-        DataProto: The updated data with computed advantages and returns.
+        tuple: A tuple containing:
+            - advantages: The computed advantage estimates.
+            - returns: The computed returns.
     """
-    # Back-compatible with trainers that do not compute response mask in fit
-    if "response_mask" not in data.batch.keys():
-        data.batch["response_mask"] = compute_response_mask(data)
     # prepare response group
     if adv_estimator == AdvantageEstimator.GAE:
         # Compute advantages and returns using Generalized Advantage Estimation (GAE)
@@ -258,8 +264,7 @@ def compute_advantage(
             gamma=gamma,
             lam=lam,
         )
-        data.batch["advantages"] = advantages
-        data.batch["returns"] = returns
+        # TODO: adapt core_algos.compute_pf_ppo_reweight_data function to support transfer queue
         if config.get("use_pf_ppo", False):
             data = core_algos.compute_pf_ppo_reweight_data(
                 data,
@@ -276,8 +281,6 @@ def compute_advantage(
             index=data.non_tensor_batch["uid"],
             norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
         )
-        data.batch["advantages"] = advantages
-        data.batch["returns"] = returns
     else:
         # handle all other adv estimator type other than GAE and GRPO
         adv_estimator_fn = core_algos.get_adv_estimator_fn(adv_estimator)
@@ -293,10 +296,19 @@ def compute_advantage(
 
         # calculate advantage estimator
         advantages, returns = adv_estimator_fn(**adv_kwargs)
-        data.batch["advantages"] = advantages
-        data.batch["returns"] = returns
-    return data
+    return advantages, returns
 
+@batchmeta_dataproto_pipe(put_data=False)
+def compute_data_metrics_decorated(batch, use_critic: bool = True):
+    return compute_data_metrics(batch, use_critic)
+
+@batchmeta_dataproto_pipe(put_data=False)
+def compute_timing_metrics_decorated(batch, timing_raw: dict[str, float]) -> dict[str, Any]:
+    return compute_timing_metrics(batch, timing_raw)
+
+@batchmeta_dataproto_pipe(put_data=False)
+def compute_throughout_metrics_decorated(batch, timing_raw: dict[str, float], n_gpus: int) -> dict[str, Any]:
+    return compute_throughout_metrics(batch, timing_raw, n_gpus)
 
 class RayPPOTrainer:
     """Distributed PPO trainer using Ray for scalable reinforcement learning.
@@ -1151,6 +1163,11 @@ class RayPPOTrainer:
             for batch_dict in self.train_dataloader:
                 metrics = {}
                 timing_raw = {}
+                base_get_meta_kwargs = dict(
+                    batch_size=self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n,
+                    global_step=self.global_steps - 1,  # self.global_steps starts from 1
+                    get_n_samples=False,
+                )
 
                 with marked_timer("start_profile", timing_raw):
                     self._start_profiling(
@@ -1247,16 +1264,14 @@ class RayPPOTrainer:
                     #
                     #         del gen_baseline_batch, gen_baseline_output
 
-                    batch_meta = gen_meta.union(gen_output_meta)
+                    batch_meta: BatchMeta = gen_meta.union(gen_output_meta)
 
                     if "response_mask" not in batch_meta.field_names:
                         response_mask_meta = asyncio.run(
                             self.data_system_client.async_get_meta(
                                 data_fields=["responses", "attention_mask"],
-                                batch_size=self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n,
-                                global_step=self.global_steps - 1,
-                                get_n_samples=False,
                                 task_name="compute_response_mask",
+                                **base_get_meta_kwargs,
                             )
                         )
                         response_mask_output_meta = compute_response_mask(response_mask_meta, self.data_system_client)
@@ -1272,10 +1287,8 @@ class RayPPOTrainer:
                         attention_mask_meta = asyncio.run(
                             self.data_system_client.async_get_meta(
                                 data_fields=["attention_mask"],
-                                batch_size=self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n,
-                                global_step=self.global_steps - 1,
-                                get_n_samples=False,
                                 task_name="balance_batch",
+                                **base_get_meta_kwargs,
                             )
                         )
 
@@ -1294,11 +1307,31 @@ class RayPPOTrainer:
                             reward_meta = self.rm_wg.compute_rm_score(batch_meta)
                             batch_meta = batch_meta.union(reward_meta)
 
-                        # TODO: (transferqueue) (zjj)
+                        compute_reward_fields = [
+                            "responses", 
+                            "prompts", 
+                            "attention_mask", 
+                            "reward_model",
+                            "data_source",
+                        ]
+                        if "rm_scores" in batch_meta.field_names:
+                            compute_reward_fields.append("rm_scores")
+                        compute_reward_meta = asyncio.run(
+                            self.data_system_client.async_get_meta(
+                                data_fields=compute_reward_fields,
+                                task_name="compute_reward",
+                                **base_get_meta_kwargs,
+                            )
+                        )
+                        compute_reward_meta.reorder(balanced_idx)
                         if self.config.reward_model.launch_reward_fn_async:
-                            future_reward = compute_reward_async.remote(data=batch, reward_fn=self.reward_fn)
+                            future_reward = compute_reward_async_decorated(
+                                data=compute_reward_meta, 
+                                reward_fn=self.reward_fn, 
+                            )
                         else:
-                            reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
+                            reward_tensor, reward_extra_infos_dict = compute_reward_decorated(compute_reward_meta, self.reward_fn)
+                        batch_meta = batch_meta.union(compute_reward_meta)
 
                     # recompute old_log_probs
                     with marked_timer("old_log_prob", timing_raw, color="blue"):
@@ -1320,10 +1353,8 @@ class RayPPOTrainer:
                                     "interaction_kwargs",
                                     "ability",
                                 ],
-                                batch_size=self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n,
-                                global_step=self.global_steps - 1,
-                                get_n_samples=False,
                                 task_name="compute_log_prob",
+                                **base_get_meta_kwargs,
                             )
                         )
                         old_log_prob_meta.reorder(balanced_idx)
@@ -1343,8 +1374,11 @@ class RayPPOTrainer:
                             # TODO: we may want to add diff of probs too.
                             from verl.utils.debug.metrics import calculate_debug_metrics
 
-                            # TODO: (transferqueue) batch_meta(BatchMeta) -> batch(DataProto)
-                            metrics.update(calculate_debug_metrics(batch))
+                            @batchmeta_dataproto_pipe(put_data=False)
+                            def calculate_debug_metrics_decorated(data: DataProto):
+                                return calculate_debug_metrics(data)
+
+                            metrics.update(calculate_debug_metrics_decorated(batch))
 
                     if self.use_reference_policy:
                         # compute reference log_prob
@@ -1367,10 +1401,8 @@ class RayPPOTrainer:
                                     "interaction_kwargs",
                                     "ability",
                                 ],
-                                batch_size=self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n,
-                                global_step=self.global_steps - 1,
-                                get_n_samples=False,
                                 task_name="compute_ref_log_prob",
+                                **base_get_meta_kwargs,
                             )
                         )
                         ref_log_prob_meta.reorder(balanced_idx)
@@ -1405,21 +1437,40 @@ class RayPPOTrainer:
                             batch_meta.add_fields(reward_extra_infos_td)
 
                         # compute rewards. apply_kl_penalty if available
-                        # TODO: (transferqueue) (zjj)
                         if self.config.algorithm.use_kl_in_reward:
-                            batch, kl_metrics = apply_kl_penalty(
-                                batch, kl_ctrl=self.kl_ctrl_in_reward, kl_penalty=self.config.algorithm.kl_penalty
+                            apply_kl_penalty_fields = [
+                                "response_mask",
+                                "token_level_scores",
+                                "old_log_probs",
+                                "ref_log_prob",
+                            ]
+                            apply_kl_penalty_meta = asyncio.run(
+                                self.data_system_client.async_get_meta(
+                                    data_fields=apply_kl_penalty_fields,
+                                    task_name="apply_kl_penalty",
+                                    **base_get_meta_kwargs,
+                                )
                             )
+                            apply_kl_penalty_meta.reorder(balanced_idx)
+                            token_level_rewards, kl_metrics = apply_kl_penalty(
+                                apply_kl_penalty_meta, kl_ctrl=self.kl_ctrl_in_reward, kl_penalty=self.config.algorithm.kl_penalty
+                            )
+                            token_level_rewards_td = TensorDict(
+                                {"token_level_rewards": token_level_rewards}, batch_size=token_level_rewards.size(0)
+                            )
+                            asyncio.run(
+                                self.data_system_client.async_put(data=token_level_rewards_td, metadata=apply_kl_penalty_meta)
+                            )
+                            apply_kl_penalty_meta.add_fields(token_level_rewards_td)
+
                             metrics.update(kl_metrics)
+                            batch_meta = batch_meta.union(apply_kl_penalty_meta)
                         else:
                             token_level_scores_meta = asyncio.run(
                                 self.data_system_client.async_get_meta(
                                     data_fields=["token_level_scores"],
-                                    batch_size=self.config.data.train_batch_size
-                                    * self.config.actor_rollout_ref.rollout.n,
-                                    global_step=self.global_steps - 1,
-                                    get_n_samples=False,
                                     task_name="token_level_scores",
+                                    **base_get_meta_kwargs,
                                 )
                             )
                             token_level_scores_meta.reorder(balanced_idx)
@@ -1441,9 +1492,34 @@ class RayPPOTrainer:
                             "norm_adv_by_std_in_grpo", True
                         )  # GRPO adv normalization factor
 
-                        # TODO: (transferqueue) (zjj)
-                        batch = compute_advantage(
-                            batch,
+                        assert "response_mask" in batch_meta.field_names, (
+                            f"`response_mask` must be in batch_meta {batch_meta.field_names} for advantage computation"
+                        )
+                        compute_advantage_fields = [
+                            "response_mask",
+                            "token_level_rewards",
+                        ]
+                        if self.config.algorithm.adv_estimator == AdvantageEstimator.GAE:
+                            compute_advantage_fields.append("values")
+                        elif self.config.algorithm.adv_estimator == AdvantageEstimator.GRPO:
+                            compute_advantage_fields.append("uid")
+                        else:
+                            if "uid" in batch_meta.field_names:
+                                compute_advantage_fields.append("uid")
+                            if "reward_baselines" in batch_meta.field_names:
+                                compute_advantage_fields.append("reward_baselines")
+
+                        compute_advantage_meta = asyncio.run(
+                            self.data_system_client.async_get_meta(
+                                data_fields=compute_advantage_fields,
+                                task_name="compute_advantage",
+                                **base_get_meta_kwargs,
+                            )
+                        )
+                        compute_advantage_meta.reorder(balanced_idx)
+
+                        advantages, returns = compute_advantage(
+                            compute_advantage_meta,
                             adv_estimator=self.config.algorithm.adv_estimator,
                             gamma=self.config.algorithm.gamma,
                             lam=self.config.algorithm.lam,
@@ -1452,11 +1528,17 @@ class RayPPOTrainer:
                             config=self.config.algorithm,
                         )
 
+                        advantages_td = TensorDict({"advantages": advantages, "returns": returns}, batch_size=advantages.size(0))
+                        asyncio.run(self.data_system_client.async_put(data=advantages_td, metadata=compute_advantage_meta))
+                        compute_advantage_meta.add_fields(advantages_td)
+
+                        batch_meta = batch_meta.union(compute_advantage_meta)
+
                     # update critic
                     if self.use_critic:
                         with marked_timer("update_critic", timing_raw, color="pink"):
                             critic_output_meta = self.critic_wg.update_critic(batch_meta)
-                            batch_meta.union(critic_output_meta)
+                            batch_meta = batch_meta.union(critic_output_meta)
                         critic_output_metrics = reduce_metrics(critic_output_meta.extra_info["metrics"])
                         metrics.update(critic_output_metrics)
 
@@ -1500,6 +1582,8 @@ class RayPPOTrainer:
                                 )
                             )
                             update_actor_meta.reorder(balanced_idx)
+                            update_actor_meta.set_extra_info("global_token_num", batch_meta.get_extra_info("global_token_num"))
+                            update_actor_meta.set_extra_info("temperature", batch_meta.get_extra_info("temperature"))
 
                             actor_output_meta = self.actor_rollout_wg.update_actor(update_actor_meta)
                             batch_meta = batch_meta.union(actor_output_meta)
@@ -1584,17 +1668,54 @@ class RayPPOTrainer:
                     }
                 )
                 # collect metrics
-                # TODO: (transferqueue) batch_meta(BatchMeta) - > batch(DataProto)
-                metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
-                metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
+                compute_data_metrics_fields = [
+                    "token_level_rewards",
+                    "token_level_scores",
+                    "advantages",
+                    "returns",
+                    "responses",
+                    "attention_mask",
+                    "response_mask",
+                ]
+                if "__num_turns__" in batch_meta.field_names:
+                    compute_data_metrics_fields.append("__num_turns__")
+                if "tool_call_counts" in batch_meta.field_names:
+                    compute_data_metrics_fields.append("tool_call_counts")
+                compute_data_metrics_meta = asyncio.run(
+                    self.data_system_client.async_get_meta(
+                        data_fields=compute_data_metrics_fields,
+                        task_name="compute_data_metrics",
+                        **base_get_meta_kwargs,
+                    )
+                )
+                compute_data_metrics_meta.reorder(balanced_idx)
+                metrics.update(compute_data_metrics_decorated(batch=compute_data_metrics_meta, use_critic=self.use_critic))
+
+                compute_timing_metrics_fields = ["responses", "attention_mask"]
+                compute_timing_metrics_meta = asyncio.run(
+                    self.data_system_client.async_get_meta(
+                        data_fields=compute_timing_metrics_fields,
+                        task_name="compute_timing_metrics",
+                        **base_get_meta_kwargs,
+                    )
+                )
+                compute_timing_metrics_meta.reorder(balanced_idx)
+                metrics.update(compute_timing_metrics_decorated(batch=compute_timing_metrics_meta, timing_raw=timing_raw))
+
+                compute_throughout_metrics_meta = BatchMeta(
+                    samples=[],
+                    extra_info={"global_token_num": batch_meta.get_extra_info("global_token_num")},
+                )
                 # TODO: implement actual tflpo and theoretical tflpo
                 n_gpus = self.resource_pool_manager.get_n_gpus()
-                metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
+                metrics.update(compute_throughout_metrics_decorated(batch=compute_throughout_metrics_meta, timing_raw=timing_raw, n_gpus=n_gpus))
 
                 # this is experimental and may be changed/removed in the future in favor of a general-purpose one
                 if isinstance(self.train_dataloader.sampler, AbstractCurriculumSampler):
+                    # TODO: support transfer queue
                     self.train_dataloader.sampler.update(batch=batch)
 
+                asyncio.run(self.data_system_client.async_clear(self.global_steps - 1))
                 # TODO: make a canonical logger that supports various backend
                 logger.log(data=metrics, step=self.global_steps)
 
@@ -1618,4 +1739,5 @@ class RayPPOTrainer:
                 # in favor of a general-purpose data buffer pool
                 if hasattr(self.train_dataset, "on_batch_end"):
                     # The dataset may be changed after each training batch
+                    # TODO: support transfer queue
                     self.train_dataset.on_batch_end(batch=batch)
