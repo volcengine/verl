@@ -81,6 +81,11 @@ class CustomRLHFDataset(RLHFDataset):
         self.dataframe: datasets.Dataset = datasets.concatenate_datasets(dataframes)
 
         print(f"dataset len: {len(self.dataframe)}")
+        save_key = "fakearc"
+        save_path = Path("~/Documents/arc-agi/data/misc").expanduser() / f"data_{save_key}.pq"
+        self.dataframe.to_parquet(save_path)
+        print("="*200+f"\nSAVED DATASET TO {save_path}\n"+"="*200)
+
 
 
 def compute_score(data_source, solution_str, ground_truth, extra_info):

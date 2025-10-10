@@ -163,7 +163,7 @@ class ToolAgentLoop(AgentLoopBase):
                     break
                 else:
                     if DEBUG:
-                        logger.warning(f"NORMAL TOOL CALL: {tool_call.name=},  {tool_call.arguments=}")
+                        logger.warning(f"NORMAL_TOOL_CALL: {tool_call.name=},  {tool_call.arguments=}")
             if submit_found:
                 break
                     

@@ -7,9 +7,11 @@ HDFS_ROOT=${HDFS_ROOT:-$PWD}
 DATA_ROOT=${DATA_ROOT:-$PWD}
 
 arc_small=$DATA_ROOT/dataset/for_rl/arcagi2_poc
+#arc_small=$DATA_ROOT/dataset/for_rl/arcagi2_fake_poc
 train_files="['$arc_small']"
 test_files="['$arc_small']"
-model_path=$DATA_ROOT/model/sftd_models/one_merged_arc
+#model_path=$DATA_ROOT/model/sftd_models/one_merged_arc
+model_path=$DATA_ROOT/model/sftd_models/one_merged
 
 # tool
 tool_config_path=recipe/retool/sandbox_fusion_tool_config_arc.yaml
@@ -31,7 +33,7 @@ clip_ratio_low=0.2
 clip_ratio_high=0.28
 
 max_turns=16
-max_prompt_length=17000
+max_prompt_length=6000
 max_response_length=5000
 actor_lr=1e-6
 
@@ -59,7 +61,7 @@ python3 -m verl.trainer.main_ppo \
     data.max_prompt_length=$max_prompt_length \
     data.max_response_length=$max_response_length \
     data.filter_overlong_prompts=True \
-    data.truncation='error' \
+    data.truncation='middle' \
     data.custom_cls.path=recipe/retool/arcagi2.py \
     data.custom_cls.name=CustomRLHFDataset \
     custom_reward_function.path=recipe/retool/arcagi2.py \
@@ -105,4 +107,5 @@ python3 -m verl.trainer.main_ppo \
     trainer.save_freq=20 \
     trainer.default_local_dir=$default_local_dir \
     trainer.test_freq=10 \
+    trainer.resume_mode=disable \
     trainer.total_epochs=1 $@
