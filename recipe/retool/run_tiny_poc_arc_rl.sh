@@ -33,8 +33,8 @@ clip_ratio_low=0.2
 clip_ratio_high=0.28
 
 max_turns=16
-max_prompt_length=6000
-max_response_length=5000
+max_prompt_length=18000
+max_response_length=12000
 actor_lr=1e-6
 
 train_batch_size=1
@@ -95,7 +95,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.val_kwargs.top_p=0.6 \
     actor_rollout_ref.rollout.val_kwargs.temperature=1.0 \
     actor_rollout_ref.rollout.val_kwargs.n=$n_resp_per_prompt_val \
-    actor_rollout_ref.rollout.mode=sync \
+    actor_rollout_ref.rollout.mode=async \
     actor_rollout_ref.rollout.max_num_batched_tokens=32768 \
     trainer.logger=['console','wandb'] \
     trainer.project_name=$project_name \
