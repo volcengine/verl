@@ -31,7 +31,13 @@ class ActorRolloutRefWorker(workers.ActorRolloutRefWorker):
 
 
 class AsyncActorRolloutRefWorker(workers.AsyncActorRolloutRefWorker):
-    pass
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=True)
+    def create_transferqueue_client(self, controller_infos, storage_infos):
+        create_transferqueue_client(
+            client_id=f"worker_{self.rank}",
+            controller_infos=controller_infos,
+            storage_infos=storage_infos,
+        )
 
 
 class CriticWorker(workers.CriticWorker):

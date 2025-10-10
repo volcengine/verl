@@ -54,9 +54,7 @@ def _find_batchmeta(*args, **kwargs):
     return None
 
 
-def _batchmeta_to_dataproto(batchmeta: BatchMeta):
-    tensordict = asyncio.run(_TRANSFER_QUEUE_CLIENT.async_get_data(batchmeta))
-
+def _tensordict_to_dataproto(tensordict: TensorDict):
     batch = {}
     non_tensor_batch = {}
     batch_size = None
@@ -72,8 +70,23 @@ def _batchmeta_to_dataproto(batchmeta: BatchMeta):
     return DataProto(
         batch=TensorDict(batch, batch_size=batch_size),
         non_tensor_batch=non_tensor_batch,
-        meta_info=batchmeta.extra_info.copy(),
     )
+
+
+def _batchmeta_to_dataproto(batchmeta: BatchMeta):
+    tensordict = asyncio.run(_TRANSFER_QUEUE_CLIENT.async_get_data(batchmeta))
+    result_dataproto = _tensordict_to_dataproto(tensordict)
+    result_dataproto.meta_info = batchmeta.extra_info.copy()
+
+    return result_dataproto
+
+
+async def _async_batchmeta_to_dataproto(batchmeta: BatchMeta):
+    tensordict = await _TRANSFER_QUEUE_CLIENT.async_get_data(batchmeta)
+    result_dataproto = _tensordict_to_dataproto(tensordict)
+    result_dataproto.meta_info = batchmeta.extra_info.copy()
+
+    return result_dataproto
 
 
 def _dataproto_to_tensordict(data: DataProto):
@@ -82,11 +95,11 @@ def _dataproto_to_tensordict(data: DataProto):
     if data.batch is not None:
         result_dict.update(data.batch)
 
-    batch_size = data.batch.batch_size if data.batch is not None else (len(list(data.non_tensor_batch.values())[0]),)    
+    batch_size = data.batch.batch_size if data.batch is not None else (len(list(data.non_tensor_batch.values())[0]),)
     if data.non_tensor_batch is not None:
         for k, v in data.non_tensor_batch.items():
             result_dict[k] = NonTensorData(data=v, batch_size=batch_size)
-    
+
     if data.meta_info == {} or data.meta_info is None:
         result_dict["meta_info"] = NonTensorData(data=[None] * batch_size[0], batch_size=batch_size)
     else:
@@ -128,15 +141,18 @@ def batchmeta_dataproto_pipe(put_data=True):
                     return batchmeta
                 else:
                     return output
-            
+
         @wraps(func)
         async def async_inner(*args, **kwargs):
             batchmeta = _find_batchmeta(*args, **kwargs)
             if batchmeta is None:
                 return await func(*args, **kwargs)
             else:
-                args = [_batchmeta_to_dataproto(arg) if isinstance(arg, BatchMeta) else arg for arg in args]
-                kwargs = {k: _batchmeta_to_dataproto(v) if isinstance(v, BatchMeta) else v for k, v in kwargs.items()}
+                args = [await _async_batchmeta_to_dataproto(arg) if isinstance(arg, BatchMeta) else arg for arg in args]
+                kwargs = {
+                    k: await _async_batchmeta_to_dataproto(v) if isinstance(v, BatchMeta) else v
+                    for k, v in kwargs.items()
+                }
                 output = await func(*args, **kwargs)
                 if put_data:
                     await _async_update_batchmeta_with_output(output, batchmeta)
@@ -146,4 +162,5 @@ def batchmeta_dataproto_pipe(put_data=True):
 
         wrapper = async_inner if inspect.iscoroutinefunction(func) else inner
         return wrapper
+
     return decorator

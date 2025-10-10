@@ -47,7 +47,7 @@ from verl.experimental.transfer_queue import (
     process_zmq_server_info,
     BatchMeta,
     TransferQueueStorageSimpleUnit,
-    get_placement_group
+    get_placement_group,
 )
 from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
 from verl.single_controller.ray import (
@@ -857,11 +857,14 @@ class RayPPOTrainer:
         # create async rollout manager and request scheduler
         self.async_rollout_mode = False
         if self.config.actor_rollout_ref.rollout.mode == "async":
-            from verl.experimental.agent_loop import AgentLoopManager
+            from .agent_loop import AgentLoopManager
 
             self.async_rollout_mode = True
             self.async_rollout_manager = AgentLoopManager(
                 config=self.config, worker_group=self.actor_rollout_wg, rm_wg=self.rm_wg
+            )
+            self.async_rollout_manager.create_transferqueue_client(
+                self.data_system_controller_infos, self.data_system_storage_unit_infos
             )
 
     def _save_checkpoint(self):
@@ -1166,24 +1169,47 @@ class RayPPOTrainer:
                 )
                 batch: TensorDict = self.dict_to_tensordict(repeated_batch_dict)
                 asyncio.run(self.data_system_client.async_put(data=batch, global_step=self.global_steps - 1))
-                gen_meta = asyncio.run(
-                    self.data_system_client.async_get_meta(
-                        data_fields=[
-                            "input_ids",
-                            "attention_mask",
-                            "position_ids",
-                            "index",
-                            "tools_kwargs",
-                            "interaction_kwargs",
-                            "ability",
-                            "raw_prompt_ids",
-                        ],
-                        batch_size=self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n,
-                        global_step=self.global_steps - 1,  # self.global_steps start from 1
-                        get_n_samples=False,
-                        task_name="generate_sequences",
+                if not self.async_rollout_mode:
+                    gen_meta = asyncio.run(
+                        self.data_system_client.async_get_meta(
+                            data_fields=[
+                                "input_ids",
+                                "attention_mask",
+                                "position_ids",
+                                "index",
+                                "tools_kwargs",
+                                "interaction_kwargs",
+                                "ability",
+                                "raw_prompt_ids",
+                            ],
+                            batch_size=self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n,
+                            global_step=self.global_steps - 1,  # self.global_steps start from 1
+                            get_n_samples=False,
+                            task_name="generate_sequences",
+                        )
                     )
-                )
+                else:
+                    gen_meta = asyncio.run(
+                        self.data_system_client.async_get_meta(
+                            data_fields=[
+                                "input_ids",
+                                "attention_mask",
+                                "position_ids",
+                                "index",
+                                "tools_kwargs",
+                                "interaction_kwargs",
+                                "ability",
+                                "raw_prompt_ids",
+                                "raw_prompt",
+                                "reward_model",
+                                "data_source",
+                            ],
+                            batch_size=self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n,
+                            global_step=self.global_steps - 1,  # self.global_steps start from 1
+                            get_n_samples=False,
+                            task_name="async_generate_sequences",
+                        )
+                    )
                 # pass global_steps to trace
                 gen_meta.set_extra_info("global_steps", self.global_steps)
 

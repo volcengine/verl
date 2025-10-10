@@ -436,6 +436,7 @@ def register(dispatch_mode=Dispatch.ALL_TO_ALL, execute_mode=Execute.ALL, blocki
 
     def decorator(func):
         func = batchmeta_dataproto_pipe()(func)
+
         @wraps(func)
         def inner(*args, **kwargs):
             if materialize_futures:
