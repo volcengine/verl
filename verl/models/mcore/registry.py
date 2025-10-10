@@ -33,14 +33,8 @@ from .config_converter import (
     hf_to_mcore_config_qwen2moe,
     hf_to_mcore_config_qwen3moe,
 )
-from .model_forward import (
-    gptmodel_forward,
-    gptmodel_forward_qwen2_5_vl,
-)
-from .model_forward_fused import (
-    fused_forward_gptmodel,
-    fused_forward_qwen2_5_vl,
-)
+from .model_forward import gptmodel_forward, gptmodel_forward_qwen2_5_vl
+from .model_forward_fused import fused_forward_gptmodel, fused_forward_qwen2_5_vl
 from .model_initializer import (
     BaseModelInitializer,
     DeepseekV3Model,
@@ -133,7 +127,6 @@ MODEL_FORWARD_FUSED_REGISTRY: dict[SupportedModel, Callable] = {
     SupportedModel.LLAMA4: fused_forward_gptmodel,
     SupportedModel.QWEN3: fused_forward_gptmodel,
     SupportedModel.QWEN3_MOE: fused_forward_gptmodel,
-    SupportedModel.QWEN2_5_VL: fused_forward_qwen2_5_vl,
     SupportedModel.DEEPSEEK_V3: fused_forward_gptmodel,
     SupportedModel.GLM4_MOE: fused_forward_gptmodel,
 }
