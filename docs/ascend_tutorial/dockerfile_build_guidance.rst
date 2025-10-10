@@ -12,45 +12,7 @@ Python      3.11
 基础镜像    Ubuntu 22.04
 =========== ============
 
-二、镜像差异说明
-----------------
-
-ARM 架构与 X86 架构镜像的核心差异如下：
-
-1. **pip 源配置差异**
-
-   x86 架构需额外配置镜像源，ARM 架构无需此步骤：
-
-   .. code:: bash
-
-      pip config set global.extra-index-url "https://download.pytorch.org/whl/cpu/ https://mirrors.huaweicloud.com/ascend/repos/pypi"
-
-2. **LD_LIBRARY_PATH 路径差异**
-
-   -  ARM 架构：LD_LIBRARY_PATH 指向 aarch64 库路径
-
-      .. code:: bash
-
-         export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/8.2.RC1/aarch64-linux/devlib/linux/aarch64:$LD_LIBRARY_PATH
-
-   -  x86 架构：LD_LIBRARY_PATH`指向 x86_64 库路径
-
-      .. code:: bash
-
-         export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/8.2.RC1/x86_64-linux/devlib/linux/x86_64/:$LD_LIBRARY_PATH
-
-3. 必配环境变量
-
-   两种架构均需配置以下环境变量，否则会导致安装vllm_ascend报错：
-
-   .. code:: bash
-
-      # Configuring the Dynamic Link Library Path
-      export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/8.2.RC1/[Architecture Directory]/devlib/linux/[Architecture Directory]:$LD_LIBRARY_PATH
-      # Load Ascend toolchain environment variables 
-      source /usr/local/Ascend/ascend-toolkit/set_env.sh
-
-三、ARM 架构镜像 与 X86 架构镜像 Dockerfile 构建
+二、 Dockerfile 构建镜像脚本
 ---------------------------
 
 .. code:: dockerfile
@@ -125,10 +87,10 @@ ARM 架构与 X86 架构镜像的核心差异如下：
    # Setting Default Commands
    CMD ["/bin/bash"]
 
-四、镜像构建命令示例
+三、镜像构建命令示例
 --------------------
 
-1. ARM 与 X86 架构镜像构建
+1. 镜像构建
 ~~~~~~~~~~~~~~~~~~~
 
 .. code:: bash
