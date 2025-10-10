@@ -61,15 +61,17 @@ class TestRolloutISIntegration:
         This test simulates that by computing weights before passing to policy loss.
         """
         # First compute IS weights (as trainer would do centrally)
-        rollout_is_weights, _ = compute_rollout_importance_weights(
+        rollout_is_weights_proto, _ = compute_rollout_importance_weights(
             old_log_prob=sample_data["old_log_prob"],
             rollout_log_prob=sample_data["rollout_log_prob"],
-            eos_mask=sample_data["response_mask"],
+            response_mask=sample_data["response_mask"],
             rollout_is_level="token",
             rollout_is_mode="truncate",
             rollout_is_threshold=2.0,
             rollout_is_veto_threshold=1e-4,
         )
+
+        rollout_is_weights = rollout_is_weights_proto.batch["rollout_is_weights"]
 
         # Policy loss function receives pre-computed IS weights
         pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss_vanilla(
@@ -90,10 +92,10 @@ class TestRolloutISIntegration:
 
     def test_rollout_is_weights_computation(self, sample_data):
         """Test rollout IS weights and metrics computation."""
-        weights, metrics = compute_rollout_importance_weights(
+        weights_proto, metrics = compute_rollout_importance_weights(
             old_log_prob=sample_data["old_log_prob"],
             rollout_log_prob=sample_data["rollout_log_prob"],
-            eos_mask=sample_data["response_mask"],
+            response_mask=sample_data["response_mask"],
             rollout_is_level="token",
             rollout_is_mode="truncate",
             rollout_is_threshold=2.0,
@@ -101,6 +103,10 @@ class TestRolloutISIntegration:
         )
 
         # Check weights
+        from verl.protocol import DataProto
+
+        assert isinstance(weights_proto, DataProto)
+        weights = weights_proto.batch["rollout_is_weights"]
         assert isinstance(weights, torch.Tensor)
         assert weights.shape == sample_data["old_log_prob"].shape
 
@@ -118,7 +124,7 @@ class TestRolloutISIntegration:
             _, metrics = compute_rollout_importance_weights(
                 old_log_prob=sample_data["old_log_prob"],
                 rollout_log_prob=sample_data["rollout_log_prob"],
-                eos_mask=sample_data["response_mask"],
+                response_mask=sample_data["response_mask"],
                 rollout_is_level=level,
                 rollout_is_mode="truncate",
                 rollout_is_threshold=2.0,
@@ -135,7 +141,7 @@ class TestRolloutISIntegration:
             _, metrics = compute_rollout_importance_weights(
                 old_log_prob=sample_data["old_log_prob"],
                 rollout_log_prob=sample_data["rollout_log_prob"],
-                eos_mask=sample_data["response_mask"],
+                response_mask=sample_data["response_mask"],
                 rollout_is_level="token",
                 rollout_is_mode=mode,
                 rollout_is_threshold=2.0,
@@ -174,7 +180,7 @@ class TestRolloutISIntegration:
         _, metrics = compute_rollout_importance_weights(
             old_log_prob=old_log_prob,
             rollout_log_prob=rollout_log_prob,
-            eos_mask=response_mask,
+            response_mask=response_mask,
             rollout_is_level="token",
             rollout_is_mode="truncate",
             rollout_is_threshold=2.0,

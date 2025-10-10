@@ -50,39 +50,41 @@ def test_basic_rollout_is():
 
     # Test token-level truncate mode (equivalent to old TIS)
     print("\n1. Testing token-level truncate mode...")
-    weights, metrics = compute_rollout_importance_weights(
+    weights_proto, metrics = compute_rollout_importance_weights(
         old_log_prob=old_log_prob,
         rollout_log_prob=rollout_log_prob,
-        eos_mask=eos_mask,
+        response_mask=eos_mask,
         rollout_is_level="token",
         rollout_is_mode="truncate",
         rollout_is_threshold=2.0,
         rollout_is_veto_threshold=1e-4,
     )
 
+    weights = weights_proto.batch["rollout_is_weights"]
     print(f"   Weights shape: {weights.shape}")
-    print(f"   Mean weight: {metrics['rollout_is_mean']:.4f}")
-    print(f"   Max weight: {metrics['rollout_is_max']:.4f}")
-    print(f"   Min weight: {metrics['rollout_is_min']:.4f}")
-    print(f"   Veto fraction: {metrics['rollout_is_veto_fraction']:.4f}")
+    print(f"   Mean weight: {metrics['mismatch/rollout_is_mean']:.4f}")
+    print(f"   Max weight: {metrics['mismatch/rollout_is_max']:.4f}")
+    print(f"   Min weight: {metrics['mismatch/rollout_is_min']:.4f}")
+    print(f"   Veto fraction: {metrics['mismatch/rollout_is_veto_fraction']:.4f}")
     assert weights.shape == old_log_prob.shape
     assert weights.max() <= 2.0, "Weights should be capped at threshold"
     print("   ✓ Token-level truncate mode passed")
 
     # Test sequence-level mode
     print("\n2. Testing sequence-level mode...")
-    weights_seq, metrics_seq = compute_rollout_importance_weights(
+    weights_seq_proto, metrics_seq = compute_rollout_importance_weights(
         old_log_prob=old_log_prob,
         rollout_log_prob=rollout_log_prob,
-        eos_mask=eos_mask,
+        response_mask=eos_mask,
         rollout_is_level="sequence",
         rollout_is_mode="truncate",
         rollout_is_threshold=5.0,
         rollout_is_veto_threshold=1e-4,
     )
 
-    print(f"   Mean weight: {metrics_seq['rollout_is_mean']:.4f}")
-    print(f"   Effective sample size: {metrics_seq['rollout_is_eff_sample_size']:.4f}")
+    weights_seq = weights_seq_proto.batch["rollout_is_weights"]
+    print(f"   Mean weight: {metrics_seq['mismatch/rollout_is_mean']:.4f}")
+    print(f"   Effective sample size: {metrics_seq['mismatch/rollout_is_eff_sample_size']:.4f}")
     # Check that all tokens in a sequence have the same weight
     for i in range(batch_size):
         seq_weights = weights_seq[i, eos_mask[i].bool()]
@@ -91,10 +93,10 @@ def test_basic_rollout_is():
 
     # Test geometric mean mode
     print("\n3. Testing geometric mean mode...")
-    weights_geo, metrics_geo = compute_rollout_importance_weights(
+    weights_geo_proto, metrics_geo = compute_rollout_importance_weights(
         old_log_prob=old_log_prob,
         rollout_log_prob=rollout_log_prob,
-        eos_mask=eos_mask,
+        response_mask=eos_mask,
         rollout_is_level="geometric",
         rollout_is_mode="clip",
         rollout_is_threshold=1.5,
@@ -102,8 +104,8 @@ def test_basic_rollout_is():
         rollout_is_veto_threshold=1e-4,
     )
 
-    print(f"   Mean weight: {metrics_geo['rollout_is_mean']:.4f}")
-    print(f"   Clipped fraction: {metrics_geo['rollout_is_clipped_fraction']:.4f}")
+    print(f"   Mean weight: {metrics_geo['mismatch/rollout_is_mean']:.4f}")
+    print(f"   Clipped fraction: {metrics_geo['mismatch/rollout_is_clipped_fraction']:.4f}")
     print("   ✓ Geometric mean mode passed")
 
     # Test veto mechanism
@@ -115,17 +117,18 @@ def test_basic_rollout_is():
     rollout_log_prob_veto[0, 2] = old_log_prob_veto[0, 2] + 15.0  # ratio ~= 3e-7
     eos_mask_veto = torch.ones(2, 5, device=device)
 
-    weights_veto, metrics_veto = compute_rollout_importance_weights(
+    weights_veto_proto, metrics_veto = compute_rollout_importance_weights(
         old_log_prob=old_log_prob_veto,
         rollout_log_prob=rollout_log_prob_veto,
-        eos_mask=eos_mask_veto,
+        response_mask=eos_mask_veto,
         rollout_is_level="token",
         rollout_is_mode="truncate",
         rollout_is_threshold=2.0,
         rollout_is_veto_threshold=1e-4,
     )
 
-    print(f"   Veto fraction: {metrics_veto['rollout_is_veto_fraction']:.4f}")
+    weights_veto = weights_veto_proto.batch["rollout_is_weights"]
+    print(f"   Veto fraction: {metrics_veto['mismatch/rollout_is_veto_fraction']:.4f}")
     # Check that the sequence with catastrophic token has all weights zeroed
     assert weights_veto[0].sum() == 0, "Sequence with catastrophic token should be vetoed"
     assert weights_veto[1].sum() > 0, "Normal sequence should not be vetoed"
@@ -136,7 +139,7 @@ def test_basic_rollout_is():
     weights_disabled, metrics_disabled = compute_rollout_importance_weights(
         old_log_prob=old_log_prob,
         rollout_log_prob=rollout_log_prob,
-        eos_mask=eos_mask,
+        response_mask=eos_mask,
         rollout_is_threshold=None,
     )
 
@@ -161,32 +164,27 @@ def test_metrics_completeness():
     _, metrics = compute_rollout_importance_weights(
         old_log_prob=old_log_prob,
         rollout_log_prob=rollout_log_prob,
-        eos_mask=eos_mask,
+        response_mask=eos_mask,
         rollout_is_level="token",
         rollout_is_mode="truncate",
         rollout_is_threshold=2.5,
     )
 
     expected_metrics = [
-        "rollout_is_threshold_upper",
-        "rollout_is_threshold_lower",
-        "rollout_is_level",
-        "rollout_is_mode",
-        "rollout_is_veto_threshold",
-        "rollout_is_mean",
-        "rollout_is_max",
-        "rollout_is_min",
-        "rollout_is_std",
-        "rollout_is_eff_sample_size",
-        "rollout_is_veto_fraction",
-        "rollout_is_catastrophic_token_fraction",
-        "rollout_is_ratio_fraction_high",
-        "rollout_is_ratio_fraction_low",
-        "rollout_is_p25",
-        "rollout_is_p50",
-        "rollout_is_p75",
-        "rollout_is_p95",
-        "rollout_is_p99",
+        "mismatch/rollout_is_mean",
+        "mismatch/rollout_is_max",
+        "mismatch/rollout_is_min",
+        "mismatch/rollout_is_std",
+        "mismatch/rollout_is_eff_sample_size",
+        "mismatch/rollout_is_veto_fraction",
+        "mismatch/rollout_is_catastrophic_token_fraction",
+        "mismatch/rollout_is_ratio_fraction_high",
+        "mismatch/rollout_is_ratio_fraction_low",
+        "mismatch/rollout_is_p25",
+        "mismatch/rollout_is_p50",
+        "mismatch/rollout_is_p75",
+        "mismatch/rollout_is_p95",
+        "mismatch/rollout_is_p99",
     ]
 
     missing_metrics = [m for m in expected_metrics if m not in metrics]

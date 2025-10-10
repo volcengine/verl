@@ -920,6 +920,41 @@ class RayPPOTrainer:
         )
         metrics.update(global_balance_stats)
 
+    def compute_rollout_importance_weights_and_add_to_batch(self, batch: DataProto) -> tuple[DataProto, dict]:
+        """Compute rollout importance sampling weights and add to batch.
+
+        This method computes IS weights to correct for distribution mismatch between
+        rollout policy and training policy, then adds them to the batch.
+
+        Args:
+            batch: DataProto containing old_log_probs, rollout_log_probs, response_mask
+
+        Returns:
+            Tuple of (updated_batch, metrics) where:
+                - updated_batch: Batch with rollout_is_weights added (if threshold is set)
+                - metrics: Dictionary of IS metrics (already converted to scalars for logging)
+        """
+        # Compute rollout IS weights if enabled and data is available
+        if self.config.actor_rollout_ref.actor.rollout_is_threshold is not None and "rollout_log_probs" in batch.batch:
+            rollout_is_weights, rollout_is_metrics = compute_rollout_importance_weights(
+                old_log_prob=batch.batch["old_log_probs"],
+                rollout_log_prob=batch.batch["rollout_log_probs"],
+                response_mask=batch.batch["response_mask"],
+                rollout_is_level=self.config.actor_rollout_ref.actor.get("rollout_is_level", "token"),
+                rollout_is_mode=self.config.actor_rollout_ref.actor.get("rollout_is_mode", "truncate"),
+                rollout_is_threshold=self.config.actor_rollout_ref.actor.rollout_is_threshold,
+                rollout_is_threshold_lower=self.config.actor_rollout_ref.actor.get("rollout_is_threshold_lower"),
+                rollout_is_veto_threshold=self.config.actor_rollout_ref.actor.get("rollout_is_veto_threshold"),
+            )
+
+            # Add IS weights to batch for distribution to workers
+            batch = batch.union(rollout_is_weights)
+
+            return batch, rollout_is_metrics
+
+        # Return unchanged batch and empty metrics if IS is disabled
+        return batch, {}
+
     def fit(self):
         """
         The training loop of PPO.
@@ -1126,34 +1161,12 @@ class RayPPOTrainer:
 
                         # Compute rollout importance sampling weights centrally (once per batch)
                         # This corrects for mismatch between rollout policy and training policy
-                        if (
-                            self.config.actor_rollout_ref.actor.rollout_is_threshold is not None
-                            and "rollout_log_probs" in batch.batch
-                        ):
-                            rollout_is_weights, rollout_is_metrics = compute_rollout_importance_weights(
-                                old_log_prob=batch.batch["old_log_probs"],
-                                rollout_log_prob=batch.batch["rollout_log_probs"],
-                                eos_mask=batch.batch["response_mask"],
-                                rollout_is_level=self.config.actor_rollout_ref.actor.get("rollout_is_level", "token"),
-                                rollout_is_mode=self.config.actor_rollout_ref.actor.get("rollout_is_mode", "truncate"),
-                                rollout_is_threshold=self.config.actor_rollout_ref.actor.rollout_is_threshold,
-                                rollout_is_threshold_lower=self.config.actor_rollout_ref.actor.get(
-                                    "rollout_is_threshold_lower"
-                                ),
-                                rollout_is_veto_threshold=self.config.actor_rollout_ref.actor.get(
-                                    "rollout_is_veto_threshold"
-                                ),
-                            )
+                        batch, is_metrics = self.compute_rollout_importance_weights_and_add_to_batch(batch)
+                        # IS metrics already have mismatch/ prefix
+                        metrics.update(is_metrics)
 
-                            # Add IS weights to batch for distribution to workers
-                            batch = batch.union(DataProto.from_dict(tensors={"rollout_is_weights": rollout_is_weights}))
-
-                            # Add IS metrics with "mismatch/" prefix for monitoring
-                            for key, value in rollout_is_metrics.items():
-                                if isinstance(value, torch.Tensor):
-                                    metrics[f"mismatch/{key}"] = value.detach().item()
-                                else:
-                                    metrics[f"mismatch/{key}"] = value
+                        # Collect mismatch diagnostic metrics (KL, PPL, etc.) if rollout_log_probs available
+                        metrics.update(compute_mismatch_metrics_batch(batch=batch))
 
                     # update critic
                     if self.use_critic:
@@ -1238,8 +1251,7 @@ class RayPPOTrainer:
                 # TODO: implement actual tflpo and theoretical tflpo
                 n_gpus = self.resource_pool_manager.get_n_gpus()
                 metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
-                # collect mismatch metrics (KL, PPL, etc.) if rollout_log_probs available
-                metrics.update(compute_mismatch_metrics_batch(batch=batch))
+                # Note: mismatch metrics (KL, PPL, etc.) are collected at line 1179 after advantage computation
 
                 # this is experimental and may be changed/removed in the future in favor of a general-purpose one
                 if isinstance(self.train_dataloader.sampler, AbstractCurriculumSampler):

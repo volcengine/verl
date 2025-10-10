@@ -316,6 +316,15 @@ class RayDAPOTrainer(RayPPOTrainer):
                             norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
                         )
 
+                        # Compute rollout IS weights and metrics (inherited from RayPPOTrainer)
+                        batch, is_metrics = self.compute_rollout_importance_weights_and_add_to_batch(batch)
+                        # IS metrics already have mismatch/ prefix
+                        metrics.update(is_metrics)
+
+                        from verl.trainer.ppo.metric_utils import compute_mismatch_metrics_batch
+
+                        metrics.update(compute_mismatch_metrics_batch(batch=batch))
+
                     # update critic
                     if self.use_critic:
                         with marked_timer("update_critic", timing_raw, "pink"):

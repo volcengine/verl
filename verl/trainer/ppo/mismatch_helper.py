@@ -43,18 +43,19 @@ from typing import Any, Optional
 import torch
 
 import verl.utils.torch_functional as verl_F
+from verl.protocol import DataProto
 
 
 def compute_rollout_importance_weights(
     old_log_prob: torch.Tensor,
     rollout_log_prob: torch.Tensor,
-    eos_mask: torch.Tensor,
+    response_mask: torch.Tensor,
     rollout_is_level: str = "token",
     rollout_is_mode: str = "truncate",
     rollout_is_threshold: Optional[float] = None,
     rollout_is_threshold_lower: Optional[float] = None,
     rollout_is_veto_threshold: Optional[float] = 1e-4,
-) -> tuple[Optional[torch.Tensor], dict[str, Any]]:
+) -> tuple[Optional[DataProto], dict[str, Any]]:
     """Compute importance sampling weights and metrics for rollout-training mismatch correction.
 
     This function handles the computation of importance sampling (IS) weights to correct
@@ -71,7 +72,7 @@ def compute_rollout_importance_weights(
     Args:
         old_log_prob: Log probabilities from training policy (e.g., FSDP), shape (batch_size, seq_length)
         rollout_log_prob: Log probabilities from rollout policy (e.g., vLLM), shape (batch_size, seq_length)
-        eos_mask: Mask for valid tokens, shape (batch_size, seq_length)
+        response_mask: Mask for valid tokens, shape (batch_size, seq_length)
         rollout_is_level: Level of IS aggregation:
             - "token": Per-token ratios (biased)
             - "sequence": Product of ratios (unbiased)
@@ -85,9 +86,10 @@ def compute_rollout_importance_weights(
             If None, veto mechanism is disabled.
 
     Returns:
-        Tuple of (weights, metrics) where:
-            weights: IS weights to apply to loss, shape (batch_size, seq_length)
-            metrics: Dictionary of IS statistics for monitoring
+        Tuple of (weights_proto, metrics) where:
+            weights_proto: DataProto containing IS weights with key "rollout_is_weights",
+                shape (batch_size, seq_length). Returns None if rollout_is_threshold is None.
+            metrics: Dictionary of IS statistics (all converted to scalars) for logging
     """
     if rollout_is_threshold is None:
         return None, {}
@@ -123,7 +125,7 @@ def compute_rollout_importance_weights(
     elif rollout_is_level == "sequence":
         # Sequence-level IS: π_train(y|x) / π_rollout(y|x) for entire sequence
         # Product of token ratios: exp(Σ log(π_train/π_rollout))
-        log_ratio_sum = verl_F.masked_sum(log_ratio, eos_mask, axis=-1).unsqueeze(-1)
+        log_ratio_sum = verl_F.masked_sum(log_ratio, response_mask, axis=-1).unsqueeze(-1)
         log_ratio_for_metrics = log_ratio_sum  # Store for metrics
 
         # Apply safety bound to prevent overflow
@@ -133,7 +135,7 @@ def compute_rollout_importance_weights(
     elif rollout_is_level == "geometric":
         # Geometric mean IS: (∏ π_train/π_rollout)^(1/T)
         # Equivalent to exp(mean(log(π_train/π_rollout)))
-        log_ratio_mean = verl_F.masked_mean(log_ratio, eos_mask, axis=-1).unsqueeze(-1)
+        log_ratio_mean = verl_F.masked_mean(log_ratio, response_mask, axis=-1).unsqueeze(-1)
         log_ratio_for_metrics = log_ratio_mean  # Store for metrics
 
         # Geometric mean rarely explodes due to averaging, but apply safety bound anyway
@@ -149,7 +151,7 @@ def compute_rollout_importance_weights(
 
         # Check if any token ratio is below veto threshold (in log space)
         # log(π_train/π_rollout) < log(veto_threshold) ⟺ π_train/π_rollout < veto_threshold
-        catastrophic_tokens = (log_ratio < log_veto_threshold) & eos_mask.bool()
+        catastrophic_tokens = (log_ratio < log_veto_threshold) & response_mask.bool()
 
         # For each sequence, check if it has any catastrophic token
         # Use broadcasting instead of expand_as to save memory
@@ -159,7 +161,7 @@ def compute_rollout_importance_weights(
         veto_mask = (~has_catastrophic).float()
     else:
         # No veto mechanism
-        catastrophic_tokens = torch.zeros_like(eos_mask, dtype=torch.bool)
+        catastrophic_tokens = torch.zeros_like(response_mask, dtype=torch.bool)
         has_catastrophic = torch.zeros((old_log_prob.size(0), 1), dtype=torch.bool, device=device)
         veto_mask = torch.ones((old_log_prob.size(0), 1), dtype=torch.float32, device=device)
 
@@ -167,7 +169,7 @@ def compute_rollout_importance_weights(
     metrics = compute_is_metrics(
         rollout_is_weights=rollout_is_weights,
         log_ratio_for_metrics=log_ratio_for_metrics,
-        eos_mask=eos_mask,
+        response_mask=response_mask,
         rollout_is_level=rollout_is_level,
         rollout_is_threshold=upper_threshold,
         rollout_is_threshold_lower=lower_threshold,
@@ -189,18 +191,15 @@ def compute_rollout_importance_weights(
         clip_mask = clip_mask.float()
 
         # Track CIS-specific metrics
-        metrics["rollout_is_clipped_fraction"] = verl_F.masked_mean(1 - clip_mask, eos_mask)
+        metrics["rollout_is_clipped_fraction"] = verl_F.masked_mean(1 - clip_mask, response_mask)
 
         # Sequence-level clipping fraction
         if rollout_is_level in ["sequence", "geometric"]:
-            # All tokens in a sequence have the same weight
-            seq_weights = rollout_is_weights[:, 0] if rollout_is_weights.dim() > 1 else rollout_is_weights
-            seq_clipped = ((seq_weights < lower_threshold) | (seq_weights > upper_threshold)).float()
-            metrics["rollout_is_seq_clipped_fraction"] = seq_clipped.mean()
+            # All tokens in a sequence have the same weight, so reuse clip_mask
+            metrics["rollout_is_seq_clipped_fraction"] = (1 - clip_mask[:, 0]).mean()
         else:
             # Check if any token in each sequence is clipped
-            clipped_indicator = 1 - clip_mask
-            seq_has_clipped = verl_F.masked_sum(clipped_indicator, eos_mask, axis=-1) > 0
+            seq_has_clipped = verl_F.masked_sum(1 - clip_mask, response_mask, axis=-1) > 0
             metrics["rollout_is_seq_clipped_fraction"] = seq_has_clipped.float().mean()
 
         rollout_is_weights = rollout_is_weights * clip_mask
@@ -212,19 +211,28 @@ def compute_rollout_importance_weights(
     # This zeros out entire sequences that have any catastrophic token
     rollout_is_weights = rollout_is_weights * veto_mask
 
-    # Apply eos_mask to ensure weights are 0 where mask is 0
-    rollout_is_weights = rollout_is_weights * eos_mask
+    # Apply response_mask to ensure weights are 0 where mask is 0
+    rollout_is_weights = rollout_is_weights * response_mask
 
-    # Detach to prevent gradients through importance weights
-    rollout_is_weights = rollout_is_weights.detach()
+    # Wrap in DataProto for consistency with worker methods
+    rollout_is_weights_proto = DataProto.from_dict(tensors={"rollout_is_weights": rollout_is_weights})
 
-    return rollout_is_weights, metrics
+    # Convert all tensor metrics to scalars for logging
+    # Note: No need to detach since old_log_prob and rollout_log_prob are computed with torch.no_grad()
+    metrics_scalar = {}
+    for key, value in metrics.items():
+        if isinstance(value, torch.Tensor):
+            metrics_scalar[f"mismatch/{key}"] = value.item()
+        else:
+            metrics_scalar[f"mismatch/{key}"] = value
+
+    return rollout_is_weights_proto, metrics_scalar
 
 
 def compute_is_metrics(
     rollout_is_weights: torch.Tensor,
     log_ratio_for_metrics: torch.Tensor,
-    eos_mask: torch.Tensor,
+    response_mask: torch.Tensor,
     rollout_is_level: str,
     rollout_is_threshold: float,
     rollout_is_threshold_lower: float,
@@ -244,14 +252,14 @@ def compute_is_metrics(
     to balance accuracy with numerical stability and avoid overflow.
     """
     # Validate that we have at least one valid sample
-    assert eos_mask.any(), "Expected at least one valid sample in eos_mask"
+    assert response_mask.any(), "Expected at least one valid sample in response_mask"
 
     metrics = {}
     device = rollout_is_weights.device
 
     # Track veto statistics
     metrics["rollout_is_veto_fraction"] = has_catastrophic.float().mean()
-    metrics["rollout_is_catastrophic_token_fraction"] = verl_F.masked_mean(catastrophic_tokens.float(), eos_mask)
+    metrics["rollout_is_catastrophic_token_fraction"] = verl_F.masked_mean(catastrophic_tokens.float(), response_mask)
 
     # Compute metrics based on IS level
     if rollout_is_level in ["sequence", "geometric"]:
@@ -267,7 +275,7 @@ def compute_is_metrics(
         metrics["rollout_is_min"] = torch.exp(log_min)
 
         # Mean uses clamped weights to avoid overflow
-        metrics["rollout_is_mean"] = verl_F.masked_mean(rollout_is_weights, eos_mask)
+        metrics["rollout_is_mean"] = verl_F.masked_mean(rollout_is_weights, response_mask)
 
         # Compute fraction exceeding threshold in log space (accurate)
         exceeds_upper = log_ratio_for_metrics > log_threshold_upper
@@ -279,48 +287,52 @@ def compute_is_metrics(
             metrics["rollout_is_ratio_fraction_low"] = below_lower.float().mean()
         else:  # geometric
             # Need to expand to match token dimensions
-            exceeds_upper_expanded = exceeds_upper.expand_as(eos_mask)
-            below_lower_expanded = below_lower.expand_as(eos_mask)
-            metrics["rollout_is_ratio_fraction_high"] = verl_F.masked_mean(exceeds_upper_expanded.float(), eos_mask)
-            metrics["rollout_is_ratio_fraction_low"] = verl_F.masked_mean(below_lower_expanded.float(), eos_mask)
+            exceeds_upper_expanded = exceeds_upper.expand_as(response_mask)
+            below_lower_expanded = below_lower.expand_as(response_mask)
+            metrics["rollout_is_ratio_fraction_high"] = verl_F.masked_mean(
+                exceeds_upper_expanded.float(), response_mask
+            )
+            metrics["rollout_is_ratio_fraction_low"] = verl_F.masked_mean(below_lower_expanded.float(), response_mask)
 
     else:
         # Token-level: compute directly from weights
-        metrics["rollout_is_mean"] = verl_F.masked_mean(rollout_is_weights, eos_mask)
+        metrics["rollout_is_mean"] = verl_F.masked_mean(rollout_is_weights, response_mask)
 
         # Fraction exceeding thresholds
         rollout_is_above_threshold = rollout_is_weights > rollout_is_threshold
         rollout_is_below_threshold = rollout_is_weights < rollout_is_threshold_lower
-        metrics["rollout_is_ratio_fraction_high"] = verl_F.masked_mean(rollout_is_above_threshold.float(), eos_mask)
-        metrics["rollout_is_ratio_fraction_low"] = verl_F.masked_mean(rollout_is_below_threshold.float(), eos_mask)
+        metrics["rollout_is_ratio_fraction_high"] = verl_F.masked_mean(
+            rollout_is_above_threshold.float(), response_mask
+        )
+        metrics["rollout_is_ratio_fraction_low"] = verl_F.masked_mean(rollout_is_below_threshold.float(), response_mask)
 
         # Max/min for token level
-        mask_bool = eos_mask.bool()
+        mask_bool = response_mask.bool()
         metrics["rollout_is_max"] = rollout_is_weights.masked_fill(~mask_bool, float("-inf")).max()
         metrics["rollout_is_min"] = rollout_is_weights.masked_fill(~mask_bool, float("inf")).min()
 
     # Compute standard deviation using clamped weights to avoid overflow
-    mask_count = eos_mask.sum()
+    mask_count = response_mask.sum()
     if mask_count > 1:
         # Use clamped weights for variance to avoid squaring huge values
         weights_for_std = rollout_is_weights.clamp(min=rollout_is_threshold_lower, max=rollout_is_threshold)
         # Use mean from clamped weights for consistency
-        mean_clamped = verl_F.masked_mean(weights_for_std, eos_mask)
-        rollout_is_var = verl_F.masked_mean(weights_for_std.square(), eos_mask) - mean_clamped.square()
+        mean_clamped = verl_F.masked_mean(weights_for_std, response_mask)
+        rollout_is_var = verl_F.masked_mean(weights_for_std.square(), response_mask) - mean_clamped.square()
         metrics["rollout_is_std"] = torch.sqrt(torch.clamp(rollout_is_var, min=0.0))
     else:
         metrics["rollout_is_std"] = torch.tensor(0.0, device=device)
 
     # Effective sample size (use clamped weights to avoid overflow)
     weights_for_ess = rollout_is_weights.clamp(min=rollout_is_threshold_lower, max=rollout_is_threshold)
-    mean_for_ess = verl_F.masked_mean(weights_for_ess, eos_mask)
+    mean_for_ess = verl_F.masked_mean(weights_for_ess, response_mask)
     is_weights_normalized = weights_for_ess / (mean_for_ess + 1e-8)
-    metrics["rollout_is_eff_sample_size"] = 1.0 / verl_F.masked_mean(is_weights_normalized.square(), eos_mask)
+    metrics["rollout_is_eff_sample_size"] = 1.0 / verl_F.masked_mean(is_weights_normalized.square(), response_mask)
 
     # Per-sequence breakdown metrics
     if rollout_is_weights.dim() > 1:
         # Compute mean IS weight per sequence
-        seq_mean_weights = verl_F.masked_mean(rollout_is_weights, eos_mask, axis=-1)
+        seq_mean_weights = verl_F.masked_mean(rollout_is_weights, response_mask, axis=-1)
 
         # Per-sequence statistics
         metrics["rollout_is_seq_mean"] = seq_mean_weights.mean()
@@ -340,7 +352,7 @@ def compute_is_metrics(
 
     # Percentile metrics for better distribution understanding
     # Get all valid IS weights
-    flat_weights = rollout_is_weights[eos_mask.bool()]
+    flat_weights = rollout_is_weights[response_mask.bool()]
     # Compute key percentiles (guaranteed to have elements due to assertion at function start)
     assert flat_weights.numel() > 0, "flat_weights should not be empty"
     metrics["rollout_is_p25"] = torch.quantile(flat_weights, 0.25)
