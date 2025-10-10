@@ -118,13 +118,20 @@ def compute_score(data_source, solution_str, ground_truth, extra_info):
 #
 #    if result["pred"] is None:
 #        result["pred"] = ""
-    score = 0.0
-    for pair in ground_truth:
-        input_grid = pair["input_grid"]
-        output_grid = pair["output_grid"]
+    try:
         submitted_code = json.loads(extra_info["solution_tool_call_args"])["code"]
-        
-        single_pair_score = check_submitted_code_on_single_grid_pair(input_grid, output_grid, submitted_code)
+    except Exception as e:
+        print(f"Error loading submitted code: {e}")
+        total_score = 0.0
+    else:
+        score = 0.0
+        for pair in ground_truth:
+            input_grid = pair["input"]
+            output_grid = pair["output"]
+            
+            single_pair_score = check_submitted_code_on_single_grid_pair(input_grid, output_grid, submitted_code)
 
-        score += single_pair_score
-    return score / len(ground_truth)
+            score += single_pair_score
+        total_score = score / len(ground_truth)
+        print(f"TOTAL_SCORE_IN_COMPUTE_SCORE:\n {total_score}\nEND_TOTAL_SCORE_IN_COMPUTE_SCORE")
+    return total_score
