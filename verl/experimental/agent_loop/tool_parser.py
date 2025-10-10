@@ -16,24 +16,11 @@ import json
 import logging
 import os
 from abc import ABC, abstractmethod
-from typing import Optional
 
-import regex as re
+import regex
 from pydantic import BaseModel
 
-from verl.tools.base_tool import BaseTool
 from verl.utils.rollout_trace import rollout_trace_op
-
-try:
-    from sglang.srt.function_call.gpt_oss_detector import GptOssDetector
-except ImportError:
-    GptOssDetector = None
-
-try:
-    from sglang.srt.entrypoints.openai.protocol import Tool
-except ImportError:
-    from sglang.srt.openai_api.protocol import Tool
-
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -59,14 +46,11 @@ class ToolParser(ABC):
         self.tokenizer = tokenizer
 
     @abstractmethod
-    async def extract_tool_calls(
-        self, responses_ids: list[int], tools: Optional[list[BaseTool]] = None
-    ) -> tuple[str, list[FunctionCall]]:
+    async def extract_tool_calls(self, responses_ids: list[int]) -> tuple[str, list[FunctionCall]]:
         """Extract tool calls from the responses.
 
         Args:
             responses_ids (List[int]): The ids of the responses.
-            tools (List[BaseTool]): optional, the tools to use.
 
         Returns:
             Tuple[str, List[FunctionCall]]: Content and extracted tool calls.
@@ -97,12 +81,10 @@ class HermesToolParser(ToolParser):
 
         self.tool_call_start_token: str = "<tool_call>"
         self.tool_call_end_token: str = "</tool_call>"
-        self.tool_call_regex = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
+        self.tool_call_regex = regex.compile(r"<tool_call>(.*?)</tool_call>", regex.DOTALL)
 
     @rollout_trace_op
-    async def extract_tool_calls(
-        self, responses_ids: list[int], tools: Optional[list[BaseTool]] = None
-    ) -> tuple[str, list[FunctionCall]]:
+    async def extract_tool_calls(self, responses_ids: list[int]) -> tuple[str, list[FunctionCall]]:
         loop = asyncio.get_running_loop()
         text = await loop.run_in_executor(None, self.tokenizer.decode, responses_ids)
         if self.tool_call_start_token not in text or self.tool_call_end_token not in text:
@@ -127,35 +109,49 @@ class HermesToolParser(ToolParser):
 @ToolParser.register("gpt-oss")
 class GptOssToolParser(ToolParser):
     """
-    Leverage the gpt-oss detector from sglang to parse the tool calls in the responses.
+    Tool parser for gpt-oss model.
+    Adapted from https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/function_call/gpt_oss_detector.py
+
+    Args:
+        tokenizer: The tokenizer to use.
     """
 
     def __init__(self, tokenizer) -> None:
         super().__init__(tokenizer)
-        assert GptOssDetector is not None, (
-            "GptOssDetector is not imported correctly. Please upgrade sglang to the latest version."
+        self.cot_pattern = r"<\|start\|>assistant<\|channel\|>analysis<\|message\|>.*?<\|end\|>"
+        # <|start|>assistant may be pre-appended in prompts, so we need to remove it.
+        self.partial_cot_pattern = r"<\|channel\|>analysis<\|message\|>(.*?)<\|end\|>"
+        self.tool_call_pattern = (
+            r"<\|start\|>assistant<\|channel\|>[^<]* to=functions\.([^<]+) "
+            r"<\|constrain\|>json<\|message\|>(.*?)<\|call\|>"
         )
-        self.gpt_oss_detector = GptOssDetector()
-
-        self.tool_call_start_token = self.gpt_oss_detector.bot_token
-        self.tool_call_end_token = self.gpt_oss_detector.eot_token
-        self.tool_call_regex = self.gpt_oss_detector.tool_extract_pattern
 
     @rollout_trace_op
-    async def extract_tool_calls(
-        self, responses_ids: list[int], tools: Optional[list[BaseTool]]
-    ) -> tuple[str, list[FunctionCall]]:
-        assert tools is not None, "tools are required to parse responses."
-        # convert tools to sgl_tools
-        sgl_tools = [Tool.model_validate(tool.get_openai_tool_schema().model_dump()) for tool in tools]
+    async def extract_tool_calls(self, responses_ids: list[int]) -> tuple[str, list[FunctionCall]]:
         loop = asyncio.get_running_loop()
-        text = await loop.run_in_executor(None, self.tokenizer.decode, responses_ids)
-        if not self.gpt_oss_detector.has_tool_call(text):
+        # We need to keep special tokens for gpt-oss model for better tool call extraction.
+        text = await loop.run_in_executor(None, lambda: self.tokenizer.decode(responses_ids, skip_special_tokens=False))
+        # Need to remove padding tokens for better tool call extraction.
+        text = text.replace(self.tokenizer.pad_token, "")
+        # Need to reomve COT since COT may contain tool call tokens.But they are not valid tool calls.
+        text = regex.sub(self.cot_pattern, "", text)
+        text = regex.sub(self.partial_cot_pattern, "", text)
+
+        # check if there are tool calls in the text by re.findall
+        matches = regex.findall(self.tool_call_pattern, text)
+        if not matches:
             return text, []
 
-        parsed_results = self.gpt_oss_detector.detect_and_parse(text, tools=sgl_tools)
-        # convert calls to FunctionCall
         function_calls = []
-        for call in parsed_results.calls:
-            function_calls.append(FunctionCall(name=call.name, arguments=call.parameters))
-        return parsed_results.normal_text, function_calls
+        for match in matches:
+            try:
+                function_call = json.loads(match)
+                name, arguments = function_call["name"], function_call["arguments"]
+                function_calls.append(FunctionCall(name=name, arguments=json.dumps(arguments, ensure_ascii=False)))
+            except Exception as e:
+                logger.error(f"Failed to decode tool call: {e}")
+
+        # remaing text exclude tool call tokens
+        content = regex.sub(self.tool_call_pattern, "", text)
+
+        return content, function_calls
