@@ -496,8 +496,8 @@ class FlowRLActor(DataParallelPPOActor):
         # FlowRL residual: logZ + logpf - β*R - logpref
         delta = log_z + avg_log_prob - self.flowrl_beta_coef * seq_log_reward - avg_ref_log_prob
 
-        # Importance ratio from current vs old policy (geometric mean for numerical stability)
-        log_w = verl_F.masked_mean(log_prob - old_log_prob, response_mask, axis=1)
+        # Importance ratio from current vs old policy (product of token ratios)
+        log_w = verl_F.masked_sum(log_prob - old_log_prob, response_mask, axis=1)
         imp_w = torch.exp(log_w).detach()
 
         # Loss: weighted squared residual (no clipping)
