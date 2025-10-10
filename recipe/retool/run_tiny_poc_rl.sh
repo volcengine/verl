@@ -31,8 +31,8 @@ clip_ratio_low=0.2
 clip_ratio_high=0.28
 
 max_turns=16
-max_prompt_length=17000
-max_response_length=5000
+max_prompt_length=2048
+max_response_length=3000
 actor_lr=1e-6
 
 train_batch_size=1
@@ -105,4 +105,5 @@ python3 -m verl.trainer.main_ppo \
     trainer.save_freq=20 \
     trainer.default_local_dir=$default_local_dir \
     trainer.test_freq=10 \
+    trainer.resume_mode=disable \
     trainer.total_epochs=1 $@

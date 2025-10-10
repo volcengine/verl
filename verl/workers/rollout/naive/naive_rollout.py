@@ -50,6 +50,7 @@ class NaiveRollout(BaseRollout):
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto) -> DataProto:
         """Generate sequences"""
+        print(f"NaiveRollout generate_sequences")
         idx = prompts.batch["input_ids"]  # (bs, prompt_length)
         attention_mask = prompts.batch["attention_mask"]  # left-padded attention_mask
         position_ids = prompts.batch["position_ids"]

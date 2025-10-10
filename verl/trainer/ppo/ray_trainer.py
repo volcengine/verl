@@ -17,7 +17,7 @@
 PPO Trainer with Ray-based single controller.
 This trainer supports model-agonistic model initialization with huggingface
 """
-
+DEBUG = True
 import json
 import os
 import uuid
@@ -569,6 +569,8 @@ class RayPPOTrainer:
             # Store generated outputs
             output_ids = test_output_gen_batch.batch["responses"]
             output_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in output_ids]
+            if DEBUG:
+                print(f"RESPONSE_STR:\n {output_texts}\nEND_RESPONSE_STR")
             sample_outputs.extend(output_texts)
 
             test_batch = test_batch.union(test_output_gen_batch)
@@ -984,6 +986,7 @@ class RayPPOTrainer:
                     # generate a batch
                     with marked_timer("gen", timing_raw, color="red"):
                         if not self.async_rollout_mode:
+                            print(f"Generating sequences sync mode. Class={type(self.actor_rollout_wg)}")
                             gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
                         else:
                             gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)

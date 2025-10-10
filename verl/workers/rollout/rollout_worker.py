@@ -123,6 +123,7 @@ class RolloutWorker(Worker):
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="infer"))
     def generate_sequences(self, prompts: DataProto):
         """Given a batch of prompts, return a batch of responses. Internally, it can use"""
+        print(f"RolloutWorker generate_sequences")
         meta_info = {
             "eos_token_id": self.model_config.generation_config.eos_token_id
             if self.model_config.generation_config is not None
