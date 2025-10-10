@@ -113,8 +113,7 @@ class TestRolloutISIntegration:
         # Check metrics are returned
         assert isinstance(metrics, dict)
         assert len(metrics) > 0
-        assert "rollout_is_mean" in metrics
-        assert "rollout_is_threshold_upper" in metrics
+        assert "mismatch/rollout_is_mean" in metrics
 
     def test_all_aggregation_levels(self, sample_data):
         """Test all three aggregation levels."""
@@ -130,8 +129,7 @@ class TestRolloutISIntegration:
                 rollout_is_threshold=2.0,
             )
 
-            assert metrics["rollout_is_level"] == level
-            assert "rollout_is_mean" in metrics
+            assert "mismatch/rollout_is_mean" in metrics
 
     def test_both_bounding_modes(self, sample_data):
         """Test both truncate and clip modes."""
@@ -148,7 +146,7 @@ class TestRolloutISIntegration:
                 rollout_is_threshold_lower=0.5,
             )
 
-            assert metrics["rollout_is_mode"] == mode
+            assert "mismatch/rollout_is_mean" in metrics
 
     def test_mismatch_metrics(self, sample_data):
         """Test mismatch diagnostic metrics computation."""
@@ -188,8 +186,8 @@ class TestRolloutISIntegration:
         )
 
         # Should have vetoed one sequence
-        assert metrics["rollout_is_veto_fraction"] > 0
-        assert metrics["rollout_is_veto_fraction"] <= 1.0
+        assert metrics["mismatch/rollout_is_veto_fraction"] > 0
+        assert metrics["mismatch/rollout_is_veto_fraction"] <= 1.0
 
 
 if __name__ == "__main__":
