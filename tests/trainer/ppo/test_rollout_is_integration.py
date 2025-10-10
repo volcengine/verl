@@ -55,8 +55,23 @@ class TestRolloutISIntegration:
         return config
 
     def test_policy_loss_with_rollout_is(self, sample_data, config_with_rollout_is):
-        """Test that policy loss computation works with rollout IS."""
-        # Policy loss function applies IS correction internally
+        """Test that policy loss computation works with rollout IS weights.
+
+        Note: In production, IS weights are computed centrally in the trainer.
+        This test simulates that by computing weights before passing to policy loss.
+        """
+        # First compute IS weights (as trainer would do centrally)
+        rollout_is_weights, _ = compute_rollout_importance_weights(
+            old_log_prob=sample_data["old_log_prob"],
+            rollout_log_prob=sample_data["rollout_log_prob"],
+            eos_mask=sample_data["response_mask"],
+            rollout_is_level="token",
+            rollout_is_mode="truncate",
+            rollout_is_threshold=2.0,
+            rollout_is_veto_threshold=1e-4,
+        )
+
+        # Policy loss function receives pre-computed IS weights
         pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss_vanilla(
             old_log_prob=sample_data["old_log_prob"],
             log_prob=sample_data["log_prob"],
@@ -64,7 +79,7 @@ class TestRolloutISIntegration:
             response_mask=sample_data["response_mask"],
             loss_agg_mode="token-mean",
             config=config_with_rollout_is,
-            rollout_log_probs=sample_data["rollout_log_prob"],
+            rollout_is_weights=rollout_is_weights,
         )
 
         # Check loss is valid

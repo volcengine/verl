@@ -373,13 +373,19 @@ class DataParallelPPOActor(BasePPOActor):
         ]
         if self.config.use_kl_loss:
             select_keys.append("ref_log_prob")
+        # Include pre-computed IS weights if rollout IS is enabled
+        # Weights must be computed centrally in trainer before distribution to workers
         if self.config.rollout_is_threshold is not None:
-            assert "rollout_log_probs" in data.batch.keys(), (
-                "Rollout Importance Sampling requires to configure "
-                "`actor_rollout_ref.rollout.calculate_log_probs=True` "
-                "and is not currently supported in Server mode (agent loop)."
+            assert "rollout_is_weights" in data.batch.keys(), (
+                "Rollout Importance Sampling requires pre-computed 'rollout_is_weights' in batch. "
+                "IS weights must be computed centrally in the trainer (ray_trainer.py) "
+                "before being distributed to workers. This ensures consistency across all workers "
+                "and avoids redundant computation. If you see this error, check that: "
+                "1. `actor_rollout_ref.actor.rollout_is_threshold` is set in config "
+                "2. `actor_rollout_ref.rollout.calculate_log_probs=True` is set "
+                "3. The trainer is computing and adding IS weights to the batch before update_actor()"
             )
-            select_keys.append("rollout_log_probs")
+            select_keys.append("rollout_is_weights")
 
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
         non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
@@ -412,9 +418,6 @@ class DataParallelPPOActor(BasePPOActor):
                     model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch}
                     response_mask = model_inputs["response_mask"]
                     old_log_prob = model_inputs["old_log_probs"]
-                    rollout_log_probs = (
-                        model_inputs["rollout_log_probs"] if self.config.rollout_is_threshold is not None else None
-                    )
                     advantages = model_inputs["advantages"]
 
                     entropy_coeff = self.config.entropy_coeff
@@ -440,39 +443,26 @@ class DataParallelPPOActor(BasePPOActor):
 
                     loss_mode = self.config.policy_loss.get("loss_mode", "vanilla")
                     # vanilla -> verl.trainer.ppo.core_algos.compute_policy_loss_vanilla
-                    # Compute rollout importance sampling weights and metrics if enabled
-                    rollout_is_weights = None
-                    if self.config.rollout_is_threshold is not None and rollout_log_probs is not None:
-                        from verl.trainer.ppo.mismatch_helper import compute_rollout_importance_weights
 
-                        # Compute rollout IS weights and metrics once
-                        rollout_is_weights, rollout_is_metrics = compute_rollout_importance_weights(
-                            old_log_prob=old_log_prob,
-                            rollout_log_prob=rollout_log_probs,
-                            eos_mask=response_mask,
-                            rollout_is_level=self.config.get("rollout_is_level", "token"),
-                            rollout_is_mode=self.config.get("rollout_is_mode", "truncate"),
-                            rollout_is_threshold=self.config.rollout_is_threshold,
-                            rollout_is_threshold_lower=self.config.get("rollout_is_threshold_lower"),
-                            rollout_is_veto_threshold=self.config.get("rollout_is_veto_threshold"),
+                    # Extract pre-computed rollout importance sampling weights
+                    # Weights are computed centrally in trainer for efficiency and consistency
+                    rollout_is_weights = None
+                    if self.config.rollout_is_threshold is not None:
+                        # IS weights must be pre-computed in trainer and included in batch
+                        assert "rollout_is_weights" in model_inputs, (
+                            "Expected 'rollout_is_weights' in batch when rollout_is_threshold is set. "
+                            "IS weights should be computed centrally in the trainer before distribution."
                         )
+                        rollout_is_weights = model_inputs["rollout_is_weights"]
 
                         # Only apply weights if rollout_is is enabled
                         if not self.config.get("rollout_is", False):
                             rollout_is_weights = None
 
-                        # Add rollout IS metrics with "mismatch/" prefix
-                        for key, value in rollout_is_metrics.items():
-                            if isinstance(value, torch.Tensor):
-                                micro_batch_metrics[f"mismatch/{key}"] = value.detach().item()
-                            else:
-                                micro_batch_metrics[f"mismatch/{key}"] = value
-
-                        # NOTE: Mismatch diagnostic metrics (PPL, KL, etc.) are now computed centrally
-                        # in ray_trainer.py via compute_mismatch_metrics_batch() for consistency.
-                        # This avoids duplicate computation and ensures metrics are computed uniformly
-                        # across all batches at the trainer level, not scattered in individual workers.
-                        # The IS weight metrics above are still unique to the worker and not duplicated.
+                    # NOTE: Both mismatch diagnostic metrics (PPL, KL, etc.) and IS weight metrics
+                    # are computed centrally in ray_trainer.py for consistency and efficiency.
+                    # This ensures metrics are computed uniformly across all batches at the trainer level
+                    # and avoids redundant computation across workers and micro-batches.
 
                     # gpg -> verl.trainer.ppo.core_algos.compute_policy_loss_gpg
                     # clip_cov -> verl.trainer.ppo.core_algos.compute_policy_loss_clip_cov

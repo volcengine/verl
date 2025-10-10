@@ -50,6 +50,7 @@ from verl.trainer.ppo.metric_utils import (
     compute_timing_metrics,
     process_validation_metrics,
 )
+from verl.trainer.ppo.mismatch_helper import compute_rollout_importance_weights
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.trainer.ppo.utils import Role, WorkerType, need_critic, need_reference_policy, need_reward_model
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
@@ -1122,6 +1123,37 @@ class RayPPOTrainer:
                             norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
                             config=self.config.algorithm,
                         )
+
+                        # Compute rollout importance sampling weights centrally (once per batch)
+                        # This corrects for mismatch between rollout policy and training policy
+                        if (
+                            self.config.actor_rollout_ref.actor.rollout_is_threshold is not None
+                            and "rollout_log_probs" in batch.batch
+                        ):
+                            rollout_is_weights, rollout_is_metrics = compute_rollout_importance_weights(
+                                old_log_prob=batch.batch["old_log_probs"],
+                                rollout_log_prob=batch.batch["rollout_log_probs"],
+                                eos_mask=batch.batch["response_mask"],
+                                rollout_is_level=self.config.actor_rollout_ref.actor.get("rollout_is_level", "token"),
+                                rollout_is_mode=self.config.actor_rollout_ref.actor.get("rollout_is_mode", "truncate"),
+                                rollout_is_threshold=self.config.actor_rollout_ref.actor.rollout_is_threshold,
+                                rollout_is_threshold_lower=self.config.actor_rollout_ref.actor.get(
+                                    "rollout_is_threshold_lower"
+                                ),
+                                rollout_is_veto_threshold=self.config.actor_rollout_ref.actor.get(
+                                    "rollout_is_veto_threshold"
+                                ),
+                            )
+
+                            # Add IS weights to batch for distribution to workers
+                            batch = batch.union(DataProto.from_dict(tensors={"rollout_is_weights": rollout_is_weights}))
+
+                            # Add IS metrics with "mismatch/" prefix for monitoring
+                            for key, value in rollout_is_metrics.items():
+                                if isinstance(value, torch.Tensor):
+                                    metrics[f"mismatch/{key}"] = value.detach().item()
+                                else:
+                                    metrics[f"mismatch/{key}"] = value
 
                     # update critic
                     if self.use_critic:
