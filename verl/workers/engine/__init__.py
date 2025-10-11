@@ -16,6 +16,14 @@ from .fsdp import FSDPEngine, FSDPEngineWithLMHead
 
 __all__ = ["BaseEngine", "EngineRegistry", "FSDPEngine", "FSDPEngineWithLMHead"]
 
+try:
+    from .deepspeed import DeepSpeedEngine, DeepSpeedEngineWithLMHead
+
+    __all__ += ["DeepSpeedEngine", "DeepSpeedEngineWithLMHead"]
+except ImportError:
+    DeepSpeedEngine = None
+    DeepSpeedEngineWithLMHead = None
+
 # Mindspeed must be imported before Megatron to ensure the related monkey patches take effect as expected
 try:
     from .mindspeed import MindspeedEngineWithLMHead
