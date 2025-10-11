@@ -18,6 +18,7 @@ from verl.experimental.agent_loop.tool_parser import GptOssToolParser
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="local test only")
 async def test_gpt_oss_tool_parser():
     example_text = """
 <|start|>assistant<|channel|>commentary to=functions.get_current_weather \
