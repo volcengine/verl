@@ -16,7 +16,12 @@ import os
 import unittest
 
 from verl.utils.config import omega_conf_to_dataclass
-from verl.workers.config import ActorConfig, FSDPActorConfig, McoreActorConfig, OptimizerConfig
+from verl.workers.config import (
+    ActorConfig,
+    FSDPActorConfig,
+    McoreActorConfig,
+    OptimizerConfig,
+)
 
 
 class TestActorConfig(unittest.TestCase):
@@ -31,7 +36,7 @@ class TestActorConfig(unittest.TestCase):
             "ppo_micro_batch_size_per_gpu": 256,
             "clip_ratio": 0.2,
             "optim": {
-                "_target_": "verl.workers.config.OptimizerConfig",
+                "_target_": "verl.workers.config.McoreOptimizerConfig",
                 "lr": 0.1,
             },
         }
@@ -42,7 +47,7 @@ class TestActorConfig(unittest.TestCase):
             "ppo_micro_batch_size_per_gpu": 256,
             "clip_ratio": 0.2,
             "optim": {
-                "_target_": "verl.workers.config.OptimizerConfig",
+                "_target_": "verl.workers.config.FSDPOptimizerConfig",
                 "lr": 0.1,
             },
         }
