@@ -535,7 +535,7 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
                 prev_prev_fut = self._async_get_teacher_knowledge(prev_fut)
                 prev_fut = self._async_gen_next_batch(epoch, batch_dict)
                 continue
-            elif i == 3:
+            elif i == 2:
                 with marked_timer("wait_prev_prev_teacher", timing):
                     prev_prev_result = prev_prev_fut.get()
                 with marked_timer("wait_prev_gen", timing):
