@@ -826,7 +826,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
                     "attention_mask": attention_mask,
                     "position_ids": position_ids,
                 }
-            elif pad_mode == DatasetPadMode.LEFT_RIGHT:
+            elif pad_mode in (DatasetPadMode.LEFT_RIGHT, DatasetPadMode.RIGHT):
                 attention_mask = micro_batch["attention_mask"]
                 model_inputs = {
                     "input_ids": input_ids,
@@ -943,7 +943,10 @@ class FSDPEngineWithLMHead(FSDPEngine):
                 entropy = output.entropy[:, -response_length - 1 : -1]  # (bsz, response_length)
 
             else:
-                logits = output.logits
+                if hasattr(output, "last_hidden_state"):
+                    logits = output.last_hidden_state
+                else:
+                    logits = output.logits
                 logits.div_(temperature)
 
                 if calculate_entropy:
@@ -971,8 +974,14 @@ class FSDPEngineWithLMHead(FSDPEngine):
                     log_probs = logprobs_from_logits(logits, micro_batch["responses"])
                     if calculate_entropy:
                         entropy = entropy[:, -response_length - 1 : -1]  # (bsz, response_length)
-                else:
-                    raise NotImplementedError(f"pad_mode {pad_mode} not implemented")
+                elif pad_mode == DatasetPadMode.RIGHT:
+                    input_ids = micro_batch["input_ids"]
+                    input_ids = input_ids[:, 1:]
+                    # we pad labels instead of shift logits here because it will save GPU memory
+                    input_ids = torch.nn.functional.pad(input_ids, (0, 1))
+                    log_probs = logprobs_from_logits(logits, input_ids)
+                    if calculate_entropy:
+                        entropy = entropy[:, -response_length - 1 : -1]  # (bsz, response_length)
 
         model_output["log_probs"] = log_probs
         if calculate_entropy:

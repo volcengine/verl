@@ -52,7 +52,12 @@ def prepare_micro_batches(
     else:
         micro_batch_size_per_gpu = data["micro_batch_size_per_gpu"]
         micro_batches = data.split(micro_batch_size_per_gpu)
-        batch_idx_list = None
+        bs = micro_batch_size_per_gpu
+        batch_idx_list = [list(range(len(data)))[i * bs : (i + 1) * bs] for i in range(len(micro_batches))]
+    if "multi_modal_inputs" in micro_batches[0]:
+        multi_modal_data = micro_batches[0]["multi_modal_inputs"]
+        for batch, indexes in zip(micro_batches, batch_idx_list, strict=False):
+            batch["multi_modal_inputs"] = [multi_modal_data[i] for i in indexes]
     return micro_batches, batch_idx_list
 
 
@@ -92,7 +97,7 @@ def postprocess_batch_func(output_lst, indices, data: TensorDict):
         if pad_mode == DatasetPadMode.NO_PADDING:
             tensors = [tensor for nt in model_output[key] for tensor in nt.unbind()]
             model_output[key] = torch.nested.as_nested_tensor(tensors, layout=torch.jagged)
-        elif pad_mode == DatasetPadMode.LEFT_RIGHT:
+        elif pad_mode in (DatasetPadMode.LEFT_RIGHT, DatasetPadMode.RIGHT):
             model_output[key] = torch.cat(model_output[key], dim=0)
         else:
             raise NotImplementedError(f"pad_mode {pad_mode} not implemented")
