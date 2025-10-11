@@ -103,7 +103,6 @@ def _dataproto_to_tensordict(data: DataProto):
     elif data.non_tensor_batch is not None and len(data.non_tensor_batch) > 0:
         batch_size = (len(next(iter(data.non_tensor_batch.values()))),)
 
-    batch_size = data.batch.batch_size if data.batch is not None else (len(list(data.non_tensor_batch.values())[0]),)
     if data.non_tensor_batch is not None:
         for k, v in data.non_tensor_batch.items():
             result_dict[k] = NonTensorData(data=v, batch_size=batch_size)
