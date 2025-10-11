@@ -19,9 +19,9 @@ kl_loss_coef=0.0
 # TIS - Truncated Importance Sampling
 tis_imp_ratio_cap=2.0
 
-# DAPO Dual-clip parameters
-clip_ratio_low=0.2
-clip_ratio_high=0.28
+# GSPO Dual-clip parameters
+clip_ratio_low=0.0003 
+clip_ratio_high=0.0004 
 
 # FlowRL Loss Variant Selection
 # Options: "vanilla" (no TIS/clip), "clip_only" (clip IS only), "tis_clip" (both TIS + clip)

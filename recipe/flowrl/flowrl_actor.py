@@ -529,43 +529,57 @@ class FlowRLActor(DataParallelPPOActor):
                                         response_mask=None,
                                         clip_ratio=None,
                                         rollout_log_probs=None):
-        """
-        FlowRL with clipped importance sampling (Clip-High) but no TIS.
-        Reference: https://arxiv.org/pdf/2503.14476
-        """
-        # log_z: (B, 1) → (B,)
+        
+        """ FlowRL with clipped importance sampling (Clip-High) """
+
+        # squeeze log_z to (B,)
         log_z = log_z.squeeze(-1)
 
         # Average token log-probs & rewards over valid positions
-        avg_log_prob = verl_F.masked_mean(log_prob, response_mask, axis=1)
+        avg_log_prob     = verl_F.masked_mean(log_prob,     response_mask, axis=1)
+        avg_old_log_prob = verl_F.masked_mean(old_log_prob, response_mask, axis=1)
         avg_ref_log_prob = verl_F.masked_mean(ref_log_prob, response_mask, axis=1)
-        seq_log_reward = verl_F.masked_mean(reward, response_mask, axis=1)
+        seq_log_reward   = verl_F.masked_mean(reward,       response_mask, axis=1)
 
-        # Trajectory Balance residual: logZ + logpf - β*R - logpref
+        # clip params
+        eps_low  = self.config.clip_ratio_low  if hasattr(self.config, "clip_ratio_low")  else clip_ratio
+        eps_high = self.config.clip_ratio_high if hasattr(self.config, "clip_ratio_high") else clip_ratio
+        min_bound = avg_old_log_prob + torch.log1p(-eps_low)
+        max_bound = avg_old_log_prob + torch.log1p(eps_high)
+
+        # Compute clip masks BEFORE clamping (for metrics)
+        low_mask  = (avg_log_prob < min_bound)
+        high_mask = (avg_log_prob > max_bound)
+
+        # clamp (both sides)
+        avg_log_prob = torch.clamp(avg_log_prob, min=min_bound, max=max_bound)
+
+        # FlowRL residual: logZ + logpf - β*R - logpref
         delta = log_z + avg_log_prob - self.flowrl_beta_coef * seq_log_reward - avg_ref_log_prob
 
-        # Importance ratio from current vs old policy (geometric mean for numerical stability)
-        log_w = verl_F.masked_mean(log_prob - old_log_prob, response_mask, axis=1)
-        imp_w = torch.exp(log_w).detach()
+        # Importance ratio from current vs old policy (product of token ratios)
+        log_w = verl_F.masked_sum(log_prob - old_log_prob, response_mask, axis=1)
+        imp_w_raw = torch.exp(log_w).detach()
+        
+        # Clamp importance weight to prevent extreme values (e.g., ~50)
+        imp_w = torch.clamp(imp_w_raw, max=10.0)
 
-        # PPO-style clipping with separate clip_low and clip_high (asymmetric clipping)
-        clip_ratio_low = self.config.clip_ratio_low if hasattr(self.config, 'clip_ratio_low') else clip_ratio
-        clip_ratio_high = self.config.clip_ratio_high if hasattr(self.config, 'clip_ratio_high') else clip_ratio
-        imp_w_clipped = torch.clamp(imp_w, 1 - clip_ratio_low, 1 + clip_ratio_high)
-
-        # Loss: weighted squared residual with clipped IS
-        weighted_losses = imp_w_clipped * (delta ** 2)
+        # Loss: weighted squared residual
+        weighted_losses = imp_w * (delta ** 2)
         avg_loss = torch.mean(weighted_losses)
 
         # Metrics
         loss_term_dict = {
-            "actor/logpf": verl_F.masked_mean(log_prob, response_mask).detach().item(),
-            "actor/logp_ref": verl_F.masked_mean(ref_log_prob, response_mask).detach().item(),
+            "actor/log_prob": verl_F.masked_mean(log_prob, response_mask).detach().item(),
+            "actor/old_log_prob": verl_F.masked_mean(old_log_prob, response_mask).detach().item(),
+            "actor/ref_log_prob": verl_F.masked_mean(ref_log_prob, response_mask).detach().item(),
             "actor/log_z": log_z.mean().detach().item(),
             "actor/log_reward": verl_F.masked_mean(reward, response_mask).detach().item(),
             "actor/final_loss": avg_loss.detach().item(),
+            "actor/importance_weight_raw": imp_w_raw.mean().detach().item(),
             "actor/importance_weight": imp_w.mean().detach().item(),
-            "actor/importance_weight_clipped": imp_w_clipped.mean().detach().item(),
+            "actor/clip_rate_low":  low_mask.mean().detach().item(),
+            "actor/clip_rate_high": high_mask.mean().detach().item()
         }
 
         return avg_loss, loss_term_dict
