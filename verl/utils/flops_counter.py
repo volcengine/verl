@@ -25,6 +25,8 @@ VALID_CONFIG_TYPE = {
     "qwen2_5_vl",
     "qwen3",
     "qwen3_moe",
+    "qwen3_vl",
+    "qwen3_vl_moe",
     "deepseek_v3",
     "minicpmv",
     "minicpmo",
@@ -128,6 +130,8 @@ class FlopsCounter:
             "qwen2_5_vl": self._estimate_qwen2_flops,
             "qwen3": self._estimate_qwen2_flops,
             "qwen3_moe": self._estimate_qwen2_moe_flops,
+            "qwen3_vl": self._estimate_qwen2_flops,
+            "qwen3_vl_moe": self._estimate_qwen2_moe_flops,
             "deepseek_v3": self._estimate_deepseek_v3_flops,
             "minicpmv": self._estimate_qwen2_flops,
             "minicpmo": self._estimate_qwen2_flops,
@@ -137,7 +141,7 @@ class FlopsCounter:
             "apertus": self._estimate_apertus_flops,
             "glm4v": self._estimate_qwen2_flops,
         }
-        self.config = config
+        self.config = getattr(config, "text_config", config)
 
     def _estimate_unknown_flops(self, tokens_sum, batch_seqlens, delta_time):
         return 0

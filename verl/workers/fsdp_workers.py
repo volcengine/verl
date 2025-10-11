@@ -678,7 +678,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         set_expandable_segments(False)
 
         if peft_config is not None and self.base_sync_done:
-            per_tensor_param = params
+            per_tensor_param = params.items() if isinstance(params, dict) else params  # Fixed: handle dict case
         else:
             device = get_device_id()  # used when fsdp2 set cpu_offload_policy
             per_tensor_param = (
@@ -902,7 +902,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         timing_generate = {}
         if self._is_actor:  # For rollout only, we do not switch context.
-            loop = asyncio.get_event_loop()
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
             loop.run_until_complete(self.rollout_mode())
             log_gpu_memory_usage("After switch to rollout mode", logger=logger)
 

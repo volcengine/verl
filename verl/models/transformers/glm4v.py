@@ -378,7 +378,7 @@ def _get_input_embeds(
         video_embeds = video_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
         inputs_embeds = inputs_embeds.masked_scatter(video_mask, video_embeds)
 
-    if model.training and pixel_values is None and pixel_values_videos is None:  # handle mixed text-image data
+    if pixel_values is None and pixel_values_videos is None:  # handle mixed text-image data
         pixel_values = torch.zeros((16, 1176), dtype=inputs_embeds.dtype, device=inputs_embeds.device)
         image_grid_thw = torch.tensor([[1, 4, 4]], dtype=torch.long, device=inputs_embeds.device)
         image_embeds = model.visual(pixel_values, grid_thw=image_grid_thw)

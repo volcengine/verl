@@ -13,6 +13,7 @@ fi
 
 DATASET=math-hard-large
 PROJECT_DIR="$(pwd)"
+AGENTLOOP_CONFIG_PATH="$PROJECT_DIR/recipe/collabllm/config/agent.yaml"
 
 
 python3 -m verl.trainer.main_ppo \
@@ -56,7 +57,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.multi_turn.max_user_turns=2 \
     actor_rollout_ref.rollout.multi_turn.max_assistant_turns=3 \
     actor_rollout_ref.rollout.multi_turn.num_repeat_rollouts=3 \
-    actor_rollout_ref.rollout.trace.token2text=True \
+    actor_rollout_ref.rollout.agent.agent_loop_config_path=$AGENTLOOP_CONFIG_PATH \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \

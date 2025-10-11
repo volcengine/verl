@@ -322,6 +322,8 @@ class FSDPSFTTrainer:
             lr=self.config.optim.lr,
             betas=self.config.optim.betas,
             weight_decay=self.config.optim.weight_decay,
+            eps=self.config.optim.get("eps", 1e-08),
+            fused=True,
         )
 
         log_gpu_memory_usage("After initialize optimizer", logger=logger)
