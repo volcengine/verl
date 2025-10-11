@@ -146,9 +146,9 @@ class GptOssToolParser(ToolParser):
         function_calls = []
         for match in matches:
             try:
-                function_call = json.loads(match)
-                name, arguments = function_call["name"], function_call["arguments"]
-                function_calls.append(FunctionCall(name=name, arguments=json.dumps(arguments, ensure_ascii=False)))
+                name, arguments = match[0], match[1]
+                # don't check if arguments is valid JSON and leave it to client
+                function_calls.append(FunctionCall(name=name, arguments=arguments))
             except Exception as e:
                 logger.error(f"Failed to decode tool call: {e}")
 

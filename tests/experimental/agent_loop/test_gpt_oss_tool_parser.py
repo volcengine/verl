@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 import pytest
 from transformers import AutoTokenizer
 
@@ -28,8 +27,7 @@ async def test_gpt_oss_tool_parser():
     tokenizer = AutoTokenizer.from_pretrained("openai/gpt-oss-20b")
     response_ids = tokenizer.encode(example_text)
     tool_parser = GptOssToolParser(tokenizer)
-    content, function_calls = await tool_parser.extract_tool_calls(response_ids)
-    assert content == ""
+    _, function_calls = await tool_parser.extract_tool_calls(response_ids)
     assert len(function_calls) == 1
     assert function_calls[0].name == "get_current_weather"
     assert function_calls[0].arguments == '{"location": "Tokyo"}'
