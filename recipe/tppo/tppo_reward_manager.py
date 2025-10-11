@@ -1,0 +1,172 @@
+# Copyright 2024 Bytedance Ltd. and/or its affiliates
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from collections import defaultdict
+
+import torch
+
+from verl import DataProto
+from verl.utils.reward_score import default_compute_score
+from verl.workers.reward_manager import register
+
+
+@register("tppo")
+class TPPORewardManager:
+    """The reward manager."""
+
+    def __init__(self, config, tokenizer, num_examine, compute_score=None, reward_fn_key="data_source") -> None:
+        """
+        Initialize the NaiveRewardManager instance.
+
+        Args:
+            tokenizer: The tokenizer used to decode token IDs into text.
+            num_examine: The number of batches of decoded responses to print to the console for debugging purpose.
+            compute_score: A function to compute the reward score. If None, `default_compute_score` will be used.
+            reward_fn_key: The key used to access the data source in the non-tensor batch data. Defaults to "data_source".
+        """
+        self.config = config
+        self.tokenizer = tokenizer  # Store the tokenizer for decoding token IDs
+        self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
+        self.compute_score = compute_score or default_compute_score
+        self.reward_fn_key = reward_fn_key  # Store the key for accessing the data source
+
+    def __call__(self, data: DataProto, return_dict=False, is_validation=False, use_window_rollout=True):
+        """We will expand this function gradually based on the available datasets"""
+        if "rm_scores" in data.batch.keys():
+            if return_dict:
+                return {"reward_tensor": data.batch["rm_scores"]}
+            else:
+                return data.batch["rm_scores"]
+
+        # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
+        if use_window_rollout:
+            max_response_length = self.config.data.get('window_response_length', None)
+            max_prompt_length = self.config.data.max_prompt_length + data.batch['window_rounds'].max().item() * max_response_length
+        else:
+            max_prompt_length = self.config.data.max_prompt_length
+        
+        response_ids = data.batch['input_ids'][:, max_prompt_length:]
+        empty_response_ids = data.batch['input_ids'][:, self.config.data.max_prompt_length:]
+
+        reward_tensor = torch.zeros_like(empty_response_ids, dtype=torch.float32)
+
+        # NOTE(HanlinDu): this conditional branch seems to be redundant
+        if use_window_rollout:
+            # raw_scores = torch.zeros_like(empty_response_ids, dtype=torch.float32)
+            # format_scores = torch.zeros_like(empty_response_ids, dtype=torch.float32)
+            # len_scores = torch.zeros_like(empty_response_ids, dtype=torch.float32)
+            # idx_tensor = torch.zeros(response_ids.shape[0], dtype=torch.int64, device=response_ids.device)
+            is_finished = torch.ones(response_ids.shape[0], dtype=torch.int64, device=response_ids.device)
+
+            print(f" --- {response_ids.shape=}, {is_finished.shape=}")
+
+        current_mean_len = data.batch['attention_mask'][:, max_prompt_length:].sum(-1).float().mean().item()
+
+        
+        reward_extra_info = defaultdict(list)
+
+        already_print_data_sources = {}
+
+        for i in range(len(data)):
+            data_item = data[i]  # DataProtoItem
+
+            # process
+            if use_window_rollout:
+                actual_prompt_length = max_prompt_length - data_item.batch['window_rounds'].item() * max_response_length
+            else:
+                actual_prompt_length = max_prompt_length
+
+            prompt_ids = data_item.batch['input_ids'][:actual_prompt_length]
+            response_ids = data_item.batch['input_ids'][actual_prompt_length:]
+
+            prompt_length = prompt_ids.shape[-1]
+            valid_prompt_length = data_item.batch['attention_mask'][:prompt_length].sum().item()
+            valid_prompt_ids = prompt_ids[-valid_prompt_length:]
+            response_length = response_ids.shape[-1]
+            valid_response_length = data_item.batch['attention_mask'][prompt_length:].sum().item()
+            valid_response_ids = response_ids[:valid_response_length]
+
+            # decode
+            prompt_str = self.tokenizer.decode(valid_prompt_ids, skip_special_tokens=True)
+            response_str = self.tokenizer.decode(valid_response_ids, skip_special_tokens=True)
+
+            ground_truth = data_item.non_tensor_batch["reward_model"]["ground_truth"]
+            data_source = data_item.non_tensor_batch[self.reward_fn_key]
+            
+            score_fn_inputs = {
+                "data_source": data_source,
+                "solution_str": response_str,
+                "ground_truth": ground_truth,
+            }
+            score = self.compute_score(**score_fn_inputs)
+
+            # ================ unfinished response handling ================
+            if use_window_rollout:
+                curr_window_round = data_item.batch['window_rounds'].item()
+                last_token_id = valid_response_ids[valid_response_length-1].item()
+                last_window_round = self.config.data.max_response_length // self.config.data.window_response_length - 1
+                # is_trunc: unfinished response
+                is_trunc = (response_length == valid_response_length) and \
+                        (last_token_id != self.tokenizer.eos_token_id)
+                is_last_round = (curr_window_round == last_window_round)
+                if is_trunc and (not is_last_round):
+                    is_finished[i] = 0
+                    if not is_validation:
+                        score = 0
+            # ================================================================
+
+            if isinstance(score, dict):
+                print(f" --- size of score dict: {len(score)}")
+                reward = score["score"]
+                # Store the information including original reward
+                for key, value in score.items():
+                    reward_extra_info[key].append(value)
+            else:
+                reward = score
+
+            reward_tensor[i, valid_response_length - 1] = reward
+
+            if data_source not in already_print_data_sources:
+                already_print_data_sources[data_source] = 0
+
+            if already_print_data_sources[data_source] < self.num_examine:
+                already_print_data_sources[data_source] += 1
+                print("[prompt]", prompt_str)
+                print("[response]", response_str)
+                print("[ground_truth]", ground_truth)
+                if isinstance(score, dict):
+                    for key, value in score.items():
+                        print(f"[{key}]", value)
+                else:
+                    print("[score]", score)
+
+            # raw_scores[i, valid_response_length - 1] = score
+            # format_scores[i, valid_response_length - 1] = 0
+            # len_scores[i, valid_response_length - 1] = 0
+            # idx_tensor[i] = valid_response_length - 1
+        
+        if use_window_rollout:
+            # reward_extra_info['raw_scores'] = raw_scores
+            # reward_extra_info['idx_tensor'] = idx_tensor
+            reward_extra_info['is_finished'] = is_finished
+            # reward_extra_info['format_scores'] = format_scores
+            # reward_extra_info['len_scores'] = len_scores
+
+        if return_dict:
+            return {
+                "reward_tensor": reward_tensor,
+                "reward_extra_info": reward_extra_info,
+            }
+        else:
+            return reward_tensor
