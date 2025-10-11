@@ -789,6 +789,7 @@ class AgentLoopManager:
         rollout_world_size = (
             self.config.actor_rollout_ref.rollout.tensor_model_parallel_size
             * self.config.actor_rollout_ref.rollout.data_parallel_size
+            * self.config.actor_rollout_ref.rollout.pipeline_model_parallel_size
         )
         world_size = (
             self.worker_group.world_size
