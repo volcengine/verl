@@ -445,7 +445,7 @@ class vLLMRollout(BaseRollout):
                 lora_int_id=lora_int_id,
                 lora_path="simon_lora_path",
                 peft_config=asdict(peft_config),
-                lora_tensors=weights,
+                lora_tensors=dict(weights),
             )
             self.inference_engine.llm_engine.add_lora(lora_reqest)
             logger.info(f"vLLM load weights, loaded_params: {len(weights)}")
@@ -598,7 +598,7 @@ class vLLMAsyncRollout(BaseRollout):
                 lora_int_id=lora_int_id,
                 lora_path="simon_lora_path",
                 peft_config=asdict(peft_config),
-                lora_tensors=weights,
+                lora_tensors=dict(weights),
             )
             self.inference_engine.worker.add_lora(lora_reqest)
             logger.info(f"vLLM load weights, loaded_params: {len(weights)}")
