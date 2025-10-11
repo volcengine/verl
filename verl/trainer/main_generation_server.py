@@ -151,9 +151,11 @@ def main_task(config):
 
     # extract content from results
     results = np.array([result.choices[0].message.content for result in results])
-    results = np.reshape(results, (-1, n_samples)).tolist()
+    results = np.reshape(results, (-1, n_samples))
 
     assert results.shape == (len(chat_lst), n_samples)
+
+    results = results.tolist()
 
     # add to the data frame
     dataset["responses"] = results
