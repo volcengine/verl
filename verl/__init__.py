@@ -36,7 +36,7 @@ set_basic_config(level=logging.WARNING)
 
 __all__ = ["DataProto", "__version__"]
 
-os.environ["VERL_USE_EXTERNAL_MODULES"] = "verl.modelchef"  # TODO: remove this line
+
 modules = os.getenv("VERL_USE_EXTERNAL_MODULES", "")
 if modules:
     modules = modules.split(",")
