@@ -28,6 +28,7 @@ __all__ = [
     "TraceConfig",
     "ServerConfig",
     "RolloutConfig",
+    "SkipConfig",
 ]
 
 
@@ -76,6 +77,15 @@ class AgentLoopConfig(BaseConfig):
 class TraceConfig(BaseConfig):
     backend: Optional[str] = None
     token2text: bool = False
+
+
+@dataclass
+class SkipConfig(BaseConfig):
+    enable: bool = False
+    max_dump_step: int = 1
+    action: str = "repeat"
+    dump_dir: str = "/tmp/rollout_dump"
+    compress: bool = False
 
 
 @dataclass
@@ -156,9 +166,7 @@ class RolloutConfig(BaseConfig):
 
     update_weights_bucket_megabytes: int = 512
 
-    skip_rollout: bool = False
-
-    skip_dump_dir: str = "/tmp/rollout_dump"
+    skip: SkipConfig = field(default_factory=SkipConfig)
 
     profiler: Optional[ProfilerConfig] = None
 
