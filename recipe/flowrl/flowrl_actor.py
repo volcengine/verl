@@ -579,8 +579,8 @@ class FlowRLActor(DataParallelPPOActor):
             "actor/final_loss": avg_loss.detach().item(),
             "actor/importance_weight_raw": imp_w_raw.mean().detach().item(),
             "actor/importance_weight": imp_w.mean().detach().item(),
-            "actor/clip_rate_low":  low_mask.mean().detach().item(),
-            "actor/clip_rate_high": high_mask.mean().detach().item()
+            "actor/clip_rate_low":  low_mask.float().mean().detach().item(),
+            "actor/clip_rate_high": high_mask.float().mean().detach().item()
         }
 
         return avg_loss, loss_term_dict
