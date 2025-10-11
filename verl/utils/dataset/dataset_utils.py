@@ -16,6 +16,15 @@
 from enum import Enum
 
 import torch
+from torch.utils.data import default_collate
+
+
+def multi_modal_collate(batch):
+    multi_modal = [i.pop("multi_modal_inputs") for i in batch if "multi_modal_inputs" in i]
+    batch = default_collate(batch)
+    if multi_modal:
+        batch["multi_modal_inputs"] = multi_modal
+    return batch
 
 
 class DatasetPadMode(str, Enum):
@@ -40,9 +49,7 @@ class SFTTensorCollator:
         if self.pad_mode == DatasetPadMode.NO_PADDING:
             return self.collate_variable_batch(batch)
         elif self.pad_mode in [DatasetPadMode.RIGHT, DatasetPadMode.LEFT_RIGHT]:
-            from torch.utils.data import default_collate
-
-            return default_collate(batch)
+            return multi_modal_collate(batch)
         else:
             raise NotImplementedError(f"pad_mode {self.pad_mode} not implemented")
 
