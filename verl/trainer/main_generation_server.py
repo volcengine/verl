@@ -141,76 +141,22 @@ def main_task(config):
     server_handles, server_addresses = asyncio.run(start_server(config))
 
     # run generate
-    results = asyncio.run(generate(server_addresses, config.actor_rollout_ref.model.path, n_samples, sampling_params, chat_numpy))
+    gen_results = asyncio.run(generate(server_addresses, config.actor_rollout_ref.model.path, n_samples, sampling_params, chat_numpy))
 
     # reshape results into a numpy array
 
+    import itertools
 
+    results = list(itertools.chain.from_iterable(gen_results))
 
-    breakpoint()
-    assert False
-    
+    # extract content from results
+    results = np.array([result.choices[0].message.content for result in results])
+    results = np.reshape(results, (-1, n_samples)).tolist()
 
-    ray_cls_with_init = RayClassWithInitArgs(cls=ray.remote(ActorRolloutRefWorker), config=config, role="rollout")
-    resource_pool = RayResourcePool(process_on_nodes=[config.trainer.n_gpus_per_node] * config.trainer.nnodes)
-    wg = RayWorkerGroup(
-        resource_pool=resource_pool,
-        ray_cls_with_init=ray_cls_with_init,
-        device_name=config.trainer.device,
-    )
-    wg.init_model()
-
-    total_samples = len(dataset)
-    config_batch_size = config.data.batch_size
-    apply_chat_template_kwargs = config.data.get("apply_chat_template_kwargs", {})
-    num_batch = -(-total_samples // config_batch_size)
-    output_lst = [[] for _ in range(config.data.n_samples)]
-
-    for batch_idx in range(num_batch):
-        print(f"[{batch_idx + 1}/{num_batch}] Start to process.")
-        batch_chat_lst = chat_lst[batch_idx * config_batch_size : (batch_idx + 1) * config_batch_size]
-        inputs = tokenizer.apply_chat_template(
-            batch_chat_lst,
-            add_generation_prompt=True,
-            padding=True,
-            truncation=True,
-            max_length=config.rollout.prompt_length,
-            return_tensors="pt",
-            return_dict=True,
-            tokenize=True,
-            **apply_chat_template_kwargs,
-        )
-        input_ids = inputs["input_ids"]
-        attention_mask = inputs["attention_mask"]
-        position_ids = compute_position_id_with_mask(attention_mask)
-        batch_dict = {"input_ids": input_ids, "attention_mask": attention_mask, "position_ids": position_ids}
-
-        data = DataProto.from_dict(batch_dict)
-        data_padded, pad_size = pad_dataproto_to_divisor(data, wg.world_size)
-
-        # START TO GENERATE FOR n_samples TIMES
-        print(f"[{batch_idx + 1}/{num_batch}] Start to generate.")
-        for n_sample in range(config.data.n_samples):
-            output_padded = wg.generate_sequences(data_padded)
-            output = unpad_dataproto(output_padded, pad_size=pad_size)
-
-            output_texts = []
-            for i in range(len(output)):
-                data_item = output[i]
-                prompt_length = data_item.batch["prompts"].shape[-1]
-                valid_response_length = data_item.batch["attention_mask"][prompt_length:].sum()
-                valid_response_ids = data_item.batch["responses"][:valid_response_length]
-                response_str = tokenizer.decode(valid_response_ids, skip_special_tokens=True)
-                output_texts.append(response_str)
-
-            output_lst[n_sample].extend(output_texts)
-
-    # convert output_lst from (n_samples, n_data) to (n_data, n_sampels)
-    output_lst = np.array(output_lst, dtype=object)
-    output_lst = np.transpose(output_lst, axes=(1, 0)).tolist()
+    assert results.shape == (len(chat_lst), n_samples)
 
     # add to the data frame
-    dataset["responses"] = output_lst
+    dataset["responses"] = results
 
     # write to a new parquet
     output_dir = os.path.dirname(config.data.output_path)

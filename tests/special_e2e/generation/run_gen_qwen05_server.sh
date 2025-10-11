@@ -20,9 +20,9 @@ python3 -m verl.trainer.main_generation_server \
     actor_rollout_ref.rollout.prompt_length=2048 \
     actor_rollout_ref.rollout.response_length=1024 \
     actor_rollout_ref.rollout.tensor_model_parallel_size="${GEN_TP}" \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.9 \
     actor_rollout_ref.rollout.name=vllm \
-    actor_rollout_ref.rollout.n=2 \
+    actor_rollout_ref.rollout.n=4 \
     data.train_files="${HOME}/data/gsm8k/test.parquet" \
     data.prompt_key=prompt \
-    # data.output_path="${OUTPUT_PATH}" \
+    +data.output_path="${OUTPUT_PATH}" \
