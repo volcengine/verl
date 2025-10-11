@@ -30,6 +30,7 @@ from verl.protocol import (
     union_numpy_dict,
     union_tensor_dict,
 )
+from verl.utils import tensordict_utils as tu
 
 
 def test_union_tensor_dict():
@@ -759,6 +760,23 @@ def test_to_tensordict():
     assert torch.all(torch.eq(output["obs"], obs)).item()
     assert output["labels"] == labels
     assert output["name"] == "abdce"
+
+
+@pytest.mark.skipif(
+    parse_version(tensordict.__version__) < parse_version("0.10"), reason="requires at least tensordict 0.10"
+)
+def test_from_tensordict():
+    tensor_dict = {
+        "obs": torch.tensor([1, 2, 3, 4, 5, 6]),
+        "labels": ["a", "b", "c", "d", "e", "f"],
+    }
+    non_tensor_dict = {"name": "abdce"}
+    tensordict = tu.get_tensordict(tensor_dict, non_tensor_dict)
+    data = DataProto.from_tensordict(tensordict)
+
+    assert data.non_tensor_batch["labels"].tolist() == tensor_dict["labels"]
+    assert torch.all(torch.eq(data.batch["obs"], tensor_dict["obs"])).item()
+    assert data.meta_info["name"] == "abdce"
 
 
 def test_serialize_deserialize_single_tensor():

@@ -549,6 +549,47 @@ class DataProto:
             meta_info[DataProtoConfig.auto_padding_key] = True
         return cls(batch=tensor_dict, non_tensor_batch=non_tensors, meta_info=meta_info)
 
+    @classmethod
+    def from_tensordict(
+        cls,
+        tensor_dict: TensorDict = None,
+        meta_info=None,
+        num_batch_dims=1,
+    ):
+        """Create a DataProto from a TensorDict. This assumes that
+        1. All the tensor in tensor_dict have the same dim0
+        2. Only dim0 is the batch dim
+        """
+        assert version.parse(tensordict.__version__) >= version.parse("0.10.0"), (
+            "Build DataProto from TensorDict at least requires tensordict version 0.10.0"
+        )
+        from tensordict import NonTensorData, NonTensorStack
+
+        assert num_batch_dims > 0, "num_batch_dims must be greater than zero"
+        if not all(isinstance(val, torch.Tensor) for val in tensor_dict.values()):
+            assert num_batch_dims == 1, "only support num_batch_dims=1 when tensor_dict contains non tensor data."
+
+        if meta_info is None:
+            meta_info = {}
+        batch = {}
+        non_tensor_batch = {}
+        batch_size = None
+        for key, val in tensor_dict.items():
+            if isinstance(val, torch.Tensor):
+                batch[key] = val
+                if batch_size is None:
+                    batch_size = val.shape[:num_batch_dims]
+            elif isinstance(val, NonTensorStack):
+                non_tensor_batch[key] = np.array([elem.data for elem in val], dtype=object)
+            elif isinstance(val, NonTensorData):
+                meta_info[key] = val.data
+
+        return cls(
+            batch=TensorDict(batch, batch_size=batch_size),
+            non_tensor_batch=non_tensor_batch,
+            meta_info=meta_info,
+        )
+
     def to(self, device) -> "DataProto":
         """move the batch to device
 
