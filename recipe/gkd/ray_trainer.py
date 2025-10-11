@@ -492,6 +492,11 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
                     prev_fut = self._async_get_teacher_knowledge(fut)
                 with marked_timer("sync_rollout_weights", timing):
                     self.sync_rollout_weights()
+        
+        # for last step
+        with marked_timer("wait_prev_teacher", timing):
+            prev_result = prev_fut.get()
+        yield *prev_result, timing
 
     def two_step_off_scheduler(self, continuous_iterator):
         """Two-step-off scheduler implementation for GKD training with optimized pipeline.
@@ -553,7 +558,19 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
                 prev_fut = self._async_gen_next_batch(epoch, batch_dict)
                 yield *prev_prev_result, timing
                 timing = {}
-                
+
+        # for second to last step
+        with marked_timer("wait_prev_prev_teacher", timing):
+            prev_prev_result = prev_prev_fut.get()
+        with marked_timer("wait_prev_gen", timing):
+            prev_prev_fut = self._async_get_teacher_knowledge(prev_fut)
+        yield *prev_prev_result, timing
+
+        # for last step
+        with marked_timer("wait_prev_prev_teacher", timing):
+            prev_prev_result = prev_prev_fut.get()
+        yield *prev_prev_result, timing
+
     def fit(self):
         """
         The training loop of PPO.
