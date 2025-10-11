@@ -15,6 +15,9 @@ async_training:
   # One step means trainer obtains a batch of required samples
   trigger_parameter_sync_step: 4
   
+  # The number of ppo_mini_batches that the FullyAsyncTrainer obtains once
+  require_batches: 1  
+
   # When synchronizing parameters, whether to interrupt rollouter and perform partial rollout
   partial_rollout: True
 
