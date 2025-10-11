@@ -394,7 +394,7 @@ class DataParallelPPOActor(BasePPOActor):
         # See PPO paper for details. https://arxiv.org/abs/1707.06347
         mini_batches = data.split(self.config.ppo_mini_batch_size)
 
-        on_policy = len(mini_batches) == 1 and self.config.ppo_epochs == 1
+        on_policy = len(mini_batches) == 1 and self.config.ppo_epochs == 1 and self.config.hybrid_engine
 
         metrics = {}
         for _ in range(self.config.ppo_epochs):

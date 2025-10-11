@@ -97,8 +97,9 @@ class FullyAsyncTrainer(FullyAsyncRayPPOTrainer):
         self.progress_bar = None
         self.trigger_parameter_sync_step = config.async_training.trigger_parameter_sync_step
 
-        # required_samples use ppo_mini_batch_size as the minimum number of samples.
-        self.required_samples = config.actor_rollout_ref.actor.ppo_mini_batch_size
+        # required_samples use ppo_mini_batch_size*require_batches as the minimum number of samples.
+        self.require_batches = config.async_training.require_batches
+        self.required_samples = config.actor_rollout_ref.actor.ppo_mini_batch_size * self.require_batches
         total_gpus = (
             config.trainer.nnodes * config.trainer.n_gpus_per_node
             + config.rollout.nnodes * config.rollout.n_gpus_per_node
@@ -314,10 +315,10 @@ class FullyAsyncTrainer(FullyAsyncRayPPOTrainer):
         """
         if hasattr(batch, "meta_info") and batch.meta_info:
             samples_param_versions = batch.meta_info["rollout_param_versions"]
-            stale_count = sum(1 for v in samples_param_versions if self.current_param_version - v > 1)
+            stale_count = sum(1 for v in samples_param_versions if self.current_param_version - v >= 1)
             self.stale_samples_processed += stale_count
             trajectory_param_versions = batch.meta_info["trajectory_param_versions"]
-            stale_traj_count = sum(1 for v in trajectory_param_versions if self.current_param_version - v > 1)
+            stale_traj_count = sum(1 for v in trajectory_param_versions if self.current_param_version - v >= 1)
             self.stale_trajectory_processed += stale_traj_count
             metrics.update(
                 {

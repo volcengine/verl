@@ -115,8 +115,9 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
 
         # Config
         self.staleness_threshold: float = config.async_training.get("staleness_threshold", 1)
-        # required_samples use ppo_mini_batch_size as the minimum number of samples.
-        self.required_samples = config.actor_rollout_ref.actor.ppo_mini_batch_size
+        # required_samples use ppo_mini_batch_size*require_batches as the minimum number of samples.
+        self.require_batches = config.async_training.require_batches
+        self.required_samples = config.actor_rollout_ref.actor.ppo_mini_batch_size * self.require_batches
         self.max_required_samples = None
         self.max_concurrent_samples = None
         # queue size
