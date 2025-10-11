@@ -39,6 +39,7 @@ from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.fs import copy_to_local
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.rollout_trace import RolloutTraceConfig, rollout_trace_attr, rollout_trace_op
+from verl.utils.transferqueue_utils import batchmeta_dataproto_pipe
 from verl.workers.rollout.replica import TokenOutput, get_rollout_replica_class
 
 logger = logging.getLogger(__file__)
@@ -418,6 +419,7 @@ class AgentLoopWorker:
             trace_config.get("token2text", False),
         )
 
+    @batchmeta_dataproto_pipe()
     async def generate_sequences(self, batch: DataProto) -> DataProto:
         """Generate sequences from agent loop.
 
@@ -717,6 +719,17 @@ class AgentLoopWorker:
             batch=batch,
             non_tensor_batch=non_tensor_batch,
             meta_info={"metrics": metrics, "reward_extra_keys": reward_extra_keys},
+        )
+
+    def _create_transferqueue_client(self, controller_infos, storage_infos):
+        from verl.single_controller.ray.base import get_random_string
+        from verl.utils.transferqueue_utils import create_transferqueue_client
+
+        client_name = get_random_string(length=6)
+        create_transferqueue_client(
+            client_id=f"worker_{client_name}",
+            controller_infos=controller_infos,
+            storage_infos=storage_infos,
         )
 
 

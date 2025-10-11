@@ -69,16 +69,17 @@ init_predefined_execute_mode()
 
 
 def _split_args_kwargs_data_proto(chunks, *args, **kwargs):
+    from verl.experimental.transfer_queue import BatchMeta
     from verl.protocol import DataProto, DataProtoFuture
 
     splitted_args = []
     for arg in args:
-        assert isinstance(arg, DataProto | DataProtoFuture)
+        assert isinstance(arg, DataProto | DataProtoFuture | BatchMeta)
         splitted_args.append(arg.chunk(chunks=chunks))
 
     splitted_kwargs = {}
     for key, val in kwargs.items():
-        assert isinstance(val, DataProto | DataProtoFuture)
+        assert isinstance(val, DataProto | DataProtoFuture | BatchMeta)
         splitted_kwargs[key] = val.chunk(chunks=chunks)
 
     return splitted_args, splitted_kwargs
@@ -134,6 +135,7 @@ def collect_all_to_all(worker_group, output):
 def _concat_data_proto_or_future(output: list):
     import ray
 
+    from verl.experimental.transfer_queue import BatchMeta
     from verl.protocol import DataProto, DataProtoFuture
 
     # make sure all the elements in output has the same type
@@ -146,6 +148,8 @@ def _concat_data_proto_or_future(output: list):
         return DataProto.concat(output)
     elif isinstance(o, ray.ObjectRef):
         return DataProtoFuture.concat(output)
+    elif isinstance(o, BatchMeta):
+        return BatchMeta.concat(output)
     else:
         raise NotImplementedError
 
@@ -262,10 +266,13 @@ def collect_nd_compute_dataproto(collect_mask: list[bool], worker_group, output)
     output = collect_nd_compute(collect_mask, worker_group, output)
     import ray
 
+    from verl.experimental.transfer_queue import BatchMeta
     from verl.protocol import DataProto
 
     for o in output:
-        assert isinstance(o, DataProto | ray.ObjectRef), f"expecting {o} to be DataProto, but got {type(o)}"
+        assert isinstance(o, DataProto | ray.ObjectRef | BatchMeta), (
+            f"expecting {o} to be DataProto or BatchMeta, but got {type(o)}"
+        )
     return _concat_data_proto_or_future(output)
 
 
@@ -422,10 +429,14 @@ def register(dispatch_mode=Dispatch.ALL_TO_ALL, execute_mode=Execute.ALL, blocki
         A decorator that wraps the original function with distributed execution
         configuration.
     """
+    from verl.utils.transferqueue_utils import batchmeta_dataproto_pipe
+
     _check_dispatch_mode(dispatch_mode=dispatch_mode)
     _check_execute_mode(execute_mode=execute_mode)
 
     def decorator(func):
+        func = batchmeta_dataproto_pipe()(func)
+
         @wraps(func)
         def inner(*args, **kwargs):
             if materialize_futures:
