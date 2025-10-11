@@ -17,17 +17,18 @@ Multi-turn SFT dataset that supports training on conversation data with multiple
 """
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
 import torch
 from omegaconf import ListConfig
+from qwen_vl_utils import process_vision_info
 from torch.utils.data import Dataset
-from transformers import PreTrainedTokenizer
+from transformers import AutoProcessor, PreTrainedTokenizer
 
-from verl.utils import hf_tokenizer
 from verl.utils.dataset.dataset_utils import DatasetPadMode
+from verl.utils.dataset.vision_utils import process_image
 from verl.utils.fs import copy_local_path_from_hdfs
 
 
@@ -49,7 +50,7 @@ class MultiTurnSFTDataset(Dataset):
     Dataset for multi-turn conversations where each assistant response should be trained
     """
 
-    def __init__(self, parquet_files: str | list[str], tokenizer, config=None):
+    def __init__(self, parquet_files: str | list[str], processor, config=None):
         # Set defaults and extract parameters from config if provided
         config = config or {}
         self.pad_mode = config.get("pad_mode", "right")
@@ -62,6 +63,7 @@ class MultiTurnSFTDataset(Dataset):
         # Get messages_key from the new multiturn config structure
         multiturn_config = config.get("multiturn", {})
         self.messages_key = multiturn_config.get("messages_key", "messages")
+        self.images_key = multiturn_config.get("images_key", "images")
         self.tools_key = multiturn_config.get("tools_key", "tools")
         self.enable_thinking_key = multiturn_config.get("enable_thinking_key", "enable_thinking")
         self.apply_chat_template_kwargs = config.get("apply_chat_template_kwargs", {})
@@ -71,9 +73,13 @@ class MultiTurnSFTDataset(Dataset):
             parquet_files = [parquet_files]
 
         self.parquet_files = parquet_files
-        if isinstance(tokenizer, str):
-            tokenizer = hf_tokenizer(tokenizer)
-        self.tokenizer: PreTrainedTokenizer = tokenizer
+        self.processor: AutoProcessor = processor
+        # for multi-modal processor, which always has a tokenizer for text to id
+        if getattr(self.processor, "tokenizer", None) is not None:
+            self.tokenizer: PreTrainedTokenizer = self.processor.tokenizer
+        # for text models, processor is the same is tokenizer
+        else:
+            self.tokenizer = processor
 
         self._download()
         self._read_files_and_process()
@@ -83,14 +89,6 @@ class MultiTurnSFTDataset(Dataset):
             self.parquet_files[i] = copy_local_path_from_hdfs(parquet_file, verbose=True)
 
     def _read_files_and_process(self):
-        def series_to_item(ls):
-            import numpy
-            import pandas
-
-            while isinstance(ls, pandas.core.series.Series | numpy.ndarray) and len(ls) == 1:
-                ls = ls[0]
-            return ls
-
         dataframes = []
         for parquet_file in self.parquet_files:
             dataframe = pd.read_parquet(parquet_file)
@@ -98,7 +96,12 @@ class MultiTurnSFTDataset(Dataset):
         self.dataframe = pd.concat(dataframes)
 
         # Extract messages list from dataframe
-        self.messages = self.dataframe[self.messages_key].apply(series_to_item).tolist()
+        self.messages = self.dataframe[self.messages_key].apply(convert_nested_value_to_list_recursive).tolist()
+
+        if self.images_key in self.dataframe:
+            self.images = self.dataframe[self.images_key].apply(convert_nested_value_to_list_recursive).tolist()
+        else:
+            self.images = None
 
         # Extract tools list from dataframe
         if self.tools_key in self.dataframe.columns:
@@ -116,12 +119,13 @@ class MultiTurnSFTDataset(Dataset):
 
     def _process_message_tokens(
         self,
+        encode_func,
         messages: list[dict[str, Any]],
         start_idx: int,
         end_idx: int,
         is_assistant: bool = False,
-        enable_thinking: Optional[bool] = None,
-        tools: Optional[list[dict[str, Any]]] = None,
+        enable_thinking: bool | None = None,
+        tools: list[dict[str, Any]] | None = None,
     ) -> tuple[list[int], list[int], list[int]]:
         """
         Process tokens for a single message or a group of messages.
@@ -137,35 +141,26 @@ class MultiTurnSFTDataset(Dataset):
             Tuple of (tokens, loss_mask, attention_mask)
         """
         if start_idx > 0:
-            prev_applied_text = self.tokenizer.apply_chat_template(
-                messages[:start_idx],
-                tokenize=False,
-                add_generation_prompt=False,
-                enable_thinking=enable_thinking,
-                tools=tools,
-                **self.apply_chat_template_kwargs,
+            prev_applied_tokens = encode_func(
+                messages[:start_idx], tools, enable_thinking=enable_thinking, add_generation_prompt=False
             )
+            prev_applied_text = self.tokenizer.decode(prev_applied_tokens.input_ids[0])
             if is_assistant:
-                prev_applied_text_w_generation_prompt = self.tokenizer.apply_chat_template(
-                    messages[:start_idx],
-                    tokenize=False,
-                    add_generation_prompt=True,
-                    enable_thinking=enable_thinking,
-                    tools=tools,
-                    **self.apply_chat_template_kwargs,
+                prev_applied_text_w_generation_tokens = encode_func(
+                    messages[:start_idx], tools, enable_thinking=enable_thinking, add_generation_prompt=True
+                )
+                prev_applied_text_w_generation_prompt = self.tokenizer.decode(
+                    prev_applied_text_w_generation_tokens.input_ids[0]
                 )
 
         else:
             prev_applied_text = ""
 
-        cur_applied_text = self.tokenizer.apply_chat_template(
-            messages[:end_idx],
-            tokenize=False,
-            add_generation_prompt=False,
-            enable_thinking=enable_thinking,
-            tools=tools,
-            **self.apply_chat_template_kwargs,
+        cur_applied_tokens = encode_func(
+            messages[:end_idx], tools, add_generation_prompt=False, enable_thinking=enable_thinking
         )
+        cur_applied_text = self.tokenizer.decode(cur_applied_tokens.input_ids[0])
+
         # Get tokens for the current message only
         if is_assistant:
             generation_prompt_text = prev_applied_text_w_generation_prompt[len(prev_applied_text) :]
@@ -219,8 +214,6 @@ class MultiTurnSFTDataset(Dataset):
             logging.warning(
                 f"Token mismatch detected! Full tokenization length: {len(full_tokens_list)}, Concatenated tokens "
                 f"length: {len(concat_tokens)}. Using concatenated version."
-                # f"full tokens text: {self.tokenizer.decode(full_tokens_list)}"
-                # f"concat tokens text: {self.tokenizer.decode(concat_tokens)}"
             )
             return (
                 torch.tensor(concat_tokens, dtype=torch.long),
@@ -234,23 +227,63 @@ class MultiTurnSFTDataset(Dataset):
             torch.tensor(concat_attention_mask, dtype=torch.long),
         )
 
+    def encode_qwen25_vl(self, messages, tools, **kwargs):
+        if "add_generation_prompt" in kwargs:
+            add_generation_prompt = kwargs.pop("add_generation_prompt")
+        else:
+            add_generation_prompt = False
+        text = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=add_generation_prompt)
+        image_inputs, video_inputs = process_vision_info(messages)
+        # enable_thinking and tools are invalid for qwen25 vl processor
+        kwargs.pop("enable_thinking", None)
+        inputs = self.processor(
+            text=[text],
+            images=image_inputs,
+            videos=video_inputs,
+            return_tensors="pt",
+            **kwargs,
+            **self.apply_chat_template_kwargs,
+        )
+        return inputs
+
+    def encode_pure_text(self, messages, tools, **kwargs):
+        text = self.tokenizer.apply_chat_template(
+            messages,
+            tools=tools,
+            tokenize=False,
+            return_tensors="pt",
+            **kwargs,
+            **self.apply_chat_template_kwargs,
+        )
+        full_tokens = self.tokenizer([text], return_tensors="pt")
+        return full_tokens
+
     def __getitem__(self, item):
-        tokenizer = self.tokenizer
         messages = self.messages[item]
         tools = self.tools[item] if self.tools is not None else None
+        images = self.images[item] if self.images is not None else None
         enable_thinking = self.enable_thinking[item] if self.enable_thinking is not None else None
+
+        if images:
+            for conv in messages:
+                for content in conv["content"]:
+                    if content["type"] == "image":
+                        content["image"] = process_image(images[int(content["image"])])
+            for conv in messages:
+                for content in conv["content"]:
+                    for k, v in content.items():
+                        if v is None:
+                            content.pop(k)
+                            break
+
+        if images:
+            encode_func = self.encode_qwen25_vl
+        else:
+            encode_func = self.encode_pure_text
 
         # First, get the full conversation tokens
         try:
-            full_tokens = tokenizer.apply_chat_template(
-                messages,
-                tools=tools,
-                tokenize=True,
-                return_tensors="pt",
-                add_generation_prompt=False,
-                enable_thinking=enable_thinking,
-                **self.apply_chat_template_kwargs,
-            )
+            full_tokens = encode_func(messages, tools)
         except Exception as e:
             logging.error(
                 f"Error applying chat template: {e}\nMessages: {messages}\nTools: {tools}\nEnable thinking: "
@@ -269,7 +302,7 @@ class MultiTurnSFTDataset(Dataset):
             if cur_messages["role"] == "assistant":
                 # Process assistant message
                 tokens, loss_mask, attention_mask = self._process_message_tokens(
-                    messages, i, i + 1, is_assistant=True, enable_thinking=enable_thinking, tools=tools
+                    encode_func, messages, i, i + 1, is_assistant=True, enable_thinking=enable_thinking, tools=tools
                 )
                 i += 1
             elif cur_messages["role"] == "tool":
@@ -279,7 +312,7 @@ class MultiTurnSFTDataset(Dataset):
                 while ed < len(messages) and messages[ed]["role"] == "tool":
                     ed += 1
                 tokens, loss_mask, attention_mask = self._process_message_tokens(
-                    messages, st, ed, enable_thinking=enable_thinking, tools=tools
+                    encode_func, messages, st, ed, enable_thinking=enable_thinking, tools=tools
                 )
                 i = ed
             elif cur_messages["role"] in ["user", "system"]:
@@ -287,7 +320,7 @@ class MultiTurnSFTDataset(Dataset):
                 if cur_messages["role"] == "system" and i != 0:
                     raise ValueError("System message should be the first message")
                 tokens, loss_mask, attention_mask = self._process_message_tokens(
-                    messages, i, i + 1, enable_thinking=enable_thinking, tools=tools
+                    encode_func, messages, i, i + 1, enable_thinking=enable_thinking, tools=tools
                 )
                 i += 1
             else:
@@ -308,8 +341,18 @@ class MultiTurnSFTDataset(Dataset):
 
         # Validate and convert tokens
         input_ids, loss_mask, attention_mask = self._validate_and_convert_tokens(
-            full_tokens[0], concat_tokens, concat_loss_mask, concat_attention_mask
+            full_tokens.input_ids[0], concat_tokens, concat_loss_mask, concat_attention_mask
         )
+
+        if images:
+            multi_modal_inputs = {
+                "multi_modal_inputs": {
+                    "pixel_values": full_tokens.pixel_values,
+                    "image_grid_thw": full_tokens.image_grid_thw,
+                }
+            }
+        else:
+            multi_modal_inputs = {}
 
         # encode prompt
         if messages[0]["role"] == "system":
@@ -352,7 +395,7 @@ class MultiTurnSFTDataset(Dataset):
             # Zero out position IDs for padding
             position_ids = position_ids * attention_mask
 
-            return {
+            result = {
                 "input_ids": input_ids,
                 "attention_mask": attention_mask,
                 "position_ids": position_ids,
@@ -366,10 +409,22 @@ class MultiTurnSFTDataset(Dataset):
             # create position IDs
             position_ids = torch.arange(len(input_ids), dtype=torch.long)
             # return nested tensor with out padding
-            return {
+            result = {
                 "input_ids": input_ids,
                 "position_ids": position_ids,
                 "loss_mask": loss_mask,
             }
         else:
             raise ValueError(f"Unknown pad mode {self.pad_mode}")
+        result.update(multi_modal_inputs)
+        return result
+
+
+if __name__ == "__main__":
+    # the dataset loading script can be directly loaded
+    parquet_files = "vermouth1992/mnist_multiturn_sft/data"
+    from transformers import AutoProcessor
+
+    tokenizer = AutoProcessor.from_pretrained("Qwen/Qwen2.5-VL-3B-Instruct")
+    dataset = MultiTurnSFTDataset([parquet_files], tokenizer)
+    print(dataset[1])

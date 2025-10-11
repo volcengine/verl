@@ -888,7 +888,10 @@ class FSDPEngineWithLMHead(FSDPEngine):
                 entropy = output.entropy[:, -response_length - 1 : -1]  # (bsz, response_length)
 
             else:
-                logits = output.logits
+                if hasattr(output, "last_hidden_state"):
+                    logits = output.last_hidden_state
+                else:
+                    logits = output.logits
                 logits.div_(temperature)
 
                 if calculate_entropy:

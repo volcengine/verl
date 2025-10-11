@@ -53,6 +53,10 @@ def prepare_micro_batches(
         micro_batch_size_per_gpu = data["micro_batch_size_per_gpu"]
         micro_batches = data.split(micro_batch_size_per_gpu)
         batch_idx_list = None
+    if "multi_modal_inputs" in micro_batches[0]:
+        multi_modal_data = micro_batches[0]["multi_modal_inputs"]
+        for batch, indexes in zip(micro_batches, batch_idx_list, strict=False):
+            batch["multi_modal_inputs"] = [multi_modal_data[i] for i in indexes]
     return micro_batches, batch_idx_list
 
 
