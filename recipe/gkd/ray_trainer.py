@@ -411,47 +411,7 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
         except Exception as e:
             print(f"[WARN] Exception reloading rollout from checkpoint: {e}")
 
-    def one_step_off_scheduler_v0(self, continuous_iterator):
-        """One-step-off scheduler implementation (version 0) for GKD training.
-        
-        This scheduler manages the asynchronous execution of rollout generation and
-        teacher knowledge distillation in a pipelined fashion. It alternates between:
-        1. Generating new sequences while waiting for teacher knowledge from previous batch
-        2. Processing completed teacher knowledge while starting new generation
-        
-        The timing metrics collected include:
-        - sync_rollout_weights: Time taken to synchronize rollout weights
-        - wait_prev_gen: Time waiting for previous generation to complete
-        - wait_prev_teacher: Time waiting for teacher knowledge to be ready
-        
-        Args:
-            continuous_iterator: Iterator providing (epoch, batch_dict) tuples for training
-            
-        Yields:
-            tuple: Contains (batch, gen_batch_output, teacher_batch_output, timing_metrics)
-                - batch: Original input batch data
-                - gen_batch_output: Generated sequences from main model
-                - teacher_batch_output: Knowledge distillation from teacher model
-                - timing_metrics: Dictionary of timing measurements
-        """
-        timing = {}
-        for i, (epoch, batch_dict) in enumerate(continuous_iterator):
-            with marked_timer("sync_rollout_weights", timing):
-                self.sync_rollout_weights()
-            if i == 0:
-                fut = self._async_gen_next_batch(epoch, batch_dict)
-                continue
-            else:
-                with marked_timer("wait_prev_gen", timing):
-                    prev_fut = self._async_get_teacher_knowledge(fut)
-                fut = self._async_gen_next_batch(epoch, batch_dict)
-                with marked_timer("wait_prev_teacher", timing):
-                    prev_result = prev_fut.get()
-
-                yield *prev_result, timing
-                timing = {}
-
-    def one_step_off_scheduler_v1(self, continuous_iterator):
+    def one_step_off_scheduler(self, continuous_iterator):
         """One-step-off scheduler implementation (version 1) for GKD training with improved pipeline.
         
         This scheduler optimizes the training pipeline by:
@@ -630,10 +590,8 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
 
         scheduler_type = self.config.trainer.scheduler
 
-        if scheduler_type == "one_step_off_v0":
-            scheduler = self.one_step_off_scheduler_v0(continuous_iterator)
-        elif scheduler_type == "one_step_off" or scheduler_type == "one_step_off_v1":
-            scheduler = self.one_step_off_scheduler_v1(continuous_iterator)
+        if scheduler_type == "one_step_off":
+            scheduler = self.one_step_off_scheduler(continuous_iterator)
         elif scheduler_type == "two_step_off":
             scheduler = self.two_step_off_scheduler(continuous_iterator)
         else:
