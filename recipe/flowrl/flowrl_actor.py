@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import logging
+import math
 import os
 from typing import Any, Dict, Tuple
 
@@ -544,8 +545,8 @@ class FlowRLActor(DataParallelPPOActor):
         # clip params
         eps_low  = self.config.clip_ratio_low  if hasattr(self.config, "clip_ratio_low")  else clip_ratio
         eps_high = self.config.clip_ratio_high if hasattr(self.config, "clip_ratio_high") else clip_ratio
-        min_bound = avg_old_log_prob + torch.log1p(-eps_low)
-        max_bound = avg_old_log_prob + torch.log1p(eps_high)
+        min_bound = avg_old_log_prob + math.log(1.0 - eps_low)
+        max_bound = avg_old_log_prob + math.log(1.0 + eps_high)
 
         # Compute clip masks BEFORE clamping (for metrics)
         low_mask  = (avg_log_prob < min_bound)
