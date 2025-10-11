@@ -135,8 +135,8 @@ Lower threshold for IS weights. If `null`, defaults to 1/upper (reciprocal).
 
 ### `algorithm.rollout_is_level` (str)
 Aggregation level for IS weights:
-- `"token"`: Per-token ratios (biased)
-- `"sequence"`: Product of ratios (unbiased)
+- `"token"`: Per-token ratios
+- `"sequence"`: Product of ratios
 - `"geometric"`: Geometric mean (experimental)
 
 ### `algorithm.rollout_is_mode` (str)

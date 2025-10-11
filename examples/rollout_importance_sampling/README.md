@@ -43,9 +43,9 @@ bash examples/rollout_importance_sampling/run_with_rollout_is.sh
 
 | Level | Properties | Threshold Range |
 |-------|-----------|-----------------|
-| **token** | Biased | 1.5 - 5.0 |
-| **sequence** | Unbiased | 2.0 - 10.0 |
-| **geometric** | Experimental | 1.0002 - 1.001 |
+| **token** | Per-token | 1.5 - 5.0 |
+| **sequence** | Per-sequence | 2.0 - 10.0 |
+| **geometric** | Geometric mean | 1.0002 - 1.001 |
 
 ### Bounding Modes (`rollout_is_mode`)
 
@@ -86,7 +86,19 @@ algorithm:
   rollout_is_veto_threshold: 1e-4
 ```
 
-### Example 3: Sequence-level with Wider Threshold
+### Example 3: Sequence-level with Truncate
+
+```yaml
+algorithm:
+  rollout_is: true
+  rollout_is_threshold: 5.0
+  rollout_is_threshold_lower: null  # Auto-reciprocal: 0.2
+  rollout_is_level: sequence
+  rollout_is_mode: truncate
+  rollout_is_veto_threshold: 1e-4
+```
+
+### Example 4: Wider Threshold with Clip
 
 ```yaml
 algorithm:
@@ -98,7 +110,7 @@ algorithm:
   rollout_is_veto_threshold: 1e-5
 ```
 
-### Example 4: Asymmetric Thresholds
+### Example 5: Asymmetric Thresholds
 
 ```yaml
 algorithm:
@@ -111,7 +123,7 @@ algorithm:
 
 ## Monitoring Metrics
 
-Key metrics to watch (all prefixed with `actor/`):
+Key metrics to watch (all prefixed with `mismatch/` in logs):
 
 ### Health Indicators
 - `rollout_is_mean`: Mean IS weight across sequences

@@ -17,7 +17,7 @@ rollout_is_threshold=2.0
 # Lower threshold (null = auto-reciprocal, i.e., 1/upper = 0.5)
 rollout_is_threshold_lower=null
 
-# Aggregation level: token (biased) | sequence (unbiased) | geometric (experimental)
+# Aggregation level: token | sequence | geometric (experimental)
 rollout_is_level=token
 
 # Bounding mode: truncate (cap upper) | clip (zero outside bounds)
@@ -92,6 +92,6 @@ echo "  - Mode: ${rollout_is_mode}"
 echo "  - Threshold: ${rollout_is_threshold}"
 echo ""
 echo "Monitor these key metrics in wandb:"
-echo "  - actor/rollout_is_mean (should be ~1.0)"
-echo "  - actor/rollout_is_eff_sample_size (should be >0.5)"
-echo "  - actor/rollout_is_veto_fraction (should be <0.1)"
+echo "  - mismatch/rollout_is_mean (should be ~1.0)"
+echo "  - mismatch/rollout_is_eff_sample_size (should be >0.5)"
+echo "  - mismatch/rollout_is_veto_fraction (should be <0.1)"
