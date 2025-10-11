@@ -25,23 +25,15 @@ os.environ["NCCL_DEBUG"] = "WARN"
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
 # os.environ['TORCH_COMPILE_DISABLE'] = '1'
 
+import asyncio
 from pprint import pprint
 
 import pandas as pd
 from omegaconf import OmegaConf
-
-from verl import DataProto
-from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
-from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
-from verl.utils import hf_tokenizer
-from verl.utils.fs import copy_to_local
-from verl.utils.hdfs_io import makedirs
-from verl.utils.model import compute_position_id_with_mask
-from verl.workers.fsdp_workers import ActorRolloutRefWorker
-
-from verl.workers.rollout.replica import get_rollout_replica_class
 from openai import AsyncOpenAI
-import asyncio
+
+from verl.utils.hdfs_io import makedirs
+from verl.workers.rollout.replica import get_rollout_replica_class
 
 
 @hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
@@ -64,7 +56,6 @@ def run_generation(config) -> None:
 
 
 async def start_server(config):
-
     tp_size = config.actor_rollout_ref.rollout.tensor_model_parallel_size
     num_replicas = (config.trainer.n_gpus_per_node * config.trainer.nnodes) // tp_size
     rollout_config = config.actor_rollout_ref.rollout
@@ -73,7 +64,10 @@ async def start_server(config):
     rollout_server_class = get_rollout_replica_class(config.actor_rollout_ref.rollout.name)
     rollout_servers = [
         rollout_server_class(
-            replica_rank=replica_rank, config=rollout_config, model_config=model_config, gpus_per_node=config.trainer.n_gpus_per_node
+            replica_rank=replica_rank,
+            config=rollout_config,
+            model_config=model_config,
+            gpus_per_node=config.trainer.n_gpus_per_node,
         )
         for replica_rank in range(num_replicas)
     ]
@@ -94,22 +88,33 @@ async def generate_per_replica(server_address, model_path: str, n_samples: int, 
         base_url=f"http://{server_address}/v1",
     )
 
-    tasks = [client.chat.completions.create(
-        model=model_path,
-        messages=messages,
-        **sampling_params,
-    ) for messages in chat_lst for _ in range(n_samples)]
+    tasks = [
+        client.chat.completions.create(
+            model=model_path,
+            messages=messages,
+            **sampling_params,
+        )
+        for messages in chat_lst
+        for _ in range(n_samples)
+    ]
 
     results = await asyncio.gather(*tasks)
     return results
 
 
-async def generate(server_addresses: list, model_path: str, n_samples: int, sampling_params: dict, chat_numpy: np.ndarray):
+async def generate(
+    server_addresses: list, model_path: str, n_samples: int, sampling_params: dict, chat_numpy: np.ndarray
+):
     num_replicas = len(server_addresses)
     chat_sub_array = np.array_split(chat_numpy, num_replicas)
     chat_sub_array = [chat.tolist() for chat in chat_sub_array]
     assert len(server_addresses) == len(chat_sub_array)
-    results = await asyncio.gather(*[generate_per_replica(server_addresses[i], model_path, n_samples, sampling_params, chat_sub_array[i]) for i in range(num_replicas)])
+    results = await asyncio.gather(
+        *[
+            generate_per_replica(server_addresses[i], model_path, n_samples, sampling_params, chat_sub_array[i])
+            for i in range(num_replicas)
+        ]
+    )
     return results
 
 
@@ -141,7 +146,9 @@ def main_task(config):
     server_handles, server_addresses = asyncio.run(start_server(config))
 
     # run generate
-    gen_results = asyncio.run(generate(server_addresses, config.actor_rollout_ref.model.path, n_samples, sampling_params, chat_numpy))
+    gen_results = asyncio.run(
+        generate(server_addresses, config.actor_rollout_ref.model.path, n_samples, sampling_params, chat_numpy)
+    )
 
     # reshape results into a numpy array
 
