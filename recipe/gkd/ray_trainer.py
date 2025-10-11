@@ -343,7 +343,7 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
             for batch_dict in iterator:
                 yield epoch, batch_dict
 
-    def _async_gen_next_batch(self, epoch, batch_dict):
+    def _async_gen_next_batch(self, epoch, batch_dict, sync_before_generation=True):
         """
         Call parameter synchronization and asynchronous sequence generation.
         """
@@ -368,7 +368,8 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
             "top_p": self.config.actor_rollout_ref.rollout.temperature
         }
         # sync weights from actor to rollout
-        self.sync_rollout_weights()
+        if sync_before_generation:
+            self.sync_rollout_weights()
         # Call non-blocking rollout (worker method registered with blocking=False)
         gen_batch_output = self.rollout_wg.async_generate_sequences(gen_batch)
         return GenerationBatchFuture(epoch, batch, gen_batch_output)
@@ -476,22 +477,43 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
         timing = {}
         for i, (epoch, batch_dict) in enumerate(continuous_iterator):
             if i == 0:
+                # sync weights and start first async rollout
                 with marked_timer("sync_rollout_weights", timing):
-                    self.sync_rollout_weights()
-               
-                fut = self._async_gen_next_batch(epoch, batch_dict)
+                    fut = self._async_gen_next_batch(epoch, batch_dict)
+                # wait for previous rollout finish and start async generate teacher knowledge
                 with marked_timer("wait_prev_gen", timing):
                     prev_fut = self._async_get_teacher_knowledge(fut)
-            else:
-                fut = self._async_gen_next_batch(epoch, batch_dict)
+                # no yield here, so we will continue to the next loop and enter `else` block
+            if i == 1:
+                # we don't need to sync weights here because we have not trained the actor yet
+                # start second async rollout
+                fut = self._async_gen_next_batch(epoch, batch_dict, sync_before_generation=False)
+                # wait for generating teacher knowledge finish
+                # and get previous result including rollout and teacher knowledge
                 with marked_timer("wait_prev_teacher", timing):
                     prev_result = prev_fut.get()
                 yield *prev_result, timing
+
+                # start next step from here
                 timing = {}
+                # wait for previous rollout finish and start async generate teacher knowledge
                 with marked_timer("wait_prev_gen", timing):
                     prev_fut = self._async_get_teacher_knowledge(fut)
+            else:
+                # sync weights and start next async rollout
                 with marked_timer("sync_rollout_weights", timing):
-                    self.sync_rollout_weights()
+                    fut = self._async_gen_next_batch(epoch, batch_dict)
+                # wait for generating teacher knowledge finish
+                # and get previous result including rollout and teacher knowledge
+                with marked_timer("wait_prev_teacher", timing):
+                    prev_result = prev_fut.get()
+                yield *prev_result, timing
+
+                # start next step from here
+                timing = {}
+                # wait for previous rollout finish and start async generate teacher knowledge
+                with marked_timer("wait_prev_gen", timing):
+                    prev_fut = self._async_get_teacher_knowledge(fut)
         
         # for last step
         with marked_timer("wait_prev_teacher", timing):
@@ -533,19 +555,19 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
         timing = {}
         for i, (epoch, batch_dict) in enumerate(continuous_iterator):
             if i == 0:
-                self.sync_rollout_weights()
-                prev_fut = self._async_gen_next_batch(epoch, batch_dict)
+                with marked_timer("sync_rollout_weights", timing):
+                    prev_fut = self._async_gen_next_batch(epoch, batch_dict)
                 continue
             elif i == 1:
                 prev_prev_fut = self._async_get_teacher_knowledge(prev_fut)
-                prev_fut = self._async_gen_next_batch(epoch, batch_dict)
+                prev_fut = self._async_gen_next_batch(epoch, batch_dict, sync_before_generation=False)
                 continue
             elif i == 2:
                 with marked_timer("wait_prev_prev_teacher", timing):
                     prev_prev_result = prev_prev_fut.get()
                 with marked_timer("wait_prev_gen", timing):
                     prev_prev_fut = self._async_get_teacher_knowledge(prev_fut)
-                prev_fut = self._async_gen_next_batch(epoch, batch_dict)
+                prev_fut = self._async_gen_next_batch(epoch, batch_dict, sync_before_generation=False)
                 yield *prev_prev_result, timing
                 timing = {}
             else:
@@ -554,8 +576,7 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
                 with marked_timer("wait_prev_gen", timing):
                     prev_prev_fut = self._async_get_teacher_knowledge(prev_fut)
                 with marked_timer("sync_rollout_weights", timing):
-                    self.sync_rollout_weights()
-                prev_fut = self._async_gen_next_batch(epoch, batch_dict)
+                    prev_fut = self._async_gen_next_batch(epoch, batch_dict)
                 yield *prev_prev_result, timing
                 timing = {}
 
