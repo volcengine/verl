@@ -82,7 +82,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     data.max_length=1024 \
     data.pad_mode=right \
     data.truncation=error \
-    data.use_dynamic_bsz=True \
+    data.use_dynamic_bsz=False \
     data.max_token_len_per_gpu=8192 \
     data.messages_key=messages \
     model.path=$MODEL_PATH \
