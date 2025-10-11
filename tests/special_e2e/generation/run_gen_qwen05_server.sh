@@ -2,10 +2,8 @@
 # Tested with 1 & 4 GPUs
 set -xeuo pipefail
 
-# MODEL_ID=${MODEL_ID:/home/tiger/models/Qwen/Qwen2.5-0.5B-Instruct}
-
-MODEL_ID=/home/tiger/models/Qwen/Qwen2.5-0.5B-Instruct
-NGPUS_PER_NODE=${NGPUS_PER_NODE:-16}
+MODEL_ID=${MODEL_ID:-$HOME/models/Qwen/Qwen2.5-0.5B-Instruct}
+NGPUS_PER_NODE=${NGPUS_PER_NODE:-8}
 OUTPUT_PATH=${OUTPUT_PATH:-$HOME/data/gen/qwen_05_gen_test.parquet}
 GEN_TP=${GEN_TP:-2}  # Default tensor parallel size to 2
 
