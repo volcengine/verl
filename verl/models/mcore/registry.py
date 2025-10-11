@@ -33,8 +33,15 @@ from .config_converter import (
     hf_to_mcore_config_qwen2moe,
     hf_to_mcore_config_qwen3moe,
 )
-from .model_forward import gptmodel_forward, gptmodel_forward_qwen2_5_vl
-from .model_forward_fused import fused_forward_gptmodel, fused_forward_qwen2_5_vl
+from .model_forward import (
+    gptmodel_forward,
+    gptmodel_forward_no_padding,
+    gptmodel_forward_qwen2_5_vl,
+)
+from .model_forward_fused import (
+    fused_forward_gptmodel,
+    fused_forward_qwen2_5_vl,
+)
 from .model_initializer import (
     BaseModelInitializer,
     DeepseekV3Model,
@@ -114,6 +121,23 @@ MODEL_FORWARD_REGISTRY: dict[SupportedModel, Callable] = {
     SupportedModel.DEEPSEEK_V3: gptmodel_forward,
     SupportedModel.GLM4_MOE: gptmodel_forward,
     SupportedModel.QWEN3_TOKEN_CLASSIFICATION: gptmodel_forward,
+}
+
+# Registry for model forward functions
+MODEL_FORWARD_NOPAD_REGISTRY: dict[SupportedModel, Callable] = {
+    SupportedModel.LLAMA: gptmodel_forward_no_padding,
+    SupportedModel.QWEN2: gptmodel_forward_no_padding,
+    SupportedModel.QWEN2_MOE: gptmodel_forward_no_padding,
+    SupportedModel.MIXTRAL: gptmodel_forward_no_padding,
+    SupportedModel.DEEPSEEK_V3: gptmodel_forward_no_padding,
+    SupportedModel.QWEN2_5_VL: gptmodel_forward_no_padding,
+    SupportedModel.LLAMA4: gptmodel_forward_no_padding,
+    SupportedModel.QWEN3: gptmodel_forward_no_padding,
+    SupportedModel.QWEN3_MOE: gptmodel_forward_no_padding,
+    # SupportedModel.QWEN2_5_VL: gptmodel_forward_qwen2_5_vl,
+    SupportedModel.DEEPSEEK_V3: gptmodel_forward_no_padding,
+    SupportedModel.GLM4_MOE: gptmodel_forward_no_padding,
+    SupportedModel.QWEN3_TOKEN_CLASSIFICATION: gptmodel_forward_no_padding,
 }
 
 # Registry for model forward functions
@@ -218,6 +242,15 @@ def get_mcore_forward_fn(hf_config: PretrainedConfig) -> Callable:
     assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
     model = get_supported_model(hf_config.architectures[0])
     return MODEL_FORWARD_REGISTRY[model]
+
+
+def get_mcore_forward_no_padding_fn(hf_config: PretrainedConfig) -> Callable:
+    """
+    Get the forward function for given model architecture.
+    """
+    assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
+    model = get_supported_model(hf_config.architectures[0])
+    return MODEL_FORWARD_NOPAD_REGISTRY[model]
 
 
 def get_mcore_forward_fused_fn(hf_config: PretrainedConfig) -> Callable:

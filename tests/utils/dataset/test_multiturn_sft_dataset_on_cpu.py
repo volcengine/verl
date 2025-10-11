@@ -177,28 +177,26 @@ def test_multiturn_sft_dataset():
     assert torch.all(padded_item["attention_mask"][actual_length:] == 0), "Attention mask not set correctly for padding"
     assert torch.all(padded_item["loss_mask"][actual_length:] == 0), "Loss mask not set correctly for padding"
 
-    # test left right padding
+    # test no-padding
     config = {
         "max_length": 512,
         "truncation": "error",
         "multiturn": {"messages_key": "messages"},
-        "pad_mode": "left_right",
-        "max_prompt_length": 64,
-        "max_response_length": 64,
+        "pad_mode": "no_padding",
     }
     dataset = MultiTurnSFTDataset(parquet_files=test_file, tokenizer=tokenizer, config=config)
 
     item0 = dataset[0]
 
-    # make sure all the input_ids with attention_mask == 0 are all padding
-    assert torch.all(item0["input_ids"][item0["attention_mask"] == 0] == tokenizer.pad_token_id)
+    # Verify that the output contains expected keys for no-padding mode
+    required_keys = ["input_ids", "position_ids", "loss_mask"]
+    for key in required_keys:
+        assert key in item0, f"Missing key {key} in no-padding mode dataset item"
+        assert isinstance(item0[key], torch.Tensor), f"Expected torch.Tensor for {key} in no-padding mode"
 
     # make sure assistant_text matches with expected
-    assistant_text = tokenizer.decode(item0["responses"][item0["response_mask"] == 1])
+    assistant_text = tokenizer.decode(item0["input_ids"][item0["loss_mask"] == 1])
     assert assistant_text == "2+2 equals 4.<|im_end|>\n4+4 equals 8.<|im_end|>\n"
-
-    # make sure responses are part of input_ids
-    assert torch.all(item0["input_ids"][-item0["responses"].shape[0] :] == item0["responses"])
 
     print("All tests passed!")
     print("Starting test...")
