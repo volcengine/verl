@@ -593,6 +593,11 @@ class OneStepOffRayTrainer(RayPPOTrainer):
                         config=self.config.algorithm,
                     )
 
+                    # Compute rollout IS weights and mismatch metrics (inherited from RayPPOTrainer)
+                    batch, is_metrics = self.compute_rollout_importance_weights_and_add_to_batch(batch)
+                    # IS and mismatch metrics already have mismatch/ prefix
+                    metrics.update(is_metrics)
+
                 # update critic
                 if self.use_critic:
                     with marked_timer("update_critic", timing_raw, color="pink"):

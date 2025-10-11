@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 set -xeuo pipefail
 
+# Rollout Importance Sampling Example
+# References:
+#   - When Speed Kills Stability: https://yingru.notion.site/When-Speed-Kills-Stability-271211a558b7808d8b12d403fd15edda
+#   - Off-policy RL: https://fengyao.notion.site/off-policy-rl
+
 project_name='DAPO'
-exp_name='DAPO-Qwen2.5-32B-TIS'  # Truncated Importance Sampling (TIS) -> https://fengyao.notion.site/off-policy-rl
+exp_name='DAPO-Qwen2.5-32B-RolloutIS'  # Rollout Importance Sampling
 
 adv_estimator=grpo
 
@@ -10,7 +15,14 @@ use_kl_in_reward=False
 kl_coef=0.0
 use_kl_loss=False
 kl_loss_coef=0.0
-tis_imp_ratio_cap=2.0
+
+# Rollout Importance Sampling parameters (matches original TIS with threshold=2)
+rollout_is=True
+rollout_is_threshold=2.0
+rollout_is_threshold_lower=null  # No lower bound (original TIS behavior)
+rollout_is_level=token  # token-level (original TIS behavior)
+rollout_is_mode=truncate  # truncate mode (original TIS behavior)
+rollout_is_veto_threshold=null  # No veto (original TIS behavior)
 
 clip_ratio_low=0.2
 clip_ratio_high=0.28
@@ -58,14 +70,17 @@ offload=True
 gen_tp=4
 
 
-# Truncated Importance Sampling (TIS) -> https://fengyao.notion.site/off-policy-rl
-
-# Please note that server mode(agent loop) hasn't return rollout_log_probs for now.
-# so currently, server mode is not supported for TIS.
-
-# To turn on TIS, you need to set the following parameters. Note 2.0 is a hyper-parameter and can be tuned.
-#   actor_rollout_ref.actor.tis_imp_ratio_cap=2.0
-#   actor_rollout_ref.rollout.calculate_log_probs=True
+# Rollout Importance Sampling (corrects distribution mismatch between rollout and training)
+#
+# Please note that server mode (agent loop) hasn't returned rollout_log_probs for now,
+# so currently server mode is not supported for Rollout IS.
+#
+# Rollout IS parameters (configured at top of script):
+#   algorithm.rollout_is=True
+#   algorithm.rollout_is_threshold=2.0  # Upper threshold (can be tuned)
+#   algorithm.rollout_is_level=token  # Aggregation level
+#   algorithm.rollout_is_mode=truncate  # Bounding mode
+#   actor_rollout_ref.rollout.calculate_log_probs=True  # Required!
 
 ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     --working-dir "${WORKING_DIR}" \
@@ -109,7 +124,12 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     actor_rollout_ref.actor.grad_clip=1.0 \
     actor_rollout_ref.actor.loss_agg_mode=${loss_agg_mode} \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=${sp_size} \
-    actor_rollout_ref.actor.tis_imp_ratio_cap=${tis_imp_ratio_cap} \
+    algorithm.rollout_is=${rollout_is} \
+    algorithm.rollout_is_threshold=${rollout_is_threshold} \
+    algorithm.rollout_is_threshold_lower=${rollout_is_threshold_lower} \
+    algorithm.rollout_is_level=${rollout_is_level} \
+    algorithm.rollout_is_mode=${rollout_is_mode} \
+    algorithm.rollout_is_veto_threshold=${rollout_is_veto_threshold} \
     actor_rollout_ref.rollout.calculate_log_probs=True \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.80 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=${gen_tp} \

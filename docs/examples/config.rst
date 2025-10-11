@@ -118,7 +118,13 @@ Actor/Rollout/Reference Policy
       clip_ratio: 0.2
       entropy_coeff: 0.0
       use_kl_loss: False # True for GRPO
-      tis_imp_ratio_cap: -1 # set to positive values for Truncated Importance Sampling (requires setting `rollout.calculate_log_probs` as True)
+      # Rollout Importance Sampling (corrects distribution mismatch between rollout and training)
+      rollout_is: False # Enable IS correction
+      rollout_is_threshold: null # Upper threshold for IS weights (null to disable)
+      rollout_is_threshold_lower: null # Lower threshold (null = auto 1/upper)
+      rollout_is_level: token # Aggregation: token/sequence/geometric
+      rollout_is_mode: truncate # Bounding: truncate/clip
+      rollout_is_veto_threshold: 1e-4 # Catastrophic outlier threshold
       use_torch_compile: True # False to disable torch compile
       kl_loss_coef: 0.001 # for grpo
       kl_loss_type: low_var_kl # for grpo
@@ -498,6 +504,13 @@ Algorithm
        kl_coef: 0.005
        horizon: 10000
        target_kl: 0.1
+     # Rollout Importance Sampling
+     rollout_is: False
+     rollout_is_threshold: null
+     rollout_is_threshold_lower: null
+     rollout_is_level: token
+     rollout_is_mode: truncate
+     rollout_is_veto_threshold: 1e-4
 
 - ``gamma``: discount factor
 - ``lam``: Trade-off between bias and variance in the GAE estimator
@@ -510,6 +523,13 @@ Algorithm
   - ``kl_coef``: The (initial) coefficient of in-reward kl_penalty. Default is 0.001.
   - ``type``: 'fixed' for FixedKLController and 'adaptive' for AdaptiveKLController.
   - ``horizon`` and ``target_kl``: See source code of AdaptiveKLController for details.
+- ``rollout_is``: Whether to enable rollout importance sampling correction. Default is False.
+- ``rollout_is_threshold``: Upper threshold for IS weights. Set to ``null`` to disable IS completely.
+- ``rollout_is_threshold_lower``: Lower threshold for IS weights. If ``null``, defaults to reciprocal of upper (1/upper).
+- ``rollout_is_level``: Aggregation level: ``token`` (biased), ``sequence`` (unbiased), or ``geometric`` (experimental).
+- ``rollout_is_mode``: Bounding mode: ``truncate`` (cap upper only) or ``clip`` (zero outside bounds).
+- ``rollout_is_veto_threshold``: Per-token veto threshold for catastrophic outliers. Default is 1e-4.
+  Note: Rollout IS requires setting ``actor_rollout_ref.rollout.calculate_log_probs=True``.
 
 Trainer
 ~~~~~~~
