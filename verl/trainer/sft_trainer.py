@@ -32,7 +32,7 @@ from tqdm import tqdm
 
 from verl.utils import tensordict_utils as tu
 from verl.utils.checkpoint import CheckpointHandler
-from verl.utils.dataset.dataset_utils import SFTTensorCollator
+from verl.utils.dataset.dataset_utils import DatasetPadMode, SFTTensorCollator
 from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
 from verl.utils.device import get_device_name, is_cuda_available, is_npu_available
 from verl.utils.distributed import destroy_global_process_group
@@ -232,6 +232,11 @@ class SFTTrainer:
         # Calculate which epoch we're starting from for sampler.set_epoch()
         start_epoch = global_step // self.steps_per_epoch
 
+        if self.config.data.pad_mode == DatasetPadMode.LEFT_RIGHT:
+            max_resp_len = self.config.data.max_response_length
+        else:
+            max_resp_len = self.config.data.max_length
+
         meta_info = {
             "use_remove_padding": self.config.model.use_remove_padding,
             "use_dynamic_bsz": self.config.data.use_dynamic_bsz,
@@ -241,6 +246,7 @@ class SFTTrainer:
             "global_batch_size": self.global_batch_size,
             "pad_mode": self.config.data.pad_mode,
             "pad_token_id": self.model_config.tokenizer.pad_token_id,
+            "max_response_length": max_resp_len,
         }
 
         train_time = 0

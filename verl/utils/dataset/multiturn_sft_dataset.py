@@ -426,5 +426,5 @@ if __name__ == "__main__":
     from transformers import AutoProcessor
 
     tokenizer = AutoProcessor.from_pretrained("Qwen/Qwen2.5-VL-3B-Instruct")
-    dataset = MultiTurnSFTDataset([parquet_files], tokenizer)
+    dataset = MultiTurnSFTDataset([parquet_files], tokenizer, {"pad_mode": "left_right"})
     print(dataset[1])

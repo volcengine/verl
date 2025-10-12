@@ -831,7 +831,11 @@ class FSDPEngineWithLMHead(FSDPEngine):
                 log_probs = output.log_probs.squeeze(0)  # (total_nnz,)
                 entropy_rmpad = output.entropy.squeeze(0)  # (total_nnz,)
             else:
-                logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
+                if hasattr(output, "last_hidden_state"):
+                    logits = output.last_hidden_state
+                else:
+                    logits = output.logits
+                logits_rmpad = logits.squeeze(0)  # (total_nnz, vocab_size)
                 logits_rmpad.div_(temperature)
 
                 # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
