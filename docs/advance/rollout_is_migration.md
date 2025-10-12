@@ -36,10 +36,12 @@ The old implementation:
 ### **Added (New Implementation)**
 
 ```yaml
-# New Rollout IS configuration
+# New Rollout IS configuration (all in algorithm config)
 algorithm:
-  rollout_is: true
+  # Main control: set threshold to enable (null = disabled)
   rollout_is_threshold: 2.0
+  # Whether to apply weights to loss (default: false = metrics only)
+  rollout_is: true
   rollout_is_threshold_lower: null  # Auto-reciprocal
   rollout_is_level: token
   rollout_is_mode: truncate
@@ -121,11 +123,17 @@ The new implementation:
 
 ## Configuration Parameters
 
-### `algorithm.rollout_is` (bool)
-Enable/disable IS correction. Default: `False`
-
 ### `algorithm.rollout_is_threshold` (float or null)
-Upper threshold for IS weights. Set to `null` to disable IS completely.
+**Main on/off switch.** Upper threshold for IS weights.
+- `null` = disabled (no computation, no metrics)
+- `float` value (e.g., 2.0) = enabled (compute weights and metrics)
+
+### `algorithm.rollout_is` (bool)
+Whether to apply IS weights to policy loss. Default: `False`
+- `true` = apply weights to loss (full IS correction)
+- `false` = compute metrics only (useful for monitoring before enabling)
+
+**Recommended threshold ranges:**
 - Token level: 1.5 - 5.0
 - Sequence level: 2.0 - 10.0
 - Geometric level: 1.0002 - 1.001
@@ -164,8 +172,8 @@ actor_rollout_ref:
 **After (New):**
 ```yaml
 algorithm:
-  rollout_is: true
-  rollout_is_threshold: 2.0
+  rollout_is_threshold: 2.0  # Main control
+  rollout_is: true           # Apply to loss (default: false)
   rollout_is_level: token
   rollout_is_mode: truncate
 
@@ -430,41 +438,39 @@ Monitor metrics for 1-2 epochs before adjusting parameters.
 
 ## Configuration Examples
 
-### Example 1: Token-level with Truncate
+### Example 1: Full IS Correction
 ```yaml
 algorithm:
-  rollout_is: true
   rollout_is_threshold: 2.0
+  rollout_is: true  # Apply weights to loss
   rollout_is_level: token
   rollout_is_mode: truncate
 ```
 
-### Example 2: Geometric Mean with Clip
+### Example 2: Metrics Only (Monitoring Mode)
 ```yaml
 algorithm:
-  rollout_is: true
+  rollout_is_threshold: 2.0
+  rollout_is: false  # Compute metrics, don't apply weights
+  rollout_is_level: token
+  rollout_is_mode: truncate
+```
+
+### Example 3: Geometric Mean with Clip
+```yaml
+algorithm:
   rollout_is_threshold: 1.0002
+  rollout_is: true
   rollout_is_threshold_lower: 0.9998
   rollout_is_level: geometric
   rollout_is_mode: clip
 ```
 
-### Example 3: Wider Threshold with Clip
-```yaml
-algorithm:
-  rollout_is: true
-  rollout_is_threshold: 3.0
-  rollout_is_threshold_lower: 0.33
-  rollout_is_level: token
-  rollout_is_mode: clip
-  rollout_is_veto_threshold: 1e-5
-```
-
 ### Example 4: Asymmetric Thresholds
 ```yaml
 algorithm:
-  rollout_is: true
   rollout_is_threshold: 5.0
+  rollout_is: true
   rollout_is_threshold_lower: 0.8
   rollout_is_level: token
   rollout_is_mode: clip

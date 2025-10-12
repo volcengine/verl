@@ -577,6 +577,11 @@ class OneStepOffRayTrainer(RayPPOTrainer):
                     else:
                         batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
 
+                    # Compute rollout IS weights and mismatch metrics (inherited from RayPPOTrainer)
+                    batch, is_metrics = self.compute_rollout_importance_weights_and_add_to_batch(batch)
+                    # IS and mismatch metrics already have mismatch/ prefix
+                    metrics.update(is_metrics)
+
                     # compute advantages, executed on the driver process
 
                     norm_adv_by_std_in_grpo = self.config.algorithm.get(
@@ -592,11 +597,6 @@ class OneStepOffRayTrainer(RayPPOTrainer):
                         norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
                         config=self.config.algorithm,
                     )
-
-                    # Compute rollout IS weights and mismatch metrics (inherited from RayPPOTrainer)
-                    batch, is_metrics = self.compute_rollout_importance_weights_and_add_to_batch(batch)
-                    # IS and mismatch metrics already have mismatch/ prefix
-                    metrics.update(is_metrics)
 
                 # update critic
                 if self.use_critic:

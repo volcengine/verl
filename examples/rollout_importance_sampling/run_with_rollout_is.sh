@@ -8,11 +8,12 @@ set -xeuo pipefail
 # Rollout Importance Sampling Configuration
 # ==============================================================================
 
-# Enable rollout IS
-rollout_is=True
-
-# Upper threshold for IS weights
+# Main control: Upper threshold for IS weights (null = disabled, float = enabled)
 rollout_is_threshold=2.0
+
+# Whether to apply IS weights to policy loss
+# true = apply weights to loss, false = compute metrics only
+rollout_is=true
 
 # Lower threshold (null = auto-reciprocal, i.e., 1/upper = 0.5)
 rollout_is_threshold_lower=null
@@ -87,9 +88,10 @@ python3 -m verl.trainer.main_ppo \
 echo "Training completed!"
 echo ""
 echo "Rollout IS Configuration:"
+echo "  - Threshold: ${rollout_is_threshold}"
+echo "  - Apply to loss: ${rollout_is}"
 echo "  - Level: ${rollout_is_level}"
 echo "  - Mode: ${rollout_is_mode}"
-echo "  - Threshold: ${rollout_is_threshold}"
 echo ""
 echo "Monitor these key metrics in wandb:"
 echo "  - mismatch/rollout_is_mean (should be ~1.0)"

@@ -316,18 +316,9 @@ class MegatronPPOActor(BasePPOActor):
         ]
         if self.config.use_kl_loss:
             select_keys.append("ref_log_prob")
-        # Include pre-computed IS weights if rollout IS is enabled
-        # Weights must be computed centrally in trainer before distribution to workers
-        if self.config.rollout_is_threshold is not None:
-            assert "rollout_is_weights" in data.batch.keys(), (
-                "Rollout Importance Sampling requires pre-computed 'rollout_is_weights' in batch. "
-                "IS weights must be computed centrally in the trainer (ray_trainer.py) "
-                "before being distributed to workers. This ensures consistency across all workers "
-                "and avoids redundant computation. If you see this error, check that: "
-                "1. `actor_rollout_ref.actor.rollout_is_threshold` is set in config "
-                "2. `actor_rollout_ref.rollout.calculate_log_probs=True` is set "
-                "3. The trainer is computing and adding IS weights to the batch before update_actor()"
-            )
+        # Include pre-computed IS weights if present in batch
+        # Weights are computed centrally in trainer and added to batch when algorithm.rollout_is=True
+        if "rollout_is_weights" in data.batch.keys():
             select_keys.append("rollout_is_weights")
         self.has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
         if self.has_multi_modal_inputs:
@@ -447,20 +438,9 @@ class MegatronPPOActor(BasePPOActor):
 
                 policy_loss_fn = get_policy_loss_fn(loss_mode)
 
-                # Extract pre-computed rollout importance sampling weights
-                # Weights are computed centrally in trainer for efficiency and consistency
-                rollout_is_weights = None
-                if self.config.rollout_is_threshold is not None:
-                    # IS weights must be pre-computed in trainer and included in batch
-                    assert "rollout_is_weights" in data, (
-                        "Expected 'rollout_is_weights' in batch when rollout_is_threshold is set. "
-                        "IS weights should be computed centrally in the trainer before distribution."
-                    )
-                    rollout_is_weights = data["rollout_is_weights"]
-
-                    # Only apply weights if rollout_is is enabled
-                    if not self.config.get("rollout_is", False):
-                        rollout_is_weights = None
+                # Extract pre-computed rollout importance sampling weights if present
+                # Weights are computed centrally in trainer and added when algorithm.rollout_is=True
+                rollout_is_weights = data.get("rollout_is_weights", None)
 
                 # NOTE: Both mismatch diagnostic metrics (PPL, KL, etc.) and IS weight metrics
                 # are computed centrally in ray_trainer.py for consistency and efficiency.

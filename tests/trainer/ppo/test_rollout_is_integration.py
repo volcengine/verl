@@ -40,16 +40,15 @@ class TestRolloutISIntegration:
 
     @pytest.fixture
     def config_with_rollout_is(self):
-        """Create config with rollout IS enabled."""
+        """Create config for policy loss computation.
+
+        Note: rollout_is config has been moved to algorithm config.
+        This config only needs fields used by policy loss (clip_ratio, etc).
+        """
         config = ActorConfig(
             strategy="fsdp",
             rollout_n=1,
             ppo_micro_batch_size=2,
-            rollout_is=True,
-            rollout_is_threshold=2.0,
-            rollout_is_level="token",
-            rollout_is_mode="truncate",
-            rollout_is_veto_threshold=1e-4,
             clip_ratio=0.2,
         )
         return config
@@ -57,8 +56,9 @@ class TestRolloutISIntegration:
     def test_policy_loss_with_rollout_is(self, sample_data, config_with_rollout_is):
         """Test that policy loss computation works with rollout IS weights.
 
-        Note: In production, IS weights are computed centrally in the trainer.
-        This test simulates that by computing weights before passing to policy loss.
+        Note: In production, IS weights are computed centrally in the trainer
+        (before advantage computation) and passed to policy loss.
+        This test simulates that workflow.
         """
         # First compute IS weights (as trainer would do centrally)
         rollout_is_weights_proto, _ = compute_rollout_importance_weights(
@@ -188,6 +188,53 @@ class TestRolloutISIntegration:
         # Should have vetoed one sequence
         assert metrics["mismatch/rollout_is_veto_fraction"] > 0
         assert metrics["mismatch/rollout_is_veto_fraction"] <= 1.0
+
+    def test_metrics_only_mode(self, sample_data, config_with_rollout_is):
+        """Test metrics-only mode: compute IS weights/metrics but don't apply to loss.
+
+        This tests the use case where rollout_is_threshold is set (enables computation)
+        but rollout_is=False (disables weight application to policy loss).
+        """
+        # Compute IS weights (as trainer would do)
+        rollout_is_weights_proto, is_metrics = compute_rollout_importance_weights(
+            old_log_prob=sample_data["old_log_prob"],
+            rollout_log_prob=sample_data["rollout_log_prob"],
+            response_mask=sample_data["response_mask"],
+            rollout_is_level="token",
+            rollout_is_mode="truncate",
+            rollout_is_threshold=2.0,
+        )
+
+        # Metrics should be computed
+        assert len(is_metrics) > 0
+        assert "mismatch/rollout_is_mean" in is_metrics
+
+        # In metrics-only mode, we compute loss WITHOUT applying weights
+        # (simulating rollout_is=False)
+        pg_loss_no_weights, _, _, _ = compute_policy_loss_vanilla(
+            old_log_prob=sample_data["old_log_prob"],
+            log_prob=sample_data["log_prob"],
+            advantages=sample_data["advantages"],
+            response_mask=sample_data["response_mask"],
+            loss_agg_mode="token-mean",
+            config=config_with_rollout_is,
+            rollout_is_weights=None,  # Don't apply weights
+        )
+
+        # Compare to loss WITH weights (rollout_is=True)
+        rollout_is_weights = rollout_is_weights_proto.batch["rollout_is_weights"]
+        pg_loss_with_weights, _, _, _ = compute_policy_loss_vanilla(
+            old_log_prob=sample_data["old_log_prob"],
+            log_prob=sample_data["log_prob"],
+            advantages=sample_data["advantages"],
+            response_mask=sample_data["response_mask"],
+            loss_agg_mode="token-mean",
+            config=config_with_rollout_is,
+            rollout_is_weights=rollout_is_weights,
+        )
+
+        # Losses should be different (weights have an effect)
+        assert not torch.allclose(pg_loss_no_weights, pg_loss_with_weights)
 
 
 if __name__ == "__main__":

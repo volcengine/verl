@@ -920,35 +920,42 @@ class RayPPOTrainer:
         metrics.update(global_balance_stats)
 
     def compute_rollout_importance_weights_and_add_to_batch(self, batch: DataProto) -> tuple[DataProto, dict]:
-        """Compute rollout importance sampling weights and mismatch metrics, add weights to batch.
+        """Compute rollout importance sampling weights and mismatch metrics, conditionally add weights to batch.
 
         This method computes IS weights to correct for distribution mismatch between
-        rollout policy and training policy, then adds them to the batch. It also computes
-        mismatch metrics (KL, PPL, etc.) for monitoring.
+        rollout policy and training policy. It always computes metrics when enabled, but
+        only adds weights to batch if algorithm.rollout_is is True.
 
         Args:
             batch: DataProto containing old_log_probs, rollout_log_probs, response_mask
 
         Returns:
             Tuple of (updated_batch, metrics) where:
-                - updated_batch: Batch with rollout_is_weights added (if threshold is set)
+                - updated_batch: Batch with rollout_is_weights added (if rollout_is=True)
                 - metrics: Dictionary of IS and mismatch metrics (all with mismatch/ prefix)
         """
         # Compute rollout IS weights if enabled and data is available
-        if self.config.actor_rollout_ref.actor.rollout_is_threshold is not None and "rollout_log_probs" in batch.batch:
+        # rollout_is_threshold is the main on/off switch
+        if self.config.algorithm.rollout_is_threshold is not None and "rollout_log_probs" in batch.batch:
             rollout_is_weights, rollout_is_metrics = compute_rollout_importance_weights(
                 old_log_prob=batch.batch["old_log_probs"],
                 rollout_log_prob=batch.batch["rollout_log_probs"],
                 response_mask=batch.batch["response_mask"],
-                rollout_is_level=self.config.actor_rollout_ref.actor.get("rollout_is_level", "token"),
-                rollout_is_mode=self.config.actor_rollout_ref.actor.get("rollout_is_mode", "truncate"),
-                rollout_is_threshold=self.config.actor_rollout_ref.actor.rollout_is_threshold,
-                rollout_is_threshold_lower=self.config.actor_rollout_ref.actor.get("rollout_is_threshold_lower"),
-                rollout_is_veto_threshold=self.config.actor_rollout_ref.actor.get("rollout_is_veto_threshold"),
+                rollout_is_level=self.config.algorithm.rollout_is_level,
+                rollout_is_mode=self.config.algorithm.rollout_is_mode,
+                rollout_is_threshold=self.config.algorithm.rollout_is_threshold,
+                rollout_is_threshold_lower=self.config.algorithm.rollout_is_threshold_lower,
+                rollout_is_veto_threshold=self.config.algorithm.rollout_is_veto_threshold,
             )
 
-            # Add IS weights to batch for distribution to workers
-            batch = batch.union(rollout_is_weights)
+            # Control: Should we apply weights to policy loss?
+            # True = add weights to batch (actor will apply them)
+            # False = don't add weights (metrics only, no loss modification)
+            apply_weights = self.config.algorithm.get("rollout_is", False)
+
+            if apply_weights:
+                # Add IS weights to batch for distribution to workers
+                batch = batch.union(rollout_is_weights)
 
             return batch, rollout_is_metrics
 
@@ -1144,6 +1151,13 @@ class RayPPOTrainer:
                         else:
                             batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
 
+                        # Compute rollout importance sampling weights centrally (once per batch)
+                        # This corrects for mismatch between rollout policy and training policy
+                        # Also computes mismatch metrics (KL, PPL, etc.)
+                        batch, is_metrics = self.compute_rollout_importance_weights_and_add_to_batch(batch)
+                        # IS and mismatch metrics already have mismatch/ prefix
+                        metrics.update(is_metrics)
+
                         # compute advantages, executed on the driver process
                         norm_adv_by_std_in_grpo = self.config.algorithm.get(
                             "norm_adv_by_std_in_grpo", True
@@ -1158,13 +1172,6 @@ class RayPPOTrainer:
                             norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
                             config=self.config.algorithm,
                         )
-
-                        # Compute rollout importance sampling weights centrally (once per batch)
-                        # This corrects for mismatch between rollout policy and training policy
-                        # Also computes mismatch metrics (KL, PPL, etc.)
-                        batch, is_metrics = self.compute_rollout_importance_weights_and_add_to_batch(batch)
-                        # IS and mismatch metrics already have mismatch/ prefix
-                        metrics.update(is_metrics)
 
                     # update critic
                     if self.use_critic:

@@ -19,8 +19,10 @@ Rollout Importance Sampling corrects for distribution mismatch when:
 
 ```yaml
 algorithm:
-  rollout_is: true
+  # Main control: set threshold to enable (null = disabled)
   rollout_is_threshold: 2.0
+  # Whether to apply weights to policy loss (true) or just compute metrics (false)
+  rollout_is: true
   rollout_is_level: token
   rollout_is_mode: truncate
 
@@ -56,66 +58,64 @@ bash examples/rollout_importance_sampling/run_with_rollout_is.sh
 
 ### Key Parameters
 
-- `rollout_is`: Enable/disable IS correction (boolean)
-- `rollout_is_threshold`: Upper threshold for IS weights (float or null to disable)
+- `rollout_is_threshold`: Upper threshold for IS weights (null = disabled, float = enabled). **Main on/off switch.**
+- `rollout_is`: Whether to apply weights to loss (true) or just compute metrics (false). Default: false.
 - `rollout_is_threshold_lower`: Lower threshold (null = auto 1/upper)
 - `rollout_is_veto_threshold`: Catastrophic outlier threshold (default: 1e-4)
 
 ## Configuration Examples
 
-### Example 1: Token-level with Truncate
+### Example 1: Full IS Correction (Apply Weights)
 
 ```yaml
 algorithm:
-  rollout_is: true
   rollout_is_threshold: 2.0
+  rollout_is: true  # Apply to loss
   rollout_is_level: token
   rollout_is_mode: truncate
   rollout_is_veto_threshold: 1e-4
 ```
 
-### Example 2: Geometric Mean with Clip
+### Example 2: Metrics Only (No Weight Application)
 
 ```yaml
 algorithm:
-  rollout_is: true
+  rollout_is_threshold: 2.0
+  rollout_is: false  # Compute metrics only, don't apply to loss
+  rollout_is_level: token
+  rollout_is_mode: truncate
+```
+
+### Example 3: Geometric Mean with Clip
+
+```yaml
+algorithm:
   rollout_is_threshold: 1.0002
+  rollout_is: true
   rollout_is_threshold_lower: 0.9998
   rollout_is_level: geometric
   rollout_is_mode: clip
   rollout_is_veto_threshold: 1e-4
 ```
 
-### Example 3: Sequence-level with Truncate
+### Example 4: Sequence-level with Truncate
 
 ```yaml
 algorithm:
-  rollout_is: true
   rollout_is_threshold: 5.0
+  rollout_is: true
   rollout_is_threshold_lower: null  # Auto-reciprocal: 0.2
   rollout_is_level: sequence
   rollout_is_mode: truncate
   rollout_is_veto_threshold: 1e-4
 ```
 
-### Example 4: Wider Threshold with Clip
-
-```yaml
-algorithm:
-  rollout_is: true
-  rollout_is_threshold: 3.0
-  rollout_is_threshold_lower: 0.33
-  rollout_is_level: token
-  rollout_is_mode: clip
-  rollout_is_veto_threshold: 1e-5
-```
-
 ### Example 5: Asymmetric Thresholds
 
 ```yaml
 algorithm:
-  rollout_is: true
   rollout_is_threshold: 5.0
+  rollout_is: true
   rollout_is_threshold_lower: 0.8
   rollout_is_level: token
   rollout_is_mode: clip
