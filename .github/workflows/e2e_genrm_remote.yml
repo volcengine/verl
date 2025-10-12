@@ -66,6 +66,7 @@ on:
       - ".github/workflows/e2e_genrm_remote.yml"
       - "examples/data_preprocess/gsm8k.py"
       - "tests/special_e2e/run_genrm_remote.sh"
+      - "tests/special_e2e/generation/run_gen_qwen05_server.sh"
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
@@ -120,6 +121,8 @@ jobs:
         run: |
           ray stop --force
           bash tests/special_e2e/run_genrm_remote.sh
+          ray stop --force
+          bash tests/special_e2e/generation/run_gen_qwen05_server.sh
 
   cleanup:
     runs-on: ubuntu-latest
