@@ -418,6 +418,17 @@ class FlowRLActor(DataParallelPPOActor):
                             clip_ratio=self.config.clip_ratio,
                             rollout_log_probs=rollout_log_probs
                         )
+                    elif loss_variant == "gspo_clip":
+                        policy_loss, flowrl_metrics = self.compute_flowrl_objective_with_gspo_selection(
+                            log_prob=log_prob,
+                            ref_log_prob=ref_log_prob,
+                            old_log_prob=old_log_prob,
+                            log_z=log_z,
+                            reward=advantages,
+                            response_mask=response_mask,
+                            clip_ratio=self.config.clip_ratio,
+                            rollout_log_probs=rollout_log_probs
+                        )
                     elif loss_variant == "tis_clip":
                         policy_loss, flowrl_metrics = self.compute_flowrl_objective_tis_clip(
                             log_prob=log_prob,
@@ -430,7 +441,7 @@ class FlowRLActor(DataParallelPPOActor):
                             rollout_log_probs=rollout_log_probs
                         )
                     else:
-                        raise ValueError(f"Unknown loss_variant: {loss_variant}. Must be one of: vanilla, clip_only, tis_clip")
+                        raise ValueError(f"Unknown loss_variant: {loss_variant}. Must be one of: vanilla, clip_only, gspo_clip, tis_clip")
 
                     # if entropy_coeff != 0:
                     #     entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
@@ -584,6 +595,94 @@ class FlowRLActor(DataParallelPPOActor):
         }
 
         return avg_loss, loss_term_dict
+
+    def compute_flowrl_objective_with_gspo_selection(self,
+                                                 log_prob=None,
+                                                 ref_log_prob=None,
+                                                 old_log_prob=None,
+                                                 log_z=None,
+                                                 reward=None,
+                                                 response_mask=None,
+                                                 clip_ratio=None,
+                                                 rollout_log_probs=None):
+    
+        # ============ Step 1: GSPO clipping and selection (reuse GSPO code) ============
+        
+        # Get clip ratios from config
+        clip_ratio_low = self.config.clip_ratio_low if hasattr(self.config, "clip_ratio_low") and self.config.clip_ratio_low is not None else clip_ratio
+        clip_ratio_high = self.config.clip_ratio_high if hasattr(self.config, "clip_ratio_high") and self.config.clip_ratio_high is not None else clip_ratio
+        
+        log_importance_ratio = log_prob - old_log_prob
+        log_seq_importance_ratio = verl_F.masked_mean(log_importance_ratio, response_mask, axis=1)
+        log_seq_importance_ratio = torch.clamp(log_seq_importance_ratio, max=10.0)
+        seq_importance_ratio = torch.exp(log_seq_importance_ratio)
+        
+        # Clipped ratio
+        seq_importance_ratio_clipped = torch.clamp(seq_importance_ratio, 1 - clip_ratio_low, 1 + clip_ratio_high)
+        
+        seq_reward = verl_F.masked_mean(reward, response_mask, axis=1)
+        pg_losses1 = -seq_reward * seq_importance_ratio
+        pg_losses2 = -seq_reward * seq_importance_ratio_clipped
+        
+        # GSPO's two loss versions for selection
+        use_clipped = torch.gt(pg_losses2, pg_losses1) 
+    
+        # ============ Step 2: Compute FlowRL with selected log_prob (reuse original function) ============
+        log_z = log_z.squeeze(-1)
+        
+        # Average token log-probs & rewards over valid positions (from original function)
+        avg_log_prob     = verl_F.masked_mean(log_prob,     response_mask, axis=1)
+        avg_old_log_prob = verl_F.masked_mean(old_log_prob, response_mask, axis=1)
+        avg_ref_log_prob = verl_F.masked_mean(ref_log_prob, response_mask, axis=1)
+        seq_log_reward   = verl_F.masked_mean(reward,       response_mask, axis=1)
+
+        # Compute clip bounds in log space
+        min_bound = avg_old_log_prob + math.log(1.0 - clip_ratio_low)
+        max_bound = avg_old_log_prob + math.log(1.0 + clip_ratio_high)
+
+        # Apply clipping in log space
+        low_mask = (avg_log_prob < min_bound)
+        high_mask = (avg_log_prob > max_bound)
+        avg_log_prob_clipped = torch.clamp(avg_log_prob, min=min_bound, max=max_bound)
+
+        # Selectively apply clipping based on GSPO's decision
+        avg_log_prob_final = torch.where(use_clipped, avg_log_prob_clipped, avg_log_prob)
+                
+        # FlowRL residual: logZ + logpf - β*R - logpref (from original function)
+        delta = log_z + avg_log_prob_final - self.flowrl_beta_coef * seq_log_reward - avg_ref_log_prob
+
+        log_w = verl_F.masked_sum(log_prob - old_log_prob, response_mask, axis=1)
+        imp_w_raw = torch.exp(log_w).detach()
+        imp_w = torch.clamp(imp_w_raw, max=10.0)
+        
+        # Loss: weighted squared residual (from original function)
+        weighted_losses = imp_w * (delta ** 2)
+        avg_loss = torch.mean(weighted_losses)
+        
+        # ============ Metrics ============
+        batch_size = log_prob.size(0)
+        actual_clipped_low = (low_mask & use_clipped).float().sum() 
+        actual_clipped_high = (high_mask & use_clipped).float().sum() 
+        total_clipped = (use_clipped).float().sum() 
+
+        loss_term_dict = {
+            # Log probs
+            "actor/log_prob": avg_log_prob.mean().detach().item(),
+            "actor/log_prob_final": avg_log_prob_final.mean().detach().item(),
+            "actor/old_log_prob": avg_old_log_prob.mean().detach().item(),
+            "actor/ref_log_prob": avg_ref_log_prob.mean().detach().item(),
+            "actor/log_z": log_z.mean().detach().item(),
+            "actor/log_reward": seq_log_reward.mean().detach().item(),
+            "actor/final_loss": avg_loss.detach().item(),
+            # Clipping metrics
+            "actor/gspo_clip_fraction": (total_clipped / batch_size).item(),  
+            "actor/actual_clip_low": (actual_clipped_low / batch_size).item(),  
+            "actor/actual_clip_high": (actual_clipped_high / batch_size).item(),
+            "actor/importance_weight": imp_w.mean().detach().item(),
+        }
+        
+        return avg_loss, loss_term_dict
+
 
     def compute_flowrl_objective_tis_clip(self, 
                             log_prob=None,              
