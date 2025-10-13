@@ -339,8 +339,6 @@ class RayPPOTrainer:
             if self.ref_in_actor:
                 raise ValueError("Humanline requires a dedicated reference worker; disable LoRA ref_in_actor mode.")
 
-        self._humanline_cached_state = None
-
         # define in-reward KL control
         # kl loss control currently not suppoorted
         if self.config.algorithm.use_kl_in_reward:
@@ -1207,13 +1205,12 @@ class RayPPOTrainer:
 
                     # implement critic warmup
                     if self.config.trainer.critic_warmup <= self.global_steps:
-                        humanline_sync_scheduled = False
+                        sync_state = None
                         if self.config.algorithm.humanline:
-                            humanline_sync_scheduled = self._humanline_should_sync()
-                            if humanline_sync_scheduled:
-                                self._humanline_cached_state = self._collect_humanline_actor_state()
-                            else:
-                                self._humanline_cached_state = None
+                            if self._humanline_should_sync():
+                                sync_state = self._collect_humanline_actor_state()
+                                if sync_state is not None:
+                                    self._load_state_into_reference(sync_state)
 
                         # update actor
                         with marked_timer("update_actor", timing_raw, color="red"):
@@ -1221,10 +1218,6 @@ class RayPPOTrainer:
                             actor_output = self.actor_rollout_wg.update_actor(batch)
                         actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
                         metrics.update(actor_output_metrics)
-
-                        if humanline_sync_scheduled and self._humanline_cached_state is not None:
-                            self._load_state_into_reference(self._humanline_cached_state)
-                            self._humanline_cached_state = None
 
                     # Log rollout generations if enabled
                     rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)
