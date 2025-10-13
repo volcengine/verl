@@ -28,12 +28,12 @@ def set_numa_affinity():
         # TODO (FightingZhen) libnuma.so is not available in e2e_ascend CI image, remove this code after image update.
         return
 
-    libnuma = ctypes.CDLL("libnuma.so")
-    if libnuma.numa_available() < 0:
-        return
-
     initialized = False
     try:
+        libnuma = ctypes.CDLL("libnuma.so")
+        if libnuma.numa_available() < 0:
+            return
+
         import pynvml
 
         pynvml.nvmlInit()

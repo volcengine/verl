@@ -297,7 +297,11 @@ class RLHFDataset(Dataset):
         )
 
         if self.processor is not None and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__:
-            from verl.models.transformers.qwen2_vl import get_rope_index
+            # qwen-vl mrope
+            if "Qwen3VLProcessor" in self.processor.__class__.__name__:
+                from verl.models.transformers.qwen3_vl import get_rope_index
+            else:
+                from verl.models.transformers.qwen2_vl import get_rope_index
 
             vision_position_ids = get_rope_index(
                 self.processor,
@@ -305,6 +309,20 @@ class RLHFDataset(Dataset):
                 image_grid_thw=model_inputs.get("image_grid_thw"),
                 video_grid_thw=model_inputs.get("video_grid_thw"),
                 second_per_grid_ts=model_inputs.get("second_per_grid_ts"),
+                attention_mask=attention_mask[0],
+            )  # (3, seq_length)
+            valid_mask = attention_mask[0].bool()
+            text_position_ids = torch.ones((1, len(input_ids[0])), dtype=torch.long)
+            text_position_ids[0, valid_mask] = torch.arange(valid_mask.sum().item())
+            position_ids = [torch.cat((text_position_ids, vision_position_ids), dim=0)]  # (1, 4, seq_length)
+        elif self.processor is not None and "Glm4vImageProcessor" in self.processor.image_processor.__class__.__name__:
+            from verl.models.transformers.glm4v import get_rope_index
+
+            vision_position_ids = get_rope_index(
+                self.processor,
+                input_ids=input_ids[0],
+                image_grid_thw=model_inputs.get("image_grid_thw"),
+                video_grid_thw=model_inputs.get("video_grid_thw"),
                 attention_mask=attention_mask[0],
             )  # (3, seq_length)
             valid_mask = attention_mask[0].bool()

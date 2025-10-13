@@ -454,7 +454,8 @@ class AgentLoopWorker:
 
         # by default, we assume it's a single turn agent
         if "agent_name" not in batch.non_tensor_batch:
-            batch.non_tensor_batch["agent_name"] = np.array(["single_turn_agent"] * len(batch), dtype=object)
+            default_agent_loop = config.agent.default_agent_loop
+            batch.non_tensor_batch["agent_name"] = np.array([default_agent_loop] * len(batch), dtype=object)
 
         if "index" in batch.non_tensor_batch:
             index = batch.non_tensor_batch["index"]
@@ -589,7 +590,7 @@ class AgentLoopWorker:
                 video_grid_thw = multi_modal_inputs.get("video_grid_thw")
                 second_per_grid_ts = multi_modal_inputs.get("second_per_grid_ts")
 
-                position_ids = get_rope_index(
+                vision_position_ids = get_rope_index(
                     self.processor,
                     input_ids=input_ids.squeeze(0),
                     image_grid_thw=image_grid_thw,
@@ -597,6 +598,12 @@ class AgentLoopWorker:
                     second_per_grid_ts=second_per_grid_ts,
                     attention_mask=attention_mask.squeeze(0),
                 ).unsqueeze(0)  # (1, 3, seq_len)
+
+                valid_mask = attention_mask[0].bool()
+                text_position_ids = torch.ones((1, len(input_ids[0])), dtype=torch.long)
+                text_position_ids[0, valid_mask] = torch.arange(valid_mask.sum().item())
+                text_position_ids = text_position_ids.unsqueeze(0)
+                position_ids = torch.cat((text_position_ids, vision_position_ids), dim=1)  # (1, 4, seq_length)
             else:
                 position_ids = compute_position_id_with_mask(attention_mask)  # (1, seq_len)
             enable_async_reward = (
@@ -779,7 +786,11 @@ class AgentLoopManager:
             self.sleep()
 
     def _initialize_llm_servers(self):
-        rollout_world_size = self.config.actor_rollout_ref.rollout.tensor_model_parallel_size
+        rollout_world_size = (
+            self.config.actor_rollout_ref.rollout.tensor_model_parallel_size
+            * self.config.actor_rollout_ref.rollout.data_parallel_size
+            * self.config.actor_rollout_ref.rollout.pipeline_model_parallel_size
+        )
         world_size = (
             self.worker_group.world_size
             if self.worker_group
@@ -788,9 +799,14 @@ class AgentLoopManager:
         num_replicas = world_size // rollout_world_size
 
         rollout_replica_class = get_rollout_replica_class(self.config.actor_rollout_ref.rollout.name)
+        rollout_config = self.config.actor_rollout_ref.rollout
+        model_config = self.config.actor_rollout_ref.model
         self.rollout_replicas = [
             rollout_replica_class(
-                replica_rank=replica_rank, config=self.config, gpus_per_node=self.config.trainer.n_gpus_per_node
+                replica_rank=replica_rank,
+                config=rollout_config,
+                model_config=model_config,
+                gpus_per_node=self.config.trainer.n_gpus_per_node,
             )
             for replica_rank in range(num_replicas)
         ]

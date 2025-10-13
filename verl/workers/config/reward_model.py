@@ -18,6 +18,8 @@ import sys
 from dataclasses import dataclass, field
 from typing import Optional
 
+from omegaconf import MISSING
+
 from verl.base_config import BaseConfig
 from verl.utils.profiler import ProfilerConfig
 
@@ -92,29 +94,49 @@ class RewardModelDataProcessorConfig(BaseConfig):
 
 @dataclass
 class RewardModelConfig(BaseConfig):
-    _mutable_fields = BaseConfig._mutable_fields
+    _mutable_fields = {"max_model_len", "load_format"}
 
-    enable: bool = False
-    model_type: str = "discriminative"
-    name: str = "sglang"
-    enable_resource_pool: bool = False
-    n_gpus_per_node: int = 0
-    nnodes: int = 0
     reward_manager: str = "naive"
     launch_reward_fn_async: bool = False
 
+    enable: bool = False
+    name: Optional[str] = MISSING
+    model_type: str = "discriminative"
+    prompt_length: int = 1024
+    # for generative models, response_length should be set > 0
+    response_length: int = 0
+
+    # resource pool config: for colocate / standalone mode
+    enable_resource_pool: bool = False
+    n_gpus_per_node: int = 0
+    nnodes: int = 0
+
+    # reward model args
     dtype: str = "bfloat16"
     gpu_memory_utilization: float = 0.5
+    enforce_eager: bool = True
+    cudagraph_capture_sizes: Optional[list] = None
     free_cache_engine: bool = True
+    data_parallel_size: int = 1
+    expert_parallel_size: int = 1
     tensor_model_parallel_size: int = 2
+    max_num_batched_tokens: int = 8192
+    max_model_len: Optional[int] = None
+    max_num_seqs: int = 1024
+    load_format: str = "auto"
+    engine_kwargs: dict = field(default_factory=dict)
+    limit_images: Optional[int] = None
+    enable_chunked_prefill: bool = True
+    enable_prefix_caching: bool = True
+    disable_log_stats: bool = True
+    skip_tokenizer_init: bool = True
+
+    # we should deprecate this as it's not used anymore
+    # ignore_eos: bool = False
 
     # for generative reward model
     sampling_config: SamplingConfig = field(default_factory=SamplingConfig)
     data_processor_config: RewardModelDataProcessorConfig = field(default_factory=RewardModelDataProcessorConfig)
-    max_new_tokens: int = 4096
-
-    engine_kwargs: dict = field(default_factory=dict)
-    max_num_seqs: int = 1024
 
     sandbox_fusion: SandboxFusionConfig = field(default_factory=SandboxFusionConfig)
     profiler: ProfilerConfig = field(default_factory=ProfilerConfig)

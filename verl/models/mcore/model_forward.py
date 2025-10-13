@@ -16,7 +16,14 @@
 
 from verl.utils.megatron_utils import unwrap_model
 
-from .util import postprocess_packed_seqs, preprocess_packed_seqs, recover_left_padding, remove_left_padding
+from .util import (
+    postprocess_packed_seqs,
+    postprocess_packed_seqs_no_padding,
+    preprocess_packed_seqs,
+    preprocess_packed_seqs_no_padding,
+    recover_left_padding,
+    remove_left_padding,
+)
 
 
 def gptmodel_forward(
@@ -145,4 +152,56 @@ def gptmodel_forward_qwen2_5_vl(
         )
     if value_model and post_process:
         output = output[..., 0]
+    return output
+
+
+def gptmodel_forward_no_padding(
+    model,
+    input_ids,
+    value_model=False,
+    pack_seqs=True,
+    logits_processor=None,
+    logits_processor_args: dict = None,
+    **kwargs,
+):
+    """Default forward pass for GPT models with optional sequence packing."""
+    pre_process = unwrap_model(model).pre_process
+    post_process = unwrap_model(model).post_process
+    if pack_seqs:
+        batch_size = input_ids.shape[0]
+        input_ids_rmpad, packed_seq_params = preprocess_packed_seqs_no_padding(input_ids, pre_process=pre_process)
+        input_ids_rmpad = input_ids_rmpad.contiguous()
+        output_orig = model(
+            input_ids=input_ids_rmpad,
+            attention_mask=None,
+            position_ids=None,
+            packed_seq_params=packed_seq_params,
+        )
+
+        if post_process and logits_processor is not None:
+            args = {
+                k: preprocess_packed_seqs_no_padding(v, pre_process=True)[0] for k, v in logits_processor_args.items()
+            }
+            output_dict = logits_processor(output_orig, **args)
+            # print(f'gptmodel_forward_no_padding: {output_dict=}')
+            output = {
+                k: postprocess_packed_seqs_no_padding(
+                    v, packed_seq_params, input_ids, batch_size, post_process=post_process
+                )
+                for k, v in output_dict.items()
+            }
+        else:
+            output = postprocess_packed_seqs_no_padding(
+                output_orig, packed_seq_params, input_ids, batch_size, post_process=post_process
+            )
+    else:
+        raise NotImplementedError("gptmodel_forward_no_padding only supports packed sequences")
+
+    if value_model and post_process:
+        # output = output[..., 0]
+        # while using nested tensor, the advanced indexing operation above will result in an error at backward, i.e.
+        # ValueError: NestedTensor _nested_select_backward_default(grad_output: t, self: jt_all, dim: any, index: any)
+        # so we use `squeeze` to remove the last dimension
+        output = output.squeeze(-1)
+
     return output

@@ -3,11 +3,15 @@ name: pre-commit
 
 # No need to avoid / cancel lightweight pre-commit jobs
 on:
+  schedule:
+    - cron: "0 0 * * 0"
   pull_request:
   push:
     branches:
       - main
       - v0.*
+  # Allow manual triggering
+  workflow_dispatch:
 
 # Declare permissions just read content.
 permissions:

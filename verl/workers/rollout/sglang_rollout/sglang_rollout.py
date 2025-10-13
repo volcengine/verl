@@ -57,6 +57,7 @@ from verl.third_party.sglang import parallel_state as sglang_ps
 from verl.tools.base_tool import BaseTool
 from verl.tools.schemas import OpenAIFunctionCallSchema, OpenAIFunctionParsedSchema, OpenAIFunctionToolCall
 from verl.tools.utils.tool_registry import initialize_tools_from_config
+from verl.utils.device import get_visible_devices_keyword
 from verl.utils.net_utils import is_ipv6
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
@@ -69,6 +70,7 @@ from verl.workers.rollout.schemas import (
 )
 from verl.workers.rollout.sglang_rollout.http_server_engine import AsyncHttpServerAdapter
 from verl.workers.rollout.sglang_rollout.utils import broadcast_pyobj, get_named_tensor_buckets
+from verl.workers.rollout.utils import is_valid_ipv6_address
 
 try:
     from sglang.srt.function_call.function_call_parser import FunctionCallParser
@@ -224,6 +226,10 @@ def get_tool_call_parser_type(
     processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
 ) -> str:
     items = FunctionCallParser.ToolCallParserEnum.items()
+    if "gpt-oss" in getattr(processing_class, "name_or_path", "").lower():
+        logger.debug(f"gpt-oss model detected from name_or_path: {processing_class.name_or_path}")
+        logger.debug("Using 'gpt-oss' tool call parser.")
+        return "gpt-oss"
     for parser_type, parser_cls in items:
         parser = parser_cls()
         try:
@@ -336,12 +342,12 @@ class SGLangRollout(BaseRollout):
             logger.info(f"_init_distributed_env: :tp_world: {self._tp_size}, global_world: {world_size}")
         # get tp_rank of this process in this tp group
         visible_devices = [None] * self._device_mesh_cpu.size(1)
-
+        devices_keyword = get_visible_devices_keyword()
         torch.distributed.all_gather_object(
-            visible_devices, os.environ["CUDA_VISIBLE_DEVICES"], self._device_mesh_cpu.get_group("tp")
+            visible_devices, os.environ[devices_keyword], self._device_mesh_cpu.get_group("tp")
         )
         self.visible_devices_set = set(",".join(visible_devices).split(","))
-        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(sorted(list(self.visible_devices_set)))
+        os.environ[devices_keyword] = ",".join(sorted(list(self.visible_devices_set), key=int))
 
     def _verify_config(self, model_hf_config):
         if not self.config.get("max_model_len", None):
@@ -423,7 +429,7 @@ class SGLangRollout(BaseRollout):
 
         if self.config.mode == "async" and not self.config.skip_tokenizer_init:
             raise ValueError("async mode requires skip_tokenizer_init to be True")
-
+        backend = attention_backend if attention_backend is not None else "fa3"
         if effective_first:
             rank = dist.get_rank()
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
@@ -453,10 +459,11 @@ class SGLangRollout(BaseRollout):
                 # log_requests_level=2,
                 # NOTE(Chenyang): turn on max_running_requests to set the max concurrent running requests
                 # max_running_requests=1,
-                "mm_attention_backend": "fa3",
-                "attention_backend": attention_backend if attention_backend is not None else "fa3",
+                "mm_attention_backend": backend,
+                "attention_backend": backend,
                 # In async mode, we want token in token out.
                 "skip_tokenizer_init": self.config.skip_tokenizer_init,
+                "dist_timeout": 1800,
             }
 
             if is_server_mode:
@@ -1541,7 +1548,7 @@ class ServerAdapter(BaseRollout):
 
         rank = int(os.environ["RANK"])
         local_world_size = int(os.environ["RAY_LOCAL_WORLD_SIZE"])
-        rollout_world_size = self.config.tensor_model_parallel_size
+        rollout_world_size = self.config.tensor_model_parallel_size * self.config.data_parallel_size
         self.replica_rank = rank // rollout_world_size
         self.rollout_rank = rank % rollout_world_size
         self.node_rank = self.rollout_rank // local_world_size
@@ -1558,8 +1565,9 @@ class ServerAdapter(BaseRollout):
             f"replica_rank={self.replica_rank} node_rank={self.node_rank}, "
             f"server address: {server_address}, port: {server_port}"
         )
+        host = f"[{server_address}]" if is_valid_ipv6_address(server_address) else server_address
         self._engine = AsyncHttpServerAdapter(
-            model_path=self.model_config.local_path, host=server_address, port=server_port, launch_server=False
+            model_path=self.model_config.local_path, host=host, port=server_port, launch_server=False
         )
 
     async def resume(self, tags: list[str]):
@@ -1568,14 +1576,14 @@ class ServerAdapter(BaseRollout):
         Args:
             tag: weights or kv_cache.
         """
-        await self._init_server_adapter()
         if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.config.free_cache_engine:
+            await self._init_server_adapter()
             await self._engine.resume_memory_occupation(tags=tags)
 
     async def release(self):
         """Release weights and kv cache in GPU memory."""
-        await self._init_server_adapter()
         if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.config.free_cache_engine:
+            await self._init_server_adapter()
             await self._engine.release_memory_occupation(tags=["kv_cache", "weights"])
 
     async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None], **kwargs):
@@ -1591,8 +1599,9 @@ class ServerAdapter(BaseRollout):
             - Main logic: https://github.com/THUDM/slime/blob/fb7605cc5fb09af0f9369d37f7192f12bddee577/slime/ray/ppo_actor.py#L452
             - runtime envs: https://github.com/THUDM/slime/blob/fb7605cc5fb09af0f9369d37f7192f12bddee577/slime/ray/ppo_actor.py#L39
         """
-        # FIXME(@wuxibin): device_mesh is not right in multi-node case.
-        await self._init_server_adapter()
+        if self.device_mesh["infer_tp"].get_local_rank() == 0:
+            await self._init_server_adapter()
+
         update_weights_bucket_bytes = int(self.config.update_weights_bucket_megabytes) << 20
         for params_batch in get_named_tensor_buckets(weights, update_weights_bucket_bytes):
             await sgl_update_weights(
