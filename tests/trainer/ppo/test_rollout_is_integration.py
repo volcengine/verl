@@ -132,8 +132,8 @@ class TestRolloutISIntegration:
             assert "mismatch/rollout_is_mean" in metrics
 
     def test_both_bounding_modes(self, sample_data):
-        """Test both truncate and clip modes."""
-        modes = ["truncate", "clip"]
+        """Test both truncate and mask modes."""
+        modes = ["truncate", "mask"]
 
         for mode in modes:
             _, metrics = compute_rollout_importance_weights(

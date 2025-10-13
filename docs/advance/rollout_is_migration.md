@@ -55,7 +55,7 @@ actor_rollout_ref:
 
 The new implementation:
 - ✅ Three aggregation levels: token, sequence, geometric
-- ✅ Two bounding modes: truncate, clip
+- ✅ Two bounding modes: truncate, mask
 - ✅ Dual threshold support (upper/lower)
 - ✅ Veto mechanism for catastrophic outliers
 - ✅ 30+ comprehensive metrics
@@ -150,7 +150,7 @@ Aggregation level for IS weights:
 ### `algorithm.rollout_is_mode` (str)
 Bounding mode:
 - `"truncate"`: Cap weights at upper threshold only
-- `"clip"`: Zero out weights outside [lower, upper]
+- `"mask"`: Zero out weights outside [lower, upper]
 
 ### `algorithm.rollout_is_veto_threshold` (float)
 Per-token veto threshold. If any token ratio < this, entire sequence is rejected.
@@ -199,7 +199,7 @@ All metrics are prefixed with `mismatch/`. For example, `rollout_is_mean` appear
 - **`rollout_is_min`**: Minimum IS weight observed
   - Shows the most underweighted token/sequence
 
-- **`rollout_is_max`**: Maximum IS weight observed (before clipping)
+- **`rollout_is_max`**: Maximum IS weight observed (before truncation/masking)
   - Shows the most overweighted token/sequence
   - Compare with `rollout_is_threshold` to see truncation impact
 
@@ -235,11 +235,11 @@ All metrics are prefixed with `mismatch/`. For example, `rollout_is_mean` appear
 #### **Threshold Exceedance Metrics**
 
 - **`rollout_is_ratio_fraction_high`**: Fraction of weights exceeding upper threshold
-  - Shows how often truncation/clipping occurs on high end
+  - Shows how often truncation/masking occurs on high end
   - **Ideal value**: < 0.1 (most weights within bounds)
 
 - **`rollout_is_ratio_fraction_low`**: Fraction of weights below lower threshold
-  - Shows how often clipping occurs on low end (clip mode only)
+  - Shows how often masking occurs on low end (mask mode only)
   - **Ideal value**: < 0.1
 
 #### **Sequence-Level Metrics** (for sequence/geometric modes)
@@ -261,14 +261,14 @@ All metrics are prefixed with `mismatch/`. For example, `rollout_is_mean` appear
 
 - **`rollout_is_seq_fraction_low`**: Fraction of sequences below lower threshold
 
-#### **Clipping Metrics** (clip mode only)
+#### **Masking Metrics** (mask mode only)
 
-- **`rollout_is_clipped_fraction`**: Fraction of tokens clipped (set to zero)
+- **`rollout_is_masked_fraction`**: Fraction of tokens masked (set to zero)
   - **Ideal value**: < 0.1
   - **Warning**: > 0.3 means losing too much data
 
-- **`rollout_is_seq_clipped_fraction`**: Fraction of sequences with at least one clipped token
-  - Shows sequence-level impact of clipping
+- **`rollout_is_seq_masked_fraction`**: Fraction of sequences with at least one masked token
+  - Shows sequence-level impact of masking
 
 #### **Distribution Mismatch Metrics** (Training vs Rollout Policy)
 
@@ -456,14 +456,14 @@ algorithm:
   rollout_is_mode: truncate
 ```
 
-### Example 3: Geometric Mean with Clip
+### Example 3: Geometric Mean with Mask
 ```yaml
 algorithm:
   rollout_is_threshold: 1.0002
   rollout_is: true
   rollout_is_threshold_lower: 0.9998
   rollout_is_level: geometric
-  rollout_is_mode: clip
+  rollout_is_mode: mask
 ```
 
 ### Example 4: Asymmetric Thresholds
@@ -473,7 +473,7 @@ algorithm:
   rollout_is: true
   rollout_is_threshold_lower: 0.8
   rollout_is_level: token
-  rollout_is_mode: clip
+  rollout_is_mode: mask
 ```
 
 ## Troubleshooting
