@@ -110,6 +110,11 @@ def load_reward_manager(
         An instance of the specified reward manager class.
     """
 
+    # Try to get a custom reward function based on the configuration
+    # user defined reward manager can be registered in custom_reward_fn
+    compute_score = get_custom_reward_fn(config)
+    final_compute_score = compute_score
+
     # The list of pre-defined reward managers are defined in `verl/workers/reward_manager/`:
     # naive: NaiveRewardManager
     # prime: PrimeRewardManager
@@ -120,10 +125,6 @@ def load_reward_manager(
     # By default reward_manager is set to naive (NaiveRewardManager)
     reward_manager_name = config.reward_model.get("reward_manager", "naive")
     reward_manager_cls = get_reward_manager_cls(reward_manager_name)
-
-    # Try to get a custom reward function based on the configuration
-    compute_score = get_custom_reward_fn(config)
-    final_compute_score = compute_score
 
     if compute_score is None:
         sandbox_config = config.reward_model.get("sandbox_fusion")

@@ -35,32 +35,29 @@ from .qwen2_5_vl.model import Qwen2_5VLModel
 from .util import postprocess_packed_seqs_for_dict_output
 
 
-def patch_fused_forward(model: torch.nn.Module):
+def _get_patching_model(model: torch.nn.Module):
     model = unwrap_model(model)
     if isinstance(model, GPTModel):
-        model = model
-    elif isinstance(model, Qwen2_5VLModel):
-        if not hasattr(model, "language_model"):
-            # the qwen2.5vl model might only have vision_model
-            return
-        model = model.language_model
-    else:
-        raise ValueError("Model is not a GPTModel or Qwen2_5VLModel")
-    model.forward_backup = model.forward
-    model.forward = _fused_GPTModel_forward.__get__(model, model.__class__)
-    return
+        return model
+
+    if not (hasattr(model, "language_model") and isinstance(model.language_model, GPTModel)):
+        print(f"Model {model.__class__.__name__} is not a supported for fused forward")
+        return None
+
+    return model.language_model
+
+
+def patch_fused_forward(model: torch.nn.Module):
+    model = _get_patching_model(model)
+    if model is not None:
+        model.forward_backup = model.forward
+        model.forward = _fused_GPTModel_forward.__get__(model, model.__class__)
 
 
 def unpatch_fused_forward(model: torch.nn.Module):
-    model = unwrap_model(model)
-    if isinstance(model, GPTModel):
-        model = model
-    elif isinstance(model, Qwen2_5VLModel):
-        model = model.language_model
-    else:
-        raise ValueError("Model is not a GPTModel or Qwen2_5VLModel")
-    model.forward = model.forward_backup
-    return
+    model = _get_patching_model(model)
+    if model is not None:
+        model.forward = model.forward_backup
 
 
 def fused_forward_gptmodel(

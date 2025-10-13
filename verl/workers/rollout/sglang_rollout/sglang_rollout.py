@@ -57,6 +57,7 @@ from verl.third_party.sglang import parallel_state as sglang_ps
 from verl.tools.base_tool import BaseTool
 from verl.tools.schemas import OpenAIFunctionCallSchema, OpenAIFunctionParsedSchema, OpenAIFunctionToolCall
 from verl.tools.utils.tool_registry import initialize_tools_from_config
+from verl.utils.device import get_visible_devices_keyword
 from verl.utils.net_utils import is_ipv6
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
@@ -225,6 +226,10 @@ def get_tool_call_parser_type(
     processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
 ) -> str:
     items = FunctionCallParser.ToolCallParserEnum.items()
+    if "gpt-oss" in getattr(processing_class, "name_or_path", "").lower():
+        logger.debug(f"gpt-oss model detected from name_or_path: {processing_class.name_or_path}")
+        logger.debug("Using 'gpt-oss' tool call parser.")
+        return "gpt-oss"
     for parser_type, parser_cls in items:
         parser = parser_cls()
         try:
@@ -337,12 +342,12 @@ class SGLangRollout(BaseRollout):
             logger.info(f"_init_distributed_env: :tp_world: {self._tp_size}, global_world: {world_size}")
         # get tp_rank of this process in this tp group
         visible_devices = [None] * self._device_mesh_cpu.size(1)
-
+        devices_keyword = get_visible_devices_keyword()
         torch.distributed.all_gather_object(
-            visible_devices, os.environ["CUDA_VISIBLE_DEVICES"], self._device_mesh_cpu.get_group("tp")
+            visible_devices, os.environ[devices_keyword], self._device_mesh_cpu.get_group("tp")
         )
         self.visible_devices_set = set(",".join(visible_devices).split(","))
-        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(sorted(list(self.visible_devices_set)))
+        os.environ[devices_keyword] = ",".join(sorted(list(self.visible_devices_set), key=int))
 
     def _verify_config(self, model_hf_config):
         if not self.config.get("max_model_len", None):
@@ -424,7 +429,7 @@ class SGLangRollout(BaseRollout):
 
         if self.config.mode == "async" and not self.config.skip_tokenizer_init:
             raise ValueError("async mode requires skip_tokenizer_init to be True")
-
+        backend = attention_backend if attention_backend is not None else "fa3"
         if effective_first:
             rank = dist.get_rank()
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
@@ -454,10 +459,11 @@ class SGLangRollout(BaseRollout):
                 # log_requests_level=2,
                 # NOTE(Chenyang): turn on max_running_requests to set the max concurrent running requests
                 # max_running_requests=1,
-                "mm_attention_backend": "fa3",
-                "attention_backend": attention_backend if attention_backend is not None else "fa3",
+                "mm_attention_backend": backend,
+                "attention_backend": backend,
                 # In async mode, we want token in token out.
                 "skip_tokenizer_init": self.config.skip_tokenizer_init,
+                "dist_timeout": 1800,
             }
 
             if is_server_mode:
