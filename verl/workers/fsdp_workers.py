@@ -99,23 +99,23 @@ def is_hopper_with_cuda_12_3() -> bool:
     """
     Check if the current device is Hopper architecture (compute capability 9.x) with CUDA >= 12.3.
     This is used to determine if FA3 can be used.
-    
+
     Returns:
         bool: True if device is Hopper with CUDA >= 12.3, False otherwise
     """
     if not torch.cuda.is_available():
         return False
-    
+
     try:
         # Get compute capability (major version)
         cc_major = torch.cuda.get_device_capability()[0]
-        
+
         # Check CUDA version
         if torch.version.cuda:
             cuda_version = tuple(map(int, torch.version.cuda.split(".")[:2]))
         else:
             return False
-        
+
         # Hopper is compute capability 9.x with CUDA >= 12.3
         return cc_major == 9 and cuda_version >= (12, 3)
     except Exception:
@@ -345,7 +345,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         # - Use FA3 on Hopper (compute capability 9.x) with CUDA >= 12.3
         # - Otherwise use FA2 as default
         attn_backend = "flash_attention_3" if is_hopper_with_cuda_12_3() else "flash_attention_2"
-        
+
         # override model kwargs
         actor_model_config = AutoConfig.from_pretrained(
             local_path, trust_remote_code=trust_remote_code, attn_implementation=attn_backend
@@ -1267,7 +1267,7 @@ class CriticWorker(Worker, DistProfilerExtension):
         # - Use FA3 on Hopper (compute capability 9.x) with CUDA >= 12.3
         # - Otherwise use FA2 as default
         attn_backend = "flash_attention_3" if is_hopper_with_cuda_12_3() else "flash_attention_2"
-        
+
         critic_model_config = AutoConfig.from_pretrained(
             local_path,
             attn_implementation=attn_backend,
