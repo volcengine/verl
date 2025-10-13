@@ -14,6 +14,7 @@
 
 import json
 import os
+import sys
 
 import torch
 
@@ -39,15 +40,15 @@ def compare_results(golden_results, other_result):
     torch.testing.assert_close(golden_grad_norm, grad_norm, atol=1e-4, rtol=1e-2)
 
 
-if __name__ == "__main__":
+def main(sub_dir):
     golden_results = get_result("~/verl/test/log/golden.jsonl")
 
     # get all other results
     other_results = {}
     # walk through all files in ~/verl/test/log
-    for file in os.listdir(os.path.expanduser("~/verl/test/log/verl_sft_test")):
+    for file in os.listdir(os.path.expanduser(f"~/verl/test/log/{sub_dir}")):
         if file.endswith(".jsonl"):
-            other_results[file] = get_result(os.path.join(os.path.expanduser("~/verl/test/log/verl_sft_test"), file))
+            other_results[file] = get_result(os.path.join(os.path.expanduser(f"~/verl/test/log/{sub_dir}"), file))
 
     # # compare results
     for file, other_result in other_results.items():
@@ -55,3 +56,11 @@ if __name__ == "__main__":
         compare_results(golden_results, other_result)
 
     print("All results are close to golden results")
+
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        sub_dir = sys.argv[1]
+    else:
+        sub_dir = "verl_sft_test"
+    main(sub_dir)

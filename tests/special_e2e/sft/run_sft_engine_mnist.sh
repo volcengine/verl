@@ -11,11 +11,11 @@ VAL_FILES=~/data/vermouth1992/mnist_multiturn_sft/data/test-00000-of-00001.parqu
 
 backend=${BACKEND:-fsdp}
 
-project_name=verl_sft_test
+project_name=verl_vlm_sft_test
 
 RESUME_MODE=disable
 
-ckpts_home=${ckpts_home:-~/verl/test/gsm8k-sft-${backend}}
+ckpts_home=${ckpts_home:-~/verl/test/mnist-sft-${backend}}
 
 MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-VL-3B-Instruct}
 MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
@@ -30,8 +30,6 @@ PP_SIZE=${PP_SIZE:-1}
 VPP_SIZE=${VPP_SIZE:-null}
 CP_SIZE=${CP_SIZE:-1}
 
-
-PAD_MODE=${PAD_MODE:-left_right}
 USE_REMOVE_PADDING=${USE_REMOVE_PADDING:-False}
 
 FSDP_ENGINE_CONFIG="\
@@ -68,11 +66,11 @@ MEGATRON_ENGINE_CONFIG="\
 if [ "$backend" = "fsdp" ]; then
     ENGINE_CONFIG="$FSDP_ENGINE_CONFIG"
     echo "Using fsdp engine"
-    exp_name=mnist-${backend}-${FSDP_STRATEGY}-sp${SP_SIZE}-fsdp${FSDP_SIZE}--use_remove_padding-${USE_REMOVE_PADDING}--pad_mode-${PAD_MODE}--Dynamic-bsz-${DYNAMIC_BSZ}
+    exp_name=mnist-${backend}-${FSDP_STRATEGY}-sp${SP_SIZE}-fsdp${FSDP_SIZE}--use_remove_padding-${USE_REMOVE_PADDING}--Dynamic-bsz-${DYNAMIC_BSZ}
 else
     ENGINE_CONFIG="$MEGATRON_ENGINE_CONFIG"
     echo "Using megatron engine"
-    exp_name=mnist-${backend}-tp${TP_SIZE}-pp${PP_SIZE}-vpp${VPP_SIZE}-cp${CP_SIZE}-use_remove_padding-${USE_REMOVE_PADDING}--pad_mode-${PAD_MODE}--Dynamic-bsz-${DYNAMIC_BSZ}
+    exp_name=mnist-${backend}-tp${TP_SIZE}-pp${PP_SIZE}-vpp${VPP_SIZE}-cp${CP_SIZE}-use_remove_padding-${USE_REMOVE_PADDING}--Dynamic-bsz-${DYNAMIC_BSZ}
 fi
 
 mkdir -p "${ckpts_home}"
@@ -82,9 +80,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     data.val_files="${VAL_FILES}" \
     data.train_batch_size=128 \
     data.max_length=1024 \
-    data.max_prompt_length=512 \
-    data.max_response_length=512 \
-    data.pad_mode=${PAD_MODE} \
+    data.pad_mode=no_padding \
     data.truncation=error \
     data.use_dynamic_bsz=${DYNAMIC_BSZ} \
     data.max_token_len_per_gpu=8192 \
@@ -98,7 +94,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
     trainer.total_epochs=1 \
-    trainer.total_training_steps=10000 \
+    trainer.total_training_steps=2 \
     trainer.default_local_dir="${ckpts_home}" \
     trainer.resume_mode=${RESUME_MODE} \
 
