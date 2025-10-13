@@ -194,6 +194,11 @@ class FSDPEngine(BaseEngine):
 
         torch_dtype = PrecisionType.to_dtype(torch_dtype)
 
+        # For VL models with Ulysses SP: disable flash_attention_2 in vision encoder
+        # because it doesn't support position_ids which is required by Ulysses SP
+        if self.ulysses_sequence_parallel_size > 1 and hasattr(self.model_config.hf_config, "vision_config"):
+            self.model_config.hf_config.vision_config._attn_implementation = "eager"
+
         init_context = get_init_weight_context_manager(
             use_meta_tensor=not self.model_config.hf_config.tie_word_embeddings, mesh=self.device_mesh
         )

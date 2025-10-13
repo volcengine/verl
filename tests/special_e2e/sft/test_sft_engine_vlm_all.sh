@@ -16,9 +16,9 @@ BACKEND=fsdp SP_SIZE=1 FSDP_SIZE=2 NUM_GPUS=8 FSDP_STRATEGY=fsdp PAD_MODE=no_pad
 echo "run with sp1 fsdp_size-1 num_gpus8 fsdp_strategy fsdp pad_mode no_padding"
 BACKEND=fsdp SP_SIZE=1 FSDP_SIZE=-1 NUM_GPUS=8 FSDP_STRATEGY=fsdp PAD_MODE=no_padding bash ${FILE_PATH}
 echo "run with sp2 fsdp_size-1 num_gpus8 fsdp_strategy fsdp pad_mode no_padding"
-# BACKEND=fsdp SP_SIZE=2 FSDP_SIZE=-1 NUM_GPUS=8 FSDP_STRATEGY=fsdp PAD_MODE=no_padding bash ${FILE_PATH}
+BACKEND=fsdp SP_SIZE=2 FSDP_SIZE=-1 NUM_GPUS=8 FSDP_STRATEGY=fsdp PAD_MODE=no_padding bash ${FILE_PATH}
 echo "run with sp4 fsdp_size4 num_gpus8 fsdp_strategy fsdp pad_mode no_padding"
-# BACKEND=fsdp SP_SIZE=4 FSDP_SIZE=4 NUM_GPUS=8 FSDP_STRATEGY=fsdp PAD_MODE=no_padding bash ${FILE_PATH}
+BACKEND=fsdp SP_SIZE=4 FSDP_SIZE=4 NUM_GPUS=8 FSDP_STRATEGY=fsdp PAD_MODE=no_padding bash ${FILE_PATH}
 
 # test use_remove_padding and pad_mode no_padding
 echo "run with sp4 fsdp_size4 num_gpus8 fsdp_strategy fsdp pad_mode no_padding use_remove_padding False"
@@ -32,9 +32,11 @@ BACKEND=fsdp SP_SIZE=1 FSDP_SIZE=1 NUM_GPUS=1 FSDP_STRATEGY=fsdp2 bash ${FILE_PA
 echo "run with sp1 fsdp_size-1 num_gpus8 fsdp_strategy fsdp2"
 BACKEND=fsdp SP_SIZE=1 FSDP_SIZE=-1 NUM_GPUS=8 FSDP_STRATEGY=fsdp2 bash ${FILE_PATH}
 echo "run with sp2 fsdp_size-1 num_gpus8 fsdp_strategy fsdp2"
-# BACKEND=fsdp SP_SIZE=2 FSDP_SIZE=-1 NUM_GPUS=8 FSDP_STRATEGY=fsdp2 bash ${FILE_PATH}
+BACKEND=fsdp SP_SIZE=2 FSDP_SIZE=-1 NUM_GPUS=8 FSDP_STRATEGY=fsdp2 bash ${FILE_PATH}
+echo "run with sp1 fsdp_size2 num_gpus8 fsdp_strategy fsdp2"
 BACKEND=fsdp SP_SIZE=1 FSDP_SIZE=2 NUM_GPUS=8 FSDP_STRATEGY=fsdp2 bash ${FILE_PATH}
-# BACKEND=fsdp SP_SIZE=4 FSDP_SIZE=4 NUM_GPUS=8 FSDP_STRATEGY=fsdp2 bash ${FILE_PATH}
+echo "run with sp4 fsdp_size4 num_gpus8 fsdp_strategy fsdp2"
+BACKEND=fsdp SP_SIZE=4 FSDP_SIZE=4 NUM_GPUS=8 FSDP_STRATEGY=fsdp2 bash ${FILE_PATH}
 
 # test with megatron
 echo "megatron is not supported right now"
@@ -48,4 +50,4 @@ echo "megatron is not supported right now"
 
 python3 tests/special_e2e/sft/compare_sft_engine_results.py verl_vlm_sft_test
 
-rm -rf ~/verl/test/log
+# rm -rf ~/verl/test/log
