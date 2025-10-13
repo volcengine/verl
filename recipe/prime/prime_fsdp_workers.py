@@ -40,6 +40,7 @@ from verl.utils.fsdp_utils import (
 )
 from verl.utils.import_utils import import_external_libs
 from verl.utils.profiler import log_gpu_memory_usage
+from verl.workers.config.optimizer import build_optimizer
 from verl.workers.fsdp_workers import create_device_mesh, get_sharding_strategy
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
@@ -87,7 +88,6 @@ class PRIMERewardModelWorker(Worker):
 
     def _build_reward_ref_model_optimizer(self, config):
         # the following line is necessary
-        from torch import optim
         from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
         from torch.distributed.fsdp import MixedPrecision
 
@@ -219,12 +219,7 @@ class PRIMERewardModelWorker(Worker):
             cpu_offload=None,
         )
 
-        reward_optimizer = optim.AdamW(
-            reward_module.parameters(),
-            lr=config.model.optim.lr,
-            betas=config.model.optim.get("betas", (0.9, 0.999)),
-            weight_decay=config.model.optim.get("weight_decay", 1e-2),
-        )
+        reward_optimizer = build_optimizer(reward_module.parameters(), config.model.optim)
 
         total_steps = config.model.optim.get("total_training_steps", 0)
         num_warmup_steps = int(config.model.optim.get("lr_warmup_steps", -1))

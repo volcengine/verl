@@ -19,7 +19,7 @@ from omegaconf import MISSING
 
 from verl.base_config import BaseConfig
 
-__all__ = ["OptimizerConfig", "FSDPOptimizerConfig", "McoreOptimizerConfig"]
+__all__ = ["OptimizerConfig", "FSDPOptimizerConfig", "McoreOptimizerConfig", "build_optimizer"]
 
 
 @dataclass
@@ -58,15 +58,22 @@ class FSDPOptimizerConfig(OptimizerConfig):
     """FSDP optimizer configuration extending base OptimizerConfig.
 
     Args:
+        optimizer (str): Optimizer class name (e.g., "AdamW", "AdamW8bit", "_AdamW").
+        optimizer_impl (str): Module path to import optimizer from (e.g., "torch.optim", "torchao.optim",
+            "bitsandbytes.optim").
         lr (float): Learning rate.
         min_lr_ratio (Optional[float]): Minimum LR ratio for cosine schedule.
         warmup_style (str): LR warmup style: "constant" or "cosine".
         num_cycles (float): Number of cosine cycles in LR schedule.
+        override_optimizer_config (Optional[dict]): Additional optimizer-specific keyword arguments.
     """
 
+    optimizer: str = "AdamW"
+    optimizer_impl: str = "torch.optim"
     min_lr_ratio: Optional[float] = None
     warmup_style: str = "constant"
     num_cycles: float = 0.5
+    override_optimizer_config: Optional[dict] = None
 
     def __post_init__(self):
         assert self.warmup_style in ["constant", "cosine"]
@@ -101,3 +108,59 @@ class McoreOptimizerConfig(OptimizerConfig):
     lr_wsd_decay_steps: Optional[int] = None
     use_checkpoint_opt_param_scheduler: bool = False
     override_optimizer_config: Optional[dict] = None
+
+
+def build_optimizer(parameters, config: FSDPOptimizerConfig):
+    """Build an optimizer based on the configuration.
+
+    Dynamically imports and instantiates an optimizer class from the specified module.
+
+    Args:
+        parameters: Model parameters to optimize
+        config: FSDPOptimizerConfig with optimizer settings
+
+    Returns:
+        Optimizer instance
+
+    Examples:
+        # PyTorch AdamW
+        config.optimizer_impl = "torch.optim"
+        config.optimizer = "AdamW"
+
+        # TorchAO AdamW with bf16 stochastic rounding
+        config.optimizer_impl = "torchao.optim"
+        config.optimizer = "_AdamW"
+        config.override_optimizer_config = {"bf16_stochastic_round": True}
+
+        # BitsAndBytes AdamW 8bit
+        config.optimizer_impl = "bitsandbytes.optim"
+        config.optimizer = "AdamW8bit"
+    """
+    import importlib
+
+    optimizer_args = {
+        "lr": config.lr,
+        "weight_decay": config.weight_decay,
+    }
+
+    optimizer_name_lower = config.optimizer.lower()
+    if "adam" in optimizer_name_lower or "ademamix" in optimizer_name_lower:
+        optimizer_args["betas"] = config.betas
+
+    if config.override_optimizer_config is not None:
+        optimizer_args.update(config.override_optimizer_config)
+
+    try:
+        module = importlib.import_module(config.optimizer_impl)
+        optimizer_cls = getattr(module, config.optimizer)
+    except ImportError as e:
+        raise ImportError(
+            f"Failed to import module '{config.optimizer_impl}'. Make sure the package is installed. Error: {e}"
+        ) from e
+    except AttributeError as e:
+        raise AttributeError(
+            f"Optimizer '{config.optimizer}' not found in module '{config.optimizer_impl}'. "
+            f"Available optimizers: {dir(module)}"
+        ) from e
+
+    return optimizer_cls(parameters, **optimizer_args)
