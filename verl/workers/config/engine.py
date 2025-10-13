@@ -167,6 +167,9 @@ class DeepSpeedOptimizerConfig(BaseConfig):
     betas: tuple[float, float] = (0.9, 0.999)
     weight_decay: float = 0.0
     eps: float = 1e-8
+    lr_warmup_steps_ratio: float = 0.0
+    total_training_steps: int = -1
+    lr_warmup_steps: int = -1
 
     def __post_init__(self):
         if self.lr <= 0:

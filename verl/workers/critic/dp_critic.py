@@ -134,6 +134,12 @@ class DataParallelPPOCritic(BasePPOCritic):
     def _optimizer_step(self):
         assert self.config.grad_clip is not None
 
+        params_before = None
+        if torch.distributed.get_rank() == 0:
+            params_before = torch.cat(
+                [p.data.detach().flatten() for p in self.critic_module.parameters()]
+            )
+
         if isinstance(self.critic_module, FSDP):
             grad_norm = self.critic_module.clip_grad_norm_(self.config.grad_clip)
         elif isinstance(self.critic_module, FSDPModule):
@@ -147,6 +153,12 @@ class DataParallelPPOCritic(BasePPOCritic):
             self.critic_optimizer.zero_grad()
         else:
             self.critic_optimizer.step()
+            if params_before is not None:
+                params_after = torch.cat(
+                    [p.data.detach().flatten() for p in self.critic_module.parameters()]
+                )
+                update_norm = torch.norm(params_after - params_before).item()
+                print(f"[DEBUG][FSDP Critic] update_norm={update_norm:.6f}")
         return grad_norm
 
     @GPUMemoryLogger(role="dp critic", logger=logger)
@@ -192,6 +204,17 @@ class DataParallelPPOCritic(BasePPOCritic):
     def update_critic(self, data: DataProto):
         # make sure we are in training mode
         self.critic_module.train()
+
+        # IMPORTANT: Set deterministic RNG state to ensure reproducibility
+        # This is critical because previous operations (e.g., actor training) may have
+        # consumed different amounts of randomness in FSDP vs DeepSpeed
+        if 'rng_seed' in data.meta_info:
+            rng_seed = data.meta_info['rng_seed']
+            if torch.distributed.get_rank() == 0:
+                print(f"[Critic] Setting RNG seed: {rng_seed}")
+            torch.manual_seed(rng_seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(rng_seed)
 
         metrics = {}
 
@@ -244,7 +267,37 @@ class DataParallelPPOCritic(BasePPOCritic):
                         loss_scale_factor = 1 / self.gradient_accumulation
                         loss = vf_loss * loss_scale_factor
 
+                    if (
+                        not self.config.use_dynamic_bsz
+                        and idx == len(micro_batches) - 1
+                        and torch.distributed.get_rank() == 0
+                    ):
+                        print(
+                            f"[DEBUG][FSDP Critic] loss_scale_factor={loss_scale_factor:.6f}, "
+                            f"grad_accum_steps={self.gradient_accumulation}"
+                        )
+
+                    if torch.distributed.get_rank() == 0:
+                        print(
+                            f"[DEBUG][FSDP Critic] micro_batch={idx}, scaled_loss_dtype={loss.dtype}, "
+                            f"vf_loss_dtype={vf_loss.dtype}"
+                        )
+
                     loss.backward()
+                    if torch.distributed.get_rank() == 0:
+                        grad_vec = [
+                            p.grad.detach().flatten().to(torch.float32)
+                            for p in self.critic_module.parameters()
+                            if p.grad is not None
+                        ]
+                        micro_grad_norm = (
+                            torch.norm(torch.cat(grad_vec)).item() if grad_vec else float("nan")
+                        )
+                        print(
+                            f"[DEBUG][FSDP Critic] micro_batch={idx}, vf_loss={vf_loss.item():.6f}, "
+                            f"loss_scale_factor={loss_scale_factor:.6f}, "
+                            f"micro_grad_norm={micro_grad_norm:.6f}"
+                        )
 
                     micro_batch_metrics.update(
                         {
@@ -256,7 +309,38 @@ class DataParallelPPOCritic(BasePPOCritic):
 
                     append_to_dict(metrics, micro_batch_metrics)
 
+                pre_clip_norm = float("nan")
+                grad_tensors = [
+                    p.grad.detach().flatten()
+                    for p in self.critic_module.parameters()
+                    if p.grad is not None
+                ]
+                if grad_tensors:
+                    pre_clip_norm = torch.cat(grad_tensors).norm().item()
+                grad_tensors_cpu = [
+                    p.grad.detach().flatten().to(torch.float64).cpu()
+                    for p in self.critic_module.parameters()
+                    if p.grad is not None
+                ]
+                self._last_pre_clip_grad = (
+                    torch.cat(grad_tensors_cpu) if grad_tensors_cpu else torch.tensor([], dtype=torch.float64)
+                )
+                if torch.distributed.get_rank() == 0:
+                    print(f"[DEBUG][FSDP Critic] pre_clip_norm={pre_clip_norm:.6f}")
+                    first_grad = next(
+                        (p.grad for p in self.critic_module.parameters() if p.grad is not None),
+                        None,
+                    )
+                    print(
+                        f"[DEBUG][FSDP Critic] collected_grad_tensors={len(grad_tensors_cpu)}, "
+                        f"first_grad_dtype={first_grad.dtype if first_grad is not None else None}"
+                    )
+
                 grad_norm = self._optimizer_step()
+                if torch.distributed.get_rank() == 0:
+                    print(
+                        f"[DEBUG][FSDP Critic] clip_grad_return={float(grad_norm):.6f}"
+                    )
                 mini_batch_metrics = {"critic/grad_norm": grad_norm.detach().item()}
                 append_to_dict(metrics, mini_batch_metrics)
         self.critic_optimizer.zero_grad()

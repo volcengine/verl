@@ -24,6 +24,3 @@ use_torch_compile: false
 
 # Compute entropy with chunking
 entropy_from_logits_with_chunking: false
-
-# Backend identifier for EngineRegistry
-strategy: deepspeed
