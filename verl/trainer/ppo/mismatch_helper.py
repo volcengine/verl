@@ -20,7 +20,7 @@ training policy (e.g., FSDP FP32).
 
 Key Features:
 1. Three aggregation levels: token, sequence, geometric
-2. Two handling modes: truncate (TIS), clip (CIS)
+2. Two handling modes: truncate (TIS), mask (MIS)
 3. Per-token veto mechanism for catastrophic outliers
 4. Memory-efficient computation to prevent CUDA OOM
 5. Comprehensive metrics tracking
@@ -77,9 +77,9 @@ def compute_rollout_importance_weights(
             - "geometric": Geometric mean of ratios (experimental)
         rollout_is_mode: How to handle weights exceeding threshold:
             - "truncate": Cap weights at upper_threshold only (TIS)
-            - "clip": Zero out weights outside [lower_threshold, upper_threshold] (CIS)
+            - "mask": Zero out weights outside [lower_threshold, upper_threshold] (MIS)
         rollout_is_threshold: Upper threshold for IS weights
-        rollout_is_threshold_lower: Lower threshold for IS weights (clip mode only; if None, defaults to 1/upper)
+        rollout_is_threshold_lower: Lower threshold for IS weights (mask mode only; if None, defaults to 1/upper)
         rollout_is_veto_threshold: Per-token veto threshold. If any token ratio < this, zero entire sequence.
             If None, veto mechanism is disabled.
 
@@ -179,32 +179,32 @@ def compute_rollout_importance_weights(
         SAFETY_BOUND=SAFETY_BOUND,
     )
 
-    # Step 3: Apply truncation or clipping based on mode
+    # Step 3: Apply truncation or masking based on mode
     if rollout_is_mode == "truncate":
         # Truncated IS (TIS): only cap upper bound to prevent overweighting
         rollout_is_weights = rollout_is_weights.clamp(max=upper_threshold)
 
-    elif rollout_is_mode == "clip":
-        # Clipped IS (CIS): zero out weights outside [lower_threshold, upper_threshold]
-        clip_mask = (rollout_is_weights >= lower_threshold) & (rollout_is_weights <= upper_threshold)
-        clip_mask = clip_mask.float()
+    elif rollout_is_mode == "mask":
+        # Masked IS (MIS): zero out weights outside [lower_threshold, upper_threshold]
+        mask = (rollout_is_weights >= lower_threshold) & (rollout_is_weights <= upper_threshold)
+        mask = mask.float()
 
-        # Track CIS-specific metrics
-        metrics["rollout_is_clipped_fraction"] = verl_F.masked_mean(1 - clip_mask, response_mask)
+        # Track MIS-specific metrics
+        metrics["rollout_is_masked_fraction"] = verl_F.masked_mean(1 - mask, response_mask)
 
-        # Sequence-level clipping fraction
+        # Sequence-level masking fraction
         if rollout_is_level in ["sequence", "geometric"]:
-            # All tokens in a sequence have the same weight, so reuse clip_mask
-            metrics["rollout_is_seq_clipped_fraction"] = (1 - clip_mask[:, 0]).mean()
+            # All tokens in a sequence have the same weight, so reuse mask
+            metrics["rollout_is_seq_masked_fraction"] = (1 - mask[:, 0]).mean()
         else:
-            # Check if any token in each sequence is clipped
-            seq_has_clipped = verl_F.masked_sum(1 - clip_mask, response_mask, axis=-1) > 0
-            metrics["rollout_is_seq_clipped_fraction"] = seq_has_clipped.float().mean()
+            # Check if any token in each sequence is masked
+            seq_has_masked = verl_F.masked_sum(1 - mask, response_mask, axis=-1) > 0
+            metrics["rollout_is_seq_masked_fraction"] = seq_has_masked.float().mean()
 
-        rollout_is_weights = rollout_is_weights * clip_mask
+        rollout_is_weights = rollout_is_weights * mask
 
     else:
-        raise ValueError(f"Invalid rollout_is_mode: {rollout_is_mode}. Must be 'truncate' or 'clip'.")
+        raise ValueError(f"Invalid rollout_is_mode: {rollout_is_mode}. Must be 'truncate' or 'mask'.")
 
     # Apply veto mask AFTER all thresholding
     # This zeros out entire sequences that have any catastrophic token

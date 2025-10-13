@@ -77,7 +77,7 @@ class AlgoConfig(BaseConfig):
             float value = enabled (compute weights and metrics). This is the main on/off switch.
         rollout_is_threshold_lower (Optional[float]): Lower threshold for IS weights. If None, defaults to 1/upper.
         rollout_is_level (str): Aggregation level: "token", "sequence", or "geometric".
-        rollout_is_mode (str): Bounding mode: "truncate" (cap upper only) or "clip" (zero outside bounds).
+        rollout_is_mode (str): Bounding mode: "truncate" (cap upper only) or "mask" (zero outside bounds).
         rollout_is_veto_threshold (float): Per-token veto threshold for catastrophic outliers.
         rollout_is (bool): Whether to apply IS weights to policy loss. True = apply weights,
             False = compute metrics only (useful for monitoring before enabling correction). Default: False.

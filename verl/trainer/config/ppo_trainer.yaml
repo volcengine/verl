@@ -124,7 +124,7 @@ algorithm:
   # Aggregation level: "token" (biased), "sequence" (unbiased), "geometric" (experimental)
   rollout_is_level: token
 
-  # Bounding mode: "truncate" (cap upper only), "clip" (zero outside bounds)
+  # Bounding mode: "truncate" (cap upper only), "mask" (zero outside bounds)
   rollout_is_mode: truncate
 
   # Per-token veto threshold for catastrophic outliers
