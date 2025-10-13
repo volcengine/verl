@@ -48,7 +48,8 @@ reward_model:
       lr_warmup_steps: -1 # Prioritized. Negative values mean delegating to lr_warmup_steps_ratio.
       lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
       min_lr_ratio: null
-      warmup_style: constant
+      warmup_style: null # deprecated
+      lr_scheduler_type: constant
       total_training_steps: -1  # must be overridden by program
       weight_decay: 0.
       grad_clip: 10.0
