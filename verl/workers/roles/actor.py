@@ -33,6 +33,7 @@ from verl.utils.profiler import DistProfiler, DistProfilerExtension
 from verl.utils.py_functional import append_to_dict
 from verl.workers.config import ActorConfig
 from verl.workers.roles.utils.losses import ppo_loss
+from verl.workers.roles.utils.padding import left_right_2_no_padding, no_padding_2_padding
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -116,16 +117,23 @@ class ActorWorker(Worker, DistProfilerExtension):
         with self.engine.eval_mode():
             # TODO: make worker API to accept TensorDict as well
             data = data.to_tensordict()
+            data = left_right_2_no_padding(data)
             output = self.engine.infer_batch(data)
 
         if self.engine.is_mp_src_rank_with_outputs():
             output = output["model_output"]
+            log_probs = output["log_probs"]
+            log_probs = no_padding_2_padding(log_probs, data)  # (bsz, response_length)
+
+            entropy = output["entropy"]
+            if entropy is not None:
+                entropy = no_padding_2_padding(entropy, data)  # (bsz, response_length)
+
             # in megatron, only last pp contains valid data and returned to the single controller
             output = DataProto.from_dict(
-                tensors={"old_log_probs": output["log_probs"].float(), "entropy": output["entropy"].float()},
+                tensors={"old_log_probs": log_probs.float(), "entropy": entropy.float()},
             )
             output = output.to("cpu")
-
         return output
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
@@ -155,6 +163,7 @@ class ActorWorker(Worker, DistProfilerExtension):
                     mini_batch.meta_info["global_batch_size"] = self.config.ppo_mini_batch_size
                     # TODO: make worker API to accept TensorDict as well
                     mini_batch = mini_batch.to_tensordict()
+                    mini_batch = left_right_2_no_padding(mini_batch)
                     output = self.engine.train_batch(mini_batch, self.loss_fn)
                     mini_batch_metrics = output.get("metrics", {})
                     append_to_dict(metrics, mini_batch_metrics, prefix="actor/")
