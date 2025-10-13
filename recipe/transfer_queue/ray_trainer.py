@@ -49,7 +49,6 @@ from verl.experimental.transfer_queue import (
     process_zmq_server_info,
     get_placement_group,
 )
-from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
 from verl.single_controller.ray import (
     RayClassWithInitArgs,
     RayResourcePool,
@@ -90,6 +89,7 @@ from verl.utils.tracking import ValidationGenerationsLogger
 from verl.utils.transferqueue_utils import (
     create_transferqueue_client,
     get_transferqueue_client,
+    get_val_transferqueue_client,
     batchmeta_dataproto_pipe,
 )
 
@@ -310,6 +310,18 @@ def compute_timing_metrics_decorated(batch, timing_raw: dict[str, float]) -> dic
 def compute_throughout_metrics_decorated(batch, timing_raw: dict[str, float], n_gpus: int) -> dict[str, Any]:
     return compute_throughout_metrics(batch, timing_raw, n_gpus)
 
+
+@batchmeta_dataproto_pipe(put_data=False)
+def calculate_debug_metrics_decorated(data):
+    from verl.utils.debug.metrics import calculate_debug_metrics
+    return calculate_debug_metrics(data)
+
+
+@batchmeta_dataproto_pipe(put_data=False)
+def compute_val_reward_decorated(reward_fn, data, return_dict):
+    return reward_fn(data, return_dict)
+
+
 class RayPPOTrainer:
     """Distributed PPO trainer using Ray for scalable reinforcement learning.
 
@@ -391,16 +403,19 @@ class RayPPOTrainer:
 
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
 
-        self._initialize_data_system()
+        self.data_system_client = self._initialize_train_data_system(
+            self.config.data.train_batch_size, self.config.actor_rollout_ref.rollout.n
+        )
+        self.val_data_system_client = self._initialize_val_data_system(
+            self.val_batch_size, self.config.actor_rollout_ref.rollout.val_kwargs.n
+        )
 
-    def _initialize_data_system(self):
-        num_n_samples = self.config.actor_rollout_ref.rollout.n
+    def _initialize_train_data_system(self, global_batch_size, num_n_samples, role="train"):
         # 1. initialize TransferQueueStorage
-        total_storage_size = self.config.data.train_batch_size * self.config.trainer.num_global_batch * num_n_samples
+        total_storage_size = global_batch_size * self.config.trainer.num_global_batch * num_n_samples
         self.data_system_storage_units = {}
         storage_placement_group = get_placement_group(self.config.trainer.num_data_storage_units, num_cpus_per_actor=1)
         for storage_unit_rank in range(self.config.trainer.num_data_storage_units):
-            # TransferQueueStorage通过Ray拉起，是一个ray.remote修饰的类
             storage_node = TransferQueueStorageSimpleUnit.options(
                 placement_group=storage_placement_group, placement_group_bundle_index=storage_unit_rank
             ).remote(storage_size=math.ceil(total_storage_size / self.config.trainer.num_data_storage_units))
@@ -417,7 +432,7 @@ class RayPPOTrainer:
                 placement_group=controller_placement_group, placement_group_bundle_index=controller_rank
             ).remote(
                 num_storage_units=self.config.trainer.num_data_storage_units,
-                global_batch_size=self.config.data.train_batch_size,
+                global_batch_size=global_batch_size,
                 num_global_batch=self.config.trainer.num_global_batch,
                 num_n_samples=num_n_samples,
             )
@@ -437,12 +452,61 @@ class RayPPOTrainer:
         # 4. create client
         # each client should be allocated to exactly one controller
         create_transferqueue_client(
-            client_id="Trainer",
+            client_id="Trainer-" + role,
             controller_infos=self.data_system_controller_infos,
             storage_infos=self.data_system_storage_unit_infos,
         )
-        self.data_system_client = get_transferqueue_client()
-        return self.data_system_client
+        data_system_client = get_transferqueue_client()
+        return data_system_client
+
+    def _initialize_val_data_system(self, global_batch_size, num_n_samples, role="val"):
+        # 1. initialize TransferQueueStorage
+        total_storage_size = global_batch_size * self.config.trainer.num_global_batch * num_n_samples
+        self.val_data_system_storage_units = {}
+        storage_placement_group = get_placement_group(self.config.trainer.num_data_storage_units, num_cpus_per_actor=1)
+        for storage_unit_rank in range(self.config.trainer.num_data_storage_units):
+            storage_node = TransferQueueStorageSimpleUnit.options(
+                placement_group=storage_placement_group, placement_group_bundle_index=storage_unit_rank
+            ).remote(storage_size=math.ceil(total_storage_size / self.config.trainer.num_data_storage_units))
+            self.val_data_system_storage_units[storage_unit_rank] = storage_node
+            logging.info(f"TransferQueueStorageSimpleUnit #{storage_unit_rank} has been created.")
+
+        # 2. initialize TransferQueueController
+        # we support inilialize multiple controller instances for large-scale scenario. Please allocate exactly
+        # one controller for a single WorkerGroup.
+        self.val_data_system_controllers = {}
+        controller_placement_group = get_placement_group(self.config.trainer.num_data_controllers, num_cpus_per_actor=1)
+        for controller_rank in range(self.config.trainer.num_data_controllers):
+            self.val_data_system_controllers[controller_rank] = TransferQueueController.options(
+                placement_group=controller_placement_group, placement_group_bundle_index=controller_rank
+            ).remote(
+                num_storage_units=self.config.trainer.num_data_storage_units,
+                global_batch_size=global_batch_size,
+                num_global_batch=self.config.trainer.num_global_batch,
+                num_n_samples=num_n_samples,
+            )
+            logging.info(f"TransferQueueController #{controller_rank} has been created.")
+
+        # 3. register controller & storage
+        self.val_data_system_controller_infos = process_zmq_server_info(self.val_data_system_controllers)
+        self.val_data_system_storage_unit_infos = process_zmq_server_info(self.val_data_system_storage_units)
+
+        ray.get(
+            [
+                storage_unit.register_controller_info.remote(self.val_data_system_controller_infos)
+                for storage_unit in self.val_data_system_storage_units.values()
+            ]
+        )
+
+        # 4. create client
+        # each client should be allocated to exactly one controller
+        create_transferqueue_client(
+            client_id="Trainer-" + role,
+            controller_infos=self.val_data_system_controller_infos,
+            storage_infos=self.val_data_system_storage_unit_infos,
+        )
+        data_system_client = get_val_transferqueue_client()
+        return data_system_client
 
     def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler: Optional[Sampler]):
         """
@@ -482,6 +546,7 @@ class RayPPOTrainer:
         val_batch_size = self.config.data.val_batch_size  # Prefer config value if set
         if val_batch_size is None:
             val_batch_size = len(self.val_dataset)
+        self.val_batch_size = val_batch_size
 
         self.val_dataloader = StatefulDataLoader(
             dataset=self.val_dataset,
@@ -636,36 +701,64 @@ class RayPPOTrainer:
         sample_uids = []
 
         for test_data in self.val_dataloader:
-            test_batch = DataProto.from_single_dict(test_data)
-
-            if "uid" not in test_batch.non_tensor_batch:
-                test_batch.non_tensor_batch["uid"] = np.array(
-                    [str(uuid.uuid4()) for _ in range(len(test_batch.batch))], dtype=object
+            if "uid" not in test_data.keys():
+                test_data["uid"] = np.array(
+                    [str(uuid.uuid4()) for _ in range(len(test_data["input_ids"]))], dtype=object
                 )
 
-            # repeat test batch
-            test_batch = test_batch.repeat(
-                repeat_times=self.config.actor_rollout_ref.rollout.val_kwargs.n, interleave=True
+            # repeat test data
+            repeated_test_data = self.repeat_dict(
+                test_data, repeat_times=self.config.actor_rollout_ref.rollout.val_kwargs.n, interleave=True
             )
 
+            test_batch: TensorDict = self.dict_to_tensordict(repeated_test_data)
+
             # we only do validation on rule-based rm
-            if self.config.reward_model.enable and test_batch[0].non_tensor_batch["reward_model"]["style"] == "model":
+            if self.config.reward_model.enable and test_batch[0]["reward_model"]["style"] == "model":
                 return {}
 
+            asyncio.run(self.val_data_system_client.async_put(data=test_batch, global_step=self.global_steps - 1))
+
             # Store original inputs
-            input_ids = test_batch.batch["input_ids"]
+            batch_meta = asyncio.run(
+                self.val_data_system_client.async_get_meta(
+                    data_fields=["input_ids", "uid", "reward_model"],
+                    batch_size=self.val_batch_size * self.config.actor_rollout_ref.rollout.val_kwargs.n,
+                    global_step=self.global_steps - 1,
+                    get_n_samples=False,
+                    task_name="get_data",
+                )
+            )
+            data = asyncio.run(self.val_data_system_client.async_get_data(batch_meta))
+            input_ids = data["input_ids"]
             # TODO: Can we keep special tokens except for padding tokens?
             input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
             sample_inputs.extend(input_texts)
-            sample_uids.extend(test_batch.non_tensor_batch["uid"])
+            sample_uids.extend(data["uid"])
 
-            ground_truths = [
-                item.non_tensor_batch.get("reward_model", {}).get("ground_truth", None) for item in test_batch
-            ]
+            ground_truths = [item.get("ground_truth", None) for item in data.get("reward_model", {})]
             sample_gts.extend(ground_truths)
 
-            test_gen_batch = self._get_gen_batch(test_batch)
-            test_gen_batch.meta_info = {
+            test_gen_meta = asyncio.run(
+                self.val_data_system_client.async_get_meta(
+                    data_fields=[
+                        "input_ids",
+                        "attention_mask",
+                        "position_ids",
+                        "index",
+                        "tools_kwargs",
+                        "interaction_kwargs",
+                        "ability",
+                        "raw_prompt_ids",
+                    ],
+                    batch_size=self.val_batch_size * self.config.actor_rollout_ref.rollout.val_kwargs.n,
+                    global_step=self.global_steps - 1,  # self.global_steps start from 1
+                    get_n_samples=False,
+                    task_name="generate_sequences",
+                )
+            )
+
+            test_gen_meta.extra_info = {
                 "eos_token_id": self.tokenizer.eos_token_id,
                 "pad_token_id": self.tokenizer.pad_token_id,
                 "recompute_log_prob": False,
@@ -673,37 +766,58 @@ class RayPPOTrainer:
                 "validate": True,
                 "global_steps": self.global_steps,
             }
-            print(f"test_gen_batch meta info: {test_gen_batch.meta_info}")
+            print(f"test_gen_batch meta info: {test_gen_meta.extra_info}")
 
-            # pad to be divisible by dp_size
-            size_divisor = (
-                self.actor_rollout_wg.world_size
-                if not self.async_rollout_mode
-                else self.config.actor_rollout_ref.rollout.agent.num_workers
-            )
-            test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(test_gen_batch, size_divisor)
             if not self.async_rollout_mode:
-                test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
+                test_output_gen_meta = self.actor_rollout_wg.generate_sequences(test_gen_meta)
             else:
-                test_output_gen_batch_padded = self.async_rollout_manager.generate_sequences(test_gen_batch_padded)
+                test_output_gen_meta = self.async_rollout_manager.generate_sequences(test_gen_meta)
 
-            # unpad
-            test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
+            test_batch_meta = test_gen_meta.union(test_output_gen_meta)
 
             print("validation generation end")
 
             # Store generated outputs
-            output_ids = test_output_gen_batch.batch["responses"]
+            test_response_meta = asyncio.run(
+                self.val_data_system_client.async_get_meta(
+                    data_fields=["responses"],
+                    batch_size=self.val_batch_size * self.config.actor_rollout_ref.rollout.val_kwargs.n,
+                    global_step=self.global_steps - 1,  # self.global_steps start from 1
+                    get_n_samples=False,
+                    task_name="get_response",
+                )
+            )
+            data = asyncio.run(self.val_data_system_client.async_get_data(test_response_meta))
+            output_ids = data["responses"]
             output_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in output_ids]
             sample_outputs.extend(output_texts)
 
-            test_batch = test_batch.union(test_output_gen_batch)
-            test_batch.meta_info["validate"] = True
+            test_batch_meta.set_extra_info("validate", True)
 
             # evaluate using reward_function
             if self.val_reward_fn is None:
                 raise ValueError("val_reward_fn must be provided for validation.")
-            result = self.val_reward_fn(test_batch, return_dict=True)
+
+            compute_reward_fields = [
+                "responses",
+                "prompts",
+                "attention_mask",
+                "reward_model",
+                "data_source",
+            ]
+            if "rm_scores" in batch_meta.field_names:
+                compute_reward_fields = ["rm_scores"]
+            val_reward_meta = asyncio.run(
+                self.val_data_system_client.async_get_meta(
+                    data_fields=compute_reward_fields,
+                    batch_size=self.val_batch_size * self.config.actor_rollout_ref.rollout.val_kwargs.n,
+                    global_step=self.global_steps - 1,
+                    get_n_samples=False,
+                    task_name="compute_reward",
+                )
+            )
+            val_reward_meta.update_extra_info(test_batch_meta.extra_info)
+            result = compute_val_reward_decorated(self.val_reward_fn, val_reward_meta, return_dict=True)
             reward_tensor = result["reward_tensor"]
             scores = reward_tensor.sum(-1).cpu().tolist()
             sample_scores.extend(scores)
@@ -716,10 +830,34 @@ class RayPPOTrainer:
                     print(f"len reward_extra_infos_dict['{key}']: {len(reward_extra_infos_dict[key])}")
 
             # collect num_turns of each prompt
-            if "__num_turns__" in test_batch.non_tensor_batch:
-                sample_turns.append(test_batch.non_tensor_batch["__num_turns__"])
+            if "__num_turns__" in test_batch_meta.field_names:
+                num_turns_meta = asyncio.run(
+                    self.val_data_system_client.async_get_meta(
+                        data_fields=["__num_turns__"],
+                        batch_size=self.val_batch_size * self.config.actor_rollout_ref.rollout.val_kwargs.n,
+                        global_step=self.global_steps - 1,  # self.global_steps start from 1
+                        get_n_samples=False,
+                        task_name="get_num_turns",
+                    )
+                )
+                data = asyncio.run(self.val_data_system_client.async_get_data(num_turns_meta))
+                sample_turns.append(data["__num_turns__"])
 
-            data_source_lst.append(test_batch.non_tensor_batch.get("data_source", ["unknown"] * reward_tensor.shape[0]))
+            data_source = ["unknown"] * reward_tensor.shape[0]
+            if "data_source" in test_batch_meta.field_names:
+                data_source_meta = asyncio.run(
+                    self.val_data_system_client.async_get_meta(
+                        data_fields=["data_source"],
+                        batch_size=self.val_batch_size * self.config.actor_rollout_ref.rollout.val_kwargs.n,
+                        global_step=self.global_steps - 1,  # self.global_steps start from 1
+                        get_n_samples=False,
+                        task_name="get_data_source",
+                    )
+                )
+                data = asyncio.run(self.val_data_system_client.async_get_data(data_source_meta))
+                data_source = data["data_source"]
+
+            data_source_lst.append(data_source)
 
         self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
 
@@ -764,6 +902,7 @@ class RayPPOTrainer:
             metric_dict["val-aux/num_turns/max"] = sample_turns.max()
             metric_dict["val-aux/num_turns/mean"] = sample_turns.mean()
 
+        asyncio.run(self.val_data_system_client.async_clear(self.global_steps - 1))
         return metric_dict
 
     def init_workers(self):
@@ -864,7 +1003,12 @@ class RayPPOTrainer:
 
         # set transferqueue server info for each worker
         for _, wg in all_wg.items():
-            wg.create_transferqueue_client(self.data_system_controller_infos, self.data_system_storage_unit_infos)
+            wg.create_transferqueue_client(
+                self.data_system_controller_infos, self.data_system_storage_unit_infos, role="train"
+             )
+            wg.create_transferqueue_client(
+                self.val_data_system_controller_infos, self.val_data_system_storage_unit_infos, role="val"
+            )
 
         # create async rollout manager and request scheduler
         self.async_rollout_mode = False
@@ -1199,10 +1343,8 @@ class RayPPOTrainer:
                                 "ability",
                                 "raw_prompt_ids",
                             ],
-                            batch_size=self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n,
-                            global_step=self.global_steps - 1,  # self.global_steps start from 1
-                            get_n_samples=False,
                             task_name="generate_sequences",
+                            **base_get_meta_kwargs,
                         )
                     )
                 else:
@@ -1221,10 +1363,8 @@ class RayPPOTrainer:
                                 "reward_model",
                                 "data_source",
                             ],
-                            batch_size=self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n,
-                            global_step=self.global_steps - 1,  # self.global_steps start from 1
-                            get_n_samples=False,
                             task_name="async_generate_sequences",
+                            **base_get_meta_kwargs,
                         )
                     )
                 # pass global_steps to trace
@@ -1308,9 +1448,9 @@ class RayPPOTrainer:
                             batch_meta = batch_meta.union(reward_meta)
 
                         compute_reward_fields = [
-                            "responses", 
-                            "prompts", 
-                            "attention_mask", 
+                            "responses",
+                            "prompts",
+                            "attention_mask",
                             "reward_model",
                             "data_source",
                         ]
@@ -1326,11 +1466,13 @@ class RayPPOTrainer:
                         compute_reward_meta.reorder(balanced_idx)
                         if self.config.reward_model.launch_reward_fn_async:
                             future_reward = compute_reward_async_decorated(
-                                data=compute_reward_meta, 
-                                reward_fn=self.reward_fn, 
+                                data=compute_reward_meta,
+                                reward_fn=self.reward_fn,
                             )
                         else:
-                            reward_tensor, reward_extra_infos_dict = compute_reward_decorated(compute_reward_meta, self.reward_fn)
+                            reward_tensor, reward_extra_infos_dict = compute_reward_decorated(
+                                compute_reward_meta, self.reward_fn
+                            )
                         batch_meta = batch_meta.union(compute_reward_meta)
 
                     # recompute old_log_probs
@@ -1372,13 +1514,21 @@ class RayPPOTrainer:
 
                         if "rollout_log_probs" in batch_meta.field_names:
                             # TODO: we may want to add diff of probs too.
-                            from verl.utils.debug.metrics import calculate_debug_metrics
+                            data_fields = ["rollout_log_probs", "old_log_probs", "responses"]
+                            if "response_mask" in batch_meta.field_names:
+                                data_fields.append("response_mask")
+                            if "attention_mask" in batch_meta.field_names:
+                                data_fields.append("attention_mask")
+                            calculate_debug_metrics_meta = asyncio.run(
+                                self.data_system_client.async_get_meta(
+                                    data_fields=data_fields,
+                                    task_name="calculate_debug_metrics",
+                                    **base_get_meta_kwargs,
+                                )
+                            )
+                            calculate_debug_metrics_meta.reorder(balanced_idx)
 
-                            @batchmeta_dataproto_pipe(put_data=False)
-                            def calculate_debug_metrics_decorated(data: DataProto):
-                                return calculate_debug_metrics(data)
-
-                            metrics.update(calculate_debug_metrics_decorated(batch))
+                            metrics.update(calculate_debug_metrics_decorated(calculate_debug_metrics_meta))
 
                     if self.use_reference_policy:
                         # compute reference log_prob
@@ -1617,7 +1767,6 @@ class RayPPOTrainer:
                     and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
                 ):
                     with marked_timer("testing", timing_raw, color="green"):
-                        # TODO: (transferqueue) _validate(DataProto->BatchMeta)
                         val_metrics: dict = self._validate()
                         if is_last_step:
                             last_val_metrics = val_metrics
