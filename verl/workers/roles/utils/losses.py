@@ -21,10 +21,11 @@ from verl.utils import tensordict_utils as tu
 from verl.utils.dataset.dataset_utils import DatasetPadMode
 from verl.utils.torch_functional import masked_mean
 from verl.workers.config import ActorConfig, CriticConfig
+from verl.workers.roles.utils.padding import no_padding_2_padding
 
 
 def sft_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None):
-    pad_mode = tu.get_non_tensor_data(data=data, key="pad_mode", default=DatasetPadMode.LEFT_RIGHT)
+    pad_mode = tu.get_non_tensor_data(data=data, key="pad_mode", default=DatasetPadMode.NO_PADDING)
 
     log_prob = model_output["log_probs"]
 
@@ -51,6 +52,10 @@ def sft_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
 def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None):
     log_prob = model_output["log_probs"]
     entropy = model_output.get("entropy", None)
+
+    log_prob = no_padding_2_padding(log_prob, data)  # (bsz, response_length)
+    if entropy is not None:
+        entropy = no_padding_2_padding(entropy, data)  # (bsz, response_length)
 
     metrics = {}
 
@@ -105,7 +110,7 @@ def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
 
 def value_loss(config: CriticConfig, model_output, data: TensorDict, dp_group=None):
     vpreds = model_output["values"]
-    values = data["values"]
+    vpreds = no_padding_2_padding(vpreds, data)  # (bsz, response_length)
 
     values = data["values"]
     returns = data["returns"]
