@@ -31,3 +31,5 @@ num_cycles: 0.5
 # LR scheduler type: "constant" or "cosine"
 lr_scheduler_type: constant
 
+# deprecated
+warmup_style: null
