@@ -97,14 +97,14 @@ def test_basic_rollout_is():
         rollout_log_prob=rollout_log_prob,
         response_mask=eos_mask,
         rollout_is_level="geometric",
-        rollout_is_mode="clip",
+        rollout_is_mode="mask",
         rollout_is_threshold=1.5,
         rollout_is_threshold_lower=0.5,
         rollout_is_veto_threshold=1e-4,
     )
 
     print(f"   Mean weight: {metrics_geo['mismatch/rollout_is_mean']:.4f}")
-    print(f"   Clipped fraction: {metrics_geo['mismatch/rollout_is_clipped_fraction']:.4f}")
+    print(f"   Masked fraction: {metrics_geo['mismatch/rollout_is_masked_fraction']:.4f}")
     print("   ✓ Geometric mean mode passed")
 
     # Test veto mechanism

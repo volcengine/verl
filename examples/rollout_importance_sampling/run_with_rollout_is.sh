@@ -21,7 +21,7 @@ rollout_is_threshold_lower=null
 # Aggregation level: token | sequence | geometric (experimental)
 rollout_is_level=token
 
-# Bounding mode: truncate (cap upper) | clip (zero outside bounds)
+# Bounding mode: truncate (cap upper) | mask (zero outside bounds)
 rollout_is_mode=truncate
 
 # Catastrophic outlier veto threshold
