@@ -1,0 +1,120 @@
+hydra:
+  searchpath:
+    - pkg://verl.trainer.config
+
+defaults:
+  - ppo_trainer
+  - override actor@actor_rollout_ref.actor: deepspeed_actor
+  - override critic@critic: deepspeed_critic
+  - _self_
+
+data:
+  train_files:
+    - /home/paperspace/data/gsm8k/train.parquet
+  val_files:
+    - /home/paperspace/data/gsm8k/test.parquet
+  train_batch_size: 128
+  max_prompt_length: 512
+  max_response_length: 512
+  filter_overlong_prompts: true
+  truncation: error
+  seed: 42
+
+algorithm:
+  adv_estimator: gae
+  use_kl_in_reward: false
+
+actor_rollout_ref:
+  model:
+    path: Qwen/Qwen2.5-0.5B-Instruct
+    use_remove_padding: true
+    enable_gradient_checkpointing: false
+  actor:
+    ppo_mini_batch_size: 128
+    ppo_micro_batch_size_per_gpu: 16
+    gradient_accumulation_steps: 8
+    zero_stage: 0
+    train_batch_size: 128
+    train_micro_batch_size_per_gpu: 16
+    deepspeed_config:
+      model_dtype: bf16
+      mixed_precision: bf16
+      param_offload: false
+      optimizer_offload: false
+      ulysses_sequence_parallel_size: 1
+    optim:
+      optimizer: AdamW
+      lr: 1.0e-06
+      betas:
+        - 0.9
+        - 0.999
+      eps: 1e-8
+      weight_decay: 0.0
+  rollout:
+    name: vllm
+    mode: sync
+    n: 1
+    seed: 42
+    tensor_model_parallel_size: 1
+    gpu_memory_utilization: 0.2
+    enforce_eager: true
+    dtype: bfloat16
+    load_format: safetensors
+    free_cache_engine: false
+    max_model_len: 1024
+    max_num_batched_tokens: 8192
+    max_num_seqs: 128
+    enable_chunked_prefill: false
+    log_prob_micro_batch_size_per_gpu: 16
+  ref:
+    ppo_mini_batch_size: 128
+    ppo_micro_batch_size_per_gpu: 16
+    gradient_accumulation_steps: 8
+    zero_stage: 0
+    train_batch_size: 128
+    train_micro_batch_size_per_gpu: 16
+    deepspeed_config:
+      model_dtype: bf16
+      mixed_precision: bf16
+      param_offload: false
+      optimizer_offload: false
+      ulysses_sequence_parallel_size: 1
+
+critic:
+  ppo_mini_batch_size: 128
+  ppo_micro_batch_size_per_gpu: 16
+  gradient_accumulation_steps: 8
+  zero_stage: 0
+  train_batch_size: 128
+  train_micro_batch_size_per_gpu: 16
+  forward_micro_batch_size_per_gpu: 2
+  forward_max_token_len_per_gpu: 1024
+  deepspeed_config:
+    model_dtype: bf16
+    mixed_precision: bf16
+    param_offload: false
+    optimizer_offload: false
+  data_loader_seed: 42
+  optim:
+    optimizer: AdamW
+    lr: 1.0e-05
+    betas:
+      - 0.9
+      - 0.999
+    eps: 1e-8
+    weight_decay: 0.0
+  model:
+    path: Qwen/Qwen2.5-0.5B-Instruct
+
+trainer:
+  total_epochs: 2
+  n_gpus_per_node: 1
+  nnodes: 1
+  experiment_name: deepspeed
+  project_name: fsdp_vs_deepspeed_benchmark
+  logger:
+    - console
+  save_freq: 200
+  test_freq: 20
+  resume_mode: disable
+  default_local_dir: ./examples/benchmarks/fsdp_vs_deepspeed_ppo/results/deepspeed
