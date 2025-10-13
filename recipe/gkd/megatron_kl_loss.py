@@ -27,14 +27,17 @@ class _VocabParallelKLDivergence(torch.autograd.Function):
     @staticmethod
     def forward(ctx, vocab_parallel_logits, target_topk_logps, target_topk_indices):
         # seq_len, batch_size, top_k = target_topk_logps.size()
-        target_topk_logps = normalize(target_topk_logps)
+        # target_topk_logps = normalize(target_topk_logps)
         vocab_parallel_logits, logits_max = calculate_logits_max(vocab_parallel_logits)
+        partition_vocab_size = vocab_parallel_logits.size(-1)
+
         torch.distributed.all_reduce(
             logits_max, op=torch.distributed.ReduceOp.MAX, 
             group=get_tensor_model_parallel_group())
        
         vocab_parallel_logits -= logits_max.unsqueeze(dim=-1)
-        exp_logits = vocab_parallel_logits.exp()
+        vocab_parallel_logits.exp_()
+        exp_logits = vocab_parallel_logits
         sum_exp_logits = exp_logits.sum(dim=-1)
 
         torch.distributed.all_reduce(
@@ -44,7 +47,6 @@ class _VocabParallelKLDivergence(torch.autograd.Function):
         )
 
          # Get the partition's vocab indices
-        partition_vocab_size = vocab_parallel_logits.size(-1)
         rank = get_tensor_model_parallel_rank()
         world_size = get_tensor_model_parallel_world_size()
         vocab_start_index, vocab_end_index = VocabUtility.vocab_range_from_per_partition_vocab_size(
