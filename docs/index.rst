@@ -121,6 +121,7 @@ verl is fast with:
    examples/sandbox_fusion_example
    advance/rollout_trace.rst
    advance/rollout_skip.rst
+   advance/rollout_is_migration.md
    advance/one_step_off
    advance/agent_loop
 
