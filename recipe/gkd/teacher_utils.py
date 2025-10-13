@@ -12,13 +12,6 @@ from torch.nn import functional as F
 import numpy as np
 from verl import DataProto
 
-
-def chunk_list(lst, n):
-    assert n > 0 and len(lst) >= n and len(lst) % n == 0
-    chunk_size = len(lst) // n
-    for i in range(0, len(lst), chunk_size):
-        yield lst[i: i + chunk_size]
-
 teacher_topk_logps_padded, teacher_topk_indices_padded = None, None
 
 def get_teacher_knowledge(batch: DataProto, teacher_client, n_server_workers=1, is_async=False):

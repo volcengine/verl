@@ -185,13 +185,38 @@ class OnPolicyDistillActor:
                 )
             else:
                 micro_batches, indices = rearrange_micro_batches(batch=data.batch, max_token_len=max_token_len)
-            total_seqlen = max_token_len
+            # total_seqlen = max_token_len
+            if mpu.is_pipeline_last_stage():
+                teacher_topk_logps_tensor = torch.tensor(data.non_tensor_batch["teacher_topk_logps"])
+                teacher_topk_indices_tensor = torch.tensor(data.non_tensor_batch["teacher_topk_indices"])
+                teacher_topk_logps, teacher_topk_indices = [], []
+                for partition in indices:
+                    curr_logp_micro_batch, curr_idx_micro_batch = [], []
+                    for idx in partition:
+                        curr_logp_micro_batch.append(teacher_topk_logps_tensor[idx : idx + 1])
+                        curr_idx_micro_batch.append(teacher_topk_indices_tensor[idx : idx + 1])
+                    curr_logp_micro_batch = torch.cat(curr_logp_micro_batch)
+                    curr_idx_micro_batch = torch.cat(curr_idx_micro_batch)
+
+                    teacher_topk_logps.append(curr_logp_micro_batch)
+                    teacher_topk_indices.append(curr_idx_micro_batch)
+
+                for i, mb in enumerate(micro_batches):
+                    responses = mb["responses"]
+                    response_length = responses.size(1)
+                    calc_kl_mask = mb["attention_mask"].clone()
+                    calc_kl_mask[:, :(-response_length - 1)] = False
+                    mb["calc_kl_mask"] = calc_kl_mask
+                    mb["kl_losses"] = torch.zeros_like(calc_kl_mask, dtype=torch.float32)
+                    mb["teacher_topk_logps"] = teacher_topk_logps[i].pin_memory()
+                    mb["teacher_topk_indices"] = teacher_topk_indices[i].pin_memory()
         else:
             assert micro_batch_size is not None, (
                 "micro_batch_size is needed to be passed in when not using dynamic batch size"
             )
             micro_batches = data.batch.split(micro_batch_size)
-
+            # seq_len = micro_batches[0]["input_ids"].shape[1]
+            # total_seqlen = micro_batch_size * seq_len
             if mpu.is_pipeline_last_stage():
                 teacher_topk_logps = np.array_split(data.non_tensor_batch["teacher_topk_logps"], len(micro_batches))
                 teacher_topk_indices = np.array_split(data.non_tensor_batch["teacher_topk_indices"], len(micro_batches))
@@ -205,8 +230,6 @@ class OnPolicyDistillActor:
                     mb["teacher_topk_logps"] = torch.tensor(teacher_topk_logps[i]).pin_memory()
                     mb["teacher_topk_indices"] = torch.tensor(teacher_topk_indices[i]).pin_memory()
 
-            seq_len = micro_batches[0]["input_ids"].shape[1]
-            total_seqlen = micro_batch_size * seq_len
         # compute input shapes for pp stages
         n_micro_batch = len(micro_batches)
 
@@ -269,9 +292,9 @@ class OnPolicyDistillActor:
             forward_fn = get_mcore_forward_fn(self.hf_config)
 
             output = forward_fn(model, input_ids, attention_mask, position_ids, 
-                                sequence_parallel=self.tf_config.sequence_parallel, 
-                                logits_processor=logits_processor, 
-                                logits_processor_args=logits_processor_args)
+                                     sequence_parallel=self.tf_config.sequence_parallel, 
+                                     logits_processor=logits_processor, 
+                                     logits_processor_args=logits_processor_args)
             
             return output, loss_func
 
@@ -285,8 +308,8 @@ class OnPolicyDistillActor:
             data_iterator=batch_generator,
             model=self.actor_module,
             num_microbatches=n_micro_batch,
-            seq_length=total_seqlen,  # no use when input_shapes was set
-            micro_batch_size=1,  # no use when input_shapes was set
+            seq_length=-1,  # no use when variable_seq_lengths was set
+            micro_batch_size=-1,  # no use when variable_seq_lengths was set
             forward_only=False,
         )
         
@@ -323,7 +346,7 @@ class OnPolicyDistillActor:
         micro_batch_size = self.config.micro_batch_size
         max_token_len = None
         if self.config.use_dynamic_bsz:
-            max_token_len = self.config.max_seq_len * self.config.megatron.context_parallel_size
+            max_token_len = self.config.max_token_len * self.config.megatron.context_parallel_size
 
         metric_micro_batch = self.forward_backward_batch(
             data,
