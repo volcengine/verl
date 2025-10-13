@@ -103,7 +103,7 @@ def is_hopper_with_cuda_12_3() -> bool:
     Returns:
         bool: True if device is Hopper with CUDA >= 12.3, False otherwise
     """
-    if not torch.cuda.is_available():
+    if not torch.cuda.is_cuda_available():
         return False
 
     try:
