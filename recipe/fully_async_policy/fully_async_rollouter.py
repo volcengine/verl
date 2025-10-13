@@ -16,6 +16,7 @@ import time
 from pprint import pformat
 
 import ray
+from ray import ObjectRef
 
 from recipe.fully_async_policy.detach_utils import (
     RolloutSample,
@@ -333,16 +334,7 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         """
         Streaming worker coroutines, a sample is submitted for processing without waiting for batches
         """
-
         while True:
-            simple_from_cancel_queue = False
-            if not self.cancel_queue.empty():
-                rollout_sample = await self.cancel_queue.get()
-                simple_from_cancel_queue = True
-            else:
-                rollout_sample = await self.pending_queue.get()
-                self.staleness_samples += 1
-
             if self.paused or await self._should_pause_generation():
                 print(
                     "[FullyAsyncRollouter][Processor] Received pause signal, waiting for remaining tasks to return..."
@@ -363,6 +355,15 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
                     while self.paused:
                         self.idle_start_time = time.time()
                         await self.condition.wait()
+                continue
+
+            simple_from_cancel_queue = False
+            if not self.cancel_queue.empty():
+                rollout_sample = await self.cancel_queue.get()
+                simple_from_cancel_queue = True
+            else:
+                rollout_sample = await self.pending_queue.get()
+                self.staleness_samples += 1
 
             if rollout_sample == "DONE":
                 print(
@@ -567,6 +568,7 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
                     async with self.lock:
                         self.paused = False
                         self.condition.notify_all()
+                        print("[FullyAsyncRollouter][MonitorLoop] Trigger rollout recovery in MonitorLoop")
 
     async def _should_pause_generation(self) -> bool:
         """Determine whether the build should be paused"""
@@ -581,12 +583,12 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
                 )
             return True
 
-        if self.staleness_samples > self.max_required_samples:
+        if self.staleness_samples >= self.max_required_samples:
             if not self.paused:
                 print(
                     "[FullyAsyncRollouter][ShouldPause] "
                     f"due to "
-                    f"staleness_samples {self.staleness_samples} > max_required_samples {self.max_required_samples} "
+                    f"staleness_samples {self.staleness_samples} >= max_required_samples {self.max_required_samples} "
                 )
             return True
 
@@ -607,7 +609,9 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
             await self.async_rollout_manager.reset_prefix_cache()
             self.monitor_loop_trigger = False
 
-    async def resume(self):
+    async def resume(self, dependency_ref: ObjectRef = None):
+        if dependency_ref is not None:
+            ray.get(dependency_ref)
         print("[FullyAsyncRollouter][Public][Resume]")
         async with self.lock:
             self.paused = False
