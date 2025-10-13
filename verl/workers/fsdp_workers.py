@@ -68,6 +68,7 @@ from verl.utils.fsdp_utils import (
     collect_lora_params,
     fsdp2_load_full_state_dict,
     fsdp_version,
+    get_fsdp_full_state_dict,
     get_fsdp_wrap_policy,
     get_init_weight_context_manager,
     get_shard_placement_fn,
@@ -1018,6 +1019,61 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 self.ref_policy.actor_module.reshard()
 
         return output
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def get_actor_state_dict(self, offload_to_cpu: bool = True):
+        """Return the actor state dict for humanline syncing."""
+        if not self._is_actor:
+            return None
+
+        module = getattr(self, "actor_module_fsdp", None)
+        if module is None:
+            return None
+
+        if self._is_offload_param:
+            load_fsdp_model_to_gpu(module)
+
+        try:
+            if fsdp_version(module) > 0:
+                state_dict = get_fsdp_full_state_dict(
+                    module, offload_to_cpu=offload_to_cpu, rank0_only=False
+                )
+            else:
+                state_dict = {k: v.cpu() for k, v in module.state_dict().items()}
+        finally:
+            if self._is_offload_param:
+                offload_fsdp_model_to_cpu(module)
+
+        return state_dict
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def load_ref_state_dict(self, state_dict):
+        """Load an actor state dict into the reference policy for humanline syncing."""
+        if not self._is_ref or state_dict is None:
+            return None
+
+        module = getattr(self, "ref_module_fsdp", None)
+        if module is None and self._is_actor:
+            module = getattr(self, "actor_module_fsdp", None)
+        if module is None:
+            return None
+
+        version_id = fsdp_version(module)
+        if version_id > 0:
+            if version_id == 1:
+                cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=False)
+                with FSDP.state_dict_type(module, StateDictType.FULL_STATE_DICT, cfg):
+                    missing, unexpected = FSDP.load_state_dict(module, state_dict)
+                if missing or unexpected:
+                    raise RuntimeError(
+                        f"Failed to load reference state dict. Missing keys: {missing}, unexpected keys: {unexpected}"
+                    )
+            else:
+                fsdp2_load_full_state_dict(module, state_dict, self.device_mesh)
+        else:
+            module.load_state_dict(state_dict)
+
+        return None
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):

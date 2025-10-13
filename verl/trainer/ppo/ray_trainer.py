@@ -333,6 +333,14 @@ class RayPPOTrainer:
         # if ref_in_actor is True, the reference policy will be actor without lora applied
         self.ref_in_actor = config.actor_rollout_ref.model.get("lora_rank", 0) > 0
 
+        if self.config.algorithm.humanline:
+            if not self.use_reference_policy:
+                raise ValueError("Humanline requires a reference policy; set use_reference_policy to True.")
+            if self.ref_in_actor:
+                raise ValueError("Humanline requires a dedicated reference worker; disable LoRA ref_in_actor mode.")
+
+        self._humanline_cached_state = None
+
         # define in-reward KL control
         # kl loss control currently not suppoorted
         if self.config.algorithm.use_kl_in_reward:
@@ -441,6 +449,62 @@ class RayPPOTrainer:
             f.write("\n".join(lines) + "\n")
 
         print(f"Dumped generations to {filename}")
+
+    def _humanline_should_sync(self) -> bool:
+        freq = self.config.algorithm.humanline_sync_freq
+        return (
+            self.config.algorithm.humanline
+            and self.use_reference_policy
+            and freq > 0
+            and self.global_steps % freq == 0
+        )
+
+    @staticmethod
+    def _extract_state_dict_from_workers(worker_output):
+        if isinstance(worker_output, list):
+            for item in worker_output:
+                if item is None:
+                    continue
+                if isinstance(item, dict) and len(item) == 0:
+                    continue
+                return item
+            return None
+        return worker_output
+
+    def _collect_humanline_actor_state(self):
+        try:
+            worker_output = self.actor_rollout_wg.get_actor_state_dict()
+        except AttributeError as exc:
+            raise RuntimeError(
+                "Humanline reference syncing is not available because the actor backend "
+                "does not expose get_actor_state_dict."
+            ) from exc
+        except NotImplementedError as exc:
+            raise RuntimeError(
+                "Humanline reference syncing is not supported by the current actor backend."
+            ) from exc
+        state_dict = self._extract_state_dict_from_workers(worker_output)
+        if state_dict is None:
+            raise RuntimeError(
+                "Failed to retrieve actor weights for humanline syncing; backend may not support state export."
+            )
+        return state_dict
+
+    def _load_state_into_reference(self, state_dict):
+        target_group = self.actor_rollout_wg if self.ref_in_actor else getattr(self, "ref_policy_wg", None)
+        if target_group is None:
+            raise RuntimeError("Humanline requires a reference worker group to be available.")
+        try:
+            target_group.load_ref_state_dict(state_dict)
+        except AttributeError as exc:
+            raise RuntimeError(
+                "Humanline reference syncing is not available because the reference backend "
+                "does not expose load_ref_state_dict."
+            ) from exc
+        except NotImplementedError as exc:
+            raise RuntimeError(
+                "Humanline reference syncing is not supported by the current reference backend."
+            ) from exc
 
     def _log_rollout_data(
         self, batch: DataProto, reward_extra_infos_dict: dict, timing_raw: dict, rollout_data_dir: str
@@ -1143,12 +1207,24 @@ class RayPPOTrainer:
 
                     # implement critic warmup
                     if self.config.trainer.critic_warmup <= self.global_steps:
+                        humanline_sync_scheduled = False
+                        if self.config.algorithm.humanline:
+                            humanline_sync_scheduled = self._humanline_should_sync()
+                            if humanline_sync_scheduled:
+                                self._humanline_cached_state = self._collect_humanline_actor_state()
+                            else:
+                                self._humanline_cached_state = None
+
                         # update actor
                         with marked_timer("update_actor", timing_raw, color="red"):
                             batch.meta_info["multi_turn"] = self.config.actor_rollout_ref.rollout.multi_turn.enable
                             actor_output = self.actor_rollout_wg.update_actor(batch)
                         actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
                         metrics.update(actor_output_metrics)
+
+                        if humanline_sync_scheduled and self._humanline_cached_state is not None:
+                            self._load_state_into_reference(self._humanline_cached_state)
+                            self._humanline_cached_state = None
 
                     # Log rollout generations if enabled
                     rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)
