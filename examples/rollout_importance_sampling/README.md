@@ -86,7 +86,7 @@ algorithm:
   rollout_is_mode: truncate
 ```
 
-### Example 3: Geometric Mean with Clip
+### Example 3: Geometric Mean with Mask
 
 ```yaml
 algorithm:
@@ -94,7 +94,7 @@ algorithm:
   rollout_is: true
   rollout_is_threshold_lower: 0.9998
   rollout_is_level: geometric
-  rollout_is_mode: clip
+  rollout_is_mode: mask
   rollout_is_veto_threshold: 1e-4
 ```
 
@@ -118,7 +118,7 @@ algorithm:
   rollout_is: true
   rollout_is_threshold_lower: 0.8
   rollout_is_level: token
-  rollout_is_mode: clip
+  rollout_is_mode: mask
 ```
 
 ## Monitoring Metrics
@@ -183,9 +183,9 @@ These metrics help diagnose the distribution mismatch between rollout and traini
 2. Verify rollout_log_probs are correctly passed
 3. Check for systematic bias in rollout vs training
 
-### Issue: Too Much Data Discarded (Clip Mode)
+### Issue: Too Much Data Discarded (Mask Mode)
 
-**Symptoms**: `rollout_is_clipped_fraction` > 0.5
+**Symptoms**: `rollout_is_masked_fraction` > 0.5
 
 **Solutions**:
 1. Widen thresholds
