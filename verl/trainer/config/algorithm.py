@@ -73,6 +73,10 @@ class AlgoConfig(BaseConfig):
         use_pf_ppo (bool): Whether to enable preference feedback PPO.
         pf_ppo (dict[str, Any]): Preference feedback PPO settings.
         filter_groups (Optional[FilterGroupsConfig]): Filter groups configuration, used in DAPO and Entropy
+        humanline (bool): Whether to use the HumanLine variant.
+        humanline_log_eps_P (float): Lower bound for HumanLine clipping.
+        humanline_log_eps_R (float): Upper bound for HumanLine clipping.
+        humanline_sync_freq (int): Frequency of HumanLine syncing.
     """
 
     gamma: float = 1.0
@@ -85,3 +89,7 @@ class AlgoConfig(BaseConfig):
     use_pf_ppo: bool = False
     pf_ppo: dict[str, Any] = field(default_factory=dict)
     filter_groups: Optional[FilterGroupsConfig] = None
+    humanline: bool = False
+    humanline_log_eps_P: float = -1.5
+    humanline_log_eps_R: float = 1.5
+    humanline_sync_freq: int = 1

@@ -113,6 +113,18 @@ algorithm:
     # Power used for weight scaling in "pow" method
     weight_pow: 2.0
 
+  # Whether to use the HumanLine variant
+  humanline: False
+
+  # Lower bound for HumanLine clipping
+  humanline_log_eps_P: -1.5
+
+  # Upper bound for HumanLine clipping
+  humanline_log_eps_R: 1.5
+
+  # Frequency of HumanLine syncing
+  humanline_sync_freq: 1
+
 # config for the trainer
 trainer:
 

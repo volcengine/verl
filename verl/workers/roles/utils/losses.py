@@ -63,6 +63,14 @@ def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
 
     loss_mode = config.policy_loss.get("loss_mode", "vanilla")
 
+    # Pass humanline parameters through config if available in data.meta_info
+    humanline_enabled = data.get("humanline", False) if hasattr(data, "meta_info") else False
+    if humanline_enabled and hasattr(data, "meta_info"):
+        # Temporarily add humanline params to config for loss function
+        config.humanline = data.meta_info.get("humanline", False)
+        config.humanline_log_eps_P = data.meta_info.get("humanline_log_eps_P", -1.5)
+        config.humanline_log_eps_R = data.meta_info.get("humanline_log_eps_R", 1.5)
+
     policy_loss_fn = get_policy_loss_fn(loss_mode)
     pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = policy_loss_fn(
         old_log_prob=old_log_prob,

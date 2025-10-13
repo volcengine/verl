@@ -933,8 +933,18 @@ def compute_policy_loss_vanilla(
     )
 
     negative_approx_kl = log_prob - old_log_prob
+    # Apply humanline clipping before PPO-style clipping if enabled
+    # Note: When humanline is enabled, old_log_prob is already replaced with ref_log_prob in ray_trainer
+    # so negative_approx_kl = log_prob - ref_log_prob
+    humanline = config.get("humanline", False)
+    if humanline:
+        humanline_log_eps_P = config.get("humanline_log_eps_P", -1.5)
+        humanline_log_eps_R = config.get("humanline_log_eps_R", 1.5)
+        negative_approx_kl = torch.clamp(negative_approx_kl, min=humanline_log_eps_P, max=humanline_log_eps_R)
+
     # Clamp negative_approx_kl for stability
     negative_approx_kl = torch.clamp(negative_approx_kl, min=-20.0, max=20.0)
+
     ratio = torch.exp(negative_approx_kl)
     ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
 

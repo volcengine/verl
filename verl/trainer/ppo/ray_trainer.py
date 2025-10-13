@@ -1082,6 +1082,18 @@ class RayPPOTrainer:
                                 ref_log_prob = self.actor_rollout_wg.compute_ref_log_prob(batch)
                             batch = batch.union(ref_log_prob)
 
+                    # Apply humanline logic if enabled
+                    if self.config.algorithm.humanline:
+                        if not self.use_reference_policy:
+                            raise ValueError("Humanline requires a reference policy to be enabled")
+                        # Replace old_log_probs with ref_log_prob for humanline
+                        # Apply clipping to log_ratio (log_prob - ref_log_prob will be computed in loss)
+                        batch.batch["old_log_probs"] = batch.batch["ref_log_prob"]
+                        # Pass humanline parameters through batch for loss function
+                        batch.meta_info["humanline"] = True
+                        batch.meta_info["humanline_log_eps_P"] = self.config.algorithm.humanline_log_eps_P
+                        batch.meta_info["humanline_log_eps_R"] = self.config.algorithm.humanline_log_eps_R
+
                     # compute values
                     if self.use_critic:
                         with marked_timer("values", timing_raw, color="cyan"):
