@@ -112,8 +112,8 @@ actor_rollout_ref:
       # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
       save_contents: ['model', 'optimizer', 'extra']
       load_contents: ${actor_rollout_ref.actor.checkpoint.save_contents}
-    max_seq_len: ${data.max_prompt_length} + ${data.max_response_length} 
     use_dynamic_bsz: False
+    max_token_len: 1024
     use_torch_compile: False
     shuffle: False
     # profile the actor model in `update_policy` 

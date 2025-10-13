@@ -305,17 +305,14 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
             )
             spawn_wg = wg_dict.spawn(prefix_set=class_dict.keys())
             all_wg.update(spawn_wg)
-
-            # avoid port conflict
-            for role in spawn_wg.values():
-                role.init_model()
+            time.sleep(5) # avoid port conflict
 
         self.rollout_wg = all_wg["rollout"]
         self.actor_wg = all_wg["actor"]
 
         # Initialize both groups
-        # self.rollout_wg.init_model()
-        # self.actor_wg.init_model()
+        self.rollout_wg.init_model()
+        self.actor_wg.init_model()
         weights_info = self.actor_wg.get_actor_weights_info()[0]
         self.rollout_wg.set_actor_weights_info(weights_info)
         from ray.util.collective import collective
