@@ -109,6 +109,24 @@ class TaskRunner:
             )
             ray_worker_group_cls = RayWorkerGroup
 
+        elif config.actor_rollout_ref.actor.strategy == "deepspeed":
+            assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
+            from verl.single_controller.ray import RayWorkerGroup
+
+            from .deepspeed_workers import (
+                ActorRolloutRefWorker,
+                AsyncActorRolloutRefWorker,
+                CriticWorker,
+                RolloutWorker,
+            )
+
+            actor_rollout_cls = (
+                AsyncActorRolloutRefWorker
+                if config.actor_rollout_ref.rollout.mode == "async"
+                else ActorRolloutRefWorker
+            )
+            ray_worker_group_cls = RayWorkerGroup
+
         elif config.actor_rollout_ref.actor.strategy == "megatron":
             assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
             from verl.single_controller.ray import RayWorkerGroup
@@ -167,6 +185,8 @@ class TaskRunner:
         if config.reward_model.enable:
             if config.reward_model.strategy in ["fsdp2"]:
                 from verl.workers.fsdp_workers import RewardModelWorker
+            elif config.reward_model.strategy == "deepspeed":
+                from verl.workers.deepspeed_workers import RewardModelWorker
             elif config.reward_model.strategy == "megatron":
                 from verl.workers.megatron_workers import RewardModelWorker
             else:

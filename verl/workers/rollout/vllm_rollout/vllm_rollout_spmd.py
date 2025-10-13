@@ -225,6 +225,12 @@ class vLLMRollout(BaseRollout):
         kwargs["n"] = 1  # already repeat in ray_trainer
         print(f"kwargs: {kwargs}")
         self.sampling_params = SamplingParams(**kwargs)
+        rollout_seed = config.get("seed", None)
+        if rollout_seed is not None:
+            try:
+                self.sampling_params.seed = int(rollout_seed)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"rollout seed must be convertible to int, got {rollout_seed!r}") from exc
 
         self.pad_token_id = tokenizer.pad_token_id
 
@@ -272,6 +278,7 @@ class vLLMRollout(BaseRollout):
         attention_mask = prompts.batch["attention_mask"]
         position_ids = prompts.batch["position_ids"]
 
+        # used to construct attention_mask
         # used to construct attention_mask
         eos_token_id = prompts.meta_info["eos_token_id"]
 

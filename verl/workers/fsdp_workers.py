@@ -681,6 +681,24 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             per_tensor_param = params
         else:
             device = get_device_id()  # used when fsdp2 set cpu_offload_policy
+
+            # Deep diagnostic: analyze weight properties before sending to vLLM (dummy mode)
+            if self.rank == 0 and "dummy" in self.config.rollout.load_format:
+                logger.info("="*80)
+                logger.info("FSDP Dummy Mode - Weight Diagnostic")
+                logger.info("="*80)
+                sample_weights = list(params.items())[:5]
+                for name, param in sample_weights:
+                    logger.info(f"Weight: {name}")
+                    logger.info(f"  - shape: {param.shape}")
+                    logger.info(f"  - dtype: {param.dtype}")
+                    logger.info(f"  - device: {param.device}")
+                    logger.info(f"  - is_DTensor: {isinstance(param, DTensor)}")
+                    logger.info(f"  - is_contiguous: {param.is_contiguous()}")
+                    logger.info(f"  - stride: {param.stride()}")
+                    logger.info(f"  - requires_grad: {param.requires_grad}")
+                    logger.info("")
+
             per_tensor_param = (
                 (name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param)
                 for name, param in params.items()

@@ -131,6 +131,16 @@ class TaskRunner:
             )
             ray_worker_group_cls = RayWorkerGroup
 
+        elif config.actor_rollout_ref.actor.strategy == "deepspeed":
+            from verl.workers.deepspeed_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
+
+            actor_rollout_cls = (
+                AsyncActorRolloutRefWorker
+                if config.actor_rollout_ref.rollout.mode == "async"
+                else ActorRolloutRefWorker
+            )
+            ray_worker_group_cls = RayWorkerGroup
+
         else:
             raise NotImplementedError
 
@@ -155,6 +165,9 @@ class TaskRunner:
 
         elif config.critic.strategy == "megatron":
             from verl.workers.megatron_workers import CriticWorker
+
+        elif config.critic.strategy == "deepspeed":
+            from verl.workers.deepspeed_workers import CriticWorker
 
         else:
             raise NotImplementedError
@@ -199,6 +212,8 @@ class TaskRunner:
                     from verl.workers.fsdp_workers import RewardModelWorker
                 elif config.reward_model.strategy == "megatron":
                     from verl.workers.megatron_workers import RewardModelWorker
+                elif config.reward_model.strategy == "deepspeed":
+                    from verl.workers.deepspeed_workers import RewardModelWorker
                 else:
                     raise NotImplementedError
             elif use_legacy_worker_impl == "disable":
