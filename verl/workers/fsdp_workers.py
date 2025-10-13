@@ -529,7 +529,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
             total_steps = optim_config.get("total_training_steps", 0)
             num_warmup_steps = int(optim_config.get("lr_warmup_steps", -1))
-            warmup_style = optim_config.get("warmup_style", "constant")
+            lr_scheduler_type = optim_config.get("lr_scheduler_type", "constant")
             min_lr_ratio = optim_config.get("min_lr_ratio", 0.0)
             num_cycles = optim_config.get("num_cycles", 0.5)
             if num_warmup_steps < 0:
@@ -539,11 +539,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             if self.rank == 0:
                 print(f"Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}")
 
-            if warmup_style == "constant":
+            if lr_scheduler_type == "constant":
                 actor_lr_scheduler = get_constant_schedule_with_warmup(
                     optimizer=actor_optimizer, num_warmup_steps=num_warmup_steps
                 )
-            elif warmup_style == "cosine":
+            elif lr_scheduler_type == "cosine":
                 actor_lr_scheduler = get_cosine_schedule_with_warmup(
                     optimizer=actor_optimizer,
                     num_warmup_steps=num_warmup_steps,
@@ -552,7 +552,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                     num_cycles=num_cycles,
                 )
             else:
-                raise NotImplementedError(f"Warmup style {warmup_style} is not supported")
+                raise NotImplementedError(f"LR scheduler type {lr_scheduler_type} is not supported")
 
             log_gpu_memory_usage(f"After {role} optimizer init", logger=logger)
         else:
@@ -1386,7 +1386,8 @@ class CriticWorker(Worker, DistProfilerExtension):
 
         total_steps = config.optim.get("total_training_steps", 0)
         num_warmup_steps = int(config.optim.get("lr_warmup_steps", -1))
-        warmup_style = config.optim.get("warmup_style", "constant")
+
+        lr_scheduler_type = config.optim.get("lr_scheduler_type", "constant")
         if num_warmup_steps < 0:
             num_warmup_steps_ratio = config.optim.get("lr_warmup_steps_ratio", 0.0)
             num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
@@ -1396,11 +1397,11 @@ class CriticWorker(Worker, DistProfilerExtension):
 
         from verl.utils.torch_functional import get_constant_schedule_with_warmup, get_cosine_schedule_with_warmup
 
-        if warmup_style == "constant":
+        if lr_scheduler_type == "constant":
             critic_lr_scheduler = get_constant_schedule_with_warmup(
                 optimizer=critic_optimizer, num_warmup_steps=num_warmup_steps
             )
-        elif warmup_style == "cosine":
+        elif lr_scheduler_type == "cosine":
             min_lr_ratio = config.optim.get("min_lr_ratio", 0.0)
             num_cycles = config.optim.get("num_cycles", 0.5)
             critic_lr_scheduler = get_cosine_schedule_with_warmup(
@@ -1411,7 +1412,7 @@ class CriticWorker(Worker, DistProfilerExtension):
                 num_cycles=num_cycles,
             )
         else:
-            raise NotImplementedError(f"Warmup style {warmup_style} is not supported")
+            raise NotImplementedError(f"LR scheduler type {lr_scheduler_type} is not supported")
 
         return critic_module, critic_optimizer, critic_lr_scheduler
 
