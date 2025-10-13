@@ -95,6 +95,33 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 device_name = get_device_name()
 
 
+def is_hopper_with_cuda_12_3() -> bool:
+    """
+    Check if the current device is Hopper architecture (compute capability 9.x) with CUDA >= 12.3.
+    This is used to determine if FA3 can be used.
+    
+    Returns:
+        bool: True if device is Hopper with CUDA >= 12.3, False otherwise
+    """
+    if not torch.cuda.is_available():
+        return False
+    
+    try:
+        # Get compute capability (major version)
+        cc_major = torch.cuda.get_device_capability()[0]
+        
+        # Check CUDA version
+        if torch.version.cuda:
+            cuda_version = tuple(map(int, torch.version.cuda.split(".")[:2]))
+        else:
+            return False
+        
+        # Hopper is compute capability 9.x with CUDA >= 12.3
+        return cc_major == 9 and cuda_version >= (12, 3)
+    except Exception:
+        return False
+
+
 def create_device_mesh(world_size, fsdp_size):
     if fsdp_size < 0 or fsdp_size >= world_size:
         device_mesh = init_device_mesh(device_name, mesh_shape=(world_size,), mesh_dim_names=["fsdp"])
@@ -314,9 +341,14 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         else:
             torch_dtype = PrecisionType.to_dtype(torch_dtype)
 
+        # Auto-select attention backend based on hardware:
+        # - Use FA3 on Hopper (compute capability 9.x) with CUDA >= 12.3
+        # - Otherwise use FA2 as default
+        attn_backend = "flash_attention_3" if is_hopper_with_cuda_12_3() else "flash_attention_2"
+        
         # override model kwargs
         actor_model_config = AutoConfig.from_pretrained(
-            local_path, trust_remote_code=trust_remote_code, attn_implementation="flash_attention_2"
+            local_path, trust_remote_code=trust_remote_code, attn_implementation=attn_backend
         )
         # TODO: VL models use VisionAttention, which directly uses flash_attention in transformers>=4.53
         # which will be patched by _ulysses_flash_attention_forward, but errorly misses position_ids
@@ -1231,9 +1263,14 @@ class CriticWorker(Worker, DistProfilerExtension):
 
         from transformers import AutoConfig
 
+        # Auto-select attention backend based on hardware:
+        # - Use FA3 on Hopper (compute capability 9.x) with CUDA >= 12.3
+        # - Otherwise use FA2 as default
+        attn_backend = "flash_attention_3" if is_hopper_with_cuda_12_3() else "flash_attention_2"
+        
         critic_model_config = AutoConfig.from_pretrained(
             local_path,
-            attn_implementation="flash_attention_2",
+            attn_implementation=attn_backend,
             trust_remote_code=config.model.get("trust_remote_code", False),
         )
         # TODO: VL models use VisionAttention, which directly uses flash_attention in transformers>=4.53
