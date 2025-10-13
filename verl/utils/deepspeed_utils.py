@@ -53,6 +53,7 @@ def get_deepspeed_config(
     cpu_offload: bool = False,
     offload_optimizer: bool = False,
     disable_scheduler: bool = False,
+    gradient_clipping: Optional[float] = None,
     **kwargs,
 ) -> dict[str, Any]:
     """
@@ -76,6 +77,7 @@ def get_deepspeed_config(
         cpu_offload: Whether to offload parameters to CPU
         offload_optimizer: Whether to offload optimizer to CPU
         disable_scheduler: If True, removes the scheduler from the config
+        gradient_clipping: Gradient clipping value (None to disable)
         **kwargs: Additional configuration options
 
     Returns:
@@ -126,6 +128,10 @@ def get_deepspeed_config(
 
     if disable_scheduler:
         del config["scheduler"]
+
+    # Configure gradient clipping
+    if gradient_clipping is not None and gradient_clipping > 0:
+        config["gradient_clipping"] = gradient_clipping
 
     # Configure precision
     if bf16_enabled:
