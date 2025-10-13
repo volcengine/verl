@@ -19,6 +19,7 @@ def chunk_list(lst, n):
     for i in range(0, len(lst), chunk_size):
         yield lst[i: i + chunk_size]
 
+teacher_topk_logps_padded, teacher_topk_indices_padded = None, None
 
 def get_teacher_knowledge(batch: DataProto, teacher_client, n_server_workers=1, is_async=False):
     """
@@ -37,6 +38,7 @@ def get_teacher_knowledge(batch: DataProto, teacher_client, n_server_workers=1, 
     Raises:
         RuntimeError: If teacher model request fails
     """
+    
     input_ids = []
     attention_mask = batch.batch["attention_mask"].to(torch.bool)
     # response_length = batch.meta_info["response_length"]
@@ -51,11 +53,11 @@ def get_teacher_knowledge(batch: DataProto, teacher_client, n_server_workers=1, 
     assert batch_size % n_server_workers == 0
     micro_batch_size = batch_size // n_server_workers
     futures = []
-    tik = time.time()
-    tok = None
+    tik1 = time.time()
+    tok1 = tik1
     def cb(future):
-        nonlocal tok
-        tok = time.time()
+        nonlocal tok1
+        tok1 = max(tok1, time.time())
 
     for i in range(0, batch_size, micro_batch_size):
         fut = teacher_client.submit(input_ids[i: i + micro_batch_size])
@@ -72,6 +74,7 @@ def get_teacher_knowledge(batch: DataProto, teacher_client, n_server_workers=1, 
             all_teacher_topk_logps.extend(teacher_topk_logps)
             all_teacher_topk_indices.extend(teacher_topk_indices)
 
+        tik2 = time.time()
         # teacher_topk_logps = [x.to(params_dtype) for x in all_teacher_topk_logps]
         # teacher_topk_indices = [x.to(params_dtype) for x in all_teacher_topk_indices]
         teacher_topk_logps, teacher_topk_indices = all_teacher_topk_logps, all_teacher_topk_indices
@@ -80,27 +83,44 @@ def get_teacher_knowledge(batch: DataProto, teacher_client, n_server_workers=1, 
 
         topk = teacher_topk_logps[0].size(-1)
 
-        teacher_topk_logps_total = torch.cat(teacher_topk_logps)
-        teacher_topk_indices_total = torch.cat(teacher_topk_indices)
+        logp_dtype = teacher_topk_logps[0].dtype
+        idx_dtype = teacher_topk_indices[0].dtype
         teacher_knowledge_shape = list(batch.batch["input_ids"].shape) + [topk]
-        teacher_topk_logps_padded = torch.zeros(*teacher_knowledge_shape, 
-                                                dtype=teacher_topk_logps_total.dtype)
-        teacher_topk_indices_padded = torch.zeros(*teacher_knowledge_shape, 
-                                                  dtype=teacher_topk_indices_total.dtype)
-        teacher_topk_logps_padded[attention_mask] = teacher_topk_logps_total
-        teacher_topk_indices_padded[attention_mask] = teacher_topk_indices_total
+
+        global teacher_topk_logps_padded, teacher_topk_indices_padded
+        if (teacher_topk_logps_padded is None or  
+            teacher_topk_logps_padded.dtype != logp_dtype or
+            teacher_topk_logps_padded.shape != torch.Size(teacher_knowledge_shape)):
+            teacher_topk_logps_padded = torch.zeros(*teacher_knowledge_shape, 
+                                                            dtype=logp_dtype)
+        else:
+            teacher_topk_logps_padded.zero_()
+        
+        if (teacher_topk_indices_padded is None or 
+            teacher_topk_indices_padded.dtype != idx_dtype or
+            teacher_topk_indices_padded.shape != torch.Size(teacher_knowledge_shape)):
+            teacher_topk_indices_padded = torch.zeros(*teacher_knowledge_shape, 
+                                                              dtype=idx_dtype)
+        else:
+            teacher_topk_indices_padded.zero_()
+
+        batch_size = attention_mask.size(0)
+        for i in range(batch_size):
+            teacher_topk_logps_padded[i][attention_mask[i]] = teacher_topk_logps[i]
+            teacher_topk_indices_padded[i][attention_mask[i]] = teacher_topk_indices[i]
 
         output_batch = DataProto.from_single_dict(
             data={"real_seq_lens": real_seq_lens},
-            meta_info={
-                "timing": {"get_teacher_knowledge": tok - tik},
-            }
         )
 
         output_batch.non_tensor_batch.update({
             "teacher_topk_logps": teacher_topk_logps_padded.numpy(),
             "teacher_topk_indices": teacher_topk_indices_padded.numpy()
         })
+
+        tok2 = time.time()
+
+        output_batch.meta_info["timing"] = {"get_teacher_knowledge": (tok1 - tik1) + (tok2 - tik2)}
 
         return output_batch
     
