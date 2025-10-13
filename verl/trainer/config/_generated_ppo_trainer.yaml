@@ -18,7 +18,7 @@ actor_rollout_ref:
       clip_grad: 1.0
       min_lr_ratio: 0.0
       num_cycles: 0.5
-      warmup_style: constant
+      lr_scheduler_type: constant
     fsdp_config:
       _target_: verl.workers.config.FSDPEngineConfig
       wrap_policy:
@@ -315,7 +315,7 @@ critic:
     clip_grad: 1.0
     min_lr_ratio: 0.0
     num_cycles: 0.5
-    warmup_style: constant
+    lr_scheduler_type: constant
   model:
     fsdp_config:
       _target_: verl.workers.config.FSDPEngineConfig

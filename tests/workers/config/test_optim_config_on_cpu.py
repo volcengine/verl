@@ -21,17 +21,17 @@ class TestFSDPOptimizerConfigCPU:
     def test_default_configuration(self):
         config = FSDPOptimizerConfig(lr=0.1)
         assert config.min_lr_ratio is None
-        assert config.warmup_style == "constant"
+        assert config.lr_scheduler_type == "constant"
         assert config.num_cycles == 0.5
 
-    @pytest.mark.parametrize("warmup_style", ["constant", "cosine"])
-    def test_valid_warmup_styles(self, warmup_style):
-        config = FSDPOptimizerConfig(warmup_style=warmup_style, lr=0.1)
-        assert config.warmup_style == warmup_style
+    @pytest.mark.parametrize("lr_scheduler_type", ["constant", "cosine"])
+    def test_valid_lr_scheduler_types(self, lr_scheduler_type):
+        config = FSDPOptimizerConfig(lr_scheduler_type=lr_scheduler_type, lr=0.1)
+        assert config.lr_scheduler_type == lr_scheduler_type
 
-    def test_invalid_warmup_style(self):
+    def test_invalid_lr_scheduler_type(self):
         with pytest.raises((ValueError, AssertionError)):
-            FSDPOptimizerConfig(warmup_style="invalid_style", lr=0.1)
+            FSDPOptimizerConfig(lr_scheduler_type="invalid_style", lr=0.1)
 
     @pytest.mark.parametrize("num_cycles", [0.1, 1.0, 2.5])
     def test_num_cycles_configuration(self, num_cycles):

@@ -132,7 +132,7 @@ Actor/Rollout/Reference Policy
         lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
         min_lr_ratio: 0.0   # only used with cosine lr scheduler, default to 0.0
         num_cycles: 0.5     # only used with cosine lr scheduler, default to 0.5
-        warmup_style: constant  # select from constant/cosine
+        lr_scheduler_type: constant  # select from constant/cosine
         total_training_steps: -1  # must be override by program
       fsdp_config:
         wrap_policy:
@@ -415,7 +415,7 @@ ____________________________________________________
 
 Notice that there are some differences in APIs between Megatron optimizer and FSDP optimizer.
 
-- Megatron optimizer scheduler names the period after lr_warmup as lr_decay_steps, so the ``warmup_style`` actually means the style of lr decay after warmup.
+- Megatron optimizer scheduler names the period after lr_warmup as lr_decay_steps, so the ``lr_scheduler_type`` actually means the style of lr decay after warmup.
 - Megatron optimizer also support weight decay decay mechanism
 - ``use_checkpoint_opt_param_scheduler`` determines whether to use the checkpoint optimizer parameter scheduler. If set to True, the optimizer parameter scheduler will be saved in the checkpoint and loaded from the checkpoint during resuming training.
 
