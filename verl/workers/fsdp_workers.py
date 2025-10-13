@@ -1388,12 +1388,6 @@ class CriticWorker(Worker, DistProfilerExtension):
         num_warmup_steps = int(config.optim.get("lr_warmup_steps", -1))
 
         lr_scheduler_type = config.optim.get("lr_scheduler_type", "constant")
-        if config.optim.get("warmup_style") is not None:
-            warnings.warn(
-                "`warmup_style` is deprecated, use `lr_scheduler_type` instead.", DeprecationWarning, stacklevel=2
-            )
-            lr_scheduler_type = config.optim.get("warmup_style")
-
         if num_warmup_steps < 0:
             num_warmup_steps_ratio = config.optim.get("lr_warmup_steps_ratio", 0.0)
             num_warmup_steps = int(num_warmup_steps_ratio * total_steps)

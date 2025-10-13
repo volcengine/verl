@@ -371,12 +371,6 @@ class FSDPEngine(BaseEngine):
         total_steps = optim_config.total_training_steps
         num_warmup_steps = optim_config.lr_warmup_steps
         lr_scheduler_type = optim_config.lr_scheduler_type
-        if optim_config.get("warmup_style") is not None:
-            warnings.warn(
-                "`warmup_style` is deprecated, use `lr_scheduler_type` instead.", DeprecationWarning, stacklevel=2
-            )
-            lr_scheduler_type = optim_config.get("warmup_style")
-
         min_lr_ratio = optim_config.min_lr_ratio
         num_cycles = optim_config.num_cycles
         if num_warmup_steps <= 0:
