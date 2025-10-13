@@ -353,6 +353,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 bf16_enabled=bf16_enabled,
                 cpu_offload=deepspeed_config.get("param_offload", False),
                 offload_optimizer=deepspeed_config.get("optimizer_offload", False),
+                gradient_clipping=self.config.actor.get("grad_clip", None),
             )
 
             # Initialize DeepSpeed engine
@@ -444,25 +445,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         set_expandable_segments(False)
 
         device = get_device_id()
-
-        # Deep diagnostic: analyze weight properties before sending to vLLM
-        if self.rank == 0 and self._dummy_rollout:
-            logger.info("="*80)
-            logger.info("DeepSpeed Dummy Mode - Weight Diagnostic")
-            logger.info("="*80)
-            sample_weights = list(params.items())[:5]
-            for name, param in sample_weights:
-                logger.info(f"Weight: {name}")
-                logger.info(f"  - shape: {param.shape}")
-                logger.info(f"  - dtype: {param.dtype}")
-                logger.info(f"  - device: {param.device}")
-                logger.info(f"  - is_contiguous: {param.is_contiguous()}")
-                logger.info(f"  - stride: {param.stride()}")
-                logger.info(f"  - requires_grad: {param.requires_grad}")
-                logger.info(f"  - is_leaf: {param.is_leaf}")
-                if hasattr(param, '_base') and param._base is not None:
-                    logger.info(f"  - is_view: True (base tensor exists)")
-                logger.info("")
 
         # Use generator like FSDP does - avoid eager list creation
         # This may help with memory management and weight format compatibility
@@ -717,14 +699,10 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         if self._dummy_rollout:
             import time
             # Dummy mode also needs mode switching for RNG consistency
-            print(f"[MODE_SWITCH_DEBUG] _is_actor={self._is_actor}, _dummy_rollout=True", flush=True)
             if self._is_actor:
                 import asyncio
-                print("[MODE_SWITCH_DEBUG] Calling rollout_mode() for dummy mode", flush=True)
                 loop = asyncio.get_event_loop()
                 loop.run_until_complete(self.rollout_mode())
-                print("[MODE_SWITCH_DEBUG] rollout_mode() completed for dummy mode", flush=True)
-                log_gpu_memory_usage("After switch to rollout mode (dummy)", logger=logger)
 
             start = time.perf_counter()
 
@@ -814,38 +792,26 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             logger.info("Dummy mode: Skipped vLLM generation, returned prompts as placeholder responses")
 
             # Switch back to trainer mode after dummy generation
-            print(f"[MODE_SWITCH_DEBUG] Dummy done, _is_actor={self._is_actor}", flush=True)
             if self._is_actor:
                 import asyncio
-                print("[MODE_SWITCH_DEBUG] Calling trainer_mode() after dummy", flush=True)
                 loop = asyncio.get_event_loop()
                 loop.run_until_complete(self.trainer_mode())
-                print("[MODE_SWITCH_DEBUG] trainer_mode() completed after dummy", flush=True)
-                log_gpu_memory_usage("After switch to trainer mode (dummy)", logger=logger)
 
             return output
 
         # Normal mode: Use vLLM for actual generation
-        print(f"[MODE_SWITCH_DEBUG] Normal mode, _is_actor={self._is_actor}", flush=True)
         if self._is_actor:
             import asyncio
-            print("[MODE_SWITCH_DEBUG] Calling rollout_mode() for vLLM generation", flush=True)
             loop = asyncio.get_event_loop()
             loop.run_until_complete(self.rollout_mode())
-            print("[MODE_SWITCH_DEBUG] rollout_mode() completed, calling vLLM", flush=True)
-            log_gpu_memory_usage("After switch to rollout mode", logger=logger)
 
         with simple_timer("generate_sequences", timing_generate):
             output = self.rollout.generate_sequences(prompts=prompts)
 
-        print(f"[MODE_SWITCH_DEBUG] vLLM done, _is_actor={self._is_actor}", flush=True)
         if self._is_actor:
             import asyncio
-            print("[MODE_SWITCH_DEBUG] Calling trainer_mode() after vLLM", flush=True)
             loop = asyncio.get_event_loop()
             loop.run_until_complete(self.trainer_mode())
-            print("[MODE_SWITCH_DEBUG] trainer_mode() completed after vLLM", flush=True)
-            log_gpu_memory_usage("After switch to trainer mode", logger=logger)
 
         timing_generate_topk_ratio, timing_generate_min, timing_generate_max = topk_reduce_ratio_min_max(
             timing_generate["generate_sequences"]
@@ -926,18 +892,10 @@ class DeepSpeedPPOActor(DataParallelPPOActor):
     def __init__(self, config, actor_module, engine):
         super().__init__(config=config, actor_module=actor_module, actor_optimizer=engine.optimizer)
         self.deepspeed_engine = engine
-        self._use_manual_backward = bool(int(os.getenv("DS_USE_MANUAL_BACKWARD", "1")))
+        self._use_manual_backward = bool(int(os.getenv("DS_USE_MANUAL_BACKWARD", "0")))
         self._last_grad_layout: list[tuple[str, int]] = []
         base_opt = getattr(engine.optimizer, "optimizer", None)
         if torch.distributed.get_rank() == 0:
-            print(
-                f"[DEBUG][DS Actor] optimizer={type(engine.optimizer).__name__}, "
-                f"base_optimizer={type(base_opt).__name__ if base_opt else 'None'}, "
-                f"use_manual_backward={self._use_manual_backward}"
-            )
-        self._use_manual_backward = bool(int(os.getenv("DS_USE_MANUAL_BACKWARD", "0")))
-        if torch.distributed.get_rank() == 0:
-            base_opt = getattr(engine.optimizer, "optimizer", None)
             print(
                 f"[DEBUG][DS Actor] optimizer={type(engine.optimizer).__name__}, "
                 f"base_optimizer={type(base_opt).__name__ if base_opt else 'None'}, "
@@ -993,7 +951,10 @@ class DeepSpeedPPOActor(DataParallelPPOActor):
                 else:
                     micro_batches = mini_batch.split(self.config.ppo_micro_batch_size_per_gpu)
 
-                self.deepspeed_engine.zero_grad()
+                if self._use_manual_backward:
+                    self.actor_optimizer.zero_grad()
+                else:
+                    self.deepspeed_engine.zero_grad()
 
                 for idx, micro_batch in enumerate(micro_batches):
                     micro_batch = micro_batch.to(get_device_id())
@@ -1004,14 +965,6 @@ class DeepSpeedPPOActor(DataParallelPPOActor):
 
                     entropy_coeff = self.config.entropy_coeff
                     loss_agg_mode = self.config.loss_agg_mode
-
-                    if self.config.use_dynamic_bsz:
-                        loss_scale_factor = response_mask.shape[0] / self.config.ppo_mini_batch_size
-                        metric_scale_factor = loss_scale_factor
-                    else:
-                        # Critical: pre-scale loss so gradients are clipped on the same scale as FSDP
-                        loss_scale_factor = 1.0 / grad_accum_steps
-                        metric_scale_factor = 1.0 / grad_accum_steps
 
                     calculate_entropy = entropy_coeff != 0
                     entropy, log_prob = self._forward_micro_batch(
@@ -1047,27 +1000,22 @@ class DeepSpeedPPOActor(DataParallelPPOActor):
                         policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
 
                         micro_batch_metrics = {
-                            "actor/kl_loss": kl_loss.detach().item() * metric_scale_factor,
+                            "actor/kl_loss": kl_loss.detach().item(),
                             "actor/kl_coef": self.config.kl_loss_coef,
                         }
                     else:
                         micro_batch_metrics = {}
 
-                    if torch.distributed.get_rank() == 0:
-                        print(
-                            f"[DEBUG][DS Actor] micro_batch={idx}, scaled_loss={float(policy_loss.item()):.6f}, "
-                            f"loss_scale_factor={loss_scale_factor:.6f}"
-                        )
+                    # Let DeepSpeed handle loss scaling and gradient accumulation
+                    is_last_micro = idx == len(micro_batches) - 1
+                    self.deepspeed_engine.set_gradient_accumulation_boundary(is_last_micro)
+                    self.deepspeed_engine.backward(policy_loss, scale_wrt_gas=True)
 
-                    if self._use_manual_backward:
-                        (policy_loss * loss_scale_factor).backward()
+                    # Collect metrics (loss will be properly scaled for logging)
+                    if self.config.use_dynamic_bsz:
+                        metric_scale_factor = response_mask.shape[0] / self.config.ppo_mini_batch_size
                     else:
-                        is_last_mb = idx == len(micro_batches) - 1
-                        self.deepspeed_engine.set_gradient_accumulation_boundary(is_last_mb)
-                        self.deepspeed_engine.backward(
-                            policy_loss * loss_scale_factor,
-                            scale_wrt_gas=False,
-                        )
+                        metric_scale_factor = 1.0 / grad_accum_steps
 
                     micro_batch_metrics.update(
                         {
@@ -1079,41 +1027,20 @@ class DeepSpeedPPOActor(DataParallelPPOActor):
                     )
                     append_to_dict(metrics, micro_batch_metrics)
 
-                # Manual gradient clipping (DeepSpeed config should NOT have gradient_clipping set)
-                # Save pre-clip gradients for debugging (move to CPU to match FSDP behavior)
-                grad_layout: list[tuple[str, int]] = []
-                grad_tensors = []
-                for name, param in self.actor_module.named_parameters():
-                    if param.grad is None:
-                        continue
-                    grad_layout.append((name, param.numel()))
-                    grad_tensors.append(param.grad.detach().flatten())
-
-                if len(grad_tensors) > 0:
-                    self._last_pre_clip_grad = torch.cat(grad_tensors).detach().cpu().to(torch.float64)
-                else:
-                    # No gradients - this can happen if loss is 0 or advantages are all 0
-                    self._last_pre_clip_grad = torch.tensor([], dtype=torch.float64)
-                self._last_grad_layout = grad_layout
-
-                # Use PyTorch's native clip_grad_norm_ to match FSDP behavior exactly
-                # This uses fp32 accumulator internally for bfloat16 gradients
+                # Manual gradient clipping (required for bf16 mode)
+                # DeepSpeed's gradient_clipping config doesn't work with bf16
                 grad_norm_val = torch.nn.utils.clip_grad_norm_(
                     self.actor_module.parameters(),
                     max_norm=self.config.grad_clip,
                     norm_type=2.0
                 )
-                if torch.distributed.get_rank() == 0:
-                    print(f"[DEBUG][DS Actor] clip_grad_norm={float(grad_norm_val):.6f}")
-
-                # Force DeepSpeed to update parameters by setting accumulation boundary
-                # This is REQUIRED for DeepSpeed to actually perform the parameter update
-                self.deepspeed_engine._is_gradient_accumulation_boundary = True
-                self.deepspeed_engine.step()
-                self.deepspeed_engine._is_gradient_accumulation_boundary = None
                 append_to_dict(metrics, {"actor/grad_norm": float(grad_norm_val)})
 
-        self.deepspeed_engine.zero_grad()
+                # Step only once after all micro batches
+                self.deepspeed_engine.step()
+
+        if not self._use_manual_backward:
+            self.deepspeed_engine.zero_grad()
         return metrics
 
 
@@ -1142,9 +1069,6 @@ class DeepSpeedPPOCritic(DataParallelPPOCritic):
     def update_critic(self, data: DataProto):
         self.critic_module.train()
 
-        # IMPORTANT: Set deterministic RNG state to ensure reproducibility
-        # This is critical because previous operations (e.g., actor training) may have
-        # consumed different amounts of randomness in FSDP vs DeepSpeed
         if 'rng_seed' in data.meta_info:
             rng_seed = data.meta_info['rng_seed']
             if torch.distributed.get_rank() == 0:
@@ -1168,7 +1092,6 @@ class DeepSpeedPPOCritic(DataParallelPPOCritic):
         non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
 
         data = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
-
         mini_batches = data.split(self.config.ppo_mini_batch_size)
 
         for _ in range(self.config.ppo_epochs):
@@ -1180,7 +1103,10 @@ class DeepSpeedPPOCritic(DataParallelPPOCritic):
                 else:
                     micro_batches = mini_batch.split(self.config.ppo_micro_batch_size_per_gpu)
 
-                self.deepspeed_engine.zero_grad()
+                if self._use_manual_backward:
+                    self.critic_optimizer.zero_grad()
+                else:
+                    self.deepspeed_engine.zero_grad()
 
                 for idx, micro_batch in enumerate(micro_batches):
                     micro_batch = micro_batch.to(get_device_id())
@@ -1200,39 +1126,16 @@ class DeepSpeedPPOCritic(DataParallelPPOCritic):
                         loss_agg_mode=self.config.loss_agg_mode,
                     )
 
+                    # Let DeepSpeed handle loss scaling and gradient accumulation
+                    is_last_micro = idx == len(micro_batches) - 1
+                    self.deepspeed_engine.set_gradient_accumulation_boundary(is_last_micro)
+                    self.deepspeed_engine.backward(vf_loss, scale_wrt_gas=True)
+
+                    # Collect metrics (loss will be properly scaled for logging)
                     if self.config.use_dynamic_bsz:
-                        loss_scale_factor = response_mask.shape[0] / self.config.ppo_mini_batch_size
-                        metric_scale_factor = loss_scale_factor
+                        metric_scale_factor = response_mask.shape[0] / self.config.ppo_mini_batch_size
                     else:
-                        # 显式按梯度累积步数缩放，确保与 FSDP 完全一致
-                        loss_scale_factor = 1.0 / grad_accum_steps
                         metric_scale_factor = 1.0 / grad_accum_steps
-
-                    scaled_loss = vf_loss * loss_scale_factor
-
-                    if torch.distributed.get_rank() == 0:
-                        print(
-                            f"[DEBUG][DS Critic] micro_batch={idx}, vf_loss={vf_loss.item():.6f}, "
-                            f"loss_scale_factor={loss_scale_factor:.6f}"
-                        )
-
-                    if self._use_manual_backward:
-                        scaled_loss.backward()
-                    else:
-                        is_last_micro = idx == len(micro_batches) - 1
-                        self.deepspeed_engine.set_gradient_accumulation_boundary(is_last_micro)
-                        self.deepspeed_engine.backward(
-                            scaled_loss,
-                            scale_wrt_gas=False,
-                        )
-
-                    if torch.distributed.get_rank() == 0:
-                        grad_sq = 0.0
-                        for p in self.critic_module.parameters():
-                            if p.grad is not None:
-                                grad_sq += float(torch.sum(p.grad.detach().float() ** 2))
-                        micro_grad_norm = grad_sq ** 0.5
-                        print(f"[DEBUG][DS Critic] micro_batch={idx}, accumulated_grad_norm={micro_grad_norm:.6f}")
 
                     micro_batch_metrics = {
                         "critic/vf_loss": vf_loss.detach().item() * metric_scale_factor,
@@ -1241,69 +1144,22 @@ class DeepSpeedPPOCritic(DataParallelPPOCritic):
                     }
                     append_to_dict(metrics, micro_batch_metrics)
 
-                # Manual gradient clipping (DeepSpeed config should NOT have gradient_clipping set)
-                # Save pre-clip gradients for debugging (move to CPU to match FSDP behavior)
-                grad_buffers = []
-                missing_grads = 0
-                for p in self.critic_module.parameters():
-                    if p.grad is None:
-                        missing_grads += 1
-                    else:
-                        grad_buffers.append(p.grad.detach().flatten())
-                if grad_buffers:
-                    self._last_pre_clip_grad = torch.cat(grad_buffers).detach().cpu().to(torch.float64)
-                else:
-                    self._last_pre_clip_grad = torch.tensor([], dtype=torch.float64)
-                if torch.distributed.get_rank() == 0:
-                    print(
-                        f"[DEBUG][DS Critic] collected_grad_tensors={len(grad_buffers)}, missing={missing_grads}, "
-                        f"first_grad_dtype={grad_buffers[0].dtype if grad_buffers else None}"
-                    )
-
-                # Use PyTorch's native clip_grad_norm_ to match FSDP behavior exactly
-                # This uses fp32 accumulator internally for bfloat16 gradients
+                # Manual gradient clipping (required for bf16 mode)
+                # DeepSpeed's gradient_clipping config doesn't work with bf16
                 grad_norm_val = torch.nn.utils.clip_grad_norm_(
                     self.critic_module.parameters(),
                     max_norm=self.config.grad_clip,
                     norm_type=2.0
                 )
-                if torch.distributed.get_rank() == 0:
-                    print(f"[DEBUG][DS Critic] clip_grad_norm={float(grad_norm_val):.6f}")
-                if torch.distributed.get_rank() == 0:
-                    pre_clip_norm = float(self._last_pre_clip_grad.norm())
-                    clipped_grads = [
-                        p.grad.detach().flatten()
-                        for p in self.critic_module.parameters()
-                        if p.grad is not None
-                    ]
-                    post_clip_actual = (
-                        torch.cat(clipped_grads).norm().item() if clipped_grads else float("nan")
-                    )
-                    print(
-                        f"[DEBUG][DS Critic] pre_clip_norm={pre_clip_norm:.6f}, "
-                        f"clip_grad_return={float(grad_norm_val):.6f}, "
-                        f"post_clip_actual={post_clip_actual:.6f}"
-                    )
-
-                if torch.distributed.get_rank() == 0:
-                    params_before = torch.cat(
-                        [p.data.detach().flatten() for p in self.critic_module.parameters()]
-                    )
-                # Force DeepSpeed to update parameters by setting accumulation boundary
-                # This is REQUIRED for DeepSpeed to actually perform the parameter update
-                self.deepspeed_engine._is_gradient_accumulation_boundary = True
-                self.deepspeed_engine.step()
-                self.deepspeed_engine._is_gradient_accumulation_boundary = None
-                if torch.distributed.get_rank() == 0:
-                    params_after = torch.cat(
-                        [p.data.detach().flatten() for p in self.critic_module.parameters()]
-                    )
-                    update_norm = torch.norm(params_after - params_before).item()
-                    print(f"[DEBUG][DS Critic] update_norm={update_norm:.6f}")
                 append_to_dict(metrics, {"critic/grad_norm": float(grad_norm_val)})
 
-        self.deepspeed_engine.zero_grad()
+                # Step only once after all micro batches
+                self.deepspeed_engine.step()
+
+        if not self._use_manual_backward:
+            self.deepspeed_engine.zero_grad()
         return metrics
+
 
 
 class CriticWorker(Worker, DistProfilerExtension):
@@ -1451,6 +1307,7 @@ class CriticWorker(Worker, DistProfilerExtension):
             bf16_enabled=bf16_enabled,
             cpu_offload=self.config.deepspeed_config.get("param_offload", False),
             offload_optimizer=self.config.deepspeed_config.get("optimizer_offload", False),
+            gradient_clipping=self.config.get("grad_clip", None),
         )
 
         self.critic_engine, optimizer, _, lr_scheduler = initialize_deepspeed_engine(
