@@ -46,8 +46,8 @@ from verl.experimental.transfer_queue import (
     BatchMeta,
     TransferQueueController,
     TransferQueueStorageSimpleUnit,
-    process_zmq_server_info,
     get_placement_group,
+    process_zmq_server_info,
 )
 from verl.single_controller.ray import (
     RayClassWithInitArgs,
@@ -90,7 +90,7 @@ from verl.utils.transferqueue_utils import (
     create_transferqueue_client,
     get_transferqueue_client,
     get_val_transferqueue_client,
-    batchmeta_dataproto_pipe,
+    tqbridge,
 )
 
 
@@ -150,15 +150,18 @@ class ResourcePoolManager:
                 f"Total available GPUs {total_available_gpus} is less than total desired GPUs {total_required_gpus}"
             )
 
-@batchmeta_dataproto_pipe(put_data=False)
+
+@tqbridge(put_data=False)
 def compute_reward_decorated(data, reward_fn):
     return compute_reward(data, reward_fn)
 
-@batchmeta_dataproto_pipe(put_data=False)
+
+@tqbridge(put_data=False)
 def compute_reward_async_decorated(data, reward_fn):
     return compute_reward_async.remote(data, reward_fn)
 
-@batchmeta_dataproto_pipe(put_data=False)
+
+@tqbridge(put_data=False)
 def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, kl_penalty="kl"):
     """Apply KL penalty to the token-level rewards.
 
@@ -199,6 +202,7 @@ def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, 
 
     return token_level_rewards, metrics
 
+
 def compute_response_mask(batch_meta: BatchMeta, data_system_client):
     """Compute the attention mask for the response part of the sequence.
 
@@ -224,7 +228,8 @@ def compute_response_mask(batch_meta: BatchMeta, data_system_client):
 
     return batch_meta
 
-@batchmeta_dataproto_pipe(put_data=False)
+
+@tqbridge(put_data=False)
 def compute_advantage(
     data: DataProto,
     adv_estimator: AdvantageEstimator,
@@ -298,26 +303,29 @@ def compute_advantage(
         advantages, returns = adv_estimator_fn(**adv_kwargs)
     return advantages, returns
 
-@batchmeta_dataproto_pipe(put_data=False)
+
+@tqbridge(put_data=False)
 def compute_data_metrics_decorated(batch, use_critic: bool = True):
     return compute_data_metrics(batch, use_critic)
 
-@batchmeta_dataproto_pipe(put_data=False)
+
+@tqbridge(put_data=False)
 def compute_timing_metrics_decorated(batch, timing_raw: dict[str, float]) -> dict[str, Any]:
     return compute_timing_metrics(batch, timing_raw)
 
-@batchmeta_dataproto_pipe(put_data=False)
+
+@tqbridge(put_data=False)
 def compute_throughout_metrics_decorated(batch, timing_raw: dict[str, float], n_gpus: int) -> dict[str, Any]:
     return compute_throughout_metrics(batch, timing_raw, n_gpus)
 
 
-@batchmeta_dataproto_pipe(put_data=False)
+@tqbridge(put_data=False)
 def calculate_debug_metrics_decorated(data):
     from verl.utils.debug.metrics import calculate_debug_metrics
     return calculate_debug_metrics(data)
 
 
-@batchmeta_dataproto_pipe(put_data=False)
+@tqbridge(put_data=False)
 def compute_val_reward_decorated(reward_fn, data, return_dict):
     return reward_fn(data, return_dict)
 
@@ -1603,13 +1611,17 @@ class RayPPOTrainer:
                             )
                             apply_kl_penalty_meta.reorder(balanced_idx)
                             token_level_rewards, kl_metrics = apply_kl_penalty(
-                                apply_kl_penalty_meta, kl_ctrl=self.kl_ctrl_in_reward, kl_penalty=self.config.algorithm.kl_penalty
+                                apply_kl_penalty_meta,
+                                kl_ctrl=self.kl_ctrl_in_reward,
+                                kl_penalty=self.config.algorithm.kl_penalty,
                             )
                             token_level_rewards_td = TensorDict(
                                 {"token_level_rewards": token_level_rewards}, batch_size=token_level_rewards.size(0)
                             )
                             asyncio.run(
-                                self.data_system_client.async_put(data=token_level_rewards_td, metadata=apply_kl_penalty_meta)
+                                self.data_system_client.async_put(
+                                    data=token_level_rewards_td, metadata=apply_kl_penalty_meta
+                                )
                             )
                             apply_kl_penalty_meta.add_fields(token_level_rewards_td)
 
@@ -1678,8 +1690,12 @@ class RayPPOTrainer:
                             config=self.config.algorithm,
                         )
 
-                        advantages_td = TensorDict({"advantages": advantages, "returns": returns}, batch_size=advantages.size(0))
-                        asyncio.run(self.data_system_client.async_put(data=advantages_td, metadata=compute_advantage_meta))
+                        advantages_td = TensorDict(
+                            {"advantages": advantages, "returns": returns}, batch_size=advantages.size(0)
+                        )
+                        asyncio.run(
+                            self.data_system_client.async_put(data=advantages_td, metadata=compute_advantage_meta)
+                        )
                         compute_advantage_meta.add_fields(advantages_td)
 
                         batch_meta = batch_meta.union(compute_advantage_meta)
@@ -1732,7 +1748,9 @@ class RayPPOTrainer:
                                 )
                             )
                             update_actor_meta.reorder(balanced_idx)
-                            update_actor_meta.set_extra_info("global_token_num", batch_meta.get_extra_info("global_token_num"))
+                            update_actor_meta.set_extra_info(
+                                "global_token_num", batch_meta.get_extra_info("global_token_num")
+                            )
                             update_actor_meta.set_extra_info("temperature", batch_meta.get_extra_info("temperature"))
 
                             actor_output_meta = self.actor_rollout_wg.update_actor(update_actor_meta)
@@ -1838,7 +1856,9 @@ class RayPPOTrainer:
                     )
                 )
                 compute_data_metrics_meta.reorder(balanced_idx)
-                metrics.update(compute_data_metrics_decorated(batch=compute_data_metrics_meta, use_critic=self.use_critic))
+                metrics.update(
+                    compute_data_metrics_decorated(batch=compute_data_metrics_meta, use_critic=self.use_critic)
+                )
 
                 compute_timing_metrics_fields = ["responses", "attention_mask"]
                 compute_timing_metrics_meta = asyncio.run(
@@ -1849,7 +1869,9 @@ class RayPPOTrainer:
                     )
                 )
                 compute_timing_metrics_meta.reorder(balanced_idx)
-                metrics.update(compute_timing_metrics_decorated(batch=compute_timing_metrics_meta, timing_raw=timing_raw))
+                metrics.update(
+                    compute_timing_metrics_decorated(batch=compute_timing_metrics_meta, timing_raw=timing_raw)
+                )
 
                 compute_throughout_metrics_meta = BatchMeta(
                     samples=[],
@@ -1857,7 +1879,11 @@ class RayPPOTrainer:
                 )
                 # TODO: implement actual tflpo and theoretical tflpo
                 n_gpus = self.resource_pool_manager.get_n_gpus()
-                metrics.update(compute_throughout_metrics_decorated(batch=compute_throughout_metrics_meta, timing_raw=timing_raw, n_gpus=n_gpus))
+                metrics.update(
+                    compute_throughout_metrics_decorated(
+                        batch=compute_throughout_metrics_meta, timing_raw=timing_raw, n_gpus=n_gpus
+                    )
+                )
 
                 # this is experimental and may be changed/removed in the future in favor of a general-purpose one
                 if isinstance(self.train_dataloader.sampler, AbstractCurriculumSampler):

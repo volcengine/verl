@@ -38,8 +38,12 @@ from verl.trainer.ppo.reward import load_reward_manager
 from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.fs import copy_to_local
 from verl.utils.model import compute_position_id_with_mask
-from verl.utils.rollout_trace import RolloutTraceConfig, rollout_trace_attr, rollout_trace_op
-from verl.utils.transferqueue_utils import batchmeta_dataproto_pipe
+from verl.utils.rollout_trace import (
+    RolloutTraceConfig,
+    rollout_trace_attr,
+    rollout_trace_op,
+)
+from verl.utils.transferqueue_utils import tqbridge
 from verl.workers.rollout.replica import TokenOutput, get_rollout_replica_class
 
 logger = logging.getLogger(__file__)
@@ -419,7 +423,7 @@ class AgentLoopWorker:
             trace_config.get("token2text", False),
         )
 
-    @batchmeta_dataproto_pipe()
+    @tqbridge()
     async def generate_sequences(self, batch: DataProto) -> DataProto:
         """Generate sequences from agent loop.
 

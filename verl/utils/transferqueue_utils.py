@@ -17,9 +17,7 @@ import inspect
 from functools import wraps
 from typing import Any
 
-import numpy as np
-import torch
-from tensordict import NonTensorData, NonTensorStack, TensorDict
+from tensordict import TensorDict
 
 from verl.experimental.transfer_queue import (
     AsyncTransferQueueClient,
@@ -63,98 +61,46 @@ def _find_batchmeta(*args, **kwargs):
     return None
 
 
-def _tensordict_to_dataproto(tensordict: TensorDict):
-    batch = {}
-    non_tensor_batch = {}
-    batch_size = None
-    for k, v in tensordict.items():
-        if isinstance(v, torch.Tensor):
-            batch[k] = v
-            if batch_size is None:
-                batch_size = v.shape[:1]
-        elif isinstance(v, NonTensorStack):
-            non_tensor_batch[k] = np.array([elem.data for elem in v], dtype=object)
-        else:
-            non_tensor_batch[k] = v
-    if len(batch) == 0 and len(non_tensor_batch) == 0:
-        batch_size = (0,)
-    return DataProto(
-        batch=TensorDict(batch, batch_size=batch_size),
-        non_tensor_batch=non_tensor_batch,
-    )
+async def _async_batchmeta_to_dataproto(batchmeta: BatchMeta) -> DataProto:
+    if batchmeta.samples == [] or batchmeta.samples is None:
+        return DataProto(
+            batch=TensorDict({}, batch_size=(0,)),
+            non_tensor_batch={},
+            meta_info=batchmeta.extra_info.copy(),
+        )
 
-
-def _batchmeta_to_dataproto(batchmeta: BatchMeta):
-    if batchmeta.extra_info.get("validate", False):
-        tensordict = asyncio.run(_VAL_TRANSFER_QUEUE_CLIENT.async_get_data(batchmeta))
-    else:
-        tensordict = asyncio.run(_TRANSFER_QUEUE_CLIENT.async_get_data(batchmeta))
-    result_dataproto = _tensordict_to_dataproto(tensordict)
-    result_dataproto.meta_info = batchmeta.extra_info.copy()
-
-    return result_dataproto
-
-
-async def _async_batchmeta_to_dataproto(batchmeta: BatchMeta):
     if batchmeta.extra_info.get("validate", False):
         tensordict = await _VAL_TRANSFER_QUEUE_CLIENT.async_get_data(batchmeta)
     else:
         tensordict = await _TRANSFER_QUEUE_CLIENT.async_get_data(batchmeta)
-    result_dataproto = _tensordict_to_dataproto(tensordict)
-    result_dataproto.meta_info = batchmeta.extra_info.copy()
-
-    return result_dataproto
+    return DataProto.from_tensordict(tensordict, meta_info=batchmeta.extra_info.copy())
 
 
-def _dataproto_to_tensordict(data: DataProto):
-    result_dict = {}
-
-    if data.batch is not None:
-        result_dict.update(data.batch)
-    
-    batch_size = (0,)
-    if data.batch is not None:
-        batch_size = data.batch.batch_size
-    elif data.non_tensor_batch is not None and len(data.non_tensor_batch) > 0:
-        batch_size = (len(next(iter(data.non_tensor_batch.values()))),)
-
-    if data.non_tensor_batch is not None:
-        for k, v in data.non_tensor_batch.items():
-            result_dict[k] = NonTensorData(data=v, batch_size=batch_size)
-
-    if data.meta_info == {} or data.meta_info is None:
-        result_dict["meta_info"] = NonTensorData(data=[None] * batch_size[0], batch_size=batch_size)
-    else:
-        result_dict["meta_info"] = NonTensorData(data=[data.meta_info] * batch_size[0], batch_size=batch_size)
-    return TensorDict(result_dict, batch_size=batch_size)
+def _batchmeta_to_dataproto(batchmeta: BatchMeta) -> DataProto:
+    return asyncio.run(_async_batchmeta_to_dataproto(batchmeta))
 
 
-def _update_batchmeta_with_output(output: DataProto, batchmeta: BatchMeta):
-    tensordict = _dataproto_to_tensordict(output)
+async def _async_update_batchmeta_with_output(output: DataProto, batchmeta: BatchMeta) -> None:
+    for k, v in output.meta_info.items():
+        batchmeta.set_extra_info(k, v)
+
     if len(output) > 0:
+        tensordict = output.to_tensordict()
+        # pop meta_info
+        for key in output.meta_info.keys():
+            tensordict.pop(key)
         batchmeta.add_fields(tensordict)
         if batchmeta.extra_info.get("validate", False):
-            asyncio.run(_VAL_TRANSFER_QUEUE_CLIENT.async_put(data=tensordict, metadata=batchmeta))
+            await _VAL_TRANSFER_QUEUE_CLIENT.async_put(data=tensordict, metadata=batchmeta)
         else:
-            asyncio.run(_TRANSFER_QUEUE_CLIENT.async_put(data=tensordict, metadata=batchmeta))
-
-    for k, v in output.meta_info.items():
-        batchmeta.set_extra_info(k, v)
+            await _TRANSFER_QUEUE_CLIENT.async_put(data=tensordict, metadata=batchmeta)
 
 
-async def _async_update_batchmeta_with_output(output, batchmeta: BatchMeta):
-    tensordict = _dataproto_to_tensordict(output)
-    batchmeta.add_fields(tensordict)
-    if batchmeta.extra_info.get("validate", False):
-        await _VAL_TRANSFER_QUEUE_CLIENT.async_put(data=tensordict, metadata=batchmeta)
-    else:
-        await _TRANSFER_QUEUE_CLIENT.async_put(data=tensordict, metadata=batchmeta)
-
-    for k, v in output.meta_info.items():
-        batchmeta.set_extra_info(k, v)
+def _update_batchmeta_with_output(output: DataProto, batchmeta: BatchMeta) -> None:
+    return asyncio.run(_async_update_batchmeta_with_output(output, batchmeta))
 
 
-def batchmeta_dataproto_pipe(put_data: bool = True):
+def tqbridge(put_data: bool = True):
     def decorator(func):
         @wraps(func)
         def inner(*args, **kwargs):
