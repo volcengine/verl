@@ -113,7 +113,7 @@ def gptmodel_forward_qwen2_5_vl(
         output_orig = model(
             input_ids=input_ids_rmpad,
             attention_mask=None,
-            position_ids=None, # model will calculate position_ids
+            position_ids=None,  # model will calculate position_ids
             packed_seq_params=packed_seq_params,
             pixel_values=pixel_values,
             image_grid_thw=image_grid_thw,
