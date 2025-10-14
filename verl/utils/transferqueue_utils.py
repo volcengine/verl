@@ -19,12 +19,12 @@ from functools import wraps
 from typing import Any, Callable
 
 from tensordict import TensorDict
-
-from verl.experimental.transfer_queue import (
+from transfer_queue import (
     AsyncTransferQueueClient,
     BatchMeta,
     ZMQServerInfo,
 )
+
 from verl.protocol import DataProto
 
 _TRANSFER_QUEUE_CLIENT = None

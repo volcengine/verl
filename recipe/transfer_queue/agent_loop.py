@@ -13,10 +13,10 @@
 # limitations under the License.
 import numpy as np
 import ray
+from transfer_queue import BatchMeta
 
 import verl.experimental.agent_loop.agent_loop as agent_loop
 from verl import DataProto
-from verl.experimental.transfer_queue import BatchMeta
 
 
 class AgentLoopManager(agent_loop.AgentLoopManager):

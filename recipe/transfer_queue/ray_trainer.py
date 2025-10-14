@@ -39,16 +39,16 @@ from tensordict import TensorDict
 from torch.utils.data import Dataset, Sampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
-
-from verl import DataProto
-from verl.experimental.dataset.sampler import AbstractCurriculumSampler
-from verl.experimental.transfer_queue import (
+from transfer_queue import (
     BatchMeta,
     TransferQueueController,
     TransferQueueStorageSimpleUnit,
     get_placement_group,
     process_zmq_server_info,
 )
+
+from verl import DataProto
+from verl.experimental.dataset.sampler import AbstractCurriculumSampler
 from verl.single_controller.ray import (
     RayClassWithInitArgs,
     RayResourcePool,

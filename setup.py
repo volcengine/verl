@@ -42,6 +42,7 @@ install_requires = [
     "wandb",
     "packaging>=20.0",
     "tensorboard",
+    "TransferQueue @ git+https://github.com/TransferQueue/TransferQueue.git@a2ddb30",
 ]
 
 TEST_REQUIRES = ["pytest", "pre-commit", "py-spy", "pytest-asyncio"]

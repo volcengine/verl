@@ -1,4 +1,0 @@
-[submodule "verl/experimental/transfer_queue"]
-	path = verl/experimental/transfer_queue
-	url = https://github.com/TransferQueue/TransferQueue
-	branch = verl/transfer_queue
