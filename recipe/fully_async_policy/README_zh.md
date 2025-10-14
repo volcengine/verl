@@ -273,7 +273,7 @@ python -m recipe.fully_async_policy.fully_async_main \
 | colocate sync      | 128                 |      |                    |              |              |            |                  |
 | fully_async_policy | 64:64               |      |                    |              |              |            |                  |
 
-> https://wandb.ai/hou-zg-meituan/fully-async-policy?nw=nwuserhouzg
+>source data: https://wandb.ai/hou-zg-meituan/fully-async-policy?nw=nwuserhouzg
 
 ### 30B模型模式实验
 
@@ -303,6 +303,8 @@ python -m recipe.fully_async_policy.fully_async_main \
 | fully_async_policy | 64:64               | async stream pipeline with staleness samples |      |                    |              |              |            |                  |
 | fully_async_policy | 64:64               | async stream pipeline with partial rollout   |      |                    |              |              |            |                  |
 
+>source data: https://wandb.ai/hou-zg-meituan/fully-async-policy?nw=nwuserhouzg
+
 ### 128卡  require_batches 消融实验
 
 | training mode      | Resource allocation | require_size | step | generate_sequences | old_log_prob | update_actor | total time | acc/best@32/mean |
@@ -310,6 +312,8 @@ python -m recipe.fully_async_policy.fully_async_main \
 | fully_async_policy | 64:64               | 1            |      |                    |              |              |            |                  |
 | fully_async_policy | 64:64               | 2            |      |                    |              |              |            |                  |
 | fully_async_policy | 64:64               | 4            |      |                    |              |              |            |                  |
+
+>source data: https://wandb.ai/hou-zg-meituan/fully-async-policy?nw=nwuserhouzg
 
 ### 128卡 stale 消融实验
 
@@ -319,6 +323,8 @@ python -m recipe.fully_async_policy.fully_async_main \
 | fully_async_policy | 64:64               | 0.1       |      |                    |              |              |            |                  |
 | fully_async_policy | 64:64               | 0.3       |      |                    |              |              |            |                  |
 | fully_async_policy | 64:64               | 0.5       |      |                    |              |              |            |                  |
+
+>source data: https://wandb.ai/hou-zg-meituan/fully-async-policy?nw=nwuserhouzg
 
 ## 后续计划
 
