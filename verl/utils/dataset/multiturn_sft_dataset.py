@@ -28,9 +28,8 @@ from torch.utils.data import Dataset
 from transformers import AutoProcessor, PreTrainedTokenizer
 
 from verl.utils.dataset.dataset_utils import DatasetPadMode
-from verl.utils.dataset.vision_utils import process_image
+from verl.utils.dataset.vision_utils import compute_multimodal_position_ids, process_image
 from verl.utils.fs import copy_local_path_from_hdfs
-from verl.utils.model import compute_position_id_with_mask
 
 
 def convert_nested_value_to_list_recursive(data_item):
@@ -347,10 +346,8 @@ class MultiTurnSFTDataset(Dataset):
 
         if images:
             multi_modal_inputs = {
-                "multi_modal_inputs": {
-                    "pixel_values": full_tokens.pixel_values,
-                    "image_grid_thw": full_tokens.image_grid_thw,
-                }
+                "multi_modal_inputs_pixel_values": full_tokens.pixel_values,
+                "multi_modal_inputs_image_grid_thw": full_tokens.image_grid_thw,
             }
         else:
             multi_modal_inputs = {}
@@ -391,52 +388,14 @@ class MultiTurnSFTDataset(Dataset):
                 else:
                     raise ValueError(f"Unknown truncation method {self.truncation}")
 
-            # Create position IDs
-            position_ids = torch.arange(len(input_ids), dtype=torch.long)
-            # Zero out position IDs for padding
-            position_ids = position_ids * attention_mask
-            if (
-                self.processor is not None
-                and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__
-            ):
-                # qwen-vl mrope
-                if "Qwen3VLProcessor" in self.processor.__class__.__name__:
-                    from verl.models.transformers.qwen3_vl import get_rope_index
-                else:
-                    from verl.models.transformers.qwen2_vl import get_rope_index
-
-                vision_position_ids = get_rope_index(
-                    self.processor,
-                    input_ids=input_ids[0],
-                    image_grid_thw=full_tokens.get("image_grid_thw"),
-                    video_grid_thw=full_tokens.get("video_grid_thw"),
-                    second_per_grid_ts=full_tokens.get("second_per_grid_ts"),
-                    attention_mask=attention_mask[0],
-                )  # (3, seq_length)
-                valid_mask = attention_mask[0].bool()
-                text_position_ids = torch.ones((1, len(input_ids[0])), dtype=torch.long)
-                text_position_ids[0, valid_mask] = torch.arange(valid_mask.sum().item())
-                position_ids = [torch.cat((text_position_ids, vision_position_ids), dim=0)]  # (1, 4, seq_length)
-            elif (
-                self.processor is not None
-                and "Glm4vImageProcessor" in self.processor.image_processor.__class__.__name__
-            ):
-                from verl.models.transformers.glm4v import get_rope_index
-
-                vision_position_ids = get_rope_index(
-                    self.processor,
-                    input_ids=input_ids[0],
-                    image_grid_thw=full_tokens.get("image_grid_thw"),
-                    video_grid_thw=full_tokens.get("video_grid_thw"),
-                    attention_mask=attention_mask[0],
-                )  # (3, seq_length)
-                valid_mask = attention_mask[0].bool()
-                text_position_ids = torch.ones((1, len(input_ids[0])), dtype=torch.long)
-                text_position_ids[0, valid_mask] = torch.arange(valid_mask.sum().item())
-                position_ids = [torch.cat((text_position_ids, vision_position_ids), dim=0)]  # (1, 4, seq_length)
-            else:
-                position_ids = compute_position_id_with_mask(attention_mask)
-            position_ids = position_ids[0]
+            position_ids = compute_multimodal_position_ids(
+                processor=self.processor,
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                image_grid_thw=full_tokens.get("image_grid_thw"),
+                video_grid_thw=full_tokens.get("video_grid_thw"),
+                second_per_grid_ts=full_tokens.get("second_per_grid_ts"),
+            )
 
             result = {
                 "input_ids": input_ids,
@@ -449,9 +408,19 @@ class MultiTurnSFTDataset(Dataset):
             if len(input_ids) > self.max_length:
                 input_ids = input_ids[: self.max_length]
                 loss_mask = loss_mask[: self.max_length]
-            # create position IDs
-            position_ids = torch.arange(len(input_ids), dtype=torch.long)
-            # return nested tensor with out padding
+
+            seq_len = len(input_ids)
+            attention_mask = torch.ones(seq_len, dtype=torch.long)
+            position_ids = compute_multimodal_position_ids(
+                processor=self.processor,
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                image_grid_thw=full_tokens.get("image_grid_thw"),
+                video_grid_thw=full_tokens.get("video_grid_thw"),
+                second_per_grid_ts=full_tokens.get("second_per_grid_ts"),
+            )
+
+            # return nested tensor without padding
             result = {
                 "input_ids": input_ids,
                 "position_ids": position_ids,
@@ -470,4 +439,7 @@ if __name__ == "__main__":
 
     tokenizer = AutoProcessor.from_pretrained("Qwen/Qwen2.5-VL-3B-Instruct")
     dataset = MultiTurnSFTDataset([parquet_files], tokenizer, {"pad_mode": "no_padding"})
+    import ipdb
+
+    ipdb.set_trace()
     print(dataset[1])

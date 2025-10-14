@@ -61,7 +61,7 @@ from verl.utils.fsdp_utils import (
     offload_fsdp_optimizer,
     replace_lora_wrapper,
 )
-from verl.utils.model import convert_weight_keys
+from verl.utils.model import convert_weight_keys, extract_multi_modal_inputs, extract_multi_modal_inputs_from_nested
 from verl.utils.py_functional import convert_to_regular_types
 from verl.utils.torch_functional import logprobs_from_logits
 from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad, ulysses_pad_and_slice_inputs
@@ -715,13 +715,14 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
         multi_modal_inputs = {}
         if "multi_modal_inputs" in micro_batch.keys():
-            from verl.utils.model import extract_multi_modal_inputs
-
             multi_modal_inputs = extract_multi_modal_inputs(micro_batch["multi_modal_inputs"])
+        else:
+            multi_modal_inputs = extract_multi_modal_inputs_from_nested(micro_batch)
 
         input_ids = micro_batch["input_ids"]
         position_ids = micro_batch["position_ids"]
-
+        if pad_mode == DatasetPadMode.NO_PADDING:
+            position_ids = torch.nested.to_padded_tensor(position_ids, padding=0)
         if position_ids.dim() == 3:  # qwen2vl mrope
             position_ids = position_ids.transpose(0, 1)  # (bsz, 3, seqlen) -> (3, bsz, seqlen)
 
@@ -776,7 +777,6 @@ class FSDPEngineWithLMHead(FSDPEngine):
         else:
             if pad_mode == DatasetPadMode.NO_PADDING:
                 input_ids = micro_batch["input_ids"]
-                position_ids = micro_batch["position_ids"]
                 loss_mask = micro_batch["loss_mask"]
 
                 pad_token_id = tu.get_non_tensor_data(data=micro_batch, key="pad_token_id", default=0)
@@ -789,10 +789,6 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
                 input_ids = torch.nested.to_padded_tensor(
                     input_ids, padding=pad_token_id, output_size=(batch_size, max_seq_len)
-                )
-
-                position_ids = torch.nested.to_padded_tensor(
-                    position_ids, padding=0, output_size=(batch_size, max_seq_len)
                 )
 
                 attention_mask_list = [torch.ones_like(t, dtype=torch.int32) for t in loss_mask]
@@ -836,10 +832,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
                 log_probs = output.log_probs.squeeze(0)  # (total_nnz,)
                 entropy_rmpad = output.entropy.squeeze(0)  # (total_nnz,)
             else:
-                if hasattr(output, "last_hidden_state"):
-                    logits = output.last_hidden_state
-                else:
-                    logits = output.logits
+                logits = output.logits
                 logits_rmpad = logits.squeeze(0)  # (total_nnz, vocab_size)
                 logits_rmpad.div_(temperature)
 
@@ -897,10 +890,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
                 entropy = output.entropy[:, -response_length - 1 : -1]  # (bsz, response_length)
 
             else:
-                if hasattr(output, "last_hidden_state"):
-                    logits = output.last_hidden_state
-                else:
-                    logits = output.logits
+                logits = output.logits
                 logits.div_(temperature)
 
                 if calculate_entropy:

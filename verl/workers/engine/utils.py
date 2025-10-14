@@ -54,10 +54,6 @@ def prepare_micro_batches(
         bs = micro_batch_size_per_gpu
         batch_idx_list = [list(range(len(data)))[i * bs : (i + 1) * bs] for i in range((len(data) + bs - 1) // bs)]
         micro_batches = [tu.index_select_tensor_dict(data, indices) for indices in batch_idx_list]
-    if "multi_modal_inputs" in micro_batches[0]:
-        multi_modal_data = micro_batches[0]["multi_modal_inputs"]
-        for batch, indexes in zip(micro_batches, batch_idx_list, strict=False):
-            batch["multi_modal_inputs"] = [multi_modal_data[i] for i in indexes]
     return micro_batches, batch_idx_list
 
 

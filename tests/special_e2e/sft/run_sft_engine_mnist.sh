@@ -30,12 +30,12 @@ PP_SIZE=${PP_SIZE:-1}
 VPP_SIZE=${VPP_SIZE:-null}
 CP_SIZE=${CP_SIZE:-1}
 
-USE_REMOVE_PADDING=${USE_REMOVE_PADDING:-True}
+USE_REMOVE_PADDING=${USE_REMOVE_PADDING:-False}
 
 FSDP_ENGINE_CONFIG="\
     engine=${backend} \
     optim=${backend} \
-    optim.lr=1e-4 \
+    optim.lr=1e-5 \
     optim.lr_warmup_steps_ratio=0. \
     optim.weight_decay=0.1 \
     optim.betas="[0.9,0.95]" \
@@ -51,7 +51,7 @@ MEGATRON_ENGINE_CONFIG="\
     engine=${backend} \
     optim=${backend} \
     optim.lr=1e-5 \
-    optim.lr_warmup_steps_ratio=0.2 \
+    optim.lr_warmup_steps_ratio=0. \
     optim.weight_decay=0.1 \
     optim.betas="[0.9,0.95]" \
     optim.clip_grad=1.0 \
@@ -61,6 +61,7 @@ MEGATRON_ENGINE_CONFIG="\
     engine.tensor_model_parallel_size=${TP_SIZE} \
     engine.pipeline_model_parallel_size=${PP_SIZE} \
     engine.virtual_pipeline_model_parallel_size=${VPP_SIZE} \
+    engine.use_mbridge=True \
     engine.context_parallel_size=${CP_SIZE}"
 
 if [ "$backend" = "fsdp" ]; then
@@ -78,7 +79,7 @@ mkdir -p "${ckpts_home}"
 torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     data.train_files="${TRAIN_FILES}" \
     data.val_files="${VAL_FILES}" \
-    data.train_batch_size=128 \
+    data.train_batch_size=64 \
     data.max_length=1024 \
     data.pad_mode=no_padding \
     data.truncation=error \

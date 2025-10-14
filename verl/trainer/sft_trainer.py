@@ -34,7 +34,7 @@ from verl.utils import tensordict_utils as tu
 from verl.utils.checkpoint import CheckpointHandler
 from verl.utils.dataset.dataset_utils import SFTTensorCollator
 from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
-from verl.utils.device import get_device_name, is_cuda_available, is_npu_available
+from verl.utils.device import is_cuda_available, is_npu_available
 from verl.utils.distributed import destroy_global_process_group
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.logger import log_with_rank
@@ -159,7 +159,6 @@ class SFTTrainer:
         # Use data parallel rank and size instead of global rank and world size
 
         # Set pin_memory_device when pin_memory is enabled.
-        device_name = get_device_name()
 
         dp_rank = self.engine.get_data_parallel_rank()
         dp_size = self.engine.get_data_parallel_size()
@@ -178,9 +177,8 @@ class SFTTrainer:
             sampler=self.train_sampler,
             collate_fn=self.collate_fn,
             num_workers=8,
-            pin_memory=True,
+            pin_memory=False,  # nested tensor not support pin_memory
             drop_last=True,
-            pin_memory_device=device_name,
         )
 
         self.val_sampler = DistributedSampler(
@@ -192,9 +190,8 @@ class SFTTrainer:
             sampler=self.val_sampler,
             collate_fn=self.collate_fn,
             num_workers=8,
-            pin_memory=True,
+            pin_memory=False,  # nested tensor not support pin_memory
             drop_last=True,
-            pin_memory_device=device_name,
         )
 
     def fit(self):

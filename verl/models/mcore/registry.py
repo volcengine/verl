@@ -134,8 +134,6 @@ MODEL_FORWARD_NOPAD_REGISTRY: dict[SupportedModel, Callable] = {
     SupportedModel.LLAMA4: gptmodel_forward_no_padding,
     SupportedModel.QWEN3: gptmodel_forward_no_padding,
     SupportedModel.QWEN3_MOE: gptmodel_forward_no_padding,
-    # SupportedModel.QWEN2_5_VL: gptmodel_forward_qwen2_5_vl,
-    SupportedModel.DEEPSEEK_V3: gptmodel_forward_no_padding,
     SupportedModel.GLM4_MOE: gptmodel_forward_no_padding,
     SupportedModel.QWEN3_TOKEN_CLASSIFICATION: gptmodel_forward_no_padding,
 }

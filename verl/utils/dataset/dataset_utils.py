@@ -20,10 +20,13 @@ from torch.utils.data import default_collate
 
 
 def multi_modal_collate(batch):
-    multi_modal = [i.pop("multi_modal_inputs") for i in batch if "multi_modal_inputs" in i]
+    keys_to_pop = [i for i in batch[0].keys() if i.startswith("multi_modal_inputs_")]
+    multi_modal = {}
+    if keys_to_pop:
+        for key in keys_to_pop:
+            multi_modal[key] = torch.nested.as_nested_tensor([i.pop(key) for i in batch], layout=torch.jagged)
     batch = default_collate(batch)
-    if multi_modal:
-        batch["multi_modal_inputs"] = multi_modal
+    batch.update(multi_modal)
     return batch
 
 

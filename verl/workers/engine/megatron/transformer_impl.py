@@ -39,7 +39,12 @@ from verl.utils.megatron_utils import (
     offload_megatron_optimizer,
     per_tensor_generator,
 )
-from verl.utils.model import load_mcore_dist_weights, load_megatron_gptmodel_weights
+from verl.utils.model import (
+    extract_multi_modal_inputs,
+    extract_multi_modal_inputs_from_nested,
+    load_mcore_dist_weights,
+    load_megatron_gptmodel_weights,
+)
 from verl.workers.config import HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
 
 from ..base import BaseEngine, EngineRegistry
@@ -524,6 +529,8 @@ class MegatronEngineWithLMHead(MegatronEngine):
                 torch.int64
             )
 
+        if batch["position_ids"].is_nested:
+            batch["position_ids"] = torch.nested.to_padded_tensor(batch["position_ids"], padding=0)
         if batch["position_ids"].dim() == 3:  # qwen2vl mrope [bs, 3, seq_len]
             batch["position_ids"] = batch["position_ids"][
                 :, 0
@@ -531,10 +538,10 @@ class MegatronEngineWithLMHead(MegatronEngine):
 
         multi_modal_inputs = {}
         if "multi_modal_inputs" in batch:
-            from verl.utils.model import extract_multi_modal_inputs
-
             indices = batch.get("multi_modal_inputs_idx", None)
             multi_modal_inputs = extract_multi_modal_inputs(batch["multi_modal_inputs"], indices)
+        else:
+            multi_modal_inputs = extract_multi_modal_inputs_from_nested(batch)
 
         return {
             "input_ids": input_ids,
