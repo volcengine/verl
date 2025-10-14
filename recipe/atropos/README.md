@@ -9,7 +9,7 @@ The Atropos integration provides:
 - **GRPO Algorithm** with token-level advantage overrides from environments
 - **Environment Feedback** from Atropos API for computing advantages
 - **Service Orchestration** for managing Atropos environments and VeRL training
-- **Production-Ready Code** with proper error handling and fallback mechanisms
+- **Error Handling** with retry logic and fallback mechanisms
 
 ## Architecture
 
@@ -55,7 +55,7 @@ Service orchestration script:
 
 ### Quick Start (Automated)
 
-The easiest way to get started is using the automated launcher:
+Use the automated launcher to start all components:
 
 ```bash
 # Launch all services automatically

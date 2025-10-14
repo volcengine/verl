@@ -21,11 +21,10 @@ for computing advantages with token-level overrides.
 
 import logging
 
-import numpy as np
 import torch
 
 from verl import DataProto
-from verl.trainer.ppo.core_algos import compute_advantage
+from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 
 from .atropos_integration import AtroposConfig, AtroposGRPOComputer
@@ -83,10 +82,13 @@ class RayGRPOAtroposTrainer(RayPPOTrainer):
         # Get prompt lengths from batch metadata if available, otherwise calculate
         if "prompt_len" in batch.non_tensor_batch:
             prompt_lengths = batch.non_tensor_batch["prompt_len"]
-            prompts_list = []
-            for i, prompt_len in enumerate(prompt_lengths):
-                prompts_list.append(input_ids[i, :prompt_len])
-            prompts_tensor = torch.nn.utils.rnn.pad_sequence(prompts_list, batch_first=True, padding_value=0)
+            pad_token_id = getattr(self.tokenizer, "pad_token_id", 0) or 0
+            prompts_tensor = torch.nn.utils.rnn.pad_sequence(
+                [input_ids[i, :prompt_len] for i, prompt_len in enumerate(prompt_lengths)],
+                batch_first=True,
+                padding_value=pad_token_id,
+            )
+            prompts_tensor = prompts_tensor.to(input_ids.device)
         else:
             # Fallback to original calculation
             response_length = responses.shape[1]
@@ -96,9 +98,16 @@ class RayGRPOAtroposTrainer(RayPPOTrainer):
         # Get scores if available
         scores = batch.batch.get("token_level_scores")
         if scores is None:
-            # Compute simple scores from rewards
-            rewards = batch.batch.get("token_level_rewards", torch.zeros_like(response_mask))
-            scores = rewards.sum(dim=-1)
+            token_level_rewards = batch.batch.get("token_level_rewards")
+            if token_level_rewards is not None:
+                scores = token_level_rewards.sum(dim=-1)
+            else:
+                dtype = token_level_rewards.dtype if token_level_rewards is not None else torch.float32
+                scores = torch.zeros(
+                    response_mask.shape[0],
+                    device=response_mask.device,
+                    dtype=dtype,
+                )
         
         # Get tokenizer
         tokenizer = self.tokenizer
@@ -121,29 +130,26 @@ class RayGRPOAtroposTrainer(RayPPOTrainer):
     
     def _compute_standard_grpo_advantages(self, batch: DataProto) -> torch.Tensor:
         """Compute standard GRPO advantages as fallback with per-sample baselines"""
-        # For GRPO fallback, use per-sample baselines (group size = 1) to maintain 
-        # theoretical correctness and avoid group coupling
-        batch_size = batch.batch["responses"].shape[0]
-        per_sample_index = np.arange(batch_size)  # Each sample is its own group
-        
-        # Use the registered grpo_atropos estimator with per-sample indexing
-        advantages = compute_advantage(
-            rewards=batch.batch.get("token_level_rewards", batch.batch.get("token_level_scores")),
-            values=None,  # GRPO doesn't use values
-            response_length=batch.batch["responses"].shape[1],
-            adv_estimator="grpo_atropos",
-            gamma=self.config.algorithm.gamma,
-            lam=self.config.algorithm.lam,
+        token_level_rewards = batch.batch.get("token_level_rewards")
+        if token_level_rewards is None:
+            token_level_rewards = batch.batch.get("token_level_scores")
+        if token_level_rewards is None:
+            return torch.zeros_like(batch.batch["response_mask"], dtype=torch.float32)
+
+        index = batch.non_tensor_batch.get("uid")
+        if index is None:
+            index = torch.arange(
+                token_level_rewards.shape[0],
+                device=token_level_rewards.device,
+            ).cpu().numpy()
+        else:
+            index = torch.as_tensor(index).cpu().numpy()
+
+        advantages, _ = core_algos.compute_grpo_outcome_advantage(
+            token_level_rewards=token_level_rewards,
             response_mask=batch.batch["response_mask"],
-            index=per_sample_index,  # Use per-sample indexing
-            old_rewards=batch.batch.get("old_rewards"),
-            ref_log_probs=batch.batch.get("ref_log_probs"),
-            log_probs=batch.batch.get("old_log_probs"),
-            kl_penalties=batch.batch.get("kl_penalties"),
-            kl_rewards=batch.batch.get("kl_rewards"),
-            uid=batch.non_tensor_batch.get("uid"),
+            index=index,
             norm_adv_by_std_in_grpo=self.config.algorithm.get("norm_adv_by_std_in_grpo", True),
-            epsilon=1e-6
         )
         return advantages
     

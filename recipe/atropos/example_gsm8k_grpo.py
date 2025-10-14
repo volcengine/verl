@@ -16,23 +16,17 @@
 """
 Example training script for GRPO with Atropos GSM8K environment.
 
-This script demonstrates how to train a language model using GRPO
-with real environment feedback from Atropos GSM8K.
+This script trains a language model with GRPO using feedback from the Atropos GSM8K environment.
 """
 
 import logging
 import sys
-from pathlib import Path
-
 from transformers import AutoTokenizer
 
 from verl.trainer.main_ppo import get_args_parser, process_args
 from verl.utils.import_utils import import_external_libs
 
-# Add recipe directory to path
-sys.path.append(str(Path(__file__).parent.parent))
-
-from atropos.grpo_atropos_trainer import RayGRPOAtroposTrainer
+from recipe.atropos.grpo_atropos_trainer import RayGRPOAtroposTrainer
 
 logger = logging.getLogger(__name__)
 

@@ -191,14 +191,26 @@ class AtroposEnvironmentClient:
     ) -> torch.Tensor:
         """Convert response-level advantages to token-level using response mask"""
         batch_size, seq_len = response_mask.shape
-        
-        # Create tensor to hold token-level advantages
-        token_advantages = torch.zeros(batch_size, seq_len, dtype=torch.float32)
-        
+
+        token_advantages = torch.zeros(
+            batch_size,
+            seq_len,
+            dtype=torch.float32,
+            device=response_mask.device,
+        )
+
         for i, adv in enumerate(advantages):
-            # Broadcast advantage to all valid response tokens
-            token_advantages[i] = adv * response_mask[i].float()
-        
+            mask = response_mask[i].float()
+            if isinstance(adv, (list, tuple)):
+                adv_tensor = torch.as_tensor(adv, dtype=torch.float32, device=response_mask.device)
+                if adv_tensor.ndim != 1:
+                    raise ValueError(f"Unexpected advantage shape for sample {i}: {adv_tensor.shape}")
+                length = min(seq_len, adv_tensor.shape[0])
+                token_advantages[i, :length] = adv_tensor[:length]
+                token_advantages[i] *= mask
+            else:
+                token_advantages[i] = float(adv) * mask
+
         return token_advantages
 
 
@@ -238,8 +250,17 @@ class AtroposGRPOComputer:
             Tuple of (advantages tensor, metrics dict)
         """
         # Decode prompts and responses
-        prompt_texts = [tokenizer.decode(p, skip_special_tokens=True) for p in prompts]
-        response_texts = [tokenizer.decode(r, skip_special_tokens=True) for r in responses]
+        prompt_texts = [
+            tokenizer.decode(p.detach().cpu().tolist(), skip_special_tokens=True)
+            for p in prompts
+        ]
+        response_texts = []
+        for resp, mask in zip(responses, response_mask):
+            valid_length = int(mask.sum().item())
+            tokens = resp[:valid_length] if valid_length > 0 else resp
+            response_texts.append(
+                tokenizer.decode(tokens.detach().cpu().tolist(), skip_special_tokens=True)
+            )
         
         # Try to get advantages from Atropos
         advantages, metrics = self.client.submit_responses_and_get_advantages(
@@ -267,7 +288,8 @@ class AtroposGRPOComputer:
                 )
             
             # Move to correct device and dtype
-            advantages = advantages.to(device=responses.device, dtype=responses.dtype)
+            target_dtype = scores.dtype if scores is not None else torch.float32
+            advantages = advantages.to(device=responses.device, dtype=target_dtype)
             return advantages, metrics
         
         # Fallback to standard computation
@@ -286,6 +308,9 @@ class AtroposGRPOComputer:
         fallback_estimator
     ) -> tuple[torch.Tensor, dict[str, Any]]:
         """Compute advantages using fallback method"""
+        if scores is None:
+            scores = torch.zeros(response_mask.size(0), device=response_mask.device, dtype=torch.float32)
+
         if fallback_estimator is None:
             # Simple score-based advantages
             advantages = scores.unsqueeze(-1) * response_mask
