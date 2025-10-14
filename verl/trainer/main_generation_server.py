@@ -152,7 +152,7 @@ def main(config):
         datasets.append(dataset)
 
     # concat dataset
-    dataset = pd.concat(datasets, axis=0)
+    dataset = pd.concat(datasets, axis=0, ignore_index=True)
     chat_lst = dataset[config.data.prompt_key].tolist()
     chat_lst = [chat.tolist() for chat in chat_lst]
     chat_numpy = np.array(chat_lst)
