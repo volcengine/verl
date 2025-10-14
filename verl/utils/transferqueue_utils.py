@@ -14,8 +14,9 @@
 
 import asyncio
 import inspect
+import threading
 from functools import wraps
-from typing import Any
+from typing import Any, Callable
 
 from tensordict import TensorDict
 
@@ -51,6 +52,33 @@ def get_val_transferqueue_client() -> AsyncTransferQueueClient:
     return _VAL_TRANSFER_QUEUE_CLIENT
 
 
+def _run_async_in_temp_loop(async_func: Callable[..., Any], *args, **kwargs) -> Any:
+    # Use a temporary event loop in a new thread because event
+    # loop may already exist in server mode
+    tmp_event_loop = asyncio.new_event_loop()
+    thread = threading.Thread(
+        target=tmp_event_loop.run_forever,
+        name="batchmeta dataproto converter",
+        daemon=True,
+    )
+
+    def run_coroutine(coroutine):
+        if not thread.is_alive():
+            thread.start()
+        future = asyncio.run_coroutine_threadsafe(coroutine, tmp_event_loop)
+        return future.result()
+
+    async def stop_loop():
+        tmp_event_loop.stop()
+
+    try:
+        return run_coroutine(async_func(*args, **kwargs))
+    finally:
+        if thread.is_alive():
+            asyncio.run_coroutine_threadsafe(stop_loop(), tmp_event_loop)
+            thread.join()
+
+
 def _find_batchmeta(*args, **kwargs):
     for arg in args:
         if isinstance(arg, BatchMeta):
@@ -77,7 +105,7 @@ async def _async_batchmeta_to_dataproto(batchmeta: BatchMeta) -> DataProto:
 
 
 def _batchmeta_to_dataproto(batchmeta: BatchMeta) -> DataProto:
-    return asyncio.run(_async_batchmeta_to_dataproto(batchmeta))
+    return _run_async_in_temp_loop(_async_batchmeta_to_dataproto, batchmeta)
 
 
 async def _async_update_batchmeta_with_output(output: DataProto, batchmeta: BatchMeta) -> None:
@@ -97,7 +125,7 @@ async def _async_update_batchmeta_with_output(output: DataProto, batchmeta: Batc
 
 
 def _update_batchmeta_with_output(output: DataProto, batchmeta: BatchMeta) -> None:
-    return asyncio.run(_async_update_batchmeta_with_output(output, batchmeta))
+    _run_async_in_temp_loop(_async_update_batchmeta_with_output, output, batchmeta)
 
 
 def tqbridge(put_data: bool = True):

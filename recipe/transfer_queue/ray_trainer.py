@@ -322,6 +322,7 @@ def compute_throughout_metrics_decorated(batch, timing_raw: dict[str, float], n_
 @tqbridge(put_data=False)
 def calculate_debug_metrics_decorated(data):
     from verl.utils.debug.metrics import calculate_debug_metrics
+
     return calculate_debug_metrics(data)
 
 
@@ -1013,7 +1014,7 @@ class RayPPOTrainer:
         for _, wg in all_wg.items():
             wg.create_transferqueue_client(
                 self.data_system_controller_infos, self.data_system_storage_unit_infos, role="train"
-             )
+            )
             wg.create_transferqueue_client(
                 self.val_data_system_controller_infos, self.val_data_system_storage_unit_infos, role="val"
             )
