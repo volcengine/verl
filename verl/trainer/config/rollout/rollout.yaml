@@ -49,6 +49,15 @@ free_cache_engine: True
 # TP size for rollout. Not effective for hf
 tensor_model_parallel_size: 2
 
+# DP size for rollout
+data_parallel_size: 1
+
+# EP size for rollout
+expert_parallel_size: 1
+
+# PP size for rollout.
+pipeline_model_parallel_size: 1
+
 # max number of tokens in a batch
 max_num_batched_tokens: 8192
 
@@ -180,6 +189,9 @@ multi_turn:
   # Format of the multi-turn interaction. Options: hermes, llama3_json, ...
   format: hermes
 
+  # Number of repeat rollouts for each interaction
+  num_repeat_rollouts: null
+
 # support logging rollout prob for debugging purpose
 # "Truncated importance sampling" requires rollout log probs, set to True when turning on Truncated importance sampling
 calculate_log_probs: False
@@ -192,6 +204,9 @@ agent:
 
   # Number of agent loop workers
   num_workers: 8
+
+  # default agent loop to use if `agent_name` not set in RL dataset
+  default_agent_loop: single_turn_agent
 
   # custom agent loop config path, which should contain list of configs to intialize AgentLoop instances.
   # https://hydra.cc/docs/advanced/instantiate_objects/overview/

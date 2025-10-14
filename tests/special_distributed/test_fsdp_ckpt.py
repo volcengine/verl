@@ -49,7 +49,7 @@ def test_fsdp_ckpt(strategy="fsdp"):
     local_rank, rank, world_size = initialize_global_process_group()
     device_mesh = init_device_mesh("cuda", mesh_shape=(world_size,), mesh_dim_names=("dp",))
 
-    model_name = "Qwen/Qwen2.5-0.5B-Instruct"
+    model_name = os.path.expanduser("~/models/Qwen/Qwen2.5-0.5B-Instruct")
     config = Qwen2Config(num_hidden_layers=1)
 
     with torch.device("cuda"):

@@ -22,6 +22,7 @@ from vllm import SamplingParams
 from vllm.inputs import TokensPrompt
 from vllm.outputs import RequestOutput
 
+from verl.workers.config import RolloutConfig, RewardModelConfig, HFModelConfig
 from verl.workers.rollout.replica import RolloutMode
 from verl.workers.rollout.vllm_rollout.vllm_async_server import (
     _qwen2_5_vl_dedup_image_tokens,
@@ -36,16 +37,17 @@ logger.setLevel(logging.INFO)
 @ray.remote(num_cpus=1)
 class vLLMHttpServerForPartial(vLLMHttpServerBase):
     def __init__(
-        self,
-        config: DictConfig,
-        rollout_mode: RolloutMode,
-        workers: list[ActorHandle],
-        replica_rank: int,
-        node_rank: int,
-        gpus_per_node: int,
-        nnodes: int,
+            self,
+            config: RolloutConfig | RewardModelConfig,
+            model_config: HFModelConfig,
+            rollout_mode: RolloutMode,
+            workers: list[ActorHandle],
+            replica_rank: int,
+            node_rank: int,
+            gpus_per_node: int,
+            nnodes: int,
     ):
-        super().__init__(config, rollout_mode, workers, replica_rank, node_rank, gpus_per_node, nnodes)
+        super().__init__(config, model_config, rollout_mode, workers, replica_rank, node_rank, gpus_per_node, nnodes)
 
         # for cancel LLMServer
         self.paused = False
@@ -54,11 +56,11 @@ class vLLMHttpServerForPartial(vLLMHttpServerBase):
         self.req_output: dict[str, Optional[RequestOutput]] = {}
 
     async def _generate_step(
-        self,
-        prompt_ids: list[int],
-        sampling_params: dict[str, Any],
-        request_id: str,
-        image_data: Optional[list[Any]] = None,
+            self,
+            prompt_ids: list[int],
+            sampling_params: dict[str, Any],
+            request_id: str,
+            image_data: Optional[list[Any]] = None,
     ):
         max_tokens = self.config.max_model_len - len(prompt_ids)
         sampling_params["logprobs"] = 1
@@ -77,11 +79,11 @@ class vLLMHttpServerForPartial(vLLMHttpServerBase):
         assert self.req_output[request_id] is not None
 
     async def generate_for_partial(
-        self,
-        prompt_ids: list[int],
-        sampling_params: dict[str, Any],
-        request_id: str,
-        image_data: Optional[list[Any]] = None,
+            self,
+            prompt_ids: list[int],
+            sampling_params: dict[str, Any],
+            request_id: str,
+            image_data: Optional[list[Any]] = None,
     ) -> tuple[list[Any], list[Any], bool] | tuple[Sequence[int], list[float], Any]:
         async with self.lock:
             if self.paused:
@@ -130,8 +132,14 @@ class vLLMHttpServerForPartial(vLLMHttpServerBase):
 
 
 class FullyAsyncvLLMReplica(vLLMReplica):
-    def __init__(self, replica_rank: int, config: DictConfig, gpus_per_node: int = 8):
-        super().__init__(replica_rank, config, gpus_per_node)
+    def __init__(
+            self,
+            replica_rank: int,
+            config: RolloutConfig | RewardModelConfig,
+            model_config: HFModelConfig,
+            gpus_per_node: int = 8,
+    ):
+        super().__init__(replica_rank, config, model_config, gpus_per_node)
         self.server_class = vLLMHttpServerForPartial
 
     async def cancel(self):
