@@ -176,8 +176,10 @@ https://github.com/ArronHZG/verl-community/blob/recipe/async_policy/docs/fully_a
 ### 调参建议
 
 * 资源分配与调整:
-    *
-  合理的资源分配是获得好的训练效率的前提。理想的资源分配情况应该是使得Rollout的时间和Train的时间接近，从而使得整个训练过程流水气泡最小，避免资源闲置，同时Trainer不会使用旧样本。在真实训练场景下，可以根据实际训练过程中rollout和train的空闲时间调整资源分配，可从rollouter/idle_ratio和trainer/idle_ratio获得，如果rollouter/idle_ratio较高trainer/idle_ratio较低，应该增多Trainer的资源减少Rollouter的资源，反之亦然。
+    * 合理的资源分配是获得好的训练效率的前提。理想的资源分配情况应该是使得Rollout的时间和Train的时间接近，从而使得整个训练过程流水气泡最小，
+      避免资源闲置，同时Trainer不会使用旧样本。在真实训练场景下，可以根据实际训练过程中rollout和train的空闲时间调整资源分配，
+      可从rollouter/idle_ratio和trainer/idle_ratio获得，如果rollouter/idle_ratio较高trainer/idle_ratio较低，
+      应该增多Trainer的资源减少Rollouter的资源，反之亦然。
 
 * 关键参数：
     * staleness_threshold: 设置太大会导致较多的旧样本使用，影响模型效果，建议设置小于1。
@@ -273,7 +275,7 @@ python -m recipe.fully_async_policy.fully_async_main \
 | colocate sync      | 128                 |      |                    |              |              |            |                  |
 | fully_async_policy | 64:64               |      |                    |              |              |            |                  |
 
->source data: https://wandb.ai/hou-zg-meituan/fully-async-policy?nw=nwuserhouzg
+> source data: https://wandb.ai/hou-zg-meituan/fully-async-policy?nw=nwuserhouzg
 
 ### 30B模型模式实验
 
@@ -303,7 +305,7 @@ python -m recipe.fully_async_policy.fully_async_main \
 | fully_async_policy | 64:64               | async stream pipeline with staleness samples |      |                    |              |              |            |                  |
 | fully_async_policy | 64:64               | async stream pipeline with partial rollout   |      |                    |              |              |            |                  |
 
->source data: https://wandb.ai/hou-zg-meituan/fully-async-policy?nw=nwuserhouzg
+> source data: https://wandb.ai/hou-zg-meituan/fully-async-policy?nw=nwuserhouzg
 
 ### 128卡  require_batches 消融实验
 
@@ -313,7 +315,7 @@ python -m recipe.fully_async_policy.fully_async_main \
 | fully_async_policy | 64:64               | 2            |      |                    |              |              |            |                  |
 | fully_async_policy | 64:64               | 4            |      |                    |              |              |            |                  |
 
->source data: https://wandb.ai/hou-zg-meituan/fully-async-policy?nw=nwuserhouzg
+> source data: https://wandb.ai/hou-zg-meituan/fully-async-policy?nw=nwuserhouzg
 
 ### 128卡 stale 消融实验
 
@@ -324,7 +326,7 @@ python -m recipe.fully_async_policy.fully_async_main \
 | fully_async_policy | 64:64               | 0.3       |      |                    |              |              |            |                  |
 | fully_async_policy | 64:64               | 0.5       |      |                    |              |              |            |                  |
 
->source data: https://wandb.ai/hou-zg-meituan/fully-async-policy?nw=nwuserhouzg
+> source data: https://wandb.ai/hou-zg-meituan/fully-async-policy?nw=nwuserhouzg
 
 ## 后续计划
 
