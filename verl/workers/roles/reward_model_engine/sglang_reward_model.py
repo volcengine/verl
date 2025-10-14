@@ -230,7 +230,7 @@ class SGLangRewardModel(BaseRewardModel):
     def _init_sampling_params(self):
         kwargs = dict(
             n=1,
-            max_new_tokens=self.config.max_new_tokens,
+            max_new_tokens=self.config.response_length,
             presence_penalty=0.0,
             frequency_penalty=0.0,
             repetition_penalty=self.config.get("repetition_penalty", 1.0),

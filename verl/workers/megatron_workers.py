@@ -150,6 +150,11 @@ class MegatronWorker(Worker):
         if self.rank == 0:
             print(f"Model config after override: {hf_config}")
 
+        from verl.models.mcore.config_converter import mapping_string_to_attn_backend
+
+        # todo: remove this line after mcore adopt mbridge 0.15, now for compatibility
+        override_transformer_config = mapping_string_to_attn_backend(override_transformer_config)
+
         if use_mbridge:
             from verl.models.mcore.mbridge import AutoBridge
 
@@ -199,7 +204,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 tensor_model_parallel_size=self.config.actor.megatron.tensor_model_parallel_size,
                 pipeline_model_parallel_size=self.config.actor.megatron.pipeline_model_parallel_size,
                 virtual_pipeline_model_parallel_size=self.config.actor.megatron.virtual_pipeline_model_parallel_size,
-                pipeline_model_parallel_split_rank=None,
                 use_sharp=False,
                 context_parallel_size=self.config.actor.megatron.context_parallel_size,
                 expert_model_parallel_size=self.config.actor.megatron.expert_model_parallel_size,
@@ -392,16 +396,21 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model, dataclass_type=HFModelConfig)
 
         # 2. build rollout device mesh
-        infer_tp = self.config.rollout.tensor_model_parallel_size
-        dp = self.world_size // infer_tp
-        assert self.world_size % infer_tp == 0, (
-            f"rollout world_size: {self.world_size} is not divisible by infer_tp: {infer_tp}"
+        infer_tp = self.config.rollout.tensor_model_parallel_size * self.config.rollout.data_parallel_size
+        infer_pp = self.config.rollout.pipeline_model_parallel_size
+        infer_world_size = infer_tp * infer_pp
+        dp = self.world_size // infer_world_size
+        assert self.world_size % infer_world_size == 0, (
+            f"rollout world_size: {self.world_size} is not divisible by infer_world_size: {infer_world_size}"
         )
         rollout_device_mesh = init_device_mesh(
-            get_device_name(), mesh_shape=(dp, infer_tp), mesh_dim_names=["dp", "infer_tp"]
+            get_device_name(), mesh_shape=(dp, infer_tp, infer_pp), mesh_dim_names=["dp", "infer_tp", "infer_pp"]
         )
 
-        is_collect = rollout_device_mesh["infer_tp"].get_local_rank() == 0
+        is_collect = (
+            rollout_device_mesh["infer_tp"].get_local_rank() == 0
+            and rollout_device_mesh["infer_pp"].get_local_rank() == 0
+        )
         self._register_dispatch_collect_info(
             "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
         )
@@ -665,7 +674,11 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         timing_generate = {}
         if self._is_actor:  # For rollout only, we do not switch context.
-            loop = asyncio.get_event_loop()
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
             loop.run_until_complete(self.rollout_mode())
             log_gpu_memory_usage("After switch to rollout mode", logger=logger)
 
@@ -844,7 +857,6 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
                 tensor_model_parallel_size=self.config.megatron.tensor_model_parallel_size,
                 pipeline_model_parallel_size=self.config.megatron.pipeline_model_parallel_size,
                 virtual_pipeline_model_parallel_size=self.config.megatron.virtual_pipeline_model_parallel_size,
-                pipeline_model_parallel_split_rank=None,
                 use_sharp=False,
                 context_parallel_size=self.config.megatron.context_parallel_size,
                 expert_model_parallel_size=self.config.megatron.expert_model_parallel_size,
@@ -1126,7 +1138,6 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
                 tensor_model_parallel_size=self.config.megatron.tensor_model_parallel_size,
                 pipeline_model_parallel_size=self.config.megatron.pipeline_model_parallel_size,
                 virtual_pipeline_model_parallel_size=self.config.megatron.virtual_pipeline_model_parallel_size,
-                pipeline_model_parallel_split_rank=None,
                 use_sharp=False,
                 context_parallel_size=self.config.megatron.context_parallel_size,
                 expert_model_parallel_size=self.config.megatron.expert_model_parallel_size,

@@ -171,14 +171,14 @@ jobs:
         run: |
           pip3 install --no-deps -e .[test]
           pip install --upgrade "huggingface_hub[cli]"
-      - name: Download model config files
-        run: |
-          hf download Qwen/Qwen2.5-7B config.json --local-dir $HOME/configs/Qwen/Qwen2.5-7B
-          hf download Qwen/Qwen3-8B config.json --local-dir $HOME/configs/Qwen/Qwen3-8B
-          hf download deepseek-ai/deepseek-coder-1.3b-instruct config.json --local-dir $HOME/configs/deepseek-ai/deepseek-coder-1.3b-instruct
-          hf download Qwen/Qwen2-57B-A14B config.json --local-dir $HOME/configs/Qwen/Qwen2-57B-A14B
-          hf download Qwen/Qwen3-30B-A3B config.json --local-dir $HOME/configs/Qwen/Qwen3-30B-A3B
-          hf download deepseek-ai/DeepSeek-V3-Base config.json --local-dir $HOME/configs/deepseek-ai/DeepSeek-V3-Base
+#      - name: Download model config files
+#        run: |
+#          hf download Qwen/Qwen2.5-7B config.json --local-dir $HOME/configs/Qwen/Qwen2.5-7B
+#          hf download Qwen/Qwen3-8B config.json --local-dir $HOME/configs/Qwen/Qwen3-8B
+#          hf download deepseek-ai/deepseek-coder-1.3b-instruct config.json --local-dir $HOME/configs/deepseek-ai/deepseek-coder-1.3b-instruct
+#          hf download Qwen/Qwen2-57B-A14B config.json --local-dir $HOME/configs/Qwen/Qwen2-57B-A14B
+#          hf download Qwen/Qwen3-30B-A3B config.json --local-dir $HOME/configs/Qwen/Qwen3-30B-A3B
+#          hf download deepseek-ai/DeepSeek-V3-Base config.json --local-dir $HOME/configs/deepseek-ai/DeepSeek-V3-Base
       - name: Running mcore config converter tests on 8 L20 GPUs
         run: |
           torchrun --nproc_per_node=8 tests/special_distributed/test_mcore_config_converter.py

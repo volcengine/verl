@@ -308,22 +308,7 @@ class RaySPPOTrainer(RayPPOTrainer):
                 # Log rollout generations if enabled
                 rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)
                 if rollout_data_dir:
-                    with simple_timer("dump_rollout_generations", timing_raw):
-                        print(batch.batch.keys())
-                        inputs = self.tokenizer.batch_decode(batch.batch["prompts"], skip_special_tokens=True)
-                        outputs = self.tokenizer.batch_decode(batch.batch["responses"], skip_special_tokens=True)
-                        scores = batch.batch["token_level_scores"].sum(-1).cpu().tolist()
-                        sample_gts = [
-                            item.non_tensor_batch.get("reward_model", {}).get("ground_truth", None) for item in batch
-                        ]
-                        self._dump_generations(
-                            inputs=inputs,
-                            outputs=outputs,
-                            scores=scores,
-                            reward_extra_infos_dict=reward_extra_infos_dict,
-                            gts=sample_gts,
-                            dump_path=rollout_data_dir,
-                        )
+                    self._log_rollout_data(batch, reward_extra_infos_dict, timing_raw, rollout_data_dir)
 
                 # validate
                 if (

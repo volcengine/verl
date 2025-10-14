@@ -46,7 +46,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import aiohttp
 import pytest
 import requests
-from sglang.srt.managers.tokenizer_manager import (
+from sglang.srt.managers.io_struct import (
     UpdateWeightsFromTensorReqInput,
 )
 from sglang.srt.utils import MultiprocessingSerializer
@@ -439,7 +439,7 @@ class TestHttpServerEngineAdapter:
     def test_update_weights_from_tensor_strict(self, mock_launch_server_process, basic_adapter_kwargs):
         import base64
 
-        from sglang.srt.managers.tokenizer_manager import UpdateWeightsFromTensorReqInput
+        from sglang.srt.managers.io_struct import UpdateWeightsFromTensorReqInput
 
         from verl.workers.rollout.sglang_rollout.http_server_engine import HttpServerAdapter
 
@@ -471,7 +471,7 @@ class TestHttpServerEngineAdapter:
             )
 
     def test_update_weights_from_tensor_empty(self, mock_launch_server_process, basic_adapter_kwargs):
-        from sglang.srt.managers.tokenizer_manager import UpdateWeightsFromTensorReqInput
+        from sglang.srt.managers.io_struct import UpdateWeightsFromTensorReqInput
 
         from verl.workers.rollout.sglang_rollout.http_server_engine import HttpServerAdapter
 
@@ -500,7 +500,7 @@ class TestHttpServerEngineAdapter:
             )
 
     def test_update_weights_from_tensor_none(self, mock_launch_server_process, basic_adapter_kwargs):
-        from sglang.srt.managers.tokenizer_manager import UpdateWeightsFromTensorReqInput
+        from sglang.srt.managers.io_struct import UpdateWeightsFromTensorReqInput
 
         from verl.workers.rollout.sglang_rollout.http_server_engine import HttpServerAdapter
 

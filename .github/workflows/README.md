@@ -67,3 +67,7 @@ jobs:
           mode: "destroy"
           faas-url: "${{ env.DYNAMIC_RUNNER_URL }}"
           task-id: "${{ needs.setup.outputs.task-id }}"
+```
+
+### Model and Dataset
+To avoid CI relies on network, we pre-download dataset on a NFS on the CI machine. The path for models are \${HOME}/models and the path for dataset is \${HOME}/models/hf_data.
