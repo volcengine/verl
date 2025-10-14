@@ -568,7 +568,6 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
                     async with self.lock:
                         self.paused = False
                         self.condition.notify_all()
-                        print("[FullyAsyncRollouter][MonitorLoop] Trigger rollout recovery in MonitorLoop")
 
     async def _should_pause_generation(self) -> bool:
         """Determine whether the build should be paused"""
