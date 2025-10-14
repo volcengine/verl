@@ -83,68 +83,75 @@ https://github.com/ArronHZG/verl-community/blob/recipe/async_policy/docs/fully_a
 
 **进一步的解释：**
 
-`rollout.total_rollout_steps`
+* `rollout.total_rollout_steps`
 
-与 colocate 相比，数量可以通过 train_batch_size 与 step 相乘对齐: rollout.total_rollout_steps = data.train_batch_size *
-step。
+  与 colocate 相比，数量可以通过 train_batch_size 与 step 相乘对齐:
+  `rollout.total_rollout_steps = data.train_batch_size * step`。
 
-`async_training.trigger_parameter_sync_step`
+* `async_training.trigger_parameter_sync_step`
 
-在fully async策略中，表示Trainer进行多少次本地更新后（也就是获取多少次require_batches\* ppo_mini_batch_size数量样本），
-与Rollouter之间进行一次参数同步。
-每两次Rollouter和Trainer参数同步之间，Trainer将会处理trigger_parameter_sync_step\* require_batches\*
-ppo_mini_batch_size份sample。
-如果为了与colocate在公平的情况下对比速度，trigger_parameter_sync_step应该设置为 data.train_batch_size / (
-require_batches \* ppo_mini_batch_size)。
+  在fully async策略中，表示Trainer进行多少次本地更新后（也就是获取多少次`require_batches * ppo_mini_batch_size`数量样本），
+  与Rollouter之间进行一次参数同步。
+  每两次Rollouter和Trainer参数同步之间，Trainer将会处理`trigger_parameter_sync_step* require_batches\
+  ppo_mini_batch_size`份sample。
+  如果为了与colocate在公平的情况下对比速度，trigger_parameter_sync_step应该设置为 `data.train_batch_size / (
+  require_batches * ppo_mini_batch_size)`。
 
-`async_training.staleness_threshold`
+* `async_training.staleness_threshold`
 
-在fully async策略中，表示最大允许使用的staleness样本的比例。
+  在fully async策略中，表示最大允许使用的staleness样本的比例。
 
-* staleness_threshold=0，表示同步训练。
-  Rollouter两次参数更新之间将会生成固定数量的样本，样本数为：
-  $$rollout\_num = (trigger\_parameter\_sync\_step*require\_batches*ppo\_mini\_batch\_size)$$
-* staleness_threshold>0，表示异步训练， 可以设置为小数，支持更灵活的异步调用。
-  Rollouter两次参数更新之间将会最多生成的样本数为：
-  $$rollout\_num = (1+staleness\_threshold)*(trigger\_parameter\_sync\_step*require\_batches*ppo\_mini\_batch\_size) - num\_staleness\_sample $$
+    * staleness_threshold=0，表示同步训练。
+      Rollouter两次参数更新之间将会生成固定数量的样本，样本数为：
+      $$rollout\_num = (trigger\_parameter\_sync\_step*require\_batches*ppo\_mini\_batch\_size)$$
+    * staleness_threshold>0，表示异步训练， 可以设置为小数，支持更灵活的异步调用。
+      Rollouter两次参数更新之间将会最多生成的样本数为：
+      $$rollout\_num = (1+staleness\_threshold)*(trigger\_parameter\_sync\_step*require\_batches*ppo\_mini\_batch\_size) - num\_staleness\_sample $$
 
-num_staleness_sample 表示上一次rollout多生成的陈旧样本数。
+  num_staleness_sample 表示上一次rollout多生成的陈旧样本数。
 
-由于是流式系统，rollout持续生成，trainer持续消费。如果rollouter较慢，trainer会更早触发参数同步，rollouter并不会实际生产rollout_num个样本。
-当rollout 足够快时，staleness_threshold设置为1，基本上等价于one_step_off policy。
-为了避免过期样本太多影响训练精度，建议该值设置小于1。
+  由于是流式系统，rollout持续生成，trainer持续消费。如果rollouter较慢，trainer会更早触发参数同步，rollouter并不会实际生产rollout_num个样本。
+  当rollout 足够快时，staleness_threshold设置为1，基本上等价于one_step_off policy。
+  为了避免过期样本太多影响训练精度，建议该值设置小于1。
 
-`async_training.partial_rollout`
+* `async_training.partial_rollout`
 
-partial_rollout只会在staleness_threshold>0时才实际上起作用。
+  partial_rollout只会在staleness_threshold>0时才实际上起作用。
 
-`async_training.use_rollout_log_probs`
+* `async_training.use_rollout_log_probs`
 
-在强化学习算法中，log_probs与参数版本，token都存在隐性的相关性。由于PPO/GRPO/DAPO等算法的设定，我们在计算重要性采样时，
-即 old_log_prob必须使用rollout参数及token所对应log_probs，才能保证算法的正确性。在fully
-async策略中，我们默认old_log_prob是有rollout所计算的，而不是由trainer所计算。
+  在强化学习算法中，log_probs与参数版本，token都存在隐性的相关性。由于PPO/GRPO/DAPO等算法的设定，我们在计算重要性采样时，
+  即 old_log_prob必须使用rollout参数及token所对应log_probs，才能保证算法的正确性。在fully
+  async策略中，我们默认old_log_prob是有rollout所计算的，而不是由trainer所计算。
+
+  * `async_training.require_batches`
+  
+  在流式训练中，require_batches 应该设置为1，表示生产够ppo_mini_batch_size样本后，就进行训练。
+  在实际测试中，我们发现，如果单次下发的样本较少，由于数据分发的顺序，会导致训练不稳定，response 长度变长。
+  在这里，我们额外提供 require_batches 进行流式分发，单次参与训练的样本数量控制。
+  
 
 ### 模式支持
 
 1. on policy pipeline:
-    1. trigger_parameter_sync_step=1，staleness_threshold=0;
-    2. Rollouter一次生产require_batches*
-       ppo_mini_batch_size的samples，Trainer获取这些samples后进行训练，训练完后Trainer和Rollouter之间进行一次参数同步;
+    1. **trigger_parameter_sync_step=1，staleness_threshold=0**
+    2. Rollouter一次生产`require_batches*ppo_mini_batch_size`
+       的samples，Trainer获取这些samples后进行训练，训练完后Trainer和Rollouter之间进行一次参数同步;
     3. 在rollout阶段，如果存在长尾的样本，但是rollout样本数较少时，较短的样本无法填充到空闲的资源中，会造成一定的资源浪费。
     4. 如图a所示；
 
 2. stream off policy pipeline:
-    1. trigger_parameter_sync_step>1，staleness_threshold=0。
-    2. 将会进行同步的流式训练，Rollouter一次生产require_batches*ppo_mini_batch_size*
-       trigger_parameter_sync_step的samples，Trainer每获取require_batches*
-       ppo_mini_batch_size就进行一次本地训练，训练trigger_parameter_sync_step次后，Trainer和Rollouter之间进行一次参数同步;
+    1. **trigger_parameter_sync_step>1，staleness_threshold=0**
+    2. 将会进行同步的流式训练，Rollouter一次生产`require_batches*ppo_mini_batch_size*trigger_parameter_sync_step`
+       的samples，Trainer每获取`require_batches*ppo_mini_batch_size`
+       就进行一次本地训练，训练trigger_parameter_sync_step次后，Trainer和Rollouter之间进行一次参数同步;
     3. 相较于a，由于一次生成的样本更多，资源的空闲会更低。
-    4. 在一次step训练中，会存在两次资源闲置的时间，分别是在第一次获取样本时，train等待require_batches*
-       ppo_mini_batch_size个样本生产，以及最后一次参数更新时，rollout等待训练完成。
+    4. 在一次step训练中，会存在两次资源闲置的时间，分别是在第一次获取样本时，train等待`require_batches*ppo_mini_batch_size`
+       个样本生产，以及最后一次参数更新时，rollout等待训练完成。
     5. 如图b所示；
 
 3. async stream pipeline with staleness samples:
-    1. trigger_parameter_sync_step>=1，staleness_threshold>0，partial_rollout=Flase。
+    1. **trigger_parameter_sync_step>=1，staleness_threshold>0，partial_rollout=Flase**
     2. Rollouter在每次参数更新后将计划最多生产rollout_num个样本（实际根据rollout速度，生成的样本可能会少与这个值）。
     3. 如果rollout过程比较快，Rollouter将会在参数同步前额外生成一部分样本num_stale_samples，用于参数同步后立即给Trainer使用。
        触发参数同步时，如果Rollouter有正在生产的任务，将会等待任务完成，同时不会添加新的任务；
@@ -153,7 +160,7 @@ async策略中，我们默认old_log_prob是有rollout所计算的，而不是�
     5. 如图c所示；
 
 4. async stream pipeline with partial rollout:
-    1. trigger_parameter_sync_step>=1，staleness_threshold>0，partial_rollout=True。
+    1. **trigger_parameter_sync_step>=1，staleness_threshold>0，partial_rollout=True**
     2. 相较于c，触发参数同步时，Rollouter如果有正在生产的sample，会打断rollout过程并进行参数同步，被中断的sample会在参数同步后继续生成。减少了wait
        active task finish的时间。
     3. 如图d所示；
@@ -245,6 +252,8 @@ python -m recipe.fully_async_policy.fully_async_main \
 
 ### 在7B模型上进行异步训练
 
+我们使用 Qwen2.5-Math-7B 验证 fully async 策略在长候选下，各个资源的收益。
+
 * 机器：H20
 * 模型：Qwen2.5-Math-7B
 * rollout长度：max_response_length FSDP2: 28K tokens;
@@ -277,6 +286,41 @@ python -m recipe.fully_async_policy.fully_async_main \
 
 > source data: https://wandb.ai/hou-zg-meituan/fully-async-policy?nw=nwuserhouzg
 
+### 128卡  7B 异步模式实验
+
+我们使用 Qwen2.5-Math-7B 验证 fully async 所支持的各个模型的效果。
+
+| training mode      | Resource allocation | mode                                           | step | generate_sequences | old_log_prob | update_actor | total time | acc/best@32/mean |
+|--------------------|---------------------|------------------------------------------------|------|--------------------|--------------|--------------|------------|------------------|
+| fully_async_policy | 64:64               | `stream off policy pipeline`                   |      |                    |              |              |            |                  |
+| fully_async_policy | 64:64               | `async stream pipeline with staleness samples` |      |                    |              |              |            |                  |
+| fully_async_policy | 64:64               | `async stream pipeline with partial rollout`   |      |                    |              |              |            |                  |
+
+### 128卡 stale 消融实验
+
+在 `async stream pipeline with partial rollout` 模式下，我们验证 staleness 的设置对于训练效率的影响。
+
+| training mode      | Resource allocation | staleness | step | generate_sequences | old_log_prob | update_actor | total time | acc/best@32/mean |
+|--------------------|---------------------|-----------|------|--------------------|--------------|--------------|------------|------------------|
+| fully_async_policy | 64:64               | 0         |      |                    |              |              |            |                  |
+| fully_async_policy | 64:64               | 0.1       |      |                    |              |              |            |                  |
+| fully_async_policy | 64:64               | 0.3       |      |                    |              |              |            |                  |
+| fully_async_policy | 64:64               | 0.5       |      |                    |              |              |            |                  |
+
+> source data: https://wandb.ai/hou-zg-meituan/fully-async-policy?nw=nwuserhouzg
+
+### 128卡  7B require_batches 消融实验
+
+在多次测试下，我们发现流式每次下发样本的数量，会影响训练的结果，我们通过修改 `async_training.require_batches` 验证对与结果的影响。
+
+| training mode      | Resource allocation | async_training.require_batches | step | generate_sequences | old_log_prob | update_actor | total time | acc/best@32/mean |
+|--------------------|---------------------|--------------------------------|------|--------------------|--------------|--------------|------------|------------------|
+| fully_async_policy | 64:64               | 1                              |      |                    |              |              |            |                  |
+| fully_async_policy | 64:64               | 2                              |      |                    |              |              |            |                  |
+| fully_async_policy | 64:64               | 4                              |      |                    |              |              |            |                  |
+
+> source data: https://wandb.ai/hou-zg-meituan/fully-async-policy?nw=nwuserhouzg
+
 ### 30B模型模式实验
 
 * 机器: H20
@@ -304,27 +348,6 @@ python -m recipe.fully_async_policy.fully_async_main \
 | fully_async_policy | 64:64               | stream off policy pipeline                   |      |                    |              |              |            |                  |
 | fully_async_policy | 64:64               | async stream pipeline with staleness samples |      |                    |              |              |            |                  |
 | fully_async_policy | 64:64               | async stream pipeline with partial rollout   |      |                    |              |              |            |                  |
-
-> source data: https://wandb.ai/hou-zg-meituan/fully-async-policy?nw=nwuserhouzg
-
-### 128卡  require_batches 消融实验
-
-| training mode      | Resource allocation | require_size | step | generate_sequences | old_log_prob | update_actor | total time | acc/best@32/mean |
-|--------------------|---------------------|--------------|------|--------------------|--------------|--------------|------------|------------------|
-| fully_async_policy | 64:64               | 1            |      |                    |              |              |            |                  |
-| fully_async_policy | 64:64               | 2            |      |                    |              |              |            |                  |
-| fully_async_policy | 64:64               | 4            |      |                    |              |              |            |                  |
-
-> source data: https://wandb.ai/hou-zg-meituan/fully-async-policy?nw=nwuserhouzg
-
-### 128卡 stale 消融实验
-
-| training mode      | Resource allocation | staleness | step | generate_sequences | old_log_prob | update_actor | total time | acc/best@32/mean |
-|--------------------|---------------------|-----------|------|--------------------|--------------|--------------|------------|------------------|
-| fully_async_policy | 64:64               | 0         |      |                    |              |              |            |                  |
-| fully_async_policy | 64:64               | 0.1       |      |                    |              |              |            |                  |
-| fully_async_policy | 64:64               | 0.3       |      |                    |              |              |            |                  |
-| fully_async_policy | 64:64               | 0.5       |      |                    |              |              |            |                  |
 
 > source data: https://wandb.ai/hou-zg-meituan/fully-async-policy?nw=nwuserhouzg
 
