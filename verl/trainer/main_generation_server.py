@@ -135,9 +135,22 @@ def main_task(config):
         # "top_k": config.actor_rollout_ref.rollout.top_k,
         "max_tokens": config.actor_rollout_ref.rollout.response_length,
     }
+    
+    from omegaconf import ListConfig
+
+    train_files = config.data.train_files
+    if not isinstance(train_files, list | ListConfig):
+        train_files = [train_files]
 
     # read dataset. Note that the dataset should directly contain chat template format (e.g., a list of dictionary)
-    dataset = pd.read_parquet(config.data.train_files)
+
+    datasets = []
+    for train_file in train_files:
+        dataset = pd.read_parquet(train_file)
+        datasets.append(dataset)
+
+    # concat dataset
+    dataset = pd.concat(datasets, axis=0)
     chat_lst = dataset[config.data.prompt_key].tolist()
     chat_lst = [chat.tolist() for chat in chat_lst]
     chat_numpy = np.array(chat_lst)
