@@ -67,6 +67,7 @@ class CustomAsyncServerConfig(BaseConfig):
 @dataclass
 class AgentLoopConfig(BaseConfig):
     num_workers: int = 8
+    default_agent_loop: str = "single_turn_agent"
     agent_loop_config_path: Optional[str] = None
     custom_async_server: CustomAsyncServerConfig = field(default_factory=CustomAsyncServerConfig)
 
@@ -120,6 +121,7 @@ class RolloutConfig(BaseConfig):
     data_parallel_size: int = 1
     expert_parallel_size: int = 1
     tensor_model_parallel_size: int = 2
+    pipeline_model_parallel_size: int = 1
     max_num_batched_tokens: int = 8192
 
     # TODO: enable train_kwargs
@@ -182,3 +184,9 @@ class RolloutConfig(BaseConfig):
             assert self.expert_parallel_size == (self.tensor_model_parallel_size * self.data_parallel_size), (
                 "expert_parallel_size must be equal to tensor_model_parallel_size * data_parallel_size"
             )
+
+        if self.pipeline_model_parallel_size > 1:
+            if self.name == "vllm" or self.name == "sglang":
+                raise NotImplementedError(
+                    f"Current rollout {self.name=} not implemented pipeline_model_parallel_size > 1 yet."
+                )

@@ -66,7 +66,8 @@ def postprocess_batch_func(output_lst, indices, data: TensorDict):
     """
 
     use_dynamic_bsz = tu.get_non_tensor_data(data=data, key="use_dynamic_bsz", default=True)
-    pad_mode = tu.get_non_tensor_data(data=data, key="pad_mode", default=DatasetPadMode.LEFT_RIGHT)
+    pad_mode = tu.get_non_tensor_data(data=data, key="pad_mode", default=DatasetPadMode.NO_PADDING)
+    assert pad_mode == DatasetPadMode.NO_PADDING, "postprocess_batch_func only support NO_PADDING pad_mode"
 
     # losses_reduced is a list of dict containing outputs for each micro-batch
     # reorder entropy and outputs. Return None for other pp ranks
@@ -92,8 +93,6 @@ def postprocess_batch_func(output_lst, indices, data: TensorDict):
         if pad_mode == DatasetPadMode.NO_PADDING:
             tensors = [tensor for nt in model_output[key] for tensor in nt.unbind()]
             model_output[key] = torch.nested.as_nested_tensor(tensors, layout=torch.jagged)
-        elif pad_mode == DatasetPadMode.LEFT_RIGHT:
-            model_output[key] = torch.cat(model_output[key], dim=0)
         else:
             raise NotImplementedError(f"pad_mode {pad_mode} not implemented")
 

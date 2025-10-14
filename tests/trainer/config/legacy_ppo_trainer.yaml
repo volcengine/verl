@@ -301,8 +301,8 @@ actor_rollout_ref:
       # Number of cosine cycles in LR schedule
       num_cycles: 0.5
 
-      # LR warmup style: "constant" or "cosine"
-      warmup_style: constant
+      # LR scheduler type: "constant" or "cosine"
+      lr_scheduler_type: constant
 
       # Total training steps (must be overridden at runtime)
       total_training_steps: -1
@@ -605,8 +605,8 @@ critic:
     # Minimum LR ratio for cosine schedule
     min_lr_ratio: 0.0
 
-    # LR warmup style: "constant" or "cosine"
-    warmup_style: constant
+    # LR scheduler type: "constant" or "cosine"
+    lr_scheduler_type: constant
 
     # Total training steps (must be overridden at runtime)
     total_training_steps: -1

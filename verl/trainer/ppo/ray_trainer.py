@@ -49,6 +49,7 @@ from verl.trainer.ppo.metric_utils import (
     compute_timing_metrics,
     process_validation_metrics,
 )
+from verl.trainer.ppo.mismatch_helper import compute_rollout_importance_weights
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.trainer.ppo.utils import Role, WorkerType, need_critic, need_reference_policy, need_reward_model
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
@@ -919,6 +920,49 @@ class RayPPOTrainer:
         )
         metrics.update(global_balance_stats)
 
+    def compute_rollout_importance_weights_and_add_to_batch(self, batch: DataProto) -> tuple[DataProto, dict]:
+        """Compute rollout importance sampling weights and mismatch metrics, conditionally add weights to batch.
+
+        This method computes IS weights to correct for distribution mismatch between
+        rollout policy and training policy. It always computes metrics when enabled, but
+        only adds weights to batch if algorithm.rollout_is is True.
+
+        Args:
+            batch: DataProto containing old_log_probs, rollout_log_probs, response_mask
+
+        Returns:
+            Tuple of (updated_batch, metrics) where:
+                - updated_batch: Batch with rollout_is_weights added (if rollout_is=True)
+                - metrics: Dictionary of IS and mismatch metrics (all with mismatch/ prefix)
+        """
+        # Compute rollout IS weights if enabled and data is available
+        # rollout_is_threshold is the main on/off switch
+        if self.config.algorithm.rollout_is_threshold is not None and "rollout_log_probs" in batch.batch:
+            rollout_is_weights, rollout_is_metrics = compute_rollout_importance_weights(
+                old_log_prob=batch.batch["old_log_probs"],
+                rollout_log_prob=batch.batch["rollout_log_probs"],
+                response_mask=batch.batch["response_mask"],
+                rollout_is_level=self.config.algorithm.rollout_is_level,
+                rollout_is_mode=self.config.algorithm.rollout_is_mode,
+                rollout_is_threshold=self.config.algorithm.rollout_is_threshold,
+                rollout_is_threshold_lower=self.config.algorithm.rollout_is_threshold_lower,
+                rollout_is_veto_threshold=self.config.algorithm.rollout_is_veto_threshold,
+            )
+
+            # Control: Should we apply weights to policy loss?
+            # True = add weights to batch (actor will apply them)
+            # False = don't add weights (metrics only, no loss modification)
+            apply_weights = self.config.algorithm.get("rollout_is", False)
+
+            if apply_weights:
+                # Add IS weights to batch for distribution to workers
+                batch = batch.union(rollout_is_weights)
+
+            return batch, rollout_is_metrics
+
+        # Return unchanged batch and empty metrics if IS is disabled
+        return batch, {}
+
     def fit(self):
         """
         The training loop of PPO.
@@ -1108,6 +1152,13 @@ class RayPPOTrainer:
                         else:
                             batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
 
+                        # Compute rollout importance sampling weights centrally (once per batch)
+                        # This corrects for mismatch between rollout policy and training policy
+                        # Also computes mismatch metrics (KL, PPL, etc.)
+                        batch, is_metrics = self.compute_rollout_importance_weights_and_add_to_batch(batch)
+                        # IS and mismatch metrics already have mismatch/ prefix
+                        metrics.update(is_metrics)
+
                         # compute advantages, executed on the driver process
                         norm_adv_by_std_in_grpo = self.config.algorithm.get(
                             "norm_adv_by_std_in_grpo", True
@@ -1206,6 +1257,7 @@ class RayPPOTrainer:
                 # TODO: implement actual tflpo and theoretical tflpo
                 n_gpus = self.resource_pool_manager.get_n_gpus()
                 metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
+                # Note: mismatch metrics (KL, PPL, etc.) are collected at line 1179 after advantage computation
 
                 # this is experimental and may be changed/removed in the future in favor of a general-purpose one
                 if isinstance(self.train_dataloader.sampler, AbstractCurriculumSampler):
