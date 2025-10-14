@@ -112,6 +112,33 @@ algorithm:
 
     # Power used for weight scaling in "pow" method
     weight_pow: 2.0
+    
+  # Setting for filtering samples in GFPO
+  filter_sample:
+
+    # This parameter is used to determine whether to enable sample filtering.
+    enable: True
+    
+    # The metric (e.g., response length, token efficiency) aimed at reducing response length inflation. Defaults to response length.
+    metric: "response length"
+    
+    # When adaptive=True, the size of most desirable responses to tain on. Defaults to 8.
+    retain_count: 8
+    
+    # When adaptive=True, retain_count does not take effect.
+    adaptive: True
+    
+    # When adaptive=True, this parameter specifies the target number of responses to retain for easy questions.
+    easy_count: 4
+
+    # When adaptive=True, this parameter specifies the target number of responses to retain for medium questions.
+    medium_count: 6
+
+    # When adaptive=True, this parameter specifies the target number of responses to retain for hard questions.
+    hard_count: 8
+
+     # When adaptive=True, this parameter specifies the target number of responses to retain for very hard questions.
+    very_hard_count: 8
 
   # Rollout Importance Sampling: corrects distribution mismatch between rollout and training policies
   # Main control: Upper threshold for IS weights (null = disabled, float = enabled)
