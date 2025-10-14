@@ -33,7 +33,11 @@ from recipe.atropos.atropos_integration import AtroposConfig, AtroposEnvironment
 
 # Try to import VeRL components, but handle gracefully if missing
 try:
-    from verl.trainer.ppo.core_algos import compute_grpo_atropos_advantage
+    from verl.trainer.ppo.core_algos import (
+        ADV_ESTIMATOR_REGISTRY,
+        compute_grpo_outcome_advantage,
+    )
+
     VERL_AVAILABLE = True
 except ImportError as e:
     print(f"Warning: VeRL components not available ({e}). Some tests will be skipped.")
@@ -115,8 +119,11 @@ def test_grpo_computer():
             response_mask=response_mask
         )
         
-        print("✓ Advantages computed successfully")
-        print(f"  Shape: {advantages.shape}")
+        if advantages is not None:
+            print("✓ Advantages computed successfully")
+            print(f"  Shape: {advantages.shape}")
+        else:
+            print("✓ Fallback triggered, standard GRPO will be used")
         print(f"  Metrics: {metrics}")
         
     except Exception as e:
@@ -203,57 +210,56 @@ def test_advantage_broadcast_logic():
 
 
 def test_advantage_estimator():
-    """Test the registered grpo_atropos advantage estimator."""
-    print("\nTesting grpo_atropos advantage estimator...")
-    
+    """Test the GRPO advantage estimator with Atropos overrides."""
+    print("\nTesting GRPO advantage estimator with Atropos overrides...")
+
     if not VERL_AVAILABLE:
-        print("Skipping grpo_atropos advantage estimator test as VeRL is not available.")
-        return True # Indicate success if VeRL is not available
+        print("Skipping GRPO estimator test as VeRL is not available.")
+        return True  # Indicate success if VeRL is not available
 
     try:
-        # Check if estimator is registered
-        from verl.trainer.ppo.core_algos import ADV_ESTIMATOR_REGISTRY
-        
-        if "grpo_atropos" in ADV_ESTIMATOR_REGISTRY:
-            print("✓ grpo_atropos estimator is registered")
+        if "grpo" in ADV_ESTIMATOR_REGISTRY:
+            print("✓ grpo estimator is registered")
         else:
-            print("✗ grpo_atropos estimator not found in registry")
+            print("✗ grpo estimator not found in registry")
             return False
-        
-        # Test the estimator
+
         batch_size = 4
         response_length = 20
-        
+
         token_level_rewards = torch.randn(batch_size, response_length)
         response_mask = torch.ones(batch_size, response_length)
         index = torch.arange(batch_size).numpy()
-        
-        advantages, returns = compute_grpo_atropos_advantage(
+
+        advantages, returns = compute_grpo_outcome_advantage(
             token_level_rewards=token_level_rewards,
             response_mask=response_mask,
             index=index,
-            norm_adv_by_std_in_grpo=True
+            norm_adv_by_std_in_grpo=True,
         )
-        
+
         print("✓ Advantage computation successful")
         print(f"  Advantages shape: {advantages.shape}")
         print(f"  Returns shape: {returns.shape}")
-        
-        # Test with token-level advantages override
+
         token_level_advantages = torch.randn(batch_size, response_length)
-        advantages_override, returns_override = compute_grpo_atropos_advantage(
+        advantages_override, returns_override = compute_grpo_outcome_advantage(
             token_level_rewards=token_level_rewards,
             response_mask=response_mask,
             index=index,
-            token_level_advantages=token_level_advantages
+            token_level_advantages=token_level_advantages,
         )
-        
+
+        assert torch.allclose(
+            advantages_override, token_level_advantages * response_mask
+        ), "token-level overrides should be respected"
+        assert torch.allclose(advantages_override, returns_override), "returns should match overrides"
         print("✓ Advantage override successful")
-        
+
     except Exception as e:
         print(f"✗ Advantage estimator test failed: {e}")
         return False
-    
+
     return True
 
 
@@ -283,8 +289,6 @@ def test_fallback_on_api_failure():
         return True # Indicate success if VeRL is not available
 
     try:
-        from verl.trainer.ppo.core_algos import compute_grpo_atropos_advantage
-        
         batch_size = 2
         response_length = 10
         
@@ -293,7 +297,7 @@ def test_fallback_on_api_failure():
         index = torch.arange(batch_size).numpy()
         
         # This should work without Atropos (no token_level_advantages provided)
-        advantages, returns = compute_grpo_atropos_advantage(
+        advantages, returns = compute_grpo_outcome_advantage(
             token_level_rewards=token_level_rewards,
             response_mask=response_mask,
             index=index,

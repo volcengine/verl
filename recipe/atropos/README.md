@@ -36,9 +36,9 @@ Core integration module with:
 
 ### 2. `grpo_atropos_trainer.py`
 GRPO trainer implementation:
-- Extends `RayPPOTrainer` for GRPO algorithm
-- Integrates token-level advantages from Atropos
-- Provides fallback to standard GRPO
+- Extends `RayPPOTrainer` while keeping the standard GRPO estimator
+- Injects token-level advantages from Atropos when provided
+- Falls back to standard GRPO automatically when overrides are unavailable
 
 ### 3. `launch_atropos_verl_services.py`
 Service orchestration script:
@@ -48,8 +48,7 @@ Service orchestration script:
 - Manages service lifecycle, health checks and cleanup
 
 ### 4. `core_algos.py` (modified)
-- Added `grpo_atropos` advantage estimator
-- Supports token-level advantage overrides
+- Extended the GRPO estimator to accept optional token-level advantage overrides
 
 ## Usage
 
@@ -61,6 +60,13 @@ Use the automated launcher to start all components:
 # Launch all services automatically
 python recipe/atropos/launch_atropos_verl_services.py \
     --config recipe/atropos/config/gsm8k_grpo_example.yaml
+```
+
+For a CLI-only workflow that mirrors the standard VeRL examples, use the provided script:
+
+```bash
+# Override any flags by appending them to the command
+recipe/atropos/run_qwen2_5-3b_atropos_grpo.sh trainer.atropos.api_url=http://localhost:9001
 ```
 
 This will:
@@ -106,7 +112,7 @@ Key configuration options in `config/gsm8k_grpo_example.yaml`:
 
 ```yaml
 algorithm:
-  adv_estimator: grpo_atropos  # Use Atropos GRPO estimator
+  adv_estimator: grpo  # Use standard GRPO estimator
   
 trainer:
   atropos:

@@ -233,8 +233,7 @@ class AtroposGRPOComputer:
         scores: torch.Tensor,
         tokenizer,
         response_mask: torch.Tensor,
-        fallback_estimator = None
-    ) -> tuple[torch.Tensor, dict[str, Any]]:
+    ) -> tuple[Optional[torch.Tensor], dict[str, Any]]:
         """
         Compute advantages with Atropos environment overrides.
         
@@ -244,10 +243,9 @@ class AtroposGRPOComputer:
             scores: Initial scores from model
             tokenizer: Tokenizer for decoding
             response_mask: Mask for valid response tokens
-            fallback_estimator: Fallback advantage estimator
             
         Returns:
-            Tuple of (advantages tensor, metrics dict)
+            Tuple of (optional advantages tensor, metrics dict)
         """
         # Decode prompts and responses
         prompt_texts = [
@@ -275,17 +273,13 @@ class AtroposGRPOComputer:
                 logger.warning(
                     f"Advantage batch size mismatch: expected {responses.shape[0]}, got {advantages.shape[0]}"
                 )
-                return self._compute_fallback_advantages(
-                    scores, response_mask, fallback_estimator
-                )
+                return self._compute_fallback_advantages()
             if advantages.shape[1] != response_mask.shape[1]:
                 logger.warning(
                     f"Advantage sequence length mismatch: expected {response_mask.shape[1]}, "
                     f"got {advantages.shape[1]}"
                 )
-                return self._compute_fallback_advantages(
-                    scores, response_mask, fallback_estimator
-                )
+                return self._compute_fallback_advantages()
             
             # Move to correct device and dtype
             target_dtype = scores.dtype if scores is not None else torch.float32
@@ -295,26 +289,12 @@ class AtroposGRPOComputer:
         # Fallback to standard computation
         if self.config.fallback_to_standard:
             logger.info("Using fallback advantage computation")
-            return self._compute_fallback_advantages(
-                scores, response_mask, fallback_estimator
-            )
+            return self._compute_fallback_advantages()
         
         raise AtroposAPIError("Failed to get advantages from Atropos and fallback disabled")
     
     def _compute_fallback_advantages(
         self,
-        scores: torch.Tensor,
-        response_mask: torch.Tensor,
-        fallback_estimator
-    ) -> tuple[torch.Tensor, dict[str, Any]]:
-        """Compute advantages using fallback method"""
-        if scores is None:
-            scores = torch.zeros(response_mask.size(0), device=response_mask.device, dtype=torch.float32)
-
-        if fallback_estimator is None:
-            # Simple score-based advantages
-            advantages = scores.unsqueeze(-1) * response_mask
-            return advantages, {"fallback": True}
-        
-        # Use provided estimator
-        return fallback_estimator(scores, response_mask), {"fallback": True}
+    ) -> tuple[Optional[torch.Tensor], dict[str, Any]]:
+        """Signal that standard GRPO computation should be used instead."""
+        return None, {"fallback": True}

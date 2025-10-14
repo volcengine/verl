@@ -262,13 +262,17 @@ def compute_advantage(
     elif adv_estimator == AdvantageEstimator.GRPO:
         # Initialize the mask for GRPO calculation
         grpo_calculation_mask = data.batch["response_mask"]
+        token_level_advantages = data.batch.get("token_level_advantages")
         # Call compute_grpo_outcome_advantage with parameters matching its definition
         advantages, returns = core_algos.compute_grpo_outcome_advantage(
             token_level_rewards=data.batch["token_level_rewards"],
             response_mask=grpo_calculation_mask,
             index=data.non_tensor_batch["uid"],
             norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
+            token_level_advantages=token_level_advantages,
         )
+        if "token_level_advantages" in data.batch:
+            data.batch.pop("token_level_advantages")
         data.batch["advantages"] = advantages
         data.batch["returns"] = returns
     else:

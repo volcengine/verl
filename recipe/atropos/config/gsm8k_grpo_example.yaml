@@ -1,7 +1,7 @@
 # Configuration for GRPO training with Atropos GSM8K environment
 
 algorithm:
-  adv_estimator: grpo_atropos
+  adv_estimator: grpo
   use_critic: false
   gamma: 1.0
   lam: 0.95

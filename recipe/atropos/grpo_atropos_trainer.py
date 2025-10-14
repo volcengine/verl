@@ -20,11 +20,11 @@ for computing advantages with token-level overrides.
 """
 
 import logging
+from typing import Any, Optional
 
 import torch
 
 from verl import DataProto
-from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 
 from .atropos_integration import AtroposConfig, AtroposGRPOComputer
@@ -57,9 +57,9 @@ class RayGRPOAtroposTrainer(RayPPOTrainer):
         self.grpo_computer = AtroposGRPOComputer(atropos_config)
         
         # Ensure we're using GRPO
-        if config.algorithm.adv_estimator != "grpo_atropos":
-            logger.warning(f"Overriding adv_estimator from {config.algorithm.adv_estimator} to grpo_atropos")
-            config.algorithm.adv_estimator = "grpo_atropos"
+        if config.algorithm.adv_estimator != "grpo":
+            logger.warning(f"Overriding adv_estimator from {config.algorithm.adv_estimator} to grpo")
+            config.algorithm.adv_estimator = "grpo"
         
         # GRPO doesn't use critic
         self.use_critic = False
@@ -67,7 +67,7 @@ class RayGRPOAtroposTrainer(RayPPOTrainer):
         
         logger.info("Initialized RayGRPOAtroposTrainer with Atropos integration")
     
-    def _compute_advantages_grpo(self, batch: DataProto) -> torch.Tensor:
+    def _compute_advantages_grpo(self, batch: DataProto) -> tuple[Optional[torch.Tensor], dict[str, Any]]:
         """
         Compute GRPO advantages with Atropos environment overrides.
         
@@ -102,11 +102,10 @@ class RayGRPOAtroposTrainer(RayPPOTrainer):
             if token_level_rewards is not None:
                 scores = token_level_rewards.sum(dim=-1)
             else:
-                dtype = token_level_rewards.dtype if token_level_rewards is not None else torch.float32
                 scores = torch.zeros(
                     response_mask.shape[0],
                     device=response_mask.device,
-                    dtype=dtype,
+                    dtype=torch.float32,
                 )
         
         # Get tokenizer
@@ -119,39 +118,9 @@ class RayGRPOAtroposTrainer(RayPPOTrainer):
             scores=scores,
             tokenizer=tokenizer,
             response_mask=response_mask,
-            fallback_estimator=lambda s, m: self._compute_standard_grpo_advantages(batch)
         )
         
-        # Log metrics
-        if metrics:
-            logger.info(f"Atropos metrics: {metrics}")
-        
-        return advantages
-    
-    def _compute_standard_grpo_advantages(self, batch: DataProto) -> torch.Tensor:
-        """Compute standard GRPO advantages as fallback with per-sample baselines"""
-        token_level_rewards = batch.batch.get("token_level_rewards")
-        if token_level_rewards is None:
-            token_level_rewards = batch.batch.get("token_level_scores")
-        if token_level_rewards is None:
-            return torch.zeros_like(batch.batch["response_mask"], dtype=torch.float32)
-
-        index = batch.non_tensor_batch.get("uid")
-        if index is None:
-            index = torch.arange(
-                token_level_rewards.shape[0],
-                device=token_level_rewards.device,
-            ).cpu().numpy()
-        else:
-            index = torch.as_tensor(index).cpu().numpy()
-
-        advantages, _ = core_algos.compute_grpo_outcome_advantage(
-            token_level_rewards=token_level_rewards,
-            response_mask=batch.batch["response_mask"],
-            index=index,
-            norm_adv_by_std_in_grpo=self.config.algorithm.get("norm_adv_by_std_in_grpo", True),
-        )
-        return advantages
+        return advantages, metrics
     
     def training_step(self, batch_dict):
         """
@@ -164,9 +133,11 @@ class RayGRPOAtroposTrainer(RayPPOTrainer):
         batch = DataProto.from_single_dict(batch_dict_cloned)
         
         # Compute advantages using GRPO with Atropos
-        advantages = self._compute_advantages_grpo(batch)
-        batch.batch["advantages"] = advantages
-        batch.batch["returns"] = advantages  # GRPO uses advantages as returns
+        advantages, metrics = self._compute_advantages_grpo(batch)
+        if metrics:
+            logger.info(f"Atropos metrics: {metrics}")
+        if advantages is not None:
+            batch.batch["token_level_advantages"] = advantages
         
         # Continue with standard training
         return super().training_step(batch.batch)

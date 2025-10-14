@@ -59,7 +59,7 @@ def main():
     config.trainer_cls = RayGRPOAtroposTrainer
     
     # Ensure we're using GRPO with Atropos
-    config.algorithm.adv_estimator = "grpo_atropos"
+    config.algorithm.adv_estimator = "grpo"
     config.algorithm.use_critic = False
     
     # Verify Atropos connection
