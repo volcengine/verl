@@ -22,7 +22,7 @@ import datasets
 
 from verl.utils.reward_score.math_reward import remove_boxed
 
-instruction_following = 'Please reason step by step, and put your final answer within \boxed{}.'
+instruction_following = 'Please reason step by step, and put your final answer within \\boxed{}.'
 
 
 def make_map_fn(data_source):
