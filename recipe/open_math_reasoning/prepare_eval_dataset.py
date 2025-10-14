@@ -36,6 +36,8 @@ def make_map_fn(data_source):
 
         answer_raw = example.pop("solution")
 
+        example.clear()
+
         try:
             solution = remove_boxed(answer_raw)
         except Exception as e:
@@ -84,7 +86,7 @@ if __name__ == "__main__":
     aime24_dataset = aime24_dataset.map(function=make_map_fn("aime24"), with_indices=True)
     aime25_dataset = aime25_dataset.map(function=make_map_fn("aime25"), with_indices=True)
 
-    local_save_dir = args.local_save_dir
+    local_save_dir = os.path.expanduser(args.local_save_dir)
     os.makedirs(local_save_dir, exist_ok=True)
 
     aime24_dataset.to_parquet(os.path.join(local_save_dir, "aime24_test.parquet"))

@@ -18,11 +18,11 @@ python3 -m verl.trainer.main_generation_server \
     actor_rollout_ref.rollout.temperature=1.0 \
     actor_rollout_ref.rollout.top_p=0.7 \
     actor_rollout_ref.rollout.prompt_length=2048 \
-    actor_rollout_ref.rollout.response_length=4096 \
+    actor_rollout_ref.rollout.response_length=512 \
     actor_rollout_ref.rollout.tensor_model_parallel_size="${GEN_TP}" \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.9 \
     actor_rollout_ref.rollout.name=vllm \
-    actor_rollout_ref.rollout.n=4 \
+    actor_rollout_ref.rollout.n=2 \
     data.train_files="$train_files" \
     data.prompt_key=prompt \
     +data.output_path="${OUTPUT_PATH}" \
