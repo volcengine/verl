@@ -3,24 +3,17 @@ set -xeuo pipefail
 
 ENTRYPOINT=${ENTRYPOINT:-"-m verl.trainer.sft_trainer"}
 
-NUM_GPUS=${NUM_GPUS:-8}
-
-TRAIN_FILES=/mnt/hdfs/zhangchi.usc1992_lf_lq/data/genselect_dataset.parquet
+TRAIN_FILES=/mnt/hdfs/zhangchi.usc1992_lf_lq/data/cot_dataset.parquet
 
 backend=${BACKEND:-fsdp}
 
 project_name=verl_sft_test
 
 RESUME_MODE=auto
-
-MODEL_ID=${MODEL_ID:-Qwen/Qwen3-0.6B}
-MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
-#huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
-
 MODEL_PATH=/mnt/hdfs/zhangchi.usc1992_lf_lq/models/Qwen3-8B-Base
 
 SP_SIZE=${SP_SIZE:-8}
-FSDP_SIZE=${FSDP_SIZE:-${NUM_GPUS}}
+FSDP_SIZE=${FSDP_SIZE:-16}
 FSDP_STRATEGY=${FSDP_STRATEGY:-"fsdp2"}
 
 TP_SIZE=${TP_SIZE:-1}
@@ -66,7 +59,7 @@ MEGATRON_ENGINE_CONFIG="\
 if [ "$backend" = "fsdp" ]; then
     ENGINE_CONFIG="$FSDP_ENGINE_CONFIG"
     echo "Using fsdp engine"
-    exp_name=nvidia-openmathreasoning-${backend}-${FSDP_STRATEGY}-sp${SP_SIZE}-fsdp${FSDP_SIZE}-pad-${PAD_MODE}-use_remove_padding-${USE_REMOVE_PADDING}
+    exp_name=nvidia-openmathreasoning-qwen3-8b-${backend}-${FSDP_STRATEGY}-sp${SP_SIZE}-fsdp-1008a1
 else
     ENGINE_CONFIG="$MEGATRON_ENGINE_CONFIG"
     echo "Using megatron engine"
@@ -78,27 +71,23 @@ mkdir -p "${ckpts_home}"
 
 /opt/tiger/internal/verl/verl/tools/internal/TORCHRUN ${ENTRYPOINT} \
     data.train_files="${TRAIN_FILES}" \
-    data.train_batch_size=16 \
-    data.max_length=16384 \
+    data.train_batch_size=96 \
+    data.max_length=32768 \
     data.pad_mode=${PAD_MODE} \
     data.truncation=error \
     data.use_dynamic_bsz=True \
-    data.max_token_len_per_gpu=16384 \
+    data.max_token_len_per_gpu=65536 \
     data.messages_key=messages \
     model.path=$MODEL_PATH \
     model.use_remove_padding=${USE_REMOVE_PADDING} \
     ${ENGINE_CONFIG} \
     trainer.test_freq=-1 \
-    trainer.save_freq=2000 \
+    trainer.save_freq=4000 \
     trainer.logger=['console','wandb'] \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
     trainer.total_epochs=1 \
     trainer.default_local_dir="${ckpts_home}" \
     trainer.resume_mode=${RESUME_MODE} \
-    trainer.max_ckpt_to_keep=2 \
+    trainer.max_ckpt_to_keep=5 \
     checkpoint.save_contents=[model,optimizer,extra] \
-
-    # trainer.total_training_steps=${TOTAL_TRAIN_STEP} \
-    
-    
