@@ -20,7 +20,6 @@ import os
 import torch
 import torch.distributed
 from omegaconf import DictConfig, OmegaConf
-from sglang.srt.weight_sync.utils import update_weights as sgl_update_weights
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from transformers import AutoConfig
@@ -117,6 +116,8 @@ class ActorRolloutRefWorker(ARRWorker):
                     loop.run_until_complete(self.update_weights(inference_model, [(key, tensor)]))
 
     async def update_weights(self, inference_engine, params):
+        from sglang.srt.weight_sync.utils import update_weights as sgl_update_weights
+
         await sgl_update_weights(
             engine=inference_engine,
             params_batch=params,
