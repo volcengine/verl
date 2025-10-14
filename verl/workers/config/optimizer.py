@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import warnings
 from dataclasses import dataclass
 from typing import Optional
 
@@ -34,14 +34,23 @@ class OptimizerConfig(BaseConfig):
         lr_warmup_steps (Optional[int]): Number of warmup steps; None delegates to lr_warmup_steps_ratio.
     """
 
-    lr: float = MISSING
+    _mutable_fields = {"clip_grad", "total_training_steps", "lr_warmup_steps"}
+
+    lr: float = 1e-3
     lr_warmup_steps_ratio: float = 0.0
     total_training_steps: int = -1
     weight_decay: float = 0.01
     lr_warmup_steps: Optional[int] = -1
+    betas: tuple[float, float] = (0.9, 0.999)
+    clip_grad: float = 1.0
+    # deprecate grad_clip
+    grad_clip: Optional[float] = None
 
     def __post_init__(self):
         assert self.lr != MISSING
+        if self.grad_clip is not None:
+            warnings.warn("`grad_clip` is deprecated, use `clip_grad` instead.", DeprecationWarning, stacklevel=2)
+            self.clip_grad = self.grad_clip
 
 
 @dataclass
@@ -51,16 +60,27 @@ class FSDPOptimizerConfig(OptimizerConfig):
     Args:
         lr (float): Learning rate.
         min_lr_ratio (Optional[float]): Minimum LR ratio for cosine schedule.
-        warmup_style (str): LR warmup style: "constant" or "cosine".
+        lr_scheduler_type (str): LR scheduler type: "constant" or "cosine".
         num_cycles (float): Number of cosine cycles in LR schedule.
     """
 
+    _mutable_fields = OptimizerConfig._mutable_fields.copy()
+    _mutable_fields.add("lr_scheduler_type")
+
     min_lr_ratio: Optional[float] = None
-    warmup_style: str = "constant"
+    # deprecate warmup_style
+    warmup_style: Optional[str] = None
+    lr_scheduler_type: str = "constant"
     num_cycles: float = 0.5
 
     def __post_init__(self):
-        assert self.warmup_style in ["constant", "cosine"]
+        if self.warmup_style is not None:
+            assert self.warmup_style in ["constant", "cosine"]
+            warnings.warn(
+                "`warmup_style` is deprecated, use `lr_scheduler_type` instead.", DeprecationWarning, stacklevel=2
+            )
+            self.lr_scheduler_type = self.warmup_style
+        assert self.lr_scheduler_type in ["constant", "cosine"]
         return super().__post_init__()
 
 
@@ -83,7 +103,6 @@ class McoreOptimizerConfig(OptimizerConfig):
     """
 
     optimizer: str = "adam"
-    clip_grad: float = 1.0
     lr_warmup_init: float = 0.0
     lr_decay_steps: Optional[int] = None
     lr_decay_style: str = "linear"
@@ -92,3 +111,4 @@ class McoreOptimizerConfig(OptimizerConfig):
     lr_wsd_decay_style: str = "exponential"
     lr_wsd_decay_steps: Optional[int] = None
     use_checkpoint_opt_param_scheduler: bool = False
+    override_optimizer_config: Optional[dict] = None

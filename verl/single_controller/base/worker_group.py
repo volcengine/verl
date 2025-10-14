@@ -142,6 +142,9 @@ class WorkerGroup:
         self._workers = []
         self._worker_names = []
 
+        self._dispatch_info = {}
+        self._collect_info = {}
+
         self._master_addr = None
         self._master_port = None
 

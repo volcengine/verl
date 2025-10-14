@@ -14,8 +14,11 @@
 # limitations under the License.
 
 
+import os
+
 import pytest
 
+from verl.tools.schemas import ToolResponse
 from verl.utils.dataset.vision_utils import process_image
 from verl.utils.tokenizer import hf_processor
 from verl.workers.rollout.schemas import (
@@ -109,7 +112,9 @@ def _test_add_tool_response_messages_image_delta(processor, image_list, descript
         _ = req.get_generation_prompt_ids(processor)
         req.add_assistant_message(processor, content=description_list[idx - 1])
         before_tool_call_len = req.input_ids.shape[-1]
-        req.add_tool_response_messages(processor, [{"image": [img], "text": "Here is the new image you requested: "}])
+        req.add_tool_response_messages(
+            processor, [ToolResponse(image=[img], text="Here is the new image you requested: ")]
+        )
         after_tool_call_len = req.input_ids.shape[-1]
         if prev_generated_len == 0:
             prev_generated_len = after_tool_call_len - before_tool_call_len
@@ -146,10 +151,11 @@ def _test_add_tool_response_messages_image_delta(processor, image_list, descript
 
 
 @pytest.mark.skipif(
-    hf_processor("Qwen/Qwen2.5-VL-3B-Instruct") is None, reason="Processor not available for Qwen/Qwen2.5-VL-B-Instruct"
+    hf_processor(os.path.expanduser("~/models/Qwen/Qwen2.5-VL-3B-Instruct")) is None,
+    reason="Processor not available for Qwen/Qwen2.5-VL-B-Instruct",
 )
 def test_add_tool_response_messages_image_delta():
-    processor = hf_processor("Qwen/Qwen2.5-VL-3B-Instruct")
+    processor = hf_processor(os.path.expanduser("~/models/Qwen/Qwen2.5-VL-3B-Instruct"))
 
     # From Qwen2.5-VL-3B-Instruct HF example
     img_1_url = {"image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg"}
@@ -167,10 +173,11 @@ def test_add_tool_response_messages_image_delta():
 
 
 @pytest.mark.skipif(
-    hf_processor("Qwen/Qwen2.5-VL-3B-Instruct") is None, reason="Processor not available for Qwen/Qwen2.5-VL-B-Instruct"
+    hf_processor(os.path.expanduser("~/models/Qwen/Qwen2.5-VL-3B-Instruct")) is None,
+    reason="Processor not available for Qwen/Qwen2.5-VL-B-Instruct",
 )
 def test_add_tool_response_messages_image_delta_resize_image():
-    processor = hf_processor("Qwen/Qwen2.5-VL-3B-Instruct")
+    processor = hf_processor(os.path.expanduser("~/models/Qwen/Qwen2.5-VL-3B-Instruct"))
 
     # From Qwen2.5-VL-3B-Instruct HF example
     img_1_url = {"image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg"}

@@ -324,7 +324,7 @@ if __name__ == '__main__':
     metadata = {
         "case_index": case_index,
         "input": stdin,
-        "expected_output": str(expected_output),
+        "expected_output": str(expected_output) if expected_output else None,
         "api_request_error": error_msg,
         "api_response": None,
         "status": "unknown",
@@ -424,7 +424,7 @@ if __name__ == '__main__':
             if run_result and metadata["run_status"] == "Finished":
                 actual_output = metadata["stdout"] if metadata["stdout"] is not None else ""
                 # Note: Output might contain trailing newlines, need normalization
-                if str(actual_output).rstrip("\n") == str(expected_output).rstrip("\n"):
+                if expected_output is None or str(actual_output).rstrip("\n") == str(expected_output).rstrip("\n"):
                     result_status = True
                     metadata["status"] = "success"
                 else:
@@ -484,6 +484,7 @@ def check_correctness(
     expected_outputs = in_outs["outputs"]
     fn_name = in_outs.get("fn_name")
     num_cases = len(inputs)
+    assert_cases = in_outs.get("assert_case", [""] * num_cases)  # Default to empty strings if not provided
     results = [None] * num_cases  # Initialize with placeholders
     metadata_list = [None] * num_cases  # Initialize with placeholders
 
@@ -494,6 +495,13 @@ def check_correctness(
     if len(inputs) != len(expected_outputs):
         logger.warning(f"Mismatch between number of inputs ({len(inputs)}) and outputs ({len(expected_outputs)}).")
         # Return error based on the number of inputs provided
+        return [-1] * num_cases, [{"error": "Input/output count mismatch", "case_index": i} for i in range(num_cases)]
+
+    # If assert_cases is provided, it overrides inputs and outputs
+    if len(assert_cases) != num_cases:
+        logger.warning(
+            f"Mismatch between number of assert cases ({len(assert_cases)}) and inputs/outputs ({num_cases})."
+        )
         return [-1] * num_cases, [{"error": "Input/output count mismatch", "case_index": i} for i in range(num_cases)]
 
     first_compile_error_index = -1
@@ -508,7 +516,7 @@ def check_correctness(
                 stdin_data,
                 expected_outputs[i],
                 sandbox_fusion_url,
-                generation,
+                generation + "\n\n" + assert_cases[i],  # Append assert case to generation
                 timeout,
                 memory_limit_mb,
                 language,
@@ -540,7 +548,7 @@ def check_correctness(
                 metadata_list[index] = {
                     "case_index": index,
                     "input": str(inputs[index]),
-                    "expected_output": str(expected_outputs[index]),
+                    "expected_output": str(expected_outputs[index]) if expected_outputs[index] else None,
                     "api_request_error": f"Internal execution error: {exc}",
                     "status": "internal_error",
                 }
@@ -559,7 +567,7 @@ def check_correctness(
                     metadata_list[i] = {
                         "case_index": i,
                         "input": str(inputs[i]),
-                        "expected_output": str(expected_outputs[i]),
+                        "expected_output": str(expected_outputs[i]) if expected_outputs[i] else None,
                         "api_request_error": None,
                         "status": "compile_error_skipped",  # Indicate skipped due to prior compile error
                     }

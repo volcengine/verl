@@ -18,9 +18,9 @@ logger = logging.getLogger(__name__)
 def is_torch_npu_available() -> bool:
     """Check the availability of NPU"""
     try:
-        import torch_npu  # noqa: F401
-
-        return torch.npu.is_available()
+        if hasattr(torch, "npu") and callable(getattr(torch.npu, "is_available", None)):
+            return torch.npu.is_available()
+        return False
     except ImportError:
         return False
 
@@ -84,3 +84,12 @@ def get_nccl_backend() -> str:
         return "hccl"
     else:
         raise RuntimeError(f"No available nccl backend found on device type {get_device_name()}.")
+
+
+def set_expandable_segments(enable: bool) -> None:
+    """Enable or disable expandable segments for cuda.
+    Args:
+        enable (bool): Whether to enable expandable segments. Used to avoid OOM.
+    """
+    if is_cuda_available:
+        torch.cuda.memory._set_allocator_settings(f"expandable_segments:{enable}")

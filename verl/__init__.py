@@ -22,6 +22,7 @@ from packaging.version import parse as parse_version
 
 from .protocol import DataProto
 from .utils.device import is_npu_available
+from .utils.import_utils import import_external_libs
 from .utils.logging_utils import set_basic_config
 
 version_folder = os.path.dirname(os.path.join(os.path.abspath(__file__)))
@@ -34,6 +35,13 @@ set_basic_config(level=logging.WARNING)
 
 
 __all__ = ["DataProto", "__version__"]
+
+
+modules = os.getenv("VERL_USE_EXTERNAL_MODULES", "")
+if modules:
+    modules = modules.split(",")
+    import_external_libs(modules)
+
 
 if os.getenv("VERL_USE_MODELSCOPE", "False").lower() == "true":
     if importlib.util.find_spec("modelscope") is None:
@@ -62,3 +70,31 @@ if is_npu_available:
         raise ImportError(
             f"package {package_name} is not installed, please run pip install {package_name}=={required_version_spec}"
         ) from e
+
+    # In verl, the driver process aggregates the computation results of workers via Ray.
+    # Therefore, after a worker completes its computation job, it will package the output
+    # using tensordict and transfer it to the CPU. Since the `to` operation of tensordict
+    # is non-blocking, when transferring data from a device to the CPU, it is necessary to
+    # ensure that a batch of data has been completely transferred before being used on the
+    # host; otherwise, unexpected precision issues may arise. Tensordict has already noticed
+    # this problem and fixed it. Ref: https://github.com/pytorch/tensordict/issues/725
+    # However, the relevant modifications only cover CUDA and MPS devices and do not take effect
+    # for third-party devices such as NPUs. This patch fixes this issue, and the relevant
+    # modifications can be removed once the fix is merged into tensordict.
+
+    import tensordict
+
+    if parse_version(tensordict.__version__) < parse_version("0.10.0"):
+        from tensordict.base import TensorDictBase
+
+        def _sync_all_patch(self):
+            from torch._utils import _get_available_device_type, _get_device_module
+
+            device_type = _get_available_device_type()
+            if device_type is None:
+                return
+
+            device_module = _get_device_module(device_type)
+            device_module.synchronize()
+
+        TensorDictBase._sync_all = _sync_all_patch

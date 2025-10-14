@@ -22,10 +22,12 @@ from typing import Any, Optional
 import numpy as np
 import pandas as pd
 import torch
+from omegaconf import ListConfig
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer
 
 from verl.utils import hf_tokenizer
+from verl.utils.dataset.dataset_utils import DatasetPadMode
 from verl.utils.fs import copy_local_path_from_hdfs
 
 
@@ -50,16 +52,22 @@ class MultiTurnSFTDataset(Dataset):
     def __init__(self, parquet_files: str | list[str], tokenizer, config=None):
         # Set defaults and extract parameters from config if provided
         config = config or {}
+        self.pad_mode = config.get("pad_mode", "right")
+        assert self.pad_mode in ["right", "no_padding"], (
+            f"Expect pad_mode to be 'right' or 'no_padding'. Got {self.pad_mode}"
+        )
         self.truncation = config.get("truncation", "error")
+        # for right padding
         self.max_length = config.get("max_length", 1024)
         # Get messages_key from the new multiturn config structure
         multiturn_config = config.get("multiturn", {})
         self.messages_key = multiturn_config.get("messages_key", "messages")
         self.tools_key = multiturn_config.get("tools_key", "tools")
         self.enable_thinking_key = multiturn_config.get("enable_thinking_key", "enable_thinking")
+        self.apply_chat_template_kwargs = config.get("apply_chat_template_kwargs", {})
         assert self.truncation in ["error", "left", "right"]
 
-        if not isinstance(parquet_files, list):
+        if not isinstance(parquet_files, list | ListConfig):
             parquet_files = [parquet_files]
 
         self.parquet_files = parquet_files
@@ -135,6 +143,7 @@ class MultiTurnSFTDataset(Dataset):
                 add_generation_prompt=False,
                 enable_thinking=enable_thinking,
                 tools=tools,
+                **self.apply_chat_template_kwargs,
             )
             if is_assistant:
                 prev_applied_text_w_generation_prompt = self.tokenizer.apply_chat_template(
@@ -143,6 +152,7 @@ class MultiTurnSFTDataset(Dataset):
                     add_generation_prompt=True,
                     enable_thinking=enable_thinking,
                     tools=tools,
+                    **self.apply_chat_template_kwargs,
                 )
 
         else:
@@ -154,6 +164,7 @@ class MultiTurnSFTDataset(Dataset):
             add_generation_prompt=False,
             enable_thinking=enable_thinking,
             tools=tools,
+            **self.apply_chat_template_kwargs,
         )
         # Get tokens for the current message only
         if is_assistant:
@@ -238,6 +249,7 @@ class MultiTurnSFTDataset(Dataset):
                 return_tensors="pt",
                 add_generation_prompt=False,
                 enable_thinking=enable_thinking,
+                **self.apply_chat_template_kwargs,
             )
         except Exception as e:
             logging.error(
@@ -259,9 +271,6 @@ class MultiTurnSFTDataset(Dataset):
                 tokens, loss_mask, attention_mask = self._process_message_tokens(
                     messages, i, i + 1, is_assistant=True, enable_thinking=enable_thinking, tools=tools
                 )
-                concat_tokens.extend(tokens)
-                concat_loss_mask.extend(loss_mask)
-                concat_attention_mask.extend(attention_mask)
                 i += 1
             elif cur_messages["role"] == "tool":
                 # Process consecutive tool messages
@@ -272,9 +281,6 @@ class MultiTurnSFTDataset(Dataset):
                 tokens, loss_mask, attention_mask = self._process_message_tokens(
                     messages, st, ed, enable_thinking=enable_thinking, tools=tools
                 )
-                concat_tokens.extend(tokens)
-                concat_loss_mask.extend(loss_mask)
-                concat_attention_mask.extend(attention_mask)
                 i = ed
             elif cur_messages["role"] in ["user", "system"]:
                 # Process user or system message
@@ -283,52 +289,87 @@ class MultiTurnSFTDataset(Dataset):
                 tokens, loss_mask, attention_mask = self._process_message_tokens(
                     messages, i, i + 1, enable_thinking=enable_thinking, tools=tools
                 )
-                concat_tokens.extend(tokens)
-                concat_loss_mask.extend(loss_mask)
-                concat_attention_mask.extend(attention_mask)
                 i += 1
             else:
                 raise ValueError(f"Unknown role: {cur_messages['role']}")
+
+            # override loss mask with mask in the dataset to handle multi-turn conversation
+            override_loss_mask = cur_messages.get("loss_mask", None)
+            if override_loss_mask is not None:
+                if isinstance(override_loss_mask, np.ndarray):
+                    override_loss_mask = override_loss_mask.item()
+                assert isinstance(override_loss_mask, int), f"loss_mask should be int, got {type(override_loss_mask)}"
+                assert override_loss_mask in [0, 1], f"loss_mask should be 0 or 1, got {override_loss_mask}"
+                loss_mask = [override_loss_mask] * len(tokens)
+
+            concat_tokens.extend(tokens)
+            concat_loss_mask.extend(loss_mask)
+            concat_attention_mask.extend(attention_mask)
 
         # Validate and convert tokens
         input_ids, loss_mask, attention_mask = self._validate_and_convert_tokens(
             full_tokens[0], concat_tokens, concat_loss_mask, concat_attention_mask
         )
 
-        # Handle sequence length
+        # encode prompt
+        if messages[0]["role"] == "system":
+            assert messages[1]["role"] == "user"
+            assert messages[2]["role"] == "assistant"
+        elif messages[0]["role"] == "user":
+            assert messages[1]["role"] == "assistant"
+        else:
+            raise ValueError(f"Unknown role: {messages[0]['role']}")
+
         sequence_length = input_ids.shape[0]
-        if sequence_length < self.max_length:
-            # Pad sequences
-            pad_token_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else 0
-            padded_input_ids = torch.full((self.max_length - sequence_length,), pad_token_id, dtype=input_ids.dtype)
-            padded_attention_mask = torch.zeros((self.max_length - sequence_length,), dtype=attention_mask.dtype)
-            padded_loss_mask = torch.zeros((self.max_length - sequence_length,), dtype=loss_mask.dtype)
+        # Handle sequence length
+        if self.pad_mode == DatasetPadMode.RIGHT:
+            if sequence_length < self.max_length:
+                # Pad sequences
+                pad_token_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else 0
+                padded_input_ids = torch.full((self.max_length - sequence_length,), pad_token_id, dtype=input_ids.dtype)
+                padded_attention_mask = torch.zeros((self.max_length - sequence_length,), dtype=attention_mask.dtype)
+                padded_loss_mask = torch.zeros((self.max_length - sequence_length,), dtype=loss_mask.dtype)
 
-            input_ids = torch.cat((input_ids, padded_input_ids))
-            attention_mask = torch.cat((attention_mask, padded_attention_mask))
-            loss_mask = torch.cat((loss_mask, padded_loss_mask))
-        elif sequence_length > self.max_length:
-            if self.truncation == "left":
-                input_ids = input_ids[-self.max_length :]
-                attention_mask = attention_mask[-self.max_length :]
-                loss_mask = loss_mask[-self.max_length :]
-            elif self.truncation == "right":
+                input_ids = torch.cat((input_ids, padded_input_ids))
+                attention_mask = torch.cat((attention_mask, padded_attention_mask))
+                loss_mask = torch.cat((loss_mask, padded_loss_mask))
+            elif sequence_length > self.max_length:
+                if self.truncation == "left":
+                    input_ids = input_ids[-self.max_length :]
+                    attention_mask = attention_mask[-self.max_length :]
+                    loss_mask = loss_mask[-self.max_length :]
+                elif self.truncation == "right":
+                    input_ids = input_ids[: self.max_length]
+                    attention_mask = attention_mask[: self.max_length]
+                    loss_mask = loss_mask[: self.max_length]
+                elif self.truncation == "error":
+                    raise ValueError(f"{sequence_length=} is larger than {self.max_length=}")
+                else:
+                    raise ValueError(f"Unknown truncation method {self.truncation}")
+
+            # Create position IDs
+            position_ids = torch.arange(len(input_ids), dtype=torch.long)
+            # Zero out position IDs for padding
+            position_ids = position_ids * attention_mask
+
+            return {
+                "input_ids": input_ids,
+                "attention_mask": attention_mask,
+                "position_ids": position_ids,
+                "loss_mask": loss_mask,
+            }
+        elif self.pad_mode == DatasetPadMode.NO_PADDING:
+            # truncate input_ids if it is longer than max_length
+            if len(input_ids) > self.max_length:
                 input_ids = input_ids[: self.max_length]
-                attention_mask = attention_mask[: self.max_length]
                 loss_mask = loss_mask[: self.max_length]
-            elif self.truncation == "error":
-                raise ValueError(f"{sequence_length=} is larger than {self.max_length=}")
-            else:
-                raise ValueError(f"Unknown truncation method {self.truncation}")
-
-        # Create position IDs
-        position_ids = torch.arange(len(input_ids), dtype=torch.long)
-        # Zero out position IDs for padding
-        position_ids = position_ids * attention_mask
-
-        return {
-            "input_ids": input_ids,
-            "attention_mask": attention_mask,
-            "position_ids": position_ids,
-            "loss_mask": loss_mask,
-        }
+            # create position IDs
+            position_ids = torch.arange(len(input_ids), dtype=torch.long)
+            # return nested tensor with out padding
+            return {
+                "input_ids": input_ids,
+                "position_ids": position_ids,
+                "loss_mask": loss_mask,
+            }
+        else:
+            raise ValueError(f"Unknown pad mode {self.pad_mode}")

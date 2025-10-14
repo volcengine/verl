@@ -118,6 +118,13 @@ Actor/Rollout/Reference Policy
       clip_ratio: 0.2
       entropy_coeff: 0.0
       use_kl_loss: False # True for GRPO
+      # Rollout Importance Sampling (corrects distribution mismatch between rollout and training)
+      rollout_is: False # Enable IS correction
+      rollout_is_threshold: null # Upper threshold for IS weights (null to disable)
+      rollout_is_threshold_lower: null # Lower threshold (null = auto 1/upper)
+      rollout_is_level: token # Aggregation: token/sequence/geometric
+      rollout_is_mode: truncate # Bounding: truncate/mask
+      rollout_is_veto_threshold: 1e-4 # Catastrophic outlier threshold
       use_torch_compile: True # False to disable torch compile
       kl_loss_coef: 0.001 # for grpo
       kl_loss_type: low_var_kl # for grpo
@@ -131,7 +138,7 @@ Actor/Rollout/Reference Policy
         lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
         min_lr_ratio: 0.0   # only used with cosine lr scheduler, default to 0.0
         num_cycles: 0.5     # only used with cosine lr scheduler, default to 0.5
-        warmup_style: constant  # select from constant/cosine
+        lr_scheduler_type: constant  # select from constant/cosine
         total_training_steps: -1  # must be override by program
       fsdp_config:
         wrap_policy:
@@ -180,14 +187,12 @@ Actor/Rollout/Reference Policy
       log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
       # for hf rollout
       do_sample: True
-      engine_kwargs: # inference engine parameters
-        vllm:
-          swap_space: null # null means "use the engine default value" (usually 4 GB), setting it to, e.g., 32 means 32 GB
-          disable_mm_preprocessor_cache: False # disable preprocessor cache for multimodel models
-        sglang:
-          attention_backend: null # null means use the engine default value, available options: flashinfer, triton, flashmla
+      engine_kwargs: # inference engine parameters, please refer vllm/sglang official doc for detail
+        vllm: {}
+        sglang: {}
 
       n: 1 # for each prompt, sample n responses (i.e. num sample times). set it to values > 1 for grpo, rloo
+      calculate_log_probs: False # set to True for computing log probs via rollouts
       val_kwargs:
         # sampling parameters for validation
         top_k: -1 # 0 for hf rollout, -1 for vllm rollout
@@ -289,7 +294,7 @@ Actor/Rollout/Reference Policy
 
 - ``actor_rollout_ref.actor.kl_loss_coef``: The coefficient of kl loss. Default is 0.001. 
 
-- ``actor_rollout_ref.actor.kl_loss_type``: Support ``kl`` (``k1``), ``abs``, ``mse`` (``k2``), ``low_var_kl`` (``k3``) and ``full``. How to calculate the kl divergence between actor and reference policy. For specific options, refer to `kl_penalty()` in `core_algos.py <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/core_algos.py>`_ . See this blog post for detailed analysis: http://joschu.net/blog/kl-approx.html
+- ``actor_rollout_ref.actor.kl_loss_type``: Support ``kl`` (``k1``), ``abs``, ``mse`` (``k2``), ``low_var_kl`` (``k3``) and ``full``. Appending ``+`` in the end (e.g., ``k1+`` and ``k3+``) would use straight-through to employ ``k2`` for unbiased gradient estimation, regardless of the kl value estimation (see https://github.com/volcengine/verl/pull/2953#issuecomment-3162113848 for more details). How to calculate the kl divergence between actor and reference policy. For specific options, refer to `kl_penalty()` in `core_algos.py <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/core_algos.py>`_ . See this blog post for detailed analysis: http://joschu.net/blog/kl-approx.html
 
 - ``actor_rollout_ref.actor.checkpoint``: The configurations of checkpoint function in actor
 
@@ -353,19 +358,9 @@ Reference model will be enabled when ``actor.use_kl_loss`` or/and ``algorithm.us
     deterministic outputs. When set to True, the rollout will use the ``actor_rollout_ref.rollout.val_kwargs`` parameters
     (top_k, top_p, temperature) to control the sampling behavior.
 
-- ``actor_rollout_ref.rollout.engine_kwargs.vllm``: extra vllm engine args
+- ``actor_rollout_ref.rollout.engine_kwargs.vllm``: extra vllm engine args, please refer vllm official doc for detail
 
-  - ``swap_space``: swap space in GB used by the inference engine. Positive integer, e.g., ``32`` means 32 GB. ``null``: means not setting and using the engine default value (usually, e.g., 4 GB for vLLM)
-  - ``disable_mm_preprocessor_cache``: Whether to disable preprocessor cache for multimodel models. 
-
-- ``actor_rollout_ref.rollout.engine_kwargs.sglang``: extra sglang engine args
-
-  - ``attention_backend``: The attention backend to use for the inference engine.
-
-    - ``null``: means not setting and using the engine default value (usually, e.g., ``fa3`` for SGLang)
-    - ``flashinfer``: Use flashinfer attention backend.
-    - ``triton``: Use triton attention backend.
-    - ``flashmla``: Use flashmla attention backend.
+- ``actor_rollout_ref.rollout.engine_kwargs.sglang``: extra sglang engine args, please refer sglang official doc for detail
 
 - ``actor_rollout_ref.rollout.ignore_eos``: Whether to ignore the EOS
   token and continue generating tokens after the EOS token is generated.
@@ -426,7 +421,7 @@ ____________________________________________________
 
 Notice that there are some differences in APIs between Megatron optimizer and FSDP optimizer.
 
-- Megatron optimizer scheduler names the period after lr_warmup as lr_decay_steps, so the ``warmup_style`` actually means the style of lr decay after warmup.
+- Megatron optimizer scheduler names the period after lr_warmup as lr_decay_steps, so the ``lr_scheduler_type`` actually means the style of lr decay after warmup.
 - Megatron optimizer also support weight decay decay mechanism
 - ``use_checkpoint_opt_param_scheduler`` determines whether to use the checkpoint optimizer parameter scheduler. If set to True, the optimizer parameter scheduler will be saved in the checkpoint and loaded from the checkpoint during resuming training.
 
@@ -509,10 +504,17 @@ Algorithm
        kl_coef: 0.005
        horizon: 10000
        target_kl: 0.1
+     # Rollout Importance Sampling
+     rollout_is: False
+     rollout_is_threshold: null
+     rollout_is_threshold_lower: null
+     rollout_is_level: token
+     rollout_is_mode: truncate
+     rollout_is_veto_threshold: 1e-4
 
 - ``gamma``: discount factor
 - ``lam``: Trade-off between bias and variance in the GAE estimator
-- ``adv_estimator``: Support ``gae``, ``grpo``, ``reinforce_plus_plus``, ``reinforce_plus_plus_baseline``, ``rloo``
+- ``adv_estimator``: Support ``gae``, ``grpo``, ``reinforce_plus_plus``, ``reinforce_plus_plus_baseline``, ``rloo``, ``rloo_vectorized``, ``grpo_vectorized``
 - ``use_kl_in_reward``: Whether to enable in-reward kl penalty. Default is False.
 - ``kl_penalty``: Support ``kl``, ``abs``, ``mse``, ``low_var_kl`` and ``full``. How to
   calculate the kl divergence between actor and reference policy. For
@@ -521,6 +523,13 @@ Algorithm
   - ``kl_coef``: The (initial) coefficient of in-reward kl_penalty. Default is 0.001.
   - ``type``: 'fixed' for FixedKLController and 'adaptive' for AdaptiveKLController.
   - ``horizon`` and ``target_kl``: See source code of AdaptiveKLController for details.
+- ``rollout_is``: Whether to enable rollout importance sampling correction. Default is False.
+- ``rollout_is_threshold``: Upper threshold for IS weights. Set to ``null`` to disable IS completely.
+- ``rollout_is_threshold_lower``: Lower threshold for IS weights. If ``null``, defaults to reciprocal of upper (1/upper).
+- ``rollout_is_level``: Aggregation level: ``token`` (biased), ``sequence`` (unbiased), or ``geometric`` (experimental).
+- ``rollout_is_mode``: Bounding mode: ``truncate`` (cap upper only) or ``mask`` (zero outside bounds).
+- ``rollout_is_veto_threshold``: Per-token veto threshold for catastrophic outliers. Default is 1e-4.
+  Note: Rollout IS requires setting ``actor_rollout_ref.rollout.calculate_log_probs=True``.
 
 Trainer
 ~~~~~~~
@@ -550,7 +559,7 @@ Trainer
 - ``trainer.total_epochs``: Number of epochs in training.
 - ``trainer.project_name``: For wandb, swanlab, mlflow
 - ``trainer.experiment_name``: For wandb, swanlab, mlflow
-- ``trainer.logger``: Support console and wandb, swanlab, mlflow, tensorboard
+- ``trainer.logger``: Support console and wandb, swanlab, mlflow, tensorboard, trackio
 - ``trainer.log_val_generations``: The number of logged generation during validation (default ``0``)
 - ``trainer.nnodes``: Number of nodes used in the training.
 - ``trainer.n_gpus_per_node``: Number of GPUs per node.

@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 set -xeuo pipefail
 
-NUM_GPUS=${NUM_GPUS:-8}
+NUM_GPUS=${NUM_GPUS:-16}
 
 MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B-Instruct}
 MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
-huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
 
 adv_estimator=grpo
 
@@ -84,14 +83,17 @@ python3 -m recipe.dapo.main_dapo \
     actor_rollout_ref.ref.entropy_checkpointing=True \
     actor_rollout_ref.actor.entropy_from_logits_with_chunking=True \
     actor_rollout_ref.ref.entropy_from_logits_with_chunking=True \
+    actor_rollout_ref.actor.use_torch_compile=False \
+    actor_rollout_ref.ref.use_torch_compile=False \
     trainer.logger=console \
     trainer.project_name='verl-test' \
     trainer.experiment_name="${exp_name}" \
     trainer.n_gpus_per_node=${NUM_GPUS} \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
-    trainer.total_epochs=2 \
+    trainer.test_freq=-1 \
+    trainer.total_epochs=1 \
     trainer.resume_mode=disable \
     trainer.val_before_train=False \
-    trainer.total_training_steps=1 \
+    trainer.total_training_steps=2 \
     trainer.device=npu $@

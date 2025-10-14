@@ -80,7 +80,7 @@ class TestGsm8kInteraction:
         # Setup instance
         await self.interaction.start_interaction(instance_id=instance_id, ground_truth=ground_truth)
 
-        messages = [{"role": "user", "content": "#### 42"}]
+        messages = [{"role": "assistant", "content": "#### 42"}]
 
         with patch("verl.utils.reward_score.gsm8k.compute_score", return_value=1.0):
             should_terminate, response, reward, metadata = await self.interaction.generate_response(
@@ -102,7 +102,7 @@ class TestGsm8kInteraction:
         # Setup instance
         await self.interaction.start_interaction(instance_id=instance_id, ground_truth=ground_truth)
 
-        messages = [{"role": "user", "content": "42"}]
+        messages = [{"role": "assistant", "content": "42"}]
 
         with patch("verl.utils.reward_score.gsm8k.compute_score", return_value=1.0):
             should_terminate, response, reward, metadata = await self.interaction.generate_response(
@@ -123,7 +123,7 @@ class TestGsm8kInteraction:
         # Setup instance
         await self.interaction.start_interaction(instance_id=instance_id, ground_truth=ground_truth)
 
-        messages = [{"role": "user", "content": "24"}]
+        messages = [{"role": "assistant", "content": "24"}]
 
         with patch("verl.utils.reward_score.gsm8k.compute_score", return_value=0.0):
             should_terminate, response, reward, metadata = await self.interaction.generate_response(
@@ -137,7 +137,7 @@ class TestGsm8kInteraction:
 
     @pytest.mark.asyncio
     async def test_generate_response_multiple_messages(self):
-        """Test generate_response with multiple messages (should use last user message)."""
+        """Test generate_response with multiple messages (should use last assistant message)."""
         instance_id = "test_instance"
         ground_truth = "42"
 
@@ -146,8 +146,9 @@ class TestGsm8kInteraction:
 
         messages = [
             {"role": "user", "content": "What is 2+2?"},
-            {"role": "assistant", "content": "Let me think about this..."},
-            {"role": "user", "content": "#### 42"},
+            {"role": "assistant", "content": "### 4"},
+            {"role": "user", "content": "What is 40+2?"},
+            {"role": "assistant", "content": "#### 42"},
         ]
 
         with patch("verl.utils.reward_score.gsm8k.compute_score", return_value=1.0):
@@ -160,15 +161,15 @@ class TestGsm8kInteraction:
         assert self.interaction._instance_dict[instance_id]["response"] == "#### 42"
 
     @pytest.mark.asyncio
-    async def test_generate_response_no_user_message(self):
-        """Test generate_response with no user messages."""
+    async def test_generate_response_no_assistant_message(self):
+        """Test generate_response with no assistant messages."""
         instance_id = "test_instance"
         ground_truth = "42"
 
         # Setup instance
         await self.interaction.start_interaction(instance_id=instance_id, ground_truth=ground_truth)
 
-        messages = [{"role": "assistant", "content": "Hello!"}]
+        messages = [{"role": "user", "content": "Hello!"}]
 
         with patch("verl.utils.reward_score.gsm8k.compute_score", return_value=0.0):
             should_terminate, response, reward, metadata = await self.interaction.generate_response(
@@ -262,7 +263,7 @@ class TestGsm8kInteraction:
         instance_id = await self.interaction.start_interaction(ground_truth=ground_truth)
 
         # Generate response with correct answer
-        messages = [{"role": "user", "content": "42"}]
+        messages = [{"role": "assistant", "content": "42"}]
 
         with patch("verl.utils.reward_score.gsm8k.compute_score", return_value=1.0):
             should_terminate, response, reward, metadata = await self.interaction.generate_response(
@@ -285,7 +286,7 @@ class TestGsm8kInteraction:
         instance_id = await self.interaction.start_interaction(ground_truth=ground_truth)
 
         # Generate response with incorrect answer
-        messages = [{"role": "user", "content": "24"}]
+        messages = [{"role": "assistant", "content": "24"}]
 
         with patch("verl.utils.reward_score.gsm8k.compute_score", return_value=0.0):
             should_terminate, response, reward, metadata = await self.interaction.generate_response(
@@ -296,8 +297,8 @@ class TestGsm8kInteraction:
         assert reward == 0.0
 
         # Continue with another attempt
-        messages.append({"role": "assistant", "content": response})
-        messages.append({"role": "user", "content": "42"})
+        messages.append({"role": "user", "content": response})
+        messages.append({"role": "assistant", "content": "42"})
 
         with patch("verl.utils.reward_score.gsm8k.compute_score", return_value=1.0):
             should_terminate, response, reward, metadata = await self.interaction.generate_response(
@@ -326,8 +327,8 @@ class TestGsm8kInteraction:
         assert instance_id_2 in self.interaction._instance_dict
 
         # Test responses for both instances
-        messages_1 = [{"role": "user", "content": "42"}]
-        messages_2 = [{"role": "user", "content": "24"}]
+        messages_1 = [{"role": "assistant", "content": "42"}]
+        messages_2 = [{"role": "assistant", "content": "24"}]
 
         with patch("verl.utils.reward_score.gsm8k.compute_score", side_effect=[1.0, 1.0]):
             should_terminate_1, _, reward_1, _ = await self.interaction.generate_response(instance_id_1, messages_1)
@@ -374,7 +375,7 @@ class TestGsm8kInteraction:
         await self.interaction.start_interaction(instance_id=instance_id, ground_truth=ground_truth)
 
         messages = [
-            {"role": "user"}  # Missing content field
+            {"role": "assistant"}  # Missing content field
         ]
 
         with patch("verl.utils.reward_score.gsm8k.compute_score", return_value=0.0):

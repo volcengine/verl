@@ -12,6 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from .base import BaseEngine, EngineRegistry
-from .fsdp import FSDPEngine
+from .fsdp import FSDPEngine, FSDPEngineWithLMHead
 
-__all__ = ["BaseEngine", "EngineRegistry", "FSDPEngine"]
+__all__ = ["BaseEngine", "EngineRegistry", "FSDPEngine", "FSDPEngineWithLMHead"]
+
+# Mindspeed must be imported before Megatron to ensure the related monkey patches take effect as expected
+try:
+    from .mindspeed import MindspeedEngineWithLMHead
+
+    __all__ += ["MindspeedEngineWithLMHead"]
+except ImportError:
+    MindspeedEngineWithLMHead = None
+
+try:
+    from .megatron import MegatronEngine, MegatronEngineWithLMHead
+
+    __all__ += ["MegatronEngine", "MegatronEngineWithLMHead"]
+except ImportError:
+    MegatronEngine = None
+    MegatronEngineWithLMHead = None

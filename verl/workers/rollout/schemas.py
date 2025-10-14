@@ -22,7 +22,7 @@ import torch
 from pydantic import BaseModel, ConfigDict, model_validator
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin
 
-from verl.tools.schemas import OpenAIFunctionToolCall, OpenAIFunctionToolSchema
+from verl.tools.schemas import OpenAIFunctionToolCall, OpenAIFunctionToolSchema, ToolResponse
 from verl.utils.model import compute_position_id_with_mask
 
 logger = logging.getLogger(__file__)
@@ -55,7 +55,7 @@ class FinishReasonTypeEnum(str, Enum):
 
 class Message(BaseModel):
     role: str
-    content: str | dict[str, Any] | list[dict[str, Any]]
+    content: str | dict[str, Any] | list[dict[str, Any]] | ToolResponse
     tool_calls: Optional[list[OpenAIFunctionToolCall]] = None
 
 
@@ -111,6 +111,8 @@ class AsyncRolloutRequest(BaseModel):
     max_response_len: int = 8192
     max_model_len: int = 32768
     metrics: dict[str, list[Any]] = {}
+    output_token_ids: torch.Tensor | None = None
+    rollout_log_probs: torch.Tensor | None = None
 
     use_inference_chat_template: bool
     tokenization_sanity_check_mode: TokenizationSanityCheckModeEnum
@@ -178,6 +180,9 @@ class AsyncRolloutRequest(BaseModel):
             if values["input_ids"].shape[-1] > max_prompt_len:
                 # Only log the warning to avoid truncating in the middle of generation prompt. Consider raising an
                 # error for this case in the future.
+                # Ensure batch_data_id exists with default value if not provided
+                if "batch_data_id" not in values:
+                    values["batch_data_id"] = cls.model_fields["batch_data_id"].default
                 logger.warning(
                     f"Prompt {values['batch_data_id']} has length {values['input_ids'].shape[-1]} "
                     f"which is greater than max_prompt_len {max_prompt_len} after applied chat template with tools."
@@ -391,65 +396,46 @@ class AsyncRolloutRequest(BaseModel):
         self,
         processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
         content: str,
+        content_ids: Optional[torch.Tensor] = None,
         tool_calls: Optional[list[OpenAIFunctionToolCall]] = None,
     ) -> None:
         self.messages.append(Message(role="assistant", content=content, tool_calls=tool_calls))
+        if content_ids is None:
+            messages = [*BASE_CHAT_HISTORY, self.messages[-1]]
+            tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
 
-        messages = [*BASE_CHAT_HISTORY, self.messages[-1]]
-        tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
-
-        # We don't need to pass multi_modal_data here because we don't have any multi-modal data from Engine
-        # Inference, it is pure text.
-        content_ids = self._handle_apply_chat_template(
-            processing_class, messages, multi_modal_data={}, tools=tools, add_generation_prompt=False, tokenize=True
-        )[..., self.base_conv_with_gen_prompt_end_pos :]
+            # We don't need to pass multi_modal_data here because we don't have any multi-modal data from Engine
+            # Inference, it is pure text.
+            content_ids = self._handle_apply_chat_template(
+                processing_class, messages, multi_modal_data={}, tools=tools, add_generation_prompt=False, tokenize=True
+            )[..., self.base_conv_with_gen_prompt_end_pos :]
         self._update_input_ids(processing_class, content_ids, attention_mask=True, loss_mask=True)
 
     def add_tool_response_messages(
         self,
         processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
-        contents: list[str | dict[str, Any]],
+        contents: list[ToolResponse],
     ) -> None:
-        if not contents:
+        if not contents or all(content.is_empty() for content in contents):
             return
         # We also handle the case when tool returns image
         # We require the processing of the image and video to be done at tool.execute() level
         delta_multi_modal_data = {key: [] for key in self.multi_modal_keys}
         for content in contents:
-            if isinstance(content, dict):
+            if content.is_text_only():
+                self.messages.append(Message(role="tool", content=content.text))
+            else:
                 content_list = []
                 # When we update multi_model_keys, we also need to update this logic
-                if "image" in content:
-                    if not isinstance(content["image"], list):
-                        raise ValueError(
-                            f"Image must be a list, but got {type(content['image'])}. Please check the tool.execute(). "
-                            f"For single images, wrap in a list: [image]. "
-                            f"Example: {{'image': [img1]}} or {{'image': [img1, img2, ...]}}."
-                        )
-
-                    content_list.extend([{"type": "image"} for _ in content["image"]])
-                    delta_multi_modal_data["image"].extend(content["image"])
-                if "video" in content:
-                    if not isinstance(content["video"], list):
-                        raise ValueError(
-                            f"Video must be a list, but got {type(content['video'])}. Please check the tool.execute(). "
-                            f"For single videos, wrap in a list: [video]. "
-                            f"Example: {{'video': [video1]}} or {{'video': [video1, video2, ...]}}."
-                        )
-
-                    content_list.extend([{"type": "video"} for _ in content["video"]])
-                    delta_multi_modal_data["video"].extend(content["video"])
-                if "text" in content:
-                    content_list.append({"type": "text", "text": content["text"]})
-                for key in content:
-                    if key not in ["image", "video", "text"]:
-                        logger.warning(
-                            f"Tool response message contains unexpected key: {key} "
-                            f"while we only support `image`, `video`, and `text`."
-                        )
+                if content.image:
+                    content_list.extend([{"type": "image"} for _ in content.image])
+                    delta_multi_modal_data["image"].extend(content.image)
+                if content.video:
+                    content_list.extend([{"type": "video"} for _ in content.video])
+                    delta_multi_modal_data["video"].extend(content.video)
+                if content.text:
+                    content_list.append({"type": "text", "text": content.text})
                 self.messages.append(Message(role="tool", content=content_list))
-            else:
-                self.messages.append(Message(role="tool", content=content))
 
         messages = [*BASE_CHAT_HISTORY, *self.messages[-len(contents) :]]
         tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
@@ -474,6 +460,11 @@ class AsyncRolloutRequest(BaseModel):
         multi_modal_inputs = content_info.copy()
         multi_modal_inputs.pop("input_ids", None)
         multi_modal_inputs.pop("attention_mask", None)
+
+        # chat templates include generation prompt tokens (e.g., "<im_start>assistant\n")
+        # So when tool response is added, we need to explicitly remove these tokens.
+        self._remove_generation_prompt_ids_if_present()
+
         self._update_input_ids(
             processing_class,
             content_ids,
@@ -547,6 +538,16 @@ class AsyncRolloutRequest(BaseModel):
             )
         return diffs
 
+    def _remove_generation_prompt_ids_if_present(self) -> None:
+        """
+        Remove generation prompt IDs from input tensors if they are present at the end.
+        """
+        if self.input_ids[..., -self.generation_prompt_ids.shape[-1] :].eq(self.generation_prompt_ids).all():
+            self.input_ids = self.input_ids[..., : -self.generation_prompt_ids.shape[-1]]
+            self.attention_mask = self.attention_mask[..., : -self.generation_prompt_ids.shape[-1]]
+            self.position_ids = self.position_ids[..., : -self.generation_prompt_ids.shape[-1]]
+            self.loss_mask = self.loss_mask[..., : -self.generation_prompt_ids.shape[-1]]
+
     def finalize(
         self,
         processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
@@ -558,11 +559,7 @@ class AsyncRolloutRequest(BaseModel):
 
         # In case we failed to generate the assistant message and the generation prompt ids were already added to
         # input_ids, remove them from the end of input_ids
-        if self.input_ids[..., -self.generation_prompt_ids.shape[-1] :].eq(self.generation_prompt_ids).all():
-            self.input_ids = self.input_ids[..., : -self.generation_prompt_ids.shape[-1]]
-            self.attention_mask = self.attention_mask[..., : -self.generation_prompt_ids.shape[-1]]
-            self.position_ids = self.position_ids[..., : -self.generation_prompt_ids.shape[-1]]
-            self.loss_mask = self.loss_mask[..., : -self.generation_prompt_ids.shape[-1]]
+        self._remove_generation_prompt_ids_if_present()
 
         self.response_ids = self.input_ids[..., self.prompt_ids.shape[-1] :]
 

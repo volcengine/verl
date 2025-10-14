@@ -13,15 +13,17 @@
 # limitations under the License.
 
 from collections import defaultdict
+from typing import Any
 
 import torch
 
 from verl import DataProto
 from verl.workers.reward_manager import register
+from verl.workers.reward_manager.abstract import AbstractRewardManager, RawRewardFn
 
 
 @register("batch")
-class BatchRewardManager:
+class BatchRewardManager(AbstractRewardManager):
     """
     A batch reward manager that computes rewards for a batch of data.
 
@@ -33,7 +35,9 @@ class BatchRewardManager:
         reward_kwargs (dict): The keyword arguments to pass to the reward function.
     """
 
-    def __init__(self, tokenizer, num_examine, compute_score, reward_fn_key="data_source", **reward_kwargs):
+    def __init__(
+        self, tokenizer, num_examine, compute_score: RawRewardFn, reward_fn_key="data_source", **reward_kwargs
+    ):
         self.tokenizer = tokenizer
         self.num_examine = num_examine
         self.compute_score = compute_score
@@ -57,7 +61,11 @@ class BatchRewardManager:
 
         ground_truths = [item.non_tensor_batch["reward_model"].get("ground_truth", None) for item in data]
         data_sources = data.non_tensor_batch[self.reward_fn_key]
-        extras = data.non_tensor_batch.get("extra_info", [None] * len(data))
+        rollout_reward_scores = data.non_tensor_batch.get("reward_scores", [{} for _ in range(len(data))])
+        extras = data.non_tensor_batch.get("extra_info", [{} for _ in range(len(data))])
+
+        for i in range(len(data)):
+            extras[i]["rollout_reward_scores"] = rollout_reward_scores[i]
 
         scores = self.compute_score(
             data_sources=data_sources,
@@ -69,11 +77,13 @@ class BatchRewardManager:
 
         return scores
 
-    def __call__(self, data: DataProto, return_dict=False):
+    def __call__(self, data: DataProto, return_dict: bool = False) -> torch.Tensor | dict[str, Any]:
         # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
         if "rm_scores" in data.batch.keys():
             if return_dict:
-                return {"reward_tensor": data.batch["rm_scores"]}
+                reward_extra_keys = data.meta_info.get("reward_extra_keys", [])
+                reward_extra_info = {key: data.non_tensor_batch[key] for key in reward_extra_keys}
+                return {"reward_tensor": data.batch["rm_scores"], "reward_extra_info": reward_extra_info}
             else:
                 return data.batch["rm_scores"]
 
@@ -87,7 +97,7 @@ class BatchRewardManager:
 
         scores = self.verify(data)
         rewards = []
-        already_printed = {}
+        already_printed: dict[str, Any] = {}
 
         for i in range(len(data)):
             length = valid_response_lengths[i].item()
