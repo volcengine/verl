@@ -2,7 +2,7 @@
 set -xeuo pipefail
 
 project_name='FlowRL'
-exp_name='FlowRL-vanilla-Qwen2.5-7B-1010'
+exp_name='FlowRL-vanilla-Qwen2.5-7B-1014'
 
 # Algorithm settings
 adv_estimator=grpo
@@ -148,7 +148,7 @@ python3 -m recipe.flowrl.main_flowrl \
     trainer.nnodes="${NNODES}" \
     trainer.val_before_train=True \
     trainer.test_freq=10 \
-    trainer.save_freq=50 \
+    trainer.save_freq=-1 \
     trainer.total_epochs=1 \
     trainer.default_local_dir="${CKPTS_DIR}" \
     trainer.resume_mode=auto
