@@ -725,13 +725,13 @@ class AgentLoopWorker:
             meta_info={"metrics": metrics, "reward_extra_keys": reward_extra_keys},
         )
 
-    def _create_transferqueue_client(self, controller_infos, storage_infos):
+    def create_transferqueue_client(self, controller_infos, storage_infos, role):
         from verl.single_controller.ray.base import get_random_string
         from verl.utils.transferqueue_utils import create_transferqueue_client
 
         client_name = get_random_string(length=6)
         create_transferqueue_client(
-            client_id=f"worker_{client_name}",
+            client_id=f"{role}_worker_{client_name}",
             controller_infos=controller_infos,
             storage_infos=storage_infos,
         )

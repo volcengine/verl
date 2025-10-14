@@ -748,24 +748,47 @@ class RayPPOTrainer:
             ground_truths = [item.get("ground_truth", None) for item in data.get("reward_model", {})]
             sample_gts.extend(ground_truths)
 
-            test_gen_meta = asyncio.run(
-                self.val_data_system_client.async_get_meta(
-                    data_fields=[
-                        "input_ids",
-                        "attention_mask",
-                        "position_ids",
-                        "index",
-                        "tools_kwargs",
-                        "interaction_kwargs",
-                        "ability",
-                        "raw_prompt_ids",
-                    ],
-                    batch_size=self.val_batch_size * self.config.actor_rollout_ref.rollout.val_kwargs.n,
-                    global_step=self.global_steps - 1,  # self.global_steps start from 1
-                    get_n_samples=False,
-                    task_name="generate_sequences",
+            if not self.async_rollout_mode:
+                test_gen_meta = asyncio.run(
+                    self.val_data_system_client.async_get_meta(
+                        data_fields=[
+                            "input_ids",
+                            "attention_mask",
+                            "position_ids",
+                            "index",
+                            "tools_kwargs",
+                            "interaction_kwargs",
+                            "ability",
+                            "raw_prompt_ids",
+                        ],
+                        batch_size=self.val_batch_size * self.config.actor_rollout_ref.rollout.val_kwargs.n,
+                        global_step=self.global_steps - 1,  # self.global_steps start from 1
+                        get_n_samples=False,
+                        task_name="generate_sequences",
+                    )
                 )
-            )
+            else:
+                test_gen_meta = asyncio.run(
+                    self.val_data_system_client.async_get_meta(
+                        data_fields=[
+                            "input_ids",
+                            "attention_mask",
+                            "position_ids",
+                            "index",
+                            "tools_kwargs",
+                            "interaction_kwargs",
+                            "ability",
+                            "raw_prompt_ids",
+                            "raw_prompt",
+                            "reward_model",
+                            "data_source",
+                        ],
+                        batch_size=self.val_batch_size * self.config.actor_rollout_ref.rollout.val_kwargs.n,
+                        global_step=self.global_steps - 1,  # self.global_steps start from 1
+                        get_n_samples=False,
+                        task_name="async_generate_sequences",
+                    )
+                )
 
             test_gen_meta.extra_info = {
                 "eos_token_id": self.tokenizer.eos_token_id,
@@ -1028,8 +1051,12 @@ class RayPPOTrainer:
             self.async_rollout_manager = AgentLoopManager(
                 config=self.config, worker_group=self.actor_rollout_wg, rm_wg=self.rm_wg
             )
+
             self.async_rollout_manager.create_transferqueue_client(
-                self.data_system_controller_infos, self.data_system_storage_unit_infos
+                self.data_system_controller_infos, self.data_system_storage_unit_infos, role="train"
+            )
+            self.async_rollout_manager.create_transferqueue_client(
+                self.val_data_system_controller_infos, self.val_data_system_storage_unit_infos, role="val"
             )
 
     def _save_checkpoint(self):
