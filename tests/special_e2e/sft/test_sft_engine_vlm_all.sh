@@ -46,6 +46,6 @@ echo "run with tp2 pp2 vpp2 cp1 num_gpus8"
 # BACKEND=megatron TP_SIZE=2 PP_SIZE=2 VPP_SIZE=2 CP_SIZE=1 NUM_GPUS=8 bash ${FILE_PATH}
 
 
-python3 tests/special_e2e/sft/compare_sft_engine_results.py verl_vlm_sft_test
+python3 tests/special_e2e/sft/compare_sft_engine_results.py --sub_dir verl_vlm_sft_test
 
 # rm -rf ~/verl/test/log

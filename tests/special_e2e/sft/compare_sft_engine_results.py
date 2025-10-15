@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
 import json
 import os
-import sys
 
 import torch
 
@@ -40,7 +40,21 @@ def compare_results(golden_results, other_result):
     torch.testing.assert_close(golden_grad_norm, grad_norm, atol=1e-4, rtol=1e-2)
 
 
-def main(sub_dir):
+def show_results(golden_results, other_results):
+    print(f"{'File':<30} {'Loss':<15} {'Grad Norm':<15}")
+    print("=" * 60)
+
+    golden_loss = golden_results[0]["data"]["train/loss"]
+    golden_grad_norm = golden_results[0]["data"]["train/grad_norm"]
+    print(f"{'golden.jsonl':<30} {golden_loss:<15.6f} {golden_grad_norm:<15.6f}")
+
+    for file, result in other_results.items():
+        loss = result[0]["data"]["train/loss"]
+        grad_norm = result[0]["data"]["train/grad_norm"]
+        print(f"{file:<30} {loss:<15.6f} {grad_norm:<15.6f}")
+
+
+def main(sub_dir, method):
     golden_results = get_result("~/verl/test/log/golden.jsonl")
 
     # get all other results
@@ -50,17 +64,26 @@ def main(sub_dir):
         if file.endswith(".jsonl"):
             other_results[file] = get_result(os.path.join(os.path.expanduser(f"~/verl/test/log/{sub_dir}"), file))
 
-    # # compare results
-    for file, other_result in other_results.items():
-        print(f"compare results {file}")
-        compare_results(golden_results, other_result)
-
-    print("All results are close to golden results")
+    if method == "show":
+        show_results(golden_results, other_results)
+    elif method == "compare":
+        # compare results
+        for file, other_result in other_results.items():
+            print(f"compare results {file}")
+            compare_results(golden_results, other_result)
+        print("All results are close to golden results")
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        sub_dir = sys.argv[1]
-    else:
-        sub_dir = "verl_sft_test"
-    main(sub_dir)
+    parser = argparse.ArgumentParser(description="Compare or show SFT engine results")
+    parser.add_argument("--sub_dir", type=str, default="verl_sft_test", help="Subdirectory under ~/verl/test/log/")
+    parser.add_argument(
+        "--method",
+        type=str,
+        choices=["compare", "show"],
+        default="compare",
+        help="Method to use: 'compare' to compare results, 'show' to display all values",
+    )
+
+    args = parser.parse_args()
+    main(args.sub_dir, args.method)
