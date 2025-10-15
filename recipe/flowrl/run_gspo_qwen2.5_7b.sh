@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -xeuo pipefail
 
-project_name='GSPO-Baseline'
+project_name='FlowRL'
 exp_name='GSPO-Qwen2.5-7B-1015'
 
 # Algorithm settings
