@@ -533,8 +533,9 @@ class FlowRLActor(DataParallelPPOActor):
 
         # Metrics
         loss_term_dict = {
-            "actor/logpf": verl_F.masked_mean(log_prob, response_mask).detach().item(),
-            "actor/logp_ref": verl_F.masked_mean(ref_log_prob, response_mask).detach().item(),
+            "actor/log_prob": verl_F.masked_mean(log_prob, response_mask).detach().item(),
+            "actor/old_log_prob": verl_F.masked_mean(old_log_prob, response_mask).detach().item(),
+            "actor/ref_log_prob": verl_F.masked_mean(ref_log_prob, response_mask).detach().item(),
             "actor/log_z": log_z.mean().detach().item(),
             "actor/log_reward": verl_F.masked_mean(reward, response_mask).detach().item(),
             "actor/final_loss": avg_loss.detach().item(),
