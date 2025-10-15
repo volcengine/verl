@@ -208,6 +208,7 @@ jobs:
 
       - name: Running mcore engine tests on 8 L20 GPUs
         run: |
+          ray stop --force
           pytest -s -x tests/models/test_engine.py
 
   cleanup:
