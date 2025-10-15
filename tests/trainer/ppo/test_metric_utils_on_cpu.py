@@ -31,7 +31,57 @@ from verl.trainer.ppo.metric_utils import (
 )
 from verl.utils.metric import (
     reduce_metrics,
+    weighted_mean,
 )
+
+
+class TestWeightedMean(unittest.TestCase):
+    """Tests for the weighted_mean function."""
+
+    def test_weighted_mean_basic(self):
+        """Test basic weighted mean calculation."""
+        values = [0.8, 0.6]
+        weights = [100, 200]
+
+        result = weighted_mean(values, weights)
+
+        # (100*0.8 + 200*0.6) / 300 = 0.6666...
+        self.assertAlmostEqual(result, 0.6666666666666666)
+
+    def test_weighted_mean_no_weights(self):
+        """Test weighted_mean falls back to simple mean when no weights."""
+        values = [1.0, 2.0, 3.0]
+
+        result = weighted_mean(values, weights=None)
+
+        self.assertEqual(result, 2.0)
+
+    def test_weighted_mean_empty_weights(self):
+        """Test weighted_mean with empty weights list."""
+        values = [1.0, 2.0, 3.0]
+
+        result = weighted_mean(values, weights=[])
+
+        self.assertEqual(result, 2.0)
+
+    def test_weighted_mean_zero_weights(self):
+        """Test weighted_mean with all zero weights."""
+        values = [1.0, 2.0, 3.0]
+        weights = [0, 0, 0]
+
+        result = weighted_mean(values, weights)
+
+        self.assertTrue(np.isnan(result))
+
+    def test_weighted_mean_mismatched_lengths(self):
+        """Test weighted_mean raises error for mismatched lengths."""
+        values = [1.0, 2.0]
+        weights = [1.0, 2.0, 3.0]
+
+        with self.assertRaises(ValueError) as context:
+            weighted_mean(values, weights)
+
+        self.assertIn("must have same length", str(context.exception))
 
 
 class TestReduceMetrics(unittest.TestCase):
@@ -65,6 +115,71 @@ class TestReduceMetrics(unittest.TestCase):
         result = reduce_metrics(metrics)
 
         self.assertEqual(result["single"], 5.0)
+
+    def test_reduce_metrics_with_weights(self):
+        """Test reduce_metrics with weighted averaging."""
+        metrics = {
+            "mean_accuracy": [0.8, 0.6],
+            "total_loss": [1.0, 2.0],
+        }
+        weights = {
+            "mean_accuracy": [100, 200],  # First rank has 100 samples, second has 200
+            "total_loss": [100, 200],
+        }
+
+        result = reduce_metrics(metrics, weights=weights)
+
+        # Weighted mean: (100*0.8 + 200*0.6) / 300 = 0.6666...
+        self.assertAlmostEqual(result["mean_accuracy"], 0.6666666666666666)
+        # Weighted mean: (100*1.0 + 200*2.0) / 300 = 1.6666...
+        self.assertAlmostEqual(result["total_loss"], 1.6666666666666667)
+
+    def test_reduce_metrics_with_custom_strategy(self):
+        """Test reduce_metrics with custom reduction strategies."""
+        metrics = {
+            "total_tokens": [1000, 2000, 3000],
+            "mean_reward": [0.5, 0.7, 0.9],
+        }
+        strategy = {
+            "total_tokens": "sum",
+            "mean_reward": "max",
+        }
+
+        result = reduce_metrics(metrics, reduction_strategy=strategy)
+
+        self.assertEqual(result["total_tokens"], 6000)  # sum
+        self.assertEqual(result["mean_reward"], 0.9)  # max
+
+    def test_reduce_metrics_auto_detection(self):
+        """Test that reduce_metrics auto-detects reduction based on key names."""
+        metrics = {
+            "max_score": [1.0, 2.0, 3.0],
+            "min_error": [0.1, 0.05, 0.2],
+            "sum_tokens": [100, 200, 300],
+            "mean_loss": [1.0, 2.0, 3.0],
+        }
+
+        result = reduce_metrics(metrics)
+
+        self.assertEqual(result["max_score"], 3.0)  # max
+        self.assertEqual(result["min_error"], 0.05)  # min
+        self.assertEqual(result["sum_tokens"], 600)  # sum
+        self.assertEqual(result["mean_loss"], 2.0)  # mean
+
+    def test_reduce_metrics_backward_compatibility(self):
+        """Test that reduce_metrics maintains backward compatibility."""
+        metrics = {
+            "loss": [1.0, 2.0, 3.0],
+            "max_reward": [5.0, 8.0, 6.0],
+            "min_steps": [10, 5, 15],
+        }
+
+        # Call without any new parameters
+        result = reduce_metrics(metrics)
+
+        self.assertEqual(result["loss"], 2.0)  # mean
+        self.assertEqual(result["max_reward"], 8.0)  # max
+        self.assertEqual(result["min_steps"], 5)  # min
 
 
 class TestComputeDataMetrics(unittest.TestCase):
