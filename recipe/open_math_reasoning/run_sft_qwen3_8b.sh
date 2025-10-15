@@ -91,4 +91,4 @@ torchrun --standalone --nnodes=1 --nproc-per-node=$NUM_TRAINERS \
     trainer.default_local_dir="${CKPT_HOME}" \
     trainer.resume_mode=${RESUME_MODE} \
     trainer.max_ckpt_to_keep=5 \
-    checkpoint.save_contents=[model,optimizer,extra] \
+    checkpoint.save_contents=[model,optimizer,extra]
