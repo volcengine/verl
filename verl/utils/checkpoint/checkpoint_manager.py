@@ -182,7 +182,8 @@ def find_latest_ckpt_path(path, directory_format="global_step_{}"):
 
     tracker_file = get_checkpoint_tracker_filename(path)
     if not os.path.exists(tracker_file):
-        print(f"Checkpoint tracker file does not exist: {tracker_file}")
+        if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
+            print(f"Checkpoint tracker file does not exist: {tracker_file}")
         return None
 
     with open(tracker_file, "rb") as f:
