@@ -148,11 +148,8 @@ class SFTTrainer:
         if processor is None:
             processor = self.model_config.tokenizer
         train_dataset = create_sft_dataset(config.data.train_files, config.data, processor)
-        val_dataset = create_sft_dataset(config.data.val_files, config.data, processor)
-        tokenizer = self.model_config.tokenizer
-        train_dataset = create_sft_dataset(config.data.train_files, config.data, tokenizer)
         if config.data.val_files:
-            val_dataset = create_sft_dataset(config.data.val_files, config.data, tokenizer)
+            val_dataset = create_sft_dataset(config.data.val_files, config.data, processor)
         else:
             val_dataset = None
 

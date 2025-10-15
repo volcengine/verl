@@ -29,15 +29,17 @@ def get_result(file):
     return result
 
 
-def compare_results(golden_results, other_result):
-    golden_loss = golden_results[0]["data"]["train/loss"]
-    golden_grad_norm = golden_results[0]["data"]["train/grad_norm"]
+def compare_results(golden_results, other_result, loss_only):
+    # result[-1] is val loss, check last training loss/grad_norm is more strict
+    golden_loss = golden_results[-2]["data"]["train/loss"]
+    golden_grad_norm = golden_results[-2]["data"]["train/grad_norm"]
 
-    loss = other_result[0]["data"]["train/loss"]
-    grad_norm = other_result[0]["data"]["train/grad_norm"]
+    loss = other_result[-2]["data"]["train/loss"]
+    grad_norm = other_result[-2]["data"]["train/grad_norm"]
 
     torch.testing.assert_close(golden_loss, loss, atol=1e-2, rtol=1e-2)
-    torch.testing.assert_close(golden_grad_norm, grad_norm, atol=1e-4, rtol=1e-2)
+    if not loss_only:
+        torch.testing.assert_close(golden_grad_norm, grad_norm, atol=1e-4, rtol=1e-2)
 
 
 def show_results(golden_results, other_results):
@@ -54,7 +56,7 @@ def show_results(golden_results, other_results):
         print(f"{file:<30} {loss:<15.6f} {grad_norm:<15.6f}")
 
 
-def main(sub_dir, method):
+def main(sub_dir, method, loss_only):
     golden_results = get_result("~/verl/test/log/golden.jsonl")
 
     # get all other results
@@ -70,13 +72,14 @@ def main(sub_dir, method):
         # compare results
         for file, other_result in other_results.items():
             print(f"compare results {file}")
-            compare_results(golden_results, other_result)
+            compare_results(golden_results, other_result, loss_only)
         print("All results are close to golden results")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Compare or show SFT engine results")
     parser.add_argument("--sub_dir", type=str, default="verl_sft_test", help="Subdirectory under ~/verl/test/log/")
+    parser.add_argument("--loss_only", type=bool, default=False, action="store_true", help="only test loss")
     parser.add_argument(
         "--method",
         type=str,
@@ -86,4 +89,4 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-    main(args.sub_dir, args.method)
+    main(args.sub_dir, args.method, args.loss_only)

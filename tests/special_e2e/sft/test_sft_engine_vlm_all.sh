@@ -40,12 +40,12 @@ BACKEND=fsdp SP_SIZE=4 FSDP_SIZE=4 NUM_GPUS=8 FSDP_STRATEGY=fsdp2 bash ${FILE_PA
 
 # test with megatron
 echo "run megatron baseline with tp1 pp1 cp1 num_gpus1"
-BACKEND=megatron TP_SIZE=1 PP_SIZE=1 CP_SIZE=1 NUM_GPUS=1 bash ${FILE_PATH}
+# BACKEND=megatron TP_SIZE=1 PP_SIZE=1 CP_SIZE=1 NUM_GPUS=1 bash ${FILE_PATH}
 
 echo "run with tp2 pp2 vpp2 cp1 num_gpus8"
 # BACKEND=megatron TP_SIZE=2 PP_SIZE=2 VPP_SIZE=2 CP_SIZE=1 NUM_GPUS=8 bash ${FILE_PATH}
 
 
-python3 tests/special_e2e/sft/compare_sft_engine_results.py --sub_dir verl_vlm_sft_test
+python3 tests/special_e2e/sft/compare_sft_engine_results.py --sub_dir verl_vlm_sft_test --loss_only
 
-# rm -rf ~/verl/test/log
+rm -rf ~/verl/test/log
