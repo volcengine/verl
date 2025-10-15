@@ -69,7 +69,7 @@ fi
 CKPT_HOME=${CKPT_HOME:-$HOME/open_verl/sft/${project_name}/${exp_name}}
 mkdir -p "${CKPT_HOME}"
 
-torchrun --standalone --nnodes=1 --nproc-per-node=$NUM_TRAINERS \
+torchrun --standalone --nnodes=1 --nproc-per-node=${NUM_TRAINERS:-8} \
     ${ENTRYPOINT} \
     data.train_files="${TRAIN_FILES}" \
     data.train_batch_size=96 \
