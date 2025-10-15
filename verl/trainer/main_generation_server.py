@@ -15,9 +15,9 @@
 Generate responses given a dataset of prompts
 """
 
-import aiohttp
 import os
 
+import aiohttp
 import hydra
 import numpy as np
 import ray
@@ -31,7 +31,6 @@ from pprint import pprint
 
 import pandas as pd
 from omegaconf import OmegaConf
-from openai import AsyncOpenAI, OpenAI
 from openai.types.chat import ChatCompletion
 
 from verl.utils.hdfs_io import makedirs
@@ -89,11 +88,13 @@ async def generate_per_replica(server_address, model_path: str, n_samples: int, 
     #     base_url=f"http://{server_address}/v1",
     # )
 
-    chat_complete_request = [{
-        'model': model_path,
-        'messages': messages,
-        **sampling_params,
-        } for messages in chat_lst
+    chat_complete_request = [
+        {
+            "model": model_path,
+            "messages": messages,
+            **sampling_params,
+        }
+        for messages in chat_lst
         for _ in range(n_samples)
     ]
 
@@ -137,7 +138,7 @@ def main(config):
         # "top_k": config.actor_rollout_ref.rollout.top_k,
         "max_tokens": config.actor_rollout_ref.rollout.response_length,
     }
-    
+
     from omegaconf import ListConfig
 
     train_files = config.data.train_files
@@ -184,7 +185,7 @@ def main(config):
     # write to a new parquet
     output_dir = os.path.dirname(config.data.output_path)
     makedirs(output_dir, exist_ok=True)
-    print(f'Saving results to {config.data.output_path}')
+    print(f"Saving results to {config.data.output_path}")
     dataset.to_parquet(config.data.output_path)
 
 

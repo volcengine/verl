@@ -12,19 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-# huggingface-cli download nvidia/OpenMathReasoning --repo-type dataset --include data/cot* --local-dir /path/to/nvidia/OpenMathReasoning
-# huggingface-cli download nvidia/OpenMathReasoning --repo-type dataset --include data/cot* --local-dir /opt/tiger/nvidia/OpenMathReasoning
+"""
+huggingface-cli download nvidia/OpenMathReasoning --repo-type dataset --include data/cot* \
+    --local-dir /path/to/nvidia/OpenMathReasoning
+huggingface-cli download nvidia/OpenMathReasoning --repo-type dataset --include data/cot* \
+    --local-dir /opt/tiger/nvidia/OpenMathReasoning
+"""
 
 import argparse
-import datasets
 import os
+
+import datasets
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--local_dataset_path", default=None, help="The local path to the raw dataset, if it exists.")
     parser.add_argument(
-        "--local_save_dir", default="~/data/open_math_reasoning", help="The save directory for the preprocessed dataset."
+        "--local_save_dir",
+        default="~/data/open_math_reasoning",
+        help="The save directory for the preprocessed dataset.",
     )
 
     args = parser.parse_args()
@@ -33,9 +39,9 @@ if __name__ == "__main__":
     data_source = "nvidia/OpenMathReasoning"
 
     if local_dataset_path is not None:
-        dataset = datasets.load_dataset(local_dataset_path, split='cot')
+        dataset = datasets.load_dataset(local_dataset_path, split="cot")
     else:
-        dataset = datasets.load_dataset(data_source, split='cot')
+        dataset = datasets.load_dataset(data_source, split="cot")
 
     def make_map_fn(split):
         def process_fn(example, idx):
@@ -49,18 +55,10 @@ if __name__ == "__main__":
 
             data = {
                 "messages": [
-                    {
-                        "role": "user",
-                        "content": question,
-                        "loss_mask": 0
-                    },
-                    {
-                        "role": "assistant",
-                        "content": solution,
-                        "loss_mask": 1
-                    },
+                    {"role": "user", "content": question, "loss_mask": 0},
+                    {"role": "assistant", "content": solution, "loss_mask": 1},
                 ],
-                "extra_info": extra_info
+                "extra_info": extra_info,
             }
             return data
 

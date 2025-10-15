@@ -18,11 +18,12 @@
 # hf download math-ai/aime25 --repo-type dataset --local-dir /opt/tiger/datasets/math-ai/aime25
 
 import os
+
 import datasets
 
 from verl.utils.reward_score.math_reward import remove_boxed
 
-instruction_following = 'Please reason step by step, and put your final answer within \\boxed{}.'
+instruction_following = "Please reason step by step, and put your final answer within \\boxed{}."
 
 
 def make_map_fn(data_source):
@@ -40,7 +41,7 @@ def make_map_fn(data_source):
 
         try:
             solution = remove_boxed(answer_raw)
-        except Exception as e:
+        except Exception:
             solution = answer_raw
 
         data = {
@@ -60,11 +61,13 @@ def make_map_fn(data_source):
             },
         }
         return data
-    
+
     return process_fn
+
 
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--local_dataset_path", default=None, help="The local path to the raw dataset, if it exists.")
     parser.add_argument(
