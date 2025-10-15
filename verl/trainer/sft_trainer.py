@@ -209,9 +209,8 @@ class SFTTrainer:
                 sampler=self.val_sampler,
                 collate_fn=self.collate_fn,
                 num_workers=8,
-                pin_memory=True,
+                pin_memory=False,
                 drop_last=True,
-                pin_memory_device=device_name,
             )
         else:
             self.val_dataloader = None

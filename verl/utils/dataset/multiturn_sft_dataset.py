@@ -439,7 +439,4 @@ if __name__ == "__main__":
 
     tokenizer = AutoProcessor.from_pretrained("Qwen/Qwen2.5-VL-3B-Instruct")
     dataset = MultiTurnSFTDataset([parquet_files], tokenizer, {"pad_mode": "no_padding"})
-    import ipdb
-
-    ipdb.set_trace()
     print(dataset[1])
