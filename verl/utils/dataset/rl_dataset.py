@@ -24,8 +24,10 @@ from typing import Optional
 import datasets
 import numpy as np
 import torch
+import pandas as pd
 from omegaconf import DictConfig, ListConfig
 from torch.utils.data import Dataset
+import datasets
 from transformers import PreTrainedTokenizer, ProcessorMixin
 
 import verl.utils.torch_functional as verl_F
@@ -131,8 +133,15 @@ class RLHFDataset(Dataset):
     def _read_files_and_tokenize(self):
         dataframes = []
         for parquet_file in self.data_files:
-            # read parquet files and cache
-            dataframe = datasets.load_dataset("parquet", data_files=parquet_file)["train"]
+            # read parquet files and 
+            if parquet_file.endswith(".pkl"):
+                dataframe = pd.read_pickle(parquet_file)
+                if not isinstance(dataframe, pd.core.frame.DataFrame):
+                    dataframe = pd.DataFrame(dataframe)
+                dataframe = datasets.Dataset.from_pandas(dataframe)
+            else:
+
+                dataframe = datasets.load_dataset("parquet", data_files=parquet_file)["train"]
             dataframes.append(dataframe)
         self.dataframe: datasets.Dataset = datasets.concatenate_datasets(dataframes)
 
