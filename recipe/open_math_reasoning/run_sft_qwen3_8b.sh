@@ -3,14 +3,14 @@ set -xeuo pipefail
 
 ENTRYPOINT=${ENTRYPOINT:-"-m verl.trainer.sft_trainer"}
 
-TRAIN_FILES=/mnt/hdfs/zhangchi.usc1992_lf_lq/data/cot_dataset.parquet
+TRAIN_FILES=${TRAIN_FILES:-/path/to/cot_dataset.parquet}
 
 backend=${BACKEND:-fsdp}
 
 project_name=verl_sft_test
 
 RESUME_MODE=auto
-MODEL_PATH=/mnt/hdfs/zhangchi.usc1992_lf_lq/models/Qwen3-8B-Base
+MODEL_ID=${MODEL_ID:-Qwen/Qwen3-8B-Base}
 
 SP_SIZE=${SP_SIZE:-8}
 FSDP_SIZE=${FSDP_SIZE:-16}
@@ -66,10 +66,11 @@ else
     exp_name=nvidia-openmathreasoning-${backend}-tp${TP_SIZE}-pp${PP_SIZE}-vpp${VPP_SIZE}-cp${CP_SIZE}-pad-${PAD_MODE}-use_remove_padding-${USE_REMOVE_PADDING}
 fi
 
-ckpts_home=${ckpts_home:-/mnt/hdfs/zhangchi.usc1992_ssd_hldy/open_verl/sft/${project_name}/${exp_name}}
-mkdir -p "${ckpts_home}"
+CKPT_HOME=${CKPT_HOME:-$HOME/open_verl/sft/${project_name}/${exp_name}}
+mkdir -p "${CKPT_HOME}"
 
-/opt/tiger/internal/verl/verl/tools/internal/TORCHRUN ${ENTRYPOINT} \
+torchrun --standalone --nnodes=1 --nproc-per-node=$NUM_TRAINERS \
+    ${ENTRYPOINT} \
     data.train_files="${TRAIN_FILES}" \
     data.train_batch_size=96 \
     data.max_length=32768 \
@@ -78,7 +79,7 @@ mkdir -p "${ckpts_home}"
     data.use_dynamic_bsz=True \
     data.max_token_len_per_gpu=65536 \
     data.messages_key=messages \
-    model.path=$MODEL_PATH \
+    model.path=$MODEL_ID \
     model.use_remove_padding=${USE_REMOVE_PADDING} \
     ${ENGINE_CONFIG} \
     trainer.test_freq=-1 \
@@ -87,7 +88,7 @@ mkdir -p "${ckpts_home}"
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
     trainer.total_epochs=1 \
-    trainer.default_local_dir="${ckpts_home}" \
+    trainer.default_local_dir="${CKPT_HOME}" \
     trainer.resume_mode=${RESUME_MODE} \
     trainer.max_ckpt_to_keep=5 \
     checkpoint.save_contents=[model,optimizer,extra] \

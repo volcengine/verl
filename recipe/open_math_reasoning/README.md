@@ -2,6 +2,7 @@
 ## Introduction
 In this recipe, we perform SFT on the [open math reasoning](https://huggingface.co/datasets/nvidia/OpenMathReasoning) dataset using the new SFT trainer with backend agostic model engine.
 
+Note that you may need to modify the path as needed in the following scripts.
 ## Dataset Preprocessing
 ### Download Dataset
 ```bash
@@ -22,14 +23,33 @@ python3 recipe/open_math_reasoning/prepare_eval_dataset.py --local_dataset_path 
 
 ## Train the model using SFT
 ### FSDP backend
-BACKEND=fsdp2 bash recipe/open_math_reasoning/run_sft_qwen3_8b.sh
+export CKPT_HOME=/path/to/ckpt
+export BACKEND=fsdp2
+export MODEL_ID=Qwen/Qwen3-8B-Base
+export TRAIN_FILES=/path/to/open_math_reasoning/cot_dataset.parquet
+bash recipe/open_math_reasoning/run_sft_qwen3_8b.sh
 
 ### Megatron backend
 TODO
 
 ## Eval the model
+### Merge checkpoint into huggingface format
+```bash
+python -m verl.model_merger merge --backend fsdp --local_dir /path/to/ckpt/global_step_19751 --target_dir /path/to/ckpt/global_step_19751/huggingface
+```
 
 ### Generate the responses
 ```bash
+export MODEL_PATH=/path/to/ckpt/global_step_19751/huggingface
+bash recipe/open_math_reasoning/run_generation.sh
+```
 
+### Evaluate the responses
+```bash
+bash recipe/open_math_reasoning/run_eval.sh
+```
+
+You should see the results like:
+```python
+{'test_score/aime24': 0.584375, 'test_score/aime25': 0.43333333333333335}
 ```
