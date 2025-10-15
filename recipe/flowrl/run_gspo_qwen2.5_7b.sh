@@ -119,9 +119,11 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.ulysses_sequence_parallel_size=${sp_size} \
     actor_rollout_ref.actor.fsdp_config.fsdp_size=-1 \
     reward_model.reward_manager=dapo \
-    reward_model.overlong_buffer.enable=${enable_overlong_buffer} \
-    reward_model.overlong_buffer.len=${overlong_buffer_len} \
-    reward_model.overlong_buffer.penalty_factor=${overlong_penalty_factor} \
+    +reward_model.reward_kwargs.overlong_buffer_cfg.enable=${enable_overlong_buffer} \
+    +reward_model.reward_kwargs.overlong_buffer_cfg.len=${overlong_buffer_len} \
+    +reward_model.reward_kwargs.overlong_buffer_cfg.penalty_factor=${overlong_penalty_factor} \
+    +reward_model.reward_kwargs.overlong_buffer_cfg.log=false \
+    +reward_model.reward_kwargs.max_resp_len=${max_response_length} \
     trainer.logger='["console","wandb"]' \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
