@@ -375,7 +375,7 @@ class FSDPEngine(BaseEngine):
 
         total_steps = optim_config.total_training_steps
         num_warmup_steps = optim_config.lr_warmup_steps
-        warmup_style = optim_config.warmup_style
+        lr_scheduler_type = optim_config.lr_scheduler_type
         min_lr_ratio = optim_config.min_lr_ratio
         num_cycles = optim_config.num_cycles
         if num_warmup_steps <= 0:
@@ -385,9 +385,9 @@ class FSDPEngine(BaseEngine):
         if self.rank == 0:
             print(f"Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}")
 
-        if warmup_style == "constant":
+        if lr_scheduler_type == "constant":
             lr_scheduler = get_constant_schedule_with_warmup(optimizer=optimizer, num_warmup_steps=num_warmup_steps)
-        elif warmup_style == "cosine":
+        elif lr_scheduler_type == "cosine":
             lr_scheduler = get_cosine_schedule_with_warmup(
                 optimizer=optimizer,
                 num_warmup_steps=num_warmup_steps,
@@ -396,7 +396,7 @@ class FSDPEngine(BaseEngine):
                 num_cycles=num_cycles,
             )
         else:
-            raise NotImplementedError(f"Warmup style {warmup_style} is not supported")
+            raise NotImplementedError(f"LR scheduler type {lr_scheduler_type} is not supported")
         return lr_scheduler
 
     def _build_model_optimizer(self):
