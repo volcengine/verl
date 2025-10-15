@@ -307,7 +307,7 @@ class RLHFDataset(Dataset):
 
         row_dict["input_ids"] = input_ids[0]
         row_dict["attention_mask"] = attention_mask[0]
-        row_dict["position_ids"] = position_ids[0]
+        row_dict["position_ids"] = position_ids
 
         raw_prompt_ids = self.tokenizer.encode(raw_prompt, add_special_tokens=False)
         if len(raw_prompt_ids) > self.max_prompt_length:
