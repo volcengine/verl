@@ -173,13 +173,14 @@ def gptmodel_forward_no_padding(
         input_ids_rmpad = input_ids_rmpad.contiguous()
         if "multi_modal_inputs" in kwargs:
             mm_inputs = kwargs.pop("multi_modal_inputs")
-            kwargs.update(mm_inputs)
+        else:
+            mm_inputs = {}
         output_orig = model(
             input_ids=input_ids_rmpad,
             attention_mask=None,
             position_ids=None,
             packed_seq_params=packed_seq_params,
-            **kwargs,
+            **mm_inputs,
         )
 
         if post_process and logits_processor is not None:
