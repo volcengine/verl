@@ -35,7 +35,7 @@ max_num_gen_batches=10
 
 # Batch sizes
 train_prompt_bsz=512
-gen_prompt_bsz=$((train_prompt_bsz * 3))
+# Note: PPO trainer doesn't have gen_batch_size, only train_batch_size
 n_resp_per_prompt=8
 train_prompt_mini_bsz=32
 
@@ -74,7 +74,6 @@ python3 -m verl.trainer.main_ppo \
     data.truncation='left' \
     data.max_prompt_length=${max_prompt_length} \
     data.max_response_length=${max_response_length} \
-    data.gen_batch_size=${gen_prompt_bsz} \
     data.train_batch_size=${train_prompt_bsz} \
     actor_rollout_ref.rollout.n=${n_resp_per_prompt} \
     algorithm.adv_estimator=${adv_estimator} \
