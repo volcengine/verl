@@ -269,7 +269,7 @@ def compute_advantage(
             gamma=gamma,
             lam=lam,
         )
-        # TODO: adapt core_algos.compute_pf_ppo_reweight_data function to support transfer queue
+        # TODO: (TQ) adapt core_algos.compute_pf_ppo_reweight_data function to support transfer queue
         if config.get("use_pf_ppo", False):
             data = core_algos.compute_pf_ppo_reweight_data(
                 data,
@@ -800,6 +800,7 @@ class RayPPOTrainer:
             }
             print(f"test_gen_batch meta info: {test_gen_meta.extra_info}")
 
+            # TODO: (TQ) Support padding and unpadding to make DataProto divisible by dp_size with TransferQueue
             if not self.async_rollout_mode:
                 test_output_gen_meta = self.actor_rollout_wg.generate_sequences(test_gen_meta)
             else:
@@ -1418,7 +1419,7 @@ class RayPPOTrainer:
                         timing_raw.update(gen_output_meta.extra_info["timing"])
                         gen_output_meta.extra_info.pop("timing", None)
 
-                    # TODO: (transferqueue)
+                    # TODO: (TQ) support transfer queue
                     # if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                     #     if self.reward_fn is None:
                     #         raise ValueError("A reward_fn is required for REMAX advantage estimation.")
@@ -1915,7 +1916,7 @@ class RayPPOTrainer:
 
                 # this is experimental and may be changed/removed in the future in favor of a general-purpose one
                 if isinstance(self.train_dataloader.sampler, AbstractCurriculumSampler):
-                    # TODO: support transfer queue
+                    # TODO: (TQ) support transfer queue
                     self.train_dataloader.sampler.update(batch=batch)
 
                 asyncio.run(self.data_system_client.async_clear(self.global_steps - 1))
@@ -1942,5 +1943,5 @@ class RayPPOTrainer:
                 # in favor of a general-purpose data buffer pool
                 if hasattr(self.train_dataset, "on_batch_end"):
                     # The dataset may be changed after each training batch
-                    # TODO: support transfer queue
+                    # TODO: (TQ) support transfer queue
                     self.train_dataset.on_batch_end(batch=batch)
