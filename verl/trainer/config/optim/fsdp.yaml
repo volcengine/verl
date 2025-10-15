@@ -28,6 +28,8 @@ min_lr_ratio: 0.0
 # Number of cosine cycles in LR schedule
 num_cycles: 0.5
 
-# LR warmup style: "constant" or "cosine"
-warmup_style: constant
+# LR scheduler type: "constant" or "cosine"
+lr_scheduler_type: constant
 
+# deprecated
+warmup_style: null

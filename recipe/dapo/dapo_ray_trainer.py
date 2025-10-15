@@ -132,7 +132,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                         batch_keys=["input_ids", "attention_mask", "position_ids"],
                         non_tensor_batch_keys=["raw_prompt_ids"],
                     )
-                gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+                gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=False)
 
                 is_last_step = self.global_steps >= self.total_training_steps
 
@@ -163,7 +163,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                         [str(uuid.uuid4()) for _ in range(len(new_batch.batch))], dtype=object
                     )
                     # repeat to align with repeated responses in rollout
-                    new_batch = new_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+                    new_batch = new_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=False)
                     new_batch = new_batch.union(gen_batch_output)
 
                     with marked_timer("reward", timing_raw, "yellow"):
@@ -303,6 +303,11 @@ class RayDAPOTrainer(RayPPOTrainer):
                         with marked_timer("values", timing_raw, "cyan"):
                             values = self.critic_wg.compute_values(batch)
                             batch = batch.union(values)
+
+                    # Compute rollout IS weights and mismatch metrics (inherited from RayPPOTrainer)
+                    batch, is_metrics = self.compute_rollout_importance_weights_and_add_to_batch(batch)
+                    # IS and mismatch metrics already have mismatch/ prefix
+                    metrics.update(is_metrics)
 
                     with marked_timer("adv", timing_raw, "brown"):
                         # compute advantages, executed on the driver process

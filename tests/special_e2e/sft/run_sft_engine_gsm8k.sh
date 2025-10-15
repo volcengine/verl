@@ -29,7 +29,7 @@ PP_SIZE=${PP_SIZE:-1}
 VPP_SIZE=${VPP_SIZE:-null}
 CP_SIZE=${CP_SIZE:-1}
 
-PAD_MODE=${PAD_MODE:-left_right}
+PAD_MODE=${PAD_MODE:-no_padding}
 
 USE_REMOVE_PADDING=${USE_REMOVE_PADDING:-True}
 
@@ -42,7 +42,7 @@ FSDP_ENGINE_CONFIG="\
     optim.betas="[0.9,0.95]" \
     optim.clip_grad=1.0 \
     optim.min_lr_ratio=0.1 \
-    optim.warmup_style=cosine \
+    optim.lr_scheduler_type=cosine \
     engine.ulysses_sequence_parallel_size=${SP_SIZE} \
     engine.strategy=${FSDP_STRATEGY} \
     engine.fsdp_size=${FSDP_SIZE}"
@@ -80,8 +80,6 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     data.train_files="${TRAIN_FILES}" \
     data.val_files="${VAL_FILES}" \
     data.train_batch_size=256 \
-    data.max_prompt_length=1024 \
-    data.max_response_length=1024 \
     data.pad_mode=${PAD_MODE} \
     data.truncation=error \
     data.use_dynamic_bsz=True \

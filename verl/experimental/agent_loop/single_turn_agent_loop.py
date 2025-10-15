@@ -35,6 +35,7 @@ class SingleTurnAgentLoop(AgentLoopBase):
 
     async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
         messages = list(kwargs["raw_prompt"])
+        image_data = (kwargs.get("multi_modal_data") or {}).get("image", None)
 
         metrics = {}
         request_id = uuid4().hex
@@ -47,7 +48,7 @@ class SingleTurnAgentLoop(AgentLoopBase):
 
         with simple_timer("generate_sequences", metrics):
             output = await self.server_manager.generate(
-                request_id=request_id, prompt_ids=prompt_ids, sampling_params=sampling_params
+                request_id=request_id, prompt_ids=prompt_ids, sampling_params=sampling_params, image_data=image_data
             )
         response_mask = [1] * len(output.token_ids)
 
@@ -56,7 +57,7 @@ class SingleTurnAgentLoop(AgentLoopBase):
             response_ids=output.token_ids[: self.response_length],
             response_mask=response_mask[: self.response_length],
             response_logprobs=output.log_probs[: self.response_length] if output.log_probs else None,
-            multi_modal_data={},
+            multi_modal_data={"image": image_data} if image_data is not None else {},
             num_turns=2,
             metrics=metrics,
         )
