@@ -133,7 +133,7 @@ def compute_multimodal_position_ids(
     position ids when no multimodal processor is provided.
     """
     if processor is None or not hasattr(processor, "image_processor"):
-        return compute_position_id_with_mask(attention_mask)
+        return compute_position_id_with_mask(attention_mask) * attention_mask
 
     # Normalize tensor shapes to 1-D [seq_len]
     if input_ids.dim() > 1:
