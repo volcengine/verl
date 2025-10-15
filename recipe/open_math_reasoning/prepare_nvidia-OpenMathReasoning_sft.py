@@ -67,5 +67,6 @@ if __name__ == "__main__":
     # filter out data where the problem_type is not has_answer_extracted
     dataset = dataset.filter(lambda example: example["problem_type"] == "has_answer_extracted")
     dataset = dataset.map(function=make_map_fn("cot"), with_indices=True)
-    local_save_dir = args.local_save_dir
+    local_save_dir = os.path.expanduser(args.local_save_dir)
+    os.makedirs(local_save_dir, exist_ok=True)
     dataset.to_parquet(os.path.join(local_save_dir, "cot_dataset.parquet"))
