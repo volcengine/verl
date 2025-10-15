@@ -67,7 +67,8 @@ class BaseModelInitializer(ABC):
         Returns:
             GPTModel: An initialized GPT model instance
         """
-        transformer_layer_spec = self.get_transformer_layer_spec()
+        vp_stage = extra_kwargs.get("vp_stage", None)
+        transformer_layer_spec = self.get_transformer_layer_spec(vp_stage=vp_stage)
         rope_scaling_args = self.get_rope_scaling_args()
         mtp_block_spec = extra_kwargs.get("mtp_block_spec", None)
         model = GPTModel(
@@ -82,6 +83,7 @@ class BaseModelInitializer(ABC):
             rotary_base=self.hf_config.rope_theta,
             **rope_scaling_args,
             mtp_block_spec=mtp_block_spec,
+            **({} if not self.has_vp_stage else {"vp_stage": vp_stage}),
         )
 
         if post_process and value:
@@ -222,8 +224,7 @@ class Qwen25VLModel(BaseModelInitializer):
         # Qwen2_5_VLForConditionalGeneration
         from copy import deepcopy
 
-        vp_stage = extra_kwargs.get("vp_stage", None)
-        transformer_layer_spec = self.get_transformer_layer_spec(vp_stage=vp_stage)
+        transformer_layer_spec = self.get_transformer_layer_spec()
 
         from megatron.core.extensions.transformer_engine import TEColumnParallelLinear, TERowParallelLinear
         from megatron.core.models.gpt.moe_module_specs import MLPSubmodules
