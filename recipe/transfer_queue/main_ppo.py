@@ -113,10 +113,7 @@ class TaskRunner:
         from verl.single_controller.ray import RayWorkerGroup
 
         if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
-            from .fsdp_workers import (
-                ActorRolloutRefWorker,
-                AsyncActorRolloutRefWorker,
-            )
+            from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
 
             actor_rollout_cls = (
                 AsyncActorRolloutRefWorker
@@ -126,10 +123,7 @@ class TaskRunner:
             ray_worker_group_cls = RayWorkerGroup
 
         elif config.actor_rollout_ref.actor.strategy == "megatron":
-            from .megatron_workers import (
-                ActorRolloutRefWorker,
-                AsyncActorRolloutRefWorker,
-            )
+            from verl.workers.megatron_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
 
             actor_rollout_cls = (
                 AsyncActorRolloutRefWorker
@@ -152,7 +146,7 @@ class TaskRunner:
         if config.critic.strategy in {"fsdp", "fsdp2"}:
             use_legacy_worker_impl = config.trainer.get("use_legacy_worker_impl", "auto")
             if use_legacy_worker_impl in ["auto", "enable"]:
-                from .fsdp_workers import CriticWorker
+                from verl.workers.fsdp_workers import CriticWorker
             elif use_legacy_worker_impl == "disable":
                 from verl.workers.roles import CriticWorker
 
@@ -161,7 +155,7 @@ class TaskRunner:
                 raise ValueError(f"Invalid use_legacy_worker_impl: {use_legacy_worker_impl}")
 
         elif config.critic.strategy == "megatron":
-            from .megatron_workers import CriticWorker
+            from verl.workers.megatron_workers import CriticWorker
 
         else:
             raise NotImplementedError
@@ -203,9 +197,9 @@ class TaskRunner:
             use_legacy_worker_impl = config.trainer.get("use_legacy_worker_impl", "auto")
             if use_legacy_worker_impl in ["auto", "enable"]:
                 if config.reward_model.strategy in {"fsdp", "fsdp2"}:
-                    from .fsdp_workers import RewardModelWorker
+                    from verl.workers.fsdp_workers import RewardModelWorker
                 elif config.reward_model.strategy == "megatron":
-                    from .megatron_workers import RewardModelWorker
+                    from verl.workers.megatron_workers import RewardModelWorker
                 else:
                     raise NotImplementedError
             elif use_legacy_worker_impl == "disable":

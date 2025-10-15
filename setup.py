@@ -42,7 +42,6 @@ install_requires = [
     "wandb",
     "packaging>=20.0",
     "tensorboard",
-    "TransferQueue @ git+https://github.com/TransferQueue/TransferQueue.git@a2ddb30",
 ]
 
 TEST_REQUIRES = ["pytest", "pre-commit", "py-spy", "pytest-asyncio"]
@@ -58,6 +57,7 @@ SGLANG_REQUIRES = [
 ]
 TRL_REQUIRES = ["trl<=0.9.6"]
 MCORE_REQUIRES = ["mbridge"]
+TRANSFERQUEUE_REQUIRES = ["TransferQueue @ git+https://github.com/TransferQueue/TransferQueue.git@a2ddb30"]
 
 extras_require = {
     "test": TEST_REQUIRES,
@@ -69,6 +69,7 @@ extras_require = {
     "sglang": SGLANG_REQUIRES,
     "trl": TRL_REQUIRES,
     "mcore": MCORE_REQUIRES,
+    "transferqueue": TRANSFERQUEUE_REQUIRES,
 }
 
 

@@ -24,4 +24,3 @@ fastapi
 latex2sympy2_extended
 math_verify
 tensorboard
-git+https://github.com/TransferQueue/TransferQueue.git@a2ddb30
