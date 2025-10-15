@@ -42,15 +42,9 @@ def sft_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
         loss_mask_flatten = torch.roll(loss_mask_flatten, shifts=-1, dims=0)
         loss_mask_flatten[cu_seqlens[1:] - 1] = 0
         loss = -masked_mean(log_prob_flatten, loss_mask_flatten)
-    elif pad_mode == DatasetPadMode.LEFT_RIGHT:
+    else:
         response_mask = data["response_mask"].to(bool)
         loss = -masked_mean(log_prob, response_mask)
-    else:
-        loss_mask = data["loss_mask"]
-        loss_mask = loss_mask[:, 1:]
-        # we pad labels instead of shift logits here because it will save GPU memory
-        loss_mask = torch.nn.functional.pad(loss_mask, (0, 1))
-        loss = -masked_mean(log_prob, loss_mask)
 
     return loss, {"loss": loss.detach().item()}
 

@@ -57,7 +57,7 @@ def test_multiturn_sft_dataset():
     # Initialize tokenizer and dataset
     tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-Coder-7B-Instruct")
     config = {"max_length": 512, "truncation": "error", "multiturn": {"messages_key": "messages"}}
-    dataset = MultiTurnSFTDataset(parquet_files=test_file, tokenizer=tokenizer, config=config)
+    dataset = MultiTurnSFTDataset(parquet_files=test_file, processor=tokenizer, config=config)
 
     # Test 1: Dataset Length
     assert len(dataset) == 2, f"Expected dataset length 2, got {len(dataset)}"
@@ -164,7 +164,7 @@ def test_multiturn_sft_dataset():
 
     # Test 10: Verify padding behavior
     padding_config = {"max_length": 1024, "truncation": "error", "multiturn": {"messages_key": "messages"}}
-    small_dataset = MultiTurnSFTDataset(parquet_files=test_file, tokenizer=tokenizer, config=padding_config)
+    small_dataset = MultiTurnSFTDataset(parquet_files=test_file, processor=tokenizer, config=padding_config)
     padded_item = small_dataset[0]
 
     # Get actual sequence length (before padding)
@@ -184,7 +184,7 @@ def test_multiturn_sft_dataset():
         "multiturn": {"messages_key": "messages"},
         "pad_mode": "no_padding",
     }
-    dataset = MultiTurnSFTDataset(parquet_files=test_file, tokenizer=tokenizer, config=config)
+    dataset = MultiTurnSFTDataset(parquet_files=test_file, processor=tokenizer, config=config)
 
     item0 = dataset[0]
 

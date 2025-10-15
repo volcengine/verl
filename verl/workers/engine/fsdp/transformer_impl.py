@@ -779,7 +779,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
             }
 
         else:
-            if pad_mode == DatasetPadMode.NO_PADDING:
+            if pad_mode == DatasetPadMode.NO_PADDING and position_ids.is_nested:
                 position_ids = torch.nested.to_padded_tensor(position_ids, padding=0)
             if position_ids.dim() == 3:  # qwen2vl mrope
                 position_ids = position_ids.transpose(0, 1)  # (bsz, 3, seqlen) -> (3, bsz, seqlen)
@@ -846,8 +846,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
                 log_probs = output.log_probs.squeeze(0)  # (total_nnz,)
                 entropy_rmpad = output.entropy.squeeze(0)  # (total_nnz,)
             else:
-                logits = output.logits
-                logits_rmpad = logits.squeeze(0)  # (total_nnz, vocab_size)
+                logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
                 logits_rmpad.div_(temperature)
 
                 # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
