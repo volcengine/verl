@@ -43,6 +43,20 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
+def format_tool_response_manually(tool_message: dict, tool_call_name: str) -> str:
+    """Manually format tool response without using tokenizer template.
+
+    Args:
+        tool_message: Tool message dictionary with 'content' field
+        tool_call_name: Name of the tool that was called
+
+    Returns:
+        Formatted tool response string
+    """
+    content = tool_message["content"]
+    return f"<|start|>functions.{tool_call_name} to=assistant<|channel|>commentary<|message|>{content}<|end|>"
+
+
 class MaxTokenExceededError(Exception):
     """Indicate that history chat messages + tool message exceeds LLM max_tokens."""
 
@@ -202,13 +216,39 @@ class ChatModel(BaseChatModel):
 
         # encode tool response
         tool_responses = convert_to_openai_messages(messages[i + 1 :])
-        tool_response_ids = await loop.run_in_executor(
-            None,
-            lambda messages=tool_responses: self.tokenizer.apply_chat_template(
-                messages, add_generation_prompt=True, tokenize=True
-            ),
-        )
-        tool_response_ids = tool_response_ids[len(kwargs["system_prompt"]) :]
+        if self.tool_parser == "hermes":
+            tool_response_ids = await loop.run_in_executor(
+                None,
+                lambda messages=tool_responses: self.tokenizer.apply_chat_template(
+                    messages, add_generation_prompt=True, tokenize=True
+                ),
+            )
+            tool_response_ids = tool_response_ids[len(kwargs["system_prompt"]) :]
+        elif self.tool_parser == "gpt-oss":
+            # Format tool responses manually
+            # since gpt-oss chat template requires tool call messages to parse tool response messages
+            # we need to format the tool response messages manually
+            tool_response_texts = []
+            for tool_msg in tool_responses:
+                if tool_msg["role"] == "tool":
+                    # Use tool message's name if available (for multiple tool calls)
+                    actual_tool_name = tool_msg.get("name", "unknown")
+                    if actual_tool_name == "unknown":
+                        logger.error(f"actual_tool_name: {actual_tool_name}")
+                    formatted = format_tool_response_manually(tool_msg, actual_tool_name)
+                    tool_response_texts.append(formatted)
+            # need to add generation tokens for gpt-oss manually since add_generation_prompt is True
+            tool_response_texts.append("<|start|>assistant")
+
+            # Tokenize the manually formatted tool responses
+            tool_response_text = "".join(tool_response_texts)
+            print(f"tool_response_text: {tool_response_text}")
+
+            tool_response_ids = await loop.run_in_executor(
+                None, lambda: self.tokenizer.encode(tool_response_text, add_special_tokens=False)
+            )
+        else:
+            raise ValueError(f"Unsupported tool parser: {self.tool_parser}")
 
         # stop generation if response length exceeds max response length
         if len(messages[i].response_metadata["response_mask"]) + len(tool_response_ids) >= self.max_tokens:
