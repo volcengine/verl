@@ -73,15 +73,13 @@ DEEPSPEED_ENGINE_CONFIG="\
     optim=${backend} \
     optim.optimizer=AdamW \
     optim.lr=1e-5 \
-    optim.lr_warmup_steps_ratio=0.2 \
     optim.weight_decay=0.1 \
     optim.betas="[0.9,0.95]" \
     optim.eps=1e-8 \
     engine.ulysses_sequence_parallel_size=${SP_SIZE} \
     engine.param_offload=${PARAM_OFFLOAD} \
     engine.optimizer_offload=${OPTIMIZER_OFFLOAD} \
-    engine.mixed_precision=${MIXED_PRECISION} \
-    engine.strategy=deepspeed"
+    engine.mixed_precision=${MIXED_PRECISION}"
 
 if [ "$backend" = "fsdp" ]; then
     ENGINE_CONFIG="$FSDP_ENGINE_CONFIG"
