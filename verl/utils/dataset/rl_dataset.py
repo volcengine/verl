@@ -146,7 +146,7 @@ class RLHFDataset(Dataset):
         self.dataframe: datasets.Dataset = datasets.concatenate_datasets(dataframes)
 
         print(f"dataset len: {len(self.dataframe)}")
-
+        # self.dataframe = self.dataframe.shuffle()
         self.dataframe = self.maybe_filter_out_long_prompts(self.dataframe)
 
     def maybe_filter_out_long_prompts(self, dataframe: datasets.Dataset = None):
