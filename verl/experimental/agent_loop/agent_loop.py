@@ -726,6 +726,7 @@ class AgentLoopWorker:
         )
 
     def create_transferqueue_client(self, controller_infos, storage_infos, role):
+        """Create a client for data system(transfer queue)."""
         from verl.single_controller.ray.base import get_random_string
         from verl.utils.transferqueue_utils import create_transferqueue_client
 

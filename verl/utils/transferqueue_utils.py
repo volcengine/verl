@@ -15,11 +15,22 @@
 import asyncio
 import inspect
 import threading
-import importlib
 from functools import wraps
 from typing import Any, Callable
 
 from tensordict import TensorDict
+
+try:
+    from transfer_queue import (
+        AsyncTransferQueueClient,
+        BatchMeta,
+        ZMQServerInfo,
+    )
+
+    HAS_TQ = True
+except ImportError:
+    HAS_TQ = False
+
 from verl.protocol import DataProto
 
 _TRANSFER_QUEUE_CLIENT = None
@@ -31,8 +42,6 @@ def create_transferqueue_client(
     controller_infos: dict[Any, "ZMQServerInfo"],
     storage_infos: dict[Any, "ZMQServerInfo"],
 ) -> None:
-    from transfer_queue import AsyncTransferQueueClient
-
     global _TRANSFER_QUEUE_CLIENT
     global _VAL_TRANSFER_QUEUE_CLIENT
     if "val" in client_id:
@@ -77,8 +86,6 @@ def _run_async_in_temp_loop(async_func: Callable[..., Any], *args, **kwargs) -> 
 
 
 def _find_batchmeta(*args, **kwargs):
-    from transfer_queue import BatchMeta
-
     for arg in args:
         if isinstance(arg, BatchMeta):
             return arg
@@ -131,8 +138,6 @@ def tqbridge(put_data: bool = True):
     def decorator(func):
         @wraps(func)
         def inner(*args, **kwargs):
-            from transfer_queue import BatchMeta
-
             batchmeta = _find_batchmeta(*args, **kwargs)
             if batchmeta is None:
                 return func(*args, **kwargs)
@@ -148,8 +153,6 @@ def tqbridge(put_data: bool = True):
 
         @wraps(func)
         async def async_inner(*args, **kwargs):
-            from transfer_queue import BatchMeta
-
             batchmeta = _find_batchmeta(*args, **kwargs)
             if batchmeta is None:
                 return await func(*args, **kwargs)
@@ -173,9 +176,8 @@ def tqbridge(put_data: bool = True):
         async def dummy_async_inner(*args, **kwargs):
             return await func(*args, **kwargs)
 
-        has_tq = importlib.util.find_spec("transfer_queue") is not None
-        wrapper_inner = inner if has_tq else dummy_inner
-        wrapper_async_inner = async_inner if has_tq else dummy_async_inner
+        wrapper_inner = inner if HAS_TQ else dummy_inner
+        wrapper_async_inner = async_inner if HAS_TQ else dummy_async_inner
 
         wrapper = wrapper_async_inner if inspect.iscoroutinefunction(func) else wrapper_inner
         return wrapper

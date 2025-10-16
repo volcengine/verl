@@ -123,6 +123,7 @@ verl is fast with:
    advance/rollout_skip.rst
    advance/one_step_off
    advance/agent_loop
+   data/transfer_queue.md
 
 .. toctree::
    :maxdepth: 1
