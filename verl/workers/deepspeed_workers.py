@@ -885,6 +885,58 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         return output.to("cpu")
 
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
+        """Save checkpoint for actor model.
+
+        Args:
+            local_path: Local path to save checkpoint
+            hdfs_path: Remote path to save checkpoint (HDFS, etc.)
+            global_step: Global training step
+            max_ckpt_to_keep: Maximum number of checkpoints to keep
+        """
+        import torch.distributed as dist
+
+        # only support save and load ckpt for actor
+        assert self._is_actor
+
+        if self._is_offload_param:
+            load_deepspeed_model_to_gpu(self.actor_engine)
+
+        self.checkpoint_manager.save(
+            root=local_path, global_step=global_step, hdfs_path=hdfs_path, max_ckpt_to_keep=max_ckpt_to_keep
+        )
+        dist.barrier()
+
+        if self._is_offload_param:
+            offload_deepspeed_model_to_cpu(self.actor_engine)
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=False):
+        """Load checkpoint for actor model.
+
+        Args:
+            local_path: Local path to load checkpoint from
+            hdfs_path: Remote path to load checkpoint from (HDFS, etc.)
+            del_local_after_load: Whether to delete local checkpoint after loading
+        """
+        import torch.distributed as dist
+
+        assert self._is_actor or (not self._is_actor and self._is_rollout), (
+            f"Checkpoint loading is only supported for Actor or standalone Rollout Workers, but got "
+            f"{self._is_actor} and {self._is_rollout}"
+        )
+
+        if self._is_offload_param:
+            load_deepspeed_model_to_gpu(self.actor_engine)
+
+        self.checkpoint_manager.load(
+            root=local_path, hdfs_path=hdfs_path, del_local_after_load=del_local_after_load
+        )
+
+        if self._is_offload_param:
+            offload_deepspeed_model_to_cpu(self.actor_engine)
+
 
 class DeepSpeedPPOActor(DataParallelPPOActor):
     """PPO actor that integrates DeepSpeed optimizer/ZeRO workflow."""
@@ -925,13 +977,14 @@ class DeepSpeedPPOActor(DataParallelPPOActor):
         ]
         if self.config.use_kl_loss:
             select_keys.append("ref_log_prob")
-        if self.config.tis_imp_ratio_cap > 0:
+        # Use rollout_is_threshold (replaces legacy tis_imp_ratio_cap)
+        if hasattr(self.config, 'rollout_is_threshold') and self.config.rollout_is_threshold is not None and self.config.rollout_is_threshold > 0:
             select_keys.append("rollout_log_probs")
 
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
         non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
 
-        if self.config.tis_imp_ratio_cap > 0:
+        if hasattr(self.config, 'rollout_is_threshold') and self.config.rollout_is_threshold is not None and self.config.rollout_is_threshold > 0:
             assert "rollout_log_probs" in data.batch.keys(), (
                 "Truncated Importance Sampling (TIS) requires `actor_rollout_ref.rollout.calculate_log_probs=True` "
                 "and is not currently supported in Server mode (agent loop)."
@@ -982,7 +1035,7 @@ class DeepSpeedPPOActor(DataParallelPPOActor):
                         response_mask=response_mask,
                         loss_agg_mode=loss_agg_mode,
                         config=self.config,
-                        rollout_log_probs=rollout_log_probs,
+                        rollout_is_weights=rollout_log_probs,  # Fixed: renamed parameter
                     )
 
                     if entropy_coeff != 0:
@@ -1161,7 +1214,6 @@ class DeepSpeedPPOCritic(DataParallelPPOCritic):
         return metrics
 
 
-
 class CriticWorker(Worker, DistProfilerExtension):
     """Clean DeepSpeed-based Critic Worker."""
 
@@ -1324,6 +1376,12 @@ class CriticWorker(Worker, DistProfilerExtension):
             config=self.config, critic_module=self.critic_module, engine=self.critic_engine
         )
 
+        # Create checkpoint manager for critic
+        # DeepSpeedCheckpointManager expects worker object (accesses self.engine.engine)
+        # Store engine reference for checkpoint manager to access
+        self.engine = self.critic_engine
+        self.checkpoint_manager = DeepSpeedCheckpointManager(engine=self)
+
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="critic"))
     @DistProfiler.annotate(color="cyan", role="critic_compute_values")
     def compute_values(self, data: DataProto):
@@ -1373,6 +1431,50 @@ class CriticWorker(Worker, DistProfilerExtension):
             offload_deepspeed_model_to_cpu(self.critic_engine)
 
         return output
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
+        """Save checkpoint for critic model.
+
+        Args:
+            local_path: Local path to save checkpoint
+            hdfs_path: Remote path to save checkpoint (HDFS, etc.)
+            global_step: Global training step
+            max_ckpt_to_keep: Maximum number of checkpoints to keep
+        """
+        import torch.distributed as dist
+
+        if self._is_offload_param:
+            load_deepspeed_model_to_gpu(self.critic_engine)
+
+        self.checkpoint_manager.save(
+            root=local_path, global_step=global_step, hdfs_path=hdfs_path, max_ckpt_to_keep=max_ckpt_to_keep
+        )
+        dist.barrier()
+
+        if self._is_offload_param:
+            offload_deepspeed_model_to_cpu(self.critic_engine)
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=False):
+        """Load checkpoint for critic model.
+
+        Args:
+            local_path: Local path to load checkpoint from
+            hdfs_path: Remote path to load checkpoint from (HDFS, etc.)
+            del_local_after_load: Whether to delete local checkpoint after loading
+        """
+        import torch.distributed as dist
+
+        if self._is_offload_param:
+            load_deepspeed_model_to_gpu(self.critic_engine)
+
+        self.checkpoint_manager.load(
+            root=local_path, hdfs_path=hdfs_path, del_local_after_load=del_local_after_load
+        )
+
+        if self._is_offload_param:
+            offload_deepspeed_model_to_cpu(self.critic_engine)
 
 
 class RolloutWorker(Worker):
