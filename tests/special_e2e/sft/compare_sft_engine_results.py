@@ -79,7 +79,7 @@ def main(sub_dir, method, loss_only):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Compare or show SFT engine results")
     parser.add_argument("--sub_dir", type=str, default="verl_sft_test", help="Subdirectory under ~/verl/test/log/")
-    parser.add_argument("--loss_only", type=bool, default=False, action="store_true", help="only test loss")
+    parser.add_argument("--loss_only", default=False, action="store_true", help="only test loss")
     parser.add_argument(
         "--method",
         type=str,
