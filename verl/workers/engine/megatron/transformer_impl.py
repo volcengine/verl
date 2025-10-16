@@ -595,7 +595,13 @@ class MegatronEngineWithLMHead(MegatronEngine):
             else:
                 logits_bak = logits
 
-            # FIXME(houmin): maybe shift label in another place
+            # Create the final labels for next-token prediction.
+            # The `label` tensor starts as a clone of `input_ids`. `torch.roll` is not applied
+            # earlier because `input_ids` is a nested tensor, which is incompatible with the operation.
+            # The `preprocess_packed_seqs_no_padding` function unnests and flattens the tensor
+            # into `input_ids_rmpad` (shape: [1, total_seqlen]).
+            # Now, on this simple, unpadded tensor, we can perform the standard left shift
+            # to align the target token `t+1` with the prediction for token `t`.
             label = torch.roll(label, shifts=-1, dims=1)
 
             log_probs = vocab_parallel_log_probs_from_logits(logits_bak, label)
