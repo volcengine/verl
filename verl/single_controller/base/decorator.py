@@ -19,6 +19,16 @@ from types import FunctionType
 from verl.protocol import DataProtoFuture, _padding_size_key
 from verl.utils.py_functional import DynamicEnum
 
+# TODO: Use a hacky workaround for ImportError since
+# transfer_queue isn't a default verl dependency.
+try:
+    from transfer_queue import BatchMeta
+except ImportError:
+
+    class BatchMeta:
+        pass
+
+
 # here we add a magic number of avoid user-defined function already have this attribute
 MAGIC_ATTR = "attrs_3141562937"
 
@@ -69,15 +79,6 @@ init_predefined_execute_mode()
 
 
 def _split_args_kwargs_data_proto(chunks, *args, **kwargs):
-    # TODO: Use a hacky workaround for ImportError since
-    # transfer_queue isn't a default verl dependency.
-    try:
-        from transfer_queue import BatchMeta
-    except ImportError:
-
-        class BatchMeta:
-            pass
-
     from verl.protocol import DataProto, DataProtoFuture
 
     splitted_args = []
@@ -142,15 +143,6 @@ def collect_all_to_all(worker_group, output):
 
 def _concat_data_proto_or_future(output: list):
     import ray
-
-    # TODO: Use a hacky workaround for ImportError since
-    # transfer_queue isn't a default verl dependency.
-    try:
-        from transfer_queue import BatchMeta
-    except ImportError:
-
-        class BatchMeta:
-            pass
 
     from verl.protocol import DataProto, DataProtoFuture
 
@@ -281,15 +273,6 @@ def dispatch_nd_compute_dataproto(dp_rank_mapping: list[int], dp_size, worker_gr
 def collect_nd_compute_dataproto(collect_mask: list[bool], worker_group, output):
     output = collect_nd_compute(collect_mask, worker_group, output)
     import ray
-
-    # TODO: Use a hacky workaround for ImportError since
-    # transfer_queue isn't a default verl dependency.
-    try:
-        from transfer_queue import BatchMeta
-    except ImportError:
-
-        class BatchMeta:
-            pass
 
     from verl.protocol import DataProto
 
