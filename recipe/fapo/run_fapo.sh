@@ -27,10 +27,10 @@ n_resp_per_prompt=8
 train_prompt_mini_bsz=32
 
 # Ray
-# RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
-# WORKING_DIR=${WORKING_DIR:-"${PWD}"}
-# RUNTIME_ENV=${RUNTIME_ENV:-"${WORKING_DIR}/verl/trainer/runtime_env.yaml"}
-NNODES=${NNODES:-4}
+RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
+WORKING_DIR=${WORKING_DIR:-"${PWD}"}
+RUNTIME_ENV=${RUNTIME_ENV:-"${WORKING_DIR}/verl/trainer/runtime_env.yaml"}
+NNODES=${NNODES:-2}
 RM_NODES=${RM_NODES:-2}
 # Paths
 RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
@@ -58,7 +58,10 @@ fsdp_size=8
 PROJECT_DIR="$(pwd)"
 CONFIG_PATH="$PROJECT_DIR/recipe/fapo/config"
 
-python3 -m verl.trainer.main_ppo \
+ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
+    --address "${RAY_ADDRESS}" \
+    --working-dir "${WORKING_DIR}" \
+    -- python3 -m verl.trainer.main_ppo \
     --config-path $CONFIG_PATH \
     --config-name rm_config.yaml \
     data.train_files="${TRAIN_FILE}" \
@@ -121,7 +124,7 @@ python3 -m verl.trainer.main_ppo \
     reward_model.enable_resource_pool=True \
     reward_model.n_gpus_per_node=8 \
     reward_model.nnodes="${RM_NODES}" \
-    reward_model.model.path=/mnt/hdfs/yyding/ckpts/MERGED_HF_MODEL/Qwen3-4B-Ins-GenRM-Step50 \
+    reward_model.model.path=FAPO-GenRM-4B \
     reward_model.rollout.name=sglang \
     reward_model.rollout.gpu_memory_utilization=0.95 \
     reward_model.rollout.tensor_model_parallel_size=1 \

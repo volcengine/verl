@@ -27,9 +27,9 @@ n_resp_per_prompt=8
 train_prompt_mini_bsz=32
 
 # Ray
-# RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
-# WORKING_DIR=${WORKING_DIR:-"${PWD}"}
-# RUNTIME_ENV=${RUNTIME_ENV:-"${WORKING_DIR}/verl/trainer/runtime_env.yaml"}
+RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
+WORKING_DIR=${WORKING_DIR:-"${PWD}"}
+RUNTIME_ENV=${RUNTIME_ENV:-"${WORKING_DIR}/verl/trainer/runtime_env.yaml"}
 NNODES=${NNODES:-4}
 # Paths
 RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
@@ -57,7 +57,10 @@ fsdp_size=8
 PROJECT_DIR="$(pwd)"
 CONFIG_PATH="$PROJECT_DIR/recipe/fapo/config"
 
-python3 -m verl.trainer.main_ppo \
+ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
+    --address "${RAY_ADDRESS}" \
+    --working-dir "${WORKING_DIR}" \
+    -- python3 -m verl.trainer.main_ppo \
     --config-path $CONFIG_PATH \
     --config-name rm_config.yaml \
     data.train_files="${TRAIN_FILE}" \

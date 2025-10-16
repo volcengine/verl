@@ -14,17 +14,23 @@
 
 import asyncio
 import json
+import logging
+import os
 
 import aiohttp
 from transformers import PreTrainedTokenizer
 
 from verl.utils.reward_score.math_dapo import last_boxed_only_string, normalize_final_answer, remove_boxed
 
+logger = logging.getLogger(__name__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
+
 
 def verify(
     solution_str: str,
     gt: str,
 ) -> tuple[bool, str]:
+    solution_str = solution_str[-300:]
     boxed_answer = last_boxed_only_string(solution_str)
     if boxed_answer is not None:
         extracted_answer = remove_boxed(boxed_answer)
@@ -43,7 +49,6 @@ async def compute_score_baseline(
 ):
     loop = asyncio.get_running_loop()
     """Compute the reward score for Baseline."""
-    solution_str = solution_str[-300:]
     correct, pred = await loop.run_in_executor(None, lambda: verify(solution_str, ground_truth))
     reward_score = 1.0 if correct else -1.0
     return {"score": reward_score, "acc": correct, "pred": pred}
@@ -79,8 +84,12 @@ async def generate_aiohttp(router_address: str, prompt_ids: list[int], sampling_
         session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=None))
         async with session.post(url, json=payload) as resp:
             output = await resp.text()
-            output = json.loads(output)
-            return output
+            try:
+                output = json.loads(output)
+                return output
+            except Exception:
+                logger.error(f"Failed to parse JSON response: {output}")
+                return {}
     except Exception as e:
         raise e
     finally:
@@ -99,7 +108,6 @@ async def compute_score_fapo(
     loop = asyncio.get_running_loop()
 
     question, split = extra_info["question"], extra_info["split"]
-    solution_str = solution_str[-300:]
     correct, pred = await loop.run_in_executor(None, lambda: verify(solution_str, ground_truth))
     reward_score = 1.0 if correct else -1.0
     is_flawed_positive = False
