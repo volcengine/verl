@@ -70,13 +70,13 @@ class FullyAsyncAgentLoopOutput(AgentLoopOutput):
 @ray.remote
 class FullyAsyncAgentLoopWorker(AgentLoopWorkerBase):
     def __init__(
-            self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], rm_executor: BatchExecutor = None
+        self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], rm_executor: BatchExecutor = None
     ):
         self.server_manager = FullyAsyncLLMServerManager(config, server_handles)
         super().__init__(config, server_handles, rm_executor)
 
     async def generate_sequences_no_post(
-            self, batch: DataProto, partial_output_list: Optional[list[AgentLoopOutput]]
+        self, batch: DataProto, partial_output_list: Optional[list[AgentLoopOutput]]
     ) -> list[AgentLoopOutput]:
         """Generate sequences from agent loop.
 
@@ -126,19 +126,19 @@ class FullyAsyncAgentLoopWorker(AgentLoopWorkerBase):
         return await asyncio.gather(*tasks)
 
     async def _partial_run_agent_loop(
-            self,
-            sampling_params: dict[str, Any],
-            trajectory: dict[str, Any],
-            *,
-            agent_name: str,
-            **kwargs,
+        self,
+        sampling_params: dict[str, Any],
+        trajectory: dict[str, Any],
+        *,
+        agent_name: str,
+        **kwargs,
     ) -> AgentLoopOutput:
         with rollout_trace_attr(
-                step=trajectory["step"],
-                sample_index=trajectory["sample_index"],
-                rollout_n=trajectory["rollout_n"],
-                validate=trajectory["validate"],
-                name="agent_loop",
+            step=trajectory["step"],
+            sample_index=trajectory["sample_index"],
+            rollout_n=trajectory["rollout_n"],
+            validate=trajectory["validate"],
+            name="agent_loop",
         ):
             assert agent_name in _agent_loop_registry, (
                 f"Agent loop {agent_name} not registered, registered agent loops: {_agent_loop_registry.keys()}"
@@ -215,8 +215,10 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
         model_config = self.config.actor_rollout_ref.model
         self.rollout_replicas = [
             self.rollout_replica_class(
-                replica_rank=replica_rank, config=rollout_config,
-                model_config=model_config, gpus_per_node=self.config.trainer.n_gpus_per_node
+                replica_rank=replica_rank,
+                config=rollout_config,
+                model_config=model_config,
+                gpus_per_node=self.config.trainer.n_gpus_per_node,
             )
             for replica_rank in range(num_replicas)
         ]
@@ -230,9 +232,9 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
         self.server_addresses = [server._server_address for server in self.rollout_replicas]
 
     async def generate_single_sample_async(
-            self,
-            sample: DataProto,
-            partial_output_list: Optional[list[AgentLoopOutput]],
+        self,
+        sample: DataProto,
+        partial_output_list: Optional[list[AgentLoopOutput]],
     ) -> list[AgentLoopOutput]:
         """
         Asynchronously process a single sample
