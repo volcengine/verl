@@ -83,9 +83,12 @@ class RewardModelManager:
     def _initialize_router(self):
         worker_urls = [f"http://{server_address}" for server_address in self.server_addresses]
 
-        from .router import launch_router
+        if self.config.rollout.name == "sglang":
+            from .router.sglang_router import launch_router_process
+        else:
+            from .router.naive_router import launch_router_process
 
-        _, self.router_address = launch_router(worker_urls=worker_urls)
+        self.router_address, _ = launch_router_process(worker_urls=worker_urls)
 
     def get_router_address(self):
         return self.router_address

@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-def launch_router(worker_urls: list[str]):
+def launch_router_process(worker_urls: list[str]):
     router_ip = ray.util.get_node_ip_address().strip("[]")
     router_port, _ = get_free_port(router_ip)
     router_address = (
@@ -51,7 +51,7 @@ def launch_router(worker_urls: list[str]):
     assert router_process.is_alive()
 
     logger.info(f"Router is running on {router_address}")
-    return router_process, router_address
+    return router_address, router_process
 
 
 def run_router(router_ip: str, router_port: int, worker_urls: list[str]):
