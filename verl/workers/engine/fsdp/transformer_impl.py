@@ -974,7 +974,8 @@ class FSDPEngineWithValueHead(FSDPEngineWithLMHead):
             else:
                 values_rmpad = output.logits
                 values_rmpad = values_rmpad.squeeze(0)  # (total_nnz, 1)
-                # FIXME(houmin): confirm why should we squeeze here
+                # critic model arch is like Qwen3ForTokenClassfication and num_labels=1
+                # so we squeeze the last dimension here to get the value for each token
                 values_rmpad = values_rmpad.squeeze(-1)
 
             # gather output if sp > 1
