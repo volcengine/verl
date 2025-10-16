@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-def launch_router(worker_urls: list[str], max_wait_time: float = 300.0, timeout: float = 30.0):
+def launch_router(worker_urls: list[str]):
     router_ip = ray.util.get_node_ip_address().strip("[]")
     router_port, _ = get_free_port(router_ip)
     router_address = (
