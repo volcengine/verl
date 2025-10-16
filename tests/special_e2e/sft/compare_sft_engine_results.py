@@ -46,14 +46,15 @@ def show_results(golden_results, other_results):
     print(f"{'File':<30} {'Loss':<15} {'Grad Norm':<15}")
     print("=" * 60)
 
-    golden_loss = golden_results[0]["data"]["train/loss"]
-    golden_grad_norm = golden_results[0]["data"]["train/grad_norm"]
-    print(f"{'golden.jsonl':<30} {golden_loss:<15.6f} {golden_grad_norm:<15.6f}")
+    for i in range(len(golden_results) - 1):
+        golden_loss = golden_results[i]["data"]["train/loss"]
+        golden_grad_norm = golden_results[i]["data"]["train/grad_norm"]
+        print(f"{'golden.jsonl':<30} {golden_loss:<15.6f} {golden_grad_norm:<15.6f}")
 
-    for file, result in other_results.items():
-        loss = result[0]["data"]["train/loss"]
-        grad_norm = result[0]["data"]["train/grad_norm"]
-        print(f"{file:<30} {loss:<15.6f} {grad_norm:<15.6f}")
+        for file, result in other_results.items():
+            loss = result[i]["data"]["train/loss"]
+            grad_norm = result[i]["data"]["train/grad_norm"]
+            print(f"{file:<30} {loss:<15.6f} {grad_norm:<15.6f}")
 
 
 def main(sub_dir, method, loss_only):
