@@ -74,6 +74,7 @@ class SupportedModel(Enum):
     GLM4_MOE = "Glm4MoeForCausalLM"
 
     QWEN3_TOKEN_CLASSIFICATION = "Qwen3ForTokenClassification"
+    QWEN3_MOE_VL = "Qwen3VLMoeForConditionalGeneration"
 
 
 # Registry for model configuration converters
@@ -118,6 +119,7 @@ MODEL_FORWARD_REGISTRY: dict[SupportedModel, Callable] = {
     SupportedModel.QWEN3: gptmodel_forward,
     SupportedModel.QWEN3_MOE: gptmodel_forward,
     SupportedModel.QWEN2_5_VL: gptmodel_forward_qwen2_5_vl,
+    SupportedModel.QWEN3_MOE_VL: gptmodel_forward_qwen2_5_vl,
     SupportedModel.DEEPSEEK_V3: gptmodel_forward,
     SupportedModel.GLM4_MOE: gptmodel_forward,
     SupportedModel.QWEN3_TOKEN_CLASSIFICATION: gptmodel_forward,
@@ -131,6 +133,7 @@ MODEL_FORWARD_NOPAD_REGISTRY: dict[SupportedModel, Callable] = {
     SupportedModel.MIXTRAL: gptmodel_forward_no_padding,
     SupportedModel.DEEPSEEK_V3: gptmodel_forward_no_padding,
     SupportedModel.QWEN2_5_VL: gptmodel_forward_no_padding,
+    SupportedModel.QWEN3_MOE_VL: gptmodel_forward_no_padding,
     SupportedModel.LLAMA4: gptmodel_forward_no_padding,
     SupportedModel.QWEN3: gptmodel_forward_no_padding,
     SupportedModel.QWEN3_MOE: gptmodel_forward_no_padding,
@@ -148,6 +151,7 @@ MODEL_FORWARD_FUSED_REGISTRY: dict[SupportedModel, Callable] = {
     SupportedModel.MIXTRAL: fused_forward_gptmodel,
     SupportedModel.DEEPSEEK_V3: fused_forward_gptmodel,
     SupportedModel.QWEN2_5_VL: fused_forward_qwen2_5_vl,
+    SupportedModel.QWEN3_MOE_VL: fused_forward_qwen2_5_vl,
     SupportedModel.LLAMA4: fused_forward_gptmodel,
     SupportedModel.QWEN3: fused_forward_gptmodel,
     SupportedModel.QWEN3_MOE: fused_forward_gptmodel,
