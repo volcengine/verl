@@ -46,18 +46,11 @@ from verl.utils.device import get_device_name
 try:  # DeepSpeed imports are optional
     from deepspeed import DeepSpeedEngine as _DSEngine  # noqa: F401
     from deepspeed.ops.adam import FusedAdam  # noqa: F401
-    from deepspeed.runtime.checkpoint_engine.torch import (  # noqa: F401
-        load_deepspeed_checkpoint,
-        save_deepspeed_checkpoint,
-    )
+
+    DEEPSPEED_AVAILABLE = True
 except Exception:  # pragma: no cover - env without deepspeed
     _DSEngine = object  # type: ignore
-
-    def save_deepspeed_checkpoint(*args, **kwargs):  # type: ignore
-        raise RuntimeError("DeepSpeed not available: save_deepspeed_checkpoint")
-
-    def load_deepspeed_checkpoint(*args, **kwargs):  # type: ignore
-        raise RuntimeError("DeepSpeed not available: load_deepspeed_checkpoint")
+    DEEPSPEED_AVAILABLE = False
 
 
 logger = logging.getLogger(__file__)
@@ -162,8 +155,11 @@ class DeepSpeedCheckpointManager:
 
         # We already materialize a unique directory per step, so no need to pass a DeepSpeed tag that
         # would create a nested step_<n>/step_<n>/ hierarchy. Using tag=None keeps files flat.
-        save_deepspeed_checkpoint(
-            engine=self.engine.engine,
+        if not DEEPSPEED_AVAILABLE:
+            raise RuntimeError("DeepSpeed not available for checkpoint saving")
+
+        # Use DeepSpeed engine's save_checkpoint method directly
+        self.engine.engine.save_checkpoint(
             save_dir=target_dir,
             client_state=client_state,
             tag=None,
@@ -205,8 +201,11 @@ class DeepSpeedCheckpointManager:
         if getattr(self.engine, "_is_offload_param", False):
             load_deepspeed_model_to_gpu(self.engine.engine)
 
-        client_state = load_deepspeed_checkpoint(
-            engine=self.engine.engine,
+        if not DEEPSPEED_AVAILABLE:
+            raise RuntimeError("DeepSpeed not available for checkpoint loading")
+
+        # Use DeepSpeed engine's load_checkpoint method directly
+        _, client_state = self.engine.engine.load_checkpoint(
             load_dir=path,
             tag=None,  # latest inside that directory
             load_module_strict=True,
