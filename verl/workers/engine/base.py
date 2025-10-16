@@ -238,8 +238,13 @@ class EngineRegistry:
 
     @classmethod
     def get_engine_cls(cls, model_type: str, backend: str):
-        assert model_type in cls._engines, f"Unknown model_type: {model_type}"
-        assert backend in cls._engines[model_type], f"Unknown backend: {backend}"
+        assert model_type in cls._engines, (
+            f"Unknown model_type: {model_type}, supported model_type: {cls._engines.keys()}"
+        )
+        assert backend in cls._engines[model_type], (
+            f"Unknown backend: {backend} for model_type: {model_type}, "
+            f"supported backend: {cls._engines[model_type].keys()}"
+        )
         device = get_device_name()
         assert device in cls._engines[model_type][backend], (
             f"Unknown device: {device} for model_type: {model_type} and backend: {backend}"

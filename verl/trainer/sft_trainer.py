@@ -34,7 +34,7 @@ from verl.utils import tensordict_utils as tu
 from verl.utils.checkpoint import CheckpointHandler
 from verl.utils.dataset.dataset_utils import SFTTensorCollator
 from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
-from verl.utils.device import get_device_name, is_cuda_available, is_npu_available
+from verl.utils.device import is_cuda_available, is_npu_available
 from verl.utils.distributed import destroy_global_process_group
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.logger import log_with_rank
@@ -144,10 +144,12 @@ class SFTTrainer:
 
     def _build_dataset(self):
         config = self.config
-        tokenizer = self.model_config.tokenizer
-        train_dataset = create_sft_dataset(config.data.train_files, config.data, tokenizer)
+        processor = self.model_config.processor
+        if processor is None:
+            processor = self.model_config.tokenizer
+        train_dataset = create_sft_dataset(config.data.train_files, config.data, processor)
         if config.data.val_files:
-            val_dataset = create_sft_dataset(config.data.val_files, config.data, tokenizer)
+            val_dataset = create_sft_dataset(config.data.val_files, config.data, processor)
         else:
             val_dataset = None
 
@@ -160,7 +162,6 @@ class SFTTrainer:
         # Use data parallel rank and size instead of global rank and world size
 
         # Set pin_memory_device when pin_memory is enabled.
-        device_name = get_device_name()
 
         dp_rank = self.engine.get_data_parallel_rank()
         dp_size = self.engine.get_data_parallel_size()
@@ -179,11 +180,22 @@ class SFTTrainer:
             sampler=self.train_sampler,
             collate_fn=self.collate_fn,
             num_workers=8,
-            pin_memory=True,
+            pin_memory=False,  # nested tensor not support pin_memory
             drop_last=True,
-            pin_memory_device=device_name,
         )
 
+        self.val_sampler = DistributedSampler(
+            self.val_dataset, shuffle=False, num_replicas=dp_size, rank=dp_rank, drop_last=True
+        )
+        self.val_dataloader = StatefulDataLoader(
+            dataset=self.val_dataset,
+            batch_size=self.train_batch_size_per_dp,
+            sampler=self.val_sampler,
+            collate_fn=self.collate_fn,
+            num_workers=8,
+            pin_memory=False,  # nested tensor not support pin_memory
+            drop_last=True,
+        )
         if self.val_dataset:
             self.val_sampler = DistributedSampler(
                 self.val_dataset, shuffle=False, num_replicas=dp_size, rank=dp_rank, drop_last=True
@@ -194,9 +206,8 @@ class SFTTrainer:
                 sampler=self.val_sampler,
                 collate_fn=self.collate_fn,
                 num_workers=8,
-                pin_memory=True,
+                pin_memory=False,
                 drop_last=True,
-                pin_memory_device=device_name,
             )
         else:
             self.val_dataloader = None
@@ -245,6 +256,7 @@ class SFTTrainer:
             "global_batch_size": self.global_batch_size,
             "pad_mode": self.config.data.pad_mode,
             "pad_token_id": self.model_config.tokenizer.pad_token_id,
+            "max_response_length": self.config.data.max_length,
         }
 
         train_time = 0
@@ -372,7 +384,7 @@ def main(config):
     run_sft(config)
 
 
-def create_sft_dataset(data_paths, data_config, tokenizer):
+def create_sft_dataset(data_paths, data_config, processor):
     """Create a dataset."""
     # build dataset
     # First check if a custom dataset class is specified
@@ -385,7 +397,7 @@ def create_sft_dataset(data_paths, data_config, tokenizer):
         dataset_cls = MultiTurnSFTDataset
 
     # Create datasets based on the selected class
-    dataset = dataset_cls(parquet_files=data_paths, tokenizer=tokenizer, config=data_config)
+    dataset = dataset_cls(parquet_files=data_paths, processor=processor, config=data_config)
     return dataset
 
 

@@ -38,6 +38,11 @@ from transformers import (
 )
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
+try:
+    from transformers import AutoModelForImageTextToText
+except ImportError:
+    AutoModelForImageTextToText = AutoModelForVision2Seq
+
 from verl.models.registry import ModelRegistry
 from verl.utils.import_utils import is_trl_available
 
@@ -666,6 +671,8 @@ def load_valuehead_model(local_path, torch_dtype, model_config, trust_remote_cod
 
 
 _architecture_to_auto_class = {
+    "VLForConditionalGeneration": AutoModelForImageTextToText,  # qwen2.5 vl etc.
+    "VLMoeForConditionalGeneration": AutoModelForImageTextToText,  # qwen3 vl moe etc.
     "ForCausalLM": AutoModelForCausalLM,
     "ForVision2Seq": AutoModelForVision2Seq,
     "ForTokenClassification": AutoModelForTokenClassification,
@@ -694,6 +701,25 @@ def get_hf_auto_model_class(hf_config):
                 break
 
     return actor_module_class
+
+
+def extract_multi_modal_inputs_from_nested(batch_data: list[dict[str, torch.Tensor]]):
+    """
+    Extract and process multi-modal inputs from a batch if multi-modal inputs is a nested tensor.
+
+    Args:
+        batch_data (list[dict[str, torch.Tensor]]): The batch containing potential multi-modal inputs
+
+    Returns:
+        dict[str, torch.Tensor | list[torch.Tensor]]: Processed multi-modal inputs ready for model consumption
+
+    """
+    mm_data = {}
+    for key, values in batch_data.items():
+        if key.startswith("multi_modal_inputs_"):
+            new_key = key.replace("multi_modal_inputs_", "", 1)
+            mm_data[new_key] = torch.cat(values.unbind(), dim=0)
+    return mm_data
 
 
 def extract_multi_modal_inputs(

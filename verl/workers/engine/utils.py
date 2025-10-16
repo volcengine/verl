@@ -51,8 +51,9 @@ def prepare_micro_batches(
         )
     else:
         micro_batch_size_per_gpu = data["micro_batch_size_per_gpu"]
-        micro_batches = data.split(micro_batch_size_per_gpu)
-        batch_idx_list = None
+        bs = micro_batch_size_per_gpu
+        batch_idx_list = [list(range(len(data)))[i * bs : (i + 1) * bs] for i in range((len(data) + bs - 1) // bs)]
+        micro_batches = [tu.index_select_tensor_dict(data, indices) for indices in batch_idx_list]
     return micro_batches, batch_idx_list
 
 

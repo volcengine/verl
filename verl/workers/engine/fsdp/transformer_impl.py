@@ -61,7 +61,7 @@ from verl.utils.fsdp_utils import (
     offload_fsdp_optimizer,
     replace_lora_wrapper,
 )
-from verl.utils.model import convert_weight_keys
+from verl.utils.model import convert_weight_keys, extract_multi_modal_inputs, extract_multi_modal_inputs_from_nested
 from verl.utils.py_functional import convert_to_regular_types
 from verl.utils.torch_functional import logprobs_from_logits
 from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad, ulysses_pad_and_slice_inputs
@@ -193,6 +193,11 @@ class FSDPEngine(BaseEngine):
             torch_dtype = torch.float32 if not self.engine_config.forward_only else torch.bfloat16
 
         torch_dtype = PrecisionType.to_dtype(torch_dtype)
+
+        # For VL models with Ulysses SP: disable flash_attention_2 in vision encoder
+        # because it doesn't support position_ids which is required by Ulysses SP
+        if self.ulysses_sequence_parallel_size > 1 and hasattr(self.model_config.hf_config, "vision_config"):
+            self.model_config.hf_config.vision_config._attn_implementation = "eager"
 
         init_context = get_init_weight_context_manager(
             use_meta_tensor=not self.model_config.hf_config.tie_word_embeddings, mesh=self.device_mesh
@@ -710,23 +715,28 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
         multi_modal_inputs = {}
         if "multi_modal_inputs" in micro_batch.keys():
-            from verl.utils.model import extract_multi_modal_inputs
-
             multi_modal_inputs = extract_multi_modal_inputs(micro_batch["multi_modal_inputs"])
+        else:
+            multi_modal_inputs = extract_multi_modal_inputs_from_nested(micro_batch)
 
         input_ids = micro_batch["input_ids"]
         position_ids = micro_batch["position_ids"]
 
-        if position_ids.dim() == 3:  # qwen2vl mrope
-            position_ids = position_ids.transpose(0, 1)  # (bsz, 3, seqlen) -> (3, bsz, seqlen)
-
         # args used to get outputs
         output_args = {}
+
+        if not use_remove_padding and self.use_ulysses_sp:
+            raise ValueError(
+                "Ulysses sequence parallelism requires use_remove_padding=True. "
+                "Set model_config.use_remove_padding to True when ulysses_sequence_parallel_size > 1."
+            )
 
         if use_remove_padding:
             if pad_mode == DatasetPadMode.NO_PADDING:
                 input_ids_rmpad = input_ids.values().unsqueeze(0)  # (1, total_nnz)
-                position_ids_rmpad = position_ids.values().unsqueeze(0)  # (1, total_nnz)
+                position_ids_rmpad = position_ids.values().unsqueeze(0)
+                if position_ids_rmpad.dim() == 3:
+                    position_ids_rmpad = position_ids_rmpad.transpose(0, 1)
             else:
                 raise NotImplementedError(f"pad_mode {pad_mode} not implemented")
 
@@ -769,9 +779,12 @@ class FSDPEngineWithLMHead(FSDPEngine):
             }
 
         else:
+            if pad_mode == DatasetPadMode.NO_PADDING and position_ids.is_nested:
+                position_ids = torch.nested.to_padded_tensor(position_ids, padding=0)
+            if position_ids.dim() == 3:  # qwen2vl mrope
+                position_ids = position_ids.transpose(0, 1)  # (bsz, 3, seqlen) -> (3, bsz, seqlen)
             if pad_mode == DatasetPadMode.NO_PADDING:
                 input_ids = micro_batch["input_ids"]
-                position_ids = micro_batch["position_ids"]
                 loss_mask = micro_batch["loss_mask"]
 
                 pad_token_id = tu.get_non_tensor_data(data=micro_batch, key="pad_token_id", default=0)
@@ -784,10 +797,6 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
                 input_ids = torch.nested.to_padded_tensor(
                     input_ids, padding=pad_token_id, output_size=(batch_size, max_seq_len)
-                )
-
-                position_ids = torch.nested.to_padded_tensor(
-                    position_ids, padding=0, output_size=(batch_size, max_seq_len)
                 )
 
                 attention_mask_list = [torch.ones_like(t, dtype=torch.int32) for t in loss_mask]
@@ -824,6 +833,12 @@ class FSDPEngineWithLMHead(FSDPEngine):
         model_output = {}
 
         input_ids = micro_batch["input_ids"]
+        if not use_remove_padding and self.use_ulysses_sp:
+            raise ValueError(
+                "Ulysses sequence parallelism requires use_remove_padding=True. "
+                "Set model_config.use_remove_padding to True when ulysses_sequence_parallel_size > 1."
+            )
+
         if use_remove_padding:
             input_ids_rmpad_rolled = output_args["input_ids_rmpad_rolled"]
 
@@ -963,9 +978,15 @@ class FSDPEngineWithValueHead(FSDPEngineWithLMHead):
     def prepare_model_outputs(self, output, output_args, micro_batch: TensorDict):
         use_remove_padding = tu.get_non_tensor_data(data=micro_batch, key="use_remove_padding", default=True)
         pad_mode = tu.get_non_tensor_data(data=micro_batch, key="pad_mode", default=DatasetPadMode.NO_PADDING)
+        input_ids = micro_batch["input_ids"]
+
+        if not use_remove_padding and self.use_ulysses_sp:
+            raise ValueError(
+                "Ulysses sequence parallelism requires use_remove_padding=True. "
+                "Set model_config.use_remove_padding to True when ulysses_sequence_parallel_size > 1."
+            )
 
         if use_remove_padding:
-            input_ids = micro_batch["input_ids"]
             batch_size, seqlen = input_ids.shape
 
             if hasattr(self.module, "v_head"):
