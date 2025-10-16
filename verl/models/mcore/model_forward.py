@@ -183,7 +183,6 @@ def gptmodel_forward_no_padding(
                 k: preprocess_packed_seqs_no_padding(v, pre_process=True)[0] for k, v in logits_processor_args.items()
             }
             output_dict = logits_processor(output_orig, **args)
-            # print(f'gptmodel_forward_no_padding: {output_dict=}')
             output = {
                 k: postprocess_packed_seqs_no_padding(
                     v, packed_seq_params, input_ids, batch_size, post_process=post_process
