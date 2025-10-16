@@ -16,7 +16,7 @@ import logging
 import os
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Optional
+from typing import Callable, Optional
 
 from pydantic import BaseModel
 from ray.actor import ActorHandle
@@ -85,7 +85,11 @@ class RolloutReplica(ABC):
         self.config = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
 
-        self.world_size = self.config.tensor_model_parallel_size * self.config.data_parallel_size
+        self.world_size = (
+            self.config.tensor_model_parallel_size
+            * self.config.data_parallel_size
+            * self.config.pipeline_model_parallel_size
+        )
         self.gpus_per_node = min(gpus_per_node, self.world_size)
         assert self.world_size % self.gpus_per_node == 0, (
             f"world_size {self.world_size} must be divisible by gpus_per_node {self.gpus_per_node}"
@@ -171,32 +175,57 @@ class RolloutReplica(ABC):
         await asyncio.gather(*[server.sleep.remote() for server in self.servers])
 
 
+class RolloutReplicaRegistry:
+    """Factory for managing rollout replica implementations."""
+
+    _registry: dict[str, Callable[[], type[RolloutReplica]]] = {}
+
+    @classmethod
+    def register(cls, name: str, loader: Callable[[], type[RolloutReplica]]) -> None:
+        """Register a new rollout replica type."""
+        cls._registry[name] = loader
+
+    @classmethod
+    def get(cls, name: str) -> type[RolloutReplica]:
+        """Get a rollout replica class by name."""
+        if name not in cls._registry:
+            raise ValueError(f"Unknown rollout mode: {name}. Available: {list(cls._registry.keys())}")
+        return cls._registry[name]()
+
+
+# Loader functions for built-in types
+def _load_vllm():
+    from verl.workers.rollout.vllm_rollout.vllm_async_server import vLLMReplica
+
+    return vLLMReplica
+
+
+def _load_sglang():
+    os.environ["SGLANG_USE_CPU_ENGINE"] = "1"
+
+    try:
+        import vllm  # noqa: F401
+    except ImportError:
+        import sys
+        from unittest.mock import Mock
+
+        mock_vllm = Mock()
+        mock_vllm._custom_ops = Mock()
+        mock_vllm._custom_ops.scaled_fp8_quant = Mock()
+        sys.modules["vllm"] = mock_vllm
+        sys.modules["vllm._custom_ops"] = mock_vllm._custom_ops
+
+    from verl.workers.rollout.sglang_rollout.async_sglang_server import SGLangReplica
+
+    del os.environ["SGLANG_USE_CPU_ENGINE"]
+    return SGLangReplica
+
+
+# Register built-in types
+RolloutReplicaRegistry.register("vllm", _load_vllm)
+RolloutReplicaRegistry.register("sglang", _load_sglang)
+
+
+# Original function for backward compatibility
 def get_rollout_replica_class(rollout: str) -> type[RolloutReplica]:
-    if rollout == "vllm":
-        from verl.workers.rollout.vllm_rollout.vllm_async_server import vLLMReplica
-
-        return vLLMReplica
-    elif rollout == "sglang":
-        # NOTE: verl driver is cpu only, avoid sglang fp8 quantization import error.
-        os.environ["SGLANG_USE_CPU_ENGINE"] = "1"
-
-        # TODO: remove this once we bump to sglang>=0.5.1
-        try:
-            import vllm  # noqa: F401
-        except ImportError:
-            import sys
-            from unittest.mock import Mock
-
-            mock_vllm = Mock()
-            mock_vllm._custom_ops = Mock()
-            mock_vllm._custom_ops.scaled_fp8_quant = Mock()
-
-            sys.modules["vllm"] = mock_vllm
-            sys.modules["vllm._custom_ops"] = mock_vllm._custom_ops
-
-        from verl.workers.rollout.sglang_rollout.async_sglang_server import SGLangReplica
-
-        del os.environ["SGLANG_USE_CPU_ENGINE"]
-        return SGLangReplica
-    else:
-        raise ValueError(f"Unknown rollout mode: {rollout}")
+    return RolloutReplicaRegistry.get(rollout)

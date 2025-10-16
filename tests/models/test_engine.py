@@ -24,7 +24,7 @@ import ray
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
-from transformers import AutoModelForCausalLM, AutoModelForTokenClassification, Qwen3Config, Qwen3MoeConfig
+from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForTokenClassification, Qwen3Config, Qwen3MoeConfig
 
 from verl import DataProto
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
@@ -289,8 +289,9 @@ def _worker(rank: int, world_size: int, rendezvous_file: str, strategy: str, mod
         world_size=world_size,
     )
 
+    ref_model_config = AutoConfig.from_pretrained(model_path)
     with torch.device("meta"):
-        ref_model = AutoModelForCausalLM.from_pretrained(model_path)
+        ref_model = AutoModelForCausalLM.from_config(ref_model_config)
 
     from verl.workers.engine import BaseEngine, EngineRegistry
 

@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import gc
 import time
 
 import ray
@@ -57,6 +57,7 @@ def test():
     del critic_wg
     del rm_wg
     del ref_wg
+    gc.collect()  # make sure ray actors are deleted
 
     [ray.util.remove_placement_group(pg) for pg in resource_pool.get_placement_groups()]
     print("wait 5s to remove placemeng_group")
