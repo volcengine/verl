@@ -8,9 +8,9 @@ exp_name='FlowRL-vanilla-Qwen2.5-7B-source_load_Z_1016'
 adv_estimator=grpo
 
 # KL settings (ref policy needed for FlowRL, but KL penalty disabled)
-use_kl_in_reward=True  # Enable ref policy for ref_log_prob (needed for FlowRL loss)
+use_kl_in_reward=False  # Enable ref policy for ref_log_prob (needed for FlowRL loss)
 kl_coef=0.0
-use_kl_loss=False
+use_kl_loss=True
 kl_loss_coef=0.0
 
 # FlowRL trajectory balance coefficient

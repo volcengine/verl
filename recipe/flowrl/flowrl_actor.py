@@ -304,7 +304,6 @@ class FlowRLActor(DataParallelPPOActor):
             "position_ids",
             "old_log_probs",
             "advantages",
-            "ref_log_prob",  # FlowRL requires reference log probs
         ]
         if self.config.use_kl_loss:
             select_keys.append("ref_log_prob")
