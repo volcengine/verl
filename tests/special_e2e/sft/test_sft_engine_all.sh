@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+set -xeuo pipefail
 
 rm -rf ~/verl/test/log
 mkdir -p ~/verl/test/log
