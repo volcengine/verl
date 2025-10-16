@@ -12,10 +12,10 @@ pyarrow>=19.0.0
 pybind11
 pylatexenc
 ray[default]>=2.10
-tensordict>=0.8.0,<=0.9.1,!=0.9.0
+tensordict>=0.8.0,<=0.10.0,!=0.9.0
 torchdata
 torchvision
 transformers
 wandb
-sglang[all]==0.4.10.post2
+sglang[all]==0.5.2
 huggingface_hub

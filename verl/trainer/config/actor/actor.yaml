@@ -38,6 +38,9 @@ clip_ratio_low: 0.2
 # Upper bound for asymmetric clipping (used in dual-clip PPO)
 clip_ratio_high: 0.2
 
+# Whether to freeze vision model, if set true, it will be freeze vision model
+freeze_vision_tower: false
+
 # policy loss config
 policy_loss:
 
@@ -70,10 +73,6 @@ loss_agg_mode: token-mean
 
 # Entropy regularization coefficient in PPO loss
 entropy_coeff: 0
-
-# Truncated Importance Sampling (TIS): https://fengyao.notion.site/off-policy-rl
-# the truncation value C of truncated Importance Sampling (-1 for disable TIS)
-tis_imp_ratio_cap: -1
 
 # Whether to use KL loss instead of KL reward penalty. True for GRPO
 use_kl_loss: false
@@ -117,7 +116,7 @@ optim:
   # Learning rate
   lr: 1e-6
 
-  # Warmup steps ratio (used if lr_warmup_steps is negative)
+  # Warmup steps ratio (used if lr_warmup_steps is 0 or negative)
   lr_warmup_steps_ratio: 0.0
 
   # Total training steps (must be overridden at runtime)

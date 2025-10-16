@@ -22,6 +22,13 @@ from typing import Any, Callable, ContextManager
 import numpy as np
 import torch
 import torch.distributed as dist
+
+try:
+    # NPU patch
+    import mindspeed.megatron_adaptor  # noqa: F401
+except ImportError:
+    pass
+
 from accelerate import init_empty_weights
 from megatron.core import mpu
 from megatron.core.models.gpt.gpt_model import ModelType
@@ -34,6 +41,7 @@ from transformers import (
 
 from verl.models.mcore import hf_to_mcore_config
 from verl.utils.device import get_device_name, get_nccl_backend, get_torch_device
+from verl.utils.distributed import set_numa_affinity
 from verl.utils.megatron.dist_checkpointing import load_dist_checkpointing
 from verl.utils.megatron_utils import get_model
 from verl.utils.tokenizer import hf_processor, hf_tokenizer
@@ -142,6 +150,7 @@ class MegatronModelMerger(BaseModelMerger):
             os.environ["MASTER_ADDR"] = "localhost"
             os.environ["MASTER_PORT"] = "12355"
 
+        set_numa_affinity()
         torch.distributed.init_process_group(get_nccl_backend())
 
         self.rank = torch.distributed.get_rank()

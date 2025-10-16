@@ -15,7 +15,6 @@
 import logging
 import os
 from functools import partial
-from typing import Iterable
 
 import psutil
 from codetiming import Timer
@@ -34,6 +33,7 @@ from verl.utils.profiler import DistProfiler, DistProfilerExtension
 from verl.utils.py_functional import append_to_dict
 from verl.workers.config import ActorConfig
 from verl.workers.roles.utils.losses import ppo_loss
+from verl.workers.roles.utils.padding import left_right_2_no_padding, no_padding_2_padding
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -61,46 +61,38 @@ class ActorWorker(Worker, DistProfilerExtension):
         self.loss_fn = partial(ppo_loss, config=self.config)
 
     def _build_engine(self):
-        model_config = self.config.model_config
-        engine_config = self.config.engine
-        optimizer_config = self.config.optim
-        checkpoint_config = self.config.checkpoint
+        self.model_config = self.config.model_config
+        self.engine_config = self.config.engine
+        self.optimizer_config = self.config.optim
+        self.checkpoint_config = self.config.checkpoint
 
-        if self.config.strategy == "megatron":
-            from verl.workers.engine.megatron.engine_impl import MegatronEngineWithLMHead
+        from verl.workers.engine import BaseEngine, EngineRegistry
 
-            self.engine = MegatronEngineWithLMHead(
-                model_config=model_config,
-                engine_config=engine_config,
-                optimizer_config=optimizer_config,
-                checkpoint_config=checkpoint_config,
-            )
-        elif self.config.strategy in ["fsdp", "fsdp2"]:
-            from verl.workers.engine.fsdp.engine_impl import FSDPEngineWithLMHead
-
-            self.engine = FSDPEngineWithLMHead(
-                model_config=model_config,
-                engine_config=engine_config,
-                optimizer_config=optimizer_config,
-                checkpoint_config=checkpoint_config,
-            )
-        else:
-            raise ValueError(f"Unknown strategy {self.config.strategy}")
+        self.engine: BaseEngine = EngineRegistry.new(
+            model_type="language_model",
+            backend=self.config.strategy,
+            model_config=self.model_config,
+            engine_config=self.engine_config,
+            optimizer_config=self.optimizer_config,
+            checkpoint_config=self.checkpoint_config,
+        )
 
         # build dispatch info
         self._register_dispatch_collect_info(
-            mesh_name="actor", dp_rank=self.engine.get_data_parallel_rank(), is_collect=self.engine.is_collect()
+            mesh_name="actor",
+            dp_rank=self.engine.get_data_parallel_rank(),
+            is_collect=self.engine.is_mp_src_rank_with_outputs(),
         )
 
         # aggregate with bon sampling
-        self.ppo_mini_batch_size = self.config.ppo_mini_batch_size * self.config.n
+        self.ppo_mini_batch_size = self.config.ppo_mini_batch_size * self.config.rollout_n
         assert self.ppo_mini_batch_size % self.engine.get_data_parallel_size() == 0, (
             f"{self.ppo_mini_batch_size=} is not divisible by {self.engine.get_data_parallel_size()=}"
         )
         self.ppo_mini_batch_size_per_dp = self.ppo_mini_batch_size // self.engine.get_data_parallel_size()
 
         # setup flops counter
-        self.flops_counter = FlopsCounter(model_config.hf_config)
+        self.flops_counter = FlopsCounter(self.model_config.hf_config)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
@@ -123,51 +115,26 @@ class ActorWorker(Worker, DistProfilerExtension):
             data.meta_info["micro_batch_size_per_gpu"] = self.config.ppo_infer_micro_batch_size_per_gpu
 
         with self.engine.eval_mode():
+            # TODO: make worker API to accept TensorDict as well
+            data = data.to_tensordict()
+            data = left_right_2_no_padding(data)
             output = self.engine.infer_batch(data)
 
-        if "log_probs" in output and "entropy" in output:
+        if self.engine.is_mp_src_rank_with_outputs():
+            output = output["model_output"]
+            log_probs = output["log_probs"]
+            log_probs = no_padding_2_padding(log_probs, data)  # (bsz, response_length)
+
+            entropy = output["entropy"]
+            if entropy is not None:
+                entropy = no_padding_2_padding(entropy, data)  # (bsz, response_length)
+
             # in megatron, only last pp contains valid data and returned to the single controller
             output = DataProto.from_dict(
-                tensors={"old_log_probs": output["log_probs"].float(), "entropy": output["entropy"].float()},
+                tensors={"old_log_probs": log_probs.float(), "entropy": entropy.float()},
             )
             output = output.to("cpu")
-
         return output
-
-    def _make_minibatch_iterator(self, data: DataProto) -> Iterable[DataProto]:
-        """Make minibatch iterator for updating the actor
-
-        Args:
-            data (DataProto): a DataProto containing keys
-
-                ``input_ids``: tensor of shape [batch_size, sequence_length]. torch.int64, where
-                ``sequence_length = prompt_length + response_length``
-
-                ``attention_mask``: tensor of shape [batch_size, sequence_length]. torch.int64
-
-                ``position_ids``: tensor of shape [batch_size, sequence_length]. torch.int64
-
-                ``responses``: tensor of shape [batch_size, response_length]. torch.int64. Note that
-                responses = input_ids[:, -response_length:]
-
-                ``old_log_probs``: tensor of shape [batch_size, response_length]. torch.float32. The log probability
-                of responses.
-
-                ``advantages``: tensor of shape [batch_size, response_length]. torch.float32. The advantages of
-                responses.
-                See PPO paper for details. https://arxiv.org/abs/1707.06347
-
-        Returns:
-
-        """
-        # Note that we do not select data here. It's the user's responsibility to select data outside trainer
-        # it's very important to setup seed here. Otherwise, data in model parallel region can disagree and cause hangs
-        return data.make_iterator(
-            mini_batch_size=self.ppo_mini_batch_size_per_dp,
-            epochs=self.config.ppo_epochs,
-            seed=self.config.data_loader_seed + self.engine.get_data_parallel_rank(),
-            dataloader_kwargs={"shuffle": self.config.shuffle},
-        )
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @DistProfiler.annotate(color="red", role="actor_update")
@@ -185,10 +152,20 @@ class ActorWorker(Worker, DistProfilerExtension):
         data = data.to(get_device_id())
         # perform forward computation
         with self.engine.train_mode():
-            dataloader = self._make_minibatch_iterator(data)
+            dataloader = data.make_iterator(
+                mini_batch_size=self.ppo_mini_batch_size_per_dp,
+                epochs=self.config.ppo_epochs,
+                seed=self.config.data_loader_seed + self.engine.get_data_parallel_rank(),
+                dataloader_kwargs={"shuffle": self.config.shuffle},
+            )
             with Timer(name="update_policy", logger=None) as timer:
                 for batch_idx, mini_batch in enumerate(dataloader):
-                    mini_batch_metrics = self.engine.train_batch(mini_batch, self.loss_fn)
+                    mini_batch.meta_info["global_batch_size"] = self.config.ppo_mini_batch_size
+                    # TODO: make worker API to accept TensorDict as well
+                    mini_batch = mini_batch.to_tensordict()
+                    mini_batch = left_right_2_no_padding(mini_batch)
+                    output = self.engine.train_batch(mini_batch, self.loss_fn)
+                    mini_batch_metrics = output.get("metrics", {})
                     append_to_dict(metrics, mini_batch_metrics, prefix="actor/")
 
             delta_time = timer.last

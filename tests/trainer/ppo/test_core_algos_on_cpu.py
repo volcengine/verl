@@ -15,11 +15,20 @@
 import random
 import unittest
 
+import numpy as np
 import pytest
 import torch
 
 import verl.trainer.ppo.core_algos
-from verl.trainer.ppo.core_algos import compute_gae_advantage_return, get_adv_estimator_fn, register_adv_est
+from verl.trainer.ppo.core_algos import (
+    compute_gae_advantage_return,
+    compute_grpo_outcome_advantage,
+    compute_grpo_vectorized_outcome_advantage,
+    compute_rloo_outcome_advantage,
+    compute_rloo_vectorized_outcome_advantage,
+    get_adv_estimator_fn,
+    register_adv_est,
+)
 
 
 def mock_test_fn():
@@ -186,6 +195,122 @@ def test_multi_turn_compute_gae_advantage_return():
     assert torch.equal(adv1, adv2), f"{adv1=}, {adv2=}"
     assert torch.equal(ret1, ret2), f"{ret1=}, {ret2=}"
     print(f" [CORRECT] \n\n{adv1=}, \n\n{ret1=}")
+
+
+def _make_group_index(batch_size: int, num_groups: int) -> np.ndarray:
+    """Create a numpy index array ensuring each group has at least 2 samples."""
+    assert num_groups * 2 <= batch_size, "batch_size must allow >=2 samples per group"
+    counts: list[int] = [2] * num_groups
+    remaining = batch_size - 2 * num_groups
+    for _ in range(remaining):
+        counts[random.randrange(num_groups)] += 1
+    index = []
+    for gid, c in enumerate(counts):
+        index.extend([gid] * c)
+    random.shuffle(index)
+    return np.asarray(index, dtype=np.int64)
+
+
+def _rand_mask(batch_size: int, seq_len: int) -> torch.Tensor:
+    mask = torch.randint(0, 2, (batch_size, seq_len), dtype=torch.int64).float()
+    rows_without_one = (mask.sum(dim=-1) == 0).nonzero(as_tuple=True)[0]
+    if len(rows_without_one) > 0:
+        mask[rows_without_one, -1] = 1.0
+    return mask
+
+
+@pytest.mark.parametrize(
+    "batch_size,seq_len,num_groups,seed",
+    [
+        (64, 128, 5, 0),
+        (128, 256, 8, 1),
+        (512, 512, 10, 2),
+    ],
+)
+def test_rloo_and_vectorized_equivalence(batch_size: int, seq_len: int, num_groups: int, seed: int):
+    torch.manual_seed(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    index = _make_group_index(batch_size, num_groups)
+    response_mask = _rand_mask(batch_size, seq_len)
+    base_rewards = torch.randn(batch_size, seq_len, dtype=torch.float32)
+    token_level_rewards = base_rewards * response_mask
+    adv1, ret1 = compute_rloo_outcome_advantage(
+        token_level_rewards=token_level_rewards,
+        response_mask=response_mask,
+        index=index,
+    )
+    adv2, ret2 = compute_rloo_vectorized_outcome_advantage(
+        token_level_rewards=token_level_rewards,
+        response_mask=response_mask,
+        index=index,
+    )
+    # Print concise diagnostics for visibility during test runs
+    adv_max_diff = (adv1 - adv2).abs().max().item()
+    ret_max_diff = (ret1 - ret2).abs().max().item()
+    total_mask_tokens = int(response_mask.sum().item())
+    print(
+        f"[RLOO] seed={seed} groups={num_groups} shape={adv1.shape} "
+        f"mask_tokens={total_mask_tokens} adv_max_diff={adv_max_diff:.3e} ret_max_diff={ret_max_diff:.3e}"
+    )
+    assert adv1.shape == adv2.shape == (batch_size, seq_len)
+    assert ret1.shape == ret2.shape == (batch_size, seq_len)
+    assert torch.allclose(adv1, adv2, rtol=1e-5, atol=1e-6)
+    assert torch.allclose(ret1, ret2, rtol=1e-5, atol=1e-6)
+
+
+@pytest.mark.parametrize(
+    "batch_size,seq_len,num_groups,seed",
+    [
+        (64, 128, 5, 0),
+        (128, 256, 8, 1),
+        (512, 512, 10, 2),
+    ],
+)
+def test_grpo_and_vectorized_equivalence(batch_size: int, seq_len: int, num_groups: int, seed: int):
+    # Set seeds for reproducibility
+    torch.manual_seed(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+
+    # Generate group indices (numpy array of shape [batch_size])
+    index = _make_group_index(batch_size, num_groups)
+
+    # Generate binary response mask (at least one valid token per row)
+    response_mask = _rand_mask(batch_size, seq_len)
+
+    # Generate token-level rewards and apply mask
+    base_rewards = torch.randn(batch_size, seq_len, dtype=torch.float32)
+    token_level_rewards = base_rewards * response_mask
+
+    # Compute GRPO outcome advantage (original implementation)
+    adv1, ret1 = compute_grpo_outcome_advantage(
+        token_level_rewards=token_level_rewards,
+        response_mask=response_mask,
+        index=index,
+    )
+
+    # Compute GRPO outcome advantage (vectorized implementation)
+    adv2, ret2 = compute_grpo_vectorized_outcome_advantage(
+        token_level_rewards=token_level_rewards,
+        response_mask=response_mask,
+        index=index,
+    )
+
+    # Diagnostic info for visibility (same style as RLOO test)
+    adv_max_diff = (adv1 - adv2).abs().max().item()
+    ret_max_diff = (ret1 - ret2).abs().max().item()
+    total_mask_tokens = int(response_mask.sum().item())
+    print(
+        f"[GRPO] seed={seed} groups={num_groups} shape={adv1.shape} "
+        f"mask_tokens={total_mask_tokens} adv_max_diff={adv_max_diff:.3e} ret_max_diff={ret_max_diff:.3e}"
+    )
+
+    # Assert shape and numerical equivalence
+    assert adv1.shape == adv2.shape == (batch_size, seq_len)
+    assert ret1.shape == ret2.shape == (batch_size, seq_len)
+    assert torch.allclose(adv1, adv2, rtol=1e-5, atol=1e-6)
+    assert torch.allclose(ret1, ret2, rtol=1e-5, atol=1e-6)
 
 
 if __name__ == "__main__":

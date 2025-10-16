@@ -17,7 +17,7 @@ import logging
 import os
 from abc import ABC, abstractmethod
 
-import regex as re
+import regex
 from pydantic import BaseModel
 
 from verl.utils.rollout_trace import rollout_trace_op
@@ -81,7 +81,7 @@ class HermesToolParser(ToolParser):
 
         self.tool_call_start_token: str = "<tool_call>"
         self.tool_call_end_token: str = "</tool_call>"
-        self.tool_call_regex = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
+        self.tool_call_regex = regex.compile(r"<tool_call>(.*?)</tool_call>", regex.DOTALL)
 
     @rollout_trace_op
     async def extract_tool_calls(self, responses_ids: list[int]) -> tuple[str, list[FunctionCall]]:
@@ -102,5 +102,60 @@ class HermesToolParser(ToolParser):
 
         # remaing text exclude tool call tokens
         content = self.tool_call_regex.sub("", text)
+
+        return content, function_calls
+
+
+@ToolParser.register("gpt-oss")
+class GptOssToolParser(ToolParser):
+    """
+    Tool parser for gpt-oss model.
+    Adapted from https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/function_call/gpt_oss_detector.py
+
+    Args:
+        tokenizer: The tokenizer to use.
+    """
+
+    def __init__(self, tokenizer) -> None:
+        super().__init__(tokenizer)
+        # check https://cookbook.openai.com/articles/openai-harmony for more details.
+        self.cot_pattern = regex.compile(
+            r"<\|start\|>assistant<\|channel\|>analysis<\|message\|>.*?<\|end\|>", regex.DOTALL
+        )
+        # <|start|>assistant may be pre-appended in prompts, so we need to remove it.
+        self.partial_cot_pattern = regex.compile(r"<\|channel\|>analysis<\|message\|>(.*?)<\|end\|>", regex.DOTALL)
+        self.tool_call_pattern = regex.compile(
+            r"<\|start\|>assistant<\|channel\|>[^<]* to=functions\.([^<]+) "
+            r"<\|constrain\|>json<\|message\|>(.*?)<\|call\|>",
+            regex.DOTALL,
+        )
+
+    @rollout_trace_op
+    async def extract_tool_calls(self, responses_ids: list[int]) -> tuple[str, list[FunctionCall]]:
+        loop = asyncio.get_running_loop()
+        # We need to keep special tokens for gpt-oss model for better tool call extraction.
+        text = await loop.run_in_executor(None, lambda: self.tokenizer.decode(responses_ids, skip_special_tokens=False))
+        # Need to remove padding tokens for better tool call extraction.
+        text = text.replace(self.tokenizer.pad_token, "")
+        # Need to reomve COT since COT may contain tool call tokens.But they are not valid tool calls.
+        text = regex.sub(self.cot_pattern, "", text)
+        text = regex.sub(self.partial_cot_pattern, "", text)
+
+        # check if there are tool calls in the text by re.findall
+        matches = regex.findall(self.tool_call_pattern, text)
+        if not matches:
+            return text, []
+
+        function_calls = []
+        for match in matches:
+            try:
+                name, arguments = match[0], match[1]
+                # don't check if arguments is valid JSON and leave it to client
+                function_calls.append(FunctionCall(name=name, arguments=arguments))
+            except Exception as e:
+                logger.error(f"Failed to decode tool call: {e}")
+
+        # remaing text exclude tool call tokens
+        content = regex.sub(self.tool_call_pattern, "", text)
 
         return content, function_calls

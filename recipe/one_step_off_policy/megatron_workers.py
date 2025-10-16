@@ -13,15 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import copy
 import logging
 import os
 
 import torch
 import torch.distributed
-from omegaconf import DictConfig, OmegaConf, open_dict
+from omegaconf import DictConfig, OmegaConf
 
-from verl.single_controller.base.decorator import Dispatch, register
+from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.debug import (
     log_gpu_memory_usage,
@@ -31,6 +30,8 @@ from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.megatron_workers import ActorRolloutRefWorker as ARRWorker
 from verl.workers.megatron_workers import CriticWorker, RewardModelWorker
 from verl.workers.rollout import get_rollout_class
+
+from .distributed_util import stateless_init_process_group
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -46,6 +47,17 @@ class ActorRolloutRefWorker(ARRWorker):
         if role == "actor":
             self._is_rollout = False
         self.role = role
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
+    def create_weight_sync_group(self, master_address, master_port, rank_offset, world_size):
+        rank = torch.distributed.get_rank() + rank_offset
+        self._weight_sync_group = stateless_init_process_group(
+            master_address,
+            master_port,
+            rank,
+            world_size,
+            get_torch_device().current_device(),
+        )
 
     def _get_actor_params_generator(self):
         assert self._is_actor
@@ -89,9 +101,8 @@ class ActorRolloutRefWorker(ARRWorker):
             tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
             if self._is_actor and torch.distributed.get_rank() == 0:
                 tensor.copy_(weight)
-            from ray.util.collective import collective
 
-            collective.broadcast(tensor, src_rank=0, group_name="actor_rollout")
+            self._weight_sync_group.broadcast(tensor, src=0, stream=get_torch_device().current_stream())
             if self._is_rollout:
                 inference_model.load_weights([(key, tensor)])
 
@@ -161,17 +172,14 @@ class RolloutWorker(ActorRolloutRefWorker):
         rollout_device_mesh = init_device_mesh(
             get_device_name(), mesh_shape=(dp, infer_tp), mesh_dim_names=["dp", "infer_tp"]
         )
+        is_collect = rollout_device_mesh["infer_tp"].get_local_rank() == 0
+        self._register_dispatch_collect_info(
+            "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
+        )
         log_gpu_memory_usage("Before building vllm rollout", logger=None)
 
         rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
-        # (vermouth1992). self.config.model in megatron differs from that of fsdp in the override_config.
-        # To workaround this we deepcopy self.config.model and make them compatible
-        omega_model_config = copy.deepcopy(self.config.model)
-        with open_dict(omega_model_config):
-            override_config = omega_model_config.override_config.pop("model_config")
-            omega_model_config.override_config = override_config
-
-        model_config: HFModelConfig = omega_conf_to_dataclass(omega_model_config, dataclass_type=HFModelConfig)
+        model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model, dataclass_type=HFModelConfig)
         rollout = get_rollout_class(rollout_config.name, rollout_config.mode)(
             config=rollout_config, model_config=model_config, device_mesh=rollout_device_mesh
         )
@@ -186,7 +194,7 @@ class RolloutWorker(ActorRolloutRefWorker):
         self.rollout, self.sharding_manager = rollout, sharding_manager
         self.rollout.sharding_manager = sharding_manager
 
-    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO, blocking=False)
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="rollout"), blocking=False)
     def async_generate_sequences(self, *args, **kwargs):
         return super().generate_sequences(*args, **kwargs)
 

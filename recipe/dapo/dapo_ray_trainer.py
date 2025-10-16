@@ -134,7 +134,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                     )
                 gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
 
-                is_last_step = self.gen_steps >= self.total_training_steps
+                is_last_step = self.global_steps >= self.total_training_steps
 
                 with marked_timer("step", timing_raw):
                     # generate a batch
@@ -251,9 +251,8 @@ class RayDAPOTrainer(RayPPOTrainer):
                             max_num_gen_batches = self.config.algorithm.filter_groups.max_num_gen_batches
                             if max_num_gen_batches <= 0 or num_gen_batches < max_num_gen_batches:
                                 print(f"{num_gen_batches=}. Keep generating...")
-                                progress_bar.update(1)
                                 self.gen_steps += 1
-                                is_last_step = self.gen_steps >= self.total_training_steps
+                                is_last_step = self.global_steps >= self.total_training_steps
                                 continue
                             else:
                                 raise ValueError(
@@ -305,6 +304,11 @@ class RayDAPOTrainer(RayPPOTrainer):
                             values = self.critic_wg.compute_values(batch)
                             batch = batch.union(values)
 
+                    # Compute rollout IS weights and mismatch metrics (inherited from RayPPOTrainer)
+                    batch, is_metrics = self.compute_rollout_importance_weights_and_add_to_batch(batch)
+                    # IS and mismatch metrics already have mismatch/ prefix
+                    metrics.update(is_metrics)
+
                     with marked_timer("adv", timing_raw, "brown"):
                         # compute advantages, executed on the driver process
                         norm_adv_by_std_in_grpo = self.config.algorithm.get("norm_adv_by_std_in_grpo", True)
@@ -331,6 +335,11 @@ class RayDAPOTrainer(RayPPOTrainer):
                             actor_output = self.actor_rollout_wg.update_actor(batch)
                         actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
                         metrics.update(actor_output_metrics)
+
+                    # Log rollout generations if enabled
+                    rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)
+                    if rollout_data_dir:
+                        self._log_rollout_data(batch, reward_extra_infos_dict, timing_raw, rollout_data_dir)
 
                 # validate
                 if (

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
+Note that we don't combine the main with ray_trainer as ray_trainer is used by other mpain.
 """
 
 import os
@@ -193,12 +193,21 @@ class TaskRunner:
         from verl.trainer.ppo.ray_trainer import Role
 
         if config.reward_model.enable:
-            if config.reward_model.strategy in {"fsdp", "fsdp2"}:
-                from verl.workers.fsdp_workers import RewardModelWorker
-            elif config.reward_model.strategy == "megatron":
-                from verl.workers.megatron_workers import RewardModelWorker
+            use_legacy_worker_impl = config.trainer.get("use_legacy_worker_impl", "auto")
+            if use_legacy_worker_impl in ["auto", "enable"]:
+                if config.reward_model.strategy in {"fsdp", "fsdp2"}:
+                    from verl.workers.fsdp_workers import RewardModelWorker
+                elif config.reward_model.strategy == "megatron":
+                    from verl.workers.megatron_workers import RewardModelWorker
+                else:
+                    raise NotImplementedError
+            elif use_legacy_worker_impl == "disable":
+                from verl.workers.roles import RewardModelWorker
+
+                print("Using new worker implementation")
             else:
-                raise NotImplementedError
+                raise ValueError(f"Invalid use_legacy_worker_impl: {use_legacy_worker_impl}")
+
             self.role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
             if config.reward_model.enable_resource_pool:
                 self.mapping[Role.RewardModel] = "reward_pool"
@@ -303,6 +312,7 @@ class TaskRunner:
         )
         # Initialize the workers of the trainer.
         trainer.init_workers()
+
         # Start the training process.
         trainer.fit()
 
@@ -340,7 +350,6 @@ def create_rl_dataset(data_paths, data_config, tokenizer, processor, is_train=Tr
 
         dataset_cls = DynamicGenDataset
         print("Using DynamicGenDataset for data generation.")
-
     else:
         # Use the default RLHFDataset class if no custom class is specified
         dataset_cls = RLHFDataset

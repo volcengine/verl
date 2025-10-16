@@ -180,6 +180,9 @@ class AsyncRolloutRequest(BaseModel):
             if values["input_ids"].shape[-1] > max_prompt_len:
                 # Only log the warning to avoid truncating in the middle of generation prompt. Consider raising an
                 # error for this case in the future.
+                # Ensure batch_data_id exists with default value if not provided
+                if "batch_data_id" not in values:
+                    values["batch_data_id"] = cls.model_fields["batch_data_id"].default
                 logger.warning(
                     f"Prompt {values['batch_data_id']} has length {values['input_ids'].shape[-1]} "
                     f"which is greater than max_prompt_len {max_prompt_len} after applied chat template with tools."
@@ -393,18 +396,19 @@ class AsyncRolloutRequest(BaseModel):
         self,
         processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
         content: str,
+        content_ids: Optional[torch.Tensor] = None,
         tool_calls: Optional[list[OpenAIFunctionToolCall]] = None,
     ) -> None:
         self.messages.append(Message(role="assistant", content=content, tool_calls=tool_calls))
+        if content_ids is None:
+            messages = [*BASE_CHAT_HISTORY, self.messages[-1]]
+            tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
 
-        messages = [*BASE_CHAT_HISTORY, self.messages[-1]]
-        tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
-
-        # We don't need to pass multi_modal_data here because we don't have any multi-modal data from Engine
-        # Inference, it is pure text.
-        content_ids = self._handle_apply_chat_template(
-            processing_class, messages, multi_modal_data={}, tools=tools, add_generation_prompt=False, tokenize=True
-        )[..., self.base_conv_with_gen_prompt_end_pos :]
+            # We don't need to pass multi_modal_data here because we don't have any multi-modal data from Engine
+            # Inference, it is pure text.
+            content_ids = self._handle_apply_chat_template(
+                processing_class, messages, multi_modal_data={}, tools=tools, add_generation_prompt=False, tokenize=True
+            )[..., self.base_conv_with_gen_prompt_end_pos :]
         self._update_input_ids(processing_class, content_ids, attention_mask=True, loss_mask=True)
 
     def add_tool_response_messages(
@@ -418,17 +422,20 @@ class AsyncRolloutRequest(BaseModel):
         # We require the processing of the image and video to be done at tool.execute() level
         delta_multi_modal_data = {key: [] for key in self.multi_modal_keys}
         for content in contents:
-            content_list = []
-            # When we update multi_model_keys, we also need to update this logic
-            if content.image:
-                content_list.extend([{"type": "image"} for _ in content.image])
-                delta_multi_modal_data["image"].extend(content.image)
-            if content.video:
-                content_list.extend([{"type": "video"} for _ in content.video])
-                delta_multi_modal_data["video"].extend(content.video)
-            if content.text:
-                content_list.append({"type": "text", "text": content.text})
-            self.messages.append(Message(role="tool", content=content_list))
+            if content.is_text_only():
+                self.messages.append(Message(role="tool", content=content.text))
+            else:
+                content_list = []
+                # When we update multi_model_keys, we also need to update this logic
+                if content.image:
+                    content_list.extend([{"type": "image"} for _ in content.image])
+                    delta_multi_modal_data["image"].extend(content.image)
+                if content.video:
+                    content_list.extend([{"type": "video"} for _ in content.video])
+                    delta_multi_modal_data["video"].extend(content.video)
+                if content.text:
+                    content_list.append({"type": "text", "text": content.text})
+                self.messages.append(Message(role="tool", content=content_list))
 
         messages = [*BASE_CHAT_HISTORY, *self.messages[-len(contents) :]]
         tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None

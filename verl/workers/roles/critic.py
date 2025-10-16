@@ -11,181 +11,202 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""
-The main entry point to run the PPO algorithm
-"""
+
 
 import logging
 import os
+import warnings
+from functools import partial
 
-import torch
+import psutil
 from codetiming import Timer
 
 from verl import DataProto
 from verl.single_controller.base import Worker
-from verl.single_controller.base.decorator import Dispatch, register
-from verl.trainer.ppo import core_algos
-from verl.utils.config import omega_conf_to_dataclass
+from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
 from verl.utils.device import (
     get_device_id,
-    get_nccl_backend,
+    get_device_name,
+    get_torch_device,
 )
-from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerConfig
+from verl.utils.distributed import initialize_global_process_group_ray
+from verl.utils.flops_counter import FlopsCounter
+from verl.utils.profiler import DistProfiler, DistProfilerExtension
 from verl.utils.py_functional import append_to_dict
-from verl.utils.torch_functional import masked_mean
-from verl.workers.engine import EngineRegistry
+from verl.workers.config import CriticConfig
+from verl.workers.roles.utils.losses import value_loss
+from verl.workers.roles.utils.padding import left_right_2_no_padding, no_padding_2_padding
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
+device_name = get_device_name()
+
 
 class CriticWorker(Worker, DistProfilerExtension):
-    def __init__(self, config):
-        Worker.__init__(self)
-        omega_profiler_config = config.get("profiler", {})
-        profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
-        if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch", "torch_memory"]:
-            tool_config = omega_conf_to_dataclass(
-                omega_profiler_config.get("tool_config", {}).get(omega_profiler_config.get("tool"))
-            )
-        else:
-            tool_config = None
-        DistProfilerExtension.__init__(
-            self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config)
-        )
-        import torch.distributed
+    """
+    This worker can be instantiated as a standalone actor or a standalone rollout or a standalone reference policy
+    or a hybrid engine based on the config.rollout
+    """
 
-        if not torch.distributed.is_initialized():
-            torch.distributed.init_process_group(backend=get_nccl_backend())
+    def __init__(self, config: CriticConfig):
         self.config = config
-        self.engine = EngineRegistry.new(self.config.strategy, self.config)
+        Worker.__init__(self)
+        self.profiler_config = self.config.profiler
+        tool_config = self.profiler_config.tool_config
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=self.rank, config=self.profiler_config, tool_config=tool_config)
+        )
+
+        initialize_global_process_group_ray(timeout_second=None)
+
+        self.loss_fn = partial(value_loss, config=self.config)
+
+    def _build_engine(self):
+        from copy import copy, deepcopy
+
+        self.model_config = copy(self.config.model_config)
+        self.model_config.hf_config = deepcopy(self.config.model_config.hf_config)
+        self.engine_config = self.config.engine
+        self.optimizer_config = self.config.optim
+        self.checkpoint_config = self.config.checkpoint
+
+        from verl.workers.engine import BaseEngine, EngineRegistry
+
+        # replace AutoModelForSequenceClassification to AutoModelForTokenClassification
+        hf_config = self.model_config.hf_config
+
+        arch = hf_config.architectures[0]
+        # This logic assumes the critic is a token classification model.
+        # If the provided model is a CausalLM, we adapt it.
+        if "ForCausalLM" in arch:
+            model_name = arch.split("ForCausalLM")[0]
+            new_arch = f"{model_name}ForTokenClassification"
+            warnings.warn(f"Implicitly changing critic architecture from '{arch}' to '{new_arch}'", stacklevel=2)
+            hf_config.architectures[0] = new_arch
+        elif "ForTokenClassification" not in arch and "ForSequenceClassification" not in arch:
+            raise ValueError(
+                f"Unsupported critic architecture: {arch}. "
+                f"Critic worker expects an architecture suitable for value function estimation, "
+                f"such as '...ForTokenClassification' or '...ForSequenceClassification'."
+            )
+
+        # make sure output dropout is 0
+        hf_config.classifier_dropout = 0
+
+        self.engine: BaseEngine = EngineRegistry.new(
+            model_type="value_model",
+            backend=self.config.strategy,
+            model_config=self.model_config,
+            engine_config=self.engine_config,
+            optimizer_config=self.optimizer_config,
+            checkpoint_config=self.checkpoint_config,
+        )
+
+        # build dispatch info
+        self._register_dispatch_collect_info(
+            mesh_name="critic",
+            dp_rank=self.engine.get_data_parallel_rank(),
+            is_collect=self.engine.is_mp_src_rank_with_outputs(),
+        )
+
+        # aggregate with bon sampling
+        self.ppo_mini_batch_size = self.config.ppo_mini_batch_size * self.config.rollout_n
+        assert self.ppo_mini_batch_size % self.engine.get_data_parallel_size() == 0, (
+            f"{self.ppo_mini_batch_size=} is not divisible by {self.engine.get_data_parallel_size()=}"
+        )
+        self.ppo_mini_batch_size_per_dp = self.ppo_mini_batch_size // self.engine.get_data_parallel_size()
+
+        # setup flops counter
+        self.flops_counter = FlopsCounter(self.model_config.hf_config)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
-        self.engine.init_model()
+        self._build_engine()
+        self.engine.initialize()
 
-    def _post_fn_values(self, micro_batch, preds):
-        response_length = micro_batch["responses"].size(-1)
-        values = preds[:, -response_length - 1 : -1]
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def set_loss_fn(self, loss_fn):
+        self.loss_fn = loss_fn
 
-        use_remove_padding = self.config.model.get("use_remove_padding", False)
-        if not use_remove_padding:
-            values = values.squeeze(-1)
-
-        return values, {"values": values.clone().detach()}
-
-    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @DistProfiler.annotate(color="cyan")
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="critic"))
+    @DistProfiler.annotate(color="blue", role="critic_compute_values")
     def compute_values(self, data: DataProto):
-        # Support all hardwares
-        data = data.to(get_device_id())
-        micro_batch_size = self.config.forward_micro_batch_size_per_gpu
-        data.meta_info["micro_batch_size"] = micro_batch_size
-        data.meta_info["max_token_len"] = self.config.forward_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = self.config.use_dynamic_bsz
+        if self.config.use_dynamic_bsz:
+            data.meta_info["max_token_len_per_gpu"] = self.config.ppo_infer_max_token_len_per_gpu
+        else:
+            data.meta_info["micro_batch_size_per_gpu"] = self.config.ppo_infer_micro_batch_size_per_gpu
 
         with self.engine.eval_mode():
-            data = self.engine.shard_data(data=data)
-            output = self.engine.infer_batch(data, post_fn=self._post_fn_values)
-            response_mask = data.batch["response_mask"]
-            values = output["values"] * response_mask  # Only action tokens have values
-            output = DataProto.from_dict(tensors={"values": values})
+            # TODO: make worker API to accept TensorDict as well
+            data = data.to_tensordict()
+            data = left_right_2_no_padding(data)
+            output = self.engine.infer_batch(data)
 
-            output = self.engine.unshard_data(data=output)
-        output = output.to("cpu")
+        if self.engine.is_mp_src_rank_with_outputs():
+            # in megatron, only last pp contains valid data and returned to the single controller
+            output = output["model_output"]
+            values = output["values"]
+            values = no_padding_2_padding(values, data)  # (bsz, response_length)
+
+            output = DataProto.from_dict(
+                tensors={"values": values.float()},
+            )
+            output = output.to("cpu")
+
         return output
 
-    def loss_fn(
-        self, batch: DataProto, vpreds: dict[str, torch.Tensor]
-    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        old_values = batch["values"]
-        returns = batch["returns"]
-        response_mask = batch["response_mask"]
-        micro_batch_metrics = {}
-
-        values, _ = self._post_fn_values(batch, vpreds)
-
-        vf_loss, vf_clipfrac = core_algos.compute_value_loss(
-            vpreds=values,
-            values=old_values,
-            returns=returns,
-            response_mask=response_mask,
-            cliprange_value=self.config.cliprange_value,
-            loss_agg_mode=self.config.loss_agg_mode,
-        )
-        if self.config.use_dynamic_bsz:
-            # relative to the dynamic bsz
-            loss = vf_loss * (len(batch) / self.config.ppo_mini_batch_size)
-        else:
-            gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
-            loss = vf_loss / gradient_accumulation
-
-        micro_batch_metrics = {
-            "critic/vf_loss": vf_loss.detach().item(),
-            "critic/vf_clipfrac": vf_clipfrac.detach().item(),
-            "critic/vpred_mean": masked_mean(values, response_mask).detach().item(),
-        }
-
-        return loss, micro_batch_metrics
-
-    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @DistProfiler.annotate(color="pink")
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="critic"))
+    @DistProfiler.annotate(color="red", role="critic_update")
     def update_critic(self, data: DataProto):
+        data.meta_info["use_dynamic_bsz"] = self.config.use_dynamic_bsz
+        if self.config.use_dynamic_bsz:
+            data.meta_info["max_token_len_per_gpu"] = self.config.ppo_max_token_len_per_gpu
+        else:
+            data.meta_info["micro_batch_size_per_gpu"] = self.config.ppo_micro_batch_size_per_gpu
+
         metrics = {}
         # Support all hardwares
         data = data.to(get_device_id())
         # perform forward computation
         with self.engine.train_mode():
-            data = self.engine.shard_data(data=data)
+            dataloader = data.make_iterator(
+                mini_batch_size=self.ppo_mini_batch_size_per_dp,
+                epochs=self.config.ppo_epochs,
+                seed=self.config.data_loader_seed + self.engine.get_data_parallel_rank(),
+                dataloader_kwargs={"shuffle": self.config.shuffle},
+            )
+            with Timer(name="update_policy", logger=None) as timer:
+                for batch_idx, mini_batch in enumerate(dataloader):
+                    mini_batch.meta_info["global_batch_size"] = self.config.ppo_mini_batch_size
+                    # TODO: make worker API to accept TensorDict as well
+                    mini_batch = mini_batch.to_tensordict()
+                    mini_batch = left_right_2_no_padding(mini_batch)
+                    output = self.engine.train_batch(mini_batch, self.loss_fn)
+                    mini_batch_metrics = output.get("metrics", {})
+                    append_to_dict(metrics, mini_batch_metrics, prefix="critic/")
 
-            with Timer(name="update_critic", logger=None) as timer:
-                select_keys = [
-                    "input_ids",
-                    "responses",
-                    "response_mask",
-                    "attention_mask",
-                    "position_ids",
-                    "values",
-                    "returns",
-                ]
-                batch = data.select(batch_keys=select_keys).batch
-                has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
-
-                # Split to make minibatch iterator for updating the actor
-                # See PPO paper for details. https://arxiv.org/abs/1707.06347
-                if has_multi_modal_inputs:
-                    num_mini_batches = data.batch.batch_size[0] // self.config.ppo_mini_batch_size
-                    non_tensor_select_keys = ["multi_modal_inputs"]
-                    dataloader = data.select(select_keys, non_tensor_select_keys).chunk(num_mini_batches)
-                else:
-                    dataloader = batch.split(self.config.ppo_mini_batch_size)
-
-                for epoch in range(self.config.ppo_epochs):
-                    for batch_idx, mini_batch in enumerate(dataloader):
-                        self.engine.optimizer_zero_grad()
-                        mini_batch_metrics = self.engine.train_batch(mini_batch, self.loss_fn)
-                        grad_norm = self.engine.optimizer_step()
-                        mini_batch_metrics["critic/grad_norm"] = grad_norm.detach().item()
-                        append_to_dict(metrics, mini_batch_metrics)
-                self.engine.optimizer_zero_grad()
             delta_time = timer.last
 
-            # TODO: should not access engine's flops_counter
             global_num_tokens = data.meta_info["global_token_num"]
-            estimated_flops, promised_flops = self.engine.flops_counter.estimate_flops(global_num_tokens, delta_time)
+            estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
             metrics["perf/mfu/critic"] = estimated_flops * self.config.ppo_epochs / promised_flops / self.world_size
+            metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024**3)
+            metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024**3)
+            metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024**3)
 
-            metrics["critic/lr"] = self.engine.lr_scheduler_step()[0]
+            lr = self.engine.lr_scheduler_step()
+            metrics["critic/lr"] = lr
+
             output = DataProto(batch=None, meta_info={"metrics": metrics})
-            output = self.engine.unshard_data(data=output)
 
-        output = output.to("cpu")
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
-        self.engine.save_checkpoint(local_path, hdfs_path, global_step, max_ckpt_to_keep)
+        return self.engine.save_checkpoint(local_path, hdfs_path, global_step, max_ckpt_to_keep)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=True):
-        self.engine.load_checkpoint(local_path, hdfs_path, del_local_after_load)
+    def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=False):
+        return self.engine.load_checkpoint(local_path, hdfs_path, del_local_after_load)

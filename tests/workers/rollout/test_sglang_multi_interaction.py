@@ -113,7 +113,7 @@ def setup_distributed():
 
 
 class TestSGLangMultiInteraction:
-    local_model_path = "Qwen/Qwen2.5-0.5B"
+    local_model_path = os.path.expanduser("~/models/Qwen/Qwen2.5-0.5B")
 
     def test_initialize_multiple_interactions(self):
         """Test that SGLangRollout can initialize multiple interactions."""

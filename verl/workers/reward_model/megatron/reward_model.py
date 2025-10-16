@@ -28,7 +28,7 @@ from verl.utils.device import get_device_id, get_device_name, get_torch_device
 from verl.utils.megatron.pipeline_parallel import make_batch_generator
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.utils.torch_functional import broadcast_dict_tensor, pad_sequence_to_length
-from verl.workers.reward_model.base import BasePPORewardModel
+from verl.workers.reward_model import BasePPORewardModel
 
 
 class MegatronRewardModel(BasePPORewardModel):
@@ -281,11 +281,10 @@ class MegatronRewardModel(BasePPORewardModel):
 
             multi_modal_inputs = {}
             if "multi_modal_inputs" in batch:
-                for key in batch["multi_modal_inputs"][0].keys():
-                    multi_modal_inputs[key] = torch.cat(
-                        [batch["multi_modal_inputs"][i][key] for i in batch["multi_modal_inputs_idx"]], dim=0
-                    )
+                from verl.utils.model import extract_multi_modal_inputs
 
+                indices = batch.get("multi_modal_inputs_idx", None)
+                multi_modal_inputs = extract_multi_modal_inputs(batch["multi_modal_inputs"], indices)
             output = forward_fn(
                 model,
                 input_ids,

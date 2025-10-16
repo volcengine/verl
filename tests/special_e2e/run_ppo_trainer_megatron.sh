@@ -9,7 +9,7 @@ NUM_GPUS=${NUM_GPUS:-8}
 
 MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B}
 MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
-huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
+#huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
 
 USE_DUMMY_MODEL=${USE_DUMMY_MODEL:-False}
 DUMMY_MODEL_PATH=${DUMMY_MODEL_PATH:-${HOME}/dummy_models/${MODEL_ID}}
@@ -58,7 +58,7 @@ COMMON_VPP=${COMMON_VPP:-2}
 COMMON_CP=${COMMON_CP:-2}
 COMMON_TP=${COMMON_TP:-2}
 COMMON_EP=${COMMON_EP:-1}
-COMMON_ETP=${COMMON_ETP:-null}
+COMMON_ETP=${COMMON_ETP:-1}
 
 TRAIN_TP=${TRAIN_TP:-$COMMON_TP}
 INFER_TP=${INFER_TP:-$COMMON_TP}

@@ -35,6 +35,7 @@ policy.
 https://raw.githubusercontent.com/eric-haibin-lin/verl-community/refs/heads/main/docs/one_step_off_policy.png)
 > reference: [AReaL: A Large-Scale Asynchronous Reinforcement Learning System for Language Reasoning](
 > https://arxiv.org/abs/2505.24298)
+> original work: [Asynchronous RLHF: Faster and More Efficient Off-Policy RL for Language Models](https://arxiv.org/abs/2410.18252)
 
 Our core contributions include:
 
@@ -292,6 +293,6 @@ python3 -m recipe.one_step_off_policy.async_main_ppo \
 | Category           | Support Situation                                                                                               |
 |--------------------|-----------------------------------------------------------------------------------------------------------------|
 | train engine       | FSDP2  <br/> Megatron                                                                                           |
-| rollout engine     | vLLM                                                                                                            |
+| rollout engine     | vLLM <br/> SGLang                                                                                               |
 | AdvantageEstimator | GRPO <br/> GRPO_PASSK <br/> REINFORCE_PLUS_PLUS <br/> RLOO <br/> OPO <br/> REINFORCE_PLUS_PLUS_BASELINE<br/>GPG |
 | Reward             | all                                                                                                             |

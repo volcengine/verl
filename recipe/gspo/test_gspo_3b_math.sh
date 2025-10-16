@@ -102,7 +102,7 @@ entropy_checkpointing=true # This enables entropy recomputation specifically for
 # ------------------------------------- train/val data preparation ---------------------------------------
 if [ "$first_time_dataset_prep" = true ]; then
     echo "Preprocessing GSM8K dataset..."
-    python examples/data_preprocess/gsm8k.py --local_dir /data/gsm8k/
+    python examples/data_preprocess/gsm8k.py --local_save_dir /data/gsm8k/
 fi
 
 gsm8k_train_path=/data/gsm8k/train.parquet
