@@ -18,7 +18,7 @@ data:
   max_token_len_per_gpu: 8192
   use_dynamic_bsz: True
   train_files: ~/data/gsm8k/train.parquet
-  val_files: ~/data/gsm8k/test.parquet
+  val_files: null
   # Multi-turn settings
   messages_key: messages  # Key for messages list in multi-turn mode
   tools_key: tools  # Key for tools list in multi-turn mode
