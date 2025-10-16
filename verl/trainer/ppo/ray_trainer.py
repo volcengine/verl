@@ -910,6 +910,11 @@ class RayPPOTrainer:
         global_partition_lst = get_seqlen_balanced_partitions(
             global_seqlen_lst, k_partitions=world_size, equal_size=True
         )
+        # Place smaller micro-batches at both ends to reduce the bubbles in pipeline parallel.
+        for idx, partition in enumerate(global_partition_lst):
+            partition.sort(key=lambda x: (global_seqlen_lst[x], x))
+            ordered_partition = partition[::2] + partition[1::2][::-1]
+            global_partition_lst[idx] = ordered_partition
         # reorder based on index. The data will be automatically equally partitioned by dispatch function
         global_idx = torch.tensor([j for partition in global_partition_lst for j in partition])
         batch.reorder(global_idx)
