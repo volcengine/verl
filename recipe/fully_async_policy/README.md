@@ -336,7 +336,7 @@ Using the `async stream pipeline with stale samples` strategy, we achieved about
 | colocate sync      	 | 128                 	 | 356.30 	 | 177.85 	 | 53.92        	 | 113.81       	 | 8h 36m                 	 | 17h 56m                	 | 1d 5h 6m               	 | 1d 16h 48m             	 | max: 0.3573<br>last: 0.2958  	 |
 | fully_async_policy 	 | 64:64               	 | 150.63 	 | 33.14  	 | \            	 | 113.16       	 | 3h 13m<br>(2.67x)      	 | 6h 46m<br>(2.65x)      	 | 10h 53m<br>(2.67x)     	 | 17h 22m<br>(2.35x)     	 | max: 0.3521<br>last: 0.3094  	 |
 
-> source data: https://wandb.ai/hou-zg-meituan/fully-async-policy?nw=nwuserhouzg
+> source data: https://wandb.ai/hou-zg-meituan/fully-async-policy-colocate_async?nw=nwuserhouzg
 
 ### 128-card 7B Asynchronous Mode Experiment
 
@@ -350,6 +350,8 @@ partial_rollout, the benefit reaches 2.35x.
 | `stream off policy pipeline`<br>(+fully async: trigger_parameter_sync_step= 4,<br>require_batches= 4) 	 |       231.34 	        | 128.47 	 | \            	 | 98.77        	 | 4h 25m                 	 | 9h 41m                 	 | 15h 2m                 	 | 1d 1h 53m              	 | max: 0.2844<br>last: 0.2604 	 |
 |          `async stream pipeline with stale samples`<br>(+staleness_threshold=0.5)            	          |           	           |    	     |       	        |       	        |            	             |            	             |            	             |            	             |               	               |
 |        `async stream pipeline with partial rollout`<br>(+partial_rollout=True)                 	        |       150.63 	        | 33.14  	 | \            	 | 113.16       	 | 3h 13m                 	 | 6h 46m                 	 | 10h 53m                	 | 17h 22m                	 | max: 0.3521<br>last: 0.3094 	 |
+
+> source data: https://wandb.ai/hou-zg-meituan/fully-async-policy-stream_stale_partial?nw=nwuserhouzg
 
 ### 128-card Stale Ablation Experiment
 
@@ -367,7 +369,7 @@ Further analysis and optimization are needed for this issue.
 | 0.3                 	 | 146.11 	 | 38.88  	 | \            	 | 103.22       	 | 3h 18m                 	 | 6h 49m                 	 | 11h 40m                	 | 17h 20m                	 | max: 0.3469<br>last: 0.2865 	 |
 | 0.5                 	 | 150.63 	 | 33.14  	 | \            	 | 113.16       	 | 3h 13m                 	 | 6h 46m                 	 | 10h 53m                	 | 17h 22m                	 | max: 0.3521<br>last: 0.3094 	 |
 
-> source data: https://wandb.ai/hou-zg-meituan/fully-async-policy?nw=nwuserhouzg
+> source data: https://wandb.ai/hou-zg-meituan/fully-async-policy-stream_stale_partial?nw=nwuserhouzg
 
 ### 128-card 7B require_batches Ablation Experiment
 
@@ -381,14 +383,14 @@ training, which in turn affects training time. We verified the impact on results
 | 2               	 | 158.72 	 | 26.32 	 | \            	 | 128.08       	 | 3h 35m                 	 | 7h 38m                 	 | 13h 57m                	 | max: 0.351<br>last: 0.3406  	 |
 | 4               	 | 124.64 	 | 25.62 	 | \            	 | 95.06        	 | 3h 13m                 	 | 6h 46m                 	 | 10h 53m                	 | max: 0.3521<br>last: 0.3521 	 |
 
-> source data: https://wandb.ai/hou-zg-meituan/fully-async-policy?nw=nwuserhouzg
+> source data: https://wandb.ai/hou-zg-meituan/fully-async-policy-ablation_require_batches?nw=nwuserhouzg
 
 ### 30B Model Mode Experiment
 
 TODO: The 30B experiment is still in progress.
 
 * Machine: H20
-* Model: Qwen2.5-32B
+* Model: Qwen2.5-32B~~~~
 * Rollout length: max_response_length FSDP2: 20K tokens;
 * Algorithm: DAPO
 * Engine: vllm+FSDP2
@@ -413,7 +415,6 @@ TODO: The 30B experiment is still in progress.
 | fully_async_policy | 64:64               | async stream pipeline with stale samples   |      |                    |              |              |            |                  |
 | fully_async_policy | 64:64               | async stream pipeline with partial rollout |      |                    |              |              |            |                  |
 
-> source data: https://wandb.ai/hou-zg-meituan/fully-async-policy?nw=nwuserhouzg
 
 ## Future Plans
 
