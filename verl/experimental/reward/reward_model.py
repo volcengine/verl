@@ -83,12 +83,9 @@ class RewardModelManager:
     def _initialize_router(self):
         worker_urls = [f"http://{server_address}" for server_address in self.server_addresses]
 
-        # current implementation only support sglang
-        assert self.config.rollout.name == "sglang", "Only sglang is supported now"
+        from .router import launch_router
 
-        from .sglang_router import launch_router_process
-
-        self.router_address, _ = launch_router_process(worker_urls=worker_urls)
+        _, self.router_address = launch_router(worker_urls=worker_urls)
 
     def get_router_address(self):
         return self.router_address
