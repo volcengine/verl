@@ -61,7 +61,7 @@ class ExternalZeroMQDistributedExecutor(Executor):
         tp_size = self.vllm_config.parallel_config.tensor_parallel_size
 
         addresses = os.environ["VERL_VLLM_ZMQ_ADDRESSES"].split(",")
-        addresses = addresses[dp_rank_local * tp_size: (dp_rank_local + 1) * tp_size]
+        addresses = addresses[dp_rank_local * tp_size : (dp_rank_local + 1) * tp_size]
         self.context = zmq.Context()
         self.sockets = []
         for address in addresses:
@@ -81,11 +81,11 @@ class ExternalZeroMQDistributedExecutor(Executor):
         self.collective_rpc("load_model")
 
     def collective_rpc(
-            self,
-            method: str | Callable,
-            timeout: Optional[float] = None,
-            args: tuple = (),
-            kwargs: Optional[dict[str, Any]] = None,
+        self,
+        method: str | Callable,
+        timeout: Optional[float] = None,
+        args: tuple = (),
+        kwargs: Optional[dict[str, Any]] = None,
     ) -> list[Any]:
         if isinstance(method, str):
             sent_method = method
@@ -114,15 +114,15 @@ class vLLMHttpServerBase:
     """
 
     def __init__(
-            self,
-            config: RolloutConfig | RewardModelConfig,
-            model_config: HFModelConfig,
-            rollout_mode: RolloutMode,
-            workers: list[ActorHandle],
-            replica_rank: int,
-            node_rank: int,
-            gpus_per_node: int,
-            nnodes: int,
+        self,
+        config: RolloutConfig | RewardModelConfig,
+        model_config: HFModelConfig,
+        rollout_mode: RolloutMode,
+        workers: list[ActorHandle],
+        replica_rank: int,
+        node_rank: int,
+        gpus_per_node: int,
+        nnodes: int,
     ):
         """
         Args:
@@ -337,11 +337,11 @@ class vLLMHttpServerBase:
         )
 
     async def generate(
-            self,
-            prompt_ids: list[int],
-            sampling_params: dict[str, Any],
-            request_id: str,
-            image_data: Optional[list[Any]] = None,
+        self,
+        prompt_ids: list[int],
+        sampling_params: dict[str, Any],
+        request_id: str,
+        image_data: Optional[list[Any]] = None,
     ) -> TokenOutput:
         """Generate sequence with token-in-token-out."""
         # TODO(@wuxibin): switch to `/generate` http endpoint once multi-modal support ready.
@@ -403,15 +403,15 @@ class vLLMHttpServer(vLLMHttpServerBase):
     """
 
     def __init__(
-            self,
-            config: RolloutConfig | RewardModelConfig,
-            model_config: HFModelConfig,
-            rollout_mode: RolloutMode,
-            workers: list[ActorHandle],
-            replica_rank: int,
-            node_rank: int,
-            gpus_per_node: int,
-            nnodes: int,
+        self,
+        config: RolloutConfig | RewardModelConfig,
+        model_config: HFModelConfig,
+        rollout_mode: RolloutMode,
+        workers: list[ActorHandle],
+        replica_rank: int,
+        node_rank: int,
+        gpus_per_node: int,
+        nnodes: int,
     ):
         super().__init__(config, model_config, rollout_mode, workers, replica_rank, node_rank, gpus_per_node, nnodes)
 
@@ -421,11 +421,11 @@ _rollout_worker_actor_cls = ray.remote(vLLMAsyncRollout)
 
 class vLLMReplica(RolloutReplica):
     def __init__(
-            self,
-            replica_rank: int,
-            config: RolloutConfig | RewardModelConfig,
-            model_config: HFModelConfig,
-            gpus_per_node: int = 8,
+        self,
+        replica_rank: int,
+        config: RolloutConfig | RewardModelConfig,
+        model_config: HFModelConfig,
+        gpus_per_node: int = 8,
     ):
         super().__init__(replica_rank, config, model_config, gpus_per_node)
         self.server_class = vLLMHttpServer
@@ -462,7 +462,7 @@ class vLLMReplica(RolloutReplica):
 
         # create server actor in each node with node affinity
         for node_rank in range(nnodes):
-            workers = self.workers[node_rank * gpus_per_node: (node_rank + 1) * gpus_per_node]
+            workers = self.workers[node_rank * gpus_per_node : (node_rank + 1) * gpus_per_node]
             node_id = worker_node_ids[node_rank * gpus_per_node]
             server = self.server_class.options(
                 scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
