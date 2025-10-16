@@ -2,7 +2,7 @@
 
 **Author:**  `https://github.com/meituan-search`
 
-Last updated: 10/13/2025.
+Last updated: 10/16/2025.
 
 本文档介绍了完全异步PPO训练系统，该系统实现了 Trainer 和 Rollouter 的完全解耦，支持异步样本生成和训练。
 
