@@ -429,7 +429,6 @@ class DataParallelPPOActor(BasePPOActor):
 
                     # for fully_async_policy recipe
                     if hasattr(self.config, "use_rollout_log_probs") and self.config.use_rollout_log_probs:
-                        print("for fully_async_policy recipe")
                         old_log_prob = model_inputs["old_log_probs"]
                     else:
                         if on_policy:
