@@ -143,7 +143,7 @@ if [ "${ACTOR_STRATEGY}" == "fsdp2" ]; then
     ref_offload=True
     actor_offload=False
 
-    /home/hadoop-ai-search/miniconda3/bin/python -m recipe.fully_async_policy.fully_async_main \
+    python3 -m recipe.fully_async_policy.fully_async_main \
         "${common_params[@]}" \
         actor_rollout_ref.actor.strategy=fsdp2 \
         critic.strategy=fsdp2 \
