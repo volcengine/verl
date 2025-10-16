@@ -275,14 +275,14 @@ python -m recipe.fully_async_policy.fully_async_main \
     * staleness_threshold: 0.3
     * partial_rollout: True
 
-| training mode      | Resource allocation | step | generate_sequences | old_log_prob | update_actor | total time | acc/best@32/mean |
-|--------------------|---------------------|------|--------------------|--------------|--------------|------------|------------------|
-| colocate sync      | 32                  |      |                    |              |              |            |                  |
-| fully_async_policy | 16:16               |      |                    |              |              |            |                  |
-| colocate sync      | 64                  |      |                    |              |              |            |                  |
-| fully_async_policy | 32:32               |      |                    |              |              |            |                  |
-| colocate sync      | 128                 |      |                    |              |              |            |                  |
-| fully_async_policy | 64:64               |      |                    |              |              |            |                  |
+|    training mode   	| resource allocation 	|  step  	|   gen  	| old_log_prob 	| update_actor 	| total time<br>100 step 	| total time<br>200 step 	| total time<br>300 step 	| total time<br>400 step 	|          acc/mean@1          	|
+|:------------------:	|:-------------------:	|:------:	|:------:	|:------------:	|:------------:	|:----------------------:	|:----------------------:	|:----------------------:	|:----------------------:	|:----------------------------:	|
+| colocate sync      	| 32                  	| 790.10 	| 357.41 	| 107.71       	| 313.81       	| 13h 44m                	| 1d 3h 43m              	| 2d 9h 22m              	| 3d 17h 5m              	| max: 0.3313<br>last: 0.2448  	|
+| fully_async_policy 	| 16:16               	|        	|        	| \            	|              	|                        	|                        	|                        	|                        	| max: <br>last:               	|
+| colocate sync      	| 64                  	| 365.28 	| 150.72 	| 70.26        	| 133.41       	| 10h 22m                	| 20h 45m                	| 1d 7h 6m               	| 1d 17h 32m             	| max: 0.3365<br>last:  0.2333 	|
+| fully_async_policy 	| 32:32               	| 189.26 	| 28.46  	| \            	| 156.98       	| 4h 57m<br>(2.09x)      	| 10h 14m<br>(2.03x)     	| 16h 58m<br>(1.83x)     	| 21h 40m<br>(1.92x)     	| max: 0.3677<br>last: 0.3406  	|
+| colocate sync      	| 128                 	| 356.30 	| 177.85 	| 53.92        	| 113.81       	| 8h 36m                 	| 17h 56m                	| 1d 5h 6m               	| 1d 16h 48m             	| max: 0.3573<br>last: 0.2958  	|
+| fully_async_policy 	| 64:64               	| 150.63 	| 33.14  	| \            	| 113.16       	| 3h 13m<br>(2.67x)      	| 6h 46m<br>(2.65x)      	| 10h 53m<br>(2.67x)     	| 17h 22m<br>(2.35x)     	| max: 0.3521<br>last: 0.3094  	|
 
 > source data: https://wandb.ai/hou-zg-meituan/fully-async-policy?nw=nwuserhouzg
 
@@ -290,22 +290,22 @@ python -m recipe.fully_async_policy.fully_async_main \
 
 我们使用 Qwen2.5-Math-7B 验证 fully async 所支持的各个模型的效果。
 
-| training mode      | Resource allocation | mode                                           | step | generate_sequences | old_log_prob | update_actor | total time | acc/best@32/mean |
-|--------------------|---------------------|------------------------------------------------|------|--------------------|--------------|--------------|------------|------------------|
-| fully_async_policy | 64:64               | `stream off policy pipeline`                   |      |                    |              |              |            |                  |
-| fully_async_policy | 64:64               | `async stream pipeline with staleness samples` |      |                    |              |              |            |                  |
-| fully_async_policy | 64:64               | `async stream pipeline with partial rollout`   |      |                    |              |              |            |                  |
+|                                          mode                                         	|  step  	|   gen  	| old_log_prob 	| update_actor 	| total time<br>100 step 	| total time<br>200 step 	| total time<br>300 step 	| total time<br>400 step 	|          acc/mean@1         	|
+|:-------------------------------------------------------------------------------------:	|:------:	|:------:	|:------------:	|:------------:	|:----------------------:	|:----------------------:	|:----------------------:	|:----------------------:	|:---------------------------:	|
+| `stream off policy pipeline`<br>(trigger_parameter_sync_step= 4,<br>require_batches= 4) 	| 231.34 	| 128.47 	| \            	| 98.77        	| 4h 25m                 	| 9h 41m                 	| 15h 2m                 	| 1d 1h 53m              	| max: 0.2844<br>last: 0.2604 	|
+| `async stream pipeline with staleness samples`<br>(+staleness_threshold=0.5)            	|        	|        	|              	|              	|                        	|                        	|                        	|                        	|                             	|
+| `async stream pipeline with partial rollout`<br>(+partial_rollout=True)                 	| 150.63 	| 33.14  	| \            	| 113.16       	| 3h 13m                 	| 6h 46m                 	| 10h 53m                	| 17h 22m                	| max: 0.3521<br>last: 0.3094 	|
 
 ### 128卡 stale 消融实验
 
 在 `async stream pipeline with partial rollout` 模式下，我们验证 staleness 的设置对于训练效率的影响。
 
-| training mode      | Resource allocation | staleness | step | generate_sequences | old_log_prob | update_actor | total time | acc/best@32/mean |
-|--------------------|---------------------|-----------|------|--------------------|--------------|--------------|------------|------------------|
-| fully_async_policy | 64:64               | 0         |      |                    |              |              |            |                  |
-| fully_async_policy | 64:64               | 0.1       |      |                    |              |              |            |                  |
-| fully_async_policy | 64:64               | 0.3       |      |                    |              |              |            |                  |
-| fully_async_policy | 64:64               | 0.5       |      |                    |              |              |            |                  |
+| staleness_threshold 	|  step  	|   gen  	| old_log_prob 	| update_actor 	| total time<br>100 step 	| total time<br>200 step 	| total time<br>300 step 	| total time<br>400 step 	|          acc/mean@1         	|
+|:-------------------:	|:------:	|:------:	|:------------:	|:------------:	|:----------------------:	|:----------------------:	|:----------------------:	|:----------------------:	|:---------------------------:	|
+| 0                   	| 231.34 	| 128.47 	| \            	| 98.77        	| 4h 25m                 	| 9h 41m                 	| 15h 2m                 	| 1d 1h 53m              	| max: 0.2844<br>last: 0.2604 	|
+| 0.1                 	| 171.30 	| 58.17  	| \            	| 109.12       	| 3h 53m                 	| 8h 37m                 	| 14h 25m                	| 19h 59m                	| max: 0.3542<br>last: 0.2979 	|
+| 0.3                 	| 146.11 	| 38.88  	| \            	| 103.22       	| 3h 18m                 	| 6h 49m                 	| 11h 40m                	| 17h 20m                	| max: 0.3469<br>last: 0.2865 	|
+| 0.5                 	| 150.63 	| 33.14  	| \            	| 113.16       	| 3h 13m                 	| 6h 46m                 	| 10h 53m                	| 17h 22m                	| max: 0.3521<br>last: 0.3094 	|
 
 > source data: https://wandb.ai/hou-zg-meituan/fully-async-policy?nw=nwuserhouzg
 
@@ -313,11 +313,11 @@ python -m recipe.fully_async_policy.fully_async_main \
 
 在多次测试下，我们发现流式每次下发样本的数量，会影响训练的结果，我们通过修改 `async_training.require_batches` 验证对与结果的影响。
 
-| training mode      | Resource allocation | async_training.require_batches | step | generate_sequences | old_log_prob | update_actor | total time | acc/best@32/mean |
-|--------------------|---------------------|--------------------------------|------|--------------------|--------------|--------------|------------|------------------|
-| fully_async_policy | 64:64               | 1                              |      |                    |              |              |            |                  |
-| fully_async_policy | 64:64               | 2                              |      |                    |              |              |            |                  |
-| fully_async_policy | 64:64               | 4                              |      |                    |              |              |            |                  |
+| require_batches 	|  step  	|  gen  	| old_log_prob 	| update_actor 	| total time<br>100 step 	| total time<br>200 step 	| total time<br>300 step 	|          acc/mean@1         	|
+|:---------------:	|:------:	|:-----:	|:------------:	|:------------:	|:----------------------:	|:----------------------:	|:----------------------:	|:---------------------------:	|
+| 1               	| 203.47 	| 30.88 	| \            	| 181.08       	| 3h 31m                 	| 8h 29m                 	| 17h 36m                	| max: 0.349<br>last: 0.326   	|
+| 2               	| 158.72 	| 26.32 	| \            	| 128.08       	| 3h 35m                 	| 7h 38m                 	| 13h 57m                	| max: 0.351<br>last: 0.3406  	|
+| 4               	| 124.64 	| 25.62 	| \            	| 95.06        	| 3h 13m                 	| 6h 46m                 	| 10h 53m                	| max: 0.3521<br>last: 0.3521 	|
 
 > source data: https://wandb.ai/hou-zg-meituan/fully-async-policy?nw=nwuserhouzg
 
