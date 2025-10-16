@@ -531,6 +531,10 @@ class FlowRLActor(DataParallelPPOActor):
         negative_approx_kl = log_prob - old_log_prob
         ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
 
+        # Reference KL: approx_kl_ref = log_prob - ref_log_prob
+        approx_kl_ref = log_prob - ref_log_prob
+        ref_kl = verl_F.masked_mean(-approx_kl_ref, response_mask)
+
         # Metrics
         loss_term_dict = {
             "actor/log_prob": verl_F.masked_mean(log_prob, response_mask).detach().item(),
@@ -540,7 +544,8 @@ class FlowRLActor(DataParallelPPOActor):
             "actor/log_reward": verl_F.masked_mean(reward, response_mask).detach().item(),
             "actor/final_loss": avg_loss.detach().item(),
             "actor/importance_weight": imp_w.mean().detach().item(),
-            "actor/ppo_kl": ppo_kl.detach().item(),
+            "actor/ppo_kl": ppo_kl.detach().item(),  # PPO-style KL (current vs old policy)
+            "actor/ref_kl": ref_kl.detach().item(),  # KL with reference policy
         }
 
         return avg_loss, loss_term_dict

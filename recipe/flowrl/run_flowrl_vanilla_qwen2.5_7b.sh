@@ -2,7 +2,7 @@
 set -xeuo pipefail
 
 project_name='FlowRL'
-exp_name='FlowRL-vanilla-Qwen2.5-7B-source_load_Z_1015'
+exp_name='FlowRL-vanilla-Qwen2.5-7B-source_load_Z_1016'
 
 # Algorithm settings
 adv_estimator=grpo
