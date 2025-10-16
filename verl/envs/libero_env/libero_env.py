@@ -35,7 +35,6 @@ from verl.envs.action_utils import (
 )
 from verl.envs.libero_env.utils import (
     get_libero_image,
-    quat2axisangle,
 )
 from verl.envs.libero_env.venv import ReconfigureSubprocEnv
 
@@ -125,7 +124,9 @@ class LiberoEnv(gym.Env):
         for task_id in range(self.task_suite.get_num_tasks()):
             task_num_trials = len(self.task_suite.get_task_init_states(task_id))
             self.trial_id_bins.append(task_num_trials)
+
             self.total_num_group_envs += task_num_trials
+
         self.cumsum_trial_id_bins = np.cumsum(self.trial_id_bins)
 
     def update_reset_state_ids(self):
@@ -241,8 +242,8 @@ class LiberoEnv(gym.Env):
             "state": np.concatenate(
                 [
                     obs["robot0_eef_pos"],
-                    quat2axisangle(obs["robot0_eef_quat"]),
-                    obs["robot0_gripper_qpos"],
+                    # quat2axisangle(obs["robot0_eef_quat"]),
+                    # obs["robot0_gripper_qpos"],
                 ]
             ),
         }

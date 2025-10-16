@@ -44,7 +44,7 @@ class IsaacEnv(gym.Env):
         self._generator = np.random.default_rng(seed=self.seed)
 
         self.task_name = cfg.task_name
-        self.task_suite = self.cfg.task_suite
+        self.task_suite_name = self.cfg.task_suite_name
 
         self._init_env()
 
@@ -62,15 +62,15 @@ class IsaacEnv(gym.Env):
 
     def _init_env(self):
         """Initializes the Isaac Sim environment."""
-        launch_args = {"headless": self.cfg.headless, "enable_cameras": True}
+        launch_args = {"headless": True, "enable_cameras": True}
         self.app_launcher = AppLauncher(**launch_args)
         self.sim = self.app_launcher.app
 
         from isaaclab_tasks.utils import parse_env_cfg
 
         # FIXME since isaac use env to set task id, all env have to use the same task id
-        if self.task_suite.startswith("libero"):
-            os.environ["LIBERO_TASK_SUITE"] = self.task_suite
+        if self.task_suite_name.startswith("libero"):
+            os.environ["LIBERO_TASK_SUITE"] = self.task_suite_name
             if hasattr(self.cfg, "task_id") and self.cfg.task_id is not None:
                 os.environ["LIBERO_TASK_ID"] = str(self.cfg.task_id)
             else:
@@ -94,10 +94,11 @@ class IsaacEnv(gym.Env):
         print(f"Action space: {self.action_space}")
 
         # TODO support other task suite
-        if self.task_suite.startswith("libero"):
+        if self.task_suite_name.startswith("libero"):
             self.task_descriptions = self.env.cfg.libero_config.task_info["language_instruction"]
         else:
-            raise ValueError(f"Task suite {self.task_suite} is not supported.")
+            raise ValueError(f"Task suite {self.task_suite_name} is not supported.")
+        print(f"libero_config.workspace_name: {self.env.cfg.libero_config.workspace_name}")
 
     @property
     def elapsed_steps(self):
@@ -183,22 +184,21 @@ class IsaacEnv(gym.Env):
                 infos,
             )
         truncations = self.elapsed_steps >= self.max_episode_steps
-        _actions = torch.zeros(self.action_space.shape)
+        # _actions = torch.zeros(self.action_space.shape)
 
         if isinstance(actions, np.ndarray):
-            actions = torch.from_numpy(actions).to(_actions.device)
+            actions = torch.from_numpy(actions)
 
-        action_dim = actions.shape[-1]
-        assert action_dim <= _actions.shape[-1], (
-            "Action dimension must be less than or equal to the action space dimension."
-        )
+        # action_dim = actions.shape[-1]
+        # assert action_dim <= _actions.shape[-1], (
+        #     "Action dimension must be less than or equal to the action space dimension."
+        # )
 
-        _actions[..., : action_dim - 1] = actions[..., : action_dim - 1]
-        _actions[..., -1] = actions[..., -1]
+        # _actions[..., 1:action_dim + 1] = actions[..., :action_dim]
 
         self._elapsed_steps += 1
-
-        raw_obs, _reward, terminations, _, infos = self.env.step(_actions)
+        # print(f"Step {self._elapsed_steps}: org actions {actions}, actual actions {_actions}")
+        raw_obs, _reward, terminations, _, infos = self.env.step(actions)
         self.last_obs = raw_obs
         self.last_infos = infos
 
@@ -309,6 +309,20 @@ class IsaacEnv(gym.Env):
         }
         return obs
 
+    # def get_camera_pose(self, pos, quat_wxyz):
+
+    #     pos = np.array(pos)
+    #     quat_wxyz = np.array(quat_wxyz)
+
+    #     quat_xyzw = quat_wxyz[[1, 2, 3, 0]]
+    #     r = Rotation.from_quat(quat_xyzw)
+    #     camera_forward_local = np.array([0, 0, -1])
+    #     camera_forward_world = r.apply(camera_forward_local)
+
+    #     eye = pos
+    #     target = eye + camera_forward_world
+    #     return eye, target
+
     def _extract_image_and_state(self, obs):
         # TODO support multiple camera
         camera_name = self.camera_name[0]
@@ -317,17 +331,28 @@ class IsaacEnv(gym.Env):
                 cam = self.env.unwrapped.scene[key]
                 break
         assert cam is not None, f"camera {camera_name} not found in scene"
+
+        # print(f"org cam.data.pos_w: {cam.data.pos_w}, cam.data.quat_w_ros {cam.data.quat_w_ros}")
+
+        # eye, target = self.get_camera_pose((1.6, -1.0, 1.45), (0.56, 0.43, 0.43, 0.56))
+        # eyes = torch.tensor([eye] * self.num_envs, dtype=torch.float32, device=cam.device)
+        # targets = torch.tensor([target] * self.num_envs, dtype=torch.float32, device=cam.device)
+        # # set new pose
+        # cam.set_world_poses_from_view(eyes.clone(), targets.clone())
+
         rgb = cam.data.output["rgb"]
 
-        full_image = rgb.cpu().numpy()
+        # print(f"current cam.data.pos_w: {cam.data.pos_w}, cam.data.quat_w_ros {cam.data.quat_w_ros}")
+        # rgb = self.env.render()
 
+        full_image = rgb.cpu().numpy()
         return {
             "full_image": full_image,
             "state": np.concatenate(
                 [
                     obs["policy"]["eef_pose"].cpu(),
                     # quat2axisangle(obs["robot0_eef_quat"]), # isaac do not return robot0_eef_quat
-                    obs["policy"]["gripper_pos"].cpu(),
+                    # obs["policy"]["gripper_pos"].cpu(),
                 ],
                 axis=-1,
             ),
