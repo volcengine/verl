@@ -1,4 +1,4 @@
-# Recipe: Fully Async Policy Async Trainer
+# Recipe: Fully Async Policy Trainer
 
 **Author:**  `https://github.com/meituan-search`
 
