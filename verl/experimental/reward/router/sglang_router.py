@@ -29,8 +29,10 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 def launch_router_process(
     worker_urls: list[str],
-    request_timeout: int = 60,
-):
+    request_timeout: int = 180,
+    max_wait_time: int = 300,
+    timeout: int = 30,
+) -> str:
     router_ip = ray.util.get_node_ip_address().strip("[]")
     router_port, _ = get_free_port(router_ip)
     router_address = (
@@ -50,5 +52,21 @@ def launch_router_process(
     time.sleep(3)
     assert router_process.is_alive()
 
-    logger.info(f"Router is running on {router_address}")
+    # health check
+    start_time = time.time()
+    url = f"http://{router_address}/health"
+    with requests.Session() as session:
+        while time.time() - start_time < max_wait_time:
+            try:
+                response = session.get(url, timeout=timeout)
+                if response.status_code == 200:
+                    break
+            except requests.RequestException as e:
+                logger.debug(f"Health check failed: {e}")
+
+            time.sleep(2)
+        else:
+            router_process.terminate()
+            raise RuntimeError(f"Router health check failed after {max_wait_time} seconds.")
+
     return router_address, router_process
