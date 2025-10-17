@@ -97,19 +97,22 @@ class GenerationBatchFuture:
         if hasattr(self.gen_batch_output, "get"):
             gen_batch_result = self.gen_batch_output.get()
             self.gen_batch_output = gen_batch_result
-        else:
-            gen_batch_result = self.gen_batch_output
 
         if self.teacher_batch_output is None:
-            return self.epoch, self.batch, gen_batch_result
+            return self.epoch, self.batch, self.gen_batch_output
 
         if hasattr(self.teacher_batch_output, "get"):
-            teacher_batch_result = self.teacher_batch_output.get()
-            self.teacher_batch_output = teacher_batch_result
+            try:
+                teacher_batch_result = self.teacher_batch_output.get()
+            except Exception as e:
+                # set result to empty
+                teacher_batch_result = None
+                self.gen_batch_result = None
+                print(f"{e}\nSkip this batch.")
         else:
             teacher_batch_result = self.teacher_batch_output
 
-        return self.epoch, self.batch, gen_batch_result, teacher_batch_result
+        return self.epoch, self.batch, self.gen_batch_output, teacher_batch_result
 
 
 class OnPolicyDistillTrainer(RayPPOTrainer):
@@ -611,6 +614,14 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
                 
             with marked_timer("step", timing_raw):
                 _, batch, gen_batch_output, teacher_batch_output, schedule_timing = next(scheduler)
+                if teacher_batch_output is None:
+                    progress_bar.update(1)
+                    self.global_steps += 1
+                    if is_last_step:
+                        progress_bar.close()
+                        return
+                    continue
+
                 timing_raw.update(schedule_timing)
 
                 gen_timing = gen_batch_output.meta_info.pop("timing", {})
