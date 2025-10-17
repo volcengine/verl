@@ -182,7 +182,9 @@ class RaySPPOTrainer(RayPPOTrainer):
                     batch_keys=batch_keys_to_pop,
                     non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
                 )
-                gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+                gen_batch_output = gen_batch.repeat(
+                    repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True
+                )
 
                 is_last_step = self.global_steps >= self.total_training_steps
 
@@ -190,9 +192,9 @@ class RaySPPOTrainer(RayPPOTrainer):
                     # generate a batch
                     with simple_timer("gen", timing_raw):
                         if not self.async_rollout_mode:
-                            gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+                            gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch_output)
                         else:
-                            gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
+                            gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch_output)
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)
 
