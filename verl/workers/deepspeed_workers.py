@@ -28,22 +28,25 @@ from typing import Optional
 
 import psutil
 import torch
-
-# Performance optimization: conditionally enable debug logging
-_DEBUG_ENABLED = os.getenv("VERL_DEBUG", "0") == "1"
 import torch.distributed
-from tensordict import TensorDict
 from codetiming import Timer
 from omegaconf import DictConfig, OmegaConf, open_dict
 from peft import LoraConfig, TaskType, get_peft_model
-from transformers import AutoConfig, AutoModel, AutoModelForCausalLM, AutoModelForImageTextToText, AutoModelForVision2Seq
+from tensordict import TensorDict
+from transformers import (
+    AutoConfig,
+    AutoModel,
+    AutoModelForCausalLM,
+    AutoModelForImageTextToText,
+    AutoModelForVision2Seq,
+)
 
-import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.models.transformers.monkey_patch import apply_monkey_patch
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
-from verl.third_party.vllm import vllm_version
+from verl.trainer.ppo import core_algos
+from verl.trainer.ppo.core_algos import agg_loss, get_policy_loss_fn, kl_penalty
 from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.checkpoint.deepspeed_checkpoint_manager import DeepSpeedCheckpointManager
 from verl.utils.config import omega_conf_to_dataclass
@@ -78,10 +81,8 @@ from verl.utils.py_functional import append_to_dict, convert_to_regular_types
 from verl.utils.seqlen_balancing import prepare_dynamic_batch
 from verl.utils.torch_dtypes import PrecisionType
 from verl.utils.torch_functional import masked_mean
-from verl.trainer.ppo import core_algos
-from verl.trainer.ppo.core_algos import agg_loss, get_policy_loss_fn, kl_penalty
-from verl.workers.config import DeepSpeedCriticConfig, DeepSpeedEngineConfig, HFModelConfig, RolloutConfig
 from verl.workers.actor import DataParallelPPOActor
+from verl.workers.config import DeepSpeedCriticConfig, DeepSpeedEngineConfig, HFModelConfig, RolloutConfig
 from verl.workers.critic import DataParallelPPOCritic
 from verl.workers.rollout import get_rollout_class
 
@@ -286,6 +287,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             # Apply Liger kernel
             if use_liger:
                 from liger_kernel.transformers.monkey_patch import _apply_liger_kernel_to_instance
+
                 _apply_liger_kernel_to_instance(model=actor_module)
 
             # Apply monkey patches
@@ -333,9 +335,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         if optim_config is not None and role == "actor":
             # Build DeepSpeed config
             # Parse mixed precision config (supports str or dict)
-            fp16_enabled, bf16_enabled = _parse_mixed_precision_config(
-                deepspeed_config.get("mixed_precision")
-            )
+            fp16_enabled, bf16_enabled = _parse_mixed_precision_config(deepspeed_config.get("mixed_precision"))
 
             zero_stage = getattr(self.config.actor, "zero_stage", deepspeed_config.get("zero_stage", 2))
 
@@ -396,7 +396,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             loop = asyncio.get_event_loop()
             loop.run_until_complete(self.trainer_mode())
 
-
     async def rollout_mode(self):
         """Context switch to rollout mode."""
         if self._skip_rollout:
@@ -418,7 +417,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             # For ZeRO-3, weights ARE partitioned and need gathering
 
             # Use deepspeed's method to get full state dict if available
-            if hasattr(self.actor_engine, 'get_full_state_dict'):
+            if hasattr(self.actor_engine, "get_full_state_dict"):
                 params = self.actor_engine.get_full_state_dict()
             else:
                 # Fallback: get from module directly
@@ -677,14 +676,10 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         prompts = prompts.to(get_device_id())
 
         eos_id = (
-            self.generation_config.eos_token_id
-            if self.generation_config is not None
-            else self.tokenizer.eos_token_id
+            self.generation_config.eos_token_id if self.generation_config is not None else self.tokenizer.eos_token_id
         )
         pad_id = (
-            self.generation_config.pad_token_id
-            if self.generation_config is not None
-            else self.tokenizer.pad_token_id
+            self.generation_config.pad_token_id if self.generation_config is not None else self.tokenizer.pad_token_id
         )
 
         if prompts.meta_info is None:
@@ -698,9 +693,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         # This keeps the PPO training stack exercised without invoking vLLM kernels.
         if self._dummy_rollout:
             import time
+
             # Dummy mode also needs mode switching for RNG consistency
             if self._is_actor:
                 import asyncio
+
                 loop = asyncio.get_event_loop()
                 loop.run_until_complete(self.rollout_mode())
 
@@ -723,7 +720,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 position_ids = base_positions.unsqueeze(0).expand_as(idx)
 
             eos_token_meta = prompts.meta_info.get("eos_token_id", eos_id)
-            if isinstance(eos_token_meta, (list, tuple)):
+            if isinstance(eos_token_meta, list | tuple):
                 eos_token_value = eos_token_meta[0]
             elif isinstance(eos_token_meta, torch.Tensor):
                 eos_token_value = eos_token_meta.view(-1)[0].item()
@@ -738,9 +735,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 eos_token_value = int(pad_id)
 
             response_length = 1
-            responses = torch.full(
-                (batch_size, response_length), eos_token_value, dtype=idx.dtype, device=device
-            )
+            responses = torch.full((batch_size, response_length), eos_token_value, dtype=idx.dtype, device=device)
             seq = torch.cat([idx, responses], dim=-1)
 
             delta_position_id = torch.arange(
@@ -794,6 +789,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             # Switch back to trainer mode after dummy generation
             if self._is_actor:
                 import asyncio
+
                 loop = asyncio.get_event_loop()
                 loop.run_until_complete(self.trainer_mode())
 
@@ -802,6 +798,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         # Normal mode: Use vLLM for actual generation
         if self._is_actor:
             import asyncio
+
             loop = asyncio.get_event_loop()
             loop.run_until_complete(self.rollout_mode())
 
@@ -810,6 +807,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         if self._is_actor:
             import asyncio
+
             loop = asyncio.get_event_loop()
             loop.run_until_complete(self.trainer_mode())
 
@@ -920,7 +918,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             hdfs_path: Remote path to load checkpoint from (HDFS, etc.)
             del_local_after_load: Whether to delete local checkpoint after loading
         """
-        import torch.distributed as dist
 
         assert self._is_actor or (not self._is_actor and self._is_rollout), (
             f"Checkpoint loading is only supported for Actor or standalone Rollout Workers, but got "
@@ -930,9 +927,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         if self._is_offload_param:
             load_deepspeed_model_to_gpu(self.actor_engine)
 
-        self.checkpoint_manager.load(
-            root=local_path, hdfs_path=hdfs_path, del_local_after_load=del_local_after_load
-        )
+        self.checkpoint_manager.load(root=local_path, hdfs_path=hdfs_path, del_local_after_load=del_local_after_load)
 
         if self._is_offload_param:
             offload_deepspeed_model_to_cpu(self.actor_engine)
@@ -945,7 +940,6 @@ class DeepSpeedPPOActor(DataParallelPPOActor):
         super().__init__(config=config, actor_module=actor_module, actor_optimizer=engine.optimizer)
         self.deepspeed_engine = engine
         self._use_manual_backward = bool(int(os.getenv("DS_USE_MANUAL_BACKWARD", "0")))
-        self._last_grad_layout: list[tuple[str, int]] = []
         base_opt = getattr(engine.optimizer, "optimizer", None)
         if torch.distributed.get_rank() == 0:
             print(
@@ -978,13 +972,21 @@ class DeepSpeedPPOActor(DataParallelPPOActor):
         if self.config.use_kl_loss:
             select_keys.append("ref_log_prob")
         # Use rollout_is_threshold (replaces legacy tis_imp_ratio_cap)
-        if hasattr(self.config, 'rollout_is_threshold') and self.config.rollout_is_threshold is not None and self.config.rollout_is_threshold > 0:
+        if (
+            hasattr(self.config, "rollout_is_threshold")
+            and self.config.rollout_is_threshold is not None
+            and self.config.rollout_is_threshold > 0
+        ):
             select_keys.append("rollout_log_probs")
 
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
         non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
 
-        if hasattr(self.config, 'rollout_is_threshold') and self.config.rollout_is_threshold is not None and self.config.rollout_is_threshold > 0:
+        if (
+            hasattr(self.config, "rollout_is_threshold")
+            and self.config.rollout_is_threshold is not None
+            and self.config.rollout_is_threshold > 0
+        ):
             assert "rollout_log_probs" in data.batch.keys(), (
                 "Truncated Importance Sampling (TIS) requires `actor_rollout_ref.rollout.calculate_log_probs=True` "
                 "and is not currently supported in Server mode (agent loop)."
@@ -1083,9 +1085,7 @@ class DeepSpeedPPOActor(DataParallelPPOActor):
                 # Manual gradient clipping (required for bf16 mode)
                 # DeepSpeed's gradient_clipping config doesn't work with bf16
                 grad_norm_val = torch.nn.utils.clip_grad_norm_(
-                    self.actor_module.parameters(),
-                    max_norm=self.config.grad_clip,
-                    norm_type=2.0
+                    self.actor_module.parameters(), max_norm=self.config.grad_clip, norm_type=2.0
                 )
                 append_to_dict(metrics, {"actor/grad_norm": float(grad_norm_val)})
 
@@ -1121,14 +1121,6 @@ class DeepSpeedPPOCritic(DataParallelPPOCritic):
 
     def update_critic(self, data: DataProto):
         self.critic_module.train()
-
-        if 'rng_seed' in data.meta_info:
-            rng_seed = data.meta_info['rng_seed']
-            if torch.distributed.get_rank() == 0:
-                print(f"[DS Critic] Setting RNG seed: {rng_seed}")
-            torch.manual_seed(rng_seed)
-            if torch.cuda.is_available():
-                torch.cuda.manual_seed_all(rng_seed)
 
         metrics = {}
 
@@ -1200,9 +1192,7 @@ class DeepSpeedPPOCritic(DataParallelPPOCritic):
                 # Manual gradient clipping (required for bf16 mode)
                 # DeepSpeed's gradient_clipping config doesn't work with bf16
                 grad_norm_val = torch.nn.utils.clip_grad_norm_(
-                    self.critic_module.parameters(),
-                    max_norm=self.config.grad_clip,
-                    norm_type=2.0
+                    self.critic_module.parameters(), max_norm=self.config.grad_clip, norm_type=2.0
                 )
                 append_to_dict(metrics, {"critic/grad_norm": float(grad_norm_val)})
 
@@ -1237,9 +1227,7 @@ class CriticWorker(Worker, DistProfilerExtension):
         # Setup profiler
         omega_profiler_config = self.config.get("profiler", {})
         profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
-        DistProfilerExtension.__init__(
-            self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=None)
-        )
+        DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=None))
 
         self._register_dispatch_collect_info("critic", dp_rank=self.rank, is_collect=True)
 
@@ -1340,9 +1328,7 @@ class CriticWorker(Worker, DistProfilerExtension):
 
         # Initialize DeepSpeed
         # Parse mixed precision config (supports str or dict)
-        fp16_enabled, bf16_enabled = _parse_mixed_precision_config(
-            self.config.deepspeed_config.get("mixed_precision")
-        )
+        fp16_enabled, bf16_enabled = _parse_mixed_precision_config(self.config.deepspeed_config.get("mixed_precision"))
 
         zero_stage = getattr(self.config, "zero_stage", self.config.deepspeed_config.get("zero_stage", 2))
 
@@ -1464,14 +1450,11 @@ class CriticWorker(Worker, DistProfilerExtension):
             hdfs_path: Remote path to load checkpoint from (HDFS, etc.)
             del_local_after_load: Whether to delete local checkpoint after loading
         """
-        import torch.distributed as dist
 
         if self._is_offload_param:
             load_deepspeed_model_to_gpu(self.critic_engine)
 
-        self.checkpoint_manager.load(
-            root=local_path, hdfs_path=hdfs_path, del_local_after_load=del_local_after_load
-        )
+        self.checkpoint_manager.load(root=local_path, hdfs_path=hdfs_path, del_local_after_load=del_local_after_load)
 
         if self._is_offload_param:
             offload_deepspeed_model_to_cpu(self.critic_engine)
@@ -1505,6 +1488,7 @@ class RolloutWorker(Worker):
 # Async variants
 class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
     """Async variant of ActorRolloutRefWorker."""
+
     pass
 
 
@@ -1608,9 +1592,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
 
         # Initialize DeepSpeed for inference (no optimizer)
         # Parse mixed precision config
-        fp16_enabled, bf16_enabled = _parse_mixed_precision_config(
-            self.config.deepspeed_config.get("mixed_precision")
-        )
+        fp16_enabled, bf16_enabled = _parse_mixed_precision_config(self.config.deepspeed_config.get("mixed_precision"))
 
         zero_stage = getattr(self.config, "zero_stage", self.config.deepspeed_config.get("zero_stage", 2))
 

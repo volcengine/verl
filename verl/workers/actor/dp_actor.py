@@ -59,8 +59,6 @@ class DataParallelPPOActor(BasePPOActor):
         super().__init__(config)
         self.actor_module = actor_module
         self.actor_optimizer = actor_optimizer
-        self._last_pre_clip_grad = torch.tensor([], dtype=torch.float64)
-        self._last_grad_layout: list[tuple[str, int]] = []
         role = "Ref" if actor_optimizer is None else "Actor"
 
         self.use_remove_padding = self.config.get("use_remove_padding", False)
@@ -276,20 +274,6 @@ class DataParallelPPOActor(BasePPOActor):
 
     def _optimizer_step(self):
         assert self.config.grad_clip is not None
-
-        grad_layout: list[tuple[str, int]] = []
-        grad_tensors_cpu = []
-        for name, param in self.actor_module.named_parameters():
-            if param.grad is None:
-                continue
-            grad_layout.append((name, param.numel()))
-            grad_tensors_cpu.append(param.grad.detach().flatten().to(torch.float64).cpu())
-
-        if grad_tensors_cpu:
-            self._last_pre_clip_grad = torch.cat(grad_tensors_cpu)
-        else:
-            self._last_pre_clip_grad = torch.tensor([], dtype=torch.float64)
-        self._last_grad_layout = grad_layout
 
         if isinstance(self.actor_module, FSDP):
             grad_norm = self.actor_module.clip_grad_norm_(max_norm=self.config.grad_clip)

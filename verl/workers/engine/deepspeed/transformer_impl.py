@@ -46,6 +46,7 @@ from verl.utils.deepspeed_utils import (
 from verl.utils.device import (
     get_device_id,
     get_device_name,
+    get_nccl_backend,
     is_cuda_available,
     is_npu_available,
 )
@@ -56,9 +57,9 @@ from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad, ulysses_pa
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 if is_cuda_available:
-    from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
+    pass
 elif is_npu_available:
-    from transformers.integrations.npu_flash_attention import index_first_axis, pad_input, rearrange, unpad_input
+    pass
 
 from verl.trainer.config import CheckpointConfig
 from verl.workers.config import (
@@ -757,7 +758,11 @@ class DeepSpeedEngine(BaseEngine):
             os.environ.setdefault("MASTER_PORT", "29500")
             if not torch.distributed.is_initialized():
                 try:
-                    torch.distributed.init_process_group(backend="gloo", rank=self.rank, world_size=self.world_size)
+                    torch.distributed.init_process_group(
+                        backend=f"cpu:gloo,{get_device_name()}:{get_nccl_backend()}",
+                        rank=self.rank,
+                        world_size=self.world_size,
+                    )
                 except Exception as _e:  # noqa: F841
                     # If initialization fails we proceed; DeepSpeed may attempt its own init
                     pass  # Synchronize all processes if distributed is active
@@ -1063,10 +1068,10 @@ class DeepSpeedEngineWithLMHead(DeepSpeedEngine):
 
     def prepare_model_inputs(self, micro_batch: TensorDict):
         """Prepare model inputs from micro_batch. Matches FSDP interface exactly.
-        
+
         Args:
             micro_batch: TensorDict containing input data
-            
+
         Returns:
             tuple: (model_inputs dict, output_args dict)
         """
@@ -1081,6 +1086,7 @@ class DeepSpeedEngineWithLMHead(DeepSpeedEngine):
         multi_modal_inputs = {}
         if "multi_modal_inputs" in micro_batch.keys():
             from verl.utils.model import extract_multi_modal_inputs
+
             multi_modal_inputs = extract_multi_modal_inputs(micro_batch["multi_modal_inputs"])
 
         input_ids = micro_batch["input_ids"]
@@ -1105,7 +1111,9 @@ class DeepSpeedEngineWithLMHead(DeepSpeedEngine):
             # Apply Ulysses sequence parallel if needed
             if self.use_ulysses_sp:
                 # Check if this is a VLM model
-                is_vlm_model = hasattr(getattr(self.engine.module, "module", self.engine.module).config, "vision_config")
+                is_vlm_model = hasattr(
+                    getattr(self.engine.module, "module", self.engine.module).config, "vision_config"
+                )
                 if is_vlm_model:
                     # VLM model's inputs will be sliced after embedding
                     input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad(
@@ -1188,12 +1196,12 @@ class DeepSpeedEngineWithLMHead(DeepSpeedEngine):
 
     def prepare_model_outputs(self, output, output_args, micro_batch: TensorDict):
         """Prepare model outputs (log_probs, entropy). Matches FSDP interface exactly.
-        
+
         Args:
             output: Raw model output
             output_args: Arguments from prepare_model_inputs
             micro_batch: Original micro_batch TensorDict
-            
+
         Returns:
             dict: model_output with 'log_probs' and optionally 'entropy'
         """
@@ -1266,7 +1274,7 @@ class DeepSpeedEngineWithLMHead(DeepSpeedEngine):
         else:
             # Non-remove_padding mode
             response_length = tu.get_non_tensor_data(data=micro_batch, key="max_response_length", default=1024)
-            
+
             if use_fused_kernels:
                 log_probs = output.log_probs[:, -response_length - 1 : -1]
                 if calculate_entropy:
@@ -1306,12 +1314,12 @@ class DeepSpeedEngineWithLMHead(DeepSpeedEngine):
 
     def forward_step(self, micro_batch: TensorDict, loss_function, forward_only):
         """Forward step - simplified to match FSDP pattern.
-        
+
         Args:
             micro_batch: Input data as TensorDict
             loss_function: Loss computation function
             forward_only: Whether to run forward-only (no loss computation)
-            
+
         Returns:
             tuple: (loss, output_dict)
         """
@@ -1345,17 +1353,13 @@ class DeepSpeedEngineWithLMHead(DeepSpeedEngine):
 
             # Step 4: Prepare model outputs
             model_output = self.prepare_model_outputs(
-                output=raw_output,
-                output_args=output_args,
-                micro_batch=micro_batch
+                output=raw_output, output_args=output_args, micro_batch=micro_batch
             )
 
             # Step 5: Compute loss
             if loss_function is not None:
                 loss, metrics = loss_function(
-                    model_output=model_output,
-                    data=micro_batch,
-                    dp_group=self.get_data_parallel_group()
+                    model_output=model_output, data=micro_batch, dp_group=self.get_data_parallel_group()
                 )
             else:
                 assert forward_only, "forward_only must be True when loss_function is None"
