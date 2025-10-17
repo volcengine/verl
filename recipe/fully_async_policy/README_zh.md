@@ -2,7 +2,7 @@
 
 **Author:**  `https://github.com/meituan-search`
 
-Last updated: 10/16/2025.
+Last updated: 10/17/2025.
 
 本文档介绍了完全异步PPO训练系统，该系统实现了 Trainer 和 Rollouter 的完全解耦，支持异步样本生成和训练。
 在该系统下，我们使用128卡训练qwen2.5-7B模型取得了2.35x-2.67x的性能提升,同时效果没有显著受到影响。

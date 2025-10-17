@@ -2,7 +2,7 @@
 
 **Author:** `https://github.com/meituan-search`
 
-Last updated: 10/16/2025.
+Last updated: 10/17/2025.
 
 This document introduces a fully asynchronous PPO training system that completely decouples the Trainer and Rollouter,
 supporting asynchronous sample generation and training.
