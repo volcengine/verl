@@ -208,6 +208,7 @@ def preprocess_packed_seqs_no_padding(
                 seqlen = seqlens_in_batch_cpu[i]
                 start_idx = cu_seqlens_padded_cpu[i]
                 input_ids_rmpad[start_idx : start_idx + seqlen] = input_ids[i]
+                continue
 
             seqlen_padded_i = seqlens_in_batch_padded_cpu[i]
             seqlen = seqlen_padded_i // cp_size
