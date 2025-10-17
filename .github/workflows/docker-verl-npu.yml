@@ -18,7 +18,7 @@ on:
       - ".github/workflows/docker-verl-npu.yml"
   release:
     types: [ published ] 
-  # 新增：每天0 点定时触发  schedule:
+  schedule:
     - cron: "0 16 * * *" 
 
 jobs:
@@ -54,15 +54,15 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3  
 
-      - name: Login to Quay.io
+      - name: Login to Aliyun Container Registry
         if: ${{ github.event_name != 'pull_request' }}  
         uses: docker/login-action@v3
         with:
-          registry: quay.io
-          username: ${{ vars.QUAY_ASCEND_USERNAME }}
-          password: ${{ secrets.QUAY_ASCEND_TOKEN }}
+          registry: crpi-nc9mglthamj2w1bt.cn-hangzhou.personal.cr.aliyuncs.com
+          username: ssy709222099  # 阿里云账号全名（固定值）
+          password: ${{ secrets.ALIYUN_CR_PASSWORD }}  # 阿里云仓库登录密码（敏感信息，需存为secret）
 
-      - name: Build and push vllm NPU image
+      - name: Build and push images (Quay + Aliyun)
         uses: docker/build-push-action@v6
         with:
           context: .  
@@ -70,6 +70,6 @@ jobs:
           file: ./docker/Dockerfile.ascend_vllm-0.9.1  
           push: ${{ github.event_name != 'pull_request' }} 
           tags: |  
-            quay.io/ascend/verl:${{ steps.version.outputs.tag }}
+            crpi-nc9mglthamj2w1bt.cn-hangzhou.personal.cr.aliyuncs.com/ascend_linke/verl_x86:${{ steps.version.outputs.tag }}
           cache-from: type=gha  
           cache-to: type=gha,mode=max  
