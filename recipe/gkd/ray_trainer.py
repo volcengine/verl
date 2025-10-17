@@ -513,41 +513,41 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
         for i, (epoch, batch_dict) in enumerate(continuous_iterator):
             if i == 0:
                 with marked_timer("sync_rollout_weights", timing):
-                    prev_fut = self._async_gen_next_batch(epoch, batch_dict)
+                    rollout_future = self._async_gen_next_batch(epoch, batch_dict)
                 continue
             elif i == 1:
-                prev_prev_fut = self._async_get_teacher_knowledge(prev_fut)
-                prev_fut = self._async_gen_next_batch(epoch, batch_dict, sync_before_generation=False)
+                teacher_future = self._async_get_teacher_knowledge(rollout_future)
+                rollout_future = self._async_gen_next_batch(epoch, batch_dict, sync_before_generation=False)
                 continue
             elif i == 2:
                 with marked_timer("wait_prev_prev_teacher", timing):
-                    prev_prev_result = prev_prev_fut.get()
+                    result = teacher_future.get()
                 with marked_timer("wait_prev_gen", timing):
-                    prev_prev_fut = self._async_get_teacher_knowledge(prev_fut)
-                prev_fut = self._async_gen_next_batch(epoch, batch_dict, sync_before_generation=False)
-                yield *prev_prev_result, timing
+                    teacher_future = self._async_get_teacher_knowledge(rollout_future)
+                rollout_future = self._async_gen_next_batch(epoch, batch_dict, sync_before_generation=False)
+                yield *result, timing
                 timing = {}
             else:
                 with marked_timer("wait_prev_prev_teacher", timing):
-                    prev_prev_result = prev_prev_fut.get()
+                    result = teacher_future.get()
                 with marked_timer("wait_prev_gen", timing):
-                    prev_prev_fut = self._async_get_teacher_knowledge(prev_fut)
+                    teacher_future = self._async_get_teacher_knowledge(rollout_future)
                 with marked_timer("sync_rollout_weights", timing):
-                    prev_fut = self._async_gen_next_batch(epoch, batch_dict)
-                yield *prev_prev_result, timing
+                    rollout_future = self._async_gen_next_batch(epoch, batch_dict)
+                yield *result, timing
                 timing = {}
 
         # for second to last step
         with marked_timer("wait_prev_prev_teacher", timing):
-            prev_prev_result = prev_prev_fut.get()
+            result = teacher_future.get()
         with marked_timer("wait_prev_gen", timing):
-            prev_prev_fut = self._async_get_teacher_knowledge(prev_fut)
-        yield *prev_prev_result, timing
+            teacher_future = self._async_get_teacher_knowledge(rollout_future)
+        yield *result, timing
 
         # for last step
         with marked_timer("wait_prev_prev_teacher", timing):
-            prev_prev_result = prev_prev_fut.get()
-        yield *prev_prev_result, timing
+            result = teacher_future.get()
+        yield *result, timing
 
     def fit(self):
         """
