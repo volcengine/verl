@@ -1,4 +1,4 @@
-# Recipe: Fully Async Policy Async Trainer
+# Recipe: Fully Async Policy Trainer
 
 **Author:**  `https://github.com/meituan-search`
 
@@ -273,7 +273,7 @@ python -m recipe.fully_async_policy.fully_async_main \
     * total_rollout_steps: 512*400
     * require_batches: 4
     * trigger_parameter_sync_step: 4
-    * staleness_threshold: 0.3
+    * staleness_threshold: 0.5
     * partial_rollout: True
 
 |  training mode   	   | resource allocation 	 | step  	  |  gen  	  | old_log_prob 	 | update_actor 	 | total time<br>100 step 	 | total time<br>200 step 	 | total time<br>300 step 	 | total time<br>400 step 	 |     acc/mean@1          	      |
