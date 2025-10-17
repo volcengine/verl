@@ -60,7 +60,7 @@ jobs:
         with:
           registry: crpi-nc9mglthamj2w1bt.cn-hangzhou.personal.cr.aliyuncs.com
           username: ssy709222099  # 阿里云账号全名（固定值）
-          password: ${{ secrets.ALIYUN_CR_PASSWORD }}  # 阿里云仓库登录密码（敏感信息，需存为secret）
+          password: ${{ secrets.ALIYUN_CR_PASSWORD }} 
 
       - name: Build and push images (Quay + Aliyun)
         uses: docker/build-push-action@v6
