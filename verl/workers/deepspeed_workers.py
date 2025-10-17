@@ -56,6 +56,11 @@ from verl.utils.deepspeed_utils import (
     load_deepspeed_model_to_gpu,
     offload_deepspeed_model_to_cpu,
 )
+
+try:
+    from deepspeed.runtime.zero.partition_parameters import GatheredParameters
+except ImportError:
+    GatheredParameters = None
 from verl.utils.device import (
     get_device_id,
     get_device_name,
@@ -338,6 +343,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             fp16_enabled, bf16_enabled = _parse_mixed_precision_config(deepspeed_config.get("mixed_precision"))
 
             zero_stage = getattr(self.config.actor, "zero_stage", deepspeed_config.get("zero_stage", 2))
+            self.zero_stage = zero_stage  # Store for later use in parameter gathering
 
             ds_config = get_deepspeed_config(
                 optimizer_type=optim_config.get("optimizer", "AdamW"),
@@ -366,6 +372,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             return ds_engine, ds_engine.module, optimizer, lr_scheduler, actor_model_config
         else:
             # No optimizer for ref or rollout
+            self.zero_stage = 0  # No ZeRO for reference model
             return None, actor_module, None, None, actor_model_config
 
     def _build_rollout(self, trust_remote_code=False):
@@ -413,28 +420,49 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         # Get model parameters for rollout - ensure we get full tensors
         if self.actor_engine is not None:
             # DeepSpeed engine - need to handle ZeRO partitioned parameters
-            # For ZeRO-2, weights are not partitioned, only optimizer states
-            # For ZeRO-3, weights ARE partitioned and need gathering
+            # For ZeRO stage 0/1/2: weights are not partitioned, only optimizer states
+            # For ZeRO stage 3: weights ARE partitioned and need gathering
 
-            # Use deepspeed's method to get full state dict if available
-            if hasattr(self.actor_engine, "get_full_state_dict"):
-                params = self.actor_engine.get_full_state_dict()
+            world_size = torch.distributed.get_world_size() if torch.distributed.is_initialized() else 1
+            zero_stage = getattr(self, "zero_stage", 2)  # Default to 2 if not set
+
+            # Check if we need ZeRO-3 gathering (multi-GPU + ZeRO-3)
+            if world_size > 1 and zero_stage == 3 and GatheredParameters is not None:
+                # ZeRO-3: Use GatheredParameters to gather sharded weights on rank 0
+                logger.info(f"Gathering ZeRO-3 sharded parameters for rollout (world_size={world_size})")
+
+                # Gather parameters on rank 0 only
+                with GatheredParameters(list(self.actor_engine.module.parameters()), modifier_rank=0):
+                    if self.rank == 0:
+                        # Only rank 0 gets the full state dict
+                        params = self.actor_engine.module.state_dict()
+                        logger.info("Rank 0: Successfully gathered full state_dict from ZeRO-3 sharded parameters")
+                    else:
+                        # Other ranks get empty dict (will be broadcast later if needed)
+                        params = {}
+                        logger.info(f"Rank {self.rank}: Skipping state_dict (will receive from rank 0)")
             else:
-                # Fallback: get from module directly
+                # ZeRO stage 0/1/2 or single GPU: weights are not sharded
+                # Use module_state_dict() which handles non-sharded parameters correctly
                 params = self.actor_engine.module.state_dict()
 
-            # Log weight shapes for debugging
-            if self.rank == 0:
+                if self.rank == 0:
+                    logger.info(f"Using standard state_dict for ZeRO stage {zero_stage} (no gathering needed)")
+
+            # Log weight shapes for debugging (rank 0 only)
+            if self.rank == 0 and params:
                 for key in list(params.keys())[:3]:  # Check first 3 weights
                     logger.info(f"DeepSpeed weight {key} shape: {params[key].shape}, dtype: {params[key].dtype}")
         else:
             params = self.actor_module.state_dict()
 
         # Critical: Convert weight keys to match vLLM expectations (like FSDP does)
-        if self.actor_engine is not None:
-            params = convert_weight_keys(params, self.actor_engine.module)
-        else:
-            params = convert_weight_keys(params, self.actor_module)
+        # Only process params if we have them (rank 0 for ZeRO-3, all ranks for ZeRO 0/1/2)
+        if params:
+            if self.actor_engine is not None:
+                params = convert_weight_keys(params, self.actor_engine.module)
+            else:
+                params = convert_weight_keys(params, self.actor_module)
 
         log_gpu_memory_usage("Before offload_deepspeed_model_to_cpu", logger=logger)
         if self._is_offload_param and self.actor_engine is not None:
@@ -454,7 +482,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                     tensor = tensor.contiguous()
                 yield name, tensor
 
-        per_tensor_param = _yield_params()
+        per_tensor_param = _yield_params() if params else iter([])
 
         # Ensure all transfers and memory operations are complete
         if torch.cuda.is_available():
