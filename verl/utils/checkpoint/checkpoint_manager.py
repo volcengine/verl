@@ -14,7 +14,6 @@
 
 import os
 import random
-import shutil
 
 import numpy as np
 import torch
@@ -131,15 +130,19 @@ class BaseCheckpointManager:
         assert local_path is not None or hdfs_path is not None, "local_path and hdfs_path cannot be both None"
         return local_path is not None, local_path if local_path is not None else hdfs_path
 
-    def remove_previous_save_local_path(self, path):
+    def remove_previous_save_local_path(self, path, world_size, rank):
         if isinstance(path, str):
             path = [path]
         for p in path:
             abs_path = os.path.abspath(p)
             print(f"Checkpoint manager remove previous save local path: {abs_path}")
-            if not os.path.exists(abs_path):
-                continue
-            shutil.rmtree(abs_path, ignore_errors=True)
+            model_path = os.path.join(abs_path, f"model_world_size_{world_size}_rank_{rank}.pt")
+            optim_path = os.path.join(abs_path, f"optim_world_size_{world_size}_rank_{rank}.pt")
+            extra_path = os.path.join(abs_path, f"extra_state_world_size_{world_size}_rank_{rank}.pt")
+            for file_path in (model_path, optim_path, extra_path):
+                if not os.path.exists(file_path):
+                    continue
+                os.remove(file_path)
 
     @staticmethod
     def get_rng_state():
