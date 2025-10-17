@@ -153,16 +153,14 @@ def rollout_trace_op(func):
 
         async def add_token2text(self, result):
             if hasattr(result, "prompt_ids") and hasattr(self, "tokenizer") and hasattr(self.tokenizer, "decode"):
-                _result = vars(result)
                 loop = asyncio.get_running_loop()
                 if hasattr(result, "prompt_ids"):
                     prompt_text = await loop.run_in_executor(None, self.tokenizer.decode, result.prompt_ids)
-                    _result["prompt_text"] = prompt_text
+                    result.prompt_text = prompt_text
 
                 if hasattr(result, "response_ids"):
                     response_text = await loop.run_in_executor(None, self.tokenizer.decode, result.response_ids)
-                    _result["response_text"] = response_text
-                return _result
+                    result.response_text = response_text
             return result
 
         if backend == "weave":
