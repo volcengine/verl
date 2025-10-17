@@ -391,7 +391,7 @@ class FlowRLActor(DataParallelPPOActor):
                     # Compute FlowRL trajectory balance loss
 
                     # Select loss variant from environment variable or default to 'vanilla'
-                    # Set in script: export FLOWRL_LOSS_VARIANT="vanilla" or "flowrl_clip"
+                    # Set in script: export FLOWRL_LOSS_VARIANT="vanilla" or "flowrl_clip" or "flowrl_clip_tis"
                     import os
                     loss_variant = os.getenv("FLOWRL_LOSS_VARIANT", "vanilla")
 
@@ -417,8 +417,19 @@ class FlowRLActor(DataParallelPPOActor):
                             clip_ratio=self.config.clip_ratio,
                             rollout_log_probs=rollout_log_probs
                         )
+                    elif loss_variant == "flowrl_clip_tis":
+                        policy_loss, flowrl_metrics = self.compute_flowrl_clip_with_tis(
+                            log_prob=log_prob,
+                            ref_log_prob=ref_log_prob,
+                            old_log_prob=old_log_prob,
+                            log_z=log_z,
+                            reward=advantages,
+                            response_mask=response_mask,
+                            clip_ratio=self.config.clip_ratio,
+                            rollout_log_probs=rollout_log_probs
+                        )
                     else:
-                        raise ValueError(f"Unknown loss_variant: {loss_variant}. Must be one of: vanilla, flowrl_clip")
+                        raise ValueError(f"Unknown loss_variant: {loss_variant}. Must be one of: vanilla, flowrl_clip, flowrl_clip_tis")
 
                     # if entropy_coeff != 0:
                     #     entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
@@ -569,5 +580,82 @@ class FlowRLActor(DataParallelPPOActor):
             "actor/ppo_kl": ppo_kl.detach().item(),  # PPO-style KL (current vs old policy)
             "actor/ref_kl": ref_kl.detach().item(),  # KL with reference policy
         }
+
+        return avg_loss, loss_term_dict
+
+    def compute_flowrl_clip_with_tis(self,
+                                     log_prob=None,
+                                     ref_log_prob=None,
+                                     old_log_prob=None,
+                                     log_z=None,
+                                     reward=None,
+                                     response_mask=None,
+                                     clip_ratio=None,
+                                     rollout_log_probs=None):
+        """
+        FlowRL with importance sampling clipping and Truncated Importance Sampling (TIS).
+
+        This combines:
+        1. Importance weight clipping (max=10.0) for numerical stability
+        2. Sequence-level TIS to further reduce variance from off-policy data
+
+        TIS computes: w_TIS = min((π_old / π_rollout)^(1/T), C_TIS)
+        where T = sequence length, using geometric mean to avoid overflow.
+        """
+
+        # squeeze log_z to (B,)
+        log_z = log_z.squeeze(-1)
+
+        # Average token log-probs & rewards over valid positions
+        avg_log_prob = verl_F.masked_mean(log_prob, response_mask, axis=1)
+        avg_ref_log_prob = verl_F.masked_mean(ref_log_prob, response_mask, axis=1)
+        seq_log_reward = verl_F.masked_mean(reward, response_mask, axis=1)
+
+        # FlowRL residual: logZ + logpf - β*R - logpref
+        delta = log_z + avg_log_prob - self.flowrl_beta_coef * seq_log_reward - avg_ref_log_prob
+
+        # Importance ratio from current vs old policy (product of token ratios)
+        log_w = verl_F.masked_sum(log_prob - old_log_prob, response_mask, axis=1)
+        imp_w_raw = torch.exp(log_w).detach()
+
+        # Clamp importance weight for numerical stability (prevent extreme values)
+        imp_w = torch.clamp(imp_w_raw, max=10.0)
+
+        # Truncated Importance Sampling (TIS): w_TIS = min((π_old / π_rollout)^(1/T), C_TIS)
+        w_tis = None
+        if self.config.tis_imp_ratio_cap > 0 and rollout_log_probs is not None:
+            log_w_tis = verl_F.masked_sum(old_log_prob - rollout_log_probs, response_mask, axis=1)  # (B,)
+            w_tis = torch.exp(log_w_tis).detach()  # Geometric mean of π_old / π_rollout
+            w_tis = torch.clamp(w_tis, max=self.config.tis_imp_ratio_cap)  # min(w_tis, C_TIS)
+            imp_w = imp_w * w_tis  # Apply TIS on top of clipped importance weight
+
+        # Loss: weighted squared residual with clipped importance weights
+        weighted_losses = imp_w * (delta ** 2)
+        avg_loss = torch.mean(weighted_losses)
+
+        # PPO KL: negative_approx_kl = log_prob - old_log_prob
+        negative_approx_kl = log_prob - old_log_prob
+        ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
+
+        # Reference KL: approx_kl_ref = log_prob - ref_log_prob
+        approx_kl_ref = log_prob - ref_log_prob
+        ref_kl = verl_F.masked_mean(-approx_kl_ref, response_mask)
+
+        # Metrics
+        loss_term_dict = {
+            "actor/log_prob": verl_F.masked_mean(log_prob, response_mask).detach().item(),
+            "actor/old_log_prob": verl_F.masked_mean(old_log_prob, response_mask).detach().item(),
+            "actor/ref_log_prob": verl_F.masked_mean(ref_log_prob, response_mask).detach().item(),
+            "actor/log_z": log_z.mean().detach().item(),
+            "actor/log_reward": verl_F.masked_mean(reward, response_mask).detach().item(),
+            "actor/final_loss": avg_loss.detach().item(),
+            "actor/importance_weight_raw": imp_w_raw.mean().detach().item(),
+            "actor/importance_weight": imp_w.mean().detach().item(),
+            "actor/ppo_kl": ppo_kl.detach().item(),  # PPO-style KL (current vs old policy)
+            "actor/ref_kl": ref_kl.detach().item(),  # KL with reference policy
+        }
+
+        if w_tis is not None:
+            loss_term_dict["actor/tis_weight"] = w_tis.mean().detach().item()
 
         return avg_loss, loss_term_dict
