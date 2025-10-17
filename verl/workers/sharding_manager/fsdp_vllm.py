@@ -348,7 +348,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             (
                 (name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param)
                 for name, param in updated_params.items()
-                # if not name.startswith("proj_z") # filter out the parameter of Z
+                if not name.startswith("proj_z") # filter out the parameter of Z
             )
         )
 

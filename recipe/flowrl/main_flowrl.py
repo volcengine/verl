@@ -94,15 +94,15 @@ class TaskRunner:
             assert config.critic.strategy in {"fsdp", "fsdp2"}
 
             # Use FlowRL custom worker instead of standard worker
-            from recipe.flowrl.flowrl_fsdp_worker import FlowRLActorRolloutRefWorker
-            from verl.workers.fsdp_workers import CriticWorker#, ActorRolloutRefWorker
+            # from recipe.flowrl.flowrl_fsdp_worker import FlowRLActorRolloutRefWorker
+            from verl.workers.fsdp_workers import CriticWorker, ActorRolloutRefWorker
 
-            ActorRolloutRefWorker = FlowRLActorRolloutRefWorker
+            # ActorRolloutRefWorker = FlowRLActorRolloutRefWorker
             ray_worker_group_cls = RayWorkerGroup
 
         elif config.actor_rollout_ref.actor.strategy == "megatron":
             assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
-            from verl.workers.megatron_workers import CriticWorker # ActorRolloutRefWorker
+            from verl.workers.megatron_workers import CriticWorker, ActorRolloutRefWorker
 
             ray_worker_group_cls = RayWorkerGroup
 
