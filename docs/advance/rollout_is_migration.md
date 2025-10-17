@@ -203,17 +203,6 @@ All metrics are prefixed with `mismatch/`. For example, `rollout_is_mean` appear
   - Shows the most overweighted token/sequence
   - Compare with `rollout_is_threshold` to see truncation impact
 
-#### **Percentile Metrics**
-
-- **`rollout_is_p25`**: 25th percentile of IS weights
-- **`rollout_is_p50`**: Median IS weight (50th percentile)
-  - Should be close to `rollout_is_mean` if distribution is symmetric
-- **`rollout_is_p75`**: 75th percentile of IS weights
-- **`rollout_is_p95`**: 95th percentile of IS weights
-  - Use to detect outliers
-- **`rollout_is_p99`**: 99th percentile of IS weights
-  - Should be close to `rollout_is_threshold` if truncation is working
-
 #### **Effective Sample Size**
 
 - **`rollout_is_eff_sample_size`**: Effective sample size after IS weighting
@@ -573,11 +562,6 @@ metrics_history = {
     'mismatch/rollout_is_mean': [],
     'mismatch/rollout_is_eff_sample_size': [],
     'mismatch/rollout_is_veto_fraction': [],
-    'mismatch/rollout_is_p25': [],
-    'mismatch/rollout_is_p50': [],
-    'mismatch/rollout_is_p75': [],
-    'mismatch/rollout_is_p95': [],
-    'mismatch/rollout_is_p99': [],
     'mismatch/mismatch_kl': [],
     'mismatch/mismatch_k3_kl': [],
     'mismatch/mismatch_ppl_ratio': [],
