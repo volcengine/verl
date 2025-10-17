@@ -16,11 +16,6 @@ CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/ckpts/${project_name}/${exp_name}"}
 TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/dapo-math-17k.parquet"}
 TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/aime-2024.parquet"}
 
-MODEL_PATH=/mnt/dolphinfs/ssd_pool/docker/user/hadoop-friday-studio/FTI/houzhenggang/model/Qwen2___5-Math-7B
-CKPTS_DIR=./ckpts/${project_name}/${exp_name}
-TRAIN_FILE=/mnt/dolphinfs/ssd_pool/docker/user/hadoop-friday-studio/FTI/houzhenggang/data/dapo/dapo-math-17k.parquet
-TEST_FILE=/mnt/dolphinfs/ssd_pool/docker/user/hadoop-friday-studio/FTI/houzhenggang/data/dapo/aime-2024.parquet
-
 rollout_mode="async"
 rollout_name="vllm" # sglang or vllm
 if [ "$rollout_mode" = "async" ]; then
@@ -65,14 +60,10 @@ gen_tp=1
 sp_size=1
 fsdp_size=2
 
-
 # Fully async specific parameters
 NNODES_ROLLOUT=${NNODES_ROLLOUT:-1}
 NNODES_TRAIN=${NNODES_TRAIN:-1}
 NGPUS_PER_NODE=${NGPUS_PER_NODE:-8}
-
-n_gpus_rollout=8
-n_gpus_training=8
 
 train_prompt_bsz=0
 gen_prompt_bsz=1
@@ -81,7 +72,8 @@ train_prompt_mini_bsz=32
 total_rollout_steps=$(((512*100)))
 test_freq=10
 staleness_threshold=0.1
-trigger_parameter_sync_step=16
+trigger_parameter_sync_step=4
+require_batches=4
 partial_rollout=True
 
 python -m recipe.fully_async_policy.fully_async_main \
@@ -165,4 +157,6 @@ python -m recipe.fully_async_policy.fully_async_main \
     rollout.test_freq="${test_freq}" \
     async_training.staleness_threshold="${staleness_threshold}" \
     async_training.trigger_parameter_sync_step="${trigger_parameter_sync_step}" \
-    async_training.partial_rollout="${partial_rollout}"
+    async_training.require_batches="${require_batches}" \
+    async_training.partial_rollout="${partial_rollout}" \
+    async_training.use_rollout_log_probs=True

@@ -2,7 +2,7 @@
 set -xeuo pipefail
 
 project_name='DAPO'
-exp_name='dapo_qwen2-32B_20k_fsdp2_fully-async_64-64'
+exp_name='dapo_qwen2-7B-math_28k_fsdp2_fully-async_16-16'
 
 # Ray
 # RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
@@ -15,11 +15,6 @@ MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen2.5-Math-7B"}
 CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/ckpts/${project_name}/${exp_name}"}
 TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/dapo-math-17k.parquet"}
 TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/aime-2024.parquet"}
-
-MODEL_PATH=/mnt/dolphinfs/ssd_pool/docker/user/hadoop-friday-studio/FTI/houzhenggang/model/Qwen2___5-Math-7B
-CKPTS_DIR=./ckpts/${project_name}/${exp_name}
-TRAIN_FILE=/mnt/dolphinfs/ssd_pool/docker/user/hadoop-friday-studio/FTI/houzhenggang/data/dapo/dapo-math-17k.parquet
-TEST_FILE=/mnt/dolphinfs/ssd_pool/docker/user/hadoop-friday-studio/FTI/houzhenggang/data/dapo/aime-2024.parquet
 
 rollout_mode="async"
 rollout_name="vllm" # sglang or vllm
@@ -41,7 +36,7 @@ clip_ratio_high=0.28
 
 # Response length parameters
 max_prompt_length=$((1024 * 2))
-max_response_length=$((1024 * 20))
+max_response_length=$((1024 * 28))
 enable_overlong_buffer=True
 overlong_buffer_len=$((1024 * 4))
 overlong_penalty_factor=1.0
@@ -62,23 +57,24 @@ infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 3))
 ref_offload=True
 actor_offload=False
 gen_tp=4
-sp_size=8
-fsdp_size=-1
+sp_size=4
+fsdp_size=8
 
 # Fully async specific parameters
-NNODES_ROLLOUT=${NNODES_ROLLOUT:-8}
-NNODES_TRAIN=${NNODES_TRAIN:-8}
+NNODES_ROLLOUT=${NNODES_ROLLOUT:-2}
+NNODES_TRAIN=${NNODES_TRAIN:-2}
 NGPUS_PER_NODE=${NGPUS_PER_NODE:-8}
 
 train_prompt_bsz=0
 gen_prompt_bsz=1
 n_resp_per_prompt=16
 train_prompt_mini_bsz=32
-total_rollout_steps=$(((512*200)))
+total_rollout_steps=$(((512*400)))
 test_freq=20
-staleness_threshold=0
-trigger_parameter_sync_step=16
-partial_rollout=False
+staleness_threshold=0.1
+trigger_parameter_sync_step=4
+require_batches=4
+partial_rollout=True
 
 python -m recipe.fully_async_policy.fully_async_main \
     data.train_files="${TRAIN_FILE}" \
@@ -161,4 +157,6 @@ python -m recipe.fully_async_policy.fully_async_main \
     rollout.test_freq="${test_freq}" \
     async_training.staleness_threshold="${staleness_threshold}" \
     async_training.trigger_parameter_sync_step="${trigger_parameter_sync_step}" \
-    async_training.partial_rollout="${partial_rollout}"
+    async_training.require_batches="${require_batches}" \
+    async_training.partial_rollout="${partial_rollout}" \
+    async_training.use_rollout_log_probs=True

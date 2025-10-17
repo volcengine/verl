@@ -2,7 +2,7 @@
 set -xeuo pipefail
 
 project_name='DAPO'
-exp_name='DAPO-Qwen2.5-7b-MATH-0527a1-fsdp2-fully-async-4-12'
+exp_name='dapo_qwen2-7B-math_28k_fsdp2_fully-async_32-32'
 
 # Ray
 # RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
@@ -36,7 +36,7 @@ clip_ratio_high=0.28
 
 # Response length parameters
 max_prompt_length=$((1024 * 2))
-max_response_length=$((1024 * 8))
+max_response_length=$((1024 * 28))
 enable_overlong_buffer=True
 overlong_buffer_len=$((1024 * 4))
 overlong_penalty_factor=1.0
@@ -56,23 +56,21 @@ actor_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 2))
 infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 3))
 ref_offload=True
 actor_offload=False
-gen_tp=1
-sp_size=1
-fsdp_size=2
+gen_tp=4
+sp_size=4
+fsdp_size=8
 
 # Fully async specific parameters
-NNODES=${NNODES:-2}
+NNODES_ROLLOUT=${NNODES_ROLLOUT:-4}
+NNODES_TRAIN=${NNODES_TRAIN:-4}
 NGPUS_PER_NODE=${NGPUS_PER_NODE:-8}
-
-n_gpus_rollout=2
-n_gpus_training=$((NGPUS_PER_NODE - n_gpus_rollout))
 
 train_prompt_bsz=0
 gen_prompt_bsz=1
 n_resp_per_prompt=16
 train_prompt_mini_bsz=32
-total_rollout_steps=$(((512*100)))
-test_freq=10
+total_rollout_steps=$(((512*400)))
+test_freq=20
 staleness_threshold=0.1
 trigger_parameter_sync_step=4
 require_batches=4
@@ -147,16 +145,16 @@ python -m recipe.fully_async_policy.fully_async_main \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
     trainer.val_before_train=True \
-    trainer.test_freq="${test_freq}" \
     trainer.save_freq=-1 \
     trainer.default_local_dir="${CKPTS_DIR}" \
     trainer.resume_mode=auto \
-    trainer.nnodes="${NNODES}" \
-    trainer.n_gpus_per_node="${n_gpus_training}" \
-    rollout.nnodes="${NNODES}" \
-    rollout.n_gpus_per_node="${n_gpus_rollout}" \
+    trainer.nnodes="${NNODES_TRAIN}" \
+    trainer.n_gpus_per_node="${NGPUS_PER_NODE}" \
+    rollout.nnodes="${NNODES_ROLLOUT}" \
+    rollout.n_gpus_per_node="${NGPUS_PER_NODE}" \
     rollout.total_rollout_steps="${total_rollout_steps}" \
     rollout.total_epochs=10 \
+    rollout.test_freq="${test_freq}" \
     async_training.staleness_threshold="${staleness_threshold}" \
     async_training.trigger_parameter_sync_step="${trigger_parameter_sync_step}" \
     async_training.require_batches="${require_batches}" \
