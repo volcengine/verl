@@ -536,7 +536,8 @@ class vLLMAsyncRollout(BaseRollout):
                 await self.socket.send(pickle.dumps(result))
             except Exception as e:
                 logger.exception(f"vLLMAsyncRollout _loop_forever error: {e}")
-                os._exit(-1)
+                await self.socket.send(pickle.dumps(e))
+                break
 
     def _init_worker(self, all_kwargs: list[dict[str, Any]]):
         """Initialize worker engine."""

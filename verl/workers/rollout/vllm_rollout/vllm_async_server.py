@@ -100,6 +100,10 @@ class ExternalZeroMQDistributedExecutor(Executor):
         outputs = []
         for socket in self.sockets:
             outputs.append(pickle.loads(socket.recv()))
+
+        for output in outputs:
+            if isinstance(output, Exception):
+                raise output
         return outputs
 
     def check_health(self):
