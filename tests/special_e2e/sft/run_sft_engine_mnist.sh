@@ -67,11 +67,11 @@ MEGATRON_ENGINE_CONFIG="\
 if [ "$backend" = "fsdp" ]; then
     ENGINE_CONFIG="$FSDP_ENGINE_CONFIG"
     echo "Using fsdp engine"
-    exp_name=mnist-${backend}-${FSDP_STRATEGY}-sp${SP_SIZE}-fsdp${FSDP_SIZE}--use_remove_padding-${USE_REMOVE_PADDING}--Dynamic-bsz-${DYNAMIC_BSZ}
+    exp_name=mnist-${backend}-${FSDP_STRATEGY}-sp${SP_SIZE}-fsdp${FSDP_SIZE}--use_remove_padding-${USE_REMOVE_PADDING}--Dynamic-bsz-${DYNAMIC_BSZ}--GPUS-${NUM_GPUS}
 else
     ENGINE_CONFIG="$MEGATRON_ENGINE_CONFIG"
     echo "Using megatron engine"
-    exp_name=mnist-${backend}-tp${TP_SIZE}-pp${PP_SIZE}-vpp${VPP_SIZE}-cp${CP_SIZE}-use_remove_padding-${USE_REMOVE_PADDING}--Dynamic-bsz-${DYNAMIC_BSZ}
+    exp_name=mnist-${backend}-tp${TP_SIZE}-pp${PP_SIZE}-vpp${VPP_SIZE}-cp${CP_SIZE}-use_remove_padding-${USE_REMOVE_PADDING}--Dynamic-bsz-${DYNAMIC_BSZ}--GPUS-${NUM_GPUS}
 fi
 
 mkdir -p "${ckpts_home}"
@@ -91,6 +91,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     ${ENGINE_CONFIG} \
     trainer.test_freq=after_each_epoch \
     trainer.save_freq=-1 \
+    trainer.seed=42 \
     trainer.logger=['console','file'] \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \

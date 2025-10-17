@@ -14,6 +14,7 @@
 
 
 import os
+import random
 from functools import partial
 
 os.environ["NCCL_DEBUG"] = "WARN"
@@ -22,6 +23,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "true"
 import logging
 
 import hydra
+import numpy as np
 import torch
 import torch.distributed
 from codetiming import Timer
@@ -57,6 +59,7 @@ class SFTTrainer:
         self.config = config
 
         self.rank = torch.distributed.get_rank()
+        self._set_seed()
 
         self._build_config()
         self._build_dataset()
@@ -108,6 +111,24 @@ class SFTTrainer:
         self.engine_config = omega_conf_to_dataclass(self.config.engine)
         self.optimizer_config = omega_conf_to_dataclass(self.config.optim)
         self.checkpoint_config = omega_conf_to_dataclass(self.config.checkpoint)
+
+    def _set_seed(self):
+        seed = self.config.trainer.seed
+        assert seed is not None
+
+        os.environ.setdefault("PYTHONHASHSEED", str(seed))
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+
+        if is_cuda_available:
+            torch.cuda.manual_seed_all(seed)
+            if hasattr(torch.backends, "cudnn") and torch.backends.cudnn.is_available():
+                torch.backends.cudnn.deterministic = True
+                torch.backends.cudnn.benchmark = False
+
+        if is_npu_available and hasattr(torch, "npu"):
+            torch.npu.manual_seed_all(seed)
 
     def _build_engine(self):
         from verl.workers.engine import BaseEngine, EngineRegistry
@@ -333,7 +354,7 @@ class SFTTrainer:
 
                 is_last_step = global_step >= self.total_training_steps
                 is_valid_step = global_step % self.test_freq == 0
-                is_save_step = global_step % self.save_freq == 0
+                # is_save_step = global_step % self.save_freq == 0
 
                 # early exit or validation step
                 if is_last_step and self.val_dataloader is not None or (self.test_freq > 0 and is_valid_step):
@@ -360,8 +381,8 @@ class SFTTrainer:
                         last_valid_metric = metric
                     torch.distributed.barrier()
 
-                if is_last_step or (self.save_freq > 0 and is_save_step):
-                    self.ckpt_handler.save_checkpoint(step=global_step)
+                # if is_last_step or (self.save_freq > 0 and is_save_step):
+                #     self.ckpt_handler.save_checkpoint(step=global_step)
 
                 if is_last_step:
                     if is_logging:

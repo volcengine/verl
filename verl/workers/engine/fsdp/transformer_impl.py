@@ -326,6 +326,18 @@ class FSDPEngine(BaseEngine):
                 self._is_offload_optimizer = False
                 offload_policy = CPUOffloadPolicy(pin_memory=True)
 
+            # Add VLM layers to the wrap policy for fsdp2
+            if hasattr(self.model_config.hf_config, "vision_config"):
+                # This is just an example, you need to find the actual class names
+                vlm_layers_to_wrap = [
+                    "Qwen2_5VisionModel",
+                    "Qwen2_5VisionTransformerBlock",
+                    "MultimodalProjector",
+                    "PatchEmbed",
+                ]
+                wrap_policy = self.engine_config.wrap_policy.setdefault("transformer_layer_cls_to_wrap", [])
+                wrap_policy.extend(vlm_layers_to_wrap)
+
             fsdp_kwargs = {
                 "mesh": fsdp_mesh,
                 "mp_policy": mp_policy,

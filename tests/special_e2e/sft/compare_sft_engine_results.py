@@ -63,7 +63,7 @@ def main(sub_dir, method, loss_only):
     # get all other results
     other_results = {}
     # walk through all files in ~/verl/test/log
-    for file in os.listdir(os.path.expanduser(f"~/verl/test/log/{sub_dir}")):
+    for file in sorted(os.listdir(os.path.expanduser(f"~/verl/test/log/{sub_dir}"))):
         if file.endswith(".jsonl"):
             other_results[file] = get_result(os.path.join(os.path.expanduser(f"~/verl/test/log/{sub_dir}"), file))
 

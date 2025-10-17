@@ -48,4 +48,4 @@ BACKEND=megatron TP_SIZE=1 PP_SIZE=1 CP_SIZE=1 NUM_GPUS=1 bash tests/special_e2e
 
 python3 tests/special_e2e/sft/compare_sft_engine_results.py
 
-rm -rf ~/verl/test/log
+# rm -rf ~/verl/test/log
