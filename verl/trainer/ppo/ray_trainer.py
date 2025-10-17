@@ -602,11 +602,9 @@ class RayPPOTrainer:
             sample_scores.extend(scores)
 
             reward_extra_infos_dict["reward"].extend(scores)
-            print(f"len reward_extra_infos_dict['reward']: {len(reward_extra_infos_dict['reward'])}")
             if "reward_extra_info" in result:
                 for key, lst in result["reward_extra_info"].items():
                     reward_extra_infos_dict[key].extend(lst)
-                    print(f"len reward_extra_infos_dict['{key}']: {len(reward_extra_infos_dict[key])}")
 
             # collect num_turns of each prompt
             if "__num_turns__" in test_batch.non_tensor_batch:
@@ -676,9 +674,9 @@ class RayPPOTrainer:
             actor_rollout_cls = RayClassWithInitArgs(
                 cls=self.role_worker_mapping[Role.ActorRollout],
                 config=self.config.actor_rollout_ref,
-                role="actor_rollout",
+                role=str(Role.ActorRollout),
             )
-            self.resource_pool_to_cls[resource_pool]["actor_rollout"] = actor_rollout_cls
+            self.resource_pool_to_cls[resource_pool][str(Role.ActorRollout)] = actor_rollout_cls
         else:
             raise NotImplementedError
 
@@ -687,7 +685,7 @@ class RayPPOTrainer:
             resource_pool = self.resource_pool_manager.get_resource_pool(Role.Critic)
             critic_cfg = omega_conf_to_dataclass(self.config.critic)
             critic_cls = RayClassWithInitArgs(cls=self.role_worker_mapping[Role.Critic], config=critic_cfg)
-            self.resource_pool_to_cls[resource_pool]["critic"] = critic_cls
+            self.resource_pool_to_cls[resource_pool][str(Role.Critic)] = critic_cls
 
         # create reference policy if needed
         if self.use_reference_policy:
@@ -695,16 +693,16 @@ class RayPPOTrainer:
             ref_policy_cls = RayClassWithInitArgs(
                 self.role_worker_mapping[Role.RefPolicy],
                 config=self.config.actor_rollout_ref,
-                role="ref",
+                role=str(Role.RefPolicy),
             )
-            self.resource_pool_to_cls[resource_pool]["ref"] = ref_policy_cls
+            self.resource_pool_to_cls[resource_pool][str(Role.RefPolicy)] = ref_policy_cls
 
         # create a reward model if reward_fn is None
         if self.use_rm:
             # we create a RM here
             resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)
             rm_cls = RayClassWithInitArgs(self.role_worker_mapping[Role.RewardModel], config=self.config.reward_model)
-            self.resource_pool_to_cls[resource_pool]["rm"] = rm_cls
+            self.resource_pool_to_cls[resource_pool][str(Role.RewardModel)] = rm_cls
 
         # initialize WorkerGroup
         # NOTE: if you want to use a different resource pool for each role, which can support different parallel size,
@@ -739,20 +737,20 @@ class RayPPOTrainer:
             all_wg.update(spawn_wg)
 
         if self.use_critic:
-            self.critic_wg = all_wg["critic"]
+            self.critic_wg = all_wg[str(Role.Critic)]
             self.critic_wg.init_model()
 
         if self.use_reference_policy and not self.ref_in_actor:
-            self.ref_policy_wg = all_wg["ref"]
+            self.ref_policy_wg = all_wg[str(Role.RefPolicy)]
             self.ref_policy_wg.init_model()
 
         self.rm_wg = None
         if self.use_rm:
-            self.rm_wg = all_wg["rm"]
+            self.rm_wg = all_wg[str(Role.RewardModel)]
             self.rm_wg.init_model()
 
         # we should create rollout at the end so that vllm can have a better estimation of kv cache memory
-        self.actor_rollout_wg = all_wg["actor_rollout"]
+        self.actor_rollout_wg = all_wg[str(Role.ActorRollout)]
         self.actor_rollout_wg.init_model()
 
         # create async rollout manager and request scheduler
@@ -800,11 +798,13 @@ class RayPPOTrainer:
         )
 
         if self.use_critic:
-            critic_local_path = os.path.join(local_global_step_folder, "critic")
+            critic_local_path = os.path.join(local_global_step_folder, str(Role.Critic))
             critic_remote_path = (
                 None
                 if self.config.trainer.default_hdfs_dir is None
-                else os.path.join(self.config.trainer.default_hdfs_dir, f"global_step_{self.global_steps}", "critic")
+                else os.path.join(
+                    self.config.trainer.default_hdfs_dir, f"global_step_{self.global_steps}", str(Role.Critic)
+                )
             )
             self.critic_wg.save_checkpoint(
                 critic_local_path, critic_remote_path, self.global_steps, max_ckpt_to_keep=max_critic_ckpt_to_keep
@@ -860,7 +860,7 @@ class RayPPOTrainer:
         print(f"Resuming from {global_step_folder}")
 
         actor_path = os.path.join(global_step_folder, "actor")
-        critic_path = os.path.join(global_step_folder, "critic")
+        critic_path = os.path.join(global_step_folder, str(Role.Critic))
         # load actor
         self.actor_rollout_wg.load_checkpoint(
             actor_path, del_local_after_load=self.config.trainer.del_local_ckpt_after_load
@@ -1129,7 +1129,7 @@ class RayPPOTrainer:
 
                     if self.use_reference_policy:
                         # compute reference log_prob
-                        with marked_timer("ref", timing_raw, color="olive"):
+                        with marked_timer(str(Role.RefPolicy), timing_raw, color="olive"):
                             if not self.ref_in_actor:
                                 ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
                             else:
