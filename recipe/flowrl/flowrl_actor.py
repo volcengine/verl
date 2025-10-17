@@ -548,7 +548,7 @@ class FlowRLActor(DataParallelPPOActor):
         }
 
         return avg_loss, loss_term_dict
-
+    
     def compute_flowrl_objective_clip_only(self,
                                         log_prob=None,
                                         ref_log_prob=None,
