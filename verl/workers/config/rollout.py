@@ -176,6 +176,8 @@ class RolloutConfig(BaseConfig):
 
     limit_images: Optional[int] = None
 
+    limit_videos: Optional[int] = None
+
     skip_tokenizer_init: bool = False
 
     def __post_init__(self):
