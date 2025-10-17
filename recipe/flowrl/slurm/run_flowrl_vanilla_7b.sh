@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --partition=plm
-#SBATCH --job-name=xuekai_flowrl_clip_tis_1017
+#SBATCH --job-name=xuekai_flowrl_clip_dynamic_sampling_1017
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:8
 #SBATCH --cpus-per-task=64
@@ -28,4 +28,4 @@ proxy_on
 
 
 # Run the training script
-bash recipe/flowrl/run_flowrl_clip_TIS_qwen2.5_7b.sh
+bash recipe/flowrl/run_flowrl_vanilla_ds_qwen2.5_7b.sh
