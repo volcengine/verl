@@ -124,6 +124,7 @@ verl is fast with:
    advance/rollout_is_migration.md
    advance/one_step_off
    advance/agent_loop
+   advance/reward_loop
 
 .. toctree::
    :maxdepth: 1

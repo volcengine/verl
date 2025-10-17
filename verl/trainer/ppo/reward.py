@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import importlib.util
+import inspect
 import multiprocessing
 import os
 import sys
@@ -37,6 +38,15 @@ def _call_with_kwargs(raw_fn, extra_kwargs, *args, **kwargs):
     """
     merged_kwargs = {**kwargs, **extra_kwargs}
     return raw_fn(*args, **merged_kwargs)
+
+
+async def _call_with_kwargs_async(raw_fn, extra_kwargs, *args, **kwargs):
+    """Calls `raw_fn` by merging `extra_kwargs` into call-time `kwargs`, with `extra_kwargs` taking precedence.
+
+    This function is used to merge additional keyword arguments with the original function's arguments.
+    """
+    merged_kwargs = {**kwargs, **extra_kwargs}
+    return await raw_fn(*args, **merged_kwargs)
 
 
 def get_custom_reward_fn(config: DictConfig) -> Optional[RawRewardFn]:
@@ -90,7 +100,10 @@ def get_custom_reward_fn(config: DictConfig) -> Optional[RawRewardFn]:
 
     reward_kwargs = dict(reward_fn_config.get("reward_kwargs", {}))
 
-    return partial(_call_with_kwargs, raw_fn, reward_kwargs)
+    if not inspect.iscoroutinefunction(raw_fn):
+        return partial(_call_with_kwargs, raw_fn, reward_kwargs)
+    else:
+        return partial(_call_with_kwargs_async, raw_fn, reward_kwargs)
 
 
 def load_reward_manager(
