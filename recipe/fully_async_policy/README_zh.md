@@ -361,7 +361,6 @@ TODO: 30B 的实验，还在完善中。
 | fully_async_policy | 64:64               | async stream pipeline with partial rollout   |      |                    |              |              |            |                  |
 
 
-
 ## 后续计划
 
 * GRPO实验
