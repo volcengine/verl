@@ -1,8 +1,8 @@
-# Recipe: Fully Async Policy Async Trainer
+# Recipe: Fully Async Policy Trainer
 
 **Author:** `https://github.com/meituan-search`
 
-Last updated: 10/17/2025.
+Last updated: 10/18/2025.
 
 This document introduces a fully asynchronous PPO training system that completely decouples the Trainer and Rollouter,
 supporting asynchronous sample generation and training.
@@ -22,7 +22,7 @@ However, it forcibly uses data from one round of asynchronous training, which is
 completely eliminate the impact of long-tail on training efficiency.
 In other frameworks such as AReaL, Magistral, StreamRL, and AsyncFlow, asynchronous training and streaming training have
 been implemented based on the separated architecture and have achieved gains.
-We借鉴 their methods and implemented them in VERL. The fully_async_policy supports asynchronous, streaming, and partial
+We borrow from their methods and implemented them in VERL. The fully_async_policy supports asynchronous, streaming, and partial
 rollout training.
 By reasonably setting parameters such as resource allocation and parameter synchronization frequency, fully_async_policy
 can significantly improve training efficiency.
@@ -324,7 +324,7 @@ Using the `async stream pipeline with stale samples` strategy, we achieved about
     * total_rollout_steps: 512*400
     * require_batches: 4
     * trigger_parameter_sync_step: 4
-    * staleness_threshold: 0.3
+    * staleness_threshold: 0.5
     * partial_rollout: True
 
 |  training mode   	   | resource allocation 	 | step  	  |  gen  	  | old_log_prob 	 | update_actor 	 | total time<br>100 step 	 | total time<br>200 step 	 | total time<br>300 step 	 | total time<br>400 step 	 |     acc/mean@1          	      |
@@ -390,7 +390,7 @@ training, which in turn affects training time. We verified the impact on results
 TODO: The 30B experiment is still in progress.
 
 * Machine: H20
-* Model: Qwen2.5-32B~~~~
+* Model: Qwen2.5-32B
 * Rollout length: max_response_length FSDP2: 20K tokens;
 * Algorithm: DAPO
 * Engine: vllm+FSDP2
