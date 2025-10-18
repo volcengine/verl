@@ -68,12 +68,13 @@ def gptmodel_forward(
                 output_orig, packed_seq_params, attention_mask, batch_size, seq_len, post_process=post_process
             )
     else:
-        assert logits_processor is None, "logits_processor is not supported for non-packed sequence"
         batch_size, sequence_length = attention_mask.shape
         new_input_ids, new_attention_mask, new_position_ids = remove_left_padding(
             input_ids, attention_mask, position_ids, sequence_parallel, pre_process=pre_process
         )
         output = model(input_ids=new_input_ids, attention_mask=new_attention_mask, position_ids=new_position_ids)
+        if post_process:
+            output = logits_processor(output, **logits_processor_args)
         output = recover_left_padding(
             output, new_attention_mask, attention_mask, sequence_length, post_process=post_process
         )
