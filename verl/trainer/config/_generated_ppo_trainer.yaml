@@ -272,6 +272,8 @@ data:
   use_shm: false
   train_files: ~/data/rlhf/gsm8k/train.parquet
   val_files: ~/data/rlhf/gsm8k/test.parquet
+  train_max_samples: -1
+  val_max_samples: -1
   prompt_key: prompt
   reward_fn_key: data_source
   max_prompt_length: 512
