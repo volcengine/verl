@@ -1,0 +1,64 @@
+# Format checks enforced on CI:
+# 1. Comments must appear above each field.
+# 2. There must be a blank line between each field.
+# 3. Inline comments (after a field on the same line) are not allowed.
+# 4. Indentation level is respected for nested fields.
+
+# defaults specify the default config from each component
+defaults:
+
+  # deepspeed optimizer config
+  - ../optim@optim: deepspeed
+
+  # deepspeed engine config
+  - ../engine@deepspeed_config: deepspeed
+
+  # actor config, inheriting from trainer/config/actor/actor.yaml
+  - actor
+
+  # load the reference default config, then apply the fields in the current yaml
+  - _self_
+
+# Target class for this configuration
+_target_: verl.workers.config.DeepSpeedActorConfig
+
+# Strategy identifier
+strategy: deepspeed
+
+# DeepSpeed-specific configurations
+
+# ZeRO optimization stage (0, 1, 2, or 3)
+zero_stage: 2
+
+# Gradient accumulation steps
+gradient_accumulation_steps: 1
+
+# Training batch size (global)
+train_batch_size: null
+
+# Micro batch size per GPU
+train_micro_batch_size_per_gpu: null
+
+# Gradient clipping for actor updates
+grad_clip: 1.0
+
+# Sequence parallelism size for Ulysses-style model parallelism
+ulysses_sequence_parallel_size: 1
+
+# Calculate entropy with chunking to reduce memory peak
+entropy_from_logits_with_chunking: false
+
+# Recompute entropy
+entropy_checkpointing: false
+
+# Whether to remove padding tokens in inputs during training
+use_remove_padding: ${oc.select:actor_rollout_ref.model.use_remove_padding,false}
+
+# Optimizer configuration tailored for DeepSpeed
+optim:
+  _target_: verl.workers.config.DeepSpeedOptimizerConfig
+  optimizer: AdamW
+  lr: 1e-6
+  betas: [0.9, 0.999]
+  weight_decay: 0.01
+  eps: 1e-8

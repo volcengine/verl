@@ -1,0 +1,17 @@
+# Target class for this configuration
+_target_: verl.workers.config.DeepSpeedOptimizerConfig
+
+# Optimizer type
+optimizer: AdamW
+
+# Learning rate
+lr: 1e-5
+
+# Adam betas
+betas: [0.9, 0.999]
+
+# Weight decay coefficient
+weight_decay: 0.01
+
+# Numerical stability epsilon
+eps: 1e-8

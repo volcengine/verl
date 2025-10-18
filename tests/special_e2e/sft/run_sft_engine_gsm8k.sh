@@ -29,6 +29,10 @@ PP_SIZE=${PP_SIZE:-1}
 VPP_SIZE=${VPP_SIZE:-null}
 CP_SIZE=${CP_SIZE:-1}
 
+PARAM_OFFLOAD=${PARAM_OFFLOAD:-False}
+OPTIMIZER_OFFLOAD=${OPTIMIZER_OFFLOAD:-False}
+MIXED_PRECISION=${MIXED_PRECISION:-null}
+
 PAD_MODE=${PAD_MODE:-no_padding}
 
 USE_REMOVE_PADDING=${USE_REMOVE_PADDING:-True}
@@ -64,10 +68,27 @@ MEGATRON_ENGINE_CONFIG="\
     engine.virtual_pipeline_model_parallel_size=${VPP_SIZE} \
     engine.context_parallel_size=${CP_SIZE}"
 
+DEEPSPEED_ENGINE_CONFIG="\
+    engine=${backend} \
+    optim=${backend} \
+    optim.optimizer=AdamW \
+    optim.lr=1e-5 \
+    optim.weight_decay=0.1 \
+    optim.betas="[0.9,0.95]" \
+    optim.eps=1e-8 \
+    engine.ulysses_sequence_parallel_size=${SP_SIZE} \
+    engine.param_offload=${PARAM_OFFLOAD} \
+    engine.optimizer_offload=${OPTIMIZER_OFFLOAD} \
+    engine.mixed_precision=${MIXED_PRECISION}"
+
 if [ "$backend" = "fsdp" ]; then
     ENGINE_CONFIG="$FSDP_ENGINE_CONFIG"
     echo "Using fsdp engine"
     exp_name=gsm8k-${backend}-${FSDP_STRATEGY}-sp${SP_SIZE}-fsdp${FSDP_SIZE}-pad-${PAD_MODE}-use_remove_padding-${USE_REMOVE_PADDING}
+elif [ "$backend" = "deepspeed" ]; then
+    ENGINE_CONFIG="$DEEPSPEED_ENGINE_CONFIG"
+    echo "Using deepspeed engine"
+    exp_name=gsm8k-${backend}-sp${SP_SIZE}-param_offload-${PARAM_OFFLOAD}-optim_offload-${OPTIMIZER_OFFLOAD}-pad-${PAD_MODE}-use_remove_padding-${USE_REMOVE_PADDING}
 else
     ENGINE_CONFIG="$MEGATRON_ENGINE_CONFIG"
     echo "Using megatron engine"

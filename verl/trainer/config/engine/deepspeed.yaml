@@ -1,0 +1,26 @@
+# Target class for this configuration
+_target_: verl.workers.config.DeepSpeedEngineConfig
+
+# Whether to offload model parameters to CPU
+param_offload: false
+
+# Whether to offload optimizer states to CPU
+optimizer_offload: false
+
+# Ulysses sequence parallel size
+ulysses_sequence_parallel_size: 1
+
+# Model dtype used during initialization
+model_dtype: fp32
+
+# Mixed precision configuration. Set to null to use engine defaults.
+mixed_precision:
+
+# Whether to run in forward-only mode
+forward_only: false
+
+# Enable torch.compile for selected kernels
+use_torch_compile: false
+
+# Compute entropy with chunking
+entropy_from_logits_with_chunking: false
