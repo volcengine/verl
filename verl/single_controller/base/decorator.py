@@ -18,16 +18,7 @@ from types import FunctionType
 
 from verl.protocol import DataProtoFuture, _padding_size_key
 from verl.utils.py_functional import DynamicEnum
-
-# TODO: Use a hacky workaround for ImportError since
-# transfer_queue isn't a default verl dependency.
-try:
-    from transfer_queue import BatchMeta
-except ImportError:
-
-    class BatchMeta:
-        pass
-
+from verl.utils.transferqueue_utils import BatchMeta
 
 # here we add a magic number of avoid user-defined function already have this attribute
 MAGIC_ATTR = "attrs_3141562937"

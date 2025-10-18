@@ -31,6 +31,12 @@ try:
 except ImportError:
     HAS_TQ = False
 
+    # TODO: Use a hacky workaround for ImportError since
+    # transfer_queue isn't a default verl dependency.
+    class BatchMeta:
+        pass
+
+
 from verl.protocol import DataProto
 
 _TRANSFER_QUEUE_CLIENT = None
@@ -135,6 +141,26 @@ def _update_batchmeta_with_output(output: DataProto, batchmeta: "BatchMeta") -> 
 
 
 def tqbridge(put_data: bool = True):
+    """ "Creates a decorator for bridging BatchMeta and DataProto.
+
+    This decorator automatically handles conversions between `BatchMeta` and
+    `DataProto` in function parameters, and decides whether to sync function
+    output back to `BatchMeta` based on configuration(`put_data`). It supports
+    both synchronous and asynchronous functions (async def), and can control
+    whether to enable enhanced logic via the global `HAS_TQ` variable (when disabled,
+    simply calls the original function as-is).
+
+    Args:
+        put_data: Whether put the DataProto into Storage after func return.
+                  If True, after function execution, the output result will be
+                  updated to `BatchMeta` and `BatchMeta` will be returned;
+                  If False, the function output result will be returned directly.
+                  Defaults to True.
+
+    Returns:
+        A decorator function used to decorate target functions (synchronous or asynchronous).
+    """
+
     def decorator(func):
         @wraps(func)
         def inner(*args, **kwargs):
