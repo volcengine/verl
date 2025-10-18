@@ -180,11 +180,6 @@ def test_metrics_completeness():
         "mismatch/rollout_is_catastrophic_token_fraction",
         "mismatch/rollout_is_ratio_fraction_high",
         "mismatch/rollout_is_ratio_fraction_low",
-        "mismatch/rollout_is_p25",
-        "mismatch/rollout_is_p50",
-        "mismatch/rollout_is_p75",
-        "mismatch/rollout_is_p95",
-        "mismatch/rollout_is_p99",
     ]
 
     # Expected mismatch/diagnostic metrics (also included now)

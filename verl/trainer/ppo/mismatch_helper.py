@@ -355,17 +355,6 @@ def compute_is_metrics(
         metrics["rollout_is_seq_fraction_high"] = (seq_mean_weights > rollout_is_threshold).float().mean()
         metrics["rollout_is_seq_fraction_low"] = (seq_mean_weights < rollout_is_threshold_lower).float().mean()
 
-    # Percentile metrics for better distribution understanding
-    # Get all valid IS weights
-    flat_weights = rollout_is_weights[response_mask.bool()]
-    # Compute key percentiles (guaranteed to have elements due to assertion at function start)
-    assert flat_weights.numel() > 0, "flat_weights should not be empty"
-    metrics["rollout_is_p25"] = torch.quantile(flat_weights, 0.25)
-    metrics["rollout_is_p50"] = torch.quantile(flat_weights, 0.50)  # median
-    metrics["rollout_is_p75"] = torch.quantile(flat_weights, 0.75)
-    metrics["rollout_is_p95"] = torch.quantile(flat_weights, 0.95)
-    metrics["rollout_is_p99"] = torch.quantile(flat_weights, 0.99)
-
     return metrics
 
 

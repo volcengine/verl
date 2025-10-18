@@ -203,17 +203,6 @@ All metrics are prefixed with `mismatch/`. For example, `rollout_is_mean` appear
   - Shows the most overweighted token/sequence
   - Compare with `rollout_is_threshold` to see truncation impact
 
-#### **Percentile Metrics**
-
-- **`rollout_is_p25`**: 25th percentile of IS weights
-- **`rollout_is_p50`**: Median IS weight (50th percentile)
-  - Should be close to `rollout_is_mean` if distribution is symmetric
-- **`rollout_is_p75`**: 75th percentile of IS weights
-- **`rollout_is_p95`**: 95th percentile of IS weights
-  - Use to detect outliers
-- **`rollout_is_p99`**: 99th percentile of IS weights
-  - Should be close to `rollout_is_threshold` if truncation is working
-
 #### **Effective Sample Size**
 
 - **`rollout_is_eff_sample_size`**: Effective sample size after IS weighting
@@ -536,29 +525,23 @@ def plot_is_metrics(metrics_history):
     axes[0, 2].set_xlabel('Step')
     axes[0, 2].legend()
 
-    # Plot 4: IS weight distribution (latest step)
-    latest_idx = -1
-    percentiles = [25, 50, 75, 95, 99]
-    values = [metrics_history[f'mismatch/rollout_is_p{p}'][latest_idx] for p in percentiles]
-    axes[1, 0].bar([f'p{p}' for p in percentiles], values)
-    axes[1, 0].axhline(y=1.0, color='r', linestyle='--', label='Ideal')
-    axes[1, 0].set_title('IS Weight Percentiles (Latest)')
+    # Plot 4: KL divergence over time
+    axes[1, 0].plot(metrics_history['mismatch/mismatch_kl'], label='KL')
+    axes[1, 0].plot(metrics_history['mismatch/mismatch_k3_kl'], label='K3 KL')
+    axes[1, 0].axhline(y=0, color='g', linestyle='--', alpha=0.3)
+    axes[1, 0].set_title('KL Divergence')
+    axes[1, 0].set_xlabel('Step')
     axes[1, 0].legend()
 
-    # Plot 5: KL divergence over time
-    axes[1, 1].plot(metrics_history['mismatch/mismatch_kl'], label='KL')
-    axes[1, 1].plot(metrics_history['mismatch/mismatch_k3_kl'], label='K3 KL')
-    axes[1, 1].axhline(y=0, color='g', linestyle='--', alpha=0.3)
-    axes[1, 1].set_title('KL Divergence')
+    # Plot 5: PPL ratio over time
+    axes[1, 1].plot(metrics_history['mismatch/mismatch_ppl_ratio'])
+    axes[1, 1].axhline(y=1.0, color='r', linestyle='--', label='Ideal')
+    axes[1, 1].set_title('PPL Ratio (Training/Rollout)')
     axes[1, 1].set_xlabel('Step')
     axes[1, 1].legend()
 
-    # Plot 6: PPL ratio over time
-    axes[1, 2].plot(metrics_history['mismatch/mismatch_ppl_ratio'])
-    axes[1, 2].axhline(y=1.0, color='r', linestyle='--', label='Ideal')
-    axes[1, 2].set_title('PPL Ratio (Training/Rollout)')
-    axes[1, 2].set_xlabel('Step')
-    axes[1, 2].legend()
+    # Hide unused subplot
+    axes[1, 2].axis('off')
 
     plt.tight_layout()
     plt.savefig('rollout_is_metrics.png', dpi=150)
@@ -573,11 +556,6 @@ metrics_history = {
     'mismatch/rollout_is_mean': [],
     'mismatch/rollout_is_eff_sample_size': [],
     'mismatch/rollout_is_veto_fraction': [],
-    'mismatch/rollout_is_p25': [],
-    'mismatch/rollout_is_p50': [],
-    'mismatch/rollout_is_p75': [],
-    'mismatch/rollout_is_p95': [],
-    'mismatch/rollout_is_p99': [],
     'mismatch/mismatch_kl': [],
     'mismatch/mismatch_k3_kl': [],
     'mismatch/mismatch_ppl_ratio': [],
