@@ -65,14 +65,12 @@ class SFTTrainer:
 
         self._build_dataloader()
 
-        # Initialize resume-related variables
-        self.resume_global_step = 0
-
         self._init_engine()
 
         self._build_ckpt_handler()
 
-        self.ckpt_handler.load_checkpoint()
+        # Initialize resume-related variables
+        self.resume_global_step = self.ckpt_handler.load_checkpoint()
 
         self.device_name = self.config.trainer.device
 
