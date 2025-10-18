@@ -150,6 +150,7 @@ class SGLangHttpServer:
             "mm_attention_backend": "fa3",
             "attention_backend": attention_backend if attention_backend is not None else "fa3",
             "skip_tokenizer_init": self.config.skip_tokenizer_init,
+            **engine_kwargs,
         }
 
         # NOTE: We can't directly call SGLang's launch_server since it's not an async function.

@@ -17,6 +17,7 @@ Generate responses given a dataset of prompts
 
 import os
 
+import aiohttp
 import hydra
 import numpy as np
 import ray
@@ -30,29 +31,10 @@ from pprint import pprint
 
 import pandas as pd
 from omegaconf import OmegaConf
-from openai import AsyncOpenAI
+from openai.types.chat import ChatCompletion
 
 from verl.utils.hdfs_io import makedirs
 from verl.workers.rollout.replica import get_rollout_replica_class
-
-
-@hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
-def main(config):
-    run_generation(config)
-
-
-def run_generation(config) -> None:
-    if not ray.is_initialized():
-        # this is for local ray cluster
-        default_runtime_env = {"env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN", "VLLM_USE_V1": "1"}}
-        ray_init_kwargs = config.ray_kwargs.get("ray_init", {})
-        runtime_env_kwargs = ray_init_kwargs.get("runtime_env", {})
-        runtime_env = OmegaConf.merge(default_runtime_env, runtime_env_kwargs)
-        ray_init_kwargs = OmegaConf.create({**ray_init_kwargs, "runtime_env": runtime_env})
-        print(f"ray init kwargs: {ray_init_kwargs}")
-        ray.init(**OmegaConf.to_container(ray_init_kwargs))
-
-    ray.get(main_task.remote(config))
 
 
 async def start_server(config):
@@ -81,23 +63,42 @@ async def start_server(config):
     return server_handles, server_addresses
 
 
-async def generate_per_replica(server_address, model_path: str, n_samples: int, sampling_params: dict, chat_lst: list):
-    # here we should sample n_samples for each chat_lst
-    client = AsyncOpenAI(
-        api_key="123-abc",
-        base_url=f"http://{server_address}/v1",
-    )
+async def submit_request(server_address, **chat_complete_request):
+    try:
+        extra_headers = chat_complete_request.pop("extra_headers", {})
+        timeout = aiohttp.ClientTimeout(total=None)
+        session = aiohttp.ClientSession(timeout=timeout)
+        async with session.post(
+            url=f"http://{server_address}/v1/chat/completions",
+            headers={"Authorization": "Bearer token-abc123", **extra_headers},
+            json=chat_complete_request,
+        ) as resp:
+            data = await resp.json()
+            return ChatCompletion(**data)
+    finally:
+        await session.close()
 
-    tasks = [
-        client.chat.completions.create(
-            model=model_path,
-            messages=messages,
+
+async def generate_per_replica(server_address, model_path: str, n_samples: int, sampling_params: dict, chat_lst: list):
+    # here we should sample n_samples for each chat_lst.
+    # we use aiohttp to avoid hang in AsyncOpenAI when the number of requests is large.
+
+    # client = AsyncOpenAI(
+    #     api_key="123-abc",
+    #     base_url=f"http://{server_address}/v1",
+    # )
+
+    chat_complete_request = [
+        {
+            "model": model_path,
+            "messages": messages,
             **sampling_params,
-        )
+        }
         for messages in chat_lst
         for _ in range(n_samples)
     ]
 
+    tasks = [submit_request(server_address, **req) for req in chat_complete_request]
     results = await asyncio.gather(*tasks)
     return results
 
@@ -118,8 +119,10 @@ async def generate(
     return results
 
 
-@ray.remote(num_cpus=1)
-def main_task(config):
+@hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
+def main(config):
+    ray.init(runtime_env={"env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN", "VLLM_USE_V1": "1"}})
+
     pprint(OmegaConf.to_container(config, resolve=True))  # resolve=True will eval symbol values
     OmegaConf.resolve(config)
 
@@ -136,8 +139,21 @@ def main_task(config):
         "max_tokens": config.actor_rollout_ref.rollout.response_length,
     }
 
+    from omegaconf import ListConfig
+
+    train_files = config.data.train_files
+    if not isinstance(train_files, list | ListConfig):
+        train_files = [train_files]
+
     # read dataset. Note that the dataset should directly contain chat template format (e.g., a list of dictionary)
-    dataset = pd.read_parquet(config.data.train_files)
+
+    datasets = []
+    for train_file in train_files:
+        dataset = pd.read_parquet(train_file)
+        datasets.append(dataset)
+
+    # concat dataset
+    dataset = pd.concat(datasets, axis=0, ignore_index=True)
     chat_lst = dataset[config.data.prompt_key].tolist()
     chat_lst = [chat.tolist() for chat in chat_lst]
     chat_numpy = np.array(chat_lst)
@@ -151,7 +167,6 @@ def main_task(config):
     )
 
     # reshape results into a numpy array
-
     import itertools
 
     results = list(itertools.chain.from_iterable(gen_results))
@@ -170,6 +185,7 @@ def main_task(config):
     # write to a new parquet
     output_dir = os.path.dirname(config.data.output_path)
     makedirs(output_dir, exist_ok=True)
+    print(f"Saving results to {config.data.output_path}")
     dataset.to_parquet(config.data.output_path)
 
 
