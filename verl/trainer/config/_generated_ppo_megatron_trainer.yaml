@@ -286,6 +286,7 @@ data:
   return_raw_chat: false
   return_full_prompt: false
   shuffle: true
+  seed: null
   dataloader_num_workers: 8
   validation_shuffle: false
   filter_overlong_prompts: false

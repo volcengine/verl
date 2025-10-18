@@ -187,7 +187,9 @@ class RayPRIMETrainer(RayPPOTrainer):
         # use sampler for better ckpt resume
         if self.config.data.shuffle:
             train_dataloader_generator = torch.Generator()
-            train_dataloader_generator.manual_seed(self.config.data.get("seed", 1))
+            seed = self.config.data.get("seed")
+            if seed is not None:
+                train_dataloader_generator.manual_seed(seed)
             sampler = RandomSampler(data_source=self.train_dataset, generator=train_dataloader_generator)
         else:
             sampler = SequentialSampler(data_source=self.train_dataset)

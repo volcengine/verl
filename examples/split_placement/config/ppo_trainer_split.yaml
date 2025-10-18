@@ -21,6 +21,7 @@ data:
   return_raw_chat: False
   return_full_prompt: False
   shuffle: True
+  seed: 42
 
 actor_rollout_ref:
   hybrid_engine: True
