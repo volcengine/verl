@@ -28,7 +28,6 @@ from verl.experimental.agent_loop.agent_loop import (
     AgentLoopOutput,
     AgentLoopWorkerBase,
     AsyncLLMServerManager,
-    BatchExecutor,
     _agent_loop_registry,
     _DummyConfig,
     get_trajectory_info,
@@ -70,10 +69,10 @@ class FullyAsyncAgentLoopOutput(AgentLoopOutput):
 @ray.remote
 class FullyAsyncAgentLoopWorker(AgentLoopWorkerBase):
     def __init__(
-        self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], rm_executor: BatchExecutor = None
+        self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], reward_router_address: str = None
     ):
         self.server_manager = FullyAsyncLLMServerManager(config, server_handles)
-        super().__init__(config, server_handles, rm_executor)
+        super().__init__(config, server_handles, reward_router_address)
 
     async def generate_sequences_no_post(
         self, batch: DataProto, partial_output_list: Optional[list[AgentLoopOutput]]
@@ -159,8 +158,8 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
     def __init__(self, config: DictConfig, worker_group: RayWorkerGroup = None, rm_wg: RayWorkerGroup = None):
         self.config = config
         self.worker_group = worker_group
-        self.rm_executor = None
-        self.rm_micro_batch_size = None
+        self.reward_model_manager = None
+        self.reward_router_address = None
         self.agent_loop_workers_class = FullyAsyncAgentLoopWorker
         self.rollout_replica_class = FullyAsyncvLLMReplica
 
@@ -177,27 +176,11 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
         return instance
 
     async def _async_init(self):
-        if self.rm_wg:
+        if self.config.reward_model.enable and self.config.reward_model.enable_resource_pool:
+            from verl.experimental.reward import RewardModelManager
 
-            def batch_fn(data_list: list[DataProto]) -> list[torch.Tensor]:
-                new_data_list = []
-                for data in data_list:
-                    temp_non_tensor_batch = {"__num_turns__": data.non_tensor_batch["__num_turns__"]}
-                    temp_data = DataProto(batch=data.batch, non_tensor_batch=temp_non_tensor_batch)
-                    new_data_list.append(temp_data)
-
-                new_batch = DataProto.concat(new_data_list)
-                out_data = self.rm_wg.compute_rm_score(new_batch)
-                return out_data.split(1)
-
-            self.rm_executor = BatchExecutor.options(
-                scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
-                    node_id=ray.get_runtime_context().get_node_id(),
-                    soft=False,
-                ),
-            ).remote(batch_fn, self.rm_wg.world_size)
-
-            self.rm_micro_batch_size = self.rm_wg.world_size
+            self.reward_model_manager = RewardModelManager(config.reward_model, rm_wg)
+            self.reward_router_address = self.reward_model_manager.get_router_address()
 
         await self._initialize_llm_servers_async()
         self._init_agent_loop_workers()
