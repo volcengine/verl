@@ -73,6 +73,7 @@ infer_ppo_max_token_len=$((max_prompt_length + max_response_length))
 offload=True
 gen_tp=1
 
+loss_variant="flowrl_clip"
 
 python3 -m recipe.flowrl.main_flowrl \
     data.train_files="${TRAIN_FILE}" \
@@ -146,4 +147,5 @@ python3 -m recipe.flowrl.main_flowrl \
     trainer.save_freq=50 \
     trainer.total_epochs=1 \
     trainer.default_local_dir="${CKPTS_DIR}" \
-    trainer.resume_mode=auto
+    trainer.resume_mode=auto \
+    +trainer.loss_variant=${loss_variant}
