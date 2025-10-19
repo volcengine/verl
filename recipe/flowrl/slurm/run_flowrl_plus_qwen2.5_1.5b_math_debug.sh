@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -xeuo pipefail
+unset ROCR_VISIBLE_DEVICES
 
 project_name='FlowRL'
 exp_name='dbeug'
