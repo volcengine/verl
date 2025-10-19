@@ -51,6 +51,9 @@ target_modules: all-linear
 # Exclude modules from LoRA adaptation
 exclude_modules: null
 
+# Path to pre-trained LoRA adapter to load for continued training
+lora_adapter_path: null
+
 # whether to use liger. Only valid when we use hf model definition
 use_liger: False
 
