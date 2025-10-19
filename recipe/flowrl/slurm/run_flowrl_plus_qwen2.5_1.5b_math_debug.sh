@@ -42,10 +42,10 @@ filter_groups_metric=acc
 max_num_gen_batches=10
 
 # Batch sizes 
-train_prompt_bsz=512  
+train_prompt_bsz=32  
 gen_prompt_bsz=$((train_prompt_bsz * 3))
-n_resp_per_prompt=16
-train_prompt_mini_bsz=32
+n_resp_per_prompt=8
+train_prompt_mini_bsz=16
 
 # Ray
 RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
