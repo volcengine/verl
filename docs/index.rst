@@ -125,6 +125,7 @@ verl is fast with:
    advance/one_step_off
    advance/agent_loop
    advance/reward_loop
+   advance/fully_async
 
 .. toctree::
    :maxdepth: 1
