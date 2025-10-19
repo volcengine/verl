@@ -28,7 +28,7 @@ clip_ratio_low=0.2
 clip_ratio_high=0.28
 
 # FlowRL Loss Variant Selection
-loss_variant="flowrl_clip"
+loss_variant="flowrl_clip_tis"
 
 # Sequence lengths (REDUCED FOR DEBUGGING)
 max_prompt_length=256  # Reduced from 1024 for debugging
