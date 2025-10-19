@@ -49,8 +49,6 @@ async def _read_async_response(resp: aiohttp.ClientResponse) -> dict[str, Any]:
 
 def launch_router_process(
     worker_urls: list[str],
-    request_timeout: int = 120,
-    timeout: int = 30,
 ):
     router_ip = ray.util.get_node_ip_address().strip("[]")
     router_port, _ = get_free_port(router_ip)
@@ -92,7 +90,6 @@ class NaiveRouter:
 
         self.max_connections = max_connections
         self.request_timeout = timeout
-        self.max_attempts = 3
 
         self.app = FastAPI()
 

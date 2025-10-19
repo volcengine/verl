@@ -244,7 +244,6 @@ def register(agent_name: str):
     return decorator
 
 
-@ray.remote
 class AgentLoopWorkerBase:
     """Agent loop worker takes a batch of messages and run each message in an agent loop."""
 
