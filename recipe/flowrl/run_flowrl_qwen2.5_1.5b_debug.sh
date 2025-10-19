@@ -21,7 +21,7 @@ kl_loss_coef=0.0
 tb_coef=15.0
 
 # TIS - Truncated Importance Sampling
-tis_imp_ratio_cap=2.0
+tis_imp_ratio_cap=10.0
 
 # DAPO Dual-clip parameters
 clip_ratio_low=0.2
