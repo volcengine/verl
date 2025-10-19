@@ -19,7 +19,6 @@ from typing import Any, Optional
 import hydra
 import numpy as np
 import ray
-import torch
 from omegaconf import DictConfig
 
 from recipe.fully_async_policy.vllm_rollout.vllm_async_server import FullyAsyncvLLMReplica
@@ -179,7 +178,7 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
         if self.config.reward_model.enable and self.config.reward_model.enable_resource_pool:
             from verl.experimental.reward import RewardModelManager
 
-            self.reward_model_manager = RewardModelManager(config.reward_model, rm_wg)
+            self.reward_model_manager = RewardModelManager(self.config.reward_model, self.rm_wg)
             self.reward_router_address = self.reward_model_manager.get_router_address()
 
         await self._initialize_llm_servers_async()
