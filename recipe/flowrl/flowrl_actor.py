@@ -652,9 +652,7 @@ class FlowRLActor(DataParallelPPOActor):
             "actor/importance_weight": imp_w.mean().detach().item(),
             "actor/ppo_kl": ppo_kl.detach().item(),  # PPO-style KL (current vs old policy)
             "actor/ref_kl": ref_kl.detach().item(),  # KL with reference policy
+            "actor/tis_weight": w_tis.mean().detach().item()
         }
-
-        if w_tis is not None:
-            loss_term_dict["actor/tis_weight"] = w_tis.mean().detach().item()
 
         return avg_loss, loss_term_dict
