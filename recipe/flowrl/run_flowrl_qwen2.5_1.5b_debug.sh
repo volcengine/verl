@@ -28,8 +28,7 @@ clip_ratio_low=0.2
 clip_ratio_high=0.28
 
 # FlowRL Loss Variant Selection
-# Options: "vanilla" (no TIS/clip), "clip_only" (clip IS only), "tis_clip" (both TIS + clip)
-loss_variant="gspo_clip"
+loss_variant="flowrl_clip"
 
 # Sequence lengths (REDUCED FOR DEBUGGING)
 max_prompt_length=256  # Reduced from 1024 for debugging
