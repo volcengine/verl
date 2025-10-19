@@ -245,7 +245,7 @@ def register(agent_name: str):
 
 
 @ray.remote
-class AgentLoopWorker:
+class AgentLoopWorkerBase:
     """Agent loop worker takes a batch of messages and run each message in an agent loop."""
 
     def __init__(
@@ -608,15 +608,15 @@ class AgentLoopWorker(AgentLoopWorkerBase):
     """Agent loop worker takes a batch of messages and run each message in an agent loop."""
 
     def __init__(
-        self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], rm_executor: BatchExecutor = None
+        self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], reward_router_address: str = None
     ):
         """Initialize agent loop manager.
-
         Args:
             config (DictConfig): YAML config.
             server_handles (List[ray.actor.ActorHandle]): OpenAI compatible LLM server actor handles.
+            reward_router_address (str): reward router address.
         """
-        super().__init__(config, server_handles, rm_executor)
+        super().__init__(config, server_handles, reward_router_address)
 
 
 async def get_trajectory_info(step, index, validate):

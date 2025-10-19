@@ -12,17 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
 import logging
 import multiprocessing
 import os
 import time
+from typing import Any
 
-import httpx
+import aiohttp
 import ray
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse
 
 from verl.workers.rollout.utils import get_free_port, is_valid_ipv6_address
 
@@ -30,7 +30,28 @@ logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-def launch_router_process(worker_urls: list[str]):
+async def _read_async_response(resp: aiohttp.ClientResponse) -> dict[str, Any]:
+    if resp.status == 204 or (resp.content_length == 0):
+        return {}
+
+    try:
+        return await resp.json(content_type=None)
+    except Exception:
+        try:
+            text = await resp.text()
+        except Exception:
+            return {}
+        return {
+            "content_type": (resp.headers.get("Content-Type") or ""),
+            "text": text,
+        }
+
+
+def launch_router_process(
+    worker_urls: list[str],
+    request_timeout: int = 120,
+    timeout: int = 30,
+):
     router_ip = ray.util.get_node_ip_address().strip("[]")
     router_port, _ = get_free_port(router_ip)
     router_address = (
@@ -55,62 +76,78 @@ def launch_router_process(worker_urls: list[str]):
 
 
 def run_router(router_ip: str, router_port: int, worker_urls: list[str]):
-    router = NaiveRouter(worker_urls=worker_urls, verbose=False)
+    router = NaiveRouter(worker_urls=worker_urls, verbose=True)
     uvicorn.run(router.app, host=router_ip, port=router_port, log_level="warning")
 
 
 class NaiveRouter:
-    def __init__(self, worker_urls: list[str], max_connections: int = 256, verbose: bool = False) -> None:
+    def __init__(
+        self, worker_urls: list[str], max_connections: int = 1024, timeout: int = 60, verbose: bool = False
+    ) -> None:
         """A minimal async load-balancing router."""
         self.verbose = verbose
         self.app = FastAPI()
         self.worker_urls = worker_urls
         self.request_counts = {url: 0 for url in worker_urls}
 
+        self.max_connections = max_connections
+        self.request_timeout = timeout
+        self.max_attempts = 3
+
         self.app = FastAPI()
 
-        # Async HTTP client
-        self.client = httpx.AsyncClient(
-            limits=httpx.Limits(max_connections=max_connections),
-            timeout=httpx.Timeout(None),
+        # Register startup / shutdown hooks
+        self.app.on_event("startup")(self._on_startup)
+        self.app.on_event("shutdown")(self._on_shutdown)
+
+        # Catch-all proxy route
+        self.app.api_route("/{endpoint:path}", methods=["GET", "POST"])(self._make_async_request)
+
+        # Placeholder for aiohttp client
+        self.client = None
+
+    async def _on_startup(self):
+        """Initialize aiohttp client safely inside the event loop"""
+        connector = aiohttp.TCPConnector(
+            limit=self.max_connections,
+            limit_per_host=self.max_connections // 4,
+            ttl_dns_cache=300,
+            use_dns_cache=True,
         )
+        timeout = aiohttp.ClientTimeout(total=None)
+        self.client = aiohttp.ClientSession(connector=connector, timeout=timeout)
+        if self.verbose:
+            logger.info(f"[router] aiohttp client initialized with max_connections={self.max_connections}")
 
-        # Register a catch-all route to proxy requests
-        self.app.api_route("/{path:path}", methods=["GET", "POST"])(self.proxy)
+    async def _on_shutdown(self):
+        """Gracefully close aiohttp client"""
+        if self.client and not self.client.closed:
+            await self.client.close()
+            if self.verbose:
+                logger.info("[router] aiohttp client closed")
 
-    async def proxy(self, request: Request, path: str):
-        """Proxy all requests to a worker URL."""
+    async def _make_async_request(self, request: Request, endpoint: str):
+        """Proxy single request to a worker URL."""
         if not self.worker_urls:
             return JSONResponse(status_code=503, content={"error": "No available workers"})
 
         worker_url = self._select_worker()
-        target_url = f"{worker_url}/{path}"
+        target_url = f"{worker_url}/{endpoint}"
 
         if self.verbose:
-            print(f"[router] Forwarding request → {target_url}")
+            logger.debug(f"[router] Forwarding request → {target_url}")
 
         # Copy request data
         body = await request.body()
         headers = dict(request.headers)
 
+        # Send request to worker
         try:
-            # Send request to worker
-            response = await self.client.request(request.method, target_url, content=body, headers=headers)
-
-            # Read response
-            content = await response.aread()
-            content_type = response.headers.get("content-type", "")
-
-            # Try return JSON if possible
-            try:
-                data = json.loads(content)
-                return JSONResponse(content=data, status_code=response.status_code)
-            except Exception:
-                return Response(
-                    content=content,
-                    status_code=response.status_code,
-                    media_type=content_type or None,
-                )
+            async with self.client.request(request.method, target_url, data=body, headers=headers) as response:
+                response.raise_for_status()
+                return await _read_async_response(response)
+        except Exception as e:
+            logger.error(f"Error in _make_async_request: {e}")
         finally:
             self._release_worker(worker_url)
 
@@ -120,6 +157,6 @@ class NaiveRouter:
         self.request_counts[url] += 1
         return url
 
-    def _release_worker(self, url: str):
+    def _release_worker(self, url: str) -> None:
         """Mark worker as free after request completes."""
         self.request_counts[url] = max(0, self.request_counts[url] - 1)

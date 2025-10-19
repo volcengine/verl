@@ -69,4 +69,5 @@ def launch_router_process(
             router_process.terminate()
             raise RuntimeError(f"Router health check failed after {max_wait_time} seconds.")
 
+    logger.info(f"Router is running on {router_address}")
     return router_address, router_process
