@@ -44,7 +44,7 @@ enable_overlong_buffer=False  # Disabled for debugging
 loss_agg_mode="token-mean"
 
 # Filter groups - dynamic sampling
-enable_filter_groups=True
+enable_filter_groups=False
 filter_groups_metric=acc
 max_num_gen_batches=10
 
