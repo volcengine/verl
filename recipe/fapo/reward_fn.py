@@ -90,8 +90,6 @@ async def generate_aiohttp(router_address: str, prompt_ids: list[int], sampling_
             except Exception:
                 logger.error(f"Failed to parse JSON response: {output}")
                 return {}
-    except Exception as e:
-        raise e
     finally:
         await session.close()
 

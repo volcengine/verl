@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 import logging
 import multiprocessing
 import os
@@ -74,13 +75,19 @@ def launch_router_process(
 
 
 def run_router(router_ip: str, router_port: int, worker_urls: list[str]):
-    router = NaiveRouter(worker_urls=worker_urls, verbose=True)
+    router = NaiveRouter(worker_urls=worker_urls, verbose=False)
     uvicorn.run(router.app, host=router_ip, port=router_port, log_level="warning")
 
 
 class NaiveRouter:
     def __init__(
-        self, worker_urls: list[str], max_connections: int = 1024, timeout: int = 60, verbose: bool = False
+        self,
+        worker_urls: list[str],
+        max_connections: int = 1024,
+        timeout: int = 60,
+        max_attempts: int = 3,
+        retry_delay: float = 2.0,
+        verbose: bool = False,
     ) -> None:
         """A minimal async load-balancing router."""
         self.verbose = verbose
@@ -89,7 +96,9 @@ class NaiveRouter:
         self.request_counts = {url: 0 for url in worker_urls}
 
         self.max_connections = max_connections
-        self.request_timeout = timeout
+        self.timeout = timeout
+        self.max_attempts = max_attempts
+        self.retry_delay = retry_delay
 
         self.app = FastAPI()
 
@@ -138,15 +147,30 @@ class NaiveRouter:
         body = await request.body()
         headers = dict(request.headers)
 
-        # Send request to worker
-        try:
-            async with self.client.request(request.method, target_url, data=body, headers=headers) as response:
-                response.raise_for_status()
-                return await _read_async_response(response)
-        except Exception as e:
-            logger.error(f"Error in _make_async_request: {e}")
-        finally:
-            self._release_worker(worker_url)
+        for attempt in range(self.max_attempts):
+            # Send request to worker
+            try:
+                async with self.client.request(request.method, target_url, data=body, headers=headers) as response:
+                    response.raise_for_status()
+                    output = await _read_async_response(response)
+                    self._release_worker(worker_url)
+                    return output
+            except asyncio.TimeoutError:
+                logger.warning(f"Async request to {endpoint} timed out (attempt {attempt + 1})")
+            except aiohttp.ClientConnectorError:
+                logger.warning(f"Connection error for {endpoint} (attempt {attempt + 1})")
+            except aiohttp.ClientResponseError as e:
+                logger.error(f"HTTP error for {endpoint}: {e}")
+                raise
+            except Exception as e:
+                logger.error(f"Unexpected error for {endpoint}: {e}")
+                if attempt == self.max_attempts - 1:
+                    raise
+
+            if attempt < self.max_attempts - 1:
+                await asyncio.sleep(self.retry_delay * (2**attempt))
+
+        raise RuntimeError(f"Failed to complete async request to {endpoint} after {self.max_attempts} attempts")
 
     def _select_worker(self) -> str:
         """Select the least-loaded worker (simple round-robin by request count)."""
