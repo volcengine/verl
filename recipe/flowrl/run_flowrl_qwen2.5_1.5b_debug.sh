@@ -28,7 +28,8 @@ clip_ratio_low=0.2
 clip_ratio_high=0.28
 
 # FlowRL Loss Variant Selection
-loss_variant="flowrl_clip_tis"
+# Options: "vanilla" (no TIS/clip), "flowrl_clip" (clip IS only), "flowrl_clip_tis" (both TIS + clip)
+export FLOWRL_LOSS_VARIANT="flowrl_clip_tis"
 
 # Sequence lengths (REDUCED FOR DEBUGGING)
 max_prompt_length=256  # Reduced from 1024 for debugging
@@ -153,8 +154,7 @@ python3 -m recipe.flowrl.main_flowrl \
     trainer.save_freq=50 \
     trainer.total_epochs=1 \
     trainer.default_local_dir="${CKPTS_DIR}" \
-    trainer.resume_mode=auto \
-    +trainer.loss_variant=${loss_variant}
+    trainer.resume_mode=auto
 
 # todo: algorithm.tb_coef=${tb_coef} \
 # +actor_rollout_ref.actor.proj_layer=3 \
