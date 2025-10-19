@@ -16,13 +16,13 @@ kl_coef=0.0
 use_kl_loss=False
 kl_loss_coef=0.0
 
-# Rollout Importance Sampling parameters (matches original TIS with threshold=2)
+# Rollout Importance Sampling parameters
 rollout_is=True
 rollout_is_threshold=2.0
-rollout_is_threshold_lower=null  # No lower bound (original TIS behavior)
-rollout_is_level=token  # token-level (original TIS behavior)
-rollout_is_mode=truncate  # truncate mode (original TIS behavior)
-rollout_is_veto_threshold=null  # No veto (original TIS behavior)
+rollout_is_threshold_lower=null  # No lower bound
+rollout_is_level=token  # token-level
+rollout_is_mode=truncate  # truncate mode
+rollout_is_veto_threshold=null  # No veto
 
 clip_ratio_low=0.2
 clip_ratio_high=0.28
