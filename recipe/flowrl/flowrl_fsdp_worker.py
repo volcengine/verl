@@ -433,95 +433,95 @@ class FlowRLActorRolloutRefWorker(ActorRolloutRefWorker):
                 actor_optimizer=self.actor_optimizer
             )
 
-    async def rollout_mode(self):
-        """
-        Override rollout_mode to filter out proj_z parameters before syncing to vLLM.
+    # async def rollout_mode(self):
+    #     """
+    #     Override rollout_mode to filter out proj_z parameters before syncing to vLLM.
 
-        FlowRL's proj_z module is only needed during training for estimating log Z.
-        It should not be loaded into vLLM since vLLM is only used for rollout generation.
-        """
-        aggressive_empty_cache(force_sync=True)
+    #     FlowRL's proj_z module is only needed during training for estimating log Z.
+    #     It should not be loaded into vLLM since vLLM is only used for rollout generation.
+    #     """
+    #     aggressive_empty_cache(force_sync=True)
 
-        log_gpu_memory_usage("Before load_fsdp_model_to_gpu", logger=logger)
-        if self._is_offload_param:
-            load_fsdp_model_to_gpu(self.actor_module_fsdp)
-        log_gpu_memory_usage("After load_fsdp_model_to_gpu", logger=logger)
+    #     log_gpu_memory_usage("Before load_fsdp_model_to_gpu", logger=logger)
+    #     if self._is_offload_param:
+    #         load_fsdp_model_to_gpu(self.actor_module_fsdp)
+    #     log_gpu_memory_usage("After load_fsdp_model_to_gpu", logger=logger)
 
-        peft_config = None
-        peft_model = getattr(self.actor_module_fsdp, "_fsdp_wrapped_module", self.actor_module_fsdp)
-        if hasattr(peft_model, "peft_config"):  # LoRA
-            peft_config = peft_model.peft_config.get("default", None)
-            params = collect_lora_params(
-                module=self.actor_module_fsdp,
-                layered_summon=self.config.rollout.get("layered_summon", False),
-                base_sync_done=self.base_sync_done,
-            )
-            if not self.base_sync_done:
-                params = {replace_lora_wrapper(k, peft_config): v for k, v in params.items()}
-        else:
-            params = self.actor_module_fsdp.state_dict()
+    #     peft_config = None
+    #     peft_model = getattr(self.actor_module_fsdp, "_fsdp_wrapped_module", self.actor_module_fsdp)
+    #     if hasattr(peft_model, "peft_config"):  # LoRA
+    #         peft_config = peft_model.peft_config.get("default", None)
+    #         params = collect_lora_params(
+    #             module=self.actor_module_fsdp,
+    #             layered_summon=self.config.rollout.get("layered_summon", False),
+    #             base_sync_done=self.base_sync_done,
+    #         )
+    #         if not self.base_sync_done:
+    #             params = {replace_lora_wrapper(k, peft_config): v for k, v in params.items()}
+    #     else:
+    #         params = self.actor_module_fsdp.state_dict()
 
-        # ==== FlowRL: Filter out proj_z parameters ====
-        params = {k: v for k, v in params.items() if not k.startswith("proj_z")}
-        num_proj_z_filtered = len([k for k in self.actor_module_fsdp.state_dict().keys() if k.startswith("proj_z")])
-        if num_proj_z_filtered > 0 and self.rank == 0:
-            print(f"[FlowRL] Filtered {num_proj_z_filtered} proj_z parameters before syncing to vLLM")
-        # ===============================================
+    #     # ==== FlowRL: Filter out proj_z parameters ====
+    #     params = {k: v for k, v in params.items() if not k.startswith("proj_z")}
+    #     num_proj_z_filtered = len([k for k in self.actor_module_fsdp.state_dict().keys() if k.startswith("proj_z")])
+    #     if num_proj_z_filtered > 0 and self.rank == 0:
+    #         print(f"[FlowRL] Filtered {num_proj_z_filtered} proj_z parameters before syncing to vLLM")
+    #     # ===============================================
 
-        params = convert_weight_keys(
-            params, getattr(self.actor_module_fsdp, "_fsdp_wrapped_module", self.actor_module_fsdp)
-        )
+    #     params = convert_weight_keys(
+    #         params, getattr(self.actor_module_fsdp, "_fsdp_wrapped_module", self.actor_module_fsdp)
+    #     )
 
-        # Special handling for LoRA with sleep_level=2:
-        if peft_config is not None and getattr(self.rollout, "sleep_level", None) == 2:
-            base_model_params = collect_lora_params(
-                module=self.actor_module_fsdp,
-                layered_summon=self.layered_summon,
-                base_sync_done=False,
-            )
-            base_model_params = {replace_lora_wrapper(k, peft_config): v for k, v in base_model_params.items()}
-            # Filter proj_z from base model params as well
-            base_model_params = {k: v for k, v in base_model_params.items() if not k.startswith("proj_z")}
-            base_model_params = convert_weight_keys(
-                base_model_params, getattr(self.actor_module_fsdp, "_fsdp_wrapped_module", self.actor_module_fsdp)
-            )
+    #     # Special handling for LoRA with sleep_level=2:
+    #     if peft_config is not None and getattr(self.rollout, "sleep_level", None) == 2:
+    #         base_model_params = collect_lora_params(
+    #             module=self.actor_module_fsdp,
+    #             layered_summon=self.layered_summon,
+    #             base_sync_done=False,
+    #         )
+    #         base_model_params = {replace_lora_wrapper(k, peft_config): v for k, v in base_model_params.items()}
+    #         # Filter proj_z from base model params as well
+    #         base_model_params = {k: v for k, v in base_model_params.items() if not k.startswith("proj_z")}
+    #         base_model_params = convert_weight_keys(
+    #             base_model_params, getattr(self.actor_module_fsdp, "_fsdp_wrapped_module", self.actor_module_fsdp)
+    #         )
 
-        log_gpu_memory_usage("Before offload_fsdp_model_to_cpu", logger=logger)
-        if self._is_offload_param:
-            offload_fsdp_model_to_cpu(self.actor_module_fsdp)
-        log_gpu_memory_usage("After offload_fsdp_model_to_cpu", logger=logger)
+    #     log_gpu_memory_usage("Before offload_fsdp_model_to_cpu", logger=logger)
+    #     if self._is_offload_param:
+    #         offload_fsdp_model_to_cpu(self.actor_module_fsdp)
+    #     log_gpu_memory_usage("After offload_fsdp_model_to_cpu", logger=logger)
 
-        set_expandable_segments(False)
+    #     set_expandable_segments(False)
 
-        if peft_config is not None and self.base_sync_done:
-            per_tensor_param = params
-        else:
-            device = get_device_id()
-            per_tensor_param = (
-                (name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param)
-                for name, param in params.items()
-            )
+    #     if peft_config is not None and self.base_sync_done:
+    #         per_tensor_param = params
+    #     else:
+    #         device = get_device_id()
+    #         per_tensor_param = (
+    #             (name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param)
+    #             for name, param in params.items()
+    #         )
 
-        if self.config.rollout.free_cache_engine:
-            await self.rollout.resume(tags=["weights"])
-        log_gpu_memory_usage("After resume weights", logger=logger)
+    #     if self.config.rollout.free_cache_engine:
+    #         await self.rollout.resume(tags=["weights"])
+    #     log_gpu_memory_usage("After resume weights", logger=logger)
 
-        if peft_config is not None and getattr(self.rollout, "sleep_level", None) == 2:
-            per_tensor_base_params = (
-                (name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param)
-                for name, param in base_model_params.items()
-            )
-            await self.rollout.update_weights(per_tensor_base_params, base_sync_done=False)
-            del base_model_params, per_tensor_base_params
+    #     if peft_config is not None and getattr(self.rollout, "sleep_level", None) == 2:
+    #         per_tensor_base_params = (
+    #             (name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param)
+    #             for name, param in base_model_params.items()
+    #         )
+    #         await self.rollout.update_weights(per_tensor_base_params, base_sync_done=False)
+    #         del base_model_params, per_tensor_base_params
 
-        await self.rollout.update_weights(per_tensor_param, peft_config=peft_config, base_sync_done=self.base_sync_done)
-        log_gpu_memory_usage("After update_weights", logger=logger)
-        del params, per_tensor_param
-        aggressive_empty_cache(force_sync=True)
-        if self.config.rollout.free_cache_engine:
-            await self.rollout.resume(tags=["kv_cache"])
-        log_gpu_memory_usage("After resume kv_cache", logger=logger)
+    #     await self.rollout.update_weights(per_tensor_param, peft_config=peft_config, base_sync_done=self.base_sync_done)
+    #     log_gpu_memory_usage("After update_weights", logger=logger)
+    #     del params, per_tensor_param
+    #     aggressive_empty_cache(force_sync=True)
+    #     if self.config.rollout.free_cache_engine:
+    #         await self.rollout.resume(tags=["kv_cache"])
+    #     log_gpu_memory_usage("After resume kv_cache", logger=logger)
 
-        self.base_sync_done = True
-        self.torch_random_states = get_torch_device().get_rng_state()
-        get_torch_device().set_rng_state(self.gen_random_states)
+    #     self.base_sync_done = True
+    #     self.torch_random_states = get_torch_device().get_rng_state()
+    #     get_torch_device().set_rng_state(self.gen_random_states)
