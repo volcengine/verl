@@ -18,6 +18,7 @@ import logging
 import os
 
 import aiohttp
+from openai.types.chat import ChatCompletion
 
 from verl import DataProto
 from verl.single_controller.ray.base import RayWorkerGroup
@@ -47,7 +48,6 @@ class RewardModelManager:
             self.sleep()
 
     def _initialize_llm_servers(self):
-        assert self.config.rollout.name == "sglang", "Only sglang is supported now"
         rollout_world_size = self.config.rollout.tensor_model_parallel_size
         world_size = (
             self.worker_group.world_size
@@ -63,6 +63,7 @@ class RewardModelManager:
             external_lib=self.config.model.external_lib,
             trust_remote_code=self.config.model.trust_remote_code,
         )
+        self.tokenizer = model_config.get_processor()
         self.rollout_replicas = [
             rollout_replica_class(
                 replica_rank=replica_rank,
@@ -107,30 +108,29 @@ class RewardModelManager:
 
         return asyncio.run(run_all())
 
-    # just for test purpose
-    async def generate(self, prompt_token_ids: list[int], sampling_params: dict):
-        payload = {
-            "input_ids": prompt_token_ids,
-            "sampling_params": sampling_params,
-        }
-        url = f"http://{self.router_address}/generate"
+    async def chat_complete(self, chat_complete_request: dict):
+        url = f"http://{self.router_address}/v1/chat/completions"
         try:
-            session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=None))
-            async with session.post(url, json=payload) as resp:
+            timeout = aiohttp.ClientTimeout(total=None)
+            session = aiohttp.ClientSession(timeout=timeout)
+            async with session.post(url, json=chat_complete_request) as resp:
                 output = await resp.text()
                 output = json.loads(output)
-                return output
+                return ChatCompletion(**output)
         except Exception as e:
-            logger.error(f"Error in generate_single: {e}")
             raise e
         finally:
             await session.close()
 
     def generate_sequences(self, prompts: DataProto, sampling_params: dict):
-        router_inputs = [
-            {"prompt_token_ids": raw_prompt_ids, "sampling_params": sampling_params}
-            for raw_prompt_ids in prompts.non_tensor_batch.get("raw_prompt_ids")
+        chat_complete_requests = [
+            {
+                "model": self.config.model.path,
+                "messages": list(messages),
+                **sampling_params,
+            }
+            for messages in prompts.non_tensor_batch.get("raw_prompt")
         ]
-        tasks = [self.generate(**router_input) for router_input in router_inputs]
-        responses = self._run_all(tasks)
-        return responses
+        tasks = [self.chat_complete(chat_complete_request) for chat_complete_request in chat_complete_requests]
+        results = self._run_all(tasks)
+        return results

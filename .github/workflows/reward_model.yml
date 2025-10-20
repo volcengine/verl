@@ -106,10 +106,23 @@ jobs:
         run: |
           ray stop --force
           python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
-      - name: Running reward model tests on 8 L20 GPUs
+      - name: Running vllm reward model tests on 8 L20 GPUs
         run: |
           unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
-          pytest -s -x tests/experimental/reward/test_reward_model.py
+          ROLLOUT_NAME=vllm pytest -s -x tests/experimental/reward/test_reward_model.py
+      - name: Running sglang reward model tests on 8 L20 GPUs
+        run: |
+          unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
+          ROLLOUT_NAME=sglang pytest -s -x tests/experimental/reward/test_reward_model.py
+      - name: Running vllm agent loop with reward manager tests on 8 L20 GPUs
+        run: |
+          unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
+          ROLLOUT_NAME=sglang pytest -s -x tests/experimental/reward/test_agent_loop_reward_manager.py
+      - name: Running sglang agent loop with reward manager tests on 8 L20 GPUs
+        run: |
+          unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
+          ROLLOUT_NAME=sglang pytest -s -x tests/experimental/reward/test_agent_loop_reward_manager.py
+      
 
   cleanup:
     runs-on: ubuntu-latest

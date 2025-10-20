@@ -47,7 +47,7 @@ def test_agent_loop_reward_manager():
     config.data.max_response_length = 4096
     config.actor_rollout_ref.model.path = rollout_model_path
     config.actor_rollout_ref.actor.use_dynamic_bsz = True
-    config.actor_rollout_ref.rollout.name = "vllm"
+    config.actor_rollout_ref.rollout.name = os.getenv("ROLLOUT_NAME", "vllm")
     config.actor_rollout_ref.rollout.mode = "async"
     config.actor_rollout_ref.rollout.tensor_model_parallel_size = 2
     config.actor_rollout_ref.rollout.gpu_memory_utilization = 0.9
@@ -64,10 +64,12 @@ def test_agent_loop_reward_manager():
     config.reward_model.n_gpus_per_node = 4
     config.reward_model.nnodes = 1
     config.reward_model.model.path = reward_model_path
-    config.reward_model.rollout.name = "sglang"
+    config.reward_model.rollout.name = os.getenv("ROLLOUT_NAME", "vllm")
     config.reward_model.rollout.gpu_memory_utilization = 0.9
     config.reward_model.rollout.tensor_model_parallel_size = 2
-    config.reward_model.rollout.skip_tokenizer_init = True
+    config.reward_model.rollout.skip_tokenizer_init = False
+    config.reward_model.rollout.prompt_length = 5120
+    config.reward_model.rollout.response_length = 4096
     config.custom_reward_function.path = "tests/experimental/reward/reward_fn.py"
     config.custom_reward_function.name = "compute_score_gsm8k"
 
@@ -75,7 +77,7 @@ def test_agent_loop_reward_manager():
     agent_loop_manager = AgentLoopManager(config)
 
     # 2. init test data
-    local_folder = os.path.expanduser("~/data/gsm8k/")
+    local_folder = os.path.expanduser("~/models/hf_data/gsm8k")
     data_files = [os.path.join(local_folder, "train.parquet")]
     tokenizer = AutoTokenizer.from_pretrained(rollout_model_path)
 
@@ -86,7 +88,7 @@ def test_agent_loop_reward_manager():
         processor=None,
     )
 
-    batch_size = 256
+    batch_size = 64
     sampler = create_rl_sampler(config.data, dataset)
     dataloader = StatefulDataLoader(
         dataset=dataset,

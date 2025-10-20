@@ -12,10 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+
 import asyncio
 import json
 
 import aiohttp
+from openai.types.chat import ChatCompletion
 from transformers import PreTrainedTokenizer
 
 GRM_PROMPT_TEMPLATE = """
@@ -37,18 +40,15 @@ Only output the score as a single number (integer).
 """.strip()
 
 
-async def generate_aiohttp(router_address: str, prompt_ids: list[int], sampling_params: dict):
-    payload = {
-        "input_ids": prompt_ids,
-        "sampling_params": sampling_params,
-    }
-    url = f"http://{router_address}/generate"
+async def chat_complete(router_address: str, chat_complete_request: dict):
+    url = f"http://{router_address}/v1/chat/completions"
     try:
-        session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=None))
-        async with session.post(url, json=payload) as resp:
+        timeout = aiohttp.ClientTimeout(total=None)
+        session = aiohttp.ClientSession(timeout=timeout)
+        async with session.post(url, json=chat_complete_request) as resp:
             output = await resp.text()
             output = json.loads(output)
-            return output
+            return ChatCompletion(**output)
     except Exception as e:
         raise e
     finally:
@@ -63,28 +63,22 @@ async def compute_score_gsm8k(
     reward_router_address: str,
     reward_model_tokenizer: PreTrainedTokenizer,
 ):
-    """Compute the reward score for FAPO."""
-    loop = asyncio.get_running_loop()
+    """Compute the reward score."""
 
     grm_prompt = GRM_PROMPT_TEMPLATE.format(problem=extra_info["question"], solution=solution_str)
-    grm_prompt_ids = await loop.run_in_executor(
-        None,
-        lambda: reward_model_tokenizer.apply_chat_template(
-            [{"role": "user", "content": grm_prompt}],
-            tokenize=True,
-            add_generation_prompt=True,
-        ),
-    )
-    sampling_params = {"max_new_tokens": 16384}
-    grm_outputs = await generate_aiohttp(
+    messages = [{"role": "user", "content": grm_prompt}]
+    sampling_params = {"temperature": 0.7, "top_p": 0.8, "max_tokens": 4096}
+    model_name = os.path.expanduser("~/models/Qwen/Qwen2.5-1.5B-Instruct")
+    chat_complete_request = {
+        "messages": messages,
+        "model": model_name,
+        **sampling_params,
+    }
+    result = await chat_complete(
         router_address=reward_router_address,
-        prompt_ids=grm_prompt_ids,
-        sampling_params=sampling_params,
+        chat_complete_request=chat_complete_request,
     )
-    grm_response_ids = grm_outputs.get("output_ids", None)
-    grm_response = await loop.run_in_executor(
-        None, lambda: reward_model_tokenizer.decode(grm_response_ids, skip_special_tokens=True)
-    )
+    grm_response = result.choices[0].message.content
     try:
         score = int(grm_response.split("\n\n")[-1].strip())
     except Exception:

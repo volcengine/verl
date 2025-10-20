@@ -449,16 +449,6 @@ _rollout_worker_actor_cls = ray.remote(vLLMAsyncRollout)
 
 
 class vLLMReplica(RolloutReplica):
-    def __init__(
-        self,
-        replica_rank: int,
-        config: RolloutConfig | RewardModelConfig,
-        model_config: HFModelConfig,
-        gpus_per_node: int = 8,
-    ):
-        super().__init__(replica_rank, config, model_config, gpus_per_node)
-        self.server_class = vLLMHttpServer
-
     def get_ray_class_with_init_args(self) -> RayClassWithInitArgs:
         """Get rollout worker actor class for colocated and standalone mode."""
         worker_dict_cls = RayClassWithInitArgs(
@@ -498,7 +488,7 @@ class vLLMReplica(RolloutReplica):
                 if not self.is_reward_model
                 else f"vllm_server_reward_{self.replica_rank}_{node_rank}"
             )
-            server = self.server_class.options(
+            server = vLLMHttpServer.options(
                 scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
                     node_id=node_id,
                     soft=False,
