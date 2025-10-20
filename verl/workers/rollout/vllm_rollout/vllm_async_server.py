@@ -32,6 +32,7 @@ from vllm.entrypoints.openai.api_server import (
     init_app_state,
 )
 from vllm.inputs import TokensPrompt
+from vllm.lora.request import LoRARequest
 from vllm.outputs import RequestOutput
 from vllm.usage.usage_lib import UsageContext
 from vllm.utils import FlexibleArgumentParser, get_tcp_uri
@@ -46,6 +47,12 @@ from verl.workers.config import HFModelConfig, RewardModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
 from verl.workers.rollout.utils import get_free_port, is_valid_ipv6_address, run_unvicorn
 from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
+from verl.workers.rollout.vllm_rollout.utils import (
+    VLLM_LORA_INT_ID,
+    VLLM_LORA_NAME,
+    VLLM_LORA_PATH,
+    get_vllm_max_lora_rank,
+)
 
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
@@ -247,6 +254,16 @@ class vLLMHttpServerBase:
                 }
             )
 
+        # update lora-related args
+        if self.model_config.lora_rank > 0:
+            args.update(
+                {
+                    "enable_lora": True,
+                    "max_loras": 1,
+                    "max_lora_rank": get_vllm_max_lora_rank(self.model_config.lora_rank),
+                }
+            )
+
         server_args = ["serve", self.model_config.local_path]
         for k, v in args.items():
             if isinstance(v, bool):
@@ -357,7 +374,15 @@ class vLLMHttpServerBase:
         prompt = TokensPrompt(
             prompt_token_ids=prompt_ids, multi_modal_data={"image": image_data} if image_data else None
         )
-        generator = self.engine.generate(prompt=prompt, sampling_params=sampling_params, request_id=request_id)
+
+        # Add lora request
+        lora_request = None
+        if self.model_config.lora_rank > 0:
+            lora_request = LoRARequest(lora_name=VLLM_LORA_NAME, lora_int_id=VLLM_LORA_INT_ID, lora_path=VLLM_LORA_PATH)
+
+        generator = self.engine.generate(
+            prompt=prompt, sampling_params=sampling_params, request_id=request_id, lora_request=lora_request
+        )
 
         # Get final response
         final_res: Optional[RequestOutput] = None

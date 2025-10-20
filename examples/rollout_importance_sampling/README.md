@@ -133,7 +133,6 @@ Key metrics to watch (all prefixed with `mismatch/` in logs):
 ### Distribution Metrics
 - `rollout_is_max`, `rollout_is_min`: Weight extremes
 - `rollout_is_std`: Standard deviation
-- `rollout_is_p50`, `rollout_is_p95`, `rollout_is_p99`: Percentiles
 
 ### Diagnostic Metrics
 - `rollout_is_ratio_fraction_high`: Fraction exceeding upper threshold
