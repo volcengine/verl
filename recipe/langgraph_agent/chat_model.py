@@ -222,7 +222,7 @@ class ChatModel(BaseChatModel):
                     actual_tool_name = tool_msg.get("name", "unknown")
                     if actual_tool_name == "unknown":
                         logger.error(f"actual_tool_name: {actual_tool_name}")
-                    formatted = format_gpt_oss_tool_response_manually(tool_msg, actual_tool_name)
+                    formatted = format_gpt_oss_tool_response_manually(tool_msg["content"], actual_tool_name)
                     tool_response_texts.append(formatted)
 
             # Tokenize the manually formatted tool responses
