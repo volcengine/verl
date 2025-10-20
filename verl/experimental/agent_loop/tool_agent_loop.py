@@ -22,6 +22,7 @@ from uuid import uuid4
 
 from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput, register
 from verl.experimental.agent_loop.tool_parser import FunctionCall, ToolParser
+from verl.experimental.agent_loop.utils import add_generation_prompt_for_gpt_oss, format_gpt_oss_tool_response_manually
 from verl.interactions.base import BaseInteraction
 from verl.interactions.utils.interaction_registry import initialize_interactions_from_config
 from verl.tools.schemas import ToolResponse
@@ -261,8 +262,10 @@ class ToolAgentLoop(AgentLoopBase):
         new_images_this_turn: list[Any] = []  # Local variable instead of agent_data attribute
 
         tasks = []
+        tool_call_names = []
         for tool_call in agent_data.tool_calls[: self.max_parallel_calls]:
             tasks.append(self._call_tool(tool_call, agent_data.tools_kwargs))
+            tool_call_names.append(tool_call.name)
 
         with simple_timer("tool_calls", agent_data.metrics):
             responses = await asyncio.gather(*tasks)
@@ -341,11 +344,25 @@ class ToolAgentLoop(AgentLoopBase):
             model_inputs = self.processor(text=[raw_tool_response], images=current_images, return_tensors="pt")
             response_ids = model_inputs.pop("input_ids").squeeze(0).tolist()
         else:
-            response_ids = await self.loop.run_in_executor(
-                None,
-                lambda: self.tokenizer.apply_chat_template(add_messages, add_generation_prompt=True, tokenize=True),
-            )
-        response_ids = response_ids[len(self.system_prompt) :]
+            if self.tool_parser == "gpt-oss":
+                logger.info("manually format tool responses for gpt-oss")
+                # Format tool responses manually
+                tool_response_texts = []
+                for i, tool_msg in enumerate(add_messages):
+                    actual_tool_name = tool_call_names[i]
+                    formatted = format_gpt_oss_tool_response_manually(tool_msg, actual_tool_name)
+                    tool_response_texts.append(formatted)
+
+                tool_response_text = add_generation_prompt_for_gpt_oss("".join(tool_response_texts))
+                response_ids = await self.loop.run_in_executor(
+                    None, lambda: self.tokenizer.encode(tool_response_text, add_special_tokens=False)
+                )
+            else:
+                response_ids = await self.loop.run_in_executor(
+                    None,
+                    lambda: self.tokenizer.apply_chat_template(add_messages, add_generation_prompt=True, tokenize=True),
+                )
+                response_ids = response_ids[len(self.system_prompt) :]
         if len(agent_data.response_mask) + len(response_ids) >= self.response_length:
             return AgentState.TERMINATED
         # Update prompt_ids and response_mask
