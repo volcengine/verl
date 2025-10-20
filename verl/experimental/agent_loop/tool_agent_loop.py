@@ -350,7 +350,7 @@ class ToolAgentLoop(AgentLoopBase):
                 tool_response_texts = []
                 for i, tool_msg in enumerate(add_messages):
                     actual_tool_name = tool_call_names[i]
-                    formatted = format_gpt_oss_tool_response_manually(tool_msg, actual_tool_name)
+                    formatted = format_gpt_oss_tool_response_manually(tool_msg["content"], actual_tool_name)
                     tool_response_texts.append(formatted)
 
                 tool_response_text = add_generation_prompt_for_gpt_oss("".join(tool_response_texts))
