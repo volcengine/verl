@@ -18,4 +18,4 @@ mathruler
 torchdata
 einops
 qwen_vl_utils
-torchvision==0.20.1
+torchvision==0.24.0
