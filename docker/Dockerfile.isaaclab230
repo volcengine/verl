@@ -1,5 +1,6 @@
 
-FROM nvcr.nju.edu.cn/nvidia/isaac-lab:2.1.0
+#FROM nvcr.nju.edu.cn/nvidia/isaac-lab:2.2.0
+FROM isaac-lab-base:latest
 
 ARG http_proxy=http://100.68.175.150:3128
 ARG https_proxy=http://100.68.175.150:3128
@@ -30,33 +31,44 @@ RUN --mount=type=cache,target=/var/cache/apt \
         tigervnc-tools \
         fonts-dejavu \
         fonts-liberation
-# cuda 12.8
+# cuda 12.2
 RUN --mount=type=cache,target=/var/cache/apt \
     cd /tmp && \
     wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/3bf863cc.pub && \
     apt-key add 3bf863cc.pub && \
     echo "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64 /" > /etc/apt/sources.list.d/cuda.list && \
     apt-get update && \
-    apt-get install -y cuda-toolkit-12-2 libcusparselt0 libnccl2 && \
+    apt-get install -y libcusparselt0 libnccl2=2.27.3-1+cuda12.2 libglfw3 libgl1-mesa-glx libosmesa6 && \
     rm -f 3bf863cc.pub
 
 # libero
 RUN --mount=type=cache,target=/root/.cache/pip \
     /workspace/isaaclab/_isaac_sim/python.sh -m pip install easydict==1.9 robosuite==1.4.0 bddl==1.0.1 future==0.18.2 cloudpickle==2.1.0
 
-# verl
 RUN --mount=type=cache,target=/root/.cache/pip \
-    /workspace/isaaclab/_isaac_sim/python.sh -m pip install --upgrade tensordict==0.10.0 torch==2.7.0 \
-    transformers[hf_xet]==4.53.2 torchvision==0.22.0 numpy==1.26.4 ray[default] 
+    /workspace/isaaclab/_isaac_sim/python.sh -m pip install transformers[hf_xet]
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+    /workspace/isaaclab/_isaac_sim/python.sh -m pip install --upgrade numpy==1.26.4 ray[default] \
+    accelerate codetiming datasets dill hydra-core pandas peft pyarrow>=19.0.0 pybind11 pylatexenc
+
+# openvla-oft
+RUN --mount=type=cache,target=/root/.cache/pip \
+    /workspace/isaaclab/_isaac_sim/python.sh -m pip install pre-commit torchdata packaging>=20.0 uvicorn fastapi latex2sympy2_extended math_verify tensorboard
+
 
 # flash_attn
-# RUN rm -r /workspace/isaaclab/_isaac_sim/kit/python/lib/python3.10/site-packages/pip-24.3.1.dist-info; \
-#     rm -r /workspace/isaaclab/_isaac_sim/kit/python/lib/python3.10/site-packages/pip; \
-#     /workspace/isaaclab/_isaac_sim/python.sh -m ensurepip --upgrade --default-pip && \
 RUN cd /tmp && \
-    wget -nv https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.0.post2/flash_attn-2.8.0.post2+cu12torch2.7cxx11abiFALSE-cp310-cp310-linux_x86_64.whl && \
-    /workspace/isaaclab/_isaac_sim/python.sh -m pip install /tmp/flash_attn-2.8.0.post2+cu12torch2.7cxx11abiFALSE-cp310-cp310-linux_x86_64.whl && \
-    rm -f /tmp/flash_attn-2.8.0.post2+cu12torch2.7cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
+    wget -nv https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.0.post2/flash_attn-2.8.0.post2+cu12torch2.7cxx11abiFALSE-cp311-cp311-linux_x86_64.whl && \
+    /workspace/isaaclab/_isaac_sim/python.sh -m pip install /tmp/flash_attn-2.8.0.post2+cu12torch2.7cxx11abiFALSE-cp311-cp311-linux_x86_64.whl && \
+    rm -f /tmp/flash_attn-2.8.0.post2+cu12torch2.7cxx11abiFALSE-cp311-cp311-linux_x86_64.whl
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+    /workspace/isaaclab/_isaac_sim/python.sh -m pip install --upgrade protobuf==3.20.3 timm==0.9.16
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+    /workspace/isaaclab/_isaac_sim/python.sh -m pip install orjson==3.11.3 pyvers==0.1.0 tensordict==0.10.0 --force --no-deps
+
 
 RUN mkdir -p /root/.vnc && \
     cat <<'EOP' > /root/.vnc/xstartup 

@@ -19,7 +19,6 @@ from typing import Optional
 import gymnasium as gym
 import numpy as np
 import torch
-from isaaclab.app import AppLauncher
 
 from verl.envs.action_utils import (
     put_info_on_image,
@@ -62,11 +61,6 @@ class IsaacEnv(gym.Env):
 
     def _init_env(self):
         """Initializes the Isaac Sim environment."""
-        launch_args = {"headless": True, "enable_cameras": True}
-        self.app_launcher = AppLauncher(**launch_args)
-        self.sim = self.app_launcher.app
-
-        from isaaclab_tasks.utils import parse_env_cfg
 
         # FIXME since isaac use env to set task id, all env have to use the same task id
         if self.task_suite_name.startswith("libero"):
@@ -76,10 +70,25 @@ class IsaacEnv(gym.Env):
             else:
                 os.environ["LIBERO_TASK_ID"] = "0"
 
+        if self.cfg.controller_configs.get("type", None) == "OSC_POSE":
+            os.environ["LIBERO_OSC_TYPE"] = "pose_rel"
+
+        # sys env must be set before import isaaclab
+        from isaaclab.app import AppLauncher
+
+        launch_args = {"headless": True, "enable_cameras": True}
+        app_launcher = AppLauncher(**launch_args)
+        self.app = app_launcher.app
+        from isaaclab_tasks.utils import parse_env_cfg
+
         self.env_cfg = parse_env_cfg(self.task_name, num_envs=self.num_envs)
+        self.env_cfg.env_name = self.cfg.get("env_name", str(self.cfg.task_id))
         # print(f"self.env_cfg: {self.env_cfg}")
         self.env_cfg.sim.device = self.cfg.device
         self.env_cfg.sim.physx.enable_ccd = True
+        self.env_cfg.terminations.time_out = None
+        self.env_cfg.observations.policy.concatenate_terms = False
+
         # create environment from loaded config
         self.env = gym.make(self.task_name, cfg=self.env_cfg).unwrapped
 
@@ -92,6 +101,7 @@ class IsaacEnv(gym.Env):
         print("Isaac Sim environment initialized.")
         print(f"Observation space: {self.observation_space}")
         print(f"Action space: {self.action_space}")
+        print(f"env_cfg.osc_type: {self.env_cfg.osc_type}")
 
         # TODO support other task suite
         if self.task_suite_name.startswith("libero"):
@@ -188,13 +198,6 @@ class IsaacEnv(gym.Env):
 
         if isinstance(actions, np.ndarray):
             actions = torch.from_numpy(actions)
-
-        # action_dim = actions.shape[-1]
-        # assert action_dim <= _actions.shape[-1], (
-        #     "Action dimension must be less than or equal to the action space dimension."
-        # )
-
-        # _actions[..., 1:action_dim + 1] = actions[..., :action_dim]
 
         self._elapsed_steps += 1
         # print(f"Step {self._elapsed_steps}: org actions {actions}, actual actions {_actions}")
@@ -309,20 +312,6 @@ class IsaacEnv(gym.Env):
         }
         return obs
 
-    # def get_camera_pose(self, pos, quat_wxyz):
-
-    #     pos = np.array(pos)
-    #     quat_wxyz = np.array(quat_wxyz)
-
-    #     quat_xyzw = quat_wxyz[[1, 2, 3, 0]]
-    #     r = Rotation.from_quat(quat_xyzw)
-    #     camera_forward_local = np.array([0, 0, -1])
-    #     camera_forward_world = r.apply(camera_forward_local)
-
-    #     eye = pos
-    #     target = eye + camera_forward_world
-    #     return eye, target
-
     def _extract_image_and_state(self, obs):
         # TODO support multiple camera
         camera_name = self.camera_name[0]
@@ -332,18 +321,7 @@ class IsaacEnv(gym.Env):
                 break
         assert cam is not None, f"camera {camera_name} not found in scene"
 
-        # print(f"org cam.data.pos_w: {cam.data.pos_w}, cam.data.quat_w_ros {cam.data.quat_w_ros}")
-
-        # eye, target = self.get_camera_pose((1.6, -1.0, 1.45), (0.56, 0.43, 0.43, 0.56))
-        # eyes = torch.tensor([eye] * self.num_envs, dtype=torch.float32, device=cam.device)
-        # targets = torch.tensor([target] * self.num_envs, dtype=torch.float32, device=cam.device)
-        # # set new pose
-        # cam.set_world_poses_from_view(eyes.clone(), targets.clone())
-
         rgb = cam.data.output["rgb"]
-
-        # print(f"current cam.data.pos_w: {cam.data.pos_w}, cam.data.quat_w_ros {cam.data.quat_w_ros}")
-        # rgb = self.env.render()
 
         full_image = rgb.cpu().numpy()
         return {
@@ -381,5 +359,5 @@ class IsaacEnv(gym.Env):
 
     def close(self):
         self.env.close()
-        self.sim.close()
+        self.app.close()
         print("Isaac Sim environment closed.")
