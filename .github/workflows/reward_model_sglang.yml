@@ -30,7 +30,7 @@
 #     - new tests are added to workflow mentioned in 2.
 # name: Check PR Title
 
-name: reward_model
+name: reward_model_sglang
 
 on:
   # Trigger the workflow on push or pull request,
@@ -46,24 +46,21 @@ on:
     paths:
       - "verl/**/*.py"
       # Entrypoints
-      - ".github/workflows/reward_model.yml"
+      - ".github/workflows/reward_model_sglang.yml"
       - "tests/experimental/reward/**"
-
-# Declare permissions just read content.
-permissions:
-  contents: read
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# Declare permissions just read content.
+permissions:
+  contents: read
 
 env:
-  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:app-verl0.5-transformers4.55.4-sglang0.4.10.post2-mcore0.13.0-te2.2"
+  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:app-verl0.6-transformers4.56.1-sglang0.5.2-mcore0.13.0-te2.2"
   DYNAMIC_RUNNER_ENDPOINT: "https://sd10g3clalm04ug7alq90.apigateway-cn-beijing.volceapi.com/runner"
-  TRANSFORMERS_VERSION: "4.56.2"
-
 
 jobs:
   setup:
@@ -81,10 +78,10 @@ jobs:
           faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
           mlp-image: "${{ env.IMAGE }}"
 
-  reward_model:
+  reward_model_sglang:
     needs: setup
     runs-on: [ "${{ needs.setup.outputs.runner-label || 'L20x8' }}" ]
-    timeout-minutes: 20 # Increase this timeout value as needed
+    timeout-minutes: 30 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
@@ -106,30 +103,21 @@ jobs:
         run: |
           ray stop --force
           python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
-      - name: Running vllm reward model tests on 8 L20 GPUs
-        run: |
-          unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
-          ROLLOUT_NAME=vllm pytest -s -x tests/experimental/reward/test_reward_model.py
       - name: Running sglang reward model tests on 8 L20 GPUs
         run: |
           unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
           ROLLOUT_NAME=sglang pytest -s -x tests/experimental/reward/test_reward_model.py
-      - name: Running vllm agent loop with reward manager tests on 8 L20 GPUs
-        run: |
-          unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
-          ROLLOUT_NAME=sglang pytest -s -x tests/experimental/reward/test_agent_loop_reward_manager.py
       - name: Running sglang agent loop with reward manager tests on 8 L20 GPUs
         run: |
           unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
           ROLLOUT_NAME=sglang pytest -s -x tests/experimental/reward/test_agent_loop_reward_manager.py
-      
 
   cleanup:
     runs-on: ubuntu-latest
     needs:
       [
         setup,
-        reward_model
+        reward_model_sglang
       ]
     if: always()
     steps:
