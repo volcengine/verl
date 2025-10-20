@@ -89,6 +89,7 @@ class RLHFDataset(Dataset):
         tokenizer: PreTrainedTokenizer,
         config: DictConfig,
         processor: Optional[ProcessorMixin] = None,
+        max_samples: int = -1,
     ):
         if not isinstance(data_files, list | ListConfig):
             data_files = [data_files]
@@ -97,6 +98,7 @@ class RLHFDataset(Dataset):
         self.original_data_files = copy.deepcopy(data_files)  # use for resume
         self.tokenizer = tokenizer
         self.processor = processor
+        self.max_samples = max_samples
         self.config = config
 
         self.cache_dir = os.path.expanduser(config.get("cache_dir", "~/.cache/verl/rlhf"))
@@ -118,6 +120,8 @@ class RLHFDataset(Dataset):
         self.filter_prompts = config.get("filter_prompts", True)
         self.serialize_dataset = False
         self.return_multi_modal_inputs = config.get("return_multi_modal_inputs", True)
+        self.shuffle = config.get("shuffle", False)
+        self.seed = config.get("seed")
 
         self._download()
         self._read_files_and_tokenize()
@@ -137,7 +141,18 @@ class RLHFDataset(Dataset):
             dataframes.append(dataframe)
         self.dataframe: datasets.Dataset = datasets.concatenate_datasets(dataframes)
 
+        total = len(self.dataframe)
         print(f"dataset len: {len(self.dataframe)}")
+
+        if self.max_samples > 0 and self.max_samples < total:
+            if self.shuffle:
+                rngs_args = (self.seed,) if self.seed is not None else ()
+                rng = np.random.default_rng(*rngs_args)
+                indices = rng.choice(total, size=self.max_samples, replace=False)
+            else:
+                indices = np.arange(self.max_samples)
+            self.dataframe = self.dataframe.select(indices.tolist())
+            print(f"selected {self.max_samples} random samples out of {total}")
 
         self.dataframe = self.maybe_filter_out_long_prompts(self.dataframe)
 
