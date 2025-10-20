@@ -49,7 +49,7 @@ class MultiTurnSFTDataset(Dataset):
     Dataset for multi-turn conversations where each assistant response should be trained
     """
 
-    def __init__(self, parquet_files: str | list[str], tokenizer, config=None):
+    def __init__(self, parquet_files: str | list[str], tokenizer, config=None, max_samples: int = -1):
         # Set defaults and extract parameters from config if provided
         config = config or {}
         self.pad_mode = config.get("pad_mode", "right")
@@ -65,6 +65,9 @@ class MultiTurnSFTDataset(Dataset):
         self.tools_key = multiturn_config.get("tools_key", "tools")
         self.enable_thinking_key = multiturn_config.get("enable_thinking_key", "enable_thinking")
         self.apply_chat_template_kwargs = config.get("apply_chat_template_kwargs", {})
+        self.shuffle = config.get("shuffle", False)
+        self.seed = config.get("seed")
+        self.max_samples = max_samples
         assert self.truncation in ["error", "left", "right"]
 
         if not isinstance(parquet_files, list | ListConfig):
@@ -96,6 +99,19 @@ class MultiTurnSFTDataset(Dataset):
             dataframe = pd.read_parquet(parquet_file)
             dataframes.append(dataframe)
         self.dataframe = pd.concat(dataframes)
+
+        total = len(self.dataframe)
+        print(f"dataset len: {len(self.dataframe)}")
+
+        if self.max_samples > 0 and self.max_samples < total:
+            if self.shuffle:
+                rngs_args = (self.seed,) if self.seed is not None else ()
+                rng = np.random.default_rng(*rngs_args)
+                indices = rng.choice(total, size=self.max_samples, replace=False)
+            else:
+                indices = np.arange(self.max_samples)
+            self.dataframe = self.dataframe.iloc[indices.tolist()]
+            print(f"selected {self.max_samples} random samples out of {total}")
 
         # Extract messages list from dataframe
         self.messages = self.dataframe[self.messages_key].apply(series_to_item).tolist()
