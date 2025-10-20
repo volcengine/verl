@@ -47,8 +47,8 @@ class LiberoEnv(gym.Env):
         self.seed = self.cfg.seed + rank
         self._is_start = True
         self.num_envs = self.cfg.num_envs
-        self.group_size = self.cfg.group_size
-        self.num_group = self.cfg.num_group
+        # self.group_size = self.cfg.group_size
+        # self.num_group = self.cfg.num_group
         self.use_fixed_reset_state_ids = cfg.use_fixed_reset_state_ids
 
         self.ignore_terminations = cfg.ignore_terminations
@@ -75,6 +75,11 @@ class LiberoEnv(gym.Env):
         self.video_cfg = cfg.video_cfg
         self.video_cnt = 0
         self.render_images = []
+
+    def get_all_state_ids(self):
+        """Returns all possible state IDs from the entire benchmark."""
+        # return self.reset_state_ids_all  # (world_size, num_states_per_rank)
+        return np.arange(self.total_num_group_envs)  # (total_num_states,)
 
     def _init_env(self):
         env_fns = self.get_env_fns()
@@ -146,7 +151,8 @@ class LiberoEnv(gym.Env):
     def get_reset_state_ids_all(self):
         reset_state_ids = np.arange(self.total_num_group_envs)
         valid_size = len(reset_state_ids) - (len(reset_state_ids) % self.world_size)
-        self._generator_ordered.shuffle(reset_state_ids)
+        if not self.cfg.only_eval:
+            self._generator_ordered.shuffle(reset_state_ids)
         reset_state_ids = reset_state_ids[:valid_size]
         reset_state_ids = reset_state_ids.reshape(self.world_size, -1)
         return reset_state_ids
