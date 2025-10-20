@@ -15,7 +15,6 @@ import os
 
 import ray
 from hydra import compose, initialize_config_dir
-from transformers import AutoTokenizer
 
 from verl.experimental.reward import RewardModelManager
 from verl.protocol import DataProto
@@ -59,12 +58,7 @@ def create_data_samples() -> DataProto:
         },
     ]
 
-    messages = [
-        [
-            {"role": "user", "content": GRM_PROMPT_TEMPLATE.format(**conv)}
-        ]
-        for conv in convs
-    ]
+    messages = [[{"role": "user", "content": GRM_PROMPT_TEMPLATE.format(**conv)}] for conv in convs]
     prompts = DataProto.from_dict(
         non_tensors={
             "raw_prompt": messages,

@@ -152,7 +152,9 @@ class RolloutReplica(ABC):
             resource_pool=self.resource_pool,
             ray_cls_with_init=self.get_ray_class_with_init_args(),
             bin_pack=False,
-            name_prefix=f"rollout_standalone_{self.replica_rank}" if not self.is_reward_model else f"rollout_reward_standalone_{self.replica_rank}",
+            name_prefix=f"rollout_standalone_{self.replica_rank}"
+            if not self.is_reward_model
+            else f"rollout_reward_standalone_{self.replica_rank}",
         )
         self.workers = worker_group.workers
         await self.launch_servers()
