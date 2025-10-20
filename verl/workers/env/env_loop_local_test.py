@@ -15,9 +15,9 @@
 import ray
 from omegaconf import OmegaConf
 
-from verl.workers.env.env_worker import EnvWorker
-from verl.workers.rollout.naive.naive_rollout_rob import NaiveRolloutRob
 from verl.workers.config.rollout import RolloutConfig
+from verl.workers.env.env_worker_bak import EnvWorker
+from verl.workers.rollout.naive.naive_rollout_rob import NaiveRolloutRob
 
 if not ray.is_initialized():
     ray.init()
