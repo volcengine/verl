@@ -110,6 +110,19 @@ class EnvWorker:
             #                 enable_offload=enable_offload,
             #             )
             #         )
+        elif self.cfg.env.train.simulator_type == "isaac":
+            from verl.envs.isaac_env.isaac_env import IsaacEnv
+
+            if not only_eval:
+                for _ in range(self.stage_num):
+                    self.simulator_list.append(
+                        EnvManager(
+                            self.cfg.env.train,
+                            rank=self._rank,
+                            world_size=self._world_size,
+                            env_cls=IsaacEnv,
+                        )
+                    )
         else:
             raise NotImplementedError(f"Simulator type {self.cfg.env.train.simulator_type} not implemented")
 

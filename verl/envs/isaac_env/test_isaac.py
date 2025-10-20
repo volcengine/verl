@@ -54,27 +54,32 @@ if __name__ == "__main__":
     # Basic configuration for the Isaac environment
     cfg = OmegaConf.create(
         {
-            "task_name": "Isaac-Libero-Franka-OscPose-v0",
-            "task_suite_name": "libero_10",
-            "task_id": 8,
-            "num_envs": num_envs,
-            "device": "cuda:0",
-            "seed": 42,
+            "use_fixed_reset_state_ids": False,
+            "ignore_terminations": False,
+            "auto_reset": True,
             "max_episode_steps": 512,
+            "use_rel_reward": False,
+            "reward_coef": 1.0,
+            "only_eval": False,
+            "use_ordered_reset_state_ids": False,
+            # "num_images_in_input": 1,
+            "init_params": {
+                "camera_depths": False,
+                "camera_heights": 256,
+                "camera_widths": 256,
+                "camera_names": ["agentview", "robot0_eye_in_hand"],
+            },
             "video_cfg": {
                 "save_video": True,
                 "video_base_dir": "/tmp/videos",
             },
-            "ignore_terminations": False,
-            "auto_reset": True,
-            "use_rel_reward": False,
-            "init_params": {
-                "camera_names": ["agentview"],
-            },
-            "controller_configs": {
-                "type": "OSC_POSE",
-            },
-        }
+            "task_suite_name": "libero_10",
+            "num_envs": 16,
+            "num_group": 2,
+            "group_size": 8,
+            "simulator_type": "isaac",
+            "seed": 0,
+        },
     )
 
     # Initialize the environment

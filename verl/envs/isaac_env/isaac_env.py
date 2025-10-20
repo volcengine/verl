@@ -42,7 +42,6 @@ class IsaacEnv(gym.Env):
 
         self._generator = np.random.default_rng(seed=self.seed)
 
-        self.task_name = cfg.task_name
         self.task_suite_name = self.cfg.task_suite_name
 
         self._init_env()
@@ -62,15 +61,20 @@ class IsaacEnv(gym.Env):
     def _init_env(self):
         """Initializes the Isaac Sim environment."""
 
+        self.task_name = self.cfg.get("task_name")
+        self.task_id = 0
         # FIXME since isaac use env to set task id, all env have to use the same task id
         if self.task_suite_name.startswith("libero"):
             os.environ["LIBERO_TASK_SUITE"] = self.task_suite_name
             if hasattr(self.cfg, "task_id") and self.cfg.task_id is not None:
                 os.environ["LIBERO_TASK_ID"] = str(self.cfg.task_id)
+                self.task_id = self.cfg.task_id
             else:
                 os.environ["LIBERO_TASK_ID"] = "0"
 
-        if self.cfg.controller_configs.get("type", None) == "OSC_POSE":
+            if not self.task_name:
+                self.task_name = "Isaac-Libero-Franka-OscPose-v0"
+
             os.environ["LIBERO_OSC_TYPE"] = "pose_rel"
 
         # sys env must be set before import isaaclab
@@ -79,12 +83,13 @@ class IsaacEnv(gym.Env):
         launch_args = {"headless": True, "enable_cameras": True}
         app_launcher = AppLauncher(**launch_args)
         self.app = app_launcher.app
+
         from isaaclab_tasks.utils import parse_env_cfg
 
         self.env_cfg = parse_env_cfg(self.task_name, num_envs=self.num_envs)
-        self.env_cfg.env_name = self.cfg.get("env_name", str(self.cfg.task_id))
+        self.env_cfg.env_name = self.cfg.get("env_name", str(self.task_id))
         # print(f"self.env_cfg: {self.env_cfg}")
-        self.env_cfg.sim.device = self.cfg.device
+        self.env_cfg.sim.device = self.cfg.get("device", "cuda")
         self.env_cfg.sim.physx.enable_ccd = True
         self.env_cfg.terminations.time_out = None
         self.env_cfg.observations.policy.concatenate_terms = False
@@ -361,3 +366,7 @@ class IsaacEnv(gym.Env):
         self.env.close()
         self.app.close()
         print("Isaac Sim environment closed.")
+
+    def update_reset_state_ids(self):
+        # TODO implement this method
+        pass

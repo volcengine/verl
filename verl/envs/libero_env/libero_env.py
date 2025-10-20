@@ -47,8 +47,8 @@ class LiberoEnv(gym.Env):
         self.seed = self.cfg.seed + rank
         self._is_start = True
         self.num_envs = self.cfg.num_envs
-        # self.group_size = self.cfg.group_size
-        # self.num_group = self.cfg.num_group
+        self.group_size = self.cfg.group_size
+        self.num_group = self.cfg.num_group
         self.use_fixed_reset_state_ids = cfg.use_fixed_reset_state_ids
 
         self.ignore_terminations = cfg.ignore_terminations

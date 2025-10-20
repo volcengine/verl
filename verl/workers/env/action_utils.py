@@ -15,10 +15,10 @@
 
 import torch
 
-from verl.envs.libero.utils import invert_gripper_action, normalize_gripper_action
+from verl.envs.libero_env.utils import invert_gripper_action, normalize_gripper_action
 
 
-def prepare_actions_simplevla_libero(
+def prepare_actions_simplevla(
     raw_chunk_actions,
 ) -> torch.Tensor:
     normalized_action = normalize_gripper_action(raw_chunk_actions, binarize=True)
@@ -34,11 +34,8 @@ def prepare_actions(
     action_scale: float = 1.0,
     policy: str = "widowx_bridge",
 ) -> torch.Tensor:
-    if simulator_type == "libero":
-        chunk_actions = prepare_actions_simplevla_libero(
-            raw_chunk_actions=raw_chunk_actions,
-        )
-    else:
-        raise NotImplementedError
+    chunk_actions = prepare_actions_simplevla(
+        raw_chunk_actions=raw_chunk_actions,
+    )
 
     return chunk_actions
