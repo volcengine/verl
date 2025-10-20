@@ -125,7 +125,7 @@ https://github.com/ArronHZG/verl-community/blob/recipe/async_policy/docs/fully_a
   即 old_log_prob必须使用rollout参数及token所对应log_probs，才能保证算法的正确性。在fully
   async策略中，我们默认old_log_prob是有rollout所计算的，而不是由trainer所计算。
 
-    * `async_training.require_batches`
+* `async_training.require_batches`
 
   在流式训练中，require_batches 应该设置为1，表示生产够ppo_mini_batch_size样本后，就进行训练。
   在实际测试中，我们发现，如果单次下发的样本较少，由于数据分发的顺序，会导致训练不稳定，response 长度变长。
@@ -294,7 +294,7 @@ python -m recipe.fully_async_policy.fully_async_main \
 
 |                             mode                                         	                              |        step  	        |  gen  	  | old_log_prob 	 | update_actor 	 | total time<br>100 step 	 | total time<br>200 step 	 | total time<br>300 step 	 | total time<br>400 step 	 |     acc/mean@1         	      |
 |:-------------------------------------------------------------------------------------------------------:|:---------------------:|:--------:|:--------------:|:--------------:|:------------------------:|:------------------------:|:------------------------:|:------------------------:|:-----------------------------:|
-|                                          colocate sync      	                                           | 128                 	 | 356.30 	 |    177.85 	    | 53.92        	 |      113.81       	      | 8h 36m                 	 | 17h 56m                	 | 1d 5h 6m               	 |   1d 16h 48m             	    | max: 0.3573<br>last: 0.2958  	 |
+|                                          colocate sync      	                                           | 356.30 	 |    177.85 	    | 53.92        	 |      113.81       	      | 8h 36m                 	 | 17h 56m                	 | 1d 5h 6m               	 |   1d 16h 48m             	    | max: 0.3573<br>last: 0.2958  	 |
 | `stream off policy pipeline`<br>(+fully async: trigger_parameter_sync_step= 4,<br>require_batches= 4) 	 |       231.34 	        | 128.47 	 | \            	 | 98.77        	 | 4h 25m                 	 | 9h 41m                 	 | 15h 2m                 	 | 1d 1h 53m              	 | max: 0.2844<br>last: 0.2604 	 |
 |        `async stream pipeline with staleness samples`<br>(+staleness_threshold=0.5)            	        |           	           |    	     |       	        |       	        |            	             |            	             |            	             |            	             |               	               |
 |        `async stream pipeline with partial rollout`<br>(+partial_rollout=True)                 	        |       150.63 	        | 33.14  	 | \            	 | 113.16       	 | 3h 13m                 	 | 6h 46m                 	 | 10h 53m                	 | 17h 22m                	 | max: 0.3521<br>last: 0.3094 	 |
