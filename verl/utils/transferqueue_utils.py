@@ -14,6 +14,7 @@
 
 import asyncio
 import inspect
+import os
 import threading
 from functools import wraps
 from typing import Any, Callable
@@ -27,10 +28,7 @@ try:
         ZMQServerInfo,
     )
 
-    HAS_TQ = True
 except ImportError:
-    HAS_TQ = False
-
     # TODO: Use a hacky workaround for ImportError since
     # transfer_queue isn't a default verl dependency.
     class BatchMeta:
@@ -41,6 +39,8 @@ from verl.protocol import DataProto
 
 _TRANSFER_QUEUE_CLIENT = None
 _VAL_TRANSFER_QUEUE_CLIENT = None
+
+is_transferqueue_enabled = os.environ.get("TRANSFER_QUEUE_ENABLE", False)
 
 
 def create_transferqueue_client(
@@ -202,8 +202,8 @@ def tqbridge(put_data: bool = True):
         async def dummy_async_inner(*args, **kwargs):
             return await func(*args, **kwargs)
 
-        wrapper_inner = inner if HAS_TQ else dummy_inner
-        wrapper_async_inner = async_inner if HAS_TQ else dummy_async_inner
+        wrapper_inner = inner if is_transferqueue_enabled else dummy_inner
+        wrapper_async_inner = async_inner if is_transferqueue_enabled else dummy_async_inner
 
         wrapper = wrapper_async_inner if inspect.iscoroutinefunction(func) else wrapper_inner
         return wrapper

@@ -5,3 +5,7 @@ hydra:
 defaults:
   - ppo_trainer
   - _self_
+
+# config for TransferQueue
+transfer_queue:
+  enable: True

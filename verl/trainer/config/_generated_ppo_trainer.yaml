@@ -526,6 +526,8 @@ global_profiler:
       context: all
       stacks: all
       kw_args: {}
+transfer_queue:
+  enable: false
 ray_kwargs:
   ray_init:
     num_cpus: null
