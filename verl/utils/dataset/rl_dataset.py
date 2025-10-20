@@ -18,6 +18,7 @@ import copy
 import logging
 import os
 import re
+import traceback
 from collections import defaultdict
 from typing import Optional
 
@@ -153,31 +154,41 @@ class RLHFDataset(Dataset):
                 from verl.utils.dataset.vision_utils import process_image, process_video
 
                 def doc2len(doc) -> int:
-                    messages = self._build_messages(doc)
-                    raw_prompt = self.processor.apply_chat_template(
-                        messages, add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
-                    )
-                    images = (
-                        [process_image(image) for image in doc[image_key]]
-                        if image_key in doc and doc[image_key]
-                        else None
-                    )
-                    videos = (
-                        [process_video(video) for video in doc[video_key]]
-                        if video_key in doc and doc[video_key]
-                        else None
-                    )
+                    try:
+                        messages = self._build_messages(doc)
+                        raw_prompt = self.processor.apply_chat_template(
+                            messages, add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
+                        )
+                        images = (
+                            [process_image(image) for image in doc[image_key]]
+                            if image_key in doc and doc[image_key]
+                            else None
+                        )
+                        videos = (
+                            [process_video(video) for video in doc[video_key]]
+                            if video_key in doc and doc[video_key]
+                            else None
+                        )
 
-                    return len(processor(text=[raw_prompt], images=images, videos=videos)["input_ids"][0])
+                        return len(processor(text=[raw_prompt], images=images, videos=videos)["input_ids"][0])
+                    except Exception:
+                        print("Error processing one of the samples, skipping...")
+                        traceback.print_exc()
+                        return self.max_prompt_length + 1
 
             else:
 
                 def doc2len(doc) -> int:
-                    return len(
-                        tokenizer.apply_chat_template(
-                            doc[prompt_key], add_generation_prompt=True, **self.apply_chat_template_kwargs
+                    try:
+                        return len(
+                            tokenizer.apply_chat_template(
+                                doc[prompt_key], add_generation_prompt=True, **self.apply_chat_template_kwargs
+                            )
                         )
-                    )
+                    except Exception:
+                        print("Error processing one of the samples, skipping...")
+                        traceback.print_exc()
+                        return self.max_prompt_length + 1
 
             dataframe = dataframe.filter(
                 lambda doc: doc2len(doc) <= self.max_prompt_length,
