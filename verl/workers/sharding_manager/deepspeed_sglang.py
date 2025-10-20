@@ -12,15 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-DeepSpeed + SGLang Sharding Manager.
+"""Sharding manager used when DeepSpeed actors feed SGLang rollout workers.
 
-Handles data sharding and gathering for DeepSpeed training backend with SGLang inference.
-Similar to DeepSpeed vLLM sharding manager but optimized for SGLang.
+The behaviour largely matches the vLLM equivalent while relying on SGLang's
+parallel-state helpers for tensor-parallel collectives.  It preserves RNG state
+across context switches and honours ZeRO stage semantics when the actor holds a
+partitioned parameter set.
 """
 
 import logging
 import os
+from typing import Optional
 
 from torch.distributed.device_mesh import DeviceMesh
 
@@ -50,50 +52,74 @@ class DeepSpeedSGLangShardingManager(BaseShardingManager):
     """
 
     @check_device_is_available()
-    def __init__(self, inference_engine, device_mesh: DeviceMesh, zero_stage: int = 2):
+    def __init__(self, inference_engine, device_mesh: Optional[DeviceMesh] = None, zero_stage: int = 2):
         """
         Initialize DeepSpeed SGLang sharding manager.
 
         Args:
             inference_engine: SGLang inference engine instance
-            device_mesh: DeviceMesh defining the parallel topology
+            device_mesh: DeviceMesh defining the parallel topology (optional for single GPU)
             zero_stage: DeepSpeed ZeRO optimization stage (0/1/2/3)
         """
+        if inference_engine is None:
+            raise ValueError("DeepSpeedSGLangShardingManager requires a valid inference_engine instance.")
+
         self.device_mesh = device_mesh
         self.inference_engine = inference_engine
         self.zero_stage = zero_stage
 
-        # Wake up inference engine
-        inference_engine.wake_up()
-        assert device_mesh is not None
-        assert inference_engine is not None
+        backend_engine = inference_engine
+        if not hasattr(backend_engine, "wake_up") and hasattr(backend_engine, "inference_engine"):
+            backend_engine = backend_engine.inference_engine
+        self._backend_engine = backend_engine
 
-        # Get tensor parallel configuration from device mesh
-        self.tp_size = self.device_mesh["infer_tp"].size()
-        self.tp_rank = self.device_mesh["infer_tp"].get_local_rank()
+        wake_up_fn = getattr(self._backend_engine, "wake_up", None)
+        if callable(wake_up_fn):
+            wake_up_fn()
+
+        mesh_names = getattr(device_mesh, "mesh_dim_names", ()) if device_mesh is not None else ()
+        if device_mesh is not None and "infer_tp" in mesh_names:
+            infer_tp_mesh = device_mesh["infer_tp"]
+            self.tp_size = infer_tp_mesh.size()
+            self.tp_rank = infer_tp_mesh.get_local_rank()
+        else:
+            self.tp_size = 1
+            self.tp_rank = 0
+
+        if device_mesh is not None and "dp" in mesh_names:
+            dp_mesh = device_mesh["dp"]
+            self.dp_size = dp_mesh.size()
+            dp_rank = dp_mesh.get_local_rank()
+        else:
+            self.dp_size = 1
+            dp_rank = 0
+        self.dp_rank = dp_rank
+
+        torch_device = get_torch_device()
+        current_rng = torch_device.get_rng_state()
+        torch_device.manual_seed(dp_rank + 1000)
+        self.gen_random_states = torch_device.get_rng_state()
+        torch_device.set_rng_state(current_rng)
+
         self.timing = {}
 
-        # Initialize random state for generation
-        # Use different seed for each DP rank to ensure diversity
-        gen_dp_rank = self.device_mesh["dp"].get_local_rank()
-        get_torch_device().manual_seed(gen_dp_rank + 1000)
-        self.gen_random_states = get_torch_device().get_rng_state()
-
         logger.info(
-            f"DeepSpeedSGLangShardingManager initialized: "
-            f"TP={self.tp_size}, TP_rank={self.tp_rank}, ZeRO_stage={self.zero_stage}"
+            "DeepSpeedSGLangShardingManager initialized: "
+            f"TP={self.tp_size}, TP_rank={self.tp_rank}, DP_rank={dp_rank}, ZeRO_stage={self.zero_stage}"
         )
 
     @GPUMemoryLogger(role="deepspeed sglang sharding_manager", logger=logger)
     def __enter__(self):
-        """Enter context: restore generation random state."""
+        """Restore the rollout RNG state before weights are pushed."""
         get_torch_device().set_rng_state(self.gen_random_states)
 
     @GPUMemoryLogger(role="deepspeed sglang sharding_manager", logger=logger)
     def __exit__(self, exc_type, exc_value, traceback):
-        """Exit context: save generation random state and reset cache."""
+        """Persist the RNG snapshot and reset any rollout-side caches."""
         self.gen_random_states = get_torch_device().get_rng_state()
-        self.inference_engine.reset_prefix_cache()
+        reset_fn = getattr(self._backend_engine, "reset_prefix_cache", None)
+        if callable(reset_fn):
+            reset_fn()
 
     @GPUMemoryLogger(role="deepspeed sglang sharding_manager", logger=logger)
     def preprocess_data(self, data: DataProto) -> DataProto:

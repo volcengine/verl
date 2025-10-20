@@ -90,6 +90,8 @@ from verl.workers.actor import DataParallelPPOActor
 from verl.workers.config import DeepSpeedCriticConfig, DeepSpeedEngineConfig, HFModelConfig, RolloutConfig
 from verl.workers.critic import DataParallelPPOCritic
 from verl.workers.rollout import get_rollout_class
+from verl.workers.sharding_manager.deepspeed_sglang import DeepSpeedSGLangShardingManager
+from verl.workers.sharding_manager.deepspeed_vllm import DeepSpeedVLLMShardingManager
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -133,6 +135,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         self._skip_rollout = rollout_cfg.get("skip_rollout", False)
         load_format = rollout_cfg.get("load_format", "")
         self._dummy_rollout = isinstance(load_format, str) and load_format.startswith("dummy")
+        self.rollout_device_mesh = None
+        self.rollout_sharding_manager = None
+        self.rollout_dp_rank = 0
 
         # Initialize distributed environment
         if not torch.distributed.is_initialized():
@@ -378,23 +383,82 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     def _build_rollout(self, trust_remote_code=False):
         """Build rollout engine (vLLM/SGLang)."""
 
-        # Initialize RNG snapshots (needed even for dummy mode)
-        device = get_torch_device()
-        self.torch_random_states = device.get_rng_state()
-        self.gen_random_states = self.torch_random_states.clone()
-
+        torch_device = get_torch_device()
+        self.torch_random_states = torch_device.get_rng_state()
         rollout_config = omega_conf_to_dataclass(self.config.rollout, dataclass_type=RolloutConfig)
         model_config = omega_conf_to_dataclass(self.config.model, dataclass_type=HFModelConfig)
+
+        infer_tp = max(1, rollout_config.tensor_model_parallel_size)
+        infer_dp = max(1, rollout_config.data_parallel_size)
+        infer_pp = max(1, rollout_config.pipeline_model_parallel_size)
+        total_rollout_world = infer_tp * infer_dp * infer_pp
+        rollout_device_mesh = None
+        if torch.distributed.is_initialized():
+            world_size = torch.distributed.get_world_size()
+        else:
+            world_size = 1
+
+        if total_rollout_world > 1:
+            if world_size < total_rollout_world or world_size % total_rollout_world != 0:
+                logger.warning(
+                    "Rollout parallel configuration (dp=%s, tp=%s, pp=%s) does not evenly divide world_size=%s. "
+                    "Falling back to single-mesh rollout execution.",
+                    infer_dp,
+                    infer_tp,
+                    infer_pp,
+                    world_size,
+                )
+            else:
+                from torch.distributed.device_mesh import init_device_mesh
+
+                rollout_device_mesh = init_device_mesh(
+                    device_name,
+                    mesh_shape=(infer_dp, infer_tp, infer_pp),
+                    mesh_dim_names=["dp", "infer_tp", "infer_pp"],
+                )
+                logger.info("Initialized rollout device mesh with dp=%s, tp=%s, pp=%s", infer_dp, infer_tp, infer_pp)
+        self.rollout_device_mesh = rollout_device_mesh
+        if rollout_device_mesh is not None:
+            self.rollout_dp_rank = rollout_device_mesh["dp"].get_local_rank()
+            torch_device.manual_seed(self.rollout_dp_rank + 1000)
+            self.gen_random_states = torch_device.get_rng_state()
+            torch_device.set_rng_state(self.torch_random_states)
+        else:
+            self.rollout_dp_rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+            self.gen_random_states = self.torch_random_states.clone()
 
         log_gpu_memory_usage(f"Before building {self.config.rollout.name} rollout", logger=logger)
 
         self.rollout = get_rollout_class(rollout_config.name, rollout_config.mode)(
-            config=rollout_config, model_config=model_config, device_mesh=None
+            config=rollout_config, model_config=model_config, device_mesh=rollout_device_mesh
         )
         log_gpu_memory_usage(f"After building {self.config.rollout.name} rollout", logger=logger)
 
-        # Register dispatch info so Ray routing knows how to gather rollout outputs
-        self._register_dispatch_collect_info("rollout", dp_rank=self.rank, is_collect=True)
+        mesh_names = getattr(rollout_device_mesh, "mesh_dim_names", ()) if rollout_device_mesh is not None else ()
+        if rollout_device_mesh is not None:
+            dp_rank = rollout_device_mesh["dp"].get_local_rank() if "dp" in mesh_names else self.rank
+            tp_rank = rollout_device_mesh["infer_tp"].get_local_rank() if "infer_tp" in mesh_names else 0
+            pp_rank = rollout_device_mesh["infer_pp"].get_local_rank() if "infer_pp" in mesh_names else 0
+            is_collect = tp_rank == 0 and pp_rank == 0
+            self._register_dispatch_collect_info("rollout", dp_rank=dp_rank, is_collect=is_collect)
+        else:
+            self._register_dispatch_collect_info("rollout", dp_rank=self.rank, is_collect=True)
+
+        self.rollout_sharding_manager = None
+        if rollout_config.mode == "sync" and not self._skip_rollout:
+            zero_stage = getattr(self, "zero_stage", 2)
+            if rollout_config.name == "vllm":
+                self.rollout_sharding_manager = DeepSpeedVLLMShardingManager(
+                    inference_engine=self.rollout,
+                    device_mesh=rollout_device_mesh,
+                    zero_stage=zero_stage,
+                )
+            elif rollout_config.name == "sglang":
+                self.rollout_sharding_manager = DeepSpeedSGLangShardingManager(
+                    inference_engine=self.rollout,
+                    device_mesh=rollout_device_mesh,
+                    zero_stage=zero_stage,
+                )
 
         self.base_sync_done: bool = "dummy" not in self.config.rollout.load_format
 
@@ -402,6 +466,55 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         if rollout_config.mode == "sync" and self._is_actor:
             loop = asyncio.get_event_loop()
             loop.run_until_complete(self.trainer_mode())
+
+    def _resolve_rollout_dp_topology(self, fallback_world_size: int) -> tuple[int, int]:
+        """Return (dp_rank, dp_world_size) for the rollout mesh or fall back to global ranks."""
+        if self.rollout_device_mesh is not None:
+            mesh_names = getattr(self.rollout_device_mesh, "mesh_dim_names", ())
+            if "dp" in mesh_names:
+                dp_mesh = self.rollout_device_mesh["dp"]
+                return dp_mesh.get_local_rank(), dp_mesh.size()
+
+        dp_rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+        return dp_rank, fallback_world_size
+
+    def _should_log_rollout_weight_shapes(self) -> bool:
+        """Return True when the current rank should log sampled parameter shapes."""
+        if self.rollout_device_mesh is not None:
+            mesh_names = getattr(self.rollout_device_mesh, "mesh_dim_names", ())
+            if "dp" in mesh_names:
+                return self.rollout_device_mesh["dp"].get_local_rank() == 0
+        return self.rank == 0
+
+    def _collect_rollout_parameters(self):
+        """Collect actor parameters in a form that rollout engines can consume."""
+        if self.actor_engine is None:
+            return self.actor_module.state_dict()
+
+        world_size = torch.distributed.get_world_size() if torch.distributed.is_initialized() else 1
+        zero_stage = getattr(self, "zero_stage", 2)
+
+        params = None
+        if world_size > 1 and zero_stage == 3 and GatheredParameters is not None:
+            dp_rank, dp_world_size = self._resolve_rollout_dp_topology(world_size)
+            modifier_rank = 0 if dp_rank == 0 else None
+            with GatheredParameters(list(self.actor_engine.module.parameters()), modifier_rank=modifier_rank):
+                params = self.actor_engine.module.state_dict()
+            if modifier_rank == 0:
+                logger.info(
+                    "Gathered ZeRO-3 parameters for rollout on DP rank %s (dp_world_size=%s)",
+                    dp_rank,
+                    dp_world_size,
+                )
+        else:
+            params = self.actor_engine.module.state_dict()
+            if self.rank == 0:
+                logger.info(f"Using standard state_dict for ZeRO stage {zero_stage} (no gathering needed)")
+
+        if self._should_log_rollout_weight_shapes() and params:
+            for key in list(params.keys())[:3]:
+                logger.info("DeepSpeed weight %s shape: %s, dtype: %s", key, params[key].shape, params[key].dtype)
+        return params
 
     async def rollout_mode(self):
         """Context switch to rollout mode."""
@@ -417,44 +530,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             load_deepspeed_model_to_gpu(self.actor_engine)
         log_gpu_memory_usage("After load_deepspeed_model_to_gpu", logger=logger)
 
-        # Get model parameters for rollout - ensure we get full tensors
-        if self.actor_engine is not None:
-            # DeepSpeed engine - need to handle ZeRO partitioned parameters
-            # For ZeRO stage 0/1/2: weights are not partitioned, only optimizer states
-            # For ZeRO stage 3: weights ARE partitioned and need gathering
-
-            world_size = torch.distributed.get_world_size() if torch.distributed.is_initialized() else 1
-            zero_stage = getattr(self, "zero_stage", 2)  # Default to 2 if not set
-
-            # Check if we need ZeRO-3 gathering (multi-GPU + ZeRO-3)
-            if world_size > 1 and zero_stage == 3 and GatheredParameters is not None:
-                # ZeRO-3: Use GatheredParameters to gather sharded weights on rank 0
-                logger.info(f"Gathering ZeRO-3 sharded parameters for rollout (world_size={world_size})")
-
-                # Gather parameters on rank 0 only
-                with GatheredParameters(list(self.actor_engine.module.parameters()), modifier_rank=0):
-                    if self.rank == 0:
-                        # Only rank 0 gets the full state dict
-                        params = self.actor_engine.module.state_dict()
-                        logger.info("Rank 0: Successfully gathered full state_dict from ZeRO-3 sharded parameters")
-                    else:
-                        # Other ranks get empty dict (will be broadcast later if needed)
-                        params = {}
-                        logger.info(f"Rank {self.rank}: Skipping state_dict (will receive from rank 0)")
-            else:
-                # ZeRO stage 0/1/2 or single GPU: weights are not sharded
-                # Use module_state_dict() which handles non-sharded parameters correctly
-                params = self.actor_engine.module.state_dict()
-
-                if self.rank == 0:
-                    logger.info(f"Using standard state_dict for ZeRO stage {zero_stage} (no gathering needed)")
-
-            # Log weight shapes for debugging (rank 0 only)
-            if self.rank == 0 and params:
-                for key in list(params.keys())[:3]:  # Check first 3 weights
-                    logger.info(f"DeepSpeed weight {key} shape: {params[key].shape}, dtype: {params[key].dtype}")
-        else:
-            params = self.actor_module.state_dict()
+        params = self._collect_rollout_parameters()
 
         # Critical: Convert weight keys to match vLLM expectations (like FSDP does)
         # Only process params if we have them (rank 0 for ZeRO-3, all ranks for ZeRO 0/1/2)
@@ -701,6 +777,10 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         """Generate sequences using vLLM/SGLang rollout."""
         assert self._is_rollout
 
+        sharding_manager = self.rollout_sharding_manager
+        if sharding_manager is not None:
+            prompts = sharding_manager.preprocess_data(prompts)
+
         prompts = prompts.to(get_device_id())
 
         eos_id = (
@@ -814,6 +894,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             output = DataProto(batch=batch, non_tensor_batch=non_tensor_batch, meta_info=meta_info)
             logger.info("Dummy mode: Skipped vLLM generation, returned prompts as placeholder responses")
 
+            if sharding_manager is not None:
+                output = sharding_manager.postprocess_data(output)
+
             # Switch back to trainer mode after dummy generation
             if self._is_actor:
                 import asyncio
@@ -830,8 +913,12 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             loop = asyncio.get_event_loop()
             loop.run_until_complete(self.rollout_mode())
 
-        with simple_timer("generate_sequences", timing_generate):
-            output = self.rollout.generate_sequences(prompts=prompts)
+        manager_ctx = sharding_manager if sharding_manager is not None else nullcontext()
+        with manager_ctx:
+            with simple_timer("generate_sequences", timing_generate):
+                output = self.rollout.generate_sequences(prompts=prompts)
+            if sharding_manager is not None:
+                output = sharding_manager.postprocess_data(output)
 
         if self._is_actor:
             import asyncio
