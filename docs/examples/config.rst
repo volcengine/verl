@@ -25,6 +25,7 @@ Data
      return_raw_chat: False
      return_full_prompt: False
      shuffle: True
+     seed: 42
      filter_overlong_prompts: False
      filter_overlong_prompts_workers: 1
      truncation: error
@@ -60,6 +61,8 @@ Data
   without applying chat template.
 - ``data.return_full_prompt``: Whether to return the full prompt with chat template
 - ``data.shuffle``: Whether to shuffle the data in the dataloader.
+- ``data.seed``: An integer seed to use when shuffling the data. If not set or set to
+  `null`, the data shuffling will not be seeded, resulting in a different data order on each run.
 - ``data.filter_overlong_prompts``: Default don't filter.
 - ``data.filter_overlong_prompts_workers``: For large-scale dataset, filtering
   overlong prompts could be timeconsuming. You cat set the ``filter_overlong_prompts_workers``
