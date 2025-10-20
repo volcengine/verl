@@ -55,6 +55,10 @@ data:
   # Whether to shuffle the data in the dataloader.
   shuffle: True
 
+  # An integer seed to use when shuffling the data. If not set or set to
+  # `null`, the data shuffling will not be seeded, resulting in a different data order on each run.
+  seed: null
+
   # num dataloader workers
   dataloader_num_workers: 8
 
