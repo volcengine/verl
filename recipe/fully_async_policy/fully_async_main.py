@@ -206,6 +206,7 @@ class FullyAsyncTaskRunner:
         val_before_train = val_reward_fn is not None and config.trainer.get("val_before_train", True)
         ray.get(self.components["trainer"].load_checkpoint.remote())
         ray.get(param_synchronizer.sync_weights.remote(version=0, validate=val_before_train))
+        ray.get(param_synchronizer.wait_last_valid.remote())
 
         self.components["param_synchronizer"] = param_synchronizer
         print("[ASYNC MAIN] All components initialized successfully")
