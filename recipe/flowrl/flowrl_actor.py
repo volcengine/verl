@@ -552,7 +552,8 @@ class FlowRLActor(DataParallelPPOActor):
         imp_w_raw = torch.exp(log_w).detach()
 
         # Clamp importance weight for numerical stability (prevent extreme values)
-        imp_w = torch.clamp(imp_w_raw, max=10.0)
+        # imp_w = torch.clamp(imp_w_raw, max=10.0)
+        imp_w = torch.clamp(imp_w_raw, 1 - 0.2, 1 + 0.28)
 
         # Loss: weighted squared residual with clipped importance weights
         weighted_losses = imp_w * (delta ** 2)
