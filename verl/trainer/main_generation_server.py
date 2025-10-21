@@ -35,6 +35,7 @@ from openai.types.chat import ChatCompletion
 
 from verl.utils.hdfs_io import makedirs
 from verl.workers.rollout.replica import get_rollout_replica_class
+from verl.workers.rollout.utils import is_valid_ipv6_address
 
 
 async def start_server(config):
@@ -68,6 +69,10 @@ async def submit_request(server_address, **chat_complete_request):
         extra_headers = chat_complete_request.pop("extra_headers", {})
         timeout = aiohttp.ClientTimeout(total=None)
         session = aiohttp.ClientSession(timeout=timeout)
+
+        if is_valid_ipv6_address(server_address):
+            server_address = f"[{server_address}]"
+
         async with session.post(
             url=f"http://{server_address}/v1/chat/completions",
             headers={"Authorization": "Bearer token-abc123", **extra_headers},
