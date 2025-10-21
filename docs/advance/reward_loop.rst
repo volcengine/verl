@@ -1,7 +1,7 @@
 Reward Loop
 ===========
 
-Last updated: 10/10/2025.
+Last updated: 10/21/2025.
 
 .. warning::
    Reward Loop is still in progress.
