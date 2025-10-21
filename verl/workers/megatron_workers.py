@@ -15,7 +15,6 @@
 The main entry point to run the PPO algorithm
 """
 
-import asyncio
 import datetime
 import logging
 import os
@@ -69,7 +68,7 @@ from verl.utils.profiler import (
     simple_timer,
 )
 from verl.utils.profiler.performance import reduce_timing, topk_reduce_ratio_min_max
-from verl.utils.event_loop import get_event_loop
+from verl.utils.ray_utils import get_event_loop
 from verl.workers.actor.megatron_actor import MegatronPPOActor
 from verl.workers.config import HFModelConfig, McoreCriticConfig, RolloutConfig
 from verl.workers.critic.megatron_critic import MegatronPPOCritic
