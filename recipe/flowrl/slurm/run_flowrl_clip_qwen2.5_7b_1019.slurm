@@ -4,8 +4,8 @@
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:8
 #SBATCH --cpus-per-task=64
-#SBATCH --output=logs/flowrl_clip_%j.out
-#SBATCH --error=logs/flowrl_clip_%j.err
+#SBATCH --output=logs/%j.out
+#SBATCH --error=logs/%j.err
 
 # Unset AMD GPU variable to avoid conflicts with CUDA
 unset ROCR_VISIBLE_DEVICES
