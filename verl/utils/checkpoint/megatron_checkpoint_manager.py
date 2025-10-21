@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import random
+import transformer_engine
 from collections.abc import Callable
 from dataclasses import asdict
 
@@ -28,7 +29,6 @@ from megatron.core.transformer.enums import AttnBackend
 from transformers import GenerationConfig
 
 # For load optimizer dist_ckpt
-import transformer_engine
 torch.serialization.add_safe_globals([torch.optim.AdamW])
 torch.serialization.add_safe_globals([transformer_engine.pytorch.optimizers.fused_adam.FusedAdam])
 
@@ -240,7 +240,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         generate_model: bool = True,
         generate_optimizer: bool = True,
         generate_extra: bool = True,
-        is_loading: bool = False
+        is_loading: bool = False,
     ):
         # For save dist checkpointing
         state_dict = {}
@@ -308,7 +308,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             self.should_load_model and self.use_dist_checkpointing,
             self.should_load_optimizer,
             self.should_load_extra,
-            is_loading=True
+            is_loading=True,
         )
         log_with_rank(f"Generated state dict for loading: {sharded_state_dict.keys()}", rank=self.rank, logger=logger)
 
