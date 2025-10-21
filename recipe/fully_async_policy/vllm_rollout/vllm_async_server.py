@@ -72,7 +72,6 @@ class vLLMHttpServerForPartial(vLLMHttpServerBase):
         generator = self.engine.generate(prompt=prompt, sampling_params=sampling_params, request_id=request_id)
 
         # Get final response
-        self.req_output[request_id]: Optional[RequestOutput] = None
         async for output in generator:
             self.req_output[request_id] = output
         assert self.req_output[request_id] is not None
@@ -88,6 +87,7 @@ class vLLMHttpServerForPartial(vLLMHttpServerBase):
             if self.paused:
                 # After cancel, all tasks will return directly and wait for the next submission
                 return [], [], True
+            self.req_output[request_id]: Optional[RequestOutput] = None
             self.cancel_event[request_id] = asyncio.Event()
             cancel_handle = asyncio.create_task(self.cancel_event[request_id].wait())
             generation_handle = asyncio.create_task(
@@ -103,6 +103,8 @@ class vLLMHttpServerForPartial(vLLMHttpServerBase):
             task.cancel()
 
         async with self.lock:
+            if self.req_output[request_id] is None:
+                return [], [], True
             token_ids = self.req_output[request_id].outputs[0].token_ids
             log_probs: list[float] = []
             for i, x in enumerate(self.req_output[request_id].outputs[0].logprobs):
