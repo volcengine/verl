@@ -97,7 +97,11 @@ class ActorRolloutRefWorker(ARRWorker):
                 inference_model = self.rollout._engine
             else:
                 raise NotImplementedError(f"Unknown rollout name: {rollout_name}")
-        loop = asyncio.get_event_loop()
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
         for key, shape, dtype in self._weights_info:
             tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
             if self._is_actor:
