@@ -152,7 +152,7 @@ class EnvWorker(Worker):
             self.last_obs_list.append(extracted_obs)
             dones = torch.logical_or(terminations, truncations)
             self.last_dones_list.append(dones.unsqueeze(1).repeat(1, self.cfg.actor.model.num_action_chunks))
-            self.simulator_list[i].stop_simulator()
+            # self.simulator_list[i].stop_simulator()
         out_data = TensorDict(
             {
                 "last_obs_list": self.last_obs_list,

@@ -136,7 +136,7 @@ class EnvWorker:
             self.last_obs_list.append(extracted_obs)
             dones = torch.logical_or(terminations, truncations)
             self.last_dones_list.append(dones.unsqueeze(1).repeat(1, self.cfg.actor.model.num_action_chunks))
-            self.simulator_list[i].stop_simulator()
+            # self.simulator_list[i].stop_simulator()
         return self.last_obs_list, self.last_dones_list
 
     def env_interact_step(self, chunk_actions: torch.Tensor, stage_id: int) -> dict:

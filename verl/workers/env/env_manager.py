@@ -168,15 +168,12 @@ class EnvManager:
         self.state_buffer: Optional[bytes] = None
 
         self.env_cls = env_cls
-        self.env = self.env_cls(cfg, rank, world_size)
 
     def start_simulator(self):
         """Start simulator process with shared memory queues"""
-        if self.env is not None:
+        if self.process:
+            print(f"Simulator process already running for rank {self.rank}")
             return
-
-        if self.process is not None and self.process.is_alive():
-            raise RuntimeError("Simulator already running")
 
         self.context = mp.get_context("spawn")
         # Create shared memory queues
@@ -205,11 +202,8 @@ class EnvManager:
             raise RuntimeError(f"Simulator initialization failed: {result}")
 
     def stop_simulator(self):
-        if self.env is not None:
+        if not self.process:
             return
-
-        if self.process is None or not self.process.is_alive():
-            raise RuntimeError("No simulator running")
 
         # Request state save
         self.command_queue.put({"method": "get_state", "args": [], "kwargs": {}})
@@ -235,11 +229,18 @@ class EnvManager:
         self.process = None
 
     def __getattr__(self, name):
-        if self.env is not None:
-            return getattr(self.env, name)
-
-        if name.startswith("_"):
-            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+        if name in [
+            "cfg",
+            "rank",
+            "world_size",
+            "process",
+            "command_queue",
+            "result_queue",
+            "state_buffer",
+            "env_cls",
+            "context",
+        ]:
+            return super().__getattr__(name)
 
         def method_proxy(*args, **kwargs):
             if self.process is None or not self.process.is_alive():
@@ -268,23 +269,13 @@ class EnvManager:
             "result_queue",
             "state_buffer",
             "env_cls",
-            "env",
             "context",
         ]:
             super().__setattr__(name, value)
             return
 
-        # If env is directly available, set attribute on it
-        if self.env is not None:
-            setattr(self.env, name, value)
-            return
-
-        # For offloaded environments, send attribute set command
-        if name.startswith("_"):
-            raise AttributeError(f"Cannot set private attribute '{name}' on offloaded environment")
-
         if self.process is None or not self.process.is_alive():
-            raise RuntimeError("Simulator not running")
+            raise RuntimeError(f"Simulator not running to set attribute {name} to {value}")
 
         value = recursive_to_own(value)
         self.command_queue.put(
@@ -313,13 +304,19 @@ def _simulator_worker(
 ):
     """Worker process for simulator"""
     # Set NUMA affinity for the process to match the GPU rank
+    import logging
+    import os
+
+    pid = os.getpid()
+    logger = logging.getLogger(f"simulator_worker_{rank}_{pid}")
+
     if bind_numa:
         set_process_numa_affinity(rank)
     try:
-        simulator = env_cls(cfg, rank, world_size)
+        env = env_cls(cfg, rank, world_size)
 
         if state_buffer:
-            simulator.load_state(state_buffer)
+            env.load_state(state_buffer)
 
         # Signal ready
         result_queue.put({"status": "ready"})
@@ -328,6 +325,7 @@ def _simulator_worker(
         while True:
             try:
                 command = command_queue.get()
+                logger.debug(f"Received command method: {command['method']}")
 
                 if command["method"] == "shutdown":
                     break
@@ -335,18 +333,18 @@ def _simulator_worker(
                 method_name = command["method"]
                 args = command.get("args", [])
                 kwargs = command.get("kwargs", {})
-
                 if method_name == "__setattr__":
                     # Handle attribute setting
                     attr_name, attr_value = args
-                    setattr(simulator, attr_name, attr_value)
+                    setattr(env, attr_name, attr_value)
                     result_queue.put({"status": "success", "data": None})
-                elif hasattr(simulator, method_name):
-                    method = getattr(simulator, method_name)
+                elif hasattr(env, method_name):
+                    method = getattr(env, method_name)
                     assert callable(method), f"Method {method_name} is not callable"
                     result = method(*args, **kwargs)
                     result_queue.put({"status": "success", "data": result})
                 else:
+                    logger.error(f"Method '{method_name}' not found")
                     result_queue.put(
                         {
                             "status": "error",
@@ -355,12 +353,14 @@ def _simulator_worker(
                     )
 
             except Exception as e:
+                logger.exception(e)
                 result_queue.put({"status": "error", "error": str(e)})
 
     except Exception as e:
+        logger.exception(e)
         result_queue.put({"status": "error", "error": str(e)})
 
     finally:
         command_queue.close()
         result_queue.close()
-        cleanup_cuda_tensors()
+        # cleanup_cuda_tensors()

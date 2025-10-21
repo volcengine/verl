@@ -370,3 +370,9 @@ class IsaacEnv(gym.Env):
     def update_reset_state_ids(self):
         # TODO implement this method
         pass
+
+    def load_state(self, state_buffer: bytes):
+        self.env.load_state(state_buffer)
+
+    def get_state(self):
+        return None

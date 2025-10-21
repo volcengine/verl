@@ -23,7 +23,7 @@ if not ray.is_initialized():
     ray.init()
 
 RayEnvWorker = ray.remote(num_gpus=1)(EnvWorker)
-stage_num = 1
+stage_num = 2
 cfg_dict = {
     "rollout": {"pipeline_stage_num": stage_num},
     "env": {
@@ -51,7 +51,8 @@ cfg_dict = {
             "num_envs": 16,
             "num_group": 2,
             "group_size": 8,
-            "simulator_type": "isaac",
+            # "simulator_type": "isaac",
+            "simulator_type": "libero",
             "seed": 0,
         },
         "enable_offload": False,

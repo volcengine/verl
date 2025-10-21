@@ -449,3 +449,6 @@ class LiberoEnv(gym.Env):
         )
         self.video_cnt += 1
         self.render_images = []
+
+    def load_state(self, state_buffer: bytes):
+        self.env.load_state(state_buffer)
