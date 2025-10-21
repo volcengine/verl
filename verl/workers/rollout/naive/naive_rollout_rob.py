@@ -236,6 +236,7 @@ class NaiveRolloutRob(BaseRollout):
     @torch.no_grad()
     def generate_sequences(self, prompts: TensorDict) -> DataProto:
         """Generate sequences"""
+        # TODO: split into micro-batches
         task_descriptions = prompts["task_descriptions"]
         images_and_states = prompts["images_and_states"]
         vla_input = process_input(task_descriptions, images_and_states, self.processor)

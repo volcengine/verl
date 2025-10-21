@@ -14,12 +14,13 @@
 # limitations under the License.
 
 import sys
-
+import itertools
 import torch
 from omegaconf import DictConfig
 from tensordict import TensorDict
 from torch.distributed.device_mesh import init_device_mesh
 
+from verl import DataProto
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
 from verl.utils.device import (
@@ -49,6 +50,28 @@ def create_env_batch(obs, rews, dones, infos, meta=None):
 
     ret_dict = put_tensor_cpu(ret_dict)
     return ret_dict
+
+def create_env_batch_dataproto(obs, rews, terminations, truncations, infos, meta=None):
+    ret_dict = {"obs": obs, "rews": rews, "terminations": terminations, "truncations": truncations, "infos": infos}
+    if meta is not None:
+        ret_dict.update(meta=meta)
+
+    ret_dict = put_tensor_cpu(ret_dict)
+    tensor_batch = {
+                    "full_image": ret_dict["obs"]["full_image"], 
+                    "state": ret_dict["obs"]["state"],
+                    "rews": ret_dict["rews"], 
+                    "terminations": ret_dict["terminations"],
+                    "truncations" : ret_dict["truncations"],
+                    # "success_once": infos['episode']['success_once'],
+                    # "return": infos['episode']['return'],
+                    # "episode_length": infos['episode']['episode_len'],
+                    # "reward": infos['episode']['reward'],
+                    }
+    non_tensor_batch = {"task_descriptions": obs["task_descriptions"]}
+    output = DataProto.from_dict(tensors=tensor_batch, non_tensors=non_tensor_batch)
+    
+    return output
 
 
 class EnvWorker(Worker):
@@ -100,7 +123,7 @@ class EnvWorker(Worker):
         enable_offload = self.cfg.env.enable_offload
         only_eval = getattr(self.cfg.runner, "only_eval", False)
         if self.cfg.env.train.simulator_type == "libero":
-            from verl.envs.libero.libero_env import LiberoEnv
+            from verl.envs.libero_env.libero_env import LiberoEnv
 
             if not only_eval:
                 for _ in range(self.stage_num):
@@ -110,7 +133,6 @@ class EnvWorker(Worker):
                             rank=self._rank,
                             world_size=self._world_size,
                             env_cls=LiberoEnv,
-                            enable_offload=enable_offload,
                         )
                     )
             # if self.cfg.runner.val_check_interval > 0 or only_eval:
@@ -144,8 +166,9 @@ class EnvWorker(Worker):
         #     self._init_simulator()
 
     # @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="env"), blocking=False)
-    @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
-    def _init_simulator(self):
+    # @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def init_simulator(self):
         for i in range(self.stage_num):
             self.simulator_list[i].start_simulator()
             extracted_obs, rewards, terminations, truncations, infos = self.simulator_list[i].step()
@@ -162,10 +185,13 @@ class EnvWorker(Worker):
         return out_data
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="env"), blocking=False)
-    def env_interact_step(self, chunk_actions: torch.Tensor, stage_id: int) -> dict:
+    # @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="env"))  # for debug
+    def env_interact_step(self, data: DataProto) -> dict:
         """
         This function is used to interact with the environment.
         """
+        chunk_actions: torch.Tensor = data.non_tensor_batch["actions"]
+        stage_id: int = data.meta_info["stage_id"]
         chunk_actions = prepare_actions(
             simulator_type=self.cfg.env.train.simulator_type,
             raw_chunk_actions=chunk_actions,
@@ -178,6 +204,7 @@ class EnvWorker(Worker):
             stage_id
         ].chunk_step(chunk_actions)
         chunk_dones = torch.logical_or(chunk_terminations, chunk_truncations)
+        # chunk_
         if not self.cfg.env.train.auto_reset:
             if self.cfg.env.train.ignore_terminations:
                 if chunk_truncations[:, -1].any():
@@ -190,40 +217,52 @@ class EnvWorker(Worker):
                 final_info = infos["final_info"]
                 for key in final_info["episode"]:
                     env_info_list[key] = final_info["episode"][key][chunk_dones[:, -1]].cpu()
-
-        env_batch = create_env_batch(
+        # env_batch = create_env_batch_dataproto(
+        #     obs=extracted_obs,
+        #     rews=chunk_rewards,
+        #     dones=chunk_dones, 
+        #     infos=infos,
+        #     meta=env_info_list,
+        # )
+        env_batch = create_env_batch_dataproto(
             obs=extracted_obs,
             rews=chunk_rewards,
-            dones=chunk_dones,
+            terminations=chunk_terminations, 
+            truncations=chunk_truncations,
             infos=infos,
             meta=env_info_list,
         )
         return env_batch
 
-    def env_evaluate_step(self, raw_actions: torch.Tensor, stage_id: int) -> dict:
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def get_all_state_ids(self):
+        """Get all available state IDs from the environment."""
+        state_ids = self.simulator_list[0].get_all_state_ids()
+        return state_ids
+
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="env"))
+    def reset_envs_to_state_ids(self, state_ids: DataProto):
+        """Reset environments to specified state IDs.
+        
+        Args:
+            state_ids: State IDs to reset environments to
         """
-        This function is used to evaluate the environment.
-        """
-        chunk_actions = prepare_actions(
-            simulator_type=self.cfg.env.train.simulator_type,
-            raw_chunk_actions=raw_actions,
-            num_action_chunks=self.cfg.actor.model.num_action_chunks,
-            action_dim=self.cfg.actor.model.action_dim,
-        )
-        env_info_list = {}
-
-        extracted_obs, chunk_rewards, chunk_terminations, chunk_truncations, infos = self.eval_simulator_list[
-            stage_id
-        ].chunk_step(chunk_actions)
-        chunk_dones = torch.logical_or(chunk_terminations, chunk_truncations)
-
-        if chunk_dones.any():
-            final_info = infos["final_info"]
-            for key in final_info["episode"]:
-                env_info_list[key] = final_info["episode"][key][chunk_dones[:, -1]].cpu()
-
-        env_batch = create_env_batch(obs=extracted_obs, rews=None, dones=None, infos=infos, meta=env_info_list)
-        return env_batch
+        state_ids_list = list(state_ids.non_tensor_batch["state_ids"])
+        result_list = []
+        for stage_id in range(self.stage_num):
+            result = self.simulator_list[stage_id].reset_envs_to_state_ids(state_ids_list)
+            result_list.append(result)
+        output_tensor_dict = {}
+        output_non_tensor_dict = {}
+        keys = result_list[0][0].keys()
+        for k in keys:
+            values_to_merge = [d[0][k] for d in result_list]
+            if isinstance(values_to_merge[0], torch.Tensor):
+                output_tensor_dict[k] = torch.cat(values_to_merge)
+            else:
+                output_non_tensor_dict[k] = list(itertools.chain.from_iterable(values_to_merge))
+        output = DataProto.from_dict(tensors=output_tensor_dict, non_tensors=output_non_tensor_dict)
+        return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def finish_rollout(self, mode="train"):
