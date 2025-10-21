@@ -265,6 +265,8 @@ actor_rollout_ref:
       port: 9090
       file: /tmp/ray/session_latest/metrics/prometheus/prometheus.yml
       served_model_name: ${oc.select:actor_rollout_ref.model.path,null}
+    quantization: false
+    use_block_quant_rollout: true
     layer_name_map:
       qkv_layer_name: qkv
       gate_proj_layer_name: gate_up
@@ -286,8 +288,6 @@ data:
   use_shm: false
   train_files: ~/data/rlhf/gsm8k/train.parquet
   val_files: ~/data/rlhf/gsm8k/test.parquet
-  train_max_samples: -1
-  val_max_samples: -1
   prompt_key: prompt
   reward_fn_key: data_source
   max_prompt_length: 512
