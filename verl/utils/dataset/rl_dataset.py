@@ -139,6 +139,9 @@ class RLHFDataset(Dataset):
                 if not isinstance(dataframe, pd.core.frame.DataFrame):
                     dataframe = pd.DataFrame(dataframe)
                 dataframe = datasets.Dataset.from_pandas(dataframe)
+            elif parquet_file.endswith(".jsonl"):
+                dataframe = datasets.load_dataset("json", data_files=parquet_file)["train"]
+
             else:
 
                 dataframe = datasets.load_dataset("parquet", data_files=parquet_file)["train"]

@@ -6,7 +6,7 @@ validate answers when necessary.
 from typing import List, Union
 
 from verl.utils.reward_score.deepscaler_math.globals import THOUGHT_DELIMITER_START, THOUGHT_DELIMITER_END
-from verl.utils.reward_score.deepscaler_math.utils.utils import extract_answer, grade_answer_sympy, grade_answer_mathd
+from verl.utils.reward_score.deepscaler_math.utils.utils import extract_answer, grade_answer_sympy, grade_answer_mathd, extract_think_tags, calculate_score
 from verl.utils.reward_score.deepscaler_math.reward_types import RewardConfig, RewardFn, RewardInput, RewardOutput, RewardType
 
 
@@ -33,6 +33,7 @@ class RewardMathFn(RewardFn):
         
         # Extract solution.
         if THOUGHT_DELIMITER_START in model_response and THOUGHT_DELIMITER_END in model_response:
+            thinking_score = calculate_score(len(model_response.strip().split(" ")))
             model_solution = model_response.split(THOUGHT_DELIMITER_END)[1]
         else:
             return RewardOutput(reward=self.config.format_error_reward, is_correct=False)
@@ -70,7 +71,9 @@ class RewardMathFn(RewardFn):
         for ground_truth in processed_ground_truths:
             is_correct = grade_answer_mathd(model_answer, ground_truth) or grade_answer_sympy(model_answer, ground_truth)
             if is_correct:
-                return RewardOutput(reward=self.config.correct_reward, is_correct=True)
+                reward = RewardOutput(reward=self.config.correct_reward, is_correct=True)
+                reward.is_correct*=thinking_score
+                return reward
                 
         return RewardOutput(reward=self.config.incorrect_reward, is_correct=False)
 

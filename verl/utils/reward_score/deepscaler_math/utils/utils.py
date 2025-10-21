@@ -4,11 +4,60 @@ Answer checker API that uses sympy to simplify expressions and check for equalit
 Call grade_answer(given_answer: str, ground_truth: str).
 """
 import re
+import math
 from pylatexenc import latex2text
 import sympy
 from sympy.parsing import sympy_parser
 from typing import Optional
+from verl.utils.reward_score.deepscaler_math.globals import THOUGHT_DELIMITER_START, THOUGHT_DELIMITER_END
 
+def calculate_score(number):
+    """
+    Calculate a score from 0 to 1 based on input number.
+    - Score stays almost 1 from 0 to 5000
+    - Score decreases gently from 5000 to 8000 (1.0 to 0.9)
+    - Score decreases more rapidly after 8000
+    
+    Args:
+        number: Input number (typically 0-10000)
+        
+    Returns:
+        Score between 0 and 1
+    """
+    if number <= 0:
+        return 1.0
+    elif number >= 10000:
+        return 0.0
+    elif number <= 9000:
+        # Very gentle decrease, stays close to 1
+        return 1.0 
+    elif number <= 9500:
+        # Gentle decrease from ~0.99 to 0.9
+        # Linear interpolation from 5000 to 8000
+        return 0.99 - ((number - 9500) / 500) * 0.09
+    else:
+        # Faster decrease from 8000 to 10000
+        # Exponential decay from 0.9 to 0
+        remaining = number - 9500
+        return 0.9 * math.exp(-2.5 * remaining / 500)
+
+def extract_think_tags(text):
+    """
+    Extract all content inside <think> </think> tags.
+    
+    Args:
+        text: String containing the text to search
+        
+    Returns:
+        List of strings containing the content inside <think> tags
+    """
+    # Pattern to match content between <think> and </think> tags
+    # re.DOTALL makes . match newlines too
+    pattern = r'<think>(.*?)</think>'
+    matches = re.findall(pattern, text, re.DOTALL)
+    
+    # Strip whitespace from each match
+    return [match.strip() for match in matches]
 
 # Dan Hendrycks' code
 def mathd_normalize_answer(answer: Optional[str]) -> Optional[str]:
