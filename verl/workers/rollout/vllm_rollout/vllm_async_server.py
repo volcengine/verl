@@ -44,7 +44,7 @@ from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
 from verl.workers.config import HFModelConfig, RewardModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
-from verl.workers.rollout.utils import get_free_port, run_unvicorn, is_valid_ipv6_address
+from verl.workers.rollout.utils import get_free_port, is_valid_ipv6_address, run_unvicorn
 from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
 
 logger = logging.getLogger(__file__)
