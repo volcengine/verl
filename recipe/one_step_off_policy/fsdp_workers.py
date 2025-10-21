@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import asyncio
 import logging
 import os
 
@@ -41,6 +40,7 @@ from verl.utils.import_utils import import_external_libs
 from verl.utils.model import get_generation_config, update_model_config
 from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerConfig, log_gpu_memory_usage, simple_timer
 from verl.utils.profiler.performance import reduce_timing, topk_reduce_ratio_min_max
+from verl.utils.ray_utils import get_event_loop
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.fsdp_workers import ActorRolloutRefWorker as ARRWorker
 from verl.workers.fsdp_workers import CriticWorker
@@ -97,7 +97,7 @@ class ActorRolloutRefWorker(ARRWorker):
                 inference_model = self.rollout._engine
             else:
                 raise NotImplementedError(f"Unknown rollout name: {rollout_name}")
-        loop = asyncio.get_event_loop()
+        loop = get_event_loop()
         for key, shape, dtype in self._weights_info:
             tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
             if self._is_actor:
