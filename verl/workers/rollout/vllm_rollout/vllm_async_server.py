@@ -44,7 +44,7 @@ from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
 from verl.workers.config import HFModelConfig, RewardModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
-from verl.workers.rollout.utils import get_free_port, run_unvicorn
+from verl.workers.rollout.utils import get_free_port, run_unvicorn, is_valid_ipv6_address
 from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
 
 logger = logging.getLogger(__file__)
@@ -498,6 +498,10 @@ class vLLMReplica(RolloutReplica):
         # get http server address from first server
         server_address, server_port = await self.servers[0].get_server_address.remote()
         self._server_handle = self.servers[0]
+
+        if is_valid_ipv6_address(server_address):
+            server_address = f"[{server_address}]"
+
         self._server_address = f"{server_address}:{server_port}"
 
     async def sleep(self):

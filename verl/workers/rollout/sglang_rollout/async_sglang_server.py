@@ -300,4 +300,8 @@ class SGLangReplica(RolloutReplica):
         # get http server address from first server
         server_address, server_port = await self.servers[0].get_server_address.remote()
         self._server_handle = self.servers[0]
+
+        if is_valid_ipv6_address(server_address):
+            server_address = f"[{server_address}]"
+
         self._server_address = f"{server_address}:{server_port}"
