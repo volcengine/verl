@@ -391,7 +391,7 @@ class FlowRLActor(DataParallelPPOActor):
                     # Compute FlowRL trajectory balance loss
 
                     # Select loss variant from environment variable
-                    # Options: "vanilla" (no TIS/clip), "flowrl_clip" (clip IS only), "flowrl_clip_tis" (both TIS + clip), "flowrl_gspo" (GSPO-style selective clipping)
+                    # Options: "vanilla" (no TIS/clip), "flowrl_clip" (clip IS only), "flowrl_clip_tis" (both TIS + clip), "flowrl_gspo" (GSPO-style selective clipping), "flowrl_cispo" (CISPO-style masking)
                     loss_variant = os.getenv("FLOWRL_LOSS_VARIANT", "vanilla")
 
                     if loss_variant == "vanilla":
@@ -438,8 +438,19 @@ class FlowRLActor(DataParallelPPOActor):
                             clip_ratio=self.config.clip_ratio,
                             rollout_log_probs=rollout_log_probs
                         )
+                    elif loss_variant == "flowrl_cispo":
+                        policy_loss, flowrl_metrics = self.compute_flowrl_cispo_clip(
+                            log_prob=log_prob,
+                            ref_log_prob=ref_log_prob,
+                            old_log_prob=old_log_prob,
+                            log_z=log_z,
+                            reward=advantages,
+                            response_mask=response_mask,
+                            clip_ratio=self.config.clip_ratio,
+                            rollout_log_probs=rollout_log_probs
+                        )
                     else:
-                        raise ValueError(f"Unknown loss_variant: {loss_variant}. Must be one of: vanilla, flowrl_clip, flowrl_clip_tis, flowrl_gspo")
+                        raise ValueError(f"Unknown loss_variant: {loss_variant}. Must be one of: vanilla, flowrl_clip, flowrl_clip_tis, flowrl_gspo, flowrl_cispo")
 
                     # if entropy_coeff != 0:
                     #     entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
