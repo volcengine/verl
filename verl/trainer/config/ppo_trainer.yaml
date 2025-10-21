@@ -317,6 +317,12 @@ global_profiler:
       # devices, record_context etc.
       kw_args: {}
 
+# configs for TransferQueue
+transfer_queue:
+
+  # Whether to enable transfer queue
+  enable: False
+
 # configs related to ray
 ray_kwargs:
 
