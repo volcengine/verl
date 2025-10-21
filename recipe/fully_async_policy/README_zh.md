@@ -290,7 +290,7 @@ python -m recipe.fully_async_policy.fully_async_main \
 ### 128卡  7B 异步模式实验
 
 我们使用 Qwen2.5-Math-7B 验证 fully async 所支持的各个模式的效果。
-我们可以看到 stream 带来的收益大约0.6x，叠加 staleness 和 partial_rollout 后，收益为2.35x。
+我们可以看到 stream 带来的收益大约1.6x，叠加 staleness 和 partial_rollout 后，收益为2.35x。
 
 |                             mode                                         	                              |        step  	        |  gen  	  | old_log_prob 	 | update_actor 	 | total time<br>100 step 	 | total time<br>200 step 	 | total time<br>300 step 	 | total time<br>400 step 	 |     acc/mean@1         	      |
 |:-------------------------------------------------------------------------------------------------------:|:---------------------:|:--------:|:--------------:|:--------------:|:------------------------:|:------------------------:|:------------------------:|:------------------------:|:-----------------------------:|

@@ -341,7 +341,7 @@ Using the `async stream pipeline with stale samples` strategy, we achieved about
 ### 128-card 7B Asynchronous Mode Experiment
 
 We used Qwen2.5-Math-7B to verify the effects of various modes supported by fully async.
-We can see that the benefit brought by streaming is approximately 0.6x, and after combining staleness and
+We can see that the benefit brought by streaming is approximately 1.6x, and after combining staleness and
 partial_rollout, the benefit reaches 2.35x.
 
 |                             mode                                         	                              |        step  	        |  gen  	  | old_log_prob 	 | update_actor 	 | total time<br>100 step 	 | total time<br>200 step 	 | total time<br>300 step 	 | total time<br>400 step 	 |     acc/mean@1         	      |
