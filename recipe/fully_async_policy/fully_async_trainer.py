@@ -237,8 +237,6 @@ class FullyAsyncTrainer(FullyAsyncRayPPOTrainer):
         self.max_steps_duration = 0
 
         # get validate data before training
-        if self.config.trainer.val_before_train and self.reward_fn is not None:
-            ray.get(self.param_synchronizer.wait_last_valid.remote())
         val_data = self.message_queue_client.get_validate_sync()
         if val_data:
             val_data: ValidateMetrics = ray.cloudpickle.loads(val_data)
