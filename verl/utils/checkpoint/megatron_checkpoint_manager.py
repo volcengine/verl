@@ -27,6 +27,11 @@ from megatron.core.dist_checkpointing.mapping import ShardedObject
 from megatron.core.transformer.enums import AttnBackend
 from transformers import GenerationConfig
 
+# For load optimizer dist_ckpt
+import transformer_engine
+torch.serialization.add_safe_globals([torch.optim.AdamW])
+torch.serialization.add_safe_globals([transformer_engine.pytorch.optimizers.fused_adam.FusedAdam])
+
 from verl.models.weight_loader_registry import get_weight_saver
 from verl.utils.device import get_device_name, get_torch_device
 from verl.utils.fs import is_non_local, local_mkdir_safe
@@ -231,7 +236,11 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         return os.path.join(common_path, basename)
 
     def generate_state_dict(
-        self, generate_model: bool = True, generate_optimizer: bool = True, generate_extra: bool = True
+        self,
+        generate_model: bool = True,
+        generate_optimizer: bool = True,
+        generate_extra: bool = True,
+        is_loading: bool = False
     ):
         # For save dist checkpointing
         state_dict = {}
@@ -252,7 +261,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         # Optimizer State Dict
         if generate_optimizer:
             torch.distributed.barrier()
-            optimizer_sharded_states = self.optimizer.sharded_state_dict(state_dict)
+            optimizer_sharded_states = self.optimizer.sharded_state_dict(state_dict, is_loading=is_loading)
             state_dict["optimizer"] = optimizer_sharded_states
 
             if self.lr_scheduler is not None:
@@ -296,7 +305,10 @@ class MegatronCheckpointManager(BaseCheckpointManager):
 
         # Get State Dict for loading
         sharded_state_dict = self.generate_state_dict(
-            self.should_load_model and self.use_dist_checkpointing, self.should_load_optimizer, self.should_load_extra
+            self.should_load_model and self.use_dist_checkpointing,
+            self.should_load_optimizer,
+            self.should_load_extra,
+            is_loading=True
         )
         log_with_rank(f"Generated state dict for loading: {sharded_state_dict.keys()}", rank=self.rank, logger=logger)
 
