@@ -18,13 +18,13 @@ from hydra import compose, initialize_config_dir
 from torchdata.stateful_dataloader import StatefulDataLoader
 from transformers import AutoTokenizer
 
-from tests.workers.reward_model.agent_utils import init_agent_loop_manager
+from verl.experimental.agent_loop import AgentLoopManager
 from verl.protocol import DataProto
 from verl.trainer.main_ppo import create_rl_sampler
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
 
 
-def test_agent_loop_compute_score_with_model():
+def test_agent_loop_reward_manager():
     ray.init(
         runtime_env={
             "env_vars": {
@@ -35,57 +35,51 @@ def test_agent_loop_compute_score_with_model():
             }
         }
     )
+    with initialize_config_dir(config_dir=os.path.abspath("recipe/fapo/config")):
+        config = compose("rm_config")
 
-    with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config")):
-        config = compose("ppo_trainer")
+    rollout_model_path = os.path.expanduser("~/models/Qwen/Qwen2.5-0.5B-Instruct")
+    reward_model_path = os.path.expanduser("~/models/Qwen/Qwen2.5-1.5B-Instruct")
 
-    model_path = "meta-llama/Llama-3.2-3B-Instruct"
-    rm_path = "Skywork/Skywork-Reward-Llama-3.1-8B-v0.2"
+    # actor_rollout_ref config
     config.data.return_raw_chat = True
-    config.actor_rollout_ref.model.path = model_path
+    config.data.max_prompt_length = 1024
+    config.data.max_response_length = 4096
+    config.actor_rollout_ref.model.path = rollout_model_path
     config.actor_rollout_ref.actor.use_dynamic_bsz = True
-    config.actor_rollout_ref.rollout.name = "vllm"
+    config.actor_rollout_ref.rollout.name = os.getenv("ROLLOUT_NAME", "vllm")
     config.actor_rollout_ref.rollout.mode = "async"
-    config.actor_rollout_ref.rollout.temperature = 0.0
+    config.actor_rollout_ref.rollout.tensor_model_parallel_size = 2
+    config.actor_rollout_ref.rollout.gpu_memory_utilization = 0.9
+    config.actor_rollout_ref.rollout.enforce_eager = True
     config.actor_rollout_ref.rollout.prompt_length = 1024
     config.actor_rollout_ref.rollout.response_length = 4096
-
-    if os.environ["LEGACY_IMPL_RM"] == "disable":
-        from verl.workers.config import HFModelConfig, RewardModelConfig
-
-        model_config = HFModelConfig(path=rm_path)
-        reward_model_config = RewardModelConfig(
-            enable=True,
-            enable_resource_pool=True,
-            n_gpus_per_node=4,
-            nnodes=1,
-            model_config=model_config,
-            input_model_config=None,
-            tensor_model_parallel_size=2,
-            gpu_memory_utilization=0.8,
-        )
-    else:
-        config.reward_model.enable = True
-        config.reward_model.model.path = rm_path
-        config.reward_model.use_dynamic_bsz = True
-        config.reward_model.forward_max_token_len_per_gpu = 6000
-        config.reward_model.micro_batch_size_per_gpu = 40
-        config.reward_model.enable_resource_pool = True
-        config.reward_model.n_gpus_per_node = 4
-        config.reward_model.nnodes = 1
-        config.reward_model.model.trust_remote_code = True
-        config.reward_model.model.input_tokenizer = None
-        reward_model_config = None
-
+    config.actor_rollout_ref.rollout.skip_tokenizer_init = True
     config.trainer.n_gpus_per_node = 4
     config.trainer.nnodes = 1
-    # 1. init agent loop manager
-    agent_loop_manager = init_agent_loop_manager(config, reward_model_config)
 
-    # 2. init dataset and dataloader
-    local_folder = os.path.expanduser("~/verl-data/gsm8k/")
+    config.reward_model.reward_manager = "dapo"
+    config.reward_model.enable = True
+    config.reward_model.enable_resource_pool = True
+    config.reward_model.n_gpus_per_node = 4
+    config.reward_model.nnodes = 1
+    config.reward_model.model.path = reward_model_path
+    config.reward_model.rollout.name = os.getenv("ROLLOUT_NAME", "vllm")
+    config.reward_model.rollout.gpu_memory_utilization = 0.9
+    config.reward_model.rollout.tensor_model_parallel_size = 2
+    config.reward_model.rollout.skip_tokenizer_init = False
+    config.reward_model.rollout.prompt_length = 5120
+    config.reward_model.rollout.response_length = 4096
+    config.custom_reward_function.path = "tests/experimental/reward/reward_fn.py"
+    config.custom_reward_function.name = "compute_score_gsm8k"
+
+    # 1. init reward model manager
+    agent_loop_manager = AgentLoopManager(config)
+
+    # 2. init test data
+    local_folder = os.path.expanduser("~/data/gsm8k/")
     data_files = [os.path.join(local_folder, "train.parquet")]
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    tokenizer = AutoTokenizer.from_pretrained(rollout_model_path)
 
     dataset = RLHFDataset(
         data_files=data_files,
@@ -94,7 +88,7 @@ def test_agent_loop_compute_score_with_model():
         processor=None,
     )
 
-    batch_size = 128
+    batch_size = 64
     sampler = create_rl_sampler(config.data, dataset)
     dataloader = StatefulDataLoader(
         dataset=dataset,
@@ -105,7 +99,7 @@ def test_agent_loop_compute_score_with_model():
         sampler=sampler,
     )
 
-    # 3. generate_sequences with agent loop
+    # 3. generate responses
     batch_dict = next(iter(dataloader))
     batch = DataProto.from_single_dict(batch_dict)
     gen_batch = agent_loop_manager.generate_sequences(prompts=batch)
@@ -113,4 +107,5 @@ def test_agent_loop_compute_score_with_model():
     rm_scores = gen_batch.batch["rm_scores"]
     sample_scores = rm_scores.sum(dim=1)
     print(sample_scores)
+
     ray.shutdown()

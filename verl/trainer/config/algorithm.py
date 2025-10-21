@@ -93,7 +93,7 @@ class AlgoConfig(BaseConfig):
     use_pf_ppo: bool = False
     pf_ppo: dict[str, Any] = field(default_factory=dict)
     filter_groups: Optional[FilterGroupsConfig] = None
-    # Rollout Importance Sampling (replaces legacy tis_imp_ratio_cap)
+    # Rollout Importance Sampling
     # Controls computation of IS weights and mismatch metrics
     rollout_is_threshold: Optional[float] = None  # null = disabled, float = enabled
     rollout_is_threshold_lower: Optional[float] = None

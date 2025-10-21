@@ -38,23 +38,10 @@ from pydantic import Field
 
 from verl.experimental.agent_loop.agent_loop import AgentLoopOutput, AsyncLLMServerManager
 from verl.experimental.agent_loop.tool_parser import ToolParser
+from verl.experimental.agent_loop.utils import add_generation_prompt_for_gpt_oss, format_gpt_oss_tool_response_manually
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
-
-
-def format_tool_response_manually(tool_message: dict, tool_call_name: str) -> str:
-    """Manually format tool response without using tokenizer template.
-
-    Args:
-        tool_message: Tool message dictionary with 'content' field
-        tool_call_name: Name of the tool that was called
-
-    Returns:
-        Formatted tool response string
-    """
-    content = tool_message["content"]
-    return f"<|start|>functions.{tool_call_name} to=assistant<|channel|>commentary<|message|>{content}<|end|>"
 
 
 class MaxTokenExceededError(Exception):
@@ -235,14 +222,14 @@ class ChatModel(BaseChatModel):
                     actual_tool_name = tool_msg.get("name", "unknown")
                     if actual_tool_name == "unknown":
                         logger.error(f"actual_tool_name: {actual_tool_name}")
-                    formatted = format_tool_response_manually(tool_msg, actual_tool_name)
+                    formatted = format_gpt_oss_tool_response_manually(tool_msg["content"], actual_tool_name)
                     tool_response_texts.append(formatted)
-            # need to add generation tokens for gpt-oss manually since add_generation_prompt is True
-            tool_response_texts.append("<|start|>assistant")
 
             # Tokenize the manually formatted tool responses
             tool_response_text = "".join(tool_response_texts)
-            print(f"tool_response_text: {tool_response_text}")
+            # need to add generation tokens for gpt-oss manually since add_generation_prompt is True
+            tool_response_text = add_generation_prompt_for_gpt_oss(tool_response_text)
+            logger.debug(f"tool_response_text: {tool_response_text}")
 
             tool_response_ids = await loop.run_in_executor(
                 None, lambda: self.tokenizer.encode(tool_response_text, add_special_tokens=False)

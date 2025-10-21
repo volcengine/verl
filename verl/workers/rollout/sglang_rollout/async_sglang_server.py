@@ -33,10 +33,11 @@ from sglang.srt.managers.io_struct import (
     ReleaseMemoryOccupationReqInput,
     ResumeMemoryOccupationReqInput,
 )
+from sglang.srt.managers.tokenizer_manager import ServerStatus
 
 from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
-from verl.workers.config import HFModelConfig, RewardModelConfig, RolloutConfig
+from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
 from verl.workers.rollout.sglang_rollout.sglang_rollout import ServerAdapter, _set_envs_and_config
 from verl.workers.rollout.utils import get_free_port, is_valid_ipv6_address, run_unvicorn
@@ -63,7 +64,7 @@ class SGLangHttpServer:
 
     def __init__(
         self,
-        config: RolloutConfig | RewardModelConfig,
+        config: RolloutConfig,
         model_config: HFModelConfig,
         rollout_mode: RolloutMode,
         workers: list[ActorHandle],
@@ -76,7 +77,7 @@ class SGLangHttpServer:
         os.environ["CUDA_VISIBLE_DEVICES"] = cuda_visible_devices
         assert torch.cuda.is_available(), "SGLang http server should run on GPU node"
 
-        self.config: RolloutConfig | RewardModelConfig = omega_conf_to_dataclass(config)
+        self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
         self.config.max_model_len = self.config.prompt_length + self.config.response_length
         self.rollout_mode = rollout_mode
@@ -175,6 +176,7 @@ class SGLangHttpServer:
         )
         app.is_single_tokenizer_mode = True
         self._server_port, self._server_task = await run_unvicorn(app, server_args, self._server_address)
+        self.tokenizer_manager.server_status = ServerStatus.Up
 
     async def wake_up(self):
         if self.rollout_mode == RolloutMode.HYBRID:
@@ -269,13 +271,18 @@ class SGLangReplica(RolloutReplica):
                 worker_cuda_visible_devices[node_rank * self.gpus_per_node : (node_rank + 1) * self.gpus_per_node]
             )
             node_id = worker_node_ids[node_rank * self.gpus_per_node]
+            name = (
+                f"sglang_server_{self.replica_rank}_{node_rank}"
+                if not self.is_reward_model
+                else f"sglang_server_reward_{self.replica_rank}_{node_rank}"
+            )
             server = SGLangHttpServer.options(
                 scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
                     node_id=node_id,
                     soft=False,
                 ),
                 runtime_env={"env_vars": {"RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "1"}},
-                name=f"sglang_server_{self.replica_rank}_{node_rank}",
+                name=name,
             ).remote(
                 config=self.config,
                 model_config=self.model_config,
@@ -300,8 +307,8 @@ class SGLangReplica(RolloutReplica):
         # get http server address from first server
         server_address, server_port = await self.servers[0].get_server_address.remote()
         self._server_handle = self.servers[0]
-
-        if is_valid_ipv6_address(server_address):
-            server_address = f"[{server_address}]"
-
-        self._server_address = f"{server_address}:{server_port}"
+        self._server_address = (
+            f"[{server_address}]:{server_port}"
+            if is_valid_ipv6_address(server_address)
+            else f"{server_address}:{server_port}"
+        )

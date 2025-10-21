@@ -69,6 +69,12 @@ from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
 from verl.utils.vllm import TensorLoRARequest, VLLMHijack, is_version_ge
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
+from verl.workers.rollout.vllm_rollout.utils import (
+    VLLM_LORA_INT_ID,
+    VLLM_LORA_NAME,
+    VLLM_LORA_PATH,
+    get_vllm_max_lora_rank,
+)
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -112,7 +118,7 @@ class vLLMRollout(BaseRollout):
         model_hf_config = model_config.hf_config
         trust_remote_code = model_config.trust_remote_code
         self.lora_kwargs = (
-            {"enable_lora": True, "max_loras": 1, "max_lora_rank": model_config.lora_rank}
+            {"enable_lora": True, "max_loras": 1, "max_lora_rank": get_vllm_max_lora_rank(model_config.lora_rank)}
             if model_config.lora_rank > 0
             else {}
         )
@@ -487,7 +493,9 @@ class vLLMAsyncRollout(BaseRollout):
         self.inference_engine: WorkerWrapperBase = None
         self.address = self._init_zeromq()
         self.lora_config = (
-            {"max_loras": 1, "max_lora_rank": model_config.lora_rank} if model_config.lora_rank > 0 else {}
+            {"max_loras": 1, "max_lora_rank": get_vllm_max_lora_rank(model_config.lora_rank)}
+            if model_config.lora_rank > 0
+            else {}
         )
 
         # https://github.com/vllm-project/vllm/issues/25171
@@ -593,15 +601,16 @@ class vLLMAsyncRollout(BaseRollout):
         """
         peft_config, base_sync_done = kwargs.get("peft_config", None), kwargs.get("base_sync_done", False)
         if peft_config and base_sync_done:
-            lora_int_id = int(time.time_ns() % 0x7FFFFFFF)
-            lora_reqest = TensorLoRARequest(
-                lora_name=f"{lora_int_id}",
-                lora_int_id=lora_int_id,
-                lora_path="simon_lora_path",
+            # In async mode, make sure the old lora is removed before adding the new one
+            self.inference_engine.worker.remove_lora(VLLM_LORA_INT_ID)
+            lora_request = TensorLoRARequest(
+                lora_name=VLLM_LORA_NAME,
+                lora_int_id=VLLM_LORA_INT_ID,
+                lora_path=VLLM_LORA_PATH,
                 peft_config=asdict(peft_config),
                 lora_tensors=dict(weights),
             )
-            self.inference_engine.worker.add_lora(lora_reqest)
+            self.inference_engine.worker.add_lora(lora_request)
             logger.info(f"vLLM load weights, loaded_params: {len(weights)}")
         else:
             from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader

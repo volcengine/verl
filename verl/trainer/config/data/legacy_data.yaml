@@ -13,6 +13,16 @@ train_files: ~/data/rlhf/gsm8k/train.parquet
 # Validation parquet. Can be a list or a single file.
 val_files: ~/data/rlhf/gsm8k/test.parquet
 
+# Maximum sample length to be used.
+# Set to -1 to use full dataset, otherwise, randomly
+# select the specified number of samples from train dataset
+train_max_samples: -1
+
+# Maximum sample length to be used.
+# Set to -1 to use full dataset, otherwise, randomly
+# select the specified number of samples from val dataset
+val_max_samples: -1
+
 # The field in the dataset where the prompt is located. Default is 'prompt'.
 prompt_key: prompt
 
@@ -47,6 +57,9 @@ return_full_prompt: False
 
 # Whether to shuffle the data in the dataloader.
 shuffle: True
+
+# Seed to use when shuffling the data
+seed: null
 
 # num dataloader workers
 dataloader_num_workers: 8

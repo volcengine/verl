@@ -33,15 +33,8 @@ from .config_converter import (
     hf_to_mcore_config_qwen2moe,
     hf_to_mcore_config_qwen3moe,
 )
-from .model_forward import (
-    gptmodel_forward,
-    gptmodel_forward_no_padding,
-    gptmodel_forward_qwen2_5_vl,
-)
-from .model_forward_fused import (
-    fused_forward_gptmodel,
-    fused_forward_qwen2_5_vl,
-)
+from .model_forward import gptmodel_forward, gptmodel_forward_no_padding, gptmodel_forward_qwen2_5_vl
+from .model_forward_fused import fused_forward_gptmodel, fused_forward_qwen2_5_vl
 from .model_initializer import (
     BaseModelInitializer,
     DeepseekV3Model,
@@ -75,6 +68,7 @@ class SupportedModel(Enum):
 
     QWEN3_TOKEN_CLASSIFICATION = "Qwen3ForTokenClassification"
     QWEN3_MOE_VL = "Qwen3VLMoeForConditionalGeneration"
+    QWEN3_VL = "Qwen3VLForConditionalGeneration"
 
 
 # Registry for model configuration converters
@@ -120,6 +114,7 @@ MODEL_FORWARD_REGISTRY: dict[SupportedModel, Callable] = {
     SupportedModel.QWEN3_MOE: gptmodel_forward,
     SupportedModel.QWEN2_5_VL: gptmodel_forward_qwen2_5_vl,
     SupportedModel.QWEN3_MOE_VL: gptmodel_forward_qwen2_5_vl,
+    SupportedModel.QWEN3_VL: gptmodel_forward_qwen2_5_vl,
     SupportedModel.DEEPSEEK_V3: gptmodel_forward,
     SupportedModel.GLM4_MOE: gptmodel_forward,
     SupportedModel.QWEN3_TOKEN_CLASSIFICATION: gptmodel_forward,
@@ -134,6 +129,7 @@ MODEL_FORWARD_NOPAD_REGISTRY: dict[SupportedModel, Callable] = {
     SupportedModel.DEEPSEEK_V3: gptmodel_forward_no_padding,
     SupportedModel.QWEN2_5_VL: gptmodel_forward_no_padding,
     SupportedModel.QWEN3_MOE_VL: gptmodel_forward_no_padding,
+    SupportedModel.QWEN3_VL: gptmodel_forward_no_padding,
     SupportedModel.LLAMA4: gptmodel_forward_no_padding,
     SupportedModel.QWEN3: gptmodel_forward_no_padding,
     SupportedModel.QWEN3_MOE: gptmodel_forward_no_padding,
@@ -152,6 +148,7 @@ MODEL_FORWARD_FUSED_REGISTRY: dict[SupportedModel, Callable] = {
     SupportedModel.DEEPSEEK_V3: fused_forward_gptmodel,
     SupportedModel.QWEN2_5_VL: fused_forward_qwen2_5_vl,
     SupportedModel.QWEN3_MOE_VL: fused_forward_qwen2_5_vl,
+    SupportedModel.QWEN3_VL: fused_forward_qwen2_5_vl,
     SupportedModel.LLAMA4: fused_forward_gptmodel,
     SupportedModel.QWEN3: fused_forward_gptmodel,
     SupportedModel.QWEN3_MOE: fused_forward_gptmodel,
