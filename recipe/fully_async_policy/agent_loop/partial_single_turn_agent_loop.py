@@ -42,6 +42,7 @@ class PartialSingleTurnAgentLoop(AgentLoopBase):
 
         metrics = {}
         request_id = uuid4().hex
+        image_data = (kwargs.get("multi_modal_data") or {}).get("image", None)
 
         param_version_start = param_version
         param_version_end = param_version
@@ -68,7 +69,7 @@ class PartialSingleTurnAgentLoop(AgentLoopBase):
                 return output
         with simple_timer("generate_sequences", metrics):
             response_ids, log_probs, is_cancel = await self.server_manager.generate_for_partial(
-                request_id=request_id, prompt_ids=prompt_ids, sampling_params=sampling_params
+                request_id=request_id, prompt_ids=prompt_ids, sampling_params=sampling_params, image_data=image_data
             )
         if not output:
             response_mask = [1] * len(response_ids)

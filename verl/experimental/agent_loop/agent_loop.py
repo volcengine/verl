@@ -580,10 +580,22 @@ class AgentLoopWorkerBase:
                 from verl.models.transformers.qwen2_vl import get_rope_index
 
                 images = output.multi_modal_data.get("image", None)
-                current_text = self.tokenizer.decode(input_ids.squeeze(0), skip_special_tokens=True)
-                multi_modal_inputs = self.processor(text=[current_text], images=images, return_tensors="pt")
-                multi_modal_inputs.pop("input_ids", None)
-                multi_modal_inputs.pop("attention_mask", None)
+                current_text = self.tokenizer.decode(output.prompt_ids, skip_special_tokens=False)
+                multi_modal_inputs = self.processor(
+                    text=[current_text],
+                    images=images,
+                    return_tensors="pt",
+                    max_length=self.config.actor_rollout_ref.rollout.prompt_length,
+                    padding="max_length",
+                    padding_side="left",
+                )
+                prompt_output["input_ids"] = multi_modal_inputs["input_ids"]
+                prompt_output["attention_mask"] = multi_modal_inputs["attention_mask"]
+                if prompt_output["input_ids"].dim() == 1:
+                    prompt_output["input_ids"] = prompt_output["input_ids"].unsqueeze(0)
+                    prompt_output["attention_mask"] = prompt_output["attention_mask"].unsqueeze(0)
+                attention_mask = torch.cat([prompt_output["attention_mask"], response_output["attention_mask"]], dim=1)
+                input_ids = torch.cat([prompt_output["input_ids"], response_output["input_ids"]], dim=1)
 
                 # We must use dict(multi_modal_inputs) to convert BatchFeature values to a new dict
                 # because np.array() only keeps the keys for BatchFeature.
