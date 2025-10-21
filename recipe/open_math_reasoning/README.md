@@ -40,7 +40,10 @@ FSDP backend
 ```bash
 python -m verl.model_merger merge --backend fsdp --local_dir /path/to/ckpt/global_step_19751 --target_dir /path/to/ckpt/global_step_19751/huggingface
 ```
-Note that there is no need to merge ckpt for megatron backend when using mbridge.
+Megatron backend
+```bash
+python -m verl.model_merger merge --backend megatron --local_dir /path/to/ckpt/global_step_19751 --target_dir /path/to/ckpt/global_step_19751/huggingface --use_cpu_initialization
+```
 
 ### Generate the responses
 ```bash

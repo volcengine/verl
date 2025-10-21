@@ -17,7 +17,7 @@ FSDP_SIZE=${FSDP_SIZE:-16}
 FSDP_STRATEGY=${FSDP_STRATEGY:-"fsdp2"}
 
 TP_SIZE=${TP_SIZE:-8}
-PP_SIZE=${PP_SIZE:-1}
+PP_SIZE=${PP_SIZE:-2}
 VPP_SIZE=${VPP_SIZE:-null}
 CP_SIZE=${CP_SIZE:-1}
 
@@ -55,7 +55,7 @@ MEGATRON_ENGINE_CONFIG="\
     engine.pipeline_model_parallel_size=${PP_SIZE} \
     engine.virtual_pipeline_model_parallel_size=${VPP_SIZE} \
     engine.context_parallel_size=${CP_SIZE} \
-    engine.use_mbridge=True"
+    engine.use_mbridge=False"
 
 if [ "$backend" = "fsdp" ]; then
     ENGINE_CONFIG="$FSDP_ENGINE_CONFIG"
