@@ -57,6 +57,10 @@ SGLANG_REQUIRES = [
 ]
 TRL_REQUIRES = ["trl<=0.9.6"]
 MCORE_REQUIRES = ["mbridge"]
+DEEPSPEED_REQUIRES = [
+    "deepspeed>=0.14.0",  # core DeepSpeed
+    "triton",  # kernels (optional, many wheels bundle it)
+]
 
 extras_require = {
     "test": TEST_REQUIRES,
@@ -68,6 +72,7 @@ extras_require = {
     "sglang": SGLANG_REQUIRES,
     "trl": TRL_REQUIRES,
     "mcore": MCORE_REQUIRES,
+    "deepspeed": DEEPSPEED_REQUIRES,
 }
 
 

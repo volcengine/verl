@@ -21,11 +21,11 @@ from verl.base_config import BaseConfig
 from verl.trainer.config import CheckpointConfig
 from verl.utils.profiler.config import ProfilerConfig
 
-from .engine import FSDPEngineConfig, McoreEngineConfig
+from .engine import DeepSpeedEngineConfig, FSDPEngineConfig, McoreEngineConfig
 from .model import HFModelConfig
 from .optimizer import OptimizerConfig
 
-__all__ = ["PolicyLossConfig", "ActorConfig", "FSDPActorConfig", "McoreActorConfig"]
+__all__ = ["PolicyLossConfig", "ActorConfig", "FSDPActorConfig", "McoreActorConfig", "DeepSpeedActorConfig"]
 
 
 @dataclass
@@ -236,6 +236,47 @@ class FSDPActorConfig(ActorConfig):
     def __post_init__(self):
         """Validate FSDP actor configuration parameters."""
         super().__post_init__()
+
+
+@dataclass
+class DeepSpeedActorConfig(ActorConfig):
+    """Configuration for DeepSpeed actor models.
+
+    The inheritance from BaseConfig provides omegaconf.DictConfig-like interface for a dataclass config.
+
+    Args:
+        strategy (str): Training strategy set to 'deepspeed' for DeepSpeed ZeRO optimization.
+        zero_stage (int): DeepSpeed ZeRO optimization stage (0, 1, 2, or 3).
+        gradient_accumulation_steps (int): Number of gradient accumulation steps.
+        train_batch_size (Optional[int]): Global training batch size across all devices.
+        train_micro_batch_size_per_gpu (Optional[int]): Micro batch size per GPU.
+        grad_clip (float): Gradient clipping threshold.
+        ulysses_sequence_parallel_size (int): Ulysses sequence parallel size for long sequences.
+        entropy_from_logits_with_chunking (bool): Whether to compute entropy with chunking.
+        entropy_checkpointing (bool): Whether to use gradient checkpointing for entropy.
+        deepspeed_config (DeepSpeedEngineConfig): DeepSpeed engine configuration.
+        use_remove_padding (bool): Whether to remove padding tokens in inputs.
+        profiler (ProfilerConfig): Profiler configuration.
+    """
+
+    strategy: str = "deepspeed"
+    zero_stage: int = 2
+    gradient_accumulation_steps: int = 1
+    train_batch_size: Optional[int] = None
+    train_micro_batch_size_per_gpu: Optional[int] = None
+    grad_clip: float = 1.0
+    ulysses_sequence_parallel_size: int = 1
+    entropy_from_logits_with_chunking: bool = False
+    entropy_checkpointing: bool = False
+    deepspeed_config: DeepSpeedEngineConfig = field(default_factory=DeepSpeedEngineConfig)
+    use_remove_padding: bool = False
+    profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
+
+    def __post_init__(self):
+        """Validate DeepSpeed actor configuration parameters."""
+        super().__post_init__()
+        if self.zero_stage not in [0, 1, 2, 3]:
+            raise ValueError(f"zero_stage must be 0, 1, 2, or 3, got {self.zero_stage}")
 
     def validate(self, n_gpus: int, train_batch_size: int, model_config: dict = None):
         """Validate FSDP actor configuration with runtime parameters."""
