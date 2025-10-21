@@ -94,11 +94,11 @@ jobs:
           pip3 install --upgrade "ray>=2.40.0"
           pip3 install cupy-cuda12x
           pip3 install mlflow
-      - name: Download Model to Use
-        run: |
-          huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct
-          huggingface-cli download Qwen/Qwen2.5-1.5B-Instruct
-          export HF_HUB_OFFLINE=1
+      # - name: Download Model to Use
+      #   run: |
+      #     huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct
+      #     huggingface-cli download Qwen/Qwen2.5-1.5B-Instruct
+      #     export HF_HUB_OFFLINE=1
         # Disable requests to avoid network errors
       - name: Run all GPU unit tests
         run: |
