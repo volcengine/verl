@@ -22,7 +22,8 @@ However, it forcibly uses data from one round of asynchronous training, which is
 completely eliminate the impact of long-tail on training efficiency.
 In other frameworks such as AReaL, Magistral, StreamRL, and AsyncFlow, asynchronous training and streaming training have
 been implemented based on the separated architecture and have achieved gains.
-We borrow from their methods and implemented them in VERL. The fully_async_policy supports asynchronous, streaming, and partial
+We borrow from their methods and implemented them in VERL. The fully_async_policy supports asynchronous, streaming, and
+partial
 rollout training.
 By reasonably setting parameters such as resource allocation and parameter synchronization frequency, fully_async_policy
 can significantly improve training efficiency.
@@ -327,14 +328,14 @@ Using the `async stream pipeline with stale samples` strategy, we achieved about
     * staleness_threshold: 0.5
     * partial_rollout: True
 
-|  training mode   	   | resource allocation 	 | step  	  |  gen  	  | old_log_prob 	 | update_actor 	 | total time<br>100 step 	 | total time<br>200 step 	 | total time<br>300 step 	 | total time<br>400 step 	 |     acc/mean@1          	      |
-|:--------------------:|:---------------------:|:--------:|:--------:|:--------------:|:--------------:|:------------------------:|:------------------------:|:------------------------:|:------------------------:|:------------------------------:|
-| colocate sync      	 | 32                  	 | 790.10 	 | 357.41 	 | 107.71       	 | 313.81       	 | 13h 44m                	 | 1d 3h 43m              	 | 2d 9h 22m              	 | 3d 17h 5m              	 | max: 0.3313<br>last: 0.2448  	 |
-| fully_async_policy 	 | 16:16               	 | 294.77    | 21.26     | \            	 | 269.80          | 7h 58m<br>(1.72x)         | 16h 21m<br>(1.70x)        | 1d 0h 53m<br>(2.31x)      | 1d 9h 26m<br>(2.66x)      | max: 0.3302<br>last: 0.2333   	 |
-| colocate sync      	 | 64                  	 | 365.28 	 | 150.72 	 | 70.26        	 | 133.41       	 | 10h 22m                	 | 20h 45m                	 | 1d 7h 6m               	 | 1d 17h 32m             	 | max: 0.3365<br>last:  0.2333 	 |
-| fully_async_policy 	 | 32:32               	 | 189.26 	 | 28.46  	 | \            	 | 156.98       	 | 4h 57m<br>(2.09x)      	 | 10h 14m<br>(2.03x)     	 | 16h 58m<br>(1.83x)     	 | 21h 40m<br>(1.92x)     	 | max: 0.3677<br>last: 0.3406  	 |
-| colocate sync      	 | 128                 	 | 356.30 	 | 177.85 	 | 53.92        	 | 113.81       	 | 8h 36m                 	 | 17h 56m                	 | 1d 5h 6m               	 | 1d 16h 48m             	 | max: 0.3573<br>last: 0.2958  	 |
-| fully_async_policy 	 | 64:64               	 | 150.63 	 | 33.14  	 | \            	 | 113.16       	 | 3h 13m<br>(2.67x)      	 | 6h 46m<br>(2.65x)      	 | 10h 53m<br>(2.67x)     	 | 17h 22m<br>(2.35x)     	 | max: 0.3521<br>last: 0.3094  	 |
+|  training mode   	   | resource allocation 	 | step  	  |  gen  	  | old_log_prob 	 | update_actor 	 | total time<br>100 step 	 | total time<br>200 step 	 | total time<br>300 step 	 | total time<br>400 step 	 |      acc/mean@1          	      |
+|:--------------------:|:---------------------:|:--------:|:--------:|:--------------:|:--------------:|:------------------------:|:------------------------:|:------------------------:|:------------------------:|:-------------------------------:|
+| colocate sync      	 | 32                  	 | 790.10 	 | 357.41 	 | 107.71       	 | 313.81       	 | 13h 44m                	 | 1d 3h 43m              	 | 2d 9h 22m              	 | 3d 17h 5m              	 | max: 0.3313<br>last: 0.2448  	  |
+| fully_async_policy 	 | 16:16               	 |  294.77  |  21.26   | \            	 |     269.80     |    7h 58m<br>(1.72x)     |    16h 21m<br>(1.70x)    |   1d 0h 53m<br>(2.31x)   |   1d 9h 26m<br>(2.66x)   | max: 0.3302<br>last: 0.2333   	 |
+| colocate sync      	 | 64                  	 | 365.28 	 | 150.72 	 | 70.26        	 | 133.41       	 | 10h 22m                	 | 20h 45m                	 | 1d 7h 6m               	 | 1d 17h 32m             	 | max: 0.3365<br>last:  0.2333 	  |
+| fully_async_policy 	 | 32:32               	 | 189.26 	 | 28.46  	 | \            	 | 156.98       	 | 4h 57m<br>(2.09x)      	 | 10h 14m<br>(2.03x)     	 | 16h 58m<br>(1.83x)     	 | 21h 40m<br>(1.92x)     	 | max: 0.3677<br>last: 0.3406  	  |
+| colocate sync      	 | 128                 	 | 356.30 	 | 177.85 	 | 53.92        	 | 113.81       	 | 8h 36m                 	 | 17h 56m                	 | 1d 5h 6m               	 | 1d 16h 48m             	 | max: 0.3573<br>last: 0.2958  	  |
+| fully_async_policy 	 | 64:64               	 | 150.63 	 | 33.14  	 | \            	 | 113.16       	 | 3h 13m<br>(2.67x)      	 | 6h 46m<br>(2.65x)      	 | 10h 53m<br>(2.67x)     	 | 17h 22m<br>(2.35x)     	 | max: 0.3521<br>last: 0.3094  	  |
 
 > source data: https://wandb.ai/hou-zg-meituan/fully-async-policy-colocate_async?nw=nwuserhouzg
 
@@ -344,12 +345,12 @@ We used Qwen2.5-Math-7B to verify the effects of various modes supported by full
 We can see that the benefit brought by streaming is approximately 1.6x, and after combining staleness and
 partial_rollout, the benefit reaches 2.35x.
 
-|                             mode                                         	                              |        step  	        |  gen  	  | old_log_prob 	 | update_actor 	 | total time<br>100 step 	 | total time<br>200 step 	 | total time<br>300 step 	 | total time<br>400 step 	 |     acc/mean@1         	      |
-|:-------------------------------------------------------------------------------------------------------:|:---------------------:|:--------:|:--------------:|:--------------:|:------------------------:|:------------------------:|:------------------------:|:------------------------:|:-----------------------------:|
-|                                          colocate sync      	                                           | 356.30 	 |    177.85 	    | 53.92        	 |      113.81       	      | 8h 36m                 	 | 17h 56m                	 | 1d 5h 6m               	 |   1d 16h 48m             	    | max: 0.3573<br>last: 0.2958  	 |
-| `stream off policy pipeline`<br>(+fully async: trigger_parameter_sync_step= 4,<br>require_batches= 4) 	 |       231.34 	        | 128.47 	 | \            	 | 98.77        	 | 4h 25m                 	 | 9h 41m                 	 | 15h 2m                 	 | 1d 1h 53m              	 | max: 0.2844<br>last: 0.2604 	 |
-|          `async stream pipeline with stale samples`<br>(+staleness_threshold=0.5)            	          |           	           |    	     |       	        |       	        |            	             |            	             |            	             |            	             |               	               |
-|        `async stream pipeline with partial rollout`<br>(+partial_rollout=True)                 	        |       150.63 	        | 33.14  	 | \            	 | 113.16       	 | 3h 13m                 	 | 6h 46m                 	 | 10h 53m                	 | 17h 22m                	 | max: 0.3521<br>last: 0.3094 	 |
+|                             mode                                         	                              | step  	  |  gen  	  | old_log_prob 	 | update_actor 	 | total time<br>100 step 	 | total time<br>200 step 	 | total time<br>300 step 	 | total time<br>400 step 	 |      acc/mean@1         	      |
+|:-------------------------------------------------------------------------------------------------------:|:--------:|:--------:|:--------------:|:--------------:|:------------------------:|:------------------------:|:------------------------:|:------------------------:|:------------------------------:|
+|                                          colocate sync      	                                           | 356.30 	 | 177.85 	 | 53.92        	 | 113.81       	 | 8h 36m                 	 | 17h 56m                	 | 1d 5h 6m               	 | 1d 16h 48m             	 | max: 0.3573<br>last: 0.2958  	 |
+| `stream off policy pipeline`<br>(+fully async: trigger_parameter_sync_step= 4,<br>require_batches= 4) 	 | 231.34 	 | 128.47 	 | \            	 | 98.77        	 | 4h 25m                 	 | 9h 41m                 	 | 15h 2m                 	 | 1d 1h 53m              	 | max: 0.2844<br>last: 0.2604 	  |
+|          `async stream pipeline with stale samples`<br>(+staleness_threshold=0.5)            	          |    	     |    	     |       	        |       	        |            	             |            	             |            	             |            	             |               	                |
+|        `async stream pipeline with partial rollout`<br>(+partial_rollout=True)                 	        | 150.63 	 | 33.14  	 | \            	 | 113.16       	 | 3h 13m                 	 | 6h 46m                 	 | 10h 53m                	 | 17h 22m                	 | max: 0.3521<br>last: 0.3094 	  |
 
 > source data: https://wandb.ai/hou-zg-meituan/fully-async-policy-stream_stale_partial?nw=nwuserhouzg
 
@@ -414,7 +415,6 @@ TODO: The 30B experiment is still in progress.
 | fully_async_policy | 64:64               | stream off policy pipeline                 |      |                    |              |              |            |                  |
 | fully_async_policy | 64:64               | async stream pipeline with stale samples   |      |                    |              |              |            |                  |
 | fully_async_policy | 64:64               | async stream pipeline with partial rollout |      |                    |              |              |            |                  |
-
 
 ## Future Plans
 
