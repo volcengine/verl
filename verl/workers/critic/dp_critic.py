@@ -216,7 +216,12 @@ class DataParallelPPOCritic(BasePPOCritic):
                     micro_batches = mini_batch.split(self.config.ppo_micro_batch_size_per_gpu)
 
                 self.critic_optimizer.zero_grad()
-
+                
+                mini_batch_full_token_count = 0
+                for micro_batch in micro_batches:
+                    response_mask = micro_batch.batch["response_mask"]
+                    mini_batch_full_token_count += response_mask.sum().item()
+                
                 for micro_batch in micro_batches:
                     micro_batch = micro_batch.to(get_device_id())
                     micro_batch_metrics = {}
@@ -233,6 +238,7 @@ class DataParallelPPOCritic(BasePPOCritic):
                         response_mask=response_mask,
                         cliprange_value=self.config.cliprange_value,
                         loss_agg_mode=self.config.loss_agg_mode,
+                        mini_batch_full_token_count=mini_batch_full_token_count,
                     )
                     if self.config.use_dynamic_bsz:
                         # relative to the dynamic bsz
