@@ -50,8 +50,18 @@ from omegaconf import ListConfig
 from tensordict import TensorDict
 from torch.distributed.device_mesh import DeviceMesh
 from vllm import LLM, SamplingParams
-from vllm.config import CompilationConfig, CompilationLevel, LoRAConfig
+from vllm.config import CompilationConfig, LoRAConfig
 from vllm.lora.request import LoRARequest
+
+try:
+    # https://github.com/vllm-project/vllm/commit/96b9aa5aa076e64c68765232aec343e4d0006e2a
+    from vllm.config import CompilationMode
+
+    _use_compilation_mode = True
+except ImportError:
+    from vllm.config import CompilationLevel
+
+    _use_compilation_mode = False
 
 try:
     from vllm.worker.worker_base import WorkerWrapperBase
@@ -189,9 +199,12 @@ class vLLMRollout(BaseRollout):
         # enforce_eager must be False to use cudagraph
         if not config.enforce_eager and cudagraph_capture_sizes:
             if isinstance(cudagraph_capture_sizes, ListConfig):
-                compilation_config["compilation_config"] = CompilationConfig(
-                    level=CompilationLevel.PIECEWISE, cudagraph_capture_sizes=cudagraph_capture_sizes
-                )
+                compilation_args = {"cudagraph_capture_sizes": cudagraph_capture_sizes}
+                if _use_compilation_mode:
+                    compilation_args["mode"] = CompilationMode.VLLM_COMPILE
+                else:
+                    compilation_args["level"] = CompilationLevel.PIECEWISE
+                compilation_config["compilation_config"] = CompilationConfig(**compilation_args)
             else:
                 logger.warning(f"cudagraph_capture_sizes must be a list, but got {cudagraph_capture_sizes}")
 
