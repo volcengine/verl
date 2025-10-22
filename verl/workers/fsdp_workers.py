@@ -1071,6 +1071,14 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             f"{self._is_actor} and {self._is_rollout}"
         )
 
+        # No checkpoint to load, just offload the model and optimizer to CPU
+        if local_path is None:
+            if self._is_offload_param:
+                offload_fsdp_model_to_cpu(self.actor_module_fsdp)
+            if self._is_offload_optimizer:
+                offload_fsdp_optimizer(self.actor_optimizer)
+            return
+
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
 

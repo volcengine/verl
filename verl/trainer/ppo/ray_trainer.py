@@ -834,6 +834,8 @@ class RayPPOTrainer:
 
     def _load_checkpoint(self):
         if self.config.trainer.resume_mode == "disable":
+            # NOTE: while there is no checkpoint to load, we still need to offload the model and optimizer to CPU
+            self.actor_rollout_wg.load_checkpoint(None)
             return 0
 
         # load from hdfs
@@ -850,6 +852,7 @@ class RayPPOTrainer:
         if self.config.trainer.resume_mode == "auto":
             if global_step_folder is None:
                 print("Training from scratch")
+                self.actor_rollout_wg.load_checkpoint(None)
                 return 0
         else:
             if self.config.trainer.resume_mode == "resume_path":
