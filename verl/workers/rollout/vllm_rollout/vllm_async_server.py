@@ -73,6 +73,8 @@ class ExternalZeroMQDistributedExecutor(Executor):
         self.sockets = []
         for address in addresses:
             socket = self.context.socket(zmq.REQ)
+            if address.startswith("tcp://["):
+                socket.setsockopt(zmq.IPV6, 1)
             socket.connect(address)
             self.sockets.append(socket)
 
@@ -217,7 +219,7 @@ class vLLMHttpServerBase:
             "dtype": self.config.dtype,
             "load_format": self.config.load_format,
             "skip_tokenizer_init": False,
-            "trust_remote_code": True,
+            # "trust_remote_code": True,
             "max_model_len": self.config.max_model_len,
             "max_num_seqs": self.config.max_num_seqs,
             "enable_chunked_prefill": self.config.enable_chunked_prefill,
