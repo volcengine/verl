@@ -16,8 +16,8 @@ SP_SIZE=${SP_SIZE:-8}
 FSDP_SIZE=${FSDP_SIZE:-16}
 FSDP_STRATEGY=${FSDP_STRATEGY:-"fsdp2"}
 
-TP_SIZE=${TP_SIZE:-1}
-PP_SIZE=${PP_SIZE:-1}
+TP_SIZE=${TP_SIZE:-8}
+PP_SIZE=${PP_SIZE:-2}
 VPP_SIZE=${VPP_SIZE:-null}
 CP_SIZE=${CP_SIZE:-1}
 
@@ -43,18 +43,19 @@ FSDP_ENGINE_CONFIG="\
 MEGATRON_ENGINE_CONFIG="\
     engine=${backend} \
     optim=${backend} \
-    optim.lr=1e-5 \
-    optim.lr_warmup_steps_ratio=0.2 \
+    optim.lr=2e-5 \
+    optim.lr_warmup_steps_ratio=0.01 \
     optim.weight_decay=0.1 \
     optim.betas="[0.9,0.95]" \
     optim.clip_grad=1.0 \
     optim.lr_warmup_init=0 \
     optim.lr_decay_style=cosine \
-    optim.min_lr=1e-6 \
+    optim.min_lr=2e-6 \
     engine.tensor_model_parallel_size=${TP_SIZE} \
     engine.pipeline_model_parallel_size=${PP_SIZE} \
     engine.virtual_pipeline_model_parallel_size=${VPP_SIZE} \
-    engine.context_parallel_size=${CP_SIZE}"
+    engine.context_parallel_size=${CP_SIZE} \
+    engine.use_mbridge=False"
 
 if [ "$backend" = "fsdp" ]; then
     ENGINE_CONFIG="$FSDP_ENGINE_CONFIG"
@@ -63,7 +64,7 @@ if [ "$backend" = "fsdp" ]; then
 else
     ENGINE_CONFIG="$MEGATRON_ENGINE_CONFIG"
     echo "Using megatron engine"
-    exp_name=nvidia-openmathreasoning-${backend}-tp${TP_SIZE}-pp${PP_SIZE}-vpp${VPP_SIZE}-cp${CP_SIZE}-pad-${PAD_MODE}-use_remove_padding-${USE_REMOVE_PADDING}
+    exp_name=nvidia-openmathreasoning-${backend}-tp${TP_SIZE}-pp${PP_SIZE}-vpp${VPP_SIZE}-cp${CP_SIZE}-megatron-1018a1
 fi
 
 CKPT_HOME=${CKPT_HOME:-$HOME/open_verl/sft/${project_name}/${exp_name}}

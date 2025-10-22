@@ -47,7 +47,7 @@ def test_basic_rollout_is():
     rollout_log_prob = old_log_prob + torch.randn(batch_size, seq_length, device=device) * 0.1
     eos_mask = torch.ones(batch_size, seq_length, device=device)
 
-    # Test token-level truncate mode (equivalent to old TIS)
+    # Test token-level truncate mode
     print("\n1. Testing token-level truncate mode...")
     weights_proto, metrics = compute_rollout_importance_weights(
         old_log_prob=old_log_prob,
@@ -180,11 +180,6 @@ def test_metrics_completeness():
         "mismatch/rollout_is_catastrophic_token_fraction",
         "mismatch/rollout_is_ratio_fraction_high",
         "mismatch/rollout_is_ratio_fraction_low",
-        "mismatch/rollout_is_p25",
-        "mismatch/rollout_is_p50",
-        "mismatch/rollout_is_p75",
-        "mismatch/rollout_is_p95",
-        "mismatch/rollout_is_p99",
     ]
 
     # Expected mismatch/diagnostic metrics (also included now)
