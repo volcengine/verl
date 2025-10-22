@@ -101,6 +101,9 @@ jobs:
           npu-smi info
       - name: Checkout volcengine/verl repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          clean: true
       - name: Install the current repository
         run: |
           pip3 install hf_transfer peft
