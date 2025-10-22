@@ -12,7 +12,7 @@ Reward Loop is designed for more flexible and easy-to-use reward computation.
 
 - Make reward computation more efficient
 - Support broader reward model interface (including discriminative and generative models)
-- Make user costimized reward function more flexible
+- Make user customized reward function more flexible
 
 Async Reward Computation
 ------------------------
