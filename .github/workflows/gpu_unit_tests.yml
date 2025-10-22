@@ -93,6 +93,7 @@ jobs:
           pip3 install --no-deps -e .[test]
           pip3 install --upgrade "ray>=2.40.0"
           pip3 install cupy-cuda12x
+          pip3 install mlflow
       - name: Download Model to Use
         run: |
           huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct

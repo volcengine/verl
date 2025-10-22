@@ -12,6 +12,8 @@ data:
   tokenizer: null
   train_files: ~/data/rlhf/gsm8k/train.parquet
   val_files: ~/data/rlhf/gsm8k/test.parquet
+  train_max_samples: -1  # set to -1 to use full dataset
+  val_max_samples: -1  # set to -1 to use full dataset
   prompt_key: prompt
   max_prompt_length: 512
   max_response_length: 512
@@ -21,6 +23,7 @@ data:
   return_raw_chat: False
   return_full_prompt: False
   shuffle: True
+  seed: 42
 
 actor_rollout_ref:
   hybrid_engine: True

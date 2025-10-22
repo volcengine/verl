@@ -20,7 +20,7 @@ training policy (e.g., FSDP FP32).
 
 Key Features:
 1. Three aggregation levels: token, sequence, geometric
-2. Two handling modes: truncate (TIS), mask (MIS)
+2. Two handling modes: truncate, mask
 3. Per-token veto mechanism for catastrophic outliers
 4. Memory-efficient computation to prevent CUDA OOM
 5. Comprehensive metrics tracking
@@ -76,8 +76,8 @@ def compute_rollout_importance_weights(
             - "sequence": Product of ratios (unbiased)
             - "geometric": Geometric mean of ratios (experimental)
         rollout_is_mode: How to handle weights exceeding threshold:
-            - "truncate": Cap weights at upper_threshold only (TIS)
-            - "mask": Zero out weights outside [lower_threshold, upper_threshold] (MIS)
+            - "truncate": Cap weights at upper_threshold only
+            - "mask": Zero out weights outside [lower_threshold, upper_threshold]
         rollout_is_threshold: Upper threshold for IS weights
         rollout_is_threshold_lower: Lower threshold for IS weights (mask mode only; if None, defaults to 1/upper)
         rollout_is_veto_threshold: Per-token veto threshold. If any token ratio < this, zero entire sequence.
@@ -181,11 +181,11 @@ def compute_rollout_importance_weights(
 
     # Step 3: Apply truncation or masking based on mode
     if rollout_is_mode == "truncate":
-        # Truncated IS (TIS): only cap upper bound to prevent overweighting
+        # Truncate mode: only cap upper bound to prevent overweighting
         rollout_is_weights = rollout_is_weights.clamp(max=upper_threshold)
 
     elif rollout_is_mode == "mask":
-        # Masked IS (MIS): zero out weights outside [lower_threshold, upper_threshold]
+        # Mask mode: zero out weights outside [lower_threshold, upper_threshold]
         mask = (rollout_is_weights >= lower_threshold) & (rollout_is_weights <= upper_threshold)
         mask = mask.float()
 
@@ -354,17 +354,6 @@ def compute_is_metrics(
         # Fraction of sequences with high IS weights
         metrics["rollout_is_seq_fraction_high"] = (seq_mean_weights > rollout_is_threshold).float().mean()
         metrics["rollout_is_seq_fraction_low"] = (seq_mean_weights < rollout_is_threshold_lower).float().mean()
-
-    # Percentile metrics for better distribution understanding
-    # Get all valid IS weights
-    flat_weights = rollout_is_weights[response_mask.bool()]
-    # Compute key percentiles (guaranteed to have elements due to assertion at function start)
-    assert flat_weights.numel() > 0, "flat_weights should not be empty"
-    metrics["rollout_is_p25"] = torch.quantile(flat_weights, 0.25)
-    metrics["rollout_is_p50"] = torch.quantile(flat_weights, 0.50)  # median
-    metrics["rollout_is_p75"] = torch.quantile(flat_weights, 0.75)
-    metrics["rollout_is_p95"] = torch.quantile(flat_weights, 0.95)
-    metrics["rollout_is_p99"] = torch.quantile(flat_weights, 0.99)
 
     return metrics
 

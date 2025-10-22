@@ -123,6 +123,10 @@ Install from custom environment
 
 We recommend to use docker images for convenience. However, if your environment is not compatible with the docker image, you can also install verl in a python environment.
 
+.. note::
+
+    - Dockerfile provides more details than this installation instructions. You can find examples in each Dockerfile, for example `verl0.6-cu128-torch2.8.0-fa2.7.4 Dockerfile.base <https://github.com/volcengine/verl/blob/v0.6.0/docker/verl0.6-cu128-torch2.8.0-fa2.7.4/Dockerfile.base>`_ .
+
 
 Pre-requisites
 ::::::::::::::
@@ -133,7 +137,8 @@ so we put them in the :ref:`Post-installation` step.
 
 .. note::
 
-    The installation steps below are recommended configurations for the latest version of verl.
+    - The installation steps below are recommended configurations for the latest version of verl.
+
     If you are trying to customize your own environment, please ignore the strict constraints.
 
 We need to install the following pre-requisites:

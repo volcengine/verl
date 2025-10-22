@@ -17,6 +17,8 @@ Data
      tokenizer: null
      train_files: ~/data/rlhf/gsm8k/train.parquet
      val_files: ~/data/rlhf/gsm8k/test.parquet
+     train_max_samples: -1  # set to -1 to use full dataset
+     val_max_samples: -1  # set to -1 to use full dataset
      prompt_key: prompt
      max_prompt_length: 512
      max_response_length: 512
@@ -25,6 +27,7 @@ Data
      return_raw_chat: False
      return_full_prompt: False
      shuffle: True
+     seed: 42
      filter_overlong_prompts: False
      filter_overlong_prompts_workers: 1
      truncation: error
@@ -41,6 +44,10 @@ Data
   HDFS path to local path.
 - ``data.val_files``: Validation parquet. Can be a list or a single
   file.
+- ``data.train_max_samples``: Maximum number of samples to use from the
+  training dataset. Set to -1 to use the full dataset.
+- ``data.val_max_samples``: Maximum number of samples to use from the
+  validation dataset. Set to -1 to use the full dataset.
 - ``data.prompt_key``: The field in the dataset where the prompt is
   located. Default is 'prompt'.
 - ``data.max_prompt_length``: Maximum prompt length. All prompts will be
@@ -60,6 +67,8 @@ Data
   without applying chat template.
 - ``data.return_full_prompt``: Whether to return the full prompt with chat template
 - ``data.shuffle``: Whether to shuffle the data in the dataloader.
+- ``data.seed``: An integer seed to use when shuffling the data. If not set or set to
+  `null`, the data shuffling will not be seeded, resulting in a different data order on each run.
 - ``data.filter_overlong_prompts``: Default don't filter.
 - ``data.filter_overlong_prompts_workers``: For large-scale dataset, filtering
   overlong prompts could be timeconsuming. You cat set the ``filter_overlong_prompts_workers``
