@@ -16,13 +16,13 @@ import json
 import logging
 import os
 import random
-import transformer_engine
 from collections.abc import Callable
 from dataclasses import asdict
 
 import numpy as np
 import torch
 import torch.distributed
+import transformer_engine
 from megatron.core import mpu, tensor_parallel
 from megatron.core.dist_checkpointing.mapping import ShardedObject
 from megatron.core.transformer.enums import AttnBackend
