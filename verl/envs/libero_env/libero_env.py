@@ -260,10 +260,12 @@ class LiberoEnv(gym.Env):
             images_and_states = self._extract_image_and_state(obs)
             images_and_states_list.append(images_and_states)
 
-        obs = {
-            "images_and_states": to_tensor(list_of_dict_to_dict_of_list(images_and_states_list)),
-            "task_descriptions": self.task_descriptions,
-        }
+        # obs = {
+        #     "images_and_states": to_tensor(list_of_dict_to_dict_of_list(images_and_states_list)),
+        #     "task_descriptions": self.task_descriptions,
+        # }
+        obs = to_tensor(list_of_dict_to_dict_of_list(images_and_states_list))
+        obs.update({"task_descriptions": self.task_descriptions})
         return obs
 
     def _reconfigure(self, reset_state_ids, env_idx):
@@ -449,6 +451,16 @@ class LiberoEnv(gym.Env):
         )
         self.video_cnt += 1
         self.render_images = []
+
+    def reset_envs_to_state_ids(self, state_ids_list):
+        """Reset environments to specified state IDs.
+        
+        Args:
+            state_ids_list: List of state IDs to reset environments to
+        """
+        env_idx = np.arange(len(state_ids_list))
+        obs, infos = self.reset(env_idx=env_idx, reset_state_ids=state_ids_list)
+        return obs, infos
 
     def load_state(self, state_buffer: bytes):
         self.env.load_state(state_buffer)
