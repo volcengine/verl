@@ -75,26 +75,27 @@ class DynamicGenDataset(RLHFDataset):
         self,
         data_files: str | list[str],
         tokenizer: PreTrainedTokenizer,
-        config: DictConfig,
+        data_config: DictConfig,
+        exp_config: DictConfig,
         processor: Optional[ProcessorMixin] = None,
     ):
-        super().__init__(data_files, tokenizer, config, processor)
-        self.datagen: AbstractDataGenerator = config.datagen
-        assert "datagen" in config and config.datagen.get("path", None) is not None, (
-            f"datagen path is not set in config: {config}"
+        super().__init__(data_files, tokenizer, data_config, processor)
+        self.datagen: AbstractDataGenerator = data_config.datagen
+        assert "datagen" in data_config and data_config.datagen.get("path", None) is not None, (
+            f"datagen path is not set in config: {data_config}"
         )
         # Dynamically load the custom datagen class
-        datagen_cls = load_extern_type(config.datagen.path, config.datagen.name)
+        datagen_cls = load_extern_type(data_config.datagen.path, data_config.datagen.name)
 
         # Verify that the custom datagen class inherits from AbstractDataGenerator
         abs_cls = AbstractDataGenerator
         if not issubclass(datagen_cls, abs_cls):
             raise TypeError(
-                f"The custom datagen class '{config.datagen.name}' from '{config.datagen.path}'"
+                f"The custom datagen class '{data_config.datagen.name}' from '{data_config.datagen.path}'"
                 + " must inherit from {abs_cls}"
             )
 
-        self.data_generator = datagen_cls(config.datagen)
+        self.data_generator = datagen_cls(data_config.datagen)
         self.on_batch_end()
 
     def append_dataframe(self, new_dataframe: datasets.Dataset):

@@ -30,6 +30,7 @@ from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer, ProcessorMixin
 
 import verl.utils.torch_functional as verl_F
+from verl.tools.utils.tool_registry import initialize_tools_from_config
 from verl.utils.model import compute_position_id_with_mask
 
 logger = logging.getLogger(__name__)
@@ -80,6 +81,7 @@ class RLHFDataset(Dataset):
         data_files (str or list): Path(s) to Parquet file(s).
         tokenizer (PreTrainedTokenizer): For the tokenization of text to token IDs.
         config (DictConfig): Options like cache_dir, prompt_key, max_prompt_length, truncation, etc.
+        exp_config (DictConfig): Config for experimental setup.
         processor (ProcessorMixin, optional): Multimodal preprocessor for images/videos.
     """
 
@@ -87,7 +89,8 @@ class RLHFDataset(Dataset):
         self,
         data_files: str | list[str],
         tokenizer: PreTrainedTokenizer,
-        config: DictConfig,
+        data_config: DictConfig,
+        exp_config: DictConfig,
         processor: Optional[ProcessorMixin] = None,
         max_samples: int = -1,
     ):
@@ -99,29 +102,36 @@ class RLHFDataset(Dataset):
         self.tokenizer = tokenizer
         self.processor = processor
         self.max_samples = max_samples
-        self.config = config
+        self.config = data_config
+        self.exp_config = exp_config
 
-        self.cache_dir = os.path.expanduser(config.get("cache_dir", "~/.cache/verl/rlhf"))
-        self.prompt_key = config.get("prompt_key", "prompt")
-        self.image_key = config.get("image_key", "images")
-        self.video_key = config.get("video_key", "videos")
-        self.max_prompt_length = config.get("max_prompt_length", 1024)
-        self.return_raw_chat = config.get("return_raw_chat", False)
-        self.return_full_prompt = config.get("return_full_prompt", False)
-        self.truncation = config.get("truncation", "error")
-        self.filter_overlong_prompts = config.get("filter_overlong_prompts", True)
-        self.apply_chat_template_kwargs = config.get("apply_chat_template_kwargs", {})
+        self.cache_dir = os.path.expanduser(data_config.get("cache_dir", "~/.cache/verl/rlhf"))
+        self.prompt_key = data_config.get("prompt_key", "prompt")
+        self.image_key = data_config.get("image_key", "images")
+        self.video_key = data_config.get("video_key", "videos")
+        self.max_prompt_length = data_config.get("max_prompt_length", 1024)
+        self.return_raw_chat = data_config.get("return_raw_chat", False)
+        self.return_full_prompt = data_config.get("return_full_prompt", False)
+        self.truncation = data_config.get("truncation", "error")
+        self.filter_overlong_prompts = data_config.get("filter_overlong_prompts", True)
+        self.apply_chat_template_kwargs = data_config.get("apply_chat_template_kwargs", {})
 
-        self.num_workers = config.get("filter_overlong_prompts_workers", max(1, os.cpu_count() // 4))
+        self.num_workers = data_config.get("filter_overlong_prompts_workers", max(1, os.cpu_count() // 4))
         self.num_workers = min(self.num_workers, os.cpu_count())
-        self.use_shm = config.get("use_shm", False)
-        self.chat_template_func = config.get("chat_template_func", None)
-        self.need_tools_kwargs = config.get("need_tools_kwargs", False)
-        self.filter_prompts = config.get("filter_prompts", True)
+        self.use_shm = data_config.get("use_shm", False)
+        self.chat_template_func = data_config.get("chat_template_func", None)
+        self.tool_schemas = [
+            tool.get_openai_tool_schema().model_dump()
+            for tool in initialize_tools_from_config(
+                self.exp_config.actor_rollout_ref.rollout.multi_turn.tool_config_path
+            )
+        ]
+        self.need_tools_kwargs = data_config.get("need_tools_kwargs", False)
+        self.filter_prompts = data_config.get("filter_prompts", True)
         self.serialize_dataset = False
-        self.return_multi_modal_inputs = config.get("return_multi_modal_inputs", True)
-        self.shuffle = config.get("shuffle", False)
-        self.seed = config.get("seed")
+        self.return_multi_modal_inputs = data_config.get("return_multi_modal_inputs", True)
+        self.shuffle = data_config.get("shuffle", False)
+        self.seed = data_config.get("seed")
 
         self._download()
         self._read_files_and_tokenize()
@@ -172,7 +182,11 @@ class RLHFDataset(Dataset):
                     try:
                         messages = self._build_messages(doc)
                         raw_prompt = self.processor.apply_chat_template(
-                            messages, add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
+                            messages,
+                            add_generation_prompt=True,
+                            tokenize=False,
+                            tools=self.tool_schemas,
+                            **self.apply_chat_template_kwargs,
                         )
                         images = (
                             [process_image(image) for image in doc[image_key]]
@@ -197,7 +211,10 @@ class RLHFDataset(Dataset):
                     try:
                         return len(
                             tokenizer.apply_chat_template(
-                                doc[prompt_key], add_generation_prompt=True, **self.apply_chat_template_kwargs
+                                doc[prompt_key],
+                                add_generation_prompt=True,
+                                tools=self.tool_schemas,
+                                **self.apply_chat_template_kwargs,
                             )
                         )
                     except Exception:
@@ -261,6 +278,13 @@ class RLHFDataset(Dataset):
             raw_prompt = self.processor.apply_chat_template(
                 messages, add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
             )
+            raw_prompt_with_tools = self.tokenizer.apply_chat_template(
+                messages,
+                add_generation_prompt=True,
+                tokenize=False,
+                tools=self.tool_schemas,
+                **self.apply_chat_template_kwargs,
+            )
             multi_modal_data = {}
 
             images = None
@@ -308,6 +332,13 @@ class RLHFDataset(Dataset):
                 )
             raw_prompt = self.tokenizer.apply_chat_template(
                 messages, add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
+            )
+            raw_prompt_with_tools = self.tokenizer.apply_chat_template(
+                messages,
+                add_generation_prompt=True,
+                tokenize=False,
+                tools=self.tool_schemas,
+                **self.apply_chat_template_kwargs,
             )
             model_inputs = self.tokenizer(raw_prompt, return_tensors="pt", add_special_tokens=False)
             input_ids = model_inputs.pop("input_ids")
@@ -363,14 +394,17 @@ class RLHFDataset(Dataset):
         row_dict["position_ids"] = position_ids[0]
 
         raw_prompt_ids = self.tokenizer.encode(raw_prompt, add_special_tokens=False)
-        if len(raw_prompt_ids) > self.max_prompt_length:
+        raw_prompt_with_tools_ids = self.tokenizer.encode(raw_prompt_with_tools, add_special_tokens=False)
+
+        if len(raw_prompt_with_tools_ids) > self.max_prompt_length:
             if self.truncation == "left":
-                raw_prompt_ids = raw_prompt_ids[-self.max_prompt_length :]
+                raw_prompt_ids = raw_prompt_ids[len(raw_prompt_with_tools_ids) - self.max_prompt_length :]
             elif self.truncation == "right":
-                raw_prompt_ids = raw_prompt_ids[: self.max_prompt_length]
+                raw_prompt_ids = raw_prompt_ids[: len(raw_prompt_with_tools_ids) - self.max_prompt_length]
             elif self.truncation == "middle":
-                left_half = self.max_prompt_length // 2
-                right_half = self.max_prompt_length - left_half
+                tools_diff_len = len(raw_prompt_with_tools_ids) - len(raw_prompt_ids)
+                left_half = (self.max_prompt_length - tools_diff_len) // 2
+                right_half = self.max_prompt_length - tools_diff_len - left_half
                 raw_prompt_ids = raw_prompt_ids[:left_half] + raw_prompt_ids[-right_half:]
             elif self.truncation == "error":
                 raise RuntimeError(f"Prompt length {len(raw_prompt_ids)} is longer than {self.max_prompt_length}.")
