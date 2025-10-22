@@ -14,6 +14,8 @@ Reward Loop is designed for more flexible and easy-to-use reward computation.
 - Support broader reward model interface (including discriminative and generative models)
 - Make user customized reward function more flexible
 
+.. image:: https://github.com/yyDing1/verl-materials/blob/main/reward_loop_overview.png?raw=true
+
 Async Reward Computation
 ------------------------
 
@@ -52,7 +54,6 @@ Take the `NaiveRewardLoopManager` as an example:
 
 To support this feature, user-customized reward functions can be implemented as either synchronous or asynchronous.
 `RewardLoopManager` automatically determines whether the user-customized reward function is asynchronous or synchronous and handles it accordingly, ensuring that the current process remains non-blocking.
-This feature can be integrated with AgentLoop to enable sample-wise rollout and reward computation.
 
 Reward Model Interface
 ----------------------
@@ -100,6 +101,8 @@ So we can expose the unique reward router address to the user-customized reward 
 
 RewardModelManager
 ~~~~~~~~~~~~~~~~~~
+
+.. image:: https://github.com/yyDing1/verl-materials/blob/main/reward_loop_full.png?raw=true
 
 `RewardModelManager` will launch multiple reward servers and register them in the reward router.
 
@@ -164,3 +167,11 @@ The router is to forward the requests to the registered reward servers with load
 
          # Placeholder for aiohttp client
          self.client = None
+
+Integrate with AgentLoop
+------------------------
+
+Reward Loop can be integrated with AgentLoop to enable sample-wise rollout and reward computation.
+
+.. image:: https://github.com/yyDing1/verl-materials/blob/main/agent_reward_loop.png?raw=true
+
