@@ -26,19 +26,19 @@ def calculate_score(number):
     """
     if number <= 0:
         return 1.0
-    elif number >= 10000:
+    elif number >= 11000:
         return 0.0
-    elif number <= 9000:
+    elif number <= 9500:
         # Very gentle decrease, stays close to 1
         return 1.0 
-    elif number <= 9500:
+    elif number <= 10000:
         # Gentle decrease from ~0.99 to 0.9
         # Linear interpolation from 5000 to 8000
-        return 0.99 - ((number - 9500) / 500) * 0.09
+        return 0.99 - ((number - 10000) / 500) * 0.09
     else:
         # Faster decrease from 8000 to 10000
         # Exponential decay from 0.9 to 0
-        remaining = number - 9500
+        remaining = number - 10000
         return 0.9 * math.exp(-2.5 * remaining / 500)
 
 def extract_think_tags(text):
