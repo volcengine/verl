@@ -1386,7 +1386,7 @@ def compute_value_loss(
     response_mask: torch.Tensor,
     cliprange_value: float,
     loss_agg_mode: str = "token-mean",
-    mini_batch_full_token_count: int = None,
+    mini_batch_full_token_count: int | None = None,
 ):
     """
     Compute the clipped value-function loss for PPO.

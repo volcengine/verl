@@ -219,8 +219,7 @@ class DataParallelPPOCritic(BasePPOCritic):
                 
                 mini_batch_full_token_count = 0
                 for micro_batch in micro_batches:
-                    response_mask = micro_batch.batch["response_mask"]
-                    mini_batch_full_token_count += response_mask.sum().item()
+                    mini_batch_full_token_count += mini_batch.batch["response_mask"].sum().item()
                 
                 for micro_batch in micro_batches:
                     micro_batch = micro_batch.to(get_device_id())

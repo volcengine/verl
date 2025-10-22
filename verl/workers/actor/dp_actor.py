@@ -405,8 +405,7 @@ class DataParallelPPOActor(BasePPOActor):
 
                 mini_batch_full_token_count = 0
                 for micro_batch in micro_batches:
-                    response_mask = micro_batch.batch["response_mask"]
-                    mini_batch_full_token_count += response_mask.sum().item()
+                    mini_batch_full_token_count += mini_batch.batch["response_mask"].sum().item()
                 self.config.mini_batch_full_token_count = mini_batch_full_token_count
                 
                 for micro_batch in micro_batches:
