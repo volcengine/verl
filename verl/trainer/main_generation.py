@@ -20,6 +20,8 @@ import os
 import hydra
 import numpy as np
 import ray
+import sys
+from tqdm import tqdm
 
 os.environ["NCCL_DEBUG"] = "WARN"
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
@@ -95,10 +97,53 @@ def main_task(config):
     config_batch_size = config.data.batch_size
     apply_chat_template_kwargs = config.data.get("apply_chat_template_kwargs", {})
     num_batch = -(-total_samples // config_batch_size)
+    
+    # Checkpoint settings - save every 10 batches
+    checkpoint_batch_interval = 10
+    output_dir = os.path.dirname(config.data.output_path)
+    output_name = os.path.splitext(os.path.basename(config.data.output_path))[0]
+    checkpoint_path = os.path.join(output_dir, f"{output_name}_checkpoint.parquet")
+    
+    # Initialize variables
     output_lst = [[] for _ in range(config.data.n_samples)]
+    processed_samples = 0
+    start_batch = 0
+    
+    # Try to resume from checkpoint
+    if os.path.exists(checkpoint_path):
+        try:
+            checkpoint_df = pd.read_parquet(checkpoint_path)
+            if "responses" in checkpoint_df.columns:
+                # Convert back to (n_samples, n_data) format
+                responses = checkpoint_df["responses"].tolist()
+                if responses:
+                    responses_array = np.array(responses, dtype=object)
+                    output_lst = np.transpose(responses_array, axes=(1, 0)).tolist()
+                processed_samples = len(checkpoint_df)
+                start_batch = processed_samples // config_batch_size
+                print(f"Resuming from checkpoint, processed {processed_samples} samples, starting from batch {start_batch + 1}")
+                # Initialize n_samples lists if needed
+                if len(output_lst) < config.data.n_samples:
+                    output_lst.extend([[] for _ in range(config.data.n_samples - len(output_lst))])
+        except Exception as e:
+            print(f"Failed to load checkpoint: {e}, starting fresh")
+            output_lst = [[] for _ in range(config.data.n_samples)]
+            processed_samples = 0
+            start_batch = 0
+    
+    if start_batch == 0:
+        print("Starting new generation task")
 
-    for batch_idx in range(num_batch):
-        print(f"[{batch_idx + 1}/{num_batch}] Start to process.")
+    # Use tqdm to show progress bar
+    progress_bar = tqdm(
+        range(start_batch, num_batch), 
+        desc="Generation Progress", 
+        initial=start_batch,
+        total=num_batch,
+        unit="batch"
+    )
+
+    for batch_idx in progress_bar:
         batch_chat_lst = chat_lst[batch_idx * config_batch_size : (batch_idx + 1) * config_batch_size]
         inputs = tokenizer.apply_chat_template(
             batch_chat_lst,
@@ -120,7 +165,6 @@ def main_task(config):
         data_padded, pad_size = pad_dataproto_to_divisor(data, wg.world_size)
 
         # START TO GENERATE FOR n_samples TIMES
-        print(f"[{batch_idx + 1}/{num_batch}] Start to generate.")
         for n_sample in range(config.data.n_samples):
             output_padded = wg.generate_sequences(data_padded)
             output = unpad_dataproto(output_padded, pad_size=pad_size)
@@ -136,6 +180,25 @@ def main_task(config):
 
             output_lst[n_sample].extend(output_texts)
 
+        # Update processed samples count
+        processed_samples = min((batch_idx + 1) * config_batch_size, total_samples)
+        
+        # Save checkpoint every checkpoint_batch_interval batches or at the last batch
+        if (batch_idx + 1) % checkpoint_batch_interval == 0 or batch_idx == num_batch - 1:
+            # Create partial dataset for checkpoint and save
+            dataset_partial = dataset.iloc[:processed_samples].copy()
+            # Convert output_lst from (n_samples, n_data) to (n_data, n_samples) for partial dataset
+            if output_lst and any(output_lst):
+                output_array = np.array(output_lst, dtype=object)
+                output_transposed = np.transpose(output_array, axes=(1, 0)).tolist()
+                dataset_partial["responses"] = output_transposed
+            # Save as parquet file
+            dataset_partial.to_parquet(checkpoint_path)
+            print(f"Checkpoint saved at batch {batch_idx + 1}, processed {processed_samples} samples")
+
+    progress_bar.close()
+    print(f"Generation completed, processed {processed_samples} samples")
+
     # convert output_lst from (n_samples, n_data) to (n_data, n_sampels)
     output_lst = np.array(output_lst, dtype=object)
     output_lst = np.transpose(output_lst, axes=(1, 0)).tolist()
@@ -147,6 +210,12 @@ def main_task(config):
     output_dir = os.path.dirname(config.data.output_path)
     makedirs(output_dir, exist_ok=True)
     dataset.to_parquet(config.data.output_path)
+    
+    # Clean up temporary checkpoint file
+    if os.path.exists(checkpoint_path):
+        os.remove(checkpoint_path)
+        print(f"Removed temporary checkpoint file: {checkpoint_path}")
+    print(f"Generation results saved to: {config.data.output_path}")
 
 
 if __name__ == "__main__":
