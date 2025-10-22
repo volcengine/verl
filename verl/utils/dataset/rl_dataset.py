@@ -397,17 +397,18 @@ class RLHFDataset(Dataset):
         raw_prompt_with_tools_ids = self.tokenizer.encode(raw_prompt_with_tools, add_special_tokens=False)
 
         if len(raw_prompt_with_tools_ids) > self.max_prompt_length:
+            tools_diff_len = len(raw_prompt_with_tools_ids) - len(raw_prompt_ids)
+            num_to_truncate = self.max_prompt_length - tools_diff_len
             if self.truncation == "left":
-                raw_prompt_ids = raw_prompt_ids[len(raw_prompt_with_tools_ids) - self.max_prompt_length :]
+                raw_prompt_ids = raw_prompt_ids[-num_to_truncate:]
             elif self.truncation == "right":
-                raw_prompt_ids = raw_prompt_ids[: len(raw_prompt_with_tools_ids) - self.max_prompt_length]
+                raw_prompt_ids = raw_prompt_ids[:num_to_truncate]
             elif self.truncation == "middle":
-                tools_diff_len = len(raw_prompt_with_tools_ids) - len(raw_prompt_ids)
-                left_half = (self.max_prompt_length - tools_diff_len) // 2
-                right_half = self.max_prompt_length - tools_diff_len - left_half
+                left_half = num_to_truncate // 2
+                right_half = num_to_truncate - left_half
                 raw_prompt_ids = raw_prompt_ids[:left_half] + raw_prompt_ids[-right_half:]
             elif self.truncation == "error":
-                raise RuntimeError(f"Prompt length {len(raw_prompt_ids)} is longer than {self.max_prompt_length}.")
+                raise RuntimeError(f"Prompt length {len(raw_prompt_with_tools_ids)} is longer than {num_to_truncate}.")
 
         row_dict["raw_prompt_ids"] = raw_prompt_ids
         # encode prompts without chat template
