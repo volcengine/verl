@@ -21,6 +21,7 @@ Reward Loop refactors the design of the reward manager so that each sample is pr
 Take the `NaiveRewardLoopManager` as an example:
 
 .. code:: python
+
    class RewardLoopManagerBase(ABC):
       @abstractmethod
       async def run_single(self, data: DataProto) -> dict:
@@ -59,7 +60,8 @@ Reward Model Interface
 In the RewardLoopManger, we directly expose the reward model interface to support more complex reward computation scenarios involving reward models.
 For example, a user-defined reward function can be written as follows:
 
-.. code:: python 
+.. code:: python
+
    async def compute_score_gsm8k(
       data_source: str,
       solution_str: str,
@@ -102,8 +104,10 @@ RewardModelManager
 `RewardModelManager` will launch multiple reward servers and register them in the reward router.
 
 .. code:: python
+
    class RewardModelManager:
       """Reward model manager."""
+
       def __init__(self, config: RewardModelConfig, worker_group: RayWorkerGroup = None):
          """
          Initialize the reward model manager.
@@ -127,6 +131,7 @@ The router is to forward the requests to the registered reward servers with load
 - For vllm reward servers, we implement a simple round-robin router to forward the requests.
 
 .. code:: python
+
    class NaiveRouter:
       def __init__(
          self,
@@ -136,7 +141,7 @@ The router is to forward the requests to the registered reward servers with load
          max_attempts: int = 3,
          retry_delay: float = 2.0,
          verbose: bool = False,
-      ) -> None:
+      ):
          """A minimal async load-balancing router."""
          self.verbose = verbose
          self.app = FastAPI()
