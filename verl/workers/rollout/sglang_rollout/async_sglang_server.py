@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import asyncio
+import dataclasses
 import logging
 import os
 from typing import Any, Optional
@@ -153,6 +154,10 @@ class SGLangHttpServer:
             "skip_tokenizer_init": self.config.skip_tokenizer_init,
             **engine_kwargs,
         }
+        # enable_weights_cpu_backup is supported in sglang>=0.5.3
+        if "enable_weights_cpu_backup" in [f.name for f in dataclasses.fields(ServerArgs)]:
+            enable_weights_cpu_backup = True if self.rollout_mode == RolloutMode.COLOCATED else False
+            args["enable_weights_cpu_backup"] = enable_weights_cpu_backup
 
         # NOTE: We can't directly call SGLang's launch_server since it's not an async function.
         # https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/entrypoints/http_server.py
