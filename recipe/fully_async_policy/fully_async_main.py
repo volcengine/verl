@@ -80,7 +80,7 @@ def create_role_worker_mapping(config):
         dict: Mapping from roles to worker classes
     """
     # Select worker class based on strategy
-    if config.actor_rollout_ref.actor.strategy == "fsdp2":
+    if config.actor_rollout_ref.actor.strategy in ["fsdp", "fsdp2"]:
         assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
         from recipe.fully_async_policy.fsdp_workers import (
             CriticWorker,
@@ -102,7 +102,7 @@ def create_role_worker_mapping(config):
     }
 
     if config.reward_model.enable:
-        if config.reward_model.strategy == "fsdp2":
+        if config.reward_model.strategy in ["fsdp", "fsdp2"]:
             from verl.workers.fsdp_workers import RewardModelWorker
         # TODO megatron support
         else:
