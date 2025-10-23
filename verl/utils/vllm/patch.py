@@ -96,6 +96,9 @@ def patch_vllm_moe_model_weight_loader(model):
     if inner_model is None:
         raise ValueError("The provided model does not have a valid 'model' or 'language_model' attribute.")
 
+    if isinstance(inner_model, Qwen3MoeLLMForCausalLM):
+        inner_model = inner_model.model # Reassign inner_model in Qwen3-vl
+
     for layer_idx, layer in enumerate(inner_model.layers):
         mlp_attr = MLP_ATTR_MAPPING.get(original_model_type, DEFAULT_MLP_ATTR)
 
