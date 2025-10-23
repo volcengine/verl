@@ -104,7 +104,7 @@ def patch_vllm_moe_model_weight_loader(model):
         return
 
     # TODO(@leisuzz): class Qwen3MoeLLMForCausalLM is not available if VLLM version < 0.11.0,
-    #  will update the 'if statement' with 'isinstance' when verl commonly use VLLM version >= 0.11.0
+    # will update the 'if statement' with 'isinstance' when verl commonly use VLLM version >= 0.11.0
     if type(inner_model).__name__ == "Qwen3MoeLLMForCausalLM":
         inner_model = inner_model.model  # Reassign inner_model in Qwen3-vl
 
