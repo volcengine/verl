@@ -24,6 +24,9 @@ async_training:
   # Whether to use rollout log probs for training
   use_rollout_log_probs: True
 
+  # recompute_old_log_prob
+  recompute_old_log_prob: False
+
 # Rollout config
 rollout:
 

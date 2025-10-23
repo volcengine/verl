@@ -76,7 +76,7 @@ from verl.utils.fsdp_utils import (
     load_fsdp_optimizer,
     offload_fsdp_model_to_cpu,
     offload_fsdp_optimizer,
-    replace_lora_wrapper,
+    replace_lora_wrapper, get_fsdp_full_state_dict, get_fsdp_state_ctx,
 )
 from verl.utils.import_utils import import_external_libs
 from verl.utils.memory_utils import aggressive_empty_cache
@@ -241,7 +241,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             # micro bsz
             if self.config.actor.ppo_micro_batch_size is not None:
                 self.config.actor.ppo_micro_batch_size //= (
-                    self.device_mesh.size() // self.ulysses_sequence_parallel_size
+                        self.device_mesh.size() // self.ulysses_sequence_parallel_size
                 )
                 self.config.actor.ppo_micro_batch_size_per_gpu = self.config.actor.ppo_micro_batch_size
 
@@ -258,7 +258,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         # normalize rollout config
         if self._is_rollout and self.config.rollout.log_prob_micro_batch_size is not None:
             self.config.rollout.log_prob_micro_batch_size //= (
-                self.device_mesh.size() // self.ulysses_sequence_parallel_size
+                    self.device_mesh.size() // self.ulysses_sequence_parallel_size
             )
             self.config.rollout.log_prob_micro_batch_size_per_gpu = self.config.rollout.log_prob_micro_batch_size
         # normalize ref config
@@ -267,18 +267,18 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             self.config.ref.log_prob_micro_batch_size_per_gpu = self.config.ref.log_prob_micro_batch_size
 
     def _build_model_optimizer(
-        self,
-        model_path,
-        fsdp_config: FSDPEngineConfig,
-        optim_config,
-        override_model_config,
-        use_remove_padding=False,
-        use_fused_kernels=False,
-        enable_gradient_checkpointing=False,
-        trust_remote_code=False,
-        use_liger=False,
-        role="actor",
-        enable_activation_offload=False,
+            self,
+            model_path,
+            fsdp_config: FSDPEngineConfig,
+            optim_config,
+            override_model_config,
+            use_remove_padding=False,
+            use_fused_kernels=False,
+            enable_gradient_checkpointing=False,
+            trust_remote_code=False,
+            use_liger=False,
+            role="actor",
+            enable_activation_offload=False,
     ):
         from torch.distributed.fsdp import CPUOffload, MixedPrecision
         from transformers import (
@@ -581,8 +581,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             self._register_dispatch_collect_info("rollout", dp_rank=self.rank, is_collect=True)
         else:
             is_collect = (
-                rollout_device_mesh["infer_tp"].get_local_rank() == 0
-                and rollout_device_mesh["infer_pp"].get_local_rank() == 0
+                    rollout_device_mesh["infer_tp"].get_local_rank() == 0
+                    and rollout_device_mesh["infer_pp"].get_local_rank() == 0
             )
             self._register_dispatch_collect_info(
                 "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
@@ -770,6 +770,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 enable_activation_offload=self.config.model.get("enable_activation_offload", False),
             )
 
+            self.cpu_saved_models = {}
+
             # get the original unwrapped module
             if fsdp_version(self.actor_module_fsdp) == 1:
                 self.actor_module = self.actor_module_fsdp._fsdp_wrapped_module
@@ -859,11 +861,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             global_num_tokens = data.meta_info["global_token_num"]
             estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
             metrics["perf/mfu/actor"] = (
-                estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
+                    estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
             )
-            metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024**3)
-            metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024**3)
-            metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024**3)
+            metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024 ** 3)
+            metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024 ** 3)
+            metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024 ** 3)
 
             lr = self.actor_lr_scheduler.get_last_lr()[0]
             metrics["actor/lr"] = lr.item() if torch.is_tensor(lr) else lr
@@ -1112,6 +1114,37 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 # silently ignore if profiler doesn't support memory snapshots
                 pass
 
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def save_model_to_cpu(self, n):
+        """保存当前模型到CPU，但保持GPU上的参数不变"""
+        # 获取完整的模型状态字典并保存到CPU
+        state_dict = get_fsdp_full_state_dict(self.actor_module_fsdp, offload_to_cpu=True, rank0_only=False)
+        self.cpu_saved_models[n] = state_dict
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def restore_model_from_cpu(self, n):
+        """从CPU恢复指定版本的模型到actor_module_fsdp"""
+        if n in self.cpu_saved_models:
+            state_dict = self.cpu_saved_models[n]
+            if fsdp_version(self.actor_module_fsdp) == 1:
+                from torch.distributed.fsdp import FullStateDictConfig, StateDictType
+
+                state_dict_config = FullStateDictConfig(offload_to_cpu=False, rank0_only=False)
+                with get_fsdp_state_ctx(
+                        self.actor_module_fsdp, state_type=StateDictType.FULL_STATE_DICT,
+                        state_cfg=state_dict_config, optim_cfg=None
+                ):
+                    self.actor_module_fsdp.load_state_dict(state_dict)
+            elif fsdp_version(self.actor_module_fsdp) == 2:
+                fsdp2_load_full_state_dict(self.actor_module_fsdp, state_dict)
+        else:
+            raise ValueError(f"Model version {n} not found in CPU saved models")
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def clear_cpu_model(self, n):
+        if n in self.cpu_saved_models:
+            del self.cpu_saved_models[n]
+
 
 class CriticWorker(Worker, DistProfilerExtension):
     def __init__(self, config: FSDPCriticConfig):
@@ -1173,10 +1206,10 @@ class CriticWorker(Worker, DistProfilerExtension):
         self.config.ppo_mini_batch_size //= torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
         if self.config.ppo_micro_batch_size is not None:
             self.config.ppo_micro_batch_size //= (
-                torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
+                    torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
             )
             self.config.forward_micro_batch_size //= (
-                torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
+                    torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
             )
             self.config.ppo_micro_batch_size_per_gpu = self.config.ppo_micro_batch_size
             self.config.forward_micro_batch_size_per_gpu = self.config.forward_micro_batch_size
@@ -1909,11 +1942,11 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
     async def generate(
-        self,
-        prompt_ids: list[int],
-        sampling_params: dict[str, Any],
-        request_id: str,
-        image_data: Optional[list[Any]] = None,
+            self,
+            prompt_ids: list[int],
+            sampling_params: dict[str, Any],
+            request_id: str,
+            image_data: Optional[list[Any]] = None,
     ) -> list[int]:
         ret = await self.rollout.generate(prompt_ids, sampling_params, request_id, image_data=image_data)
         return ret

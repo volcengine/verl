@@ -121,8 +121,8 @@ class FullyAsyncRayPPOTrainer(RayPPOTrainer):
             # Only require nsight worker options when tool is nsys
             if OmegaConf.select(self.config.global_profiler, "tool") == "nsys":
                 assert (
-                    OmegaConf.select(self.config.global_profiler.global_tool_config.nsys, "worker_nsight_options")
-                    is not None
+                        OmegaConf.select(self.config.global_profiler.global_tool_config.nsys, "worker_nsight_options")
+                        is not None
                 ), "worker_nsight_options must be set when using nsys with profile_steps"
                 wg_kwargs["worker_nsight_options"] = OmegaConf.to_container(
                     OmegaConf.select(self.config.global_profiler.global_tool_config.nsys, "worker_nsight_options")
@@ -291,8 +291,8 @@ class FullyAsyncRayPPOTrainer(RayPPOTrainer):
                 self.global_steps += 1
 
                 if (
-                    hasattr(self.config.actor_rollout_ref.actor, "profiler")
-                    and self.config.actor_rollout_ref.actor.profiler.tool == "torch_memory"
+                        hasattr(self.config.actor_rollout_ref.actor, "profiler")
+                        and self.config.actor_rollout_ref.actor.profiler.tool == "torch_memory"
                 ):
                     self.actor_rollout_wg.dump_memory_snapshot(
                         tag=f"post_update_step{self.global_steps}", sub_dir=f"step{self.global_steps}"
@@ -336,7 +336,7 @@ class FullyAsyncRayPPOTrainer(RayPPOTrainer):
 
         return batch
 
-    def _process_batch_common(self, batch, metrics, timing_raw):
+    def _process_batch_common(self, batch, metrics, timing_raw, local_trigger_step=None):
         with marked_timer("reward", timing_raw, color="yellow"):
             # compute reward model score
             if self.use_rm:
@@ -350,12 +350,8 @@ class FullyAsyncRayPPOTrainer(RayPPOTrainer):
 
         # recompute old_log_probs
         with marked_timer("old_log_prob", timing_raw, color="blue"):
-            async_training = self.config.get("async_training", None)
-            if async_training and async_training.use_rollout_log_probs:
-                batch.batch["old_log_probs"] = batch.batch["rollout_log_probs"]
-                batch.meta_info["temperature"] = self.config.actor_rollout_ref.rollout.temperature
 
-            else:
+            def compute_old_log_prob(batch):
                 old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
                 entropys = old_log_prob.batch["entropys"]
                 response_masks = batch.batch["response_mask"]
@@ -365,12 +361,39 @@ class FullyAsyncRayPPOTrainer(RayPPOTrainer):
                 metrics.update(old_log_prob_metrics)
                 old_log_prob.batch.pop("entropys")
                 batch = batch.union(old_log_prob)
-
                 if "rollout_log_probs" in batch.batch.keys():
                     # TODO: we may want to add diff of probs too.
                     from verl.utils.debug.metrics import calculate_debug_metrics
-
                     metrics.update(calculate_debug_metrics(batch))
+                return batch
+
+            async_training = self.config.get("async_training", None)
+            if async_training and async_training.use_rollout_log_probs:
+
+                # 如果 local_trigger_step == 1 将训练引擎的参数load到cpu保存一份，方便后续进行MIS
+                if local_trigger_step == 1:
+                    # 保存版本为1的参数到cpu
+                    self.actor_rollout_wg.copy_and_offload_model_to_cpu(1)
+                    # 使用当前参数计算 old_log_prob
+                    batch = compute_old_log_prob(batch)
+                # 如果 local_trigger_step != 1 恢复参数计算
+                elif local_trigger_step is not None:
+                    # 从gpu中卸载参数到cpu
+                    self.actor_rollout_wg.offload_model_to_cpu(local_trigger_step)
+                    # 加载前一版本的参数到gpu中
+                    self.actor_rollout_wg.load_model_to_gpu(1)
+                    # 计算old_log_prob
+                    batch = compute_old_log_prob(batch)
+                    # 恢复参数到gpu
+                    self.actor_rollout_wg.load_model_to_gpu(local_trigger_step)
+                    # 清空当前版本的cpu参数
+                    self.actor_rollout_wg.clear_cpu_model(local_trigger_step)
+                else:
+                    batch.batch["old_log_probs"] = batch.batch["rollout_log_probs"]
+                    batch.meta_info["temperature"] = self.config.actor_rollout_ref.rollout.temperature
+
+            else:
+                batch = compute_old_log_prob(batch)
 
         if self.use_reference_policy:
             # compute reference log_prob
@@ -406,8 +429,14 @@ class FullyAsyncRayPPOTrainer(RayPPOTrainer):
             else:
                 batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
 
-            # compute advantages, executed on the driver process
+            # Compute rollout importance sampling weights centrally (once per batch)
+            # This corrects for mismatch between rollout policy and training policy
+            # Also computes mismatch metrics (KL, PPL, etc.)
+            batch, is_metrics = self.compute_rollout_importance_weights_and_add_to_batch(batch)
+            # IS and mismatch metrics already have mismatch/ prefix
+            metrics.update(is_metrics)
 
+            # compute advantages, executed on the driver process
             norm_adv_by_std_in_grpo = self.config.algorithm.get(
                 "norm_adv_by_std_in_grpo", True
             )  # GRPO adv normalization factor
@@ -466,9 +495,9 @@ class FullyAsyncRayPPOTrainer(RayPPOTrainer):
 
     def _validate_metrics(self, is_last_step, last_val_metrics, metrics, timing_raw):
         if (
-            self.val_reward_fn is not None
-            and self.config.trainer.test_freq > 0
-            and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
+                self.val_reward_fn is not None
+                and self.config.trainer.test_freq > 0
+                and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
         ):
             with marked_timer("testing", timing_raw, color="green"):
                 val_metrics: dict = self._validate()
@@ -491,7 +520,7 @@ class FullyAsyncRayPPOTrainer(RayPPOTrainer):
         # 3. The current step number is a multiple of the save frequency.
         # 4. The ESI(Elastic Server Instance)/training plan is close to expiration.
         if self.config.trainer.save_freq > 0 and (
-            is_last_step or self.global_steps % self.config.trainer.save_freq == 0 or esi_close_to_expiration
+                is_last_step or self.global_steps % self.config.trainer.save_freq == 0 or esi_close_to_expiration
         ):
             if esi_close_to_expiration:
                 print("Force saving checkpoint: ESI instance expiration approaching.")
