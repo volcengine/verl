@@ -7,14 +7,8 @@ on:
     paths:
       - "docker/Dockerfile.ascend_vllm-0.9.1"  
       - ".github/workflows/docker-verl-npu.yml" 
-  pull_request:
-    branches: [ "main" ]
-    paths:  
-      - "docker/Dockerfile.ascend_vllm-0.9.1"
-      - ".github/workflows/docker-verl-npu.yml"
   release:
     types: [ published ] 
-  create:
   schedule:
     - cron: "0 16 * * *"
 
