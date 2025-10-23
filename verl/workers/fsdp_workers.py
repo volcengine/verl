@@ -471,6 +471,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         # We force turn off CPUOffload for actor because it causes incorrect results when using grad accumulation
         cpu_offload = None if role == "actor" else CPUOffload(offload_params=True)
         fsdp_strategy = self.config.actor.strategy
+        if self.config.get("use_torch_compile", True):
+            for block in actor_module.model.layers:
+                block.compile()
         if fsdp_strategy == "fsdp":
             actor_module_fsdp = FSDP(
                 actor_module,
@@ -1324,6 +1327,9 @@ class CriticWorker(Worker, DistProfilerExtension):
                     print("[critic model] No vision tower found.")
 
         # Note: We force turn off CPUOffload for critic because it causes incorrect results when using grad accumulation
+        if self.config.get("use_torch_compile", True):
+            for block in critic_module.model.layers:
+                block.compile()
         if config.strategy == "fsdp":
             critic_module = FSDP(
                 critic_module,
