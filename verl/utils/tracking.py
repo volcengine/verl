@@ -61,8 +61,9 @@ class Tracking:
         self.logger = {}
 
         if "tracking" in default_backend or "wandb" in default_backend:
-            import wandb
             import os
+
+            import wandb
 
             settings = None
             if config and config["trainer"].get("wandb_proxy", None):
