@@ -1,0 +1,13 @@
+env_vars:
+  VLLM_USE_V1: "1"
+  NCCL_DEBUG: "INFO"
+  HYDRA_FULL_ERROR: "1"
+  TENSORBOARD_DIR: "/cfs_shtx5_serving_3/mlp/training/docker/user/hadoop-ai-search/houzhenggang/main/qwen3-32B/asy_64_64"
+  PPO_STRATEGY: "async_ppo"
+  NNODES: "16"
+  NNODES_ROLLOUT: "8"
+  NNODES_TRAIN: "8"
+  PPO_ALGO: "grpo"
+  MODEL_CONFIG: "Qwen3-32B"
+  recompute_old_log_prob: "True"
+  rollout_is: "True"

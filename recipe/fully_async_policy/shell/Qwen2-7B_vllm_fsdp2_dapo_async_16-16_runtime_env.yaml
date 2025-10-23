@@ -1,0 +1,14 @@
+env_vars:
+  VLLM_USE_V1: "1"
+  NCCL_DEBUG: "INFO"
+  HYDRA_FULL_ERROR: "1"
+  TENSORBOARD_DIR: "/cfs_shtx5_serving_3/mlp/training/docker/user/hadoop-ai-search/houzhenggang/main/qwen2-7B/async_16-16_re_old"
+  PPO_STRATEGY: "async_ppo"
+  NNODES_ROLLOUT: "2"
+  NNODES_TRAIN: "2"
+  PPO_ALGO: "dapo"
+  MODEL_CONFIG: "Qwen2.5-Math-7B"
+  recompute_old_log_prob: "True"
+  rollout_is: "True"
+
+
