@@ -1,12 +1,7 @@
 # 1. Base Image
 FROM swr.cn-south-1.myhuaweicloud.com/ascendhub/cann:8.2.rc1-910b-ubuntu22.04-py3.11
 
-# 2. Install system dependencies
-RUN apt-get update -y && apt-get install -y --no-install-recommends \
-    gcc g++ cmake libnuma-dev wget git curl jq vim build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
-# 3. Pre-installation foundation vllm with architecture echo
+# 2. Pre-installation foundation vllm with architecture echo
 RUN echo "===== Current system architecture check =====" && \
     arch=$(uname -m) && \
     echo "Detected architecture: $arch" && \
@@ -22,7 +17,7 @@ RUN echo "===== Current system architecture check =====" && \
     && VLLM_TARGET_DEVICE=empty pip install -v -e . \
     && cd ..
 
-# 4. Install vllm_ascend
+# 3. Install vllm_ascend
 RUN git clone --depth 1 --branch v0.9.1 https://github.com/vllm-project/vllm-ascend.git \
     && cd vllm-ascend \
     && arch=$(uname -m) && \
@@ -37,7 +32,7 @@ RUN git clone --depth 1 --branch v0.9.1 https://github.com/vllm-project/vllm-asc
     && pip install -v -e . \
     && cd ..
 
-# 5. Install verl
+# 4. Install verl
 RUN git clone https://github.com/volcengine/verl.git \
     && cd verl \
     && git checkout main \
@@ -45,11 +40,11 @@ RUN git clone https://github.com/volcengine/verl.git \
     && pip install -e . \
     && cd ..
 
-# 6. Install MindSpeed
+# 5. Install MindSpeed
 RUN git clone https://gitee.com/ascend/MindSpeed.git \
     && pip install -e MindSpeed
 
-# 7. Install Megatron-LM and configure PYTHONPATH
+# 6. Install Megatron-LM and configure PYTHONPATH
 RUN git clone https://github.com/NVIDIA/Megatron-LM.git \
     && cd Megatron-LM \
     && git checkout core_v0.12.1 \
