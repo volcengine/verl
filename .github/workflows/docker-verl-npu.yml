@@ -57,7 +57,7 @@ jobs:
           username: ${{ secrets.QUAY_USERNAME }}
           password: ${{ secrets.QUAY_PASSWORD }}
 
-      - name: Build and push images (Quay + Aliyun)
+      - name: Build and push images (Quay)
         uses: docker/build-push-action@v6
         with:
           context: .  
