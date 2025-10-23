@@ -5,8 +5,8 @@ on:
   push:
     branches: [ "*" ] 
     paths:
-      - "docker/Dockerfile.ascend_vllm-0.9.1"  
-      - ".github/workflows/docker-verl-npu.yml" 
+      - "docker/Dockerfile.ascend_vllm"  
+      - ".github/workflows/docker-build-ascend.yml" 
   release:
     types: [ published ] 
   schedule:
@@ -72,12 +72,12 @@ jobs:
           username: ${{ secrets.QUAY_USERNAME }}
           password: ${{ secrets.QUAY_PASSWORD }}
 
-      - name: Build and push images (Quay + Aliyun)
+      - name: Build and push images (Quay)
         uses: docker/build-push-action@v6
         with:
           context: .  
           platforms: linux/amd64,linux/arm64 
-          file: ./docker/Dockerfile.ascend_vllm-0.9.1  
+          file: ./docker/Dockerfile.ascend_vllm  
           push: true 
           tags: |  
             quay.io/709222099/verl:${{ steps.version.outputs.tag }}
