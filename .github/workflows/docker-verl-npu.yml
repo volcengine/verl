@@ -14,6 +14,7 @@ on:
       - ".github/workflows/docker-verl-npu.yml"
   release:
     types: [ published ] 
+  create:
   schedule:
     - cron: "0 16 * * *"
 
@@ -49,7 +50,7 @@ jobs:
           elif [ "$BRANCH_NAME" = "main" ]; then
             echo "tag=latest-a2-py11" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=branch-${BRANCH_NAME}-a2-py11" >> "$GITHUB_OUTPUT"
+            echo "tag=${BRANCH_NAME}-a2-py11" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Set up Docker Buildx
