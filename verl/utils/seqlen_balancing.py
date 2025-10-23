@@ -24,6 +24,16 @@ from verl.utils import tensordict_utils as tu
 from verl.utils.device import get_device_name
 
 
+def calculate_workload(seqlen_list: list[int]):
+    """
+    Calculate the workload for a dense transformer block based on sequence length.
+    FLOPs = 12 * hidden_size^2 * seqlen + 2 * hidden_size * seqlen^2
+    Hardcodes the constants by a 7B model (hidden_size=4096),
+    so the FLOPs are propotional to (6 * 4096 * seqlen + seqlen^2).
+    """
+    return 24576 * seqlen_list + seqlen_list**2
+
+
 def karmarkar_karp(seqlen_list: list[int], k_partitions: int, equal_size: bool):
     # see: https://en.wikipedia.org/wiki/Largest_differencing_method
     class Set:
@@ -298,20 +308,22 @@ def rearrange_micro_batches(
     if num_batches_divided_by is not None:
         num_micro_batches = roundup_divisible(num_micro_batches, num_batches_divided_by)
 
-    seq_len_effective = seq_len_effective.tolist()
     assert num_micro_batches <= len(seq_len_effective)
 
-    micro_bsz_idx = get_seqlen_balanced_partitions(seq_len_effective, num_micro_batches, equal_size=False)
+    workloads = calculate_workload(seq_len_effective)
+    micro_bsz_idx = get_seqlen_balanced_partitions(workloads, num_micro_batches, equal_size=False)
 
     if use_dynamic_bsz_balance:
         # Use the sum of squared sequence lengths to approximate attention computation workload
         micro_bsz_idx.sort(
             key=lambda partition: (
-                sum(seq_len_effective[idx] ** 2 for idx in partition),
-                min(partition) if partition else 0,
+                sum(workloads[idx] for idx in partition),
+                partition[0] if partition else 0,
             ),
             reverse=True,
         )
+        # Place smaller micro-batches at both ends to reduce the bubbles exposed during the warm-up and cool-down.
+        micro_bsz_idx = micro_bsz_idx[::2][::-1] + micro_bsz_idx[1::2]
 
     micro_batches = []
 
