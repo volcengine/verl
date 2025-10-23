@@ -112,7 +112,7 @@ class TestGsm8kInteraction:
         assert should_terminate is True
         assert response == "Your response is correct!"
         assert reward == 1.0
-        assert self.interaction._instance_dict[instance_id]["response"] == "#### 42"
+        assert self.interaction._instance_dict[instance_id]["response"] == "42"
 
     @pytest.mark.asyncio
     async def test_generate_response_incorrect_answer(self):
@@ -133,7 +133,7 @@ class TestGsm8kInteraction:
         assert should_terminate is False
         assert response == "Your response is incorrect! You need to reflect on your answer and try again."
         assert reward == 0.0
-        assert self.interaction._instance_dict[instance_id]["response"] == "#### 24"
+        assert self.interaction._instance_dict[instance_id]["response"] == "24"
 
     @pytest.mark.asyncio
     async def test_generate_response_multiple_messages(self):
@@ -177,7 +177,7 @@ class TestGsm8kInteraction:
             )
 
         assert should_terminate is False
-        assert self.interaction._instance_dict[instance_id]["response"] == "#### "
+        assert self.interaction._instance_dict[instance_id]["response"] == ""
 
     @pytest.mark.asyncio
     async def test_calculate_score_direct_call(self):
@@ -195,7 +195,7 @@ class TestGsm8kInteraction:
             score = await self.interaction.calculate_score(instance_id)
 
             assert score == 1.0
-            mock_compute.assert_called_once_with("#### 42", "42", method="flexible", format_score=0.0, score=1.0)
+            mock_compute.assert_called_once_with("#### 42", "42", method="strict", format_score=0.0, score=1.0)
 
     @pytest.mark.asyncio
     async def test_calculate_score_with_kwargs(self):
@@ -213,7 +213,7 @@ class TestGsm8kInteraction:
             score = await self.interaction.calculate_score(instance_id, extra_param="test")
 
             assert score == 0.0
-            mock_compute.assert_called_once_with("#### 24", "42", method="flexible", format_score=0.0, score=1.0)
+            mock_compute.assert_called_once_with("#### 24", "42", method="strict", format_score=0.0, score=1.0)
 
     @pytest.mark.asyncio
     async def test_finalize_interaction(self):
@@ -363,7 +363,7 @@ class TestGsm8kInteraction:
 
         assert should_terminate is False
         assert reward == 0.0
-        assert self.interaction._instance_dict[instance_id]["response"] == "#### "
+        assert self.interaction._instance_dict[instance_id]["response"] == ""
 
     @pytest.mark.asyncio
     async def test_edge_case_message_without_content(self):
@@ -385,7 +385,7 @@ class TestGsm8kInteraction:
 
         assert should_terminate is False
         assert reward == 0.0
-        assert self.interaction._instance_dict[instance_id]["response"] == "#### None"
+        assert self.interaction._instance_dict[instance_id]["response"] is None
 
     def test_inheritance_from_base_interaction(self):
         """Test that Gsm8kInteraction properly inherits from BaseInteraction."""
