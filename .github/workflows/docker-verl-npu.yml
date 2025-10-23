@@ -5,21 +5,17 @@ on:
   push:
     branches: [ "*" ] 
     paths:
-      - "**/*.py"
-      - "requirements.txt"
       - "docker/Dockerfile.ascend_vllm-0.9.1"  
       - ".github/workflows/docker-verl-npu.yml" 
   pull_request:
     branches: [ "main" ]
     paths:  
-      - "**/*.py"
-      - "requirements.txt"
       - "docker/Dockerfile.ascend_vllm-0.9.1"
       - ".github/workflows/docker-verl-npu.yml"
   release:
     types: [ published ] 
   schedule:
-    - cron: "0 16 * * *"  # UTC时间16点 = 北京时间0点，仅更新main分支
+    - cron: "0 16 * * *"
 
 jobs:
   build-vllm-npu:
