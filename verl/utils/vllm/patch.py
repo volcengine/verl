@@ -103,7 +103,8 @@ def patch_vllm_moe_model_weight_loader(model):
     if not isinstance(model, tuple(SUPPORTED_MOE_MODELS)) and not isinstance(inner_model, tuple(SUPPORTED_MOE_MODELS)):
         return
 
-    if isinstance(inner_model, Qwen3MoeLLMForCausalLM):
+    # TODO(@leisuzz): Qwen3-vl needs VLLM version >= 0.11.0, current method will support old version as well
+    if type(inner_model).__name__ == "Qwen3MoeLLMForCausalLM":
         inner_model = inner_model.model  # Reassign inner_model in Qwen3-vl
 
     for layer_idx, layer in enumerate(inner_model.layers):
