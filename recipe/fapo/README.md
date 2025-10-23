@@ -9,6 +9,11 @@
     <a href="https://github.com/yyDing1/FAPO"><img alt="Code" src="https://img.shields.io/badge/💻-Code-blueviolet"></a>
 </p>
 
+- **Algorithm Insights:** Visit our [Project Page](https://fapo-rl.github.io/) for an overview; comprehensive details are available in the [Paper]().
+- **Infrastructure Design:** Refer to the [Reward Loop](https://verl.readthedocs.io/en/latest/advance/reward_loop.html) document for architectural insights.
+- **Open-Source Software:** Explore the [Huggingface Collections](https://huggingface.co/collections/dyyyyyyyy/fapo) for datasets and models.
+
+
 ![fapo-result](https://fapo-rl.github.io/_astro/intro_main.DKe72RHX_1Us2HB.webp)
 
 ## Step 1: Train FAPO-GenRM-4B (Generative Reward Model)
