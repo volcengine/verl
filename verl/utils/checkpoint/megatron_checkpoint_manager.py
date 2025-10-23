@@ -22,15 +22,10 @@ from dataclasses import asdict
 import numpy as np
 import torch
 import torch.distributed
-import transformer_engine
 from megatron.core import mpu, tensor_parallel
 from megatron.core.dist_checkpointing.mapping import ShardedObject
 from megatron.core.transformer.enums import AttnBackend
 from transformers import GenerationConfig
-
-# For load optimizer dist_ckpt
-torch.serialization.add_safe_globals([torch.optim.AdamW])
-torch.serialization.add_safe_globals([transformer_engine.pytorch.optimizers.fused_adam.FusedAdam])
 
 from verl.models.weight_loader_registry import get_weight_saver
 from verl.utils.device import get_device_name, get_torch_device
@@ -300,6 +295,12 @@ class MegatronCheckpointManager(BaseCheckpointManager):
     def load_checkpoint(self, local_path: str, hdfs_path: str = None, del_local_after_load=False):
         if local_path is not None:
             assert os.path.exists(local_path), f"Checkpoint path {local_path} does not exist."
+
+        # For load optimizer dist_ckpt
+        import transformer_engine
+
+        torch.serialization.add_safe_globals([torch.optim.AdamW])
+        torch.serialization.add_safe_globals([transformer_engine.pytorch.optimizers.fused_adam.FusedAdam])
 
         dist_checkpoint_path = get_dist_checkpoint_path(local_path)
 
