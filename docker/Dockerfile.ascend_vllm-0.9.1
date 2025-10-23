@@ -1,19 +1,12 @@
 # 1. Base Image
 FROM swr.cn-south-1.myhuaweicloud.com/ascendhub/cann:8.2.rc1-910b-ubuntu22.04-py3.11
 
-# 2. Set up a network proxy (add as needed)
-# ENV ip_addr=xx.xxx.x.xxx
-# ENV http_proxy="http://p_atlas:proxy%40123@$ip_addr:8080"
-# ENV https_proxy=$http_proxy
-# ENV no_proxy=127.0.0.1,localhost,local,.local
-# ENV GIT_SSL_NO_VERIFY=1
-
-# 3. Install system dependencies
+# 2. Install system dependencies
 RUN apt-get update -y && apt-get install -y --no-install-recommends \
     gcc g++ cmake libnuma-dev wget git curl jq vim build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# 4. Pre-installation foundation vllm with architecture echo
+# 3. Pre-installation foundation vllm with architecture echo
 RUN echo "===== Current system architecture check =====" && \
     arch=$(uname -m) && \
     echo "Detected architecture: $arch" && \
@@ -29,7 +22,7 @@ RUN echo "===== Current system architecture check =====" && \
     && VLLM_TARGET_DEVICE=empty pip install -v -e . \
     && cd ..
 
-# 5. Install vllm_ascend
+# 4. Install vllm_ascend
 RUN git clone --depth 1 --branch v0.9.1 https://github.com/vllm-project/vllm-ascend.git \
     && cd vllm-ascend \
     && arch=$(uname -m) && \
@@ -44,7 +37,7 @@ RUN git clone --depth 1 --branch v0.9.1 https://github.com/vllm-project/vllm-asc
     && pip install -v -e . \
     && cd ..
 
-# 6. Install verl
+# 5. Install verl
 RUN git clone https://github.com/volcengine/verl.git \
     && cd verl \
     && git checkout main \
@@ -52,11 +45,11 @@ RUN git clone https://github.com/volcengine/verl.git \
     && pip install -e . \
     && cd ..
 
-# 7. Install MindSpeed
+# 6. Install MindSpeed
 RUN git clone https://gitee.com/ascend/MindSpeed.git \
     && pip install -e MindSpeed
 
-# 8. Install Megatron-LM and configure PYTHONPATH
+# 7. Install Megatron-LM and configure PYTHONPATH
 RUN git clone https://github.com/NVIDIA/Megatron-LM.git \
     && cd Megatron-LM \
     && git checkout core_v0.12.1 \
