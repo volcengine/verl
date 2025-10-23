@@ -99,6 +99,8 @@ class ToolAgentLoop(AgentLoopBase):
         cls.tools = {tool.name: tool for tool in tool_list}
         cls.tool_schemas = [tool.tool_schema.model_dump(exclude_unset=True, exclude_none=True) for tool in tool_list]
         cls.tool_parser = ToolParser.get_tool_parser(config.actor_rollout_ref.rollout.multi_turn.format, cls.tokenizer)
+        cls.tool_parser_name = config.actor_rollout_ref.rollout.multi_turn.format
+        tool_list = initialize_tools_from_config(tool_config_path) if tool_config_path else []
         print(f"Initialized tools: {cls.tools}")
 
         cls.apply_chat_template_kwargs = config.data.get("apply_chat_template_kwargs", {})
@@ -344,7 +346,7 @@ class ToolAgentLoop(AgentLoopBase):
             model_inputs = self.processor(text=[raw_tool_response], images=current_images, return_tensors="pt")
             response_ids = model_inputs.pop("input_ids").squeeze(0).tolist()
         else:
-            if self.tool_parser == "gpt-oss":
+            if self.tool_parser_name == "gpt-oss":
                 logger.info("manually format tool responses for gpt-oss")
                 # Format tool responses manually
                 tool_response_texts = []

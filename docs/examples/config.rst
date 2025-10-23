@@ -643,20 +643,27 @@ Optim
 .. code:: yaml
 
    optim:
+     optimizer: AdamW
+     optimizer_impl: torch.optim
      lr: 1e-5
      weight_decay: 0.01
-     warmup_steps_ratio: 0.1
+     lr_warmup_steps_ratio: 0.1
      clip_grad: 1.0
      lr_scheduler: cosine
+     override_optimizer_config: null
 
+- ``optimizer``: Optimizer class name (e.g., ``"AdamW"``, ``"AdamW8bit"``, ``"_AdamW"``). The class name as it appears in the module.
+- ``optimizer_impl``: Module path to import optimizer from (e.g., ``"torch.optim"``, ``"torchao.optim"``, ``"bitsandbytes.optim"``).
 - ``optim.lr``: Learning rate for the optimizer.
 - ``optim.weight_decay``: Weight decay for the optimizer.
-- ``optim.warmup_steps_ratio``: Ratio of warmup steps to total training steps.
+- ``optim.lr_warmup_steps_ratio``: Ratio of warmup steps to total training steps.
 - ``optim.clip_grad``: Gradient clipping value.
 - ``optim.lr_scheduler``: Learning rate scheduler type. Options:
 
   - ``cosine``: Cosine learning rate scheduler with warmup (default).
   - ``wsd``: Warmup-Stable-Decay scheduler that provides a stable learning rate phase between warmup and decay phases.
+
+- ``override_optimizer_config``: Dictionary of additional optimizer-specific keyword arguments. For example, to use ``torchao.optim``'s ``_AdamW`` with BF16 stochastic rounding: ``{"bf16_stochastic_round": true}``
 
 Model
 ~~~~~~~~~~~~

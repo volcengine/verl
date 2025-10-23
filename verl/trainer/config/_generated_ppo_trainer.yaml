@@ -7,6 +7,8 @@ actor_rollout_ref:
   actor:
     optim:
       _target_: verl.workers.config.FSDPOptimizerConfig
+      optimizer: AdamW
+      optimizer_impl: torch.optim
       lr: 1.0e-06
       lr_warmup_steps_ratio: 0.0
       total_training_steps: -1
@@ -20,6 +22,7 @@ actor_rollout_ref:
       num_cycles: 0.5
       lr_scheduler_type: constant
       warmup_style: null
+      override_optimizer_config: null
     fsdp_config:
       _target_: verl.workers.config.FSDPEngineConfig
       wrap_policy:
@@ -307,6 +310,8 @@ data:
 critic:
   optim:
     _target_: verl.workers.config.FSDPOptimizerConfig
+    optimizer: AdamW
+    optimizer_impl: torch.optim
     lr: 1.0e-05
     lr_warmup_steps_ratio: 0.0
     total_training_steps: -1
@@ -320,6 +325,7 @@ critic:
     num_cycles: 0.5
     lr_scheduler_type: constant
     warmup_style: null
+    override_optimizer_config: null
   model:
     fsdp_config:
       _target_: verl.workers.config.FSDPEngineConfig
