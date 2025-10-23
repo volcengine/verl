@@ -36,8 +36,8 @@ RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
 # very important! please modify the max_position_embeddings in config.json to 32768 after downloading from huggingface
 MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen2.5-Math-7B"}
 CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/ckpts/${project_name}/${exp_name}"}
-TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/dapo-math-17k-boxed.parquet"}
-TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/dapo-test-full-boxed.parquet"}
+TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/fapo-train-boxed.parquet"}
+TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/fapo-test-full-boxed.parquet"}
 
 # Algorithm
 temperature=1.0
