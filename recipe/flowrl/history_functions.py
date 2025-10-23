@@ -338,3 +338,334 @@
 #         }
 
 #         return avg_loss, loss_term_dict
+
+# def compute_flowrl_objective_with_gspo_selection(self,
+#                                                  log_prob=None,
+#                                                  ref_log_prob=None,
+#                                                  old_log_prob=None,
+#                                                  log_z=None,
+#                                                  reward=None,
+#                                                  response_mask=None,
+#                                                  clip_ratio=None,
+#                                                  rollout_log_probs=None):
+    
+#         # ============ Step 1: GSPO clipping and selection (reuse GSPO code) ============
+        
+#         # Get clip ratios from config
+#         clip_ratio_low = self.config.clip_ratio_low if hasattr(self.config, "clip_ratio_low") and self.config.clip_ratio_low is not None else clip_ratio
+#         clip_ratio_high = self.config.clip_ratio_high if hasattr(self.config, "clip_ratio_high") and self.config.clip_ratio_high is not None else clip_ratio
+        
+#         log_importance_ratio = log_prob - old_log_prob
+#         log_seq_importance_ratio = verl_F.masked_mean(log_importance_ratio, response_mask, axis=1)
+#         log_seq_importance_ratio = torch.clamp(log_seq_importance_ratio, max=10.0)
+#         seq_importance_ratio = torch.exp(log_seq_importance_ratio)
+        
+#         # Clipped ratio
+#         seq_importance_ratio_clipped = torch.clamp(seq_importance_ratio, 1 - clip_ratio_low, 1 + clip_ratio_high)
+        
+#         seq_reward = verl_F.masked_mean(reward, response_mask, axis=1)
+#         pg_losses1 = -seq_reward * seq_importance_ratio
+#         pg_losses2 = -seq_reward * seq_importance_ratio_clipped
+        
+#         # GSPO's two loss versions for selection
+#         use_clipped = torch.gt(pg_losses2, pg_losses1) 
+    
+#         # ============ Step 2: Compute FlowRL with selected log_prob (reuse original function) ============
+#         log_z = log_z.squeeze(-1)
+        
+#         # Average token log-probs & rewards over valid positions (from original function)
+#         avg_log_prob     = verl_F.masked_mean(log_prob,     response_mask, axis=1)
+#         avg_old_log_prob = verl_F.masked_mean(old_log_prob, response_mask, axis=1)
+#         avg_ref_log_prob = verl_F.masked_mean(ref_log_prob, response_mask, axis=1)
+#         seq_log_reward   = verl_F.masked_mean(reward,       response_mask, axis=1)
+
+#         # Compute clip bounds in log space
+#         min_bound = avg_old_log_prob + math.log(1.0 - clip_ratio_low)
+#         max_bound = avg_old_log_prob + math.log(1.0 + clip_ratio_high)
+
+#         # Apply clipping in log space
+#         low_mask = (avg_log_prob < min_bound)
+#         high_mask = (avg_log_prob > max_bound)
+#         avg_log_prob_clipped = torch.clamp(avg_log_prob, min=min_bound, max=max_bound)
+
+#         # Selectively apply clipping based on GSPO's decision
+#         avg_log_prob_final = torch.where(use_clipped, avg_log_prob_clipped, avg_log_prob)
+                
+#         # FlowRL residual: logZ + logpf - β*R - logpref (from original function)
+#         delta = log_z + avg_log_prob_final - self.flowrl_beta_coef * seq_log_reward - avg_ref_log_prob
+
+#         log_w = verl_F.masked_sum(log_prob - old_log_prob, response_mask, axis=1)
+#         imp_w_raw = torch.exp(log_w).detach()
+#         # imp_w = torch.clamp(imp_w_raw, max=10.0)
+#         imp_w = torch.clamp(imp_w_raw, 1 - 0.2, 1 + 0.28)
+
+#         # Loss: weighted squared residual (from original function)
+#         weighted_losses = imp_w * (delta ** 2)
+#         avg_loss = torch.mean(weighted_losses)
+
+#         # PPO KL: negative_approx_kl = log_prob - old_log_prob
+#         negative_approx_kl = log_prob - old_log_prob
+#         ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
+
+#         # Reference KL: approx_kl_ref = log_prob - ref_log_prob
+#         approx_kl_ref = log_prob - ref_log_prob
+#         ref_kl = verl_F.masked_mean(-approx_kl_ref, response_mask)
+
+#         # Metrics
+#         batch_size = log_prob.size(0)
+#         actual_clipped_low = (low_mask & use_clipped).float().sum()
+#         actual_clipped_high = (high_mask & use_clipped).float().sum()
+#         total_clipped = (use_clipped).float().sum()
+
+#         loss_term_dict = {
+#             "actor/log_prob": verl_F.masked_mean(log_prob, response_mask).detach().item(),
+#             "actor/old_log_prob": verl_F.masked_mean(old_log_prob, response_mask).detach().item(),
+#             "actor/ref_log_prob": verl_F.masked_mean(ref_log_prob, response_mask).detach().item(),
+#             "actor/log_z": log_z.mean().detach().item(),
+#             "actor/log_reward": verl_F.masked_mean(reward, response_mask).detach().item(),
+#             "actor/final_loss": avg_loss.detach().item(),
+#             "actor/importance_weight_raw": imp_w_raw.mean().detach().item(),
+#             "actor/importance_weight": imp_w.mean().detach().item(),
+#             "actor/ppo_kl": ppo_kl.detach().item(),
+#             "actor/ref_kl": ref_kl.detach().item(),
+#             "actor/gspo_clip_fraction": (total_clipped / batch_size).item(),
+#             "actor/gspo_clip_low": (actual_clipped_low / batch_size).item(),
+#             "actor/gspo_clip_high": (actual_clipped_high / batch_size).item(),
+#         }
+        
+#         return avg_loss, loss_term_dict
+
+# def compute_flowrl_clip_with_tis(self,
+#                                      log_prob=None,
+#                                      ref_log_prob=None,
+#                                      old_log_prob=None,
+#                                      log_z=None,
+#                                      reward=None,
+#                                      response_mask=None,
+#                                      clip_ratio=None,
+#                                      rollout_log_probs=None):
+#         """
+#         FlowRL with importance sampling clipping and Truncated Importance Sampling (TIS).
+
+#         This combines:
+#         1. Importance weight clipping (max=10.0) for numerical stability
+#         2. Sequence-level TIS to further reduce variance from off-policy data
+
+#         TIS computes: w_TIS = min((π_old / π_rollout)^(1/T), C_TIS)
+#         where T = sequence length, using geometric mean to avoid overflow.
+#         """
+
+#         # squeeze log_z to (B,)
+#         log_z = log_z.squeeze(-1)
+
+#         # Average token log-probs & rewards over valid positions
+#         avg_log_prob = verl_F.masked_mean(log_prob, response_mask, axis=1)
+#         avg_ref_log_prob = verl_F.masked_mean(ref_log_prob, response_mask, axis=1)
+#         seq_log_reward = verl_F.masked_mean(reward, response_mask, axis=1)
+
+#         # FlowRL residual: logZ + logpf - β*R - logpref
+#         delta = log_z + avg_log_prob - self.flowrl_beta_coef * seq_log_reward - avg_ref_log_prob
+
+#         # Importance ratio from current vs old policy (product of token ratios)
+#         log_w = verl_F.masked_sum(log_prob - old_log_prob, response_mask, axis=1)
+#         imp_w_raw = torch.exp(log_w).detach()
+
+#         # Clamp importance weight for numerical stability (prevent extreme values)
+#         imp_w = torch.clamp(imp_w_raw, max=10.0)
+
+#         # Truncated Importance Sampling (TIS): w_TIS = min((π_old / π_rollout)^(1/T), C_TIS)
+#         w_tis = None
+#         if self.config.tis_imp_ratio_cap > 0 and rollout_log_probs is not None:
+#             log_w_tis = verl_F.masked_sum(old_log_prob - rollout_log_probs, response_mask, axis=1)  # (B,)
+#             w_tis = torch.exp(log_w_tis).detach()  # Geometric mean of π_old / π_rollout
+#             w_tis = torch.clamp(w_tis, max=self.config.tis_imp_ratio_cap)  # min(w_tis, C_TIS)
+#             imp_w = imp_w * w_tis  # Apply TIS on top of clipped importance weight
+
+#         # Loss: weighted squared residual with clipped importance weights
+#         weighted_losses = imp_w * (delta ** 2)
+#         avg_loss = torch.mean(weighted_losses)
+
+#         # PPO KL: negative_approx_kl = log_prob - old_log_prob
+#         negative_approx_kl = log_prob - old_log_prob
+#         ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
+
+#         # Reference KL: approx_kl_ref = log_prob - ref_log_prob
+#         approx_kl_ref = log_prob - ref_log_prob
+#         ref_kl = verl_F.masked_mean(-approx_kl_ref, response_mask)
+
+#         # Metrics
+#         loss_term_dict = {
+#             "actor/log_prob": verl_F.masked_mean(log_prob, response_mask).detach().item(),
+#             "actor/old_log_prob": verl_F.masked_mean(old_log_prob, response_mask).detach().item(),
+#             "actor/ref_log_prob": verl_F.masked_mean(ref_log_prob, response_mask).detach().item(),
+#             "actor/log_z": log_z.mean().detach().item(),
+#             "actor/log_reward": verl_F.masked_mean(reward, response_mask).detach().item(),
+#             "actor/final_loss": avg_loss.detach().item(),
+#             "actor/importance_weight_raw": imp_w_raw.mean().detach().item(),
+#             "actor/importance_weight": imp_w.mean().detach().item(),
+#             "actor/ppo_kl": ppo_kl.detach().item(),  # PPO-style KL (current vs old policy)
+#             "actor/ref_kl": ref_kl.detach().item(),  # KL with reference policy
+#             "actor/tis_weight": w_tis.mean().detach().item()
+#         }
+
+#         return avg_loss, loss_term_dict
+
+# def compute_flowrl_objective_vanilla(self,
+#                                         log_prob=None,
+#                                         ref_log_prob=None,
+#                                         old_log_prob=None,
+#                                         log_z=None,
+#                                         reward=None,
+#                                         response_mask=None,
+#                                         clip_ratio=None,
+#                                         rollout_log_probs=None):
+
+#         # squeeze log_z to (B,)
+#         log_z = log_z.squeeze(-1)
+
+#         # Average token log-probs & rewards over valid positions
+#         avg_log_prob = verl_F.masked_mean(log_prob, response_mask, axis=1)
+#         avg_ref_log_prob = verl_F.masked_mean(ref_log_prob, response_mask, axis=1)
+#         seq_log_reward = verl_F.masked_mean(reward, response_mask, axis=1)
+
+#         # FlowRL residual: logZ + logpf - β*R - logpref
+#         delta = log_z + avg_log_prob - self.flowrl_beta_coef * seq_log_reward - avg_ref_log_prob
+
+#         # Importance ratio from current vs old policy (product of token ratios)
+#         log_w = verl_F.masked_sum(log_prob - old_log_prob, response_mask, axis=1)
+#         imp_w = torch.exp(log_w).detach()
+
+#         # Loss: weighted squared residual (no clipping)
+#         weighted_losses = imp_w * (delta ** 2)
+#         avg_loss = torch.mean(weighted_losses)
+
+#         # PPO KL: negative_approx_kl = log_prob - old_log_prob
+#         negative_approx_kl = log_prob - old_log_prob
+#         ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
+
+#         # Reference KL: approx_kl_ref = log_prob - ref_log_prob
+#         approx_kl_ref = log_prob - ref_log_prob
+#         ref_kl = verl_F.masked_mean(-approx_kl_ref, response_mask)
+
+#         # Metrics
+#         loss_term_dict = {
+#             "actor/log_prob": verl_F.masked_mean(log_prob, response_mask).detach().item(),
+#             "actor/old_log_prob": verl_F.masked_mean(old_log_prob, response_mask).detach().item(),
+#             "actor/ref_log_prob": verl_F.masked_mean(ref_log_prob, response_mask).detach().item(),
+#             "actor/log_z": log_z.mean().detach().item(),
+#             "actor/log_reward": verl_F.masked_mean(reward, response_mask).detach().item(),
+#             "actor/final_loss": avg_loss.detach().item(),
+#             "actor/importance_weight": imp_w.mean().detach().item(),
+#             "actor/ppo_kl": ppo_kl.detach().item(),  # PPO-style KL (current vs old policy)
+#             "actor/ref_kl": ref_kl.detach().item(),  # KL with reference policy
+#         }
+
+#         return avg_loss, loss_term_dict
+    
+#     def compute_flowrl_clip(self,
+#                                 log_prob=None,
+#                                 ref_log_prob=None,
+#                                 old_log_prob=None,
+#                                 log_z=None,
+#                                 reward=None,
+#                                 response_mask=None,
+#                                 clip_ratio=None,
+#                                 rollout_log_probs=None):
+
+#         # squeeze log_z to (B,)
+#         log_z = log_z.squeeze(-1)
+
+#         # Average token log-probs & rewards over valid positions
+#         avg_log_prob = verl_F.masked_mean(log_prob, response_mask, axis=1)
+#         avg_ref_log_prob = verl_F.masked_mean(ref_log_prob, response_mask, axis=1)
+#         seq_log_reward = verl_F.masked_mean(reward, response_mask, axis=1)
+
+#         # FlowRL residual: logZ + logpf - β*R - logpref
+#         delta = log_z + avg_log_prob - self.flowrl_beta_coef * seq_log_reward - avg_ref_log_prob
+
+#         # Importance ratio from current vs old policy (product of token ratios)
+#         log_w = verl_F.masked_sum(log_prob - old_log_prob, response_mask, axis=1)
+#         imp_w_raw = torch.exp(log_w).detach()
+
+#         # Clamp importance weight for numerical stability (prevent extreme values)
+#         # imp_w = torch.clamp(imp_w_raw, max=10.0)
+#         imp_w = torch.clamp(imp_w_raw, 1 - 0.2, 1 + 0.28)
+
+#         # Loss: weighted squared residual with clipped importance weights
+#         weighted_losses = imp_w * (delta ** 2)
+#         avg_loss = torch.mean(weighted_losses)
+
+#         # PPO KL: negative_approx_kl = log_prob - old_log_prob
+#         negative_approx_kl = log_prob - old_log_prob
+#         ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
+
+#         # Reference KL: approx_kl_ref = log_prob - ref_log_prob
+#         approx_kl_ref = log_prob - ref_log_prob
+#         ref_kl = verl_F.masked_mean(-approx_kl_ref, response_mask)
+
+#         # Metrics
+#         loss_term_dict = {
+#             "actor/log_prob": verl_F.masked_mean(log_prob, response_mask).detach().item(),
+#             "actor/old_log_prob": verl_F.masked_mean(old_log_prob, response_mask).detach().item(),
+#             "actor/ref_log_prob": verl_F.masked_mean(ref_log_prob, response_mask).detach().item(),
+#             "actor/log_z": log_z.mean().detach().item(),
+#             "actor/log_reward": verl_F.masked_mean(reward, response_mask).detach().item(),
+#             "actor/final_loss": avg_loss.detach().item(),
+#             "actor/importance_weight_raw": imp_w_raw.mean().detach().item(),
+#             "actor/importance_weight": imp_w.mean().detach().item(),
+#             "actor/ppo_kl": ppo_kl.detach().item(),  # PPO-style KL (current vs old policy)
+#             "actor/ref_kl": ref_kl.detach().item(),  # KL with reference policy
+#         }
+
+#         return avg_loss, loss_term_dict
+
+
+# # Select loss variant from environment variable
+# # Options: "vanilla" (no TIS/clip), "flowrl_clip" (clip IS only), "flowrl_clip_tis" (both TIS + clip), "flowrl_gspo" (GSPO-style selective clipping), "flowrl_cispo" (CISPO-style masking)
+# loss_variant = os.getenv("FLOWRL_LOSS_VARIANT", "vanilla")
+
+# if loss_variant == "vanilla":
+#                         policy_loss, flowrl_metrics = self.compute_flowrl_objective_vanilla(
+#                             log_prob=log_prob,
+#                             ref_log_prob=ref_log_prob,
+#                             old_log_prob=old_log_prob,
+#                             log_z=log_z,
+#                             reward=advantages,
+#                             response_mask=response_mask,
+#                             clip_ratio=self.config.clip_ratio,
+#                             rollout_log_probs=rollout_log_probs
+#                         )
+#                     elif loss_variant == "flowrl_clip":
+#                         policy_loss, flowrl_metrics = self.compute_flowrl_clip(
+#                             log_prob=log_prob,
+#                             ref_log_prob=ref_log_prob,
+#                             old_log_prob=old_log_prob,
+#                             log_z=log_z,
+#                             reward=advantages,
+#                             response_mask=response_mask,
+#                             clip_ratio=self.config.clip_ratio,
+#                             rollout_log_probs=rollout_log_probs
+#                         )
+#                     elif loss_variant == "flowrl_clip_tis":
+#                         policy_loss, flowrl_metrics = self.compute_flowrl_clip_with_tis(
+#                             log_prob=log_prob,
+#                             ref_log_prob=ref_log_prob,
+#                             old_log_prob=old_log_prob,
+#                             log_z=log_z,
+#                             reward=advantages,
+#                             response_mask=response_mask,
+#                             clip_ratio=self.config.clip_ratio,
+#                             rollout_log_probs=rollout_log_probs
+#                         )
+#                     elif loss_variant == "flowrl_gspo":
+#                         policy_loss, flowrl_metrics = self.compute_flowrl_objective_with_gspo_selection(
+#                             log_prob=log_prob,
+#                             ref_log_prob=ref_log_prob,
+#                             old_log_prob=old_log_prob,
+#                             log_z=log_z,
+#                             reward=advantages,
+#                             response_mask=response_mask,
+#                             clip_ratio=self.config.clip_ratio,
+#                             rollout_log_probs=rollout_log_probs
+#                         )
+#                     elif loss_variant == "flowrl_cispo":

@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --partition=plm
-#SBATCH --job-name=xuekai_flowrl_cispo_clip_strict_1021
+#SBATCH --job-name=xuekai_flowrl_cispo_clip_1024
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:8
 #SBATCH --cpus-per-task=64
@@ -28,4 +28,4 @@ proxy_on
 
 
 # Run the training script
-bash recipe/flowrl/run_flowrl_cispo_clip_qwen2.5_7b.sh
+bash recipe/flowrl/run_flowrl_cispo_clip_qwen2.5_7b_4k.sh

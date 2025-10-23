@@ -2,7 +2,7 @@
 set -xeuo pipefail
 
 project_name='FlowRL'
-exp_name='FlowRL-cispo-clip-Qwen2.5-7B-1024'
+exp_name='FlowRL-cispo-clip-4k-Qwen2.5-7B-1024'
 
 # Algorithm settings
 adv_estimator=grpo
@@ -26,7 +26,7 @@ export FLOWRL_LOSS_VARIANT="flowrl_cispo"
 
 # Sequence lengths 
 max_prompt_length=$((1024 * 2))
-max_response_length=$((1024 * 8))
+max_response_length=$((1024 * 4))
 
 # Overlong buffer for very long responses
 enable_overlong_buffer=True

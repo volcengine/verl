@@ -2,7 +2,7 @@
 set -xeuo pipefail
 
 project_name='FlowRL'
-exp_name='FlowRL-cispo-clip-Qwen2.5-7B-1024'
+exp_name='FlowRL-cispo-clip-dynamic-sampling-Qwen2.5-7B-1024'
 
 # Algorithm settings
 adv_estimator=grpo
@@ -37,7 +37,7 @@ overlong_penalty_factor=1.0
 loss_agg_mode="token-mean"
 
 # Filter groups - dynamic sampling
-enable_filter_groups=False
+enable_filter_groups=True
 filter_groups_metric=acc
 max_num_gen_batches=10
 
