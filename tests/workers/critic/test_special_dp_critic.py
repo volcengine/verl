@@ -22,7 +22,7 @@ from tensordict import TensorDict
 from transformers import AutoConfig
 
 from verl import DataProto
-from verl.workers.config import FSDPCriticConfig, OptimizerConfig
+from verl.workers.config import FSDPCriticConfig, FSDPOptimizerConfig
 from verl.workers.config.critic import FSDPCriticModelCfg
 from verl.workers.config.engine import FSDPEngineConfig
 from verl.workers.fsdp_workers import CriticWorker
@@ -72,7 +72,7 @@ class TestCriticWorker(unittest.TestCase):
             use_dynamic_bsz=False,
             ulysses_sequence_parallel_size=1,
             rollout_n=1,
-            optim=OptimizerConfig(lr=1e-6),
+            optim=FSDPOptimizerConfig(lr=1e-6),
             model=FSDPCriticModelCfg(
                 path="Qwen/Qwen2.5-0.5B-Instruct",
                 tokenizer_path="Qwen/Qwen2.5-0.5B-Instruct",
