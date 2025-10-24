@@ -1,0 +1,37 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: "v0.12.2"
+    hooks:
+      - id: ruff
+        args: ["--fix", "--show-fixes", "--output-format=full"]
+        exclude: ^.*\.(ipynb)$
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: 'v1.17.0'
+    hooks:
+      - id: mypy
+
+  - repo: local
+    hooks:
+      - id: autogen-trainer-cfg
+        name: Generate and verify verl/trainer/config/_generated_*.yaml
+        entry: scripts/generate_trainer_config.sh
+        language: script
+        pass_filenames: false
+
+  - repo: local
+    hooks:
+      - id: check-docstrings
+        name: Check doc string coverage
+        entry: python3 tests/special_sanity/check_docstrings.py
+        language: python
+        pass_filenames: false
+
+  - repo: local
+    hooks:
+      - id: check-license
+        name: Check license
+        entry: python3 tests/special_sanity/check_license.py --directories examples recipe scripts tests verl setup.py
+        language: python
+        pass_filenames: false
