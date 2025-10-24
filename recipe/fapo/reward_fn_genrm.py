@@ -14,7 +14,7 @@
 # Adapted from https://github.com/EleutherAI/lm-evaluation-harness/blob/main/lm_eval/tasks/hendrycks_math/utils.py
 
 
-from verl.utils.reward_score.math_dapo import last_boxed_only_string, normalize_final_answer, remove_boxed
+from verl.utils.reward_score.math_dapo import last_boxed_only_string, remove_boxed
 
 
 def parse_ans(
@@ -28,7 +28,7 @@ def parse_ans(
             return extracted_answer
         else:
             return None
-    except:
+    except Exception:
         return None
 
 

@@ -34,7 +34,7 @@ def verify(
     return (pred == gt), pred
 
 
-def compute_score_rule(
+def compute_score_baseline(
     solution_str: str,
     ground_truth: str,
     **kwargs,
@@ -55,9 +55,9 @@ def compute_score_rule(
     }
 
 
-ADDRESS = "10.150.213.210:30000"
-MODEL_NAME = "Qwen3-4B-Ins-GenRM-Step50"
-QUERY_TEMPLATE_PRM_GT = (
+ADDRESS = "xx.xx.xx.xx:xxxx"
+MODEL_NAME = "FAPO-4B-GenRM"
+FAPO_GENRM_TEMPLATE = (
     "The following is a math problem with its ground truth answer, along with an AI solution (split into steps):\n\n"
     "[Math Problem]\n\n"
     "{problem}\n\n"
@@ -65,7 +65,9 @@ QUERY_TEMPLATE_PRM_GT = (
     "{ground_truth}\n\n"
     "[AI Solution]\n\n"
     "{solution}\n\n"
-    "Your task is to review and critique the solution step by step. Once you identify an error in a step, return the index of the step where the earliest error occurs. Otherwise, return the index of -1 (which typically denotes 'not found').\n\n"
+    "Your task is to review and critique the solution step by step. "
+    "Once you identify an error in a step, return the index of the step where the earliest error occurs. "
+    "Otherwise, return the index of -1 (which typically denotes 'not found').\n\n"
     "Please reason step by step, put your final answer (i.e., the index) in \\boxed{{}}."
 )
 
@@ -104,44 +106,17 @@ def judge_fp_process(response, return_err_step=False):
         return None
 
 
-async def compute_score_baseline(data_source, solution_str, ground_truth, extra_info, keep_genrm_critics=False, **kwargs):
-    question, split = extra_info["question"], extra_info["split"]
-    result = compute_score_rule(solution_str, ground_truth)
-    result["flawed_positive"] = False
-
-    if result["acc"] == 0:
-        if keep_genrm_critics:
-            result["genrm_critics"] = ""
-        return result
-    else:
-        prompt = QUERY_TEMPLATE_PRM_GT.format(problem=question, ground_truth=ground_truth, solution=solution_str)
-        messages = [{"role": "user", "content": prompt}]
-        response = await chat_completions_aiohttp(
-            ADDRESS,
-            messages=messages,
-            model=MODEL_NAME,
-            max_tokens=16384,
-        )
-        if response is not None and judge_fp_process(response):  # flawed positive
-            result["flawed_positive"] = True
-
-        if keep_genrm_critics and response is not None:
-            result["genrm_critics"] = response
-
-    return result
-
-
 async def compute_score_fapo(data_source, solution_str, ground_truth, extra_info, keep_genrm_critics=False, **kwargs):
     question, split = extra_info["question"], extra_info["split"]
-    result = compute_score_rule(solution_str, ground_truth)
+    result = compute_score_baseline(solution_str, ground_truth)
     result["flawed_positive"] = False
 
-    if result["acc"] == 0:
+    if split == "test" or result["acc"] == 0:
         if keep_genrm_critics:
             result["genrm_critics"] = ""
         return result
     else:
-        prompt = QUERY_TEMPLATE_PRM_GT.format(problem=question, ground_truth=ground_truth, solution=solution_str)
+        prompt = FAPO_GENRM_TEMPLATE.format(problem=question, ground_truth=ground_truth, solution=solution_str)
         messages = [{"role": "user", "content": prompt}]
         response = await chat_completions_aiohttp(
             ADDRESS,

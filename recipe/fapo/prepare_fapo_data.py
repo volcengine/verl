@@ -63,6 +63,7 @@ def build_aime2025_dataset():
     dataset = dataset.map(map_fn, with_indices=True, remove_columns=dataset.column_names)
     return dataset
 
+
 def build_gpqa_diamond_dataset():
     import random
 
@@ -73,13 +74,21 @@ def build_gpqa_diamond_dataset():
     )
 
     def process_gpqa_diamond(example):
-        choices = [example["Incorrect Answer 1"].strip(), example["Incorrect Answer 2"].strip(), example["Incorrect Answer 3"].strip()]
+        choices = [
+            example["Incorrect Answer 1"].strip(),
+            example["Incorrect Answer 2"].strip(),
+            example["Incorrect Answer 3"].strip(),
+        ]
         random.shuffle(choices)
         gold_index = random.randint(0, 3)
         choices.insert(gold_index, example["Correct Answer"].strip())
         question = example["Question"]
         query_prompt = GPQA_QUERY_TEMPLATE.format(
-            A=choices[0], B=choices[1], C=choices[2], D=choices[3], Question=question,
+            A=choices[0],
+            B=choices[1],
+            C=choices[2],
+            D=choices[3],
+            Question=question,
         )
         gold_choice = "ABCD"[gold_index]
         return question, query_prompt, gold_choice
@@ -94,6 +103,7 @@ def build_gpqa_diamond_dataset():
     dataset = dataset.map(map_fn, with_indices=True, remove_columns=dataset.column_names)
     return dataset
 
+
 def build_dapo_train_dataset():
     def process_dapo(example):
         question, ground_truth = example["prompt"], example["solution"]
@@ -106,6 +116,7 @@ def build_dapo_train_dataset():
     map_fn = partial(example_map_fn, process_fn=process_dapo, data_source="math-dapo", ability="Math", split="train")
     dataset = dataset.map(map_fn, with_indices=True, remove_columns=dataset.column_names)
     return dataset
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -129,7 +140,6 @@ if __name__ == "__main__":
     gpqa_dataset = build_gpqa_diamond_dataset()
     test_datasets.extend([gpqa_dataset for _ in range(4)])
     test_dataset = concatenate_datasets(test_datasets)
-
 
     local_dir = args.local_dir
     hdfs_dir = args.hdfs_dir
