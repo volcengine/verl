@@ -80,7 +80,7 @@ class MCPBaseTool(BaseTool):
                 metadata["api_request_error"] = err_msg
             else:
                 metadata["api_request_error"] = None
-            return result, metadata
+        return result, metadata
 
     @rollout_trace_op
     async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[ToolResponse, float, dict]:
