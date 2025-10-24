@@ -38,7 +38,7 @@ jobs:
         id: base_image
         run: |
 
-          BASE_IMAGE_FULL=$(grep '^FROM' ./docker/Dockerfile.ascend_vllm-0.9.1 | head -1 | cut -d' ' -f2)
+          BASE_IMAGE_FULL=$(grep '^FROM' ./docker/Dockerfile.ascend_vllm | head -1 | cut -d' ' -f2)
           echo "Base image full: $BASE_IMAGE_FULL"
           
           BASE_IMAGE_TAG=$(echo "$BASE_IMAGE_FULL" | cut -d':' -f2)
