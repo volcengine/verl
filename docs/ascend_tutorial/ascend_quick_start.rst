@@ -1,7 +1,7 @@
 verl x Ascend
 ===================================
 
-Last updated: 09/29/2025.
+Last updated: 10/24/2025.
 
 我们在 verl 上增加对华为昇腾设备的支持。
 
@@ -74,7 +74,7 @@ vllm & vllm-ascend
 DockerFile镜像构建
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-通过DockerFile构建镜像方式请参照这份 `文档 <https://github.com/songyy29/verl/blob/main/docs/ascend_tutorial/dockerfile_build_guidance.rst>`_ 。
+如需要通过DockerFile构建镜像， `请参照文档 <https://github.com/volcengine/verl/tree/main/docs/ascend_tutorial/dockerfile_build_guidance.rst>`_ 。
 
 其他三方库说明
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
