@@ -132,6 +132,7 @@ common_params=(
     async_training.staleness_threshold=${staleness_threshold}
     async_training.partial_rollout="${partial_rollout}"
     async_training.trigger_parameter_sync_step="${trigger_parameter_sync_step}"
+    async_training.recompute_old_log_prob=True
 )
 
 if [ "${ACTOR_STRATEGY}" == "fsdp2" ]; then
@@ -186,7 +187,7 @@ elif [ "${ACTOR_STRATEGY}" == "megatron" ]; then
         actor_rollout_ref.rollout.tensor_model_parallel_size=${gen_tp} \
         actor_rollout_ref.ref.megatron.pipeline_model_parallel_size=${train_pp} \
         actor_rollout_ref.ref.megatron.tensor_model_parallel_size=${train_tp} \
-        actor_rollout_ref.ref.megatron.param_offload=${ref_offload} $@
+        actor_rollout_ref.ref.megatron.param_offload=${ref_offload} \ $@
 else
     echo "Error: Unknown strategy ${ACTOR_STRATEGY}. Please use 'fsdp2' or 'megatron'"
     exit 1

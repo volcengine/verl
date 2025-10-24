@@ -76,7 +76,7 @@ from verl.utils.fsdp_utils import (
     load_fsdp_optimizer,
     offload_fsdp_model_to_cpu,
     offload_fsdp_optimizer,
-    replace_lora_wrapper, get_fsdp_full_state_dict, get_fsdp_state_ctx,
+    replace_lora_wrapper,
 )
 from verl.utils.import_utils import import_external_libs
 from verl.utils.memory_utils import aggressive_empty_cache
@@ -1113,38 +1113,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             except Exception:
                 # silently ignore if profiler doesn't support memory snapshots
                 pass
-
-    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def save_model_to_cpu(self, n):
-        """保存当前模型到CPU，但保持GPU上的参数不变"""
-        # 获取完整的模型状态字典并保存到CPU
-        state_dict = get_fsdp_full_state_dict(self.actor_module_fsdp, offload_to_cpu=True, rank0_only=False)
-        self.cpu_saved_models[n] = state_dict
-
-    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def restore_model_from_cpu(self, n):
-        """从CPU恢复指定版本的模型到actor_module_fsdp"""
-        if n in self.cpu_saved_models:
-            state_dict = self.cpu_saved_models[n]
-            if fsdp_version(self.actor_module_fsdp) == 1:
-                from torch.distributed.fsdp import FullStateDictConfig, StateDictType
-
-                state_dict_config = FullStateDictConfig(offload_to_cpu=False, rank0_only=False)
-                with get_fsdp_state_ctx(
-                        self.actor_module_fsdp, state_type=StateDictType.FULL_STATE_DICT,
-                        state_cfg=state_dict_config, optim_cfg=None
-                ):
-                    self.actor_module_fsdp.load_state_dict(state_dict)
-            elif fsdp_version(self.actor_module_fsdp) == 2:
-                fsdp2_load_full_state_dict(self.actor_module_fsdp, state_dict)
-        else:
-            raise ValueError(f"Model version {n} not found in CPU saved models")
-
-    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def clear_cpu_model(self, n):
-        if n in self.cpu_saved_models:
-            del self.cpu_saved_models[n]
-
 
 class CriticWorker(Worker, DistProfilerExtension):
     def __init__(self, config: FSDPCriticConfig):
