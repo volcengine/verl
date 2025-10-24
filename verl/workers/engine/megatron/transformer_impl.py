@@ -613,7 +613,7 @@ class MegatronEngineWithLMHead(MegatronEngine):
         output = forward_fn(
             model,
             input_ids,
-            multi_modal_inputs=multi_modal_inputs,
+            multi_modal_inputs,
             logits_processor=logits_processor,
             logits_processor_args=logits_processor_args,
         )
@@ -668,8 +668,7 @@ class MegatronEngineWithValueHead(MegatronEngineWithLMHead):
         output = forward_fn(
             model,
             input_ids,
-            sequence_parallel=self.tf_config.sequence_parallel,
-            multi_modal_inputs=multi_modal_inputs,
+            multi_modal_inputs,
             value_model=True,
         )
 
