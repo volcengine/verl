@@ -3,7 +3,7 @@ name: docker-vllm-npu
 on:
   workflow_dispatch:  
   push:
-    branches: [ "*" ] 
+    branches: [ "main" ] 
     paths:
       - "docker/Dockerfile.ascend_vllm"  
       - ".github/workflows/docker-build-ascend.yml" 
@@ -57,7 +57,7 @@ jobs:
           if [ "${{ github.event_name }}" = "release" ]; then
             echo "tag=${{ github.event.release.tag_name }}-${{ steps.base_image.outputs.new_image_name }}" >> "$GITHUB_OUTPUT"
           elif [ "$BRANCH_NAME" = "main" ]; then
-            echo "tag=latest-${{ steps.base_image.outputs.new_image_name }}" >> "$GITHUB_OUTPUT"
+            echo "tag=${{ steps.base_image.outputs.new_image_name }}" >> "$GITHUB_OUTPUT"
           else
             echo "tag=${BRANCH_NAME}-${{ steps.base_image.outputs.new_image_name }}" >> "$GITHUB_OUTPUT"
           fi
