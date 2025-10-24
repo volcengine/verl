@@ -6,7 +6,12 @@ RUN echo "export ARCH=$(uname -m)" >> ~/.bashrc
 RUN echo "[LOG INFO]Current system architecture check" && \
     echo "[LOG INFO]Detected architecture: $ARCH" && \
 
-# 3. Install vllm
+# 3. Install system dependencies
+RUN apt-get update -y && apt-get install -y --no-install-recommends \
+    gcc g++ cmake libnuma-dev wget git curl jq vim build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# 4. Install vllm
 RUN  git clone --depth 1 --branch v0.9.1 https://github.com/vllm-project/vllm \
     && if [ "$ARCH" = "x86_64" ]; then \
          echo "[LOG INFO]Entering x86_64 branch: Setting pip extra index url"; \
@@ -18,7 +23,7 @@ RUN  git clone --depth 1 --branch v0.9.1 https://github.com/vllm-project/vllm \
     && VLLM_TARGET_DEVICE=empty pip install -v -e . \
     && cd ..
 
-# 4. Install vllm_ascend
+# 5. Install vllm_ascend
 RUN git clone --depth 1 --branch v0.9.1 https://github.com/vllm-project/vllm-ascend.git \
     && echo "[LOG INFO]Configuring LD_LIBRARY_PATH for $ARCH" && \
     if [ "$ARCH" = "aarch64" ]; then \
@@ -32,7 +37,7 @@ RUN git clone --depth 1 --branch v0.9.1 https://github.com/vllm-project/vllm-asc
     && pip install -v -e . \
     && cd ..
 
-# 5. Install verl
+# 6. Install verl
 RUN git clone https://github.com/volcengine/verl.git \
     && cd verl \
     && git checkout main \
@@ -40,11 +45,11 @@ RUN git clone https://github.com/volcengine/verl.git \
     && pip install -e . \
     && cd ..
 
-# 6. Install MindSpeed
+# 7. Install MindSpeed
 RUN git clone https://gitee.com/ascend/MindSpeed.git \
     && pip install -e MindSpeed
 
-# 7. Install Megatron-LM and configure PYTHONPATH
+# 8. Install Megatron-LM and configure PYTHONPATH
 RUN git clone https://github.com/NVIDIA/Megatron-LM.git \
     && cd Megatron-LM \
     && git checkout core_v0.12.1 \
