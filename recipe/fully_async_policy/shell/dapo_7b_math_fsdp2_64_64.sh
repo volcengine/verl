@@ -65,7 +65,7 @@ n_resp_per_prompt=16
 train_prompt_mini_bsz=32
 total_rollout_steps=$(((512*400)))
 test_freq=20
-staleness_threshold=1
+staleness_threshold=0.5
 trigger_parameter_sync_step=4
 require_batches=4
 partial_rollout=True
@@ -151,6 +151,5 @@ python -m recipe.fully_async_policy.fully_async_main \
     rollout.test_freq="${test_freq}" \
     async_training.staleness_threshold="${staleness_threshold}" \
     async_training.trigger_parameter_sync_step="${trigger_parameter_sync_step}" \
-    async_training.partial_rollout="${partial_rollout}"
+    async_training.partial_rollout="${partial_rollout}" \
     async_training.require_batches="${require_batches}"
-    async_training.use_rollout_log_probs=True
