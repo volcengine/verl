@@ -1,11 +1,11 @@
-name: docker-vllm-npu
+name: docker-build-ascend
 
 on:
   workflow_dispatch:  
   push:
     branches: [ "main" ] 
     paths:
-      - "docker/Dockerfile.ascend_vllm"  
+      - "docker/Dockerfile.ascend.vllm-0.9.1"  
       - ".github/workflows/docker-build-ascend.yml" 
   release:
     types: [ published ] 
@@ -13,19 +13,13 @@ on:
     - cron: "0 16 * * *"
 
 jobs:
-  build-vllm-npu:
+  build-ascend-image:
     if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     concurrency:
-      group: ${{ github.workflow }}-${{ github.ref }}-vllm-npu
+      group: ${{ github.workflow }}-${{ github.ref }}-build-ascend-image
       cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
     steps:
-      - name: Free up disk space
-        uses: jlumbroso/free-disk-space@v1.3.1
-        with:
-          tool-cache: true
-          docker-images: false
-
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -38,7 +32,7 @@ jobs:
         id: base_image
         run: |
 
-          BASE_IMAGE_FULL=$(grep '^FROM' ./docker/Dockerfile.ascend_vllm | head -1 | cut -d' ' -f2)
+          BASE_IMAGE_FULL=$(grep '^FROM' ./docker/Dockerfile.ascend.vllm-0.9.1 | head -1 | cut -d' ' -f2)
           echo "Base image full: $BASE_IMAGE_FULL"
           
           BASE_IMAGE_TAG=$(echo "$BASE_IMAGE_FULL" | cut -d':' -f2)
@@ -55,11 +49,9 @@ jobs:
           BRANCH_NAME=$(echo "${{ github.ref }}" | sed 's/refs\/heads\///g' | sed 's/[^a-zA-Z0-9._-]/_/g')
           
           if [ "${{ github.event_name }}" = "release" ]; then
-            echo "tag=${{ github.event.release.tag_name }}-${{ steps.base_image.outputs.new_image_name }}" >> "$GITHUB_OUTPUT"
+            echo "tag=${{ steps.base_image.outputs.new_image_name }}-${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
           elif [ "$BRANCH_NAME" = "main" ]; then
-            echo "tag=${{ steps.base_image.outputs.new_image_name }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=${BRANCH_NAME}-${{ steps.base_image.outputs.new_image_name }}" >> "$GITHUB_OUTPUT"
+            echo "tag=${{ steps.base_image.outputs.new_image_name }}-latest" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Set up Docker Buildx
@@ -77,7 +69,7 @@ jobs:
         with:
           context: .  
           platforms: linux/amd64,linux/arm64 
-          file: ./docker/Dockerfile.ascend_vllm  
+          file: ./docker/Dockerfile.ascend.vllm-0.9.1  
           push: true 
           tags: |  
             quay.io/709222099/verl:${{ steps.version.outputs.tag }}
