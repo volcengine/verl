@@ -20,6 +20,12 @@ jobs:
       group: ${{ github.workflow }}-${{ github.ref }}-build-ascend-image
       cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
     steps:
+      - name: Free up disk space
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: true
+          docker-images: false
+          
       - name: Checkout code
         uses: actions/checkout@v4
 
