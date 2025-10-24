@@ -229,7 +229,7 @@ class MegatronPPOActor(BasePPOActor):
                         log_probs = [o[0]["log_probs"] for o in output["output"]]  # (bs, seq_size)
                     else:
                         log_probs = [o["log_probs"] for o in output["output"]]  # (bs, seq_size)
-                    log_probs = torch.cat(log_probs, dim=0).to(torch.float32)
+                    log_probs = torch.cat(log_probs, dim=0)
                     if use_dynamic_bsz:
                         indices = output["indices"]
                         indices = list(itertools.chain.from_iterable(indices))
@@ -238,7 +238,7 @@ class MegatronPPOActor(BasePPOActor):
                         log_probs = log_probs[revert_indices]
                 else:
                     log_probs = torch.empty(
-                        size=(batch_size, response_length), dtype=torch.float32, device=input_ids.device
+                        size=(batch_size, response_length), device=input_ids.device
                     )
                 log_probs = log_probs.to(get_device_id())
                 # broadcast across pp ranks
@@ -253,7 +253,7 @@ class MegatronPPOActor(BasePPOActor):
                     # Note that o[0] is metrics, o[1] is entropy
                     if mpu.is_pipeline_last_stage(ignore_virtual=True):
                         entropys = torch.cat([o[1] for o in output["output"]], dim=0)
-                        entropys = entropys.to(torch.float32)
+                        entropys = entropys
                         if use_dynamic_bsz:
                             indices = output["indices"]
                             indices = list(itertools.chain.from_iterable(indices))
@@ -262,7 +262,7 @@ class MegatronPPOActor(BasePPOActor):
                             entropys = entropys[revert_indices]
                     else:
                         entropys = torch.empty(
-                            size=(batch_size, response_length), dtype=torch.float32, device=input_ids.device
+                            size=(batch_size, response_length), device=input_ids.device
                         )
                     # broadcast across pp ranks
                     entropys = entropys.to(get_device_id())
@@ -295,10 +295,10 @@ class MegatronPPOActor(BasePPOActor):
                 ``responses``: tensor of shape [batch_size, response_length]. torch.int64. Note that
                 responses = input_ids[:, -response_length:]
 
-                ``old_log_probs``: tensor of shape [batch_size, response_length]. torch.float32. The log probability
+                ``old_log_probs``: tensor of shape [batch_size, response_length]. The log probability
                 of responses.
 
-                ``advantages``: tensor of shape [batch_size, response_length]. torch.float32. The advantages of
+                ``advantages``: tensor of shape [batch_size, response_length]. The advantages of
                 responses.
                 See PPO paper for details. https://arxiv.org/abs/1707.06347
 
