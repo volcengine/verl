@@ -127,13 +127,12 @@ class DetachActorWorker(DetachNcclSync):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def save_model_to_cpu(self, n):
-        """保存当前模型到CPU，但保持GPU上的参数不变"""
-        # 获取完整的模型状态字典并保存到CPU
+        if not hasattr(self, 'cpu_saved_models'):
+            self.cpu_saved_models = {}
         self.cpu_saved_models[n] = fsdp2_sharded_save_to_cpu(self.actor_module_fsdp)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def restore_model_from_cpu(self, n):
-        """从CPU恢复指定版本的模型到actor_module_fsdp"""
         if n in self.cpu_saved_models:
             cpu_sharded_state, global_spec = self.cpu_saved_models[n]
             fsdp2_sharded_load_from_cpu(self.actor_module_fsdp, cpu_sharded_state, global_spec)

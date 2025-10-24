@@ -770,8 +770,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 enable_activation_offload=self.config.model.get("enable_activation_offload", False),
             )
 
-            self.cpu_saved_models = {}
-
             # get the original unwrapped module
             if fsdp_version(self.actor_module_fsdp) == 1:
                 self.actor_module = self.actor_module_fsdp._fsdp_wrapped_module
