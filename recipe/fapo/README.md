@@ -44,6 +44,8 @@ You can construct the training and evaluation datasets by:
 python recipe/fapo/prepare_fapo_data.py --local_dir ${RAY_DATA_HOME}/data/
 ```
 
+Or you can directly use the data available [here](https://huggingface.co/datasets/dyyyyyyyy/FAPO-Reasoning-Dataset).
+
 To integrate the GRM into the final training, we provide two options:
 
 1. **Launch GRM as an external service:** Launch multiple model servers and a router in advance to handle and dispatch incoming requests. Refer to `verl/recipe/genrm_remote` for more details. The scripts is `verl/recipe/fapo/run_fapo_{7b/32b}_remote.sh`.
