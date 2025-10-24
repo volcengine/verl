@@ -334,7 +334,7 @@ Once the fleet is created, define a Ray cluster task, e.g. in ``ray-cluster.dsta
         - PYTHONUNBUFFERED=1
         - CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
     
-    image: whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6-mcore0.12.0-te2.2
+    image: verlai/verl:app-verl0.6-transformers4.56.1-sglang0.5.2-mcore0.13.0-te2.2
     commands:
         - git clone https://github.com/volcengine/verl
         - cd verl
