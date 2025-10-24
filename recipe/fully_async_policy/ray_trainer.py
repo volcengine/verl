@@ -370,24 +370,18 @@ class FullyAsyncRayPPOTrainer(RayPPOTrainer):
             async_training = self.config.get("async_training", None)
             if async_training and async_training.use_rollout_log_probs:
 
-                # 如果 local_trigger_step == 1 将训练引擎的参数load到cpu保存一份，方便后续进行MIS
-                # 如果 local_trigger_step == 2,3,... 恢复版本1的参数计算old_log_prob，再恢复当前的参数版本
+                # If local_triger_step == 1, load the training engine's parameters to the CPU
+                #  and save a copy for subsequent MIS use.
+                # If local_trigger_step == 2, 3, ..., restore the parameters of version 1 to calculate the old_log_prob,
+                # then restore the parameters of the current version.
                 if local_trigger_step == 1:
-                    # 保存版本为1的参数到cpu
                     self.actor_rollout_wg.save_model_to_cpu(1)
-                    # 使用当前参数计算 old_log_prob
                     batch = compute_old_log_prob(batch)
-                # 如果 local_trigger_step != 1 恢复参数计算
                 elif local_trigger_step is not None:
-                    # 从gpu中卸载参数到cpu
                     self.actor_rollout_wg.save_model_to_cpu(local_trigger_step)
-                    # 加载前一版本的参数到gpu中
                     self.actor_rollout_wg.restore_model_from_cpu(1)
-                    # 计算old_log_prob
                     batch = compute_old_log_prob(batch)
-                    # 恢复参数到gpu
                     self.actor_rollout_wg.restore_model_from_cpu(local_trigger_step)
-                    # 清空当前版本的cpu参数
                     self.actor_rollout_wg.clear_cpu_model(local_trigger_step)
                 else:
                     batch.batch["old_log_probs"] = batch.batch["rollout_log_probs"]
