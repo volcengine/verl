@@ -121,8 +121,8 @@ class FullyAsyncRayPPOTrainer(RayPPOTrainer):
             # Only require nsight worker options when tool is nsys
             if OmegaConf.select(self.config.global_profiler, "tool") == "nsys":
                 assert (
-                        OmegaConf.select(self.config.global_profiler.global_tool_config.nsys, "worker_nsight_options")
-                        is not None
+                    OmegaConf.select(self.config.global_profiler.global_tool_config.nsys, "worker_nsight_options")
+                    is not None
                 ), "worker_nsight_options must be set when using nsys with profile_steps"
                 wg_kwargs["worker_nsight_options"] = OmegaConf.to_container(
                     OmegaConf.select(self.config.global_profiler.global_tool_config.nsys, "worker_nsight_options")
@@ -291,8 +291,8 @@ class FullyAsyncRayPPOTrainer(RayPPOTrainer):
                 self.global_steps += 1
 
                 if (
-                        hasattr(self.config.actor_rollout_ref.actor, "profiler")
-                        and self.config.actor_rollout_ref.actor.profiler.tool == "torch_memory"
+                    hasattr(self.config.actor_rollout_ref.actor, "profiler")
+                    and self.config.actor_rollout_ref.actor.profiler.tool == "torch_memory"
                 ):
                     self.actor_rollout_wg.dump_memory_snapshot(
                         tag=f"post_update_step{self.global_steps}", sub_dir=f"step{self.global_steps}"
@@ -364,12 +364,12 @@ class FullyAsyncRayPPOTrainer(RayPPOTrainer):
                 if "rollout_log_probs" in batch.batch.keys():
                     # TODO: we may want to add diff of probs too.
                     from verl.utils.debug.metrics import calculate_debug_metrics
+
                     metrics.update(calculate_debug_metrics(batch))
                 return batch
 
             async_training = self.config.get("async_training", None)
             if async_training and async_training.use_rollout_log_probs:
-
                 # If local_triger_step == 1, load the training engine's parameters to the CPU
                 #  and save a copy for subsequent MIS use.
                 # If local_trigger_step == 2, 3, ..., restore the parameters of version 1 to calculate the old_log_prob,
@@ -490,9 +490,9 @@ class FullyAsyncRayPPOTrainer(RayPPOTrainer):
 
     def _validate_metrics(self, is_last_step, last_val_metrics, metrics, timing_raw):
         if (
-                self.val_reward_fn is not None
-                and self.config.trainer.test_freq > 0
-                and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
+            self.val_reward_fn is not None
+            and self.config.trainer.test_freq > 0
+            and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
         ):
             with marked_timer("testing", timing_raw, color="green"):
                 val_metrics: dict = self._validate()
@@ -515,7 +515,7 @@ class FullyAsyncRayPPOTrainer(RayPPOTrainer):
         # 3. The current step number is a multiple of the save frequency.
         # 4. The ESI(Elastic Server Instance)/training plan is close to expiration.
         if self.config.trainer.save_freq > 0 and (
-                is_last_step or self.global_steps % self.config.trainer.save_freq == 0 or esi_close_to_expiration
+            is_last_step or self.global_steps % self.config.trainer.save_freq == 0 or esi_close_to_expiration
         ):
             if esi_close_to_expiration:
                 print("Force saving checkpoint: ESI instance expiration approaching.")

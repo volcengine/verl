@@ -21,7 +21,7 @@ import torch.distributed
 from omegaconf import DictConfig
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
-from recipe.fully_async_policy.fstp_utils import fsdp2_sharded_save_to_cpu, fsdp2_sharded_load_from_cpu
+from recipe.fully_async_policy.fstp_utils import fsdp2_sharded_load_from_cpu, fsdp2_sharded_save_to_cpu
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils.device import (
     get_device_name,
@@ -127,7 +127,7 @@ class DetachActorWorker(DetachNcclSync):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def save_model_to_cpu(self, n):
-        if not hasattr(self, 'cpu_saved_models'):
+        if not hasattr(self, "cpu_saved_models"):
             self.cpu_saved_models = {}
         self.cpu_saved_models[n] = fsdp2_sharded_save_to_cpu(self.actor_module_fsdp)
 

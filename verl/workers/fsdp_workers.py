@@ -241,7 +241,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             # micro bsz
             if self.config.actor.ppo_micro_batch_size is not None:
                 self.config.actor.ppo_micro_batch_size //= (
-                        self.device_mesh.size() // self.ulysses_sequence_parallel_size
+                    self.device_mesh.size() // self.ulysses_sequence_parallel_size
                 )
                 self.config.actor.ppo_micro_batch_size_per_gpu = self.config.actor.ppo_micro_batch_size
 
@@ -258,7 +258,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         # normalize rollout config
         if self._is_rollout and self.config.rollout.log_prob_micro_batch_size is not None:
             self.config.rollout.log_prob_micro_batch_size //= (
-                    self.device_mesh.size() // self.ulysses_sequence_parallel_size
+                self.device_mesh.size() // self.ulysses_sequence_parallel_size
             )
             self.config.rollout.log_prob_micro_batch_size_per_gpu = self.config.rollout.log_prob_micro_batch_size
         # normalize ref config
@@ -267,18 +267,18 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             self.config.ref.log_prob_micro_batch_size_per_gpu = self.config.ref.log_prob_micro_batch_size
 
     def _build_model_optimizer(
-            self,
-            model_path,
-            fsdp_config: FSDPEngineConfig,
-            optim_config,
-            override_model_config,
-            use_remove_padding=False,
-            use_fused_kernels=False,
-            enable_gradient_checkpointing=False,
-            trust_remote_code=False,
-            use_liger=False,
-            role="actor",
-            enable_activation_offload=False,
+        self,
+        model_path,
+        fsdp_config: FSDPEngineConfig,
+        optim_config,
+        override_model_config,
+        use_remove_padding=False,
+        use_fused_kernels=False,
+        enable_gradient_checkpointing=False,
+        trust_remote_code=False,
+        use_liger=False,
+        role="actor",
+        enable_activation_offload=False,
     ):
         from torch.distributed.fsdp import CPUOffload, MixedPrecision
         from transformers import (
@@ -581,8 +581,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             self._register_dispatch_collect_info("rollout", dp_rank=self.rank, is_collect=True)
         else:
             is_collect = (
-                    rollout_device_mesh["infer_tp"].get_local_rank() == 0
-                    and rollout_device_mesh["infer_pp"].get_local_rank() == 0
+                rollout_device_mesh["infer_tp"].get_local_rank() == 0
+                and rollout_device_mesh["infer_pp"].get_local_rank() == 0
             )
             self._register_dispatch_collect_info(
                 "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
@@ -859,11 +859,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             global_num_tokens = data.meta_info["global_token_num"]
             estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
             metrics["perf/mfu/actor"] = (
-                    estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
+                estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
             )
-            metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024 ** 3)
-            metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024 ** 3)
-            metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024 ** 3)
+            metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024**3)
+            metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024**3)
+            metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024**3)
 
             lr = self.actor_lr_scheduler.get_last_lr()[0]
             metrics["actor/lr"] = lr.item() if torch.is_tensor(lr) else lr
@@ -1112,6 +1112,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 # silently ignore if profiler doesn't support memory snapshots
                 pass
 
+
 class CriticWorker(Worker, DistProfilerExtension):
     def __init__(self, config: FSDPCriticConfig):
         Worker.__init__(self)
@@ -1172,10 +1173,10 @@ class CriticWorker(Worker, DistProfilerExtension):
         self.config.ppo_mini_batch_size //= torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
         if self.config.ppo_micro_batch_size is not None:
             self.config.ppo_micro_batch_size //= (
-                    torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
+                torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
             )
             self.config.forward_micro_batch_size //= (
-                    torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
+                torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
             )
             self.config.ppo_micro_batch_size_per_gpu = self.config.ppo_micro_batch_size
             self.config.forward_micro_batch_size_per_gpu = self.config.forward_micro_batch_size
@@ -1908,11 +1909,11 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
     async def generate(
-            self,
-            prompt_ids: list[int],
-            sampling_params: dict[str, Any],
-            request_id: str,
-            image_data: Optional[list[Any]] = None,
+        self,
+        prompt_ids: list[int],
+        sampling_params: dict[str, Any],
+        request_id: str,
+        image_data: Optional[list[Any]] = None,
     ) -> list[int]:
         ret = await self.rollout.generate(prompt_ids, sampling_params, request_id, image_data=image_data)
         return ret

@@ -1,13 +1,29 @@
+# Copyright 2025 Bytedance Ltd. and/or its affiliates
+# Copyright 2025 Meituan Ltd. and/or its affiliates
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from typing import Optional
+
 import torch
 import torch.distributed as dist
-from typing import Tuple, Dict, Optional
-from torch.distributed.tensor import Shard, DTensor
+from torch.distributed.tensor import DTensor
 from torch.distributed.tensor._dtensor_spec import DTensorSpec
 
 
 def fsdp2_sharded_save_to_cpu(
-        model: torch.nn.Module  # Your FSDP2-wrapped model (e.g., FSDPQwen2ForCausalLM)
-) -> Tuple[Dict[str, Tuple[torch.Tensor, DTensorSpec]], DTensorSpec]:
+    model: torch.nn.Module,  # Your FSDP2-wrapped model (e.g., FSDPQwen2ForCausalLM)
+) -> tuple[dict[str, tuple[torch.Tensor, DTensorSpec]], DTensorSpec]:
     """
     Sharded Save: Each process only saves the local DTensor shard from its own GPU to CPU memory.
 
@@ -15,7 +31,7 @@ def fsdp2_sharded_save_to_cpu(
         model: FSDP2-wrapped model whose parameters are of DTensor type.
 
     Returns:
-        cpu_sharded_state: Dictionary of CPU shards for the current process. 
+        cpu_sharded_state: Dictionary of CPU shards for the current process.
                           Key = parameter name, Value = (CPU shard tensor, original DTensorSpec)
         global_spec: DTensorSpec of the first parameter (used to verify global rules during loading)
     """
@@ -48,17 +64,17 @@ def fsdp2_sharded_save_to_cpu(
 
 
 def fsdp2_sharded_load_from_cpu(
-        model: torch.nn.Module,
-        cpu_sharded_state: Dict[str, Tuple[torch.Tensor, Optional[DTensorSpec]]],
-        target_spec: DTensorSpec
+    model: torch.nn.Module,
+    cpu_sharded_state: dict[str, tuple[torch.Tensor, Optional[DTensorSpec]]],
+    target_spec: DTensorSpec,
 ) -> None:
     """
-    Sharded Load: Each process only loads the CPU shard it is responsible for to the GPU, 
+    Sharded Load: Each process only loads the CPU shard it is responsible for to the GPU,
                   keeping sharding rules unchanged.
 
     Args:
         model: FSDP2 model to be restored (must have the same structure as when saved)
-        cpu_sharded_state: Shard data read from CPU memory by the current process 
+        cpu_sharded_state: Shard data read from CPU memory by the current process
                           (from fsdp2_sharded_save_to_cpu)
         target_spec: Global DTensorSpec from saving (used to verify sharding rule consistency)
     """
@@ -69,8 +85,9 @@ def fsdp2_sharded_load_from_cpu(
             current_device_mesh = param._spec.device_mesh
             break
     assert current_device_mesh is not None, "DTensor parameters not initialized in the model to be loaded"
-    assert current_device_mesh == target_spec.device_mesh, \
+    assert current_device_mesh == target_spec.device_mesh, (
         f"device_mesh mismatch during loading! Original: {target_spec.device_mesh}, Current: {current_device_mesh}"
+    )
 
     for param_name, param in model.named_parameters():
         # Skip parameters not in the saved state (e.g., newly added parameters)
@@ -84,8 +101,9 @@ def fsdp2_sharded_load_from_cpu(
         if isinstance(param, DTensor):
             # 1. Verify sharding rule consistency (placements must match original Spec)
             assert saved_spec is not None, f"DTensorSpec missing in saved state for parameter {param_name}"
-            assert saved_spec.placements == target_spec.placements, \
+            assert saved_spec.placements == target_spec.placements, (
                 f"Sharding strategy mismatch for parameter {param_name} (conflicts with global rules)!"
+            )
 
             # 2. Move CPU shard data to the current GPU (device of param._local_tensor)
             target_device = param._local_tensor.device

@@ -43,16 +43,16 @@ class FullyAsyncTrainer(FullyAsyncRayPPOTrainer):
     """
 
     def __init__(
-            self,
-            config,
-            tokenizer,
-            role_worker_mapping: dict[Role, WorkerType],
-            resource_pool_manager: ResourcePoolManager,
-            ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
-            processor=None,
-            reward_fn=None,
-            val_reward_fn=None,
-            device_name=None,
+        self,
+        config,
+        tokenizer,
+        role_worker_mapping: dict[Role, WorkerType],
+        resource_pool_manager: ResourcePoolManager,
+        ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+        processor=None,
+        reward_fn=None,
+        val_reward_fn=None,
+        device_name=None,
     ):
         # Store the tokenizer for text processing
         self.tokenizer = tokenizer
@@ -102,8 +102,8 @@ class FullyAsyncTrainer(FullyAsyncRayPPOTrainer):
         self.required_samples = config.actor_rollout_ref.actor.ppo_mini_batch_size * self.require_batches
         self.recompute_old_log_prob = self.config.async_training.recompute_old_log_prob
         total_gpus = (
-                config.trainer.nnodes * config.trainer.n_gpus_per_node
-                + config.rollout.nnodes * config.rollout.n_gpus_per_node
+            config.trainer.nnodes * config.trainer.n_gpus_per_node
+            + config.rollout.nnodes * config.rollout.n_gpus_per_node
         )
         self.metrics_aggregator = MetricsAggregator(total_gpus=total_gpus)
 
@@ -258,10 +258,9 @@ class FullyAsyncTrainer(FullyAsyncRayPPOTrainer):
                     if batch is None:
                         break
                     self._collect_metrics_from_samples(batch, metrics)
-                batch, reward_extra_infos_dict = self._process_batch_common(batch,
-                                                                            metrics,
-                                                                            timing_raw,
-                                                                            self.local_trigger_step if self.recompute_old_log_prob else None)
+                batch, reward_extra_infos_dict = self._process_batch_common(
+                    batch, metrics, timing_raw, self.local_trigger_step if self.recompute_old_log_prob else None
+                )
                 self._log_rollout(batch, reward_extra_infos_dict, timing_raw)
                 self._check_save_checkpoint(False, timing_raw)
 
