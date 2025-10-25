@@ -204,6 +204,7 @@ class McoreActorConfig(ActorConfig):
     load_weight: bool = True
     megatron: McoreEngineConfig = field(default_factory=McoreEngineConfig)
     profile: dict[str, Any] = field(default_factory=dict)
+    use_rollout_log_probs: bool = False
 
 
 @dataclass

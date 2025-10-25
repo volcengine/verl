@@ -440,7 +440,7 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         """
         while True:
             rollout_sample = await self.result_queue.get()
-            rollout_sample = merge_rollout_sample(self.config, self.tokenizer, rollout_sample)
+            rollout_sample = merge_rollout_sample(self.config, self.tokenizer, rollout_sample, self.processor)
 
             # Put RolloutSample into the message queue
             success = await self.message_queue_client.put_sample(

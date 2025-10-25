@@ -23,19 +23,22 @@ from tensordict import TensorDict
 from verl import DataProto
 from verl.experimental.agent_loop.agent_loop import AgentLoopOutput
 from verl.trainer.ppo.ray_trainer import compute_response_mask
+from verl.utils.model import compute_position_id_with_mask
 
 
-def postprocess_agent_loop_outputs(inputs: list[AgentLoopOutput], tokenizer, config) -> DataProto:
+def postprocess_agent_loop_outputs(rs: "RolloutSample", tokenizer, config, processor) -> DataProto:
     """Static method to postprocess a list of AgentLoopOutput into DataProto
 
     Args:
-        inputs: List of AgentLoopOutput
+        rs: RolloutSample
         tokenizer: Tokenizer instance
         config: Configuration object
 
     Returns:
         DataProto: Processed batch data
     """
+    inputs: list[AgentLoopOutput] = rs.agent_loop_output_list
+    full_batch = rs.full_batch
     # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py
     # prompts: left pad
     # responses: right pad
@@ -79,9 +82,61 @@ def postprocess_agent_loop_outputs(inputs: list[AgentLoopOutput], tokenizer, con
     )
     response_mask = response_mask * response_attention_mask
 
+    # Handle multi-modal inputs and position_ids calculation
+    # Only support Qwen2VLImageProcessor for multi-modal processing currently
+    # TODO: support other multi-modal inputs
+    multi_modal_inputs = None
+    if processor is not None and "Qwen2VLImageProcessor" in processor.image_processor.__class__.__name__:
+        # qwen-vl mrope
+        if "Qwen3VLProcessor" in processor.__class__.__name__:
+            pass
+        else:
+            pass
+
+        images = [one.get("image", None) for one in full_batch.non_tensor_batch.get("multi_modal_data")]
+        current_text = [tokenizer.decode(input.prompt_ids, skip_special_tokens=False) for input in inputs]
+        multi_modal_inputs = processor(
+            text=current_text,
+            images=images,
+            return_tensors="pt",
+            max_length=config.actor_rollout_ref.rollout.prompt_length,
+            padding="max_length",
+            padding_side="left",
+        )
+
+        prompt_ids = multi_modal_inputs.pop("input_ids")
+        prompt_attention_mask = multi_modal_inputs.pop("attention_mask")
+
+        # TODO: megatron will cauculate rope position_ids in the forward pass, so we don't need to calculate it here
+        #       but for FSDP support, we need to calculate it here
+
+        # # We must use dict(multi_modal_inputs) to convert BatchFeature values to a new dict
+        # # because np.array() only keeps the keys for BatchFeature.
+        # multi_modal_inputs = dict(multi_modal_inputs)
+
+        # image_grid_thw = multi_modal_inputs.get("image_grid_thw")
+        # video_grid_thw = multi_modal_inputs.get("video_grid_thw")
+        # second_per_grid_ts = multi_modal_inputs.get("second_per_grid_ts")
+
+        # vision_position_ids = get_rope_index(
+        #     processor,
+        #     input_ids=input_ids.squeeze(0),
+        #     image_grid_thw=image_grid_thw,
+        #     video_grid_thw=video_grid_thw,
+        #     second_per_grid_ts=second_per_grid_ts,
+        #     attention_mask=attention_mask.squeeze(0),
+        # ).unsqueeze(0)  # (1, 3, seq_len)
+
+        # valid_mask = attention_mask[0].bool()
+        # text_position_ids = torch.ones((1, len(input_ids[0])), dtype=torch.long)
+        # text_position_ids[0, valid_mask] = torch.arange(valid_mask.sum().item())
+        # text_position_ids = text_position_ids.unsqueeze(0)
+        # position_ids = torch.cat((text_position_ids, vision_position_ids), dim=1)  # (1, 4, seq_length)
+    else:
+        pass
     input_ids = torch.cat([prompt_ids, response_ids], dim=1)
     attention_mask = torch.cat([prompt_attention_mask, response_attention_mask], dim=1)
-    position_ids = (attention_mask.cumsum(dim=1) - 1) * attention_mask
+    position_ids = compute_position_id_with_mask(attention_mask)  # (1, seq_len)
 
     batch = TensorDict(
         {
@@ -191,12 +246,12 @@ def process_rollout_log_probs(data_proto: DataProto, rollout_log_probs: list[lis
     return rollout_log_probs_tensor
 
 
-def merge_rollout_sample(config, tokenizer, rs: RolloutSample):
+def merge_rollout_sample(config, tokenizer, rs: RolloutSample, processor):
     """
     Supplement and refine the RolloutSample object,
     """
     # Step 1: Create a DataProto from the AgentLoopOutput to generate the result
-    gen_batch_output = postprocess_agent_loop_outputs(rs.agent_loop_output_list, tokenizer, config)
+    gen_batch_output = postprocess_agent_loop_outputs(rs, tokenizer, config, processor)
     rollout_log_probs = [x.log_probs for x in rs.agent_loop_output_list]
     rollout_log_probs = process_rollout_log_probs(gen_batch_output, rollout_log_probs)
     gen_batch_output.batch["rollout_log_probs"] = rollout_log_probs.to(torch.float32)

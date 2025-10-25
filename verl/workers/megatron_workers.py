@@ -436,7 +436,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             "gate_proj_layer_name": "linear_fc1.",
         }
         self.weight_converter = None
-        if not self.bridge:
+        if not self.config.actor.megatron.use_mbridge:
             self.weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
 
         # 5. switch to trainer mode
@@ -474,7 +474,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         self.param_dtype = torch.bfloat16
         log_gpu_memory_usage("Before init actor model and optimizer", logger=logger)
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
-        if self._is_actor or self._is_rollout:
+        if self._is_actor:
             # we need the model for actor and rollout
             optim_config = self.config.actor.optim if self._is_actor else None
             (

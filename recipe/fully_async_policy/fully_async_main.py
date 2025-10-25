@@ -91,7 +91,12 @@ def create_role_worker_mapping(config):
 
         ray_worker_group_cls = RayWorkerGroup
 
-    # TODO megatron support
+    elif config.actor_rollout_ref.actor.strategy == "megatron":
+        assert config.critic.strategy == "megatron"
+        from recipe.fully_async_policy.megatron_worker import CriticWorker, DetachActorWorker, DetachAsyncRolloutWorker
+        from verl.single_controller.ray import RayWorkerGroup
+
+        ray_worker_group_cls = RayWorkerGroup
     else:
         raise NotImplementedError(f"Unsupported strategy: {config.actor_rollout_ref.actor.strategy}")
 
