@@ -298,7 +298,7 @@ class TaskRunner:
         # Create training and validation datasets.
         train_dataset = create_rl_dataset(
             config.data.train_files,
-            config.data,
+            config,
             tokenizer,
             processor,
             is_train=True,
@@ -306,7 +306,7 @@ class TaskRunner:
         )
         val_dataset = create_rl_dataset(
             config.data.val_files,
-            config.data,
+            config,
             tokenizer,
             processor,
             is_train=False,

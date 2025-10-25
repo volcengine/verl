@@ -214,13 +214,13 @@ class TaskRunner:
         # Create training and validation datasets.
         train_dataset = create_rl_dataset(
             config.data.train_files,
-            config.data,
+            config,
             tokenizer,
             processor,
             max_samples=config.data.get("train_max_samples", -1),
         )
         val_dataset = create_rl_dataset(
-            config.data.val_files, config.data, tokenizer, processor, max_samples=config.data.get("val_max_samples", -1)
+            config.data.val_files, config, tokenizer, processor, max_samples=config.data.get("val_max_samples", -1)
         )
         train_sampler = create_rl_sampler(config.data, train_dataset)
 

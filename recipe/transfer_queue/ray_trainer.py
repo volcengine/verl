@@ -525,13 +525,9 @@ class RayPPOTrainer:
         from verl.trainer.main_ppo import create_rl_dataset, create_rl_sampler
 
         if train_dataset is None:
-            train_dataset = create_rl_dataset(
-                self.config.data.train_files, self.config.data, self.tokenizer, self.processor
-            )
+            train_dataset = create_rl_dataset(self.config.data.train_files, self.config, self.tokenizer, self.processor)
         if val_dataset is None:
-            val_dataset = create_rl_dataset(
-                self.config.data.val_files, self.config.data, self.tokenizer, self.processor
-            )
+            val_dataset = create_rl_dataset(self.config.data.val_files, self.config, self.tokenizer, self.processor)
         self.train_dataset, self.val_dataset = train_dataset, val_dataset
 
         if train_sampler is None:

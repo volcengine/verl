@@ -171,8 +171,8 @@ class TaskRunner(MainTaskRunner):
         from verl.utils.dataset.rl_dataset import collate_fn
 
         # Create training and validation datasets.
-        train_dataset = create_rl_dataset(config.data.train_files, config.data, tokenizer, processor, is_train=True)
-        val_dataset = create_rl_dataset(config.data.val_files, config.data, tokenizer, processor, is_train=False)
+        train_dataset = create_rl_dataset(config.data.train_files, config, tokenizer, processor, is_train=True)
+        val_dataset = create_rl_dataset(config.data.val_files, config, tokenizer, processor, is_train=False)
         train_sampler = create_rl_sampler(config.data, train_dataset)
 
         # Initialize the PPO trainer.
