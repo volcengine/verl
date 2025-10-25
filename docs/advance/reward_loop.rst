@@ -1,6 +1,10 @@
 Reward Loop
 ===========
 
+.. _yyding: https://yyding1.github.io
+
+Author: `Yuyang Ding <https://yyding1.github.io>`_
+
 Last updated: 10/23/2025.
 
 .. warning::
@@ -109,7 +113,6 @@ To support flexible and scalable reward model computation, RewardLoop implement 
 
 Each reward model runs as an independent server and is registered with the router.
 This router will forward the requests to the registered reward servers with load balancing and return the results.
-
 This design allows us to expose a single unified router address to user-defined reward functions, enabling them to access various reward models seamlessly through the same interface.
 
 RewardModelManager
@@ -117,7 +120,7 @@ RewardModelManager
 
 .. image:: https://github.com/yyDing1/verl-materials/blob/main/reward_loop_full.svg?raw=true
 
-`RewardModelManager` will launch multiple reward servers and register them in the reward router.
+``RewardModelManager`` will launch multiple reward servers and register them in the reward router.
 
 .. code:: python
 
@@ -143,8 +146,9 @@ Reward Router
 ~~~~~~~~~~~~~
 
 The router is to forward the requests to the registered reward servers with load balancing.
+
 - For sglang reward servers, we directly use the sglang router to forward the requests.
-- For vllm reward servers, we implement a simple round-robin router to forward the requests.
+- For vllm reward servers, we implement a simple round-robin ``NaiveRouter`` to dispatch the requests.
 
 .. code:: python
 
@@ -184,7 +188,7 @@ The router is to forward the requests to the registered reward servers with load
 Agent Reward Loop
 -----------------
 
-RewardLoop can be integrated with AgentLoop to enable sample-wise rollout and reward computation.
+Reward Loop can be integrated with AgentLoop to enable sample-wise rollout and reward computation.
 
 .. image:: https://github.com/yyDing1/verl-materials/blob/main/agent_reward_loop.svg?raw=true
 
