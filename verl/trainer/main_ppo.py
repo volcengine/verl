@@ -303,7 +303,7 @@ class TaskRunner:
         # Create training and validation datasets.
         train_dataset = create_rl_dataset(
             config.data.train_files,
-            config.data,
+            config,
             tokenizer,
             processor,
             is_train=True,
@@ -311,7 +311,7 @@ class TaskRunner:
         )
         val_dataset = create_rl_dataset(
             config.data.val_files,
-            config.data,
+            config,
             tokenizer,
             processor,
             is_train=False,
@@ -341,12 +341,12 @@ class TaskRunner:
         trainer.fit()
 
 
-def create_rl_dataset(data_paths, data_config, tokenizer, processor, is_train=True, max_samples: int = -1):
+def create_rl_dataset(data_paths, config, tokenizer, processor, is_train=True, max_samples: int = -1):
     """Create a dataset.
 
     Arguments:
         data_paths: List of paths to data files.
-        data_config: The data config.
+        config: The experiment config.
         tokenizer (Tokenizer): The tokenizer.
         processor (Processor): The processor.
 
@@ -359,16 +359,16 @@ def create_rl_dataset(data_paths, data_config, tokenizer, processor, is_train=Tr
 
     # Check if a custom dataset class is specified in the data configuration
     # and if the path to the custom class is provided
-    if "custom_cls" in data_config and data_config.custom_cls.get("path", None) is not None:
+    if "custom_cls" in config.data and config.data.custom_cls.get("path", None) is not None:
         # Dynamically load the custom dataset class
-        dataset_cls = load_extern_type(data_config.custom_cls.path, data_config.custom_cls.name)
+        dataset_cls = load_extern_type(config.data.custom_cls.path, config.data.custom_cls.name)
         # Verify that the custom dataset class inherits from torch.utils.data.Dataset
         if not issubclass(dataset_cls, Dataset):
             raise TypeError(
-                f"The custom dataset class '{data_config.custom_cls.name}' from "
-                f"'{data_config.custom_cls.path}' must inherit from torch.utils.data.Dataset"
+                f"The custom dataset class '{config.data.custom_cls.name}' from "
+                f"'{config.data.custom_cls.path}' must inherit from torch.utils.data.Dataset"
             )
-    elif "datagen" in data_config and data_config.datagen.get("path", None) is not None and is_train:
+    elif "datagen" in config.data and config.data.datagen.get("path", None) is not None and is_train:
         # If a data generation strategy is specified, use the DynamicGenDataset class
         from verl.utils.dataset.dynamicgen_dataset import DynamicGenDataset
 
@@ -384,7 +384,8 @@ def create_rl_dataset(data_paths, data_config, tokenizer, processor, is_train=Tr
         data_files=data_paths,
         tokenizer=tokenizer,
         processor=processor,
-        config=data_config,
+        data_config=config.data,
+        exp_config=config,
         max_samples=max_samples,
     )
 
