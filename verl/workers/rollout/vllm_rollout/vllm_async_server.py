@@ -379,7 +379,9 @@ class vLLMHttpServerBase:
 
         # Add lora request
         lora_request = None
-        if self.model_config.lora_rank > 0:
+        # Make sure we also check that the lora is already loaded in the engine
+        lora_loaded = VLLM_LORA_INT_ID in await self.engine.list_loras()
+        if self.model_config.lora_rank > 0 and lora_loaded:
             lora_request = LoRARequest(lora_name=VLLM_LORA_NAME, lora_int_id=VLLM_LORA_INT_ID, lora_path=VLLM_LORA_PATH)
 
         generator = self.engine.generate(
