@@ -63,18 +63,23 @@ class MCPBaseTool(BaseTool):
 
     async def _call_tool(self, instance_id, parameters) -> tuple[str, dict]:
         err_msg = ""
+        metadata = {}
         try:
             call_tool_result = await ClientManager.call_tool(self.name, parameters, self.timeout)
+            logger.debug(f"Tool result for instance {instance_id} with tool {self.name}: {call_tool_result.content}")
+            result, metadata = self._parse_tool_result(call_tool_result.content)
         except ClientError as e:
             err_msg = f"\n Tool call failed: {e}"
         except ConnectionError as e:
             err_msg = f"\n Connection failed: {e}"
         except Exception as e:
             err_msg = f"\n An unexpected error occurred: {e}"
-
-        logger.debug(f"Tool result for instance {instance_id} with tool {self.name}: {call_tool_result.content}")
-        result, metadata = self._parse_tool_result(call_tool_result.content)
-        metadata["api_request_error"] = None if not err_msg else err_msg
+        finally:
+            if err_msg:
+                result = err_msg
+                metadata["api_request_error"] = err_msg
+            else:
+                metadata["api_request_error"] = None
         return result, metadata
 
     @rollout_trace_op

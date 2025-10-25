@@ -1,6 +1,6 @@
 # Base Image support aws EFA
 # Build Image with frameworks based on this
-FROM verlai/verl:app-verl0.5-sglang0.4.6.post5-mcore0.12.2
+FROM verlai/verl:app-verl0.6-transformers4.56.1-sglang0.5.2-mcore0.13.0-te2.2
 
 # For aws instances with EFA net interface (Sagemaker AI Pod)
 #     install EFA driver:

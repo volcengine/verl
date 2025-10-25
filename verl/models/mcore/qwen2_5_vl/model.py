@@ -203,6 +203,7 @@ class Qwen2_5VLModel(MegatronModule):
         pixel_values_videos: torch.Tensor = None,
         image_grid_thw: torch.Tensor = None,
         video_grid_thw: torch.Tensor = None,
+        **kwargs,
     ) -> torch.Tensor:
         """Forward function of the Qwen2VL model.
 
@@ -335,6 +336,7 @@ class Qwen2_5VLModel(MegatronModule):
             # inference_params=inference_params,  # currently always None
             packed_seq_params=packed_seq_params,  # currently always None
             **(extra_block_kwargs or {}),
+            **kwargs,
         )
 
         return output

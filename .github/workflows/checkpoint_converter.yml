@@ -30,7 +30,7 @@
 #     - new tests are added to workflow mentioned in 2.
 
 name: checkpoint_converter
-# latest version: Megatron-LM core_r0.11.0 https://github.com/NVIDIA/Megatron-LM/tree/core_r0.11.0
+# latest version: Megatron-LM core_v0.14.0 https://github.com/NVIDIA/Megatron-LM/tree/core_v0.14.0
 
 on:
   # Trigger the workflow on push or pull request,

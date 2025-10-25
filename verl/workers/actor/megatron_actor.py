@@ -526,11 +526,10 @@ class MegatronPPOActor(BasePPOActor):
                     input_ids,
                     position_ids,
                     attention_mask,
-                    sequence_parallel=self.tf_config.sequence_parallel,
-                    multi_modal_inputs=multi_modal_inputs,
-                    labels=label,
-                    labels_mask=label_mask,
-                    temperature=temperature,
+                    label,
+                    label_mask,
+                    temperature,
+                    multi_modal_inputs,
                 )
             else:
                 forward_fn = get_mcore_forward_fn(self.hf_config)
@@ -562,8 +561,7 @@ class MegatronPPOActor(BasePPOActor):
                     input_ids,
                     attention_mask,
                     position_ids,
-                    sequence_parallel=self.tf_config.sequence_parallel,
-                    multi_modal_inputs=multi_modal_inputs,
+                    multi_modal_inputs,
                     logits_processor=logits_processor,
                     logits_processor_args=logits_processor_args,
                 )
