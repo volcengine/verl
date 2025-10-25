@@ -2,7 +2,7 @@
 set -xeuo pipefail
 
 project_name='FAPO-Reproduce'
-exp_name='Baseline-7B'
+exp_name='FAPO-GenRM-4B'
 
 adv_estimator=grpo
 
@@ -14,7 +14,7 @@ kl_loss_coef=0.0
 clip_ratio_low=0.2
 clip_ratio_high=0.28
 
-max_prompt_length=$((1024 * 2))
+max_prompt_length=$((1024 * 5))
 max_response_length=$((1024 * 8))
 enable_overlong_buffer=True
 overlong_buffer_len=$((1024 * 4))
@@ -23,7 +23,7 @@ overlong_penalty_factor=1.0
 loss_agg_mode="token-mean"
 
 train_prompt_bsz=512
-n_resp_per_prompt=8
+n_resp_per_prompt=16
 train_prompt_mini_bsz=32
 
 # Ray
@@ -31,19 +31,21 @@ RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
 WORKING_DIR=${WORKING_DIR:-"${PWD}"}
 RUNTIME_ENV=${RUNTIME_ENV:-"${WORKING_DIR}/verl/trainer/runtime_env.yaml"}
 NNODES=${NNODES:-4}
+NGPUS_PER_NODE=${NGPUS_PER_NODE:-8}
 # Paths
 RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
 # very important! please modify the max_position_embeddings in config.json to 32768 after downloading from huggingface
-MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen2.5-Math-7B"}
+MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen3-4B-Instruct-2507"}
 CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/ckpts/${project_name}/${exp_name}"}
-TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/dapo-math-17k-boxed.parquet"}
-TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/dapo-test-full-boxed.parquet"}
+TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/train.parquet"}
+TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/test.parquet"}
 
 # Algorithm
-temperature=1.0
+temperature=1.2
 top_p=1.0
 top_k=-1 # 0 for HF rollout, -1 for vLLM rollout
-val_top_p=0.7
+val_temperature=0.6
+val_top_p=0.95
 
 # Performance Related Parameter
 sp_size=1
@@ -54,15 +56,10 @@ offload=True
 gen_tp=1
 fsdp_size=8
 
-PROJECT_DIR="$(pwd)"
-CONFIG_PATH="$PROJECT_DIR/recipe/fapo/config"
-
 ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     --address "${RAY_ADDRESS}" \
     --working-dir "${WORKING_DIR}" \
     -- python3 -m verl.trainer.main_ppo \
-    --config-path $CONFIG_PATH \
-    --config-name rm_config.yaml \
     data.train_files="${TRAIN_FILE}" \
     data.val_files="${TEST_FILE}" \
     data.prompt_key=prompt \
@@ -83,7 +80,6 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     actor_rollout_ref.actor.clip_ratio_high=${clip_ratio_high} \
     actor_rollout_ref.actor.clip_ratio_c=10.0 \
     actor_rollout_ref.model.use_remove_padding=True \
-    +actor_rollout_ref.model.override_config.max_position_embeddings=32768 \
     actor_rollout_ref.actor.use_dynamic_bsz=${use_dynamic_bsz} \
     actor_rollout_ref.ref.log_prob_use_dynamic_bsz=${use_dynamic_bsz} \
     actor_rollout_ref.rollout.log_prob_use_dynamic_bsz=${use_dynamic_bsz} \
@@ -111,7 +107,7 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     actor_rollout_ref.rollout.temperature=${temperature} \
     actor_rollout_ref.rollout.top_p=${top_p} \
     actor_rollout_ref.rollout.top_k=${top_k} \
-    actor_rollout_ref.rollout.val_kwargs.temperature=${temperature} \
+    actor_rollout_ref.rollout.val_kwargs.temperature=${val_temperature} \
     actor_rollout_ref.rollout.val_kwargs.top_p=${val_top_p} \
     actor_rollout_ref.rollout.val_kwargs.top_k=${top_k} \
     actor_rollout_ref.rollout.val_kwargs.do_sample=True \
@@ -125,18 +121,18 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     +reward_model.reward_kwargs.overlong_buffer_cfg.penalty_factor=${overlong_penalty_factor} \
     +reward_model.reward_kwargs.overlong_buffer_cfg.log=True \
     +reward_model.reward_kwargs.max_resp_len=${max_response_length} \
-    custom_reward_function.path=recipe/fapo/reward_fn.py \
-    custom_reward_function.name=compute_score_baseline \
+    custom_reward_function.path=recipe/fapo/reward_fn_genrm.py \
+    custom_reward_function.name=compute_score_fapo_genrm \
     trainer.logger='["console","wandb"]' \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
-    trainer.n_gpus_per_node=8 \
+    trainer.n_gpus_per_node="${NGPUS_PER_NODE}" \
     trainer.nnodes="${NNODES}" \
     trainer.val_before_train=True \
     trainer.test_freq=10 \
-    trainer.save_freq=-1 \
+    trainer.save_freq=10 \
     trainer.total_epochs=10 \
-    trainer.total_training_steps=200 \
+    trainer.total_training_steps=500 \
     trainer.default_local_dir="${CKPTS_DIR}" \
     trainer.resume_mode=auto \
     trainer.log_val_generations=10
