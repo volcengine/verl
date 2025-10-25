@@ -7,7 +7,12 @@
 </p>
 <p align="center" style="color:#42A5F5; font-size:15px; margin-top:4px;">
   <a href="https://arxiv.org/abs/2509.15207" target="_blank">📄 arXiv Paper</a> |
-  <a href="https://huggingface.co/papers/2509.15207" target="_blank">🤗 HF Daily</a>
+  <a href="https://huggingface.co/papers/2509.15207" target="_blank">🤗 #1 Paper of the Day</a>
+</p>
+<p align="center" style="color:#42A5F5; font-size:14px; margin-top:4px;">
+  <a href="https://x.com/RoverHM/status/1969113890878259518" target="_blank">𝕏 Post 1</a> |
+  <a href="https://x.com/zdhnarsil/status/1969049940774023428" target="_blank">𝕏 Post 2</a> |
+  <a href="https://x.com/_akhaliq/status/1968901977376505929" target="_blank">𝕏 Post 3</a>
 </p>
 
 <p align="center">
@@ -22,24 +27,55 @@ $$
 
 FlowRL is a flow-balanced reinforcement learning method that matches full reward distributions instead of maximizing rewards, promoting diverse exploration and generalizable reasoning trajectories in LLMs.
 
-## 🚀 Implementation Guide
+## 🚀 Quick Start
 
-- ⚙️ If you want to implement by yourself, we provide a simple guideline to apply FlowRL in your code: [FlowRL Implementation Guide](FLOWRL_SIMPLE_GUIDE.md).
+There are two ways to run FlowRL:
 
-- 📢 TODO: We are preparing to contribute FlowRL implementation to official repositories [veRL](https://github.com/volcengine/verl)
- and [SLIME](https://github.com/THUDM/slime). Stay tuned.
+### Option 1: Original Paper Reproduction
 
+For exact reproduction of results from the paper, use the original repository:
 
-## Quick Start
+👉 **Original Code:** [https://github.com/Xuekai-Zhu/FlowRL](https://github.com/Xuekai-Zhu/FlowRL)
+
+Follow the instructions in the original repository for paper reproduction.
+
+### Option 2: FlowRL Recipe in verl
+
+For running FlowRL using the verl framework:
+
+#### Step 1: Prepare Data and Model
+
+```bash
+# Prepare dataset
+bash recipe/flowrl/prepare/prepare_data.sh
+
+# Prepare model
+bash recipe/flowrl/prepare/prepare_model.sh
+```
+
+#### Step 2: Run Training
+
+```bash
+# Train FlowRL with Qwen2.5-7B
+bash recipe/flowrl/run_flowrl_qwen2.5_7b.sh
+```
+
+## 🔧 Implementation Guide
+
+If you want to implement FlowRL in your own codebase, we provide a simple guideline:
+
+⚙️ [FlowRL Implementation Guide](FLOWRL_SIMPLE_GUIDE.md)
+
+## 📚 Additional Resources
 
 ### Installation
 
-Install [veRL](https://github.com/volcengine/verl) first before using FlowRL.
+Install [verl](https://github.com/volcengine/verl) first before using FlowRL.
 
-### Data Preparation
+### Data Preparation (Alternative Methods)
 
 ```bash
-# Option 1: Download our pre-processed datasets directly.
+# Option A: Download our pre-processed datasets directly
 bash preprocess/down_load_dataset.sh
 # Move data to default directory
 mv data/xuekai/flowrl-data-collection/math_data data/math_data
@@ -47,10 +83,9 @@ mv data/xuekai/flowrl-data-collection/code_data data/code_data
 ```
 
 ```bash
-# Option 2: Process Data from Source. 
-Process data from original sources. 
+# Option B: Process data from original sources
+# For detailed processing instructions, see data/README.md
 ```
-For detailed processing instructions, see [data/README.md](data/README.md).
 
 ### Model Preparation
 
@@ -65,7 +100,7 @@ bash preprocess/down_load_model.sh
 # For other models, modify MODEL_NAME in the script before running
 ```
 
-### Training
+### Training Scripts
 
 ```bash
 cd verl_FlowRL
@@ -95,8 +130,7 @@ bash command/eval/math/flowrl_math_test.sh
 bash command/eval/code/flowrl_code_test.sh
 ```
 
-
-## Citation
+## 📝 Citation
 
 If you think this repo helps you, please kindly consider citing our paper:
 
