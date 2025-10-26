@@ -1,13 +1,10 @@
 # Rollout Importance Sampling
 
+**Author:** [Yingru Li](https://richardli.xyz/)
+
 Last updated: 10/27/2025.
 
 This document provides a comprehensive overview of the Rollout Importance Sampling (IS) implementation in verl.
-
-## References
-
-- [When Speed Kills Stability: Demystifying RL Collapse from the Inference-Training Mismatch](https://yingru.notion.site/When-Speed-Kills-Stability-Demystifying-RL-Collapse-from-the-Inference-Training-Mismatch-271211a558b7808d8b12d403fd15edda)
-- [Your Efficient RL Framework Secretly Brings You Off-Policy RL Training](https://fengyao.notion.site/off-policy-rl)
 
 ### BibTeX Citation
 
@@ -134,19 +131,22 @@ Aggregation level for IS weights:
 
 ### `algorithm.rollout_is_mode` (str)
 Bounding mode for handling outlier IS weights:
-- `"truncate"`: Clamp weights at upper threshold, no rejection (TIS)
-  - All samples used for training
-  - IS weights capped to prevent extreme importance ratios
+- `"truncate"`: Clamp weights at upper threshold only (TIS)
+  - No lower bound clamping or rejection for outlier ratios
+  - IS weights capped at upper threshold to prevent extreme importance ratios
+  - **Note**: Veto-based rejection can still occur (see `rollout_is_veto_threshold`)
 - `"mask"`: Rejection sampling via response_mask (MIS)
   - Rejects tokens/sequences with IS ratios outside [lower, upper]
   - **Important**: Rejection applied to `response_mask`, NOT by zeroing IS weights
   - IS weights remain as true ratios
+  - **Note**: Veto-based rejection also applies (independent mechanism)
 
 ### `algorithm.rollout_is_veto_threshold` (float)
 Per-token veto threshold for catastrophic outliers.
 - If any token has ratio < this threshold, the entire sequence is rejected via `response_mask`
 - Default: `1e-4` (detects ratios 10,000x off)
-- **Important**: Veto applies rejection to `response_mask`, NOT by zeroing IS weights
+- **Important**: Applied **independently** of `rollout_is_mode` (works in both truncate and mask modes)
+- Veto applies rejection to `response_mask`, NOT by zeroing IS weights
 - IS weights remain as true ratios even for vetoed sequences
 
 ## Usage
@@ -627,3 +627,8 @@ Rollout Importance Sampling provides:
 - ✅ Comprehensive metrics for monitoring
 - ✅ Flexibility for different scenarios
 - ✅ Memory-efficient computation
+
+## References
+
+- [When Speed Kills Stability: Demystifying RL Collapse from the Inference-Training Mismatch](https://yingru.notion.site/When-Speed-Kills-Stability-Demystifying-RL-Collapse-from-the-Inference-Training-Mismatch-271211a558b7808d8b12d403fd15edda)
+- [Your Efficient RL Framework Secretly Brings You Off-Policy RL Training](https://fengyao.notion.site/off-policy-rl)

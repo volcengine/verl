@@ -82,21 +82,22 @@ def compute_rollout_importance_weights(
             - "sequence": Sequence product ρ_seq = ∏ρ_t (unbiased but high variance)
             - "geometric": Geometric mean ρ_geo = (∏ρ_t)^(1/T) (experimental trade-off)
         rollout_is_mode: Treatment of outlier IS weights
-            - "truncate": Clamp weights at [1, upper], no rejection (TIS)
+            - "truncate": Clamp weights at upper threshold only. No rejection for outlier ratios,
+              but veto can still apply (TIS)
             - "mask": Reject tokens/sequences outside [lower, upper] via response_mask (MIS/rejection sampling)
         rollout_is_threshold: Upper threshold for IS weights (required, e.g., 2.0)
         rollout_is_threshold_lower: Lower threshold for mask mode (if None, defaults to 1/upper)
         rollout_is_veto_threshold: Catastrophic token threshold. If any token has ratio < this,
-            reject entire sequence. If None, veto disabled. Default 1e-4.
+            reject entire sequence. Applied independently of rollout_is_mode. If None, veto disabled. Default 1e-4.
 
     Returns:
         Tuple of (weights_proto, modified_response_mask, metrics):
             weights_proto: DataProto with TRUE IS weights (never zeroed), key "rollout_is_weights",
                 shape (batch_size, seq_length). None if rollout_is_threshold is None.
             modified_response_mask: Response mask with rejection applied:
-                - truncate mode: same as input (no rejection)
+                - truncate mode: unchanged for outlier ratios, but veto rejection still applied
                 - mask mode: tokens outside [lower, upper] masked to 0
-                - veto: sequences with catastrophic tokens masked to 0
+                - veto: sequences with catastrophic tokens masked to 0 (applied in both modes)
                 Shape (batch_size, seq_length).
             metrics: Dict of IS and mismatch metrics, all scalars with "mismatch/" prefix
     """
@@ -198,9 +199,9 @@ def compute_rollout_importance_weights(
 
     if rollout_is_mode == "truncate":
         # Truncated IS (TIS): clamp weights to prevent extreme importance ratios
-        # No rejection - all samples used for training
+        # No rejection for outlier ratios (mask unchanged), but veto can still apply below
         rollout_is_weights = rollout_is_weights.clamp(max=upper_threshold)
-        modified_response_mask = response_mask  # Return unchanged
+        modified_response_mask = response_mask  # Unchanged for outlier ratios
 
     elif rollout_is_mode == "mask":
         # Masked IS (MIS): rejection sampling for outlier IS weights
