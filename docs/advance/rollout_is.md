@@ -1,13 +1,25 @@
 # Rollout Importance Sampling
 
-Last updated: 10/11/2025.
+Last updated: 10/27/2025.
 
 This document provides a comprehensive overview of the Rollout Importance Sampling (IS) implementation in verl.
 
 ## References
 
-- [When Speed Kills Stability: Demystifying RL Collapse from the Training-Inference Mismatch](https://yingru.notion.site/When-Speed-Kills-Stability-271211a558b7808d8b12d403fd15edda)
+- [When Speed Kills Stability: Demystifying RL Collapse from the Inference-Training Mismatch](https://yingru.notion.site/When-Speed-Kills-Stability-Demystifying-RL-Collapse-from-the-Inference-Training-Mismatch-271211a558b7808d8b12d403fd15edda)
 - [Your Efficient RL Framework Secretly Brings You Off-Policy RL Training](https://fengyao.notion.site/off-policy-rl)
+
+### BibTeX Citation
+
+```bibtex
+@misc{liu-li-2025,
+  title = {When Speed Kills Stability: Demystifying RL Collapse from the Inference-Training Mismatch},
+  url = {https://yingru.notion.site/When-Speed-Kills-Stability-Demystifying-RL-Collapse-from-the-Inference-Training-Mismatch-271211a558b7808d8b12d403fd15edda},
+  author = {Jiacai Liu and Yingru Li and Yuqian Fu and Jiawei Wang and Qian Liu and Yu Shen},
+  year = {2025},
+  month = september,
+}
+```
 
 ## Overview
 
@@ -16,6 +28,24 @@ Rollout Importance Sampling corrects for distribution mismatch between:
 - **Training policy**: e.g., FSDP with FP32
 
 This mismatch can lead to biased gradient estimates and unstable training. Rollout IS applies importance sampling weights to correct these biases.
+
+### Key Design Principle: Separation of IS Weights and Rejection Sampling
+
+**Important**: As of 10/27/2025, the implementation separates two mechanisms:
+
+1. **IS Weights** (`rollout_is_weights`): Always TRUE ratios π_train/π_rollout
+   - Never zeroed, even for rejected samples
+   - Preserves true importance ratios for policy gradient calculations
+
+2. **Rejection Sampling** (`modified_response_mask`): Applied via response_mask
+   - Mask mode: Excludes tokens/sequences with outlier IS ratios
+   - Veto: Excludes sequences with catastrophic tokens
+   - Used for loss aggregation (denominator calculation)
+
+This separation ensures:
+- ✅ Correct loss normalization (rejected samples excluded from denominator)
+- ✅ True IS ratios preserved (not zeroed for rejected samples)
+- ✅ Padding positions still zeroed in weights (different from rejection)
 
 ## Configuration
 
@@ -103,13 +133,21 @@ Aggregation level for IS weights:
 - `"geometric"`: Geometric mean (experimental)
 
 ### `algorithm.rollout_is_mode` (str)
-Bounding mode:
-- `"truncate"`: Cap weights at upper threshold only
-- `"mask"`: Zero out weights outside [lower, upper]
+Bounding mode for handling outlier IS weights:
+- `"truncate"`: Clamp weights at upper threshold, no rejection (TIS)
+  - All samples used for training
+  - IS weights capped to prevent extreme importance ratios
+- `"mask"`: Rejection sampling via response_mask (MIS)
+  - Rejects tokens/sequences with IS ratios outside [lower, upper]
+  - **Important**: Rejection applied to `response_mask`, NOT by zeroing IS weights
+  - IS weights remain as true ratios
 
 ### `algorithm.rollout_is_veto_threshold` (float)
-Per-token veto threshold. If any token ratio < this, entire sequence is rejected.
-Default: `1e-4` (ratio 10,000x off)
+Per-token veto threshold for catastrophic outliers.
+- If any token has ratio < this threshold, the entire sequence is rejected via `response_mask`
+- Default: `1e-4` (detects ratios 10,000x off)
+- **Important**: Veto applies rejection to `response_mask`, NOT by zeroing IS weights
+- IS weights remain as true ratios even for vetoed sequences
 
 ## Usage
 
@@ -159,12 +197,16 @@ All metrics are prefixed with `mismatch/`. For example, `rollout_is_mean` appear
 #### **Veto Mechanism Metrics**
 
 - **`rollout_is_veto_fraction`**: Fraction of sequences rejected by veto mechanism
+  - **Important**: Sequences are rejected via `response_mask=0`, NOT by zeroing IS weights
+  - IS weights remain as true ratios even for vetoed sequences
+  - Veto detects catastrophic tokens (ratio < veto_threshold, e.g., < 1e-4)
   - **Ideal value**: < 0.05 (less than 5% vetoed)
   - **Warning**: > 0.1 suggests policies are too different or numerical issues
 
 - **`rollout_is_catastrophic_token_fraction`**: Fraction of tokens below veto threshold
-  - Identifies problematic tokens before sequence-level veto
-  - **Warning**: > 0.01 indicates widespread distribution issues
+  - Identifies problematic tokens before sequence-level veto is applied
+  - Each catastrophic token causes its entire sequence to be rejected
+  - **Warning**: > 0.01 indicates widespread distribution issues or numerical instability
 
 #### **Threshold Exceedance Metrics**
 
@@ -197,12 +239,16 @@ All metrics are prefixed with `mismatch/`. For example, `rollout_is_mean` appear
 
 #### **Masking Metrics** (mask mode only)
 
-- **`rollout_is_masked_fraction`**: Fraction of tokens masked (set to zero)
-  - **Ideal value**: < 0.1
+- **`rollout_is_masked_fraction`**: Fraction of tokens rejected via response_mask
+  - **Important**: Tokens are rejected by setting `response_mask=0`, NOT by zeroing IS weights
+  - IS weights remain as true ratios (π_train/π_rollout)
+  - **Ideal value**: < 0.1 (less than 10% rejected)
   - **Warning**: > 0.3 means losing too much data
 
-- **`rollout_is_seq_masked_fraction`**: Fraction of sequences with at least one masked token
-  - Shows sequence-level impact of masking
+- **`rollout_is_seq_masked_fraction`**: Fraction of sequences with at least one rejected token
+  - Shows sequence-level impact of rejection sampling
+  - For token-level: sequence rejected if ANY token is outside [lower, upper]
+  - For sequence-level: all tokens have same weight, so entire sequence rejected or accepted
 
 #### **Distribution Mismatch Metrics** (Training vs Rollout Policy)
 
@@ -253,21 +299,42 @@ All metrics are prefixed with `mismatch/`. For example, `rollout_is_mean` appear
 # Metrics are returned from compute_rollout_importance_weights
 from verl.trainer.ppo.mismatch_helper import compute_rollout_importance_weights
 
-weights_proto, metrics = compute_rollout_importance_weights(
+# NEW: Returns 3 values (weights, modified_response_mask, metrics)
+weights_proto, modified_response_mask, metrics = compute_rollout_importance_weights(
     old_log_prob=training_log_probs,      # from training policy
     rollout_log_prob=rollout_log_probs,   # from rollout policy
     response_mask=response_mask,
     rollout_is_level="token",
-    rollout_is_mode="truncate",
+    rollout_is_mode="mask",  # Using mask mode for rejection sampling
     rollout_is_threshold=2.0,
+    rollout_is_threshold_lower=0.5,
     rollout_is_veto_threshold=1e-4,
 )
+
+# Extract IS weights (always true ratios, never zeroed)
+is_weights = weights_proto.batch["rollout_is_weights"]
+
+# modified_response_mask has rejection applied
+# - Tokens/sequences outside [0.5, 2.0] are masked to 0
+# - Sequences with catastrophic tokens are masked to 0
+# - IS weights remain as true ratios (NOT zeroed)
 
 # All metrics have 'mismatch/' prefix
 print(f"Mean IS weight: {metrics['mismatch/rollout_is_mean']:.3f}")
 print(f"Effective sample size: {metrics['mismatch/rollout_is_eff_sample_size']:.3f}")
 print(f"Veto fraction: {metrics['mismatch/rollout_is_veto_fraction']:.3f}")
+print(f"Masked fraction: {metrics['mismatch/rollout_is_masked_fraction']:.3f}")
 print(f"KL divergence: {metrics['mismatch/mismatch_kl']:.3f}")
+
+# Verify IS weights are true ratios (not zeroed)
+print(f"\n✓ IS weights min: {is_weights[response_mask.bool()].min():.4f}")
+print(f"✓ IS weights max: {is_weights[response_mask.bool()].max():.4f}")
+print(f"✓ All IS weights > 0: {(is_weights[response_mask.bool()] > 0).all()}")
+
+# Check rejection via response_mask
+rejected_tokens = (response_mask == 1) & (modified_response_mask == 0)
+print(f"\n✓ Rejected {rejected_tokens.sum()} tokens via response_mask")
+print(f"✓ IS weights for rejected tokens are NON-ZERO (true ratios)")
 
 # Check for warning conditions
 if metrics['mismatch/rollout_is_mean'] < 0.5 or metrics['mismatch/rollout_is_mean'] > 2.0:
@@ -288,14 +355,15 @@ for epoch in range(num_epochs):
     for batch_idx, batch in enumerate(dataloader):
         # ... rollout phase ...
 
-        # Compute IS weights and get metrics
-        weights_proto, metrics = compute_rollout_importance_weights(
+        # Compute IS weights and get metrics (NEW: 3 return values)
+        weights_proto, modified_response_mask, metrics = compute_rollout_importance_weights(
             old_log_prob=batch.old_log_prob,
             rollout_log_prob=batch.rollout_log_prob,
             response_mask=batch.response_mask,
             rollout_is_level=config.rollout_is_level,
             rollout_is_mode=config.rollout_is_mode,
             rollout_is_threshold=config.rollout_is_threshold,
+            rollout_is_threshold_lower=config.rollout_is_threshold_lower,
             rollout_is_veto_threshold=config.rollout_is_veto_threshold,
         )
 
@@ -303,7 +371,10 @@ for epoch in range(num_epochs):
         for metric_name, metric_value in metrics.items():
             logger.log_scalar(metric_name, metric_value, step=global_step)
 
-        # Use IS weights in training
+        # IMPORTANT: Update batch response_mask with rejection applied
+        batch.response_mask = modified_response_mask
+
+        # Use IS weights in training (true ratios, never zeroed)
         is_weights = weights_proto.batch["rollout_is_weights"]
         # ... apply weights to policy gradient ...
 ```
@@ -349,8 +420,8 @@ def check_rollout_is_health(metrics, config):
         print("✅ Rollout IS metrics look healthy")
         return True
 
-# Use in training
-_, metrics = compute_rollout_importance_weights(...)
+# Use in training (NEW: 3 return values)
+_, _, metrics = compute_rollout_importance_weights(...)
 is_healthy = check_rollout_is_health(metrics, config)
 
 if not is_healthy:
@@ -508,8 +579,8 @@ metrics_history = {
 
 # In training loop
 for step in range(num_steps):
-    # ... compute IS weights ...
-    _, metrics = compute_rollout_importance_weights(...)
+    # ... compute IS weights ... (NEW: 3 return values)
+    _, _, metrics = compute_rollout_importance_weights(...)
 
     # Store metrics
     for key in metrics_history.keys():
