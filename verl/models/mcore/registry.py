@@ -33,14 +33,8 @@ from .config_converter import (
     hf_to_mcore_config_qwen2moe,
     hf_to_mcore_config_qwen3moe,
 )
-from .model_forward import (
-    gptmodel_forward,
-    gptmodel_forward_qwen2_5_vl,
-)
-from .model_forward_fused import (
-    fused_forward_gptmodel,
-    fused_forward_qwen2_5_vl,
-)
+from .model_forward import gptmodel_forward_no_padding, model_forward_gen
+from .model_forward_fused import fused_forward_model_gen
 from .model_initializer import (
     BaseModelInitializer,
     DeepseekV3Model,
@@ -73,6 +67,8 @@ class SupportedModel(Enum):
     GLM4_MOE = "Glm4MoeForCausalLM"
 
     QWEN3_TOKEN_CLASSIFICATION = "Qwen3ForTokenClassification"
+    QWEN3_MOE_VL = "Qwen3VLMoeForConditionalGeneration"
+    QWEN3_VL = "Qwen3VLForConditionalGeneration"
 
 
 # Registry for model configuration converters
@@ -86,7 +82,6 @@ MODEL_CONFIG_CONVERTER_REGISTRY: dict[SupportedModel, Callable[[PretrainedConfig
     SupportedModel.LLAMA4: hf_to_mcore_config_llama4,
     SupportedModel.QWEN3: hf_to_mcore_config_dense,
     SupportedModel.QWEN3_MOE: hf_to_mcore_config_qwen3moe,
-    SupportedModel.QWEN2_5_VL: hf_to_mcore_config_qwen2_5_vl,
     SupportedModel.QWEN3_TOKEN_CLASSIFICATION: hf_to_mcore_config_dense,
 }
 
@@ -101,41 +96,60 @@ MODEL_INITIALIZER_REGISTRY: dict[SupportedModel, type[BaseModelInitializer]] = {
     SupportedModel.LLAMA4: DenseModel,
     SupportedModel.QWEN3: DenseModel,
     SupportedModel.QWEN3_MOE: Qwen3MoEModel,
-    SupportedModel.QWEN2_5_VL: Qwen25VLModel,
     SupportedModel.QWEN3_TOKEN_CLASSIFICATION: DenseModel,
 }
 
 # Registry for model forward functions
 MODEL_FORWARD_REGISTRY: dict[SupportedModel, Callable] = {
-    SupportedModel.LLAMA: gptmodel_forward,
-    SupportedModel.QWEN2: gptmodel_forward,
-    SupportedModel.QWEN2_MOE: gptmodel_forward,
-    SupportedModel.MIXTRAL: gptmodel_forward,
-    SupportedModel.DEEPSEEK_V3: gptmodel_forward,
-    SupportedModel.QWEN2_5_VL: gptmodel_forward,
-    SupportedModel.LLAMA4: gptmodel_forward,
-    SupportedModel.QWEN3: gptmodel_forward,
-    SupportedModel.QWEN3_MOE: gptmodel_forward,
-    SupportedModel.QWEN2_5_VL: gptmodel_forward_qwen2_5_vl,
-    SupportedModel.DEEPSEEK_V3: gptmodel_forward,
-    SupportedModel.GLM4_MOE: gptmodel_forward,
-    SupportedModel.QWEN3_TOKEN_CLASSIFICATION: gptmodel_forward,
+    SupportedModel.LLAMA: model_forward_gen(),
+    SupportedModel.QWEN2: model_forward_gen(),
+    SupportedModel.QWEN2_MOE: model_forward_gen(),
+    SupportedModel.MIXTRAL: model_forward_gen(),
+    SupportedModel.DEEPSEEK_V3: model_forward_gen(),
+    SupportedModel.LLAMA4: model_forward_gen(),
+    SupportedModel.QWEN3: model_forward_gen(),
+    SupportedModel.QWEN3_MOE: model_forward_gen(),
+    SupportedModel.QWEN2_5_VL: model_forward_gen(True),
+    SupportedModel.QWEN3_MOE_VL: model_forward_gen(True),
+    SupportedModel.QWEN3_VL: model_forward_gen(True),
+    SupportedModel.DEEPSEEK_V3: model_forward_gen(),
+    SupportedModel.GLM4_MOE: model_forward_gen(),
+    SupportedModel.QWEN3_TOKEN_CLASSIFICATION: model_forward_gen(),
+}
+
+# Registry for model forward functions
+MODEL_FORWARD_NOPAD_REGISTRY: dict[SupportedModel, Callable] = {
+    SupportedModel.LLAMA: gptmodel_forward_no_padding,
+    SupportedModel.QWEN2: gptmodel_forward_no_padding,
+    SupportedModel.QWEN2_MOE: gptmodel_forward_no_padding,
+    SupportedModel.MIXTRAL: gptmodel_forward_no_padding,
+    SupportedModel.DEEPSEEK_V3: gptmodel_forward_no_padding,
+    SupportedModel.QWEN2_5_VL: gptmodel_forward_no_padding,
+    SupportedModel.QWEN3_MOE_VL: gptmodel_forward_no_padding,
+    SupportedModel.QWEN3_VL: gptmodel_forward_no_padding,
+    SupportedModel.LLAMA4: gptmodel_forward_no_padding,
+    SupportedModel.QWEN3: gptmodel_forward_no_padding,
+    SupportedModel.QWEN3_MOE: gptmodel_forward_no_padding,
+    SupportedModel.DEEPSEEK_V3: gptmodel_forward_no_padding,
+    SupportedModel.GLM4_MOE: gptmodel_forward_no_padding,
+    SupportedModel.QWEN3_TOKEN_CLASSIFICATION: gptmodel_forward_no_padding,
 }
 
 # Registry for model forward functions
 MODEL_FORWARD_FUSED_REGISTRY: dict[SupportedModel, Callable] = {
-    SupportedModel.LLAMA: fused_forward_gptmodel,
-    SupportedModel.QWEN2: fused_forward_gptmodel,
-    SupportedModel.QWEN2_MOE: fused_forward_gptmodel,
-    SupportedModel.MIXTRAL: fused_forward_gptmodel,
-    SupportedModel.DEEPSEEK_V3: fused_forward_gptmodel,
-    SupportedModel.QWEN2_5_VL: fused_forward_qwen2_5_vl,
-    SupportedModel.LLAMA4: fused_forward_gptmodel,
-    SupportedModel.QWEN3: fused_forward_gptmodel,
-    SupportedModel.QWEN3_MOE: fused_forward_gptmodel,
-    SupportedModel.QWEN2_5_VL: fused_forward_qwen2_5_vl,
-    SupportedModel.DEEPSEEK_V3: fused_forward_gptmodel,
-    SupportedModel.GLM4_MOE: fused_forward_gptmodel,
+    SupportedModel.LLAMA: fused_forward_model_gen(),
+    SupportedModel.QWEN2: fused_forward_model_gen(),
+    SupportedModel.QWEN2_MOE: fused_forward_model_gen(),
+    SupportedModel.MIXTRAL: fused_forward_model_gen(),
+    SupportedModel.DEEPSEEK_V3: fused_forward_model_gen(),
+    SupportedModel.QWEN2_5_VL: fused_forward_model_gen(True),
+    SupportedModel.QWEN3_MOE_VL: fused_forward_model_gen(True),
+    SupportedModel.QWEN3_VL: fused_forward_model_gen(True),
+    SupportedModel.LLAMA4: fused_forward_model_gen(),
+    SupportedModel.QWEN3: fused_forward_model_gen(),
+    SupportedModel.QWEN3_MOE: fused_forward_model_gen(),
+    SupportedModel.DEEPSEEK_V3: fused_forward_model_gen(),
+    SupportedModel.GLM4_MOE: fused_forward_model_gen(),
 }
 
 # Registry for model weight converters
@@ -225,6 +239,15 @@ def get_mcore_forward_fn(hf_config: PretrainedConfig) -> Callable:
     assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
     model = get_supported_model(hf_config.architectures[0])
     return MODEL_FORWARD_REGISTRY[model]
+
+
+def get_mcore_forward_no_padding_fn(hf_config: PretrainedConfig) -> Callable:
+    """
+    Get the forward function for given model architecture.
+    """
+    assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
+    model = get_supported_model(hf_config.architectures[0])
+    return MODEL_FORWARD_NOPAD_REGISTRY[model]
 
 
 def get_mcore_forward_fused_fn(hf_config: PretrainedConfig) -> Callable:

@@ -38,7 +38,6 @@ from sglang.srt.sampling.sampling_params import SamplingParams
 from sglang.srt.server_args import ServerArgs
 from sglang.srt.utils import (
     assert_pkg_version,
-    get_ip,
     get_open_port,
     is_cuda,
     set_prometheus_multiproc_dir,
@@ -82,6 +81,11 @@ try:
 except ImportError:
     from sglang.srt.openai_api.protocol import Tool
 
+# compatible with sglang 0.5.3
+try:
+    from sglang.srt.utils import get_ip
+except ImportError:
+    from sglang.srt.utils import get_local_ip_auto as get_ip
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -226,6 +230,10 @@ def get_tool_call_parser_type(
     processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
 ) -> str:
     items = FunctionCallParser.ToolCallParserEnum.items()
+    if "gpt-oss" in getattr(processing_class, "name_or_path", "").lower():
+        logger.debug(f"gpt-oss model detected from name_or_path: {processing_class.name_or_path}")
+        logger.debug("Using 'gpt-oss' tool call parser.")
+        return "gpt-oss"
     for parser_type, parser_cls in items:
         parser = parser_cls()
         try:

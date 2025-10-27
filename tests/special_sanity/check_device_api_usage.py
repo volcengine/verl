@@ -29,6 +29,7 @@ CUDA_KEYWORD_CHECK_WHITELIST = [
     "recipe/spin/spin_trainer.py",  # appear in default device_name
     "recipe/sppo/sppo_ray_trainer.py",  # appear in default device_name
     "recipe/one_step_off_policy/ray_trainer.py",  # appear in default device_name
+    "recipe/transfer_queue/ray_trainer.py",  # appear in default device_name
     "verl/utils/profiler/nvtx_profile.py",  # appear in NsightSystemsProfiler
     "verl/utils/kernel/linear_cross_entropy.py",  # appear in nvidia nvtx
     "verl/utils/rendezvous/ray_backend.py",  # appear in cupy importance
@@ -48,6 +49,7 @@ CUDA_KEYWORD_CHECK_WHITELIST = [
 NCCL_KEYWORD_CHECK_WHITELIST = [
     "verl/utils/device.py",
     "verl/third_party/sglang/parallel_state.py",  # appear in default backend
+    "verl/recipe/fully_async_policy/param_sync.py",  # fully_async_policy in default backend
 ]
 
 SEARCH_WHITELIST = CUDA_KEYWORD_CHECK_WHITELIST + NCCL_KEYWORD_CHECK_WHITELIST

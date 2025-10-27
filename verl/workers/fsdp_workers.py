@@ -15,7 +15,6 @@
 The main entry point to run the PPO algorithm
 """
 
-import asyncio
 import datetime
 import json
 import logging
@@ -85,7 +84,9 @@ from verl.utils.model import compute_position_id_with_mask, convert_weight_keys
 from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerConfig, log_gpu_memory_usage, simple_timer
 from verl.utils.profiler.performance import reduce_timing, topk_reduce_ratio_min_max
 from verl.utils.py_functional import convert_to_regular_types
+from verl.utils.ray_utils import get_event_loop
 from verl.workers.config import FSDPCriticConfig, FSDPEngineConfig, HFModelConfig, RolloutConfig
+from verl.workers.config.optimizer import build_optimizer
 from verl.workers.rollout import get_rollout_class
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
@@ -279,7 +280,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         role="actor",
         enable_activation_offload=False,
     ):
-        from torch import optim
         from torch.distributed.fsdp import CPUOffload, MixedPrecision
         from transformers import (
             AutoConfig,
@@ -520,16 +520,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         if role == "actor" and optim_config is not None:
             from verl.utils.torch_functional import get_constant_schedule_with_warmup, get_cosine_schedule_with_warmup
 
-            actor_optimizer = optim.AdamW(
-                actor_module_fsdp.parameters(),
-                lr=optim_config.lr,
-                betas=optim_config.get("betas", (0.9, 0.999)),
-                weight_decay=optim_config.get("weight_decay", 1e-2),
-            )
+            actor_optimizer = build_optimizer(actor_module_fsdp.parameters(), optim_config)
 
             total_steps = optim_config.get("total_training_steps", 0)
             num_warmup_steps = int(optim_config.get("lr_warmup_steps", -1))
-            warmup_style = optim_config.get("warmup_style", "constant")
+            lr_scheduler_type = optim_config.get("lr_scheduler_type", "constant")
             min_lr_ratio = optim_config.get("min_lr_ratio", 0.0)
             num_cycles = optim_config.get("num_cycles", 0.5)
             if num_warmup_steps < 0:
@@ -539,11 +534,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             if self.rank == 0:
                 print(f"Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}")
 
-            if warmup_style == "constant":
+            if lr_scheduler_type == "constant":
                 actor_lr_scheduler = get_constant_schedule_with_warmup(
                     optimizer=actor_optimizer, num_warmup_steps=num_warmup_steps
                 )
-            elif warmup_style == "cosine":
+            elif lr_scheduler_type == "cosine":
                 actor_lr_scheduler = get_cosine_schedule_with_warmup(
                     optimizer=actor_optimizer,
                     num_warmup_steps=num_warmup_steps,
@@ -552,7 +547,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                     num_cycles=num_cycles,
                 )
             else:
-                raise NotImplementedError(f"Warmup style {warmup_style} is not supported")
+                raise NotImplementedError(f"LR scheduler type {lr_scheduler_type} is not supported")
 
             log_gpu_memory_usage(f"After {role} optimizer init", logger=logger)
         else:
@@ -571,19 +566,24 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         # 2. build rollout device mesh
         infer_tp = self.config.rollout.tensor_model_parallel_size * self.config.rollout.data_parallel_size
-        dp = self.world_size // infer_tp
-        assert self.world_size % infer_tp == 0, (
-            f"rollout world_size: {self.world_size} is not divisible by infer_tp: {infer_tp}"
+        infer_pp = self.config.rollout.pipeline_model_parallel_size
+        infer_world_size = infer_tp * infer_pp
+        dp = self.world_size // infer_world_size
+        assert self.world_size % infer_world_size == 0, (
+            f"rollout world_size: {self.world_size} is not divisible by infer_world_size: {infer_world_size}"
         )
         rollout_device_mesh = init_device_mesh(
-            device_name, mesh_shape=(dp, infer_tp), mesh_dim_names=["dp", "infer_tp"]
+            device_name, mesh_shape=(dp, infer_tp, infer_pp), mesh_dim_names=["dp", "infer_tp", "infer_pp"]
         )
         rollout_name = self.config.rollout.name
 
         if rollout_name == "hf":
             self._register_dispatch_collect_info("rollout", dp_rank=self.rank, is_collect=True)
         else:
-            is_collect = rollout_device_mesh["infer_tp"].get_local_rank() == 0
+            is_collect = (
+                rollout_device_mesh["infer_tp"].get_local_rank() == 0
+                and rollout_device_mesh["infer_pp"].get_local_rank() == 0
+            )
             self._register_dispatch_collect_info(
                 "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
             )
@@ -625,7 +625,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         # For sync mode, we directly switch to trainer mode here.
         # For async mode, we can't call run_until_complete here, so we will switch to trainer mode in AgentLoopManager.
         if rollout_config.mode == "sync" and self._is_actor:
-            loop = asyncio.get_event_loop()
+            loop = get_event_loop()
             loop.run_until_complete(self.trainer_mode())
 
     async def rollout_mode(self):
@@ -678,7 +678,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         set_expandable_segments(False)
 
         if peft_config is not None and self.base_sync_done:
-            per_tensor_param = params
+            per_tensor_param = params.items() if isinstance(params, dict) else params  # Fixed: handle dict case
         else:
             device = get_device_id()  # used when fsdp2 set cpu_offload_policy
             per_tensor_param = (
@@ -866,7 +866,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024**3)
 
             lr = self.actor_lr_scheduler.get_last_lr()[0]
-            metrics["actor/lr"] = lr
+            metrics["actor/lr"] = lr.item() if torch.is_tensor(lr) else lr
             self.actor_lr_scheduler.step()
 
             # TODO: here, we should return all metrics
@@ -902,7 +902,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         timing_generate = {}
         if self._is_actor:  # For rollout only, we do not switch context.
-            loop = asyncio.get_event_loop()
+            loop = get_event_loop()
             loop.run_until_complete(self.rollout_mode())
             log_gpu_memory_usage("After switch to rollout mode", logger=logger)
 
@@ -1066,6 +1066,14 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             f"{self._is_actor} and {self._is_rollout}"
         )
 
+        # No checkpoint to load, just offload the model and optimizer to CPU
+        if local_path is None:
+            if self._is_offload_param:
+                offload_fsdp_model_to_cpu(self.actor_module_fsdp)
+            if self._is_offload_optimizer:
+                offload_fsdp_optimizer(self.actor_optimizer)
+            return
+
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
 
@@ -1187,7 +1195,6 @@ class CriticWorker(Worker, DistProfilerExtension):
 
     def _build_critic_model_optimizer(self, config):
         # the following line is necessary
-        from torch import optim
         from torch.distributed.fsdp import MixedPrecision
 
         from verl.utils.model import load_valuehead_model, print_model_size
@@ -1368,16 +1375,12 @@ class CriticWorker(Worker, DistProfilerExtension):
 
         log_gpu_memory_usage("After critic FSDP", logger=None)
 
-        critic_optimizer = optim.AdamW(
-            critic_module.parameters(),
-            lr=config.optim.lr,
-            betas=config.optim.get("betas", (0.9, 0.999)),
-            weight_decay=config.optim.get("weight_decay", 1e-2),
-        )
+        critic_optimizer = build_optimizer(critic_module.parameters(), config.optim)
 
         total_steps = config.optim.get("total_training_steps", 0)
         num_warmup_steps = int(config.optim.get("lr_warmup_steps", -1))
-        warmup_style = config.optim.get("warmup_style", "constant")
+
+        lr_scheduler_type = config.optim.get("lr_scheduler_type", "constant")
         if num_warmup_steps < 0:
             num_warmup_steps_ratio = config.optim.get("lr_warmup_steps_ratio", 0.0)
             num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
@@ -1387,11 +1390,11 @@ class CriticWorker(Worker, DistProfilerExtension):
 
         from verl.utils.torch_functional import get_constant_schedule_with_warmup, get_cosine_schedule_with_warmup
 
-        if warmup_style == "constant":
+        if lr_scheduler_type == "constant":
             critic_lr_scheduler = get_constant_schedule_with_warmup(
                 optimizer=critic_optimizer, num_warmup_steps=num_warmup_steps
             )
-        elif warmup_style == "cosine":
+        elif lr_scheduler_type == "cosine":
             min_lr_ratio = config.optim.get("min_lr_ratio", 0.0)
             num_cycles = config.optim.get("num_cycles", 0.5)
             critic_lr_scheduler = get_cosine_schedule_with_warmup(
@@ -1402,7 +1405,7 @@ class CriticWorker(Worker, DistProfilerExtension):
                 num_cycles=num_cycles,
             )
         else:
-            raise NotImplementedError(f"Warmup style {warmup_style} is not supported")
+            raise NotImplementedError(f"LR scheduler type {lr_scheduler_type} is not supported")
 
         return critic_module, critic_optimizer, critic_lr_scheduler
 

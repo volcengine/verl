@@ -2,6 +2,8 @@ data:
   tokenizer: null
   train_files: ~/data/rlhf/gsm8k/train.parquet
   val_files: ~/data/rlhf/gsm8k/test.parquet
+  train_max_samples: -1  # set to -1 to use full dataset
+  val_max_samples: -1  # set to -1 to use full dataset
   prompt_key: prompt
   reward_fn_key: data_source
   max_prompt_length: 512
@@ -12,6 +14,7 @@ data:
   return_raw_chat: False
   return_full_prompt: False
   shuffle: True
+  seed: null # An integer seed to use when shuffling the data. If not set or set to `null`, the data shuffling will not be seeded, resulting in a different data order on each run.
   filter_overlong_prompts: False # for large-scale dataset, filtering overlong prompts could be timeconsuming. You cat set the filter_overlong_prompts_workers to use multiprocessing to speed up.
   filter_overlong_prompts_workers: 1
   truncation: error
