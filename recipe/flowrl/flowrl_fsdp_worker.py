@@ -14,27 +14,14 @@
 
 """FlowRL FSDP Worker that uses FlowRLActor instead of standard DPActor."""
 
-import asyncio
-import datetime
-import json
 import logging
 import os
 import warnings
-from dataclasses import asdict
-from typing import Any, Optional
 
-import numpy as np
-import psutil
 import torch
 import torch.distributed
-import torch.distributed as dist
-from codetiming import Timer
-from omegaconf import DictConfig, OmegaConf, open_dict
 from peft import LoraConfig, TaskType, get_peft_model
-from safetensors.torch import save_file
-from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp.api import FullStateDictConfig, ShardedStateDictConfig, StateDictType
 
 try:
     # for torch 2.5+
@@ -42,55 +29,37 @@ try:
 except ImportError:
     from torch.distributed._tensor import DTensor
 
-import verl.utils.torch_functional as verl_F
-from verl import DataProto
+from recipe.flowrl.flowrl_actor import FlowRLActor, ProjZModule
 from verl.models.transformers.monkey_patch import apply_monkey_patch
-from verl.single_controller.base import Worker
-from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
+from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.activation_offload import enable_activation_offloading
-from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.device import (
     get_device_id,
-    get_device_name,
-    get_nccl_backend,
     get_torch_device,
     set_expandable_segments,
 )
-from verl.utils.flops_counter import FlopsCounter
-from verl.utils.fs import copy_to_local
 from verl.utils.fsdp_utils import (
     CPUOffloadPolicy,
     MixedPrecisionPolicy,
     apply_fsdp2,
     collect_lora_params,
     fsdp2_load_full_state_dict,
-    fsdp_version,
     get_fsdp_wrap_policy,
     get_init_weight_context_manager,
     get_shard_placement_fn,
     init_fn,
-    layered_summon_lora_params,
     load_fsdp_model_to_gpu,
-    load_fsdp_optimizer,
     offload_fsdp_model_to_cpu,
-    offload_fsdp_optimizer,
     replace_lora_wrapper,
 )
-from verl.utils.import_utils import import_external_libs
 from verl.utils.memory_utils import aggressive_empty_cache
-from verl.utils.model import compute_position_id_with_mask, convert_weight_keys
-from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerConfig, log_gpu_memory_usage, simple_timer
-from verl.utils.profiler.performance import reduce_timing, topk_reduce_ratio_min_max
+from verl.utils.model import convert_weight_keys
+from verl.utils.profiler import log_gpu_memory_usage
 from verl.utils.py_functional import convert_to_regular_types
-from verl.workers.config import FSDPCriticConfig, FSDPEngineConfig, HFModelConfig, RolloutConfig
-from verl.workers.rollout import get_rollout_class
-from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
-
-
-from recipe.flowrl.flowrl_actor import FlowRLActor, ProjZModule
-from verl.workers.fsdp_workers import ActorRolloutRefWorker, get_vl_model_vision_tower, get_sharding_strategy
+from verl.workers.config import FSDPEngineConfig
+from verl.workers.fsdp_workers import ActorRolloutRefWorker, get_sharding_strategy, get_vl_model_vision_tower
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -104,7 +73,7 @@ class FlowRLActorRolloutRefWorker(ActorRolloutRefWorker):
     - ProjZModule for log Z estimation (added in _build_model_optimizer)
     - FlowRLActor with trajectory balance loss (replaces standard DPActor)
     """
-    
+
     def _build_model_optimizer(
         self,
         model_path,
@@ -219,13 +188,13 @@ class FlowRLActorRolloutRefWorker(ActorRolloutRefWorker):
                 config=actor_model_config,
                 trust_remote_code=trust_remote_code,
             )
-            
+
             # ==== FlowRL: inject ProjZ BEFORE FSDP wrap ====
             if role == "actor" and self._is_actor:
                 n_dim = actor_module.config.hidden_size
                 proj_layers = getattr(self.config.actor, "proj_layer", 3)
                 actor_module.add_module("proj_z", ProjZModule(n_dim, num_layers=proj_layers))
-                
+
                 if self.rank == 0:
                     print(f"[FlowRL] Added proj_z (layers={proj_layers}, hidden={n_dim}) BEFORE FSDP wrap")
             # ===============================================
@@ -411,26 +380,23 @@ class FlowRLActorRolloutRefWorker(ActorRolloutRefWorker):
 
         return actor_module_fsdp, actor_optimizer, actor_lr_scheduler, actor_model_config
 
-    
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
         """Override init_model to use FlowRLActor instead of DataParallelPPOActor."""
         # Call parent's init_model to set up the FSDP model (with proj_z already added)
         super().init_model()
-        
+
         # Replace the actor with FlowRLActor if this worker is an actor
         if self._is_actor:
             if self.rank == 0:
-                print(f"[FlowRL] Replacing DataParallelPPOActor with FlowRLActor")
+                print("[FlowRL] Replacing DataParallelPPOActor with FlowRLActor")
 
             # Convert actor config to dataclass
             actor_cfg = omega_conf_to_dataclass(self.config.actor)
 
             # Create FlowRLActor with trajectory balance loss
             self.actor = FlowRLActor(
-                config=actor_cfg,
-                actor_module=self.actor_module_fsdp,
-                actor_optimizer=self.actor_optimizer
+                config=actor_cfg, actor_module=self.actor_module_fsdp, actor_optimizer=self.actor_optimizer
             )
 
     async def rollout_mode(self):
