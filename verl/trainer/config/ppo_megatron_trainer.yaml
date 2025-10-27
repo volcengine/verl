@@ -87,8 +87,8 @@ algorithm:
   # Bounding mode: "truncate" (cap upper only), "mask" (zero outside bounds)
   rollout_is_mode: truncate
 
-  # Per-token veto threshold for catastrophic outliers
-  rollout_is_veto_threshold: 1e-4
+  # Per-token veto threshold for catastrophic outliers (null to disable)
+  rollout_is_veto_threshold: null
 
   # Whether to apply IS weights to policy loss
   # true = apply weights to loss, false = compute metrics only (no weight application)
