@@ -15,7 +15,6 @@
 Utilities to create common models from huggingface
 """
 
-import os
 import re
 import warnings
 from dataclasses import dataclass
@@ -395,7 +394,7 @@ def _get_parallel_model_architecture_from_config(config: PretrainedConfig, value
     )
 
 
-def _load_hf_model(config, model_config, is_value_model, local_cache_path):
+def _load_hf_model(config, model_config, is_value_model):
     """Helper function containing the loading hf model logic"""
     from accelerate import init_empty_weights
     from megatron.core import parallel_state as mpu
@@ -404,7 +403,6 @@ def _load_hf_model(config, model_config, is_value_model, local_cache_path):
 
     assert hasattr(model_config, "architectures"), "architectures cannot be empty when load weight!"
     architectures = getattr(model_config, "architectures", [])
-    local_cache_path = os.path.expanduser(local_cache_path)
 
     # get auto class
     auto_cls = get_hf_auto_model_class(model_config)
@@ -413,9 +411,7 @@ def _load_hf_model(config, model_config, is_value_model, local_cache_path):
         from verl.utils.fs import copy_to_local
 
         print(f"start download from {config.model.path}")
-        local_model_path = copy_to_local(
-            src=config.model.path, cache_dir=local_cache_path, use_shm=config.model.get("use_shm", False)
-        )
+        local_model_path = copy_to_local(src=config.model.path, use_shm=config.model.get("use_shm", False))
         print("finish download")
     else:
         local_model_path = config.model.path
@@ -452,26 +448,19 @@ def _load_hf_model(config, model_config, is_value_model, local_cache_path):
     return architectures, model, state_dict, is_value_model
 
 
-def get_hf_model_path(config, local_cache_path="~/.cache/verl/rlhf"):
-    local_cache_path = os.path.expanduser(local_cache_path)
+def get_hf_model_path(config):
     if config.model.path.startswith("hdfs:"):
         from verl.utils.fs import copy_to_local
 
-        local_model_path = copy_to_local(
-            src=config.model.path, cache_dir=local_cache_path, use_shm=config.model.get("use_shm", False)
-        )
+        local_model_path = copy_to_local(src=config.model.path, use_shm=config.model.get("use_shm", False))
     else:
         local_model_path = config.model.path
     return local_model_path
 
 
-def load_megatron_model_weights(
-    config, model_config, parallel_model, params_dtype, is_value_model=False, local_cache_path="~/.cache/verl/rlhf"
-):
+def load_megatron_model_weights(config, model_config, parallel_model, params_dtype, is_value_model=False):
     """Load weights for verl customized model."""
-    architectures, model, state_dict, is_value_model = _load_hf_model(
-        config, model_config, is_value_model, local_cache_path
-    )
+    architectures, model, state_dict, is_value_model = _load_hf_model(config, model_config, is_value_model)
 
     from verl.models.weight_loader_registry import get_weight_loader
 
@@ -490,11 +479,9 @@ def load_megatron_model_weights(
     return model.config
 
 
-def load_megatron_gptmodel_weights(
-    config, model_config, parallel_model, params_dtype, is_value_model=False, local_cache_path="~/.cache/verl/rlhf"
-):
+def load_megatron_gptmodel_weights(config, model_config, parallel_model, params_dtype, is_value_model=False):
     """Load weights for mcore GPT model."""
-    _, model, state_dict, is_value_model = _load_hf_model(config, model_config, is_value_model, local_cache_path)
+    _, model, state_dict, is_value_model = _load_hf_model(config, model_config, is_value_model)
 
     from verl.models.mcore.loader import load_state_dict_to_megatron_gptmodel
 

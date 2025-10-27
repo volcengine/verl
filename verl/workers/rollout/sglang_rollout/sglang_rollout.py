@@ -38,7 +38,6 @@ from sglang.srt.sampling.sampling_params import SamplingParams
 from sglang.srt.server_args import ServerArgs
 from sglang.srt.utils import (
     assert_pkg_version,
-    get_ip,
     get_open_port,
     is_cuda,
     set_prometheus_multiproc_dir,
@@ -82,6 +81,11 @@ try:
 except ImportError:
     from sglang.srt.openai_api.protocol import Tool
 
+# compatible with sglang 0.5.3
+try:
+    from sglang.srt.utils import get_ip
+except ImportError:
+    from sglang.srt.utils import get_local_ip_auto as get_ip
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))

@@ -32,7 +32,6 @@ import inspect
 import logging
 import os
 import pickle
-import socket
 import time
 from contextlib import contextmanager
 from dataclasses import asdict
@@ -79,6 +78,7 @@ from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
 from verl.utils.vllm import TensorLoRARequest, VLLMHijack, is_version_ge
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
+from verl.workers.rollout.utils import get_free_port, is_valid_ipv6_address
 from verl.workers.rollout.vllm_rollout.utils import (
     VLLM_LORA_INT_ID,
     VLLM_LORA_NAME,
@@ -526,27 +526,25 @@ class vLLMAsyncRollout(BaseRollout):
 
         # File lock to prevent multiple workers listen to same port
         with FileLock(f"/tmp/verl_vllm_zmq_{getpass.getuser()}.lock"):
+            context = zmq.asyncio.Context()
+            self.socket = context.socket(zmq.REP)
             if socket_type == "ipc":
                 pid = os.getpid()
                 address = f"ipc:///tmp/verl_vllm_zmq_{pid}_{getpass.getuser()}.ipc"
             else:
-                ip, port = self._get_free_port()
-                address = f"tcp://{ip}:{port}"
-            context = zmq.asyncio.Context()
-            self.socket = context.socket(zmq.REP)
+                ip = ray.util.get_node_ip_address().strip("[]")
+                port, sock = get_free_port(ip)
+                if is_valid_ipv6_address(ip):
+                    address = f"tcp://[{ip}]:{port}"
+                    self.socket.setsockopt(zmq.IPV6, 1)
+                else:
+                    address = f"tcp://{ip}:{port}"
             self.socket.bind(address)
 
         loop = asyncio.get_running_loop()
         self.zmq_loop_task = loop.create_task(self._loop_forever())
 
         return address
-
-    def _get_free_port(self):
-        ip = ray.util.get_node_ip_address()
-        with socket.socket() as sock:
-            sock.bind(("", 0))
-            port = sock.getsockname()[1]
-        return ip, port
 
     async def _loop_forever(self):
         while True:

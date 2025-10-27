@@ -563,6 +563,8 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.actor.actor_module, load_grad=False)
+            log_gpu_memory_usage("After load actor params during rollout_mode", logger=logger)
+
         if self.bridge is not None:
             per_tensor_param = self.bridge.export_weights(self.actor.actor_module)
         else:
@@ -754,6 +756,15 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def load_checkpoint(self, checkpoint_path, hdfs_path=None, del_local_after_load=True):
+        # No checkpoint to load, just offload the model and optimizer to CPU
+        if checkpoint_path is None:
+            if self._is_offload_param:
+                offload_megatron_model_to_cpu(self.actor_module)
+            if self._is_offload_optimizer:
+                offload_megatron_optimizer(self.actor_optimizer)
+            log_gpu_memory_usage("After offload actor params and optimizer during load_checkpoint", logger=logger)
+            return
+
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.actor_module)
         self.checkpoint_mananager.load_checkpoint(

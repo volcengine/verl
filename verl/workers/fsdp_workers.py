@@ -86,6 +86,7 @@ from verl.utils.profiler.performance import reduce_timing, topk_reduce_ratio_min
 from verl.utils.py_functional import convert_to_regular_types
 from verl.utils.ray_utils import get_event_loop
 from verl.workers.config import FSDPCriticConfig, FSDPEngineConfig, HFModelConfig, RolloutConfig
+from verl.workers.config.optimizer import build_optimizer
 from verl.workers.rollout import get_rollout_class
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
@@ -279,7 +280,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         role="actor",
         enable_activation_offload=False,
     ):
-        from torch import optim
         from torch.distributed.fsdp import CPUOffload, MixedPrecision
         from transformers import (
             AutoConfig,
@@ -520,12 +520,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         if role == "actor" and optim_config is not None:
             from verl.utils.torch_functional import get_constant_schedule_with_warmup, get_cosine_schedule_with_warmup
 
-            actor_optimizer = optim.AdamW(
-                actor_module_fsdp.parameters(),
-                lr=optim_config.lr,
-                betas=optim_config.get("betas", (0.9, 0.999)),
-                weight_decay=optim_config.get("weight_decay", 1e-2),
-            )
+            actor_optimizer = build_optimizer(actor_module_fsdp.parameters(), optim_config)
 
             total_steps = optim_config.get("total_training_steps", 0)
             num_warmup_steps = int(optim_config.get("lr_warmup_steps", -1))
@@ -871,7 +866,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024**3)
 
             lr = self.actor_lr_scheduler.get_last_lr()[0]
-            metrics["actor/lr"] = lr
+            metrics["actor/lr"] = lr.item() if torch.is_tensor(lr) else lr
             self.actor_lr_scheduler.step()
 
             # TODO: here, we should return all metrics
@@ -1071,6 +1066,14 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             f"{self._is_actor} and {self._is_rollout}"
         )
 
+        # No checkpoint to load, just offload the model and optimizer to CPU
+        if local_path is None:
+            if self._is_offload_param:
+                offload_fsdp_model_to_cpu(self.actor_module_fsdp)
+            if self._is_offload_optimizer:
+                offload_fsdp_optimizer(self.actor_optimizer)
+            return
+
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
 
@@ -1192,7 +1195,6 @@ class CriticWorker(Worker, DistProfilerExtension):
 
     def _build_critic_model_optimizer(self, config):
         # the following line is necessary
-        from torch import optim
         from torch.distributed.fsdp import MixedPrecision
 
         from verl.utils.model import load_valuehead_model, print_model_size
@@ -1373,12 +1375,7 @@ class CriticWorker(Worker, DistProfilerExtension):
 
         log_gpu_memory_usage("After critic FSDP", logger=None)
 
-        critic_optimizer = optim.AdamW(
-            critic_module.parameters(),
-            lr=config.optim.lr,
-            betas=config.optim.get("betas", (0.9, 0.999)),
-            weight_decay=config.optim.get("weight_decay", 1e-2),
-        )
+        critic_optimizer = build_optimizer(critic_module.parameters(), config.optim)
 
         total_steps = config.optim.get("total_training_steps", 0)
         num_warmup_steps = int(config.optim.get("lr_warmup_steps", -1))

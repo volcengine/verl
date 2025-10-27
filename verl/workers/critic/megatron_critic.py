@@ -256,7 +256,7 @@ class MegatronPPOCritic(BasePPOCritic):
                 input_ids,
                 attention_mask,
                 position_ids,
-                sequence_parallel=self.tf_config.sequence_parallel,
+                {},  # multi_modal_inputs
                 value_model=True,
             )
 

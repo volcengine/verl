@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -xeuo pipefail
 
-project_name='VERL-DEV'
-exp_name='DEBUG'
+project_name='FAPO-Reproduce'
+exp_name='FAPO-7B'
 
 adv_estimator=grpo
 
@@ -22,7 +22,7 @@ overlong_penalty_factor=1.0
 
 loss_agg_mode="token-mean"
 
-train_prompt_bsz=128
+train_prompt_bsz=512
 n_resp_per_prompt=8
 train_prompt_mini_bsz=32
 
@@ -30,16 +30,14 @@ train_prompt_mini_bsz=32
 RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
 WORKING_DIR=${WORKING_DIR:-"${PWD}"}
 RUNTIME_ENV=${RUNTIME_ENV:-"${WORKING_DIR}/verl/trainer/runtime_env.yaml"}
-NNODES=${NNODES:-1}
-RM_NODES=${RM_NODES:-1}
+NNODES=${NNODES:-2}
 # Paths
 RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
 # very important! please modify the max_position_embeddings in config.json to 32768 after downloading from huggingface
 MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen2.5-Math-7B"}
-GRM_PATH=${GRM_PATH:-"${RAY_DATA_HOME}/models/FAPO-GenRM-4B"}
 CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/ckpts/${project_name}/${exp_name}"}
-TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/dapo-math-17k-boxed.parquet"}
-TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/dapo-test-full-boxed.parquet"}
+TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/fapo-train-boxed.parquet"}
+TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/fapo-test-full-boxed.parquet"}
 
 # Algorithm
 temperature=1.0
@@ -59,7 +57,10 @@ fsdp_size=8
 PROJECT_DIR="$(pwd)"
 CONFIG_PATH="$PROJECT_DIR/recipe/fapo/config"
 
-python3 -m verl.trainer.main_ppo \
+ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
+    --address "${RAY_ADDRESS}" \
+    --working-dir "${WORKING_DIR}" \
+    -- python3 -m verl.trainer.main_ppo \
     --config-path $CONFIG_PATH \
     --config-name rm_config.yaml \
     data.train_files="${TRAIN_FILE}" \
@@ -118,29 +119,20 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.fsdp_config.param_offload=${offload} \
     actor_rollout_ref.ref.ulysses_sequence_parallel_size=${sp_size} \
     actor_rollout_ref.actor.fsdp_config.fsdp_size=${fsdp_size} \
-    reward_model.enable=True \
-    reward_model.enable_resource_pool=True \
-    reward_model.n_gpus_per_node=4 \
-    reward_model.nnodes="${RM_NODES}" \
-    reward_model.model.path=${GRM_PATH} \
-    reward_model.rollout.name=sglang \
-    reward_model.rollout.gpu_memory_utilization=0.90 \
-    reward_model.rollout.tensor_model_parallel_size=1 \
-    reward_model.rollout.free_cache_engine=False \
     reward_model.reward_manager=dapo \
     +reward_model.reward_kwargs.overlong_buffer_cfg.enable=${enable_overlong_buffer} \
     +reward_model.reward_kwargs.overlong_buffer_cfg.len=${overlong_buffer_len} \
     +reward_model.reward_kwargs.overlong_buffer_cfg.penalty_factor=${overlong_penalty_factor} \
     +reward_model.reward_kwargs.overlong_buffer_cfg.log=True \
     +reward_model.reward_kwargs.max_resp_len=${max_response_length} \
-    custom_reward_function.path=recipe/fapo/reward_fn.py \
+    custom_reward_function.path=recipe/fapo/reward_fn_reasoning_remote.py \
     custom_reward_function.name=compute_score_fapo \
     trainer.logger='["console","wandb"]' \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
-    trainer.n_gpus_per_node=4 \
+    trainer.n_gpus_per_node=8 \
     trainer.nnodes="${NNODES}" \
-    trainer.val_before_train=False \
+    trainer.val_before_train=True \
     trainer.test_freq=10 \
     trainer.save_freq=-1 \
     trainer.total_epochs=10 \
