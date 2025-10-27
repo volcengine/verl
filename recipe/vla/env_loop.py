@@ -38,10 +38,10 @@ class EnvLoop:
         self.config = config
         # Extract relevant configuration
         self.max_steps = config.env.train.max_episode_steps
-        self.stage_num = config.rollout.pipeline_stage_num
+        self.stage_num = config.env.rollout.pipeline_stage_num
         self.num_envs_per_worker = config.env.train.num_envs
-        self.action_dim = config.actor.model.action_dim
-        self.num_action_chunks = config.actor.model.num_action_chunks
+        self.action_dim = config.env.actor.model.action_dim
+        self.num_action_chunks = config.env.actor.model.num_action_chunks
         # Derived properties
         self.total_envs = self.env_wg.world_size * self.num_envs_per_worker
         if self.total_envs % self.stage_num != 0:
