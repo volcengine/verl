@@ -987,7 +987,7 @@ class RayPPOTrainer:
                 rollout_is_mode=self.config.algorithm.rollout_is_mode,
                 rollout_is_threshold=self.config.algorithm.rollout_is_threshold,
                 rollout_is_threshold_lower=self.config.algorithm.get("rollout_is_threshold_lower", None),
-                rollout_is_veto_threshold=self.config.algorithm.get("rollout_is_veto_threshold", 1e-4),
+                rollout_is_veto_threshold=self.config.algorithm.get("rollout_is_veto_threshold", None),
             )
 
             # ALWAYS update response_mask with rejection (even if rollout_is=False)

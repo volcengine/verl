@@ -52,7 +52,7 @@ def compute_rollout_importance_weights(
     rollout_is_mode: str = "truncate",
     rollout_is_threshold: Optional[float] = None,
     rollout_is_threshold_lower: Optional[float] = None,
-    rollout_is_veto_threshold: Optional[float] = 1e-4,
+    rollout_is_veto_threshold: Optional[float] = None,
 ) -> tuple[Optional[DataProto], torch.Tensor, dict[str, Any]]:
     """Compute importance sampling weights and rejection mask for rollout-training mismatch.
 
@@ -88,7 +88,7 @@ def compute_rollout_importance_weights(
         rollout_is_threshold: Upper threshold for IS weights (required, e.g., 2.0)
         rollout_is_threshold_lower: Lower threshold for mask mode (if None, defaults to 1/upper)
         rollout_is_veto_threshold: Catastrophic token threshold. If any token has ratio < this,
-            reject entire sequence. Applied independently of rollout_is_mode. If None, veto disabled. Default 1e-4.
+            reject entire sequence. Applied independently of rollout_is_mode. If None, veto disabled. Default None.
 
     Returns:
         Tuple of (weights_proto, modified_response_mask, metrics):

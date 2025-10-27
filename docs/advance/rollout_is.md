@@ -56,7 +56,7 @@ algorithm:
   rollout_is_threshold_lower: null  # Auto-reciprocal
   rollout_is_level: token
   rollout_is_mode: truncate
-  rollout_is_veto_threshold: 1e-4
+  rollout_is_veto_threshold: null  # Disable veto by default
 
 # REQUIRED: Enable log prob calculation
 actor_rollout_ref:
@@ -141,10 +141,12 @@ Bounding mode for handling outlier IS weights:
   - IS weights remain as true ratios
   - **Note**: Veto-based rejection also applies (independent mechanism)
 
-### `algorithm.rollout_is_veto_threshold` (float)
+### `algorithm.rollout_is_veto_threshold` (float or None)
 Per-token veto threshold for catastrophic outliers.
 - If any token has ratio < this threshold, the entire sequence is rejected via `response_mask`
-- Default: `1e-4` (detects ratios 10,000x off)
+- Default: `None` (veto disabled by default)
+- Recommended: `1e-4` to `1e-6` when enabled (catches extreme outliers like 10,000x off)
+- Set to `None` to disable veto mechanism
 - **Important**: Applied **independently** of `rollout_is_mode` (works in both truncate and mask modes)
 - Veto applies rejection to `response_mask`, NOT by zeroing IS weights
 - IS weights remain as true ratios even for vetoed sequences
@@ -308,7 +310,7 @@ weights_proto, modified_response_mask, metrics = compute_rollout_importance_weig
     rollout_is_mode="mask",  # Using mask mode for rejection sampling
     rollout_is_threshold=2.0,
     rollout_is_threshold_lower=0.5,
-    rollout_is_veto_threshold=1e-4,
+    rollout_is_veto_threshold=1e-4,  # Enable veto for catastrophic outliers
 )
 
 # Extract IS weights (always true ratios, never zeroed)
