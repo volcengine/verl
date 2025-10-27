@@ -156,11 +156,9 @@ def process_input(task_descriptions, images_and_states, processor):
 class NaiveRolloutRob(BaseRollout):
     def __init__(
         self,
-        config: RolloutConfig,
         model_config: dict,
         module: torch.nn.Module = None,
     ):
-        self.config = config
         self.model_config = model_config
         # self.model_config.update({
         #     "center_crop": True,
