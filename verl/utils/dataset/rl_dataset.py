@@ -190,7 +190,7 @@ class RLHFDataset(Dataset):
                                     )
                                     for video in doc[video_key]
                                 ],
-                                strict=False,
+                                strict=True,
                             )
                             videos = list(videos)
                             video_metadata = list(video_metadata)
@@ -298,7 +298,7 @@ class RLHFDataset(Dataset):
                         process_video(video, image_patch_size=self.image_patch_size, return_video_metadata=True)
                         for video in row_dict_videos
                     ],
-                    strict=False,
+                    strict=True,
                 )
                 videos = list(videos)
                 video_metadata = list(video_metadata)
