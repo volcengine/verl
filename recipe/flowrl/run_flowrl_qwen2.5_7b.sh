@@ -13,13 +13,9 @@ kl_coef=0.0
 use_kl_loss=True
 kl_loss_coef=0.0
 
-# DAPO Dual-clip parameters
+# Clip parameters
 clip_ratio_low=0.2
 clip_ratio_high=0.28
-
-# FlowRL Loss Variant Selection
-# Options: "vanilla" (no TIS/clip), "flowrl_clip" (clip IS only), "flowrl_clip_tis" (both TIS + clip)
-export FLOWRL_LOSS_VARIANT="flowrl_cispo"
 
 # Sequence lengths 
 max_prompt_length=$((1024 * 2))
@@ -29,14 +25,6 @@ max_response_length=$((1024 * 8))
 enable_overlong_buffer=True
 overlong_buffer_len=$((1024 * 4))
 overlong_penalty_factor=1.0
-
-# Loss aggregation
-loss_agg_mode="token-mean"
-
-# Filter groups - dynamic sampling
-enable_filter_groups=False
-filter_groups_metric=acc
-max_num_gen_batches=10
 
 # Batch sizes
 train_prompt_bsz=512
@@ -93,9 +81,6 @@ python3 -m recipe.flowrl.main_flowrl \
     actor_rollout_ref.actor.clip_ratio_low=${clip_ratio_low} \
     actor_rollout_ref.actor.clip_ratio_high=${clip_ratio_high} \
     actor_rollout_ref.actor.clip_ratio_c=10.0 \
-    algorithm.filter_groups.enable=${enable_filter_groups} \
-    algorithm.filter_groups.max_num_gen_batches=${max_num_gen_batches} \
-    algorithm.filter_groups.metric=${filter_groups_metric} \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.use_dynamic_bsz=${use_dynamic_bsz} \
     actor_rollout_ref.ref.log_prob_use_dynamic_bsz=${use_dynamic_bsz} \
@@ -113,7 +98,6 @@ python3 -m recipe.flowrl.main_flowrl \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=${offload} \
     actor_rollout_ref.actor.entropy_coeff=0 \
     actor_rollout_ref.actor.grad_clip=1.0 \
-    actor_rollout_ref.actor.loss_agg_mode=${loss_agg_mode} \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=${sp_size} \
     actor_rollout_ref.rollout.calculate_log_probs=True \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.80 \
