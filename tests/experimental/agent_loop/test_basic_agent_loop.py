@@ -60,6 +60,7 @@ def init_config() -> DictConfig:
     config.actor_rollout_ref.rollout.n = 4
     config.actor_rollout_ref.rollout.agent.num_workers = 2
     config.actor_rollout_ref.rollout.skip_tokenizer_init = True
+    config.actor_rollout_ref.rollout.placement = "standalone"
 
     return config
 
@@ -347,6 +348,8 @@ def test_tool_agent_with_interaction(init_config):
     init_config.actor_rollout_ref.rollout.multi_turn.tool_config_path = tool_config_path
     init_config.actor_rollout_ref.rollout.multi_turn.interaction_config_path = interaction_config_path
     init_config.actor_rollout_ref.rollout.multi_turn.max_parallel_calls = 2
+    if init_config.actor_rollout_ref.rollout.name == "trtllm":
+        init_config.actor_rollout_ref.rollout.placement = "colocate"
     agent_loop_manager = init_agent_loop_manager(init_config)
 
     # =========================== 2. Generate sequences  ===========================

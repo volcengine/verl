@@ -54,6 +54,7 @@ def init_config() -> DictConfig:
     config.actor_rollout_ref.rollout.n = 4
     config.actor_rollout_ref.rollout.agent.num_workers = 2
     config.actor_rollout_ref.rollout.skip_tokenizer_init = True
+    config.actor_rollout_ref.rollout.placement = "standalone"
 
     return config
 

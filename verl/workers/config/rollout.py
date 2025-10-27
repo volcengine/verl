@@ -119,6 +119,7 @@ class RolloutConfig(BaseConfig):
 
     name: Optional[str] = MISSING
     mode: str = "async"
+    placement: str = "hybrid"
 
     temperature: float = 1.0
     top_k: int = -1
@@ -145,6 +146,7 @@ class RolloutConfig(BaseConfig):
     tensor_model_parallel_size: int = 2
     pipeline_model_parallel_size: int = 1
     max_num_batched_tokens: int = 8192
+    max_batch_size: int = 256
 
     # TODO: enable train_kwargs
     # train_sampling_config: SamplingConfig = field(default_factory=SamplingConfig)
@@ -180,6 +182,7 @@ class RolloutConfig(BaseConfig):
     prometheus: PrometheusConfig = field(default_factory=PrometheusConfig)
 
     update_weights_bucket_megabytes: int = 512
+    refit_ipc_memory_ratio: float = 0.5
 
     skip_rollout: bool = False
 

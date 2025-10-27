@@ -34,8 +34,17 @@ def init_agent_loop_manager(config: DictConfig) -> AgentLoopManager | RayWorkerG
         role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
 
     global_pool_id = "global_pool"
+    if config.actor_rollout_ref.rollout.placement == "hybrid":
+        max_colocate_count = 1
+    elif config.actor_rollout_ref.rollout.placement == "colocate":
+        max_colocate_count = 2
+    else:
+        raise NotImplementedError
+    if config.reward_model.enable and config.reward_model.enable_resource_pool:
+        max_colocate_count += 1
+
     resource_pool_spec = {
-        global_pool_id: [config.trainer.n_gpus_per_node] * config.trainer.nnodes,
+        global_pool_id: (max_colocate_count, [config.trainer.n_gpus_per_node] * config.trainer.nnodes),
     }
     mapping = {
         Role.ActorRollout: global_pool_id,
@@ -54,11 +63,11 @@ def init_agent_loop_manager(config: DictConfig) -> AgentLoopManager | RayWorkerG
     resource_pool_to_cls = {pool: {} for pool in resource_pool_manager.resource_pool_dict.values()}
 
     # create actor and rollout
-    resource_pool = resource_pool_manager.get_resource_pool(Role.ActorRollout)
+    actor_rollout_resource_pool = resource_pool_manager.get_resource_pool(Role.ActorRollout)
     actor_rollout_cls = RayClassWithInitArgs(
         cls=role_worker_mapping[Role.ActorRollout], config=config.actor_rollout_ref, role="actor_rollout"
     )
-    resource_pool_to_cls[resource_pool]["actor_rollout"] = actor_rollout_cls
+    resource_pool_to_cls[actor_rollout_resource_pool]["actor_rollout"] = actor_rollout_cls
 
     if config.reward_model.enable:
         # we create a RM here
@@ -86,6 +95,7 @@ def init_agent_loop_manager(config: DictConfig) -> AgentLoopManager | RayWorkerG
     agent_loop_manager = AgentLoopManager(
         config=config,
         worker_group=actor_rollout_wg,
+        rollout_resource_pool=actor_rollout_resource_pool,
         rm_resource_pool=rm_resource_pool,
     )
 

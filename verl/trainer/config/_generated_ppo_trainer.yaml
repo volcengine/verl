@@ -187,6 +187,7 @@ actor_rollout_ref:
     _target_: verl.workers.config.RolloutConfig
     name: ???
     mode: async
+    placement: hybrid
     temperature: 1.0
     top_k: -1
     top_p: 1
@@ -202,6 +203,7 @@ actor_rollout_ref:
     data_parallel_size: 1
     expert_parallel_size: 1
     pipeline_model_parallel_size: 1
+    max_batch_size: 256
     max_num_batched_tokens: 8192
     max_model_len: null
     max_num_seqs: 1024
@@ -220,6 +222,7 @@ actor_rollout_ref:
     engine_kwargs:
       vllm: {}
       sglang: {}
+      trtllm: {}
     val_kwargs:
       _target_: verl.workers.config.SamplingConfig
       top_k: -1

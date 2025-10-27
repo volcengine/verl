@@ -117,8 +117,17 @@ class TaskRunner:
         }
 
         global_pool_id = "global_pool"
+        if config.actor_rollout_ref.rollout.placement == "hybrid":
+            assert config.actor_rollout_ref.hybrid_engine, "hybrid_engine must be true when placement is hybrid"
+            max_colocate_count = 1
+        elif config.actor_rollout_ref.rollout.placement == "colocate":
+            max_colocate_count = 2
+        else:
+            raise NotImplementedError
+        if config.reward_model.enable and config.reward_model.enable_resource_pool:
+            max_colocate_count += 1
         resource_pool_spec = {
-            global_pool_id: [config.trainer.n_gpus_per_node] * config.trainer.nnodes,
+            global_pool_id: (max_colocate_count, [config.trainer.n_gpus_per_node] * config.trainer.nnodes),
         }
         mapping = {
             Role.ActorRollout: global_pool_id,
