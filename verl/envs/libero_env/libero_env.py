@@ -47,12 +47,12 @@ class LiberoEnv(gym.Env):
         self.seed = self.cfg.seed + rank
         self._is_start = True
         self.num_envs = self.cfg.num_envs
-        self.group_size = self.cfg.group_size
-        self.num_group = self.cfg.num_group
-        self.use_fixed_reset_state_ids = cfg.use_fixed_reset_state_ids
+        # self.group_size = self.cfg.group_size
+        # self.num_group = self.cfg.num_group
+        # self.use_fixed_reset_state_ids = cfg.use_fixed_reset_state_ids
 
-        self.ignore_terminations = cfg.ignore_terminations
-        self.auto_reset = cfg.auto_reset
+        # self.ignore_terminations = cfg.ignore_terminations
+        # self.auto_reset = cfg.auto_reset
 
         self._generator = np.random.default_rng(seed=self.seed)
         self._generator_ordered = np.random.default_rng(seed=0)
@@ -62,12 +62,14 @@ class LiberoEnv(gym.Env):
 
         self._compute_total_num_group_envs()
         self.reset_state_ids_all = self.get_reset_state_ids_all()
-        self.update_reset_state_ids()
+        # self.update_reset_state_ids()
+        self.reset_state_ids = self._get_ordered_reset_state_ids(self.num_envs)
         self._init_task_and_trial_ids()
         self._init_env()
 
         self.prev_step_reward = np.zeros(self.num_envs)
-        self.use_rel_reward = cfg.use_rel_reward
+        # self.use_rel_reward = cfg.use_rel_reward
+        self.use_rel_reward = False
 
         self._init_metrics()
         self._elapsed_steps = np.zeros(self.num_envs, dtype=np.int32)
@@ -134,12 +136,12 @@ class LiberoEnv(gym.Env):
 
         self.cumsum_trial_id_bins = np.cumsum(self.trial_id_bins)
 
-    def update_reset_state_ids(self):
-        if self.cfg.only_eval or self.cfg.use_ordered_reset_state_ids:
-            reset_state_ids = self._get_ordered_reset_state_ids(self.num_group)
-        else:
-            reset_state_ids = self._get_random_reset_state_ids(self.num_group)
-        self.reset_state_ids = reset_state_ids.repeat(self.group_size)
+    # def update_reset_state_ids(self):
+    #     if self.cfg.only_eval or self.cfg.use_ordered_reset_state_ids:
+    #         reset_state_ids = self._get_ordered_reset_state_ids(self.num_group)
+    #     else:
+    #         reset_state_ids = self._get_random_reset_state_ids(self.num_group)
+    #     self.reset_state_ids = reset_state_ids.repeat(self.group_size)
 
     def _init_task_and_trial_ids(self):
         self.task_ids, self.trial_ids = self._get_task_and_trial_ids_from_reset_state_ids(self.reset_state_ids)

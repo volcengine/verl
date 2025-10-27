@@ -1,0 +1,44 @@
+# the rob_ppo config will override default ppo_trainer.yaml
+
+hydra:
+  searchpath:
+    - file://verl/trainer/config
+
+defaults:
+  - ppo_trainer
+  - _self_
+
+env:
+  rollout:
+    pipeline_stage_num: 2
+  actor:
+    model:
+      num_action_chunks: 8
+      action_dim: 7
+  train:
+    simulator_type: libero
+    max_episode_steps: 512
+    video_cfg:
+      save_video: True
+      video_base_dir: /tmp/videos
+    num_envs: 16
+    seed: 42
+    task_suite_name: libero_10
+    init_params:
+      camera_depths: False
+      camera_height: 256
+      camera_width: 256
+      camera_names: 
+        - agent_view
+        - robot0_eye_in_hand
+
+actor_rollout_ref:
+  model:
+    action_token_len: 7
+    action_chunks_len: 8
+  actor:
+    num_images_in_input: 1
+    traj_mini_batch_size: 16
+  rollout:
+    mode: async_envloop
+    prompt_length: 512
