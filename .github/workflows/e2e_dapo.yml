@@ -51,7 +51,7 @@ on:
       # Megatron
       - "!verl/workers/**/megatron_*.py"
       - "!recipe/**"
-      - "recipe/dapo"
+      - "recipe/dapo/**"
   pull_request:
     branches:
       - main
@@ -68,7 +68,7 @@ on:
       # Megatron
       - "!verl/workers/**/megatron_*.py"
       # Home
-      - "recipe/dapo"
+      - "recipe/dapo/**"
       # Entrypoints
       - ".github/workflows/e2e_dapo.yml"
       - "examples/data_preprocess/gsm8k.py"
