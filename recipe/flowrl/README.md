@@ -22,6 +22,7 @@
 ## Table of Contents
 
 - [FlowRL Objective](#flowrl-objective)
+- [Trained Models & Experiment Logs](#trained-models--experiment-logs)
 - [Quick Start](#quick-start)
   - [Option 1: Use verl Recipe](#option-1-use-verl-recipe)
     - [Step 1: Prepare Data and Model](#step-1-prepare-data-and-model)
@@ -42,6 +43,14 @@ $$
 $$
 
 FlowRL is a flow-balanced reinforcement learning method that matches full reward distributions instead of maximizing rewards, promoting diverse exploration and generalizable reasoning trajectories in LLMs.
+
+## Trained Models & Experiment Logs
+
+| Base Model | Domain | WandB Logs | Hugging Face Model |
+|-------|--------|------------|-------------------|
+| Qwen2.5-7B | Math | [🔗 View Run](https://wandb.ai/xuekaizhu0/FlowRL/runs/pa62rs4x?nw=nwuserxuekaizhu0) | [🤗 Model](https://huggingface.co/xuekai/FlowRL-Qwen2.5-7B-math) |
+| DeepSeek-7B | Code | [🔗 View Run](https://wandb.ai/xuekaizhu0/FlowRL/runs/wbw72gdv?nw=nwuserxuekaizhu0) | [🤗 Model](https://huggingface.co/xuekai/FlowRL-DeepSeek-7B-code) |
+| Qwen2.5-32B | Math | - | [🤗 Model](https://huggingface.co/xuekai/FlowRL-Qwen2.5-32B-math) |
 
 ## Quick Start
 
