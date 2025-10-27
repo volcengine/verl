@@ -28,11 +28,11 @@
     - [Step 1: Prepare Data and Model](#step-1-prepare-data-and-model)
     - [Step 2: Run Training](#step-2-run-training)
   - [Option 2: Original Paper Reproduction](#option-2-original-paper-reproduction)
-    - [Installation](#installation)
-    - [Data Preparation](#data-preparation)
-    - [Model Preparation](#model-preparation)
-    - [Training Scripts](#training-scripts)
-    - [Testing](#testing)
+    - [Step 1: Installation](#step-1-installation)
+    - [Step 2: Data Preparation](#step-2-data-preparation)
+    - [Step 3: Model Preparation](#step-3-model-preparation)
+    - [Step 4: Training](#step-4-training)
+    - [Step 5: Testing](#step-5-testing)
   - [Option 3: Implement FlowRL Yourself](#option-3-implement-flowrl-yourself)
 - [Citation](#citation)
 
@@ -83,11 +83,11 @@ For exact reproduction of results from the paper, use the original repository:
 
 👉 **Original Code:** [https://github.com/Xuekai-Zhu/FlowRL](https://github.com/Xuekai-Zhu/FlowRL)
 
-#### Installation
+#### Step 1: Installation
 
 Install [verl](https://github.com/volcengine/verl) first before using FlowRL.
 
-#### Data Preparation
+#### Step 2: Data Preparation
 
 ```bash
 # Option A: Download our pre-processed datasets directly
@@ -102,7 +102,7 @@ mv data/xuekai/flowrl-data-collection/code_data data/code_data
 # For detailed processing instructions, see data/README.md
 ```
 
-#### Model Preparation
+#### Step 3: Model Preparation
 
 For Math Tasks: `Qwen/Qwen2.5-7B` (default in script) ; `Qwen/Qwen2.5-32B`
 
@@ -115,7 +115,7 @@ bash preprocess/down_load_model.sh
 # For other models, modify MODEL_NAME in the script before running
 ```
 
-#### Training Scripts
+#### Step 4: Training
 
 ```bash
 cd verl_FlowRL
@@ -130,7 +130,7 @@ bash command/training/math/flowrl_32B_math.sh
 bash command/training/code/flowrl_7B_code.sh
 ```
 
-#### Testing
+#### Step 5: Testing
 
 ```bash
 cd verl_Test
