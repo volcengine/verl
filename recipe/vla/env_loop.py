@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
+
 import numpy as np
 import torch
 from omegaconf import DictConfig
@@ -21,7 +23,7 @@ from verl.single_controller.ray import RayWorkerGroup
 
 
 class EnvLoop:
-    """An env loop manages interactions between models and vectorized environments. It's designed for computationally 
+    """An env loop manages interactions between models and vectorized environments. It's designed for computationally
     intensive environments, such as robotics simulators."""
 
     def __init__(self, env_wg: RayWorkerGroup, rollout_wg: RayWorkerGroup, config: DictConfig):
@@ -48,6 +50,24 @@ class EnvLoop:
             raise ValueError(f"Total envs ({self.total_envs}) must be divisible by stage_num ({self.stage_num})")
         self.envs_per_stage = self.total_envs // self.stage_num
 
+        self.env_wg.init_worker()
+        self.env_wg.init_simulator()
+
+    def generate_sequences(self, prompts: DataProto) -> DataProto:
+        """Split input batch and dispatch to env loop workers.
+
+        Args:
+            prompts (DataProto): Input batch.
+
+        Returns:
+            DataProto: Output batch.
+        """
+
+        loop = asyncio.get_event_loop()
+        output = loop.run_until_complete(self.run(prompts))
+        # TODO(caiyunke.astra): add timing metrics
+        return output
+
     async def run(self, prompts: DataProto) -> DataProto:
         """
         Run the environment interaction loop.
@@ -66,6 +86,7 @@ class EnvLoop:
 
         reset_prompts = DataProto.from_dict(non_tensors={"state_ids": initial_state_ids})
         reset_results = self.env_wg.reset_envs_to_state_ids(reset_prompts)
+        breakpoint()
 
         staged_obs = self._restructure_obs_data(reset_results)
         # --- Pipeline state ---
@@ -128,7 +149,7 @@ class EnvLoop:
 
     def _restructure_obs_data(self, data_proto: DataProto) -> list[DataProto]:
         """Reshapes flat observation data from env_wg into a list of per-stage DataProto objects."""
-        # env_wg returns a flat batch ordered by [worker0_stage0, worker0_stage1, ..., 
+        # env_wg returns a flat batch ordered by [worker0_stage0, worker0_stage1, ...,
         # worker1_stage0, worker1_stage1, ...]
         # First, un-flatten by worker, then by stage
 

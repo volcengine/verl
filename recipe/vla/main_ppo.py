@@ -13,6 +13,7 @@
 # limitations under the License.
 
 
+import datasets
 import hydra
 import ray
 from omegaconf import OmegaConf
@@ -59,8 +60,8 @@ def main_task(config):
     # define worker classes
     if config.actor_rollout_ref.actor.strategy == "fsdp":
         assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
+        from recipe.vla.workers.env.env_worker import EnvWorker
         from verl.single_controller.ray import RayWorkerGroup
-        from verl.workers.env.env_worker import EnvWorker
 
         from .fsdp_workers import RobActorRolloutRefWorker
 
@@ -92,7 +93,7 @@ def main_task(config):
         Role.Env: "env_gpu_pool",
     }
 
-    # reward_fn = RobRewardManager( num_examine=0, config=config) # note: verifier is called 
+    # reward_fn = RobRewardManager( num_examine=0, config=config) # note: verifier is called
     # both inside reward_fn and outside.
 
     # # Note that we always use function-based RM for validation
@@ -102,6 +103,10 @@ def main_task(config):
 
     resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
+    # Create training and validation datasets.
+    train_dataset = datasets.load_dataset("parquet", data_files=config.data.train_files)["train"]
+    val_dataset = datasets.load_dataset("parquet", data_files=config.data.val_files)["train"]
+
     trainer = RobRayPPOTrainer(
         config=config,
         tokenizer=tokenizer,
@@ -110,6 +115,8 @@ def main_task(config):
         ray_worker_group_cls=ray_worker_group_cls,
         reward_fn=reward_fn,
         val_reward_fn=val_reward_fn,
+        train_dataset=train_dataset,
+        val_dataset=val_dataset,
     )
     trainer.init_workers()
     trainer.fit()

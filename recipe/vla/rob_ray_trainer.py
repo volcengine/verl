@@ -37,13 +37,12 @@ from verl.trainer.ppo.metric_utils import (
     compute_throughout_metrics,
     compute_timing_metrics,
 )
-from verl.trainer.ppo.ray_trainer import RayPPOTrainer
+from verl.trainer.ppo.ray_trainer import RayPPOTrainer, apply_kl_penalty, compute_advantage, compute_response_mask
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.trainer.ppo.utils import Role
 from verl.utils.checkpoint.checkpoint_manager import should_save_ckpt_esi
 from verl.utils.debug import marked_timer
 from verl.utils.metric import reduce_metrics
-from verl.trainer.ppo.ray_trainer import apply_kl_penalty, compute_advantage, compute_response_mask
 
 
 class RobRayPPOTrainer(RayPPOTrainer):
@@ -124,6 +123,17 @@ class RobRayPPOTrainer(RayPPOTrainer):
                 config=self.config, rollout_wg=self.actor_rollout_wg, env_wg=self.env_wg
             )
 
+    def _get_gen_batch(self, batch: DataProto) -> DataProto:
+        # pop those keys for generation
+        batch_keys_to_pop = []
+        non_tensor_batch_keys_to_pop = set(batch.non_tensor_batch.keys())
+        gen_batch = batch.pop(
+            batch_keys=batch_keys_to_pop,
+            non_tensor_batch_keys=list(non_tensor_batch_keys_to_pop),
+        )
+
+        return gen_batch
+
     def fit(self):
         """
         The training loop of PPO.
@@ -188,18 +198,19 @@ class RobRayPPOTrainer(RayPPOTrainer):
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
 
                 # add uid to batch
-                batch.non_tensor_batch["uid"] = np.array(
-                    [str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object
-                )
+                batch.non_tensor_batch["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(batch))], dtype=object)
 
                 gen_batch = self._get_gen_batch(batch)
 
                 # pass global_steps to trace
                 gen_batch.meta_info["global_steps"] = self.global_steps
+                # pass generation config to gen_batch
+                gen_batch.meta_info["do_sample"] = True
+                gen_batch.meta_info["temperature"] = self.config.actor_rollout_ref.rollout.temperature
+                gen_batch.meta_info["prompt_length"] = self.config.actor_rollout_ref.rollout.prompt_length
                 gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
 
                 is_last_step = self.global_steps >= self.total_training_steps
-
                 with marked_timer("step", timing_raw):
                     # generate a batch
                     with marked_timer("gen", timing_raw, color="red"):
@@ -207,8 +218,8 @@ class RobRayPPOTrainer(RayPPOTrainer):
                             gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
                         else:
                             gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
-                        timing_raw.update(gen_batch_output.meta_info["timing"])
-                        gen_batch_output.meta_info.pop("timing", None)
+                        # timing_raw.update(gen_batch_output.meta_info["timing"])
+                        # gen_batch_output.meta_info.pop("timing", None)
 
                     # repeat to align with repeated responses in rollout
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)

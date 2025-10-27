@@ -13,8 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
 import itertools
+import sys
+
 import torch
 from omegaconf import DictConfig
 from tensordict import TensorDict
@@ -51,6 +52,7 @@ def create_env_batch(obs, rews, dones, infos, meta=None):
     ret_dict = put_tensor_cpu(ret_dict)
     return ret_dict
 
+
 def create_env_batch_dataproto(obs, rews, terminations, truncations, infos, meta=None):
     ret_dict = {"obs": obs, "rews": rews, "terminations": terminations, "truncations": truncations, "infos": infos}
     if meta is not None:
@@ -58,19 +60,19 @@ def create_env_batch_dataproto(obs, rews, terminations, truncations, infos, meta
 
     ret_dict = put_tensor_cpu(ret_dict)
     tensor_batch = {
-                    "full_image": ret_dict["obs"]["full_image"], 
-                    "state": ret_dict["obs"]["state"],
-                    "rews": ret_dict["rews"], 
-                    "terminations": ret_dict["terminations"],
-                    "truncations" : ret_dict["truncations"],
-                    # "success_once": infos['episode']['success_once'],
-                    # "return": infos['episode']['return'],
-                    # "episode_length": infos['episode']['episode_len'],
-                    # "reward": infos['episode']['reward'],
-                    }
+        "full_image": ret_dict["obs"]["full_image"],
+        "state": ret_dict["obs"]["state"],
+        "rews": ret_dict["rews"],
+        "terminations": ret_dict["terminations"],
+        "truncations": ret_dict["truncations"],
+        # "success_once": infos['episode']['success_once'],
+        # "return": infos['episode']['return'],
+        # "episode_length": infos['episode']['episode_len'],
+        # "reward": infos['episode']['reward'],
+    }
     non_tensor_batch = {"task_descriptions": obs["task_descriptions"]}
     output = DataProto.from_dict(tensors=tensor_batch, non_tensors=non_tensor_batch)
-    
+
     return output
 
 
@@ -97,9 +99,9 @@ class EnvWorker(Worker):
         # ) // self._component_placement.get_world_size("env")
         # stage_num: default to 2, use for pipeline rollout process
         self.stage_num = self.cfg.rollout.pipeline_stage_num
-        self.batch_size = self.cfg.env.train.num_group * self.cfg.env.train.group_size
+        # self.batch_size = self.cfg.train.num_group * self.cfg.train.group_size
         # self.eval_batch_size = (
-        #     self.cfg.env.eval.num_group * self.cfg.env.eval.group_size
+        #     self.cfg.eval.num_group * self.cfg.eval.group_size
         # )
 
         # # only need rank0 to create channel
@@ -120,47 +122,35 @@ class EnvWorker(Worker):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_worker(self):
-        enable_offload = self.cfg.env.enable_offload
-        only_eval = getattr(self.cfg.runner, "only_eval", False)
-        if self.cfg.env.train.simulator_type == "libero":
+        # enable_offload = self.cfg.enable_offload
+        # only_eval = getattr(self.cfg.runner, "only_eval", False)
+        if self.cfg.train.simulator_type == "libero":
             from verl.envs.libero_env.libero_env import LiberoEnv
 
-            if not only_eval:
-                for _ in range(self.stage_num):
-                    self.simulator_list.append(
-                        EnvManager(
-                            self.cfg.env.train,
-                            rank=self._rank,
-                            world_size=self._world_size,
-                            env_cls=LiberoEnv,
-                        )
+            for _ in range(self.stage_num):
+                self.simulator_list.append(
+                    EnvManager(
+                        self.cfg.train,
+                        rank=self._rank,
+                        world_size=self._world_size,
+                        env_cls=LiberoEnv,
                     )
-            # if self.cfg.runner.val_check_interval > 0 or only_eval:
-            #     for _ in range(self.stage_num):
-            #         self.eval_simulator_list.append(
-            #             EnvManager(
-            #                 self.cfg.env.eval,
-            #                 rank=self._rank,
-            #                 world_size=self._world_size,
-            #                 env_cls=LiberoEnv,
-            #                 enable_offload=enable_offload,
-            #             )
-            #         )
-        elif self.cfg.env.train.simulator_type == "isaac":
+                )
+
+        elif self.cfg.train.simulator_type == "isaac":
             from verl.envs.isaac_env.isaac_env import IsaacEnv
 
-            if not only_eval:
-                for _ in range(self.stage_num):
-                    self.simulator_list.append(
-                        EnvManager(
-                            self.cfg.env.train,
-                            rank=self._rank,
-                            world_size=self._world_size,
-                            env_cls=IsaacEnv,
-                        )
+            for _ in range(self.stage_num):
+                self.simulator_list.append(
+                    EnvManager(
+                        self.cfg.train,
+                        rank=self._rank,
+                        world_size=self._world_size,
+                        env_cls=IsaacEnv,
                     )
+                )
         else:
-            raise NotImplementedError(f"Simulator type {self.cfg.env.train.simulator_type} not implemented")
+            raise NotImplementedError(f"Simulator type {self.cfg.train.simulator_type} not implemented")
 
         # if not only_eval:
         #     self._init_simulator()
@@ -193,7 +183,7 @@ class EnvWorker(Worker):
         chunk_actions: torch.Tensor = data.non_tensor_batch["actions"]
         stage_id: int = data.meta_info["stage_id"]
         chunk_actions = prepare_actions(
-            simulator_type=self.cfg.env.train.simulator_type,
+            simulator_type=self.cfg.train.simulator_type,
             raw_chunk_actions=chunk_actions,
             num_action_chunks=self.cfg.actor.model.num_action_chunks,
             action_dim=self.cfg.actor.model.action_dim,
@@ -205,14 +195,15 @@ class EnvWorker(Worker):
         ].chunk_step(chunk_actions)
         chunk_dones = torch.logical_or(chunk_terminations, chunk_truncations)
         # chunk_
-        if not self.cfg.env.train.auto_reset:
-            if self.cfg.env.train.ignore_terminations:
-                if chunk_truncations[:, -1].any():
-                    assert chunk_truncations[:, -1].all()
-                    if "episode" in infos:
-                        for key in infos["episode"]:
-                            env_info_list[key] = infos["episode"][key].cpu()
-        elif chunk_dones.any():
+        # if not self.cfg.train.auto_reset:
+        #     if self.cfg.train.ignore_terminations:
+        #         if chunk_truncations[:, -1].any():
+        #             assert chunk_truncations[:, -1].all()
+        #             if "episode" in infos:
+        #                 for key in infos["episode"]:
+        #                     env_info_list[key] = infos["episode"][key].cpu()
+        # elif chunk_dones.any():
+        if chunk_dones.any():
             if "final_info" in infos:
                 final_info = infos["final_info"]
                 for key in final_info["episode"]:
@@ -220,14 +211,14 @@ class EnvWorker(Worker):
         # env_batch = create_env_batch_dataproto(
         #     obs=extracted_obs,
         #     rews=chunk_rewards,
-        #     dones=chunk_dones, 
+        #     dones=chunk_dones,
         #     infos=infos,
         #     meta=env_info_list,
         # )
         env_batch = create_env_batch_dataproto(
             obs=extracted_obs,
             rews=chunk_rewards,
-            terminations=chunk_terminations, 
+            terminations=chunk_terminations,
             truncations=chunk_truncations,
             infos=infos,
             meta=env_info_list,
@@ -243,14 +234,18 @@ class EnvWorker(Worker):
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="env"))
     def reset_envs_to_state_ids(self, state_ids: DataProto):
         """Reset environments to specified state IDs.
-        
+
         Args:
             state_ids: State IDs to reset environments to
         """
         state_ids_list = list(state_ids.non_tensor_batch["state_ids"])
+        assert len(state_ids_list) == self.cfg.train.num_envs * self.stage_num
         result_list = []
         for stage_id in range(self.stage_num):
-            result = self.simulator_list[stage_id].reset_envs_to_state_ids(state_ids_list)
+            result = self.simulator_list[stage_id].reset_envs_to_state_ids(
+                state_ids_list[stage_id * self.cfg.train.num_envs : 
+                               (stage_id + 1) * self.cfg.train.num_envs]
+            )
             result_list.append(result)
         output_tensor_dict = {}
         output_non_tensor_dict = {}
@@ -268,12 +263,12 @@ class EnvWorker(Worker):
     def finish_rollout(self, mode="train"):
         # reset
         if mode == "train":
-            if self.cfg.env.train.video_cfg.save_video:
+            if self.cfg.train.video_cfg.save_video:
                 for i in range(self.stage_num):
                     self.simulator_list[i].flush_video(video_sub_dir=f"stage_{i}")
             for i in range(self.stage_num):
                 self.simulator_list[i].update_reset_state_ids()
-        elif mode == "eval":
-            if self.cfg.env.eval.video_cfg.save_video:
-                for i in range(self.stage_num):
-                    self.eval_simulator_list[i].flush_video(video_sub_dir=f"stage_{i}")
+        # elif mode == "eval":
+        #     if self.cfg.eval.video_cfg.save_video:
+        #         for i in range(self.stage_num):
+        #             self.eval_simulator_list[i].flush_video(video_sub_dir=f"stage_{i}")

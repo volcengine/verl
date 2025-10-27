@@ -22,7 +22,9 @@ import torch
 import torch.distributed
 
 from verl.single_controller.base.decorator import Dispatch, register
+from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.import_utils import import_external_libs
+from verl.workers.config import HFModelConfig
 from verl.workers.fsdp_workers import ActorRolloutRefWorker
 
 logger = logging.getLogger(__file__)
@@ -38,7 +40,10 @@ class RobActorRolloutRefWorker(ActorRolloutRefWorker):
     def _build_rollout(self, trust_remote_code=False):
         from recipe.vla.naive_rollout_rob import NaiveRolloutRob
 
+        self._register_dispatch_collect_info("rollout", dp_rank=self.rank, is_collect=True)
         self.rollout = NaiveRolloutRob(module=self.actor_module_fsdp, model_config=self.config.model)
+        model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model, dataclass_type=HFModelConfig)
+        self.model_config = model_config
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):

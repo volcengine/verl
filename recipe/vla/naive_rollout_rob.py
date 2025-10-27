@@ -34,7 +34,6 @@ from torch.nn.utils.rnn import pad_sequence
 from verl import DataProto
 from verl.models.openvla_oft.modeling_prismatic import OpenVLAForActionPrediction
 from verl.models.openvla_oft.processing_prismatic import PrismaticProcessor
-from verl.workers.config import RolloutConfig
 from verl.workers.rollout.base import BaseRollout
 
 
@@ -236,7 +235,7 @@ class NaiveRolloutRob(BaseRollout):
         max_prompt_length = prompts.meta_info.get("prompt_length", self.config.prompt_length)
         # TODO: split into micro-batches
         task_descriptions = prompts.non_tensor_batch["task_descriptions"]
-        images_and_states = prompts.batch["images_and_states"]
+        images_and_states = prompts.select(batch_keys=["full_image"])
         vla_input = process_input(task_descriptions, images_and_states, self.processor)
 
         vla_output = self._generate_one_step(vla_input, do_sample, temperature, max_prompt_length)

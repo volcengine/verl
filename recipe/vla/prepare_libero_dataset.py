@@ -108,13 +108,15 @@ if __name__ == "__main__":
 
         data = {
             "data_source": data_source,
-            "state_id": state_id,
+            "prompt": task.language,
+            "state_ids": state_id,
             "ability": "robot",
             "extra_info": {
                 "split": split,
+                "state_ids": state_id,
                 "index": idx,
                 "task": task,
-                "task_id": task_id,
+                "task_ids": task_id,
             },
         }
         return data

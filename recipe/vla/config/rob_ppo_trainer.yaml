@@ -18,6 +18,7 @@ env:
   train:
     simulator_type: libero
     max_episode_steps: 512
+    only_eval: False
     video_cfg:
       save_video: True
       video_base_dir: /tmp/videos
@@ -26,16 +27,13 @@ env:
     task_suite_name: libero_10
     init_params:
       camera_depths: False
-      camera_height: 256
-      camera_width: 256
+      camera_heights: 256
+      camera_widths: 256
       camera_names: 
-        - agent_view
+        - agentview
         - robot0_eye_in_hand
 
 actor_rollout_ref:
-  model:
-    action_token_len: 7
-    action_chunks_len: 8
   actor:
     num_images_in_input: 1
     traj_mini_batch_size: 16
