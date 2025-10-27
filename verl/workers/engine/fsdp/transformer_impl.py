@@ -486,19 +486,24 @@ class FSDPEngine(BaseEngine):
         output_lst = []
 
         ctx = torch.no_grad() if forward_only else nullcontext()
+        global_tokens = data["loss_mask"].sum().cuda() - len(data)
+        torch.distributed.all_reduce(
+            global_tokens, op=torch.distributed.ReduceOp.SUM, group=self.get_data_parallel_group()
+        )
 
         for micro_batch in micro_batches:
             with ctx:
                 loss, meta_info = self.forward_step(micro_batch, loss_function=loss_function, forward_only=forward_only)
 
                 if not forward_only:
-                    global_bsz = data["global_batch_size"]
-                    local_micro_bsz = micro_batch.batch_size[0]
-                    # metrics contain the output, loss is dummy
-                    loss_scale_factor = local_micro_bsz / (global_bsz / self.get_data_parallel_size())
-                    # scale loss
-                    loss = loss * loss_scale_factor
+                    micro_batch_tokens = micro_batch["loss_mask"].sum() - len(micro_batch)
+                    loss = loss * self.get_data_parallel_size() / global_tokens
                     loss.backward()
+                    meta_info["metrics"]["loss"] = loss.detach()
+                    print(
+                        f"Rank {self.rank} micro-batch loss: {meta_info['metrics']['loss'].item()},"
+                        f" tokens: {micro_batch_tokens.item()}, global tokens: {global_tokens.item()}"
+                    )
 
             output_lst.append(meta_info)
 
@@ -541,6 +546,7 @@ class FSDPEngine(BaseEngine):
             self.optimizer.zero_grad()
         else:
             self.optimizer.step()
+        print(f"rank: {self.rank}, grad norm: {grad_norm}")
         return grad_norm.item()
 
     def lr_scheduler_step(self):

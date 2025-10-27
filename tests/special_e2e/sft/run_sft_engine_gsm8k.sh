@@ -30,6 +30,8 @@ VPP_SIZE=${VPP_SIZE:-null}
 CP_SIZE=${CP_SIZE:-1}
 
 PAD_MODE=${PAD_MODE:-no_padding}
+DYNAMIC=${DYNAMIC:-False}
+MBS=${MBS:-2}
 
 USE_REMOVE_PADDING=${USE_REMOVE_PADDING:-True}
 
@@ -67,26 +69,29 @@ MEGATRON_ENGINE_CONFIG="\
 if [ "$backend" = "fsdp" ]; then
     ENGINE_CONFIG="$FSDP_ENGINE_CONFIG"
     echo "Using fsdp engine"
-    exp_name=gsm8k-${backend}-${FSDP_STRATEGY}-sp${SP_SIZE}-fsdp${FSDP_SIZE}-pad-${PAD_MODE}-use_remove_padding-${USE_REMOVE_PADDING}
+    exp_name=gsm8k-${backend}-${FSDP_STRATEGY}-sp${SP_SIZE}-fsdp${FSDP_SIZE}-gpus-${NUM_GPUS}-pad-${PAD_MODE}-use_remove_padding-${USE_REMOVE_PADDING}-use_dynamic_${DYNAMIC}-mbs_${MBS}
 else
     ENGINE_CONFIG="$MEGATRON_ENGINE_CONFIG"
     echo "Using megatron engine"
-    exp_name=gsm8k-${backend}-tp${TP_SIZE}-pp${PP_SIZE}-vpp${VPP_SIZE}-cp${CP_SIZE}-pad-${PAD_MODE}-use_remove_padding-${USE_REMOVE_PADDING}
+    exp_name=gsm8k-${backend}-tp${TP_SIZE}-pp${PP_SIZE}-vpp${VPP_SIZE}-cp${CP_SIZE}-pad-${PAD_MODE}-use_remove_padding-${USE_REMOVE_PADDING}_-use_dynamic_${DYNAMIC}-mbs_${MBS}
 fi
 
-mkdir -p "${ckpts_home}"
+mkdir -p "${ckpts_home}"dang
 
 torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     data.train_files="${TRAIN_FILES}" \
     data.val_files="${VAL_FILES}" \
-    data.train_batch_size=256 \
+    data.train_batch_size=16 \
+    data.micro_batch_size_per_gpu=${MBS} \
     data.pad_mode=${PAD_MODE} \
     data.truncation=error \
-    data.use_dynamic_bsz=True \
+    data.use_dynamic_bsz=${DYNAMIC} \
     data.max_token_len_per_gpu=8192 \
     data.messages_key=messages \
     model.path=$MODEL_PATH \
     model.use_remove_padding=${USE_REMOVE_PADDING} \
+    model.enable_gradient_checkpointing=False \
+    +model.override_config.attn_implementation=eager \
     ${ENGINE_CONFIG} \
     trainer.test_freq=after_each_epoch \
     trainer.save_freq=-1 \
@@ -94,7 +99,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
     trainer.total_epochs=2 \
-    trainer.total_training_steps=2 \
+    trainer.total_training_steps=4 \
     trainer.default_local_dir="${ckpts_home}" \
     trainer.resume_mode=${RESUME_MODE} \
 

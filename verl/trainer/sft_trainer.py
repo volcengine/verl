@@ -126,6 +126,7 @@ class SFTTrainer:
             if hasattr(torch.backends, "cudnn") and torch.backends.cudnn.is_available():
                 torch.backends.cudnn.deterministic = True
                 torch.backends.cudnn.benchmark = False
+                torch.use_deterministic_algorithms(True, warn_only=False)
 
         if is_npu_available and hasattr(torch, "npu"):
             torch.npu.manual_seed_all(seed)
@@ -306,8 +307,7 @@ class SFTTrainer:
 
                 if self.engine.is_mp_src_rank_with_outputs():
                     metrics = output["metrics"]
-
-                    loss = torch.mean(torch.tensor(metrics["loss"], device=self.device_name))
+                    loss = torch.sum(torch.tensor(metrics["loss"], device=self.device_name))
 
                     # mean over dp group
                     is_nested = data["input_ids"].is_nested
@@ -354,35 +354,35 @@ class SFTTrainer:
 
                 is_last_step = global_step >= self.total_training_steps
                 is_valid_step = global_step % self.test_freq == 0
-                # is_save_step = global_step % self.save_freq == 0
+                is_save_step = global_step % self.save_freq == 0
 
                 # early exit or validation step
                 if is_last_step and self.val_dataloader is not None or (self.test_freq > 0 and is_valid_step):
                     # Perform validation
                     val_losses = []
-                    for val_data in self.val_dataloader:
-                        with self.engine.eval_mode():
-                            # construct tensordict
-                            val_data = tu.get_tensordict(tensor_dict=val_data, non_tensor_dict=meta_info)
-                            output = self.engine.infer_batch(data=val_data, loss_function=self.loss_fn)
-                            if self.engine.is_mp_src_rank_with_outputs():
-                                val_losses.extend(output["metrics"]["loss"])
+                for val_data in self.val_dataloader:
+                    with self.engine.eval_mode():
+                        # construct tensordict
+                        val_data = tu.get_tensordict(tensor_dict=val_data, non_tensor_dict=meta_info)
+                        output = self.engine.infer_batch(data=val_data, loss_function=self.loss_fn)
+                        if self.engine.is_mp_src_rank_with_outputs():
+                            val_losses.extend(output["metrics"]["loss"])
 
-                    if self.engine.is_mp_src_rank_with_outputs():
-                        val_loss = torch.mean(torch.tensor(val_losses, device=self.device_name))
-                        # average over data parallel group
-                        torch.distributed.all_reduce(
-                            val_loss, op=torch.distributed.ReduceOp.AVG, group=self.engine.get_data_parallel_group()
-                        )
+                if self.engine.is_mp_src_rank_with_outputs():
+                    val_loss = torch.mean(torch.tensor(val_losses, device=self.device_name))
+                    # average over data parallel group
+                    torch.distributed.all_reduce(
+                        val_loss, op=torch.distributed.ReduceOp.AVG, group=self.engine.get_data_parallel_group()
+                    )
 
-                    if is_logging:
-                        metric = {"val/loss": val_loss.detach().item()}
-                        tracking.log(data=metric, step=global_step)
-                        last_valid_metric = metric
-                    torch.distributed.barrier()
+                if is_logging:
+                    metric = {"val/loss": val_loss.detach().item()}
+                    tracking.log(data=metric, step=global_step)
+                    last_valid_metric = metric
+                torch.distributed.barrier()
 
-                # if is_last_step or (self.save_freq > 0 and is_save_step):
-                #     self.ckpt_handler.save_checkpoint(step=global_step)
+                if is_last_step or (self.save_freq > 0 and is_save_step):
+                    self.ckpt_handler.save_checkpoint(step=global_step)
 
                 if is_last_step:
                     if is_logging:
