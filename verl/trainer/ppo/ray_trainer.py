@@ -1002,7 +1002,7 @@ class RayPPOTrainer:
             apply_weights = self.config.algorithm.get("rollout_is", False)
 
             if apply_weights:
-                # Add TRUE IS weights (never zeroed, always π_train/π_rollout)
+                # Add IS weights (safety-bounded, mode-processed) to enable weight correction
                 batch = batch.union(rollout_is_weights)
 
             return batch, rollout_is_metrics

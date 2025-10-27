@@ -129,8 +129,8 @@ def test_basic_rollout_is():
     weights_veto = weights_veto_proto.batch["rollout_is_weights"]
     print(f"   Veto fraction: {metrics_veto['mismatch/rollout_is_veto_fraction']:.4f}")
     # KEY FIX: Veto is applied via response_mask, not by zeroing weights
-    # Check that weights are NON-ZERO (true ratios preserved)
-    assert weights_veto[0].sum() > 0, "Weights should be non-zero (true ratios preserved)"
+    # Check that weights are NON-ZERO (safety-bounded ratios preserved, not zeroed)
+    assert weights_veto[0].sum() > 0, "Weights should be non-zero (not zeroed by veto)"
     # Check that response_mask has veto applied
     assert modified_response_mask_veto[0].sum() == 0, "Vetoed sequence should have response_mask zeroed"
     assert modified_response_mask_veto[1].sum() > 0, "Normal sequence should have response_mask unchanged"
@@ -301,8 +301,8 @@ def test_mask_mode():
 
     weights = weights_proto.batch["rollout_is_weights"]
 
-    # KEY FIX: Weights should be TRUE ratios (NOT zeroed)
-    assert torch.all(weights[0, :] > 0), "Weights should remain as true ratios (not zeroed)"
+    # KEY FIX: Weights should be safety-bounded ratios (NOT zeroed)
+    assert torch.all(weights[0, :] > 0), "Weights should remain as safety-bounded ratios (not zeroed)"
     assert torch.allclose(weights[0, 0], torch.tensor(0.368, device=device), atol=0.01), (
         "First seq ratio should be ≈0.37"
     )
