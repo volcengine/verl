@@ -13,9 +13,6 @@ kl_coef=0.0
 use_kl_loss=True
 kl_loss_coef=0.0
 
-# FlowRL trajectory balance coefficient
-# TODO: tb_coef=15.0
-
 # DAPO Dual-clip parameters
 clip_ratio_low=0.2
 clip_ratio_high=0.28

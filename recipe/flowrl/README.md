@@ -49,7 +49,7 @@ There are three ways to use FlowRL:
 
 ### Option 1: Use verl Recipe
 
-For running FlowRL using the verl framework (simplest method):
+For running FlowRL using the verl framework:
 
 #### Step 1: Prepare Data and Model
 

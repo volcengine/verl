@@ -350,22 +350,13 @@ class FlowRLActor(DataParallelPPOActor):
                     advantages = model_inputs["advantages"]
                     ref_log_prob = model_inputs["ref_log_prob"]
 
-                    entropy_coeff = self.config.entropy_coeff
-                    loss_agg_mode = self.config.loss_agg_mode
-
                     if self.config.use_dynamic_bsz:
                         loss_scale_factor = response_mask.shape[0] / self.config.ppo_mini_batch_size
                     else:
                         loss_scale_factor = 1 / self.gradient_accumulation
 
-                    # all return: (bsz, response_length)
-                    calculate_entropy = False
-                    if entropy_coeff != 0:
-                        calculate_entropy = True
-                    # entropy, log_prob = self._forward_micro_batch(
-                    #     model_inputs, temperature=temperature, calculate_entropy=calculate_entropy
-                    # )
-                    entropy, log_prob, log_z = self._forward_micro_batch(
+                    # FlowRL: always compute log_z, no entropy needed
+                    _, log_prob, log_z = self._forward_micro_batch(
                         model_inputs, temperature=temperature, calculate_entropy=False, return_log_z=True
                     )
 
@@ -389,8 +380,7 @@ class FlowRLActor(DataParallelPPOActor):
                     #     rollout_log_probs=rollout_log_probs,
                     # )
                     # Compute FlowRL trajectory balance loss
-                    
-                    policy_loss, flowrl_metrics = self.compute_flowrl_cispo_clip(
+                    policy_loss, flowrl_metrics = self.compute_flowrl_objective(
                         log_prob=log_prob,
                         ref_log_prob=ref_log_prob,
                         old_log_prob=old_log_prob,
@@ -398,7 +388,8 @@ class FlowRLActor(DataParallelPPOActor):
                         reward=advantages,
                         response_mask=response_mask,
                         clip_ratio=self.config.clip_ratio,
-                        rollout_log_probs=rollout_log_probs)
+                        rollout_log_probs=rollout_log_probs,
+                    )
 
                     # if entropy_coeff != 0:
                     #     entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
@@ -445,7 +436,7 @@ class FlowRLActor(DataParallelPPOActor):
         return metrics
     
     
-    def compute_flowrl_cispo_clip(self,
+    def compute_flowrl_objective(self,
                                 log_prob=None,
                                 ref_log_prob=None,
                                 old_log_prob=None,
@@ -458,8 +449,8 @@ class FlowRLActor(DataParallelPPOActor):
         log_ratio = log_prob - old_log_prob  # (B, T)
         ratio = torch.exp(log_ratio)  # (B, T)
 
-        condition_1 = (reward > 0) & (ratio > 1.0 + 0.28)  # (B, T)
-        condition_2 = (reward < 0) & (ratio < 1.0 - 0.2)   # (B, T)
+        condition_1 = (reward > 0) & (ratio > 1.0 + self.config.clip_ratio_high)  # (B, T)
+        condition_2 = (reward < 0) & (ratio < 1.0 - self.config.clip_ratio_low)   # (B, T)
 
         # CISPO mask
         cispo_mask = ~(condition_1 | condition_2) 
@@ -483,7 +474,7 @@ class FlowRLActor(DataParallelPPOActor):
 
         # Clamp importance weight for numerical stability (prevent extreme values)
         # imp_w = torch.clamp(imp_w_raw, max=10.0)
-        imp_w = torch.clamp(imp_w_raw, 1 - 0.2, 1 + 0.28)
+        imp_w = torch.clamp(imp_w_raw, 1 - self.config.clip_ratio_low, 1 + self.config.clip_ratio_high)
 
         # Loss: weighted squared residual with clipped importance weights
         weighted_losses = imp_w * (delta ** 2)
