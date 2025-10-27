@@ -237,11 +237,13 @@ Actor/Rollout/Reference Policy
 - ``actor_rollout_ref.model.use_fused_kernels``: Whether to use fused
   kernels in the model. If set to True, the following parameters will be
   used.
+
   - ``actor_rollout_ref.model.fused_kernel_options.impl_backend``: The
-  implementation backend for fused kernels. Options: "triton" or
-  "torch". Default is "torch".
-  While in megatron, we only support "triton" as the
-  implementation backend, so there is no need for this option.
+    implementation backend for fused kernels. Options: "triton" or
+    "torch". Default is "torch".
+    While in megatron, we only support "triton" as the
+    implementation backend, so there is no need for this option.
+
 - ``actor_rollout_ref.model.use_remove_padding``: Whether to use remove
   padding in the model. If set to True, the model will remove padding
   tokens in the input_ids and response_ids. This helps a lot in improving model running efficiency.
@@ -529,9 +531,11 @@ Algorithm
   calculate the kl divergence between actor and reference policy. For
   specific options, refer to `kl_penalty()` in `core_algos.py <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/core_algos.py>`_ .
 - ``kl_ctrl``: Config for in-reward kl_penalty controller
+
   - ``kl_coef``: The (initial) coefficient of in-reward kl_penalty. Default is 0.001.
   - ``type``: 'fixed' for FixedKLController and 'adaptive' for AdaptiveKLController.
   - ``horizon`` and ``target_kl``: See source code of AdaptiveKLController for details.
+
 - ``rollout_is``: Whether to enable rollout importance sampling correction. Default is False.
 - ``rollout_is_threshold``: Upper threshold for IS weights. Set to ``null`` to disable IS completely.
 - ``rollout_is_threshold_lower``: Lower threshold for IS weights. If ``null``, defaults to reciprocal of upper (1/upper).
