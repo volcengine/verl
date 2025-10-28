@@ -240,16 +240,34 @@ class FSDPEngine(BaseEngine):
 
     def _build_lora_module(self, module):
         module.enable_input_require_grads()
-        # Convert config to regular Python types before creating PEFT model
-        lora_config = {
-            "task_type": TaskType.CAUSAL_LM,
-            "r": self.model_config.lora_rank,
-            "lora_alpha": self.model_config.lora_alpha,
-            "target_modules": convert_to_regular_types(self.model_config.target_modules),
-            "exclude_modules": convert_to_regular_types(self.model_config.exclude_modules),
-            "bias": "none",
-        }
-        module = get_peft_model(module, LoraConfig(**lora_config))
+
+        lora_adapter_path = getattr(self.model_config, "lora_adapter_path", None)
+        if lora_adapter_path is not None:
+            from peft import PeftModel
+
+            from verl.utils.fs import copy_to_local
+
+            print(f"Loading pre-trained LoRA adapter to from: {lora_adapter_path}")
+            # Copy adapter to local if needed
+            local_adapter_path = copy_to_local(lora_adapter_path, use_shm=self.model_config.use_shm)
+
+            module = PeftModel.from_pretrained(module, local_adapter_path, is_trainable=True)
+            peft_config = module.peft_config["default"]
+            # Ensure task_type is TaskType enum, not string
+            if isinstance(peft_config.task_type, str):
+                peft_config.task_type = TaskType.CAUSAL_LM
+        else:
+            # Convert config to regular Python types before creating PEFT model
+            lora_config = {
+                "task_type": TaskType.CAUSAL_LM,
+                "r": self.model_config.lora_rank,
+                "lora_alpha": self.model_config.lora_alpha,
+                "target_modules": convert_to_regular_types(self.model_config.target_modules),
+                "exclude_modules": convert_to_regular_types(self.model_config.exclude_modules),
+                "bias": "none",
+            }
+            module = get_peft_model(module, LoraConfig(**lora_config))
+
         return module
 
     def _build_fsdp_module(self, module):
