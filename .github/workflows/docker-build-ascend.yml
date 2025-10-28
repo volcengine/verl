@@ -37,15 +37,12 @@ jobs:
       - name: Get base image name and tag
         id: base_image
         run: |
-
           BASE_IMAGE_FULL=$(grep '^FROM' ./docker/Dockerfile.ascend.vllm-0.9.1 | head -1 | cut -d' ' -f2)
-          echo "Base image full: $BASE_IMAGE_FULL"
-          
+          echo "Base image full: $BASE_IMAGE_FULL" 
           BASE_IMAGE_TAG=$(echo "$BASE_IMAGE_FULL" | cut -d':' -f2)
           echo "Base image tag: $BASE_IMAGE_TAG"
           NEW_IMAGE_NAME="verl-$BASE_IMAGE_TAG"
-          echo "New image name: $NEW_IMAGE_NAME"
-          
+          echo "New image name: $NEW_IMAGE_NAME"  
           echo "base_image_tag=$BASE_IMAGE_TAG" >> "$GITHUB_OUTPUT"
           echo "new_image_name=$NEW_IMAGE_NAME" >> "$GITHUB_OUTPUT"
 
@@ -53,7 +50,6 @@ jobs:
         id: version
         run: |
           BRANCH_NAME=$(echo "${{ github.ref }}" | sed 's/refs\/heads\///g' | sed 's/[^a-zA-Z0-9._-]/_/g')
-          
           if [ "${{ github.event_name }}" = "release" ]; then
             echo "tag=${{ steps.base_image.outputs.new_image_name }}-${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
           elif [ "$BRANCH_NAME" = "main" ]; then
