@@ -291,6 +291,7 @@ class RLHFDataset(Dataset):
                 multi_modal_data["image"] = images
 
             videos = None
+            videos_kwargs = {}
             row_dict_videos = row_dict.pop(self.video_key, None)
             if row_dict_videos:
                 videos, video_metadata = zip(
