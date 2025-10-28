@@ -108,7 +108,7 @@ class RolloutSample:
     full_batch: Any
 
     # AgentLoopOutput from generation
-    agent_loop_output_list: list[Any]  # AgentLoopOutput
+    agent_loop_output_list: list[AgentLoopOutput]
 
     # Metadata
     sample_id: str
@@ -197,7 +197,7 @@ def merge_rollout_sample(config, tokenizer, rs: RolloutSample):
     """
     # Step 1: Create a DataProto from the AgentLoopOutput to generate the result
     gen_batch_output = postprocess_agent_loop_outputs(rs.agent_loop_output_list, tokenizer, config)
-    rollout_log_probs = [x.log_probs for x in rs.agent_loop_output_list]
+    rollout_log_probs = [x.response_logprobs for x in rs.agent_loop_output_list]
     rollout_log_probs = process_rollout_log_probs(gen_batch_output, rollout_log_probs)
     gen_batch_output.batch["rollout_log_probs"] = rollout_log_probs.to(torch.float32)
 
@@ -215,8 +215,12 @@ def merge_rollout_sample(config, tokenizer, rs: RolloutSample):
     rs.processing_times = []
     for agent_loop in rs.agent_loop_output_list:
         rs.processing_times.append(agent_loop.metrics.generate_sequences)
-    rs.param_version_start = [agent_loop.param_version_start for agent_loop in rs.agent_loop_output_list]
-    rs.param_version_end = [agent_loop.param_version_end for agent_loop in rs.agent_loop_output_list]
+    rs.param_version_start = [
+        agent_loop.extra_fields.get("param_version_start", 0) for agent_loop in rs.agent_loop_output_list
+    ]
+    rs.param_version_end = [
+        agent_loop.extra_fields.get("param_version_end", 0) for agent_loop in rs.agent_loop_output_list
+    ]
     # Step 4, clear agent_loop_output_list
     rs.agent_loop_output_list = []
     return rs

@@ -412,15 +412,13 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         rollout_sample.full_batch.non_tensor_batch["param_version"] = [self.current_param_version] * len(
             rollout_sample.full_batch
         )
-        agent_loop_output_list = await self.async_rollout_manager.generate_single_sample_async(
+        rollout_sample.agent_loop_output_list = await self.async_rollout_manager.generate_single_sample_async(
             rollout_sample.full_batch, rollout_sample.agent_loop_output_list
         )
-        rollout_sample.agent_loop_output_list = agent_loop_output_list
 
-        is_cancel = False
-        for agent_loop in agent_loop_output_list:
-            if not is_cancel and agent_loop.is_cancel:
-                is_cancel = True
+        is_cancel = any(
+            agent_loop.extra_fields.get("is_cancel", False) for agent_loop in rollout_sample.agent_loop_output_list
+        )
 
         if is_cancel:
             # Put in the cancel queue and wait for the generation to resume

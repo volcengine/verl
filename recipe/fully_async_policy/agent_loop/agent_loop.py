@@ -52,19 +52,6 @@ class FullyAsyncLLMServerManager(AsyncLLMServerManager):
         return output
 
 
-class FullyAsyncAgentLoopOutput(AgentLoopOutput):
-    """Agent loop output."""
-
-    is_cancel: bool = False
-    """Indicates whether the request was interrupted"""
-    log_probs: list[float] = None
-    """Response token log probs including LLM generated token, tool response token."""
-    param_version_start: int = 0
-    """Indicate start parameter version when this response is generated"""
-    param_version_end: int = 0
-    """Indicate end parameter version when this response is generated, used for partial rollout"""
-
-
 @ray.remote
 class FullyAsyncAgentLoopWorker(AgentLoopWorkerBase):
     def __init__(
@@ -83,7 +70,7 @@ class FullyAsyncAgentLoopWorker(AgentLoopWorkerBase):
             partial_output_list: Optional[List[AgentLoopOutput]]: already rollout result.
 
         Returns:
-            list[FullyAsyncAgentLoopOutput]: List of agent loop outputs, one per sample in the batch.
+            list[AgentLoopOutput]: List of agent loop outputs, one per sample in the batch.
         """
         config = self.config.actor_rollout_ref.rollout
         sampling_params = dict(
