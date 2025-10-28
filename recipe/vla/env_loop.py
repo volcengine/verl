@@ -84,8 +84,9 @@ class EnvLoop:
             DataProto: A batch containing the complete trajectories.
         """
         initial_state_ids = prompts.non_tensor_batch["state_ids"]
+        task_ids = prompts.non_tensor_batch["task_ids"]
 
-        reset_prompts = DataProto.from_dict(non_tensors={"state_ids": initial_state_ids})
+        reset_prompts = DataProto.from_dict(non_tensors={"state_ids": initial_state_ids, "task_ids": task_ids})
         reset_results = self.env_wg.reset_envs_to_state_ids(reset_prompts)
 
         staged_obs = self._restructure_obs_data(reset_results)
@@ -102,10 +103,6 @@ class EnvLoop:
             vla_input.meta_info = prompts.meta_info  # Pass along rollout config
             rollout_futures[stage_id] = self.rollout_wg.generate_sequences(vla_input)
         for step in range(self.max_interactions):
-            # if is_complete.all():
-            #     print(f"All environments completed at step {step}. Ending early.")
-            #     break
-
             for stage_id in range(self.stage_num):
                 action_result: DataProto = rollout_futures[stage_id].get()
 
@@ -141,6 +138,7 @@ class EnvLoop:
                     vla_input.meta_info = prompts.meta_info  # Pass along rollout config
                     rollout_futures[stage_id] = self.rollout_wg.generate_sequences(vla_input)
         self.env_wg.finish_rollout()
+
         return self._collate_trajectories(trajectories, initial_state_ids, meta_info=prompts.meta_info)
 
     def _restructure_obs_data(self, data_proto: DataProto) -> list[DataProto]:

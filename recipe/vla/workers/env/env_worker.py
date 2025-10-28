@@ -18,7 +18,6 @@ import sys
 
 import torch
 from omegaconf import DictConfig
-from tensordict import TensorDict
 from torch.distributed.device_mesh import init_device_mesh
 
 from verl import DataProto
@@ -60,8 +59,8 @@ def create_env_batch_dataproto(obs, rews, terminations, truncations, infos, meta
 
     ret_dict = put_tensor_cpu(ret_dict)
     tensor_batch = {
-        "full_image": ret_dict["obs"]["full_image"],
-        "state": ret_dict["obs"]["state"],
+        "full_image": ret_dict["obs"]["images_and_states"]["full_image"],
+        "state": ret_dict["obs"]["images_and_states"]["state"],
         "rews": ret_dict["rews"],
         "terminations": ret_dict["terminations"],
         "truncations": ret_dict["truncations"],
@@ -115,7 +114,6 @@ class EnvWorker(Worker):
         #         maxsize=cfg.env.channel.queue_size,
         #     )
         initialize_global_process_group_ray(timeout_second=None)
-        print(f"self.world_size: {self._world_size}, rank: {self._rank}")
         device_name = get_device_name()
         env_device_mesh = init_device_mesh(device_name, mesh_shape=(self.world_size, 1), mesh_dim_names=["dp", "tp"])
         self._register_dispatch_collect_info("env", dp_rank=env_device_mesh["dp"].get_local_rank(), is_collect=True)
@@ -161,18 +159,7 @@ class EnvWorker(Worker):
     def init_simulator(self):
         for i in range(self.stage_num):
             self.simulator_list[i].start_simulator()
-            extracted_obs, rewards, terminations, truncations, infos = self.simulator_list[i].step()
-            self.last_obs_list.append(extracted_obs)
-            dones = torch.logical_or(terminations, truncations)
-            self.last_dones_list.append(dones.unsqueeze(1).repeat(1, self.cfg.actor.model.num_action_chunks))
-            # self.simulator_list[i].stop_simulator()
-        out_data = TensorDict(
-            {
-                "last_obs_list": self.last_obs_list,
-                "last_dones_list": self.last_dones_list,
-            }
-        )
-        return out_data
+        return
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="env"), blocking=False)
     # @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="env"))  # for debug
@@ -194,27 +181,13 @@ class EnvWorker(Worker):
             stage_id
         ].chunk_step(chunk_actions)
         chunk_dones = torch.logical_or(chunk_terminations, chunk_truncations)
-        # chunk_
-        # if not self.cfg.train.auto_reset:
-        #     if self.cfg.train.ignore_terminations:
-        #         if chunk_truncations[:, -1].any():
-        #             assert chunk_truncations[:, -1].all()
-        #             if "episode" in infos:
-        #                 for key in infos["episode"]:
-        #                     env_info_list[key] = infos["episode"][key].cpu()
-        # elif chunk_dones.any():
+
         if chunk_dones.any():
             if "final_info" in infos:
                 final_info = infos["final_info"]
                 for key in final_info["episode"]:
                     env_info_list[key] = final_info["episode"][key][chunk_dones[:, -1]].cpu()
-        # env_batch = create_env_batch_dataproto(
-        #     obs=extracted_obs,
-        #     rews=chunk_rewards,
-        #     dones=chunk_dones,
-        #     infos=infos,
-        #     meta=env_info_list,
-        # )
+
         env_batch = create_env_batch_dataproto(
             obs=extracted_obs,
             rews=chunk_rewards,
@@ -232,29 +205,50 @@ class EnvWorker(Worker):
         return state_ids
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="env"))
-    def reset_envs_to_state_ids(self, state_ids: DataProto):
+    def reset_envs_to_state_ids(self, data: DataProto):
         """Reset environments to specified state IDs.
 
         Args:
             state_ids: State IDs to reset environments to
         """
-        state_ids_list = list(state_ids.non_tensor_batch["state_ids"])
+        state_ids_list = list(data.non_tensor_batch["state_ids"])
+        task_ids_list = list(data.non_tensor_batch["task_ids"])
+
         assert len(state_ids_list) == self.cfg.train.num_envs * self.stage_num
         result_list = []
         for stage_id in range(self.stage_num):
+            if self.cfg.train.simulator_type == "isaac":
+                assert (
+                    len(
+                        set(
+                            state_ids_list[
+                                stage_id * self.cfg.train.num_envs : (stage_id + 1) * self.cfg.train.num_envs
+                            ]
+                        )
+                    )
+                    == 1
+                ), "rollout.n should equal to num_envs for isaac"
+
             result = self.simulator_list[stage_id].reset_envs_to_state_ids(
-                state_ids_list[stage_id * self.cfg.train.num_envs : (stage_id + 1) * self.cfg.train.num_envs]
+                state_ids_list[stage_id * self.cfg.train.num_envs : (stage_id + 1) * self.cfg.train.num_envs],
+                task_ids_list[stage_id * self.cfg.train.num_envs : (stage_id + 1) * self.cfg.train.num_envs],
             )
             result_list.append(result)
         output_tensor_dict = {}
         output_non_tensor_dict = {}
-        keys = result_list[0][0].keys()
-        for k in keys:
-            values_to_merge = [d[0][k] for d in result_list]
-            if isinstance(values_to_merge[0], torch.Tensor):
-                output_tensor_dict[k] = torch.cat(values_to_merge)
-            else:
-                output_non_tensor_dict[k] = list(itertools.chain.from_iterable(values_to_merge))
+
+        # Handle nested 'images_and_states'
+        images_and_states_list = [d[0]["images_and_states"] for d in result_list]
+        if images_and_states_list:
+            # Assuming all dicts in the list have the same keys
+            for k in images_and_states_list[0].keys():
+                if isinstance(images_and_states_list[0][k], torch.Tensor):
+                    output_tensor_dict[k] = torch.cat([d[k] for d in images_and_states_list])
+
+        # Handle 'task_descriptions'
+        task_descriptions_list = [d[0]["task_descriptions"] for d in result_list]
+        output_non_tensor_dict["task_descriptions"] = list(itertools.chain.from_iterable(task_descriptions_list))
+
         output = DataProto.from_dict(tensors=output_tensor_dict, non_tensors=output_non_tensor_dict)
         return output
 
@@ -265,9 +259,3 @@ class EnvWorker(Worker):
             if self.cfg.train.video_cfg.save_video:
                 for i in range(self.stage_num):
                     self.simulator_list[i].flush_video(video_sub_dir=f"stage_{i}")
-            # for i in range(self.stage_num):
-            #     self.simulator_list[i].update_reset_state_ids()
-        # elif mode == "eval":
-        #     if self.cfg.eval.video_cfg.save_video:
-        #         for i in range(self.stage_num):
-        #             self.eval_simulator_list[i].flush_video(video_sub_dir=f"stage_{i}")

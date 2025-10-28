@@ -16,15 +16,15 @@
 import datasets
 import hydra
 import ray
-from omegaconf import OmegaConf
 import torch
+from omegaconf import OmegaConf
 
-from verl.trainer.constants_ppo import get_ppo_ray_runtime_env
 from verl import DataProto
-
+from verl.trainer.constants_ppo import get_ppo_ray_runtime_env
 
 # from verl.trainer.ppo.ray_trainer import RayTrainer
 from .rob_ray_trainer import RobRayPPOTrainer
+
 
 def calculate_reward(data: DataProto, return_dict: bool = False) -> torch.Tensor:
     complete_tensor = data.batch["complete"]
@@ -36,6 +36,7 @@ def calculate_reward(data: DataProto, return_dict: bool = False) -> torch.Tensor
         return {"reward_tensor": reward_per_step}
     else:
         return reward_per_step
+
 
 @hydra.main(config_path="config", config_name="rob_ppo_trainer", version_base=None)
 def main(config):
@@ -93,7 +94,7 @@ def main_task(config):
     }
 
     global_pool_id = "global_pool"
-    env_gpu_num = int(config.trainer.n_gpus_per_node * 2 / 3)
+    env_gpu_num = int(config.trainer.n_gpus_per_node / 2)
     rollout_gpu_num = config.trainer.n_gpus_per_node - env_gpu_num
     resource_pool_spec = {
         global_pool_id: [env_gpu_num] * config.trainer.nnodes,

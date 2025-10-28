@@ -15,6 +15,7 @@
 
 import ctypes
 import gc
+import logging
 import os
 import subprocess
 import sys
@@ -22,6 +23,8 @@ from typing import Optional
 
 import torch
 import torch.multiprocessing as mp
+
+logger = logging.getLogger(__name__)
 
 
 def force_gc_tensor(tensor):
@@ -34,7 +37,7 @@ def force_gc_tensor(tensor):
             ctypes.pythonapi.Py_DecRef(ctypes.py_object(tensor))
 
     except Exception as e:
-        print(f"Error during force delete: {e}")
+        logger.debug(f"Error during force delete: {e}")
 
 
 def cleanup_cuda_tensors():
@@ -93,7 +96,7 @@ def get_gpu_numa_node(gpu_id: int) -> int:
         return gpu_id % numa_nodes if numa_nodes > 0 else 0
 
     except Exception as e:
-        print(f"Warning: Could not determine NUMA node for GPU {gpu_id}: {e}")
+        logger.error(f"Warning: Could not determine NUMA node for GPU {gpu_id}: {e}")
         return 0
 
 
@@ -115,7 +118,7 @@ def get_numa_cpus(numa_node: int) -> list:
                     cpus.append(int(part))
             return cpus
     except Exception as e:
-        print(f"Warning: Could not get CPU list for NUMA node {numa_node}: {e}")
+        logger.error(f"Warning: Could not get CPU list for NUMA node {numa_node}: {e}")
 
     # Fallback: return all available CPUs
     return list(range(os.cpu_count() or 1))
@@ -127,7 +130,7 @@ def set_process_numa_affinity(gpu_id: int) -> None:
         cpus = get_numa_cpus(numa_node)
 
         if not cpus:
-            print(f"Warning: No CPUs found for NUMA node {numa_node}")
+            logger.error(f"Warning: No CPUs found for NUMA node {numa_node}")
             return
 
         os.sched_setaffinity(0, cpus)
@@ -141,7 +144,7 @@ def set_process_numa_affinity(gpu_id: int) -> None:
             pass  # numactl not available, that's ok
 
     except Exception as e:
-        print(f"Warning: Could not set NUMA affinity for GPU {gpu_id}: {e}")
+        logger.error(f"Warning: Could not set NUMA affinity for GPU {gpu_id}: {e}")
 
 
 def recursive_to_own(obj):
@@ -172,7 +175,7 @@ class EnvManager:
     def start_simulator(self):
         """Start simulator process with shared memory queues"""
         if self.process:
-            print(f"Simulator process already running for rank {self.rank}")
+            logger.info(f"Simulator process already running for rank {self.rank}")
             return
 
         self.context = mp.get_context("spawn")
@@ -270,16 +273,18 @@ class EnvManager:
             raise Exception(result["error"])
         return result["data"]
 
-    def reset_envs_to_state_ids(self, state_ids_list):
+    def reset_envs_to_state_ids(self, state_ids_list, task_ids_list):
         """Reset environments to specified state IDs."""
         if self.process is None or not self.process.is_alive():
             raise RuntimeError("Simulator not running")
 
         state_ids_list = recursive_to_own(state_ids_list)
+        task_ids_list = recursive_to_own(task_ids_list)
+
         self.command_queue.put(
             {
                 "method": "reset_envs_to_state_ids",
-                "args": [state_ids_list],
+                "args": [state_ids_list, task_ids_list],
                 "kwargs": {},
             }
         )
@@ -360,6 +365,7 @@ def _simulator_worker(
                 logger.debug(f"Received command method: {command['method']}")
 
                 if command["method"] == "shutdown":
+                    env.close()
                     break
 
                 method_name = command["method"]
@@ -395,4 +401,3 @@ def _simulator_worker(
     finally:
         command_queue.close()
         result_queue.close()
-        # cleanup_cuda_tensors()
