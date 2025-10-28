@@ -48,12 +48,30 @@ class PartialSingleTurnAgentLoop(AgentLoopBase):
         param_version_end = param_version
 
         if not output:
-            prompt_ids = await self.loop.run_in_executor(
-                None,
-                lambda: self.tokenizer.apply_chat_template(
-                    messages, add_generation_prompt=True, tokenize=True, **self.apply_chat_template_kwargs
-                ),
-            )
+            # TODO(baiyan): it is supposed to use the correct processor,
+            #    but I found the async training would hang if use_correct_processor=True.
+            #    so we use the tokenizer to tokenize the prompt for now.
+            use_correct_processor = False
+            if self.processor is not None and use_correct_processor:
+
+                def get_prompt_ids():
+                    raw_prompt = self.processor.apply_chat_template(
+                        messages,
+                        add_generation_prompt=True,
+                        tokenize=False,
+                        **self.apply_chat_template_kwargs,
+                    )
+                    model_inputs = self.processor(text=[raw_prompt], images=image_data, return_tensors="pt")
+                    return model_inputs.pop("input_ids").squeeze(0).tolist()
+
+                prompt_ids = await self.loop.run_in_executor(None, get_prompt_ids)
+            else:
+                prompt_ids = await self.loop.run_in_executor(
+                    None,
+                    lambda: self.tokenizer.apply_chat_template(
+                        messages, add_generation_prompt=True, tokenize=True, **self.apply_chat_template_kwargs
+                    ),
+                )
         else:
             if output.is_cancel:
                 # Resume the paused sample,
@@ -90,4 +108,5 @@ class PartialSingleTurnAgentLoop(AgentLoopBase):
             log_probs=log_probs,
             param_version_start=param_version_start,
             param_version_end=param_version_end,
+            # multi_modal_data={"image": image_data} if image_data is not None else {},
         )
