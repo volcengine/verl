@@ -50,6 +50,9 @@ RUN git clone https://github.com/volcengine/verl.git && \
 
 # 7. Install MindSpeed
 RUN git clone https://gitee.com/ascend/MindSpeed.git && \
+    cd MindSpeed && \
+    git checkout fa781881 && \
+    cd .. && \
     pip install -e MindSpeed
 
 # 8. Install Megatron-LM and configure PYTHONPATH
