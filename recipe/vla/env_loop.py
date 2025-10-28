@@ -86,14 +86,13 @@ class EnvLoop:
 
         reset_prompts = DataProto.from_dict(non_tensors={"state_ids": initial_state_ids})
         reset_results = self.env_wg.reset_envs_to_state_ids(reset_prompts)
-        breakpoint()
 
         staged_obs = self._restructure_obs_data(reset_results)
         # --- Pipeline state ---
         trajectories = {i: [] for i in range(self.stage_num)}  # To store (obs, action, rew, done) tuples
         rollout_futures = {}
         env_step_futures = {}
-        is_complete = torch.zeros((self.total_envs,), dtype=torch.bool)
+        # is_complete = torch.zeros((self.total_envs,), dtype=torch.bool)
 
         for stage_id in range(self.stage_num):
             # trajectories[stage_id].append({'obs': staged_obs[stage_id]})
@@ -102,9 +101,9 @@ class EnvLoop:
             vla_input.meta_info = prompts.meta_info  # Pass along rollout config
             rollout_futures[stage_id] = self.rollout_wg.generate_sequences(vla_input)
         for step in range(self.max_steps):
-            if is_complete.all():
-                print(f"All environments completed at step {step}. Ending early.")
-                break
+            # if is_complete.all():
+            #     print(f"All environments completed at step {step}. Ending early.")
+            #     break
 
             for stage_id in range(self.stage_num):
                 action_result: DataProto = rollout_futures[stage_id].get()
@@ -117,6 +116,7 @@ class EnvLoop:
                 env_step_futures[stage_id] = self.env_wg.env_interact_step(action_data)
 
             staged_next_obs = {}
+            breakpoint()
             for stage_id in range(self.stage_num):
                 env_result: DataProto = env_step_futures[stage_id].get()
 
@@ -125,8 +125,8 @@ class EnvLoop:
                 trajectories[stage_id][-1]["done"] = env_result.batch["terminations"]
 
                 # Update completion status
-                stage_indices = slice(stage_id * self.envs_per_stage, (stage_id + 1) * self.envs_per_stage)
-                is_complete[stage_indices] = is_complete[stage_indices] | trajectories[stage_id][-1]["done"].squeeze(-1)
+                # stage_indices = slice(stage_id * self.envs_per_stage, (stage_id + 1) * self.envs_per_stage)
+                # is_complete[stage_indices] = is_complete[stage_indices] | trajectories[stage_id][-1]["done"].squeeze(-1)
                 # Prepare next observation
                 next_obs = DataProto(
                     batch=env_result.batch.select("full_image", "state"),
@@ -143,7 +143,7 @@ class EnvLoop:
                     # Send next observation to model
                     vla_input = staged_next_obs[stage_id]
                     vla_input.meta_info = prompts.meta_info  # Pass along rollout config
-                    rollout_futures[stage_id] = self.rollout_wg.generate_sequences.remote(vla_input)
+                    rollout_futures[stage_id] = self.rollout_wg.generate_sequences(vla_input)
         self.env_wg.finish_rollout()
         return self._collate_trajectories(trajectories, initial_state_ids, meta_info=prompts.meta_info)
 

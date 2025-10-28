@@ -30,6 +30,8 @@ import torchvision.transforms.functional as F
 from PIL import Image
 from tensordict import TensorDict
 from torch.nn.utils.rnn import pad_sequence
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+import contextlib
 
 from verl import DataProto
 from verl.models.openvla_oft.modeling_prismatic import OpenVLAForActionPrediction
@@ -177,7 +179,10 @@ class NaiveRolloutRob(BaseRollout):
         if os.path.isfile(dataset_statistics_path):
             with open(dataset_statistics_path) as f:
                 norm_stats = json.load(f)
-            self.module.norm_stats = norm_stats
+            if isinstance(self.module, FSDP):
+                self.module.module.norm_stats = norm_stats
+            else:
+                self.module.norm_stats = norm_stats
         self.module.eval()
 
     @torch.no_grad()
@@ -187,17 +192,22 @@ class NaiveRolloutRob(BaseRollout):
         pixel_values = prompts["pixel_values"]
 
         # generation_config = GenerationConfig(temperature=temperature, top_p=top_p, top_k=top_k)
-
-        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
-            actions, response = self.module.generate_action_verl(
-                input_ids=idx,
-                pixel_values=pixel_values,
-                attention_mask=attention_mask,
-                padding_idx=self.processor.tokenizer.pad_token_id,
-                do_sample=do_sample,
-                unnorm_key="libero_10_no_noops",
-                temperature=temperature,
-            )
+        if isinstance(self.module, FSDP):
+            param_ctx = FSDP.summon_full_params(self.module, writeback=False, recurse=False)
+        else:
+            param_ctx = contextlib.nullcontext()
+                    
+        with param_ctx:
+            with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                actions, response = self.module.generate_action_verl(
+                    input_ids=idx,
+                    pixel_values=pixel_values,
+                    attention_mask=attention_mask,
+                    padding_idx=self.processor.tokenizer.pad_token_id,
+                    do_sample=do_sample,
+                    unnorm_key="libero_10_no_noops",
+                    temperature=temperature,
+                )
 
         assert self.processor.tokenizer.pad_token_id is not None
 

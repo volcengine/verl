@@ -21,10 +21,12 @@ import os
 import torch
 import torch.distributed
 from torch.distributed.device_mesh import init_device_mesh
-
-from verl.single_controller.base.decorator import Dispatch, register
+import inspect
+from verl import DataProto
+from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.import_utils import import_external_libs
+from verl.utils.profiler import DistProfiler
 from verl.workers.config import HFModelConfig
 from verl.workers.fsdp_workers import ActorRolloutRefWorker
 from verl.utils.device import (
@@ -50,6 +52,7 @@ class RobActorRolloutRefWorker(ActorRolloutRefWorker):
     This worker can be instantiated as a standalone actor or a standalone rollout or a standalone reference policy
     or a hybrid engine based on the config.rollout
     """
+    original_generate_sequences = inspect.unwrap(ActorRolloutRefWorker.generate_sequences)
 
     def _build_rollout(self, trust_remote_code=False):
         from recipe.vla.naive_rollout_rob import NaiveRolloutRob
@@ -141,6 +144,13 @@ class RobActorRolloutRefWorker(ActorRolloutRefWorker):
         torch.cuda.synchronize()
         torch.distributed.barrier()
         torch.cuda.empty_cache()
+
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="rollout"), blocking=False)
+    @DistProfiler.annotate(color="red", role="rollout_generate")
+    def generate_sequences(self, prompts: DataProto):
+        return self.original_generate_sequences(prompts)
+        
+
 
     # @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     # def compute_ref_log_prob(self, data: DataProto):
