@@ -18,7 +18,7 @@ RUN ARCH=$(uname -m) && \
         echo "[LOG INFO] Entering x86_64 branch: Setting pip extra index url"; \
         pip config set global.extra-index-url "https://download.pytorch.org/whl/cpu/ https://mirrors.huaweicloud.com/ascend/repos/pypi"; \
     else \
-        echo "[LOG INFO] Entering non-x86_64 branch: No extra pip index url set"; \
+        echo "[LOG INFO] Entering aarch64 branch: No extra pip index url set"; \
     fi && \
     git clone --depth 1 --branch v0.9.1 https://github.com/vllm-project/vllm && \
     cd vllm && \
