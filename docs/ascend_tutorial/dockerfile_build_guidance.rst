@@ -4,15 +4,15 @@
 =========== ============
 组件        版本
 =========== ============
+基础镜像    Ubuntu 22.04
+Python      3.11
 CANN        8.2.RC1
+torch       2.5.1
+torch_npu   2.5.1
 vLLM        0.9.1
 vLLM-ascend 0.9.1
 Megatron-LM v0.12.1
-Python      3.11
-torch       2.5.1
-torch_npu   2.5.1
 MindSpeed   main
-基础镜像    Ubuntu 22.04
 =========== ============
 
 二、 Dockerfile 构建镜像脚本
