@@ -102,6 +102,9 @@ jobs:
           npu-smi info
       - name: Checkout volcengine/verl repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          clean: true
       - name: Install the current repository
         run: |
           pip3 install hf_transfer peft
@@ -147,6 +150,7 @@ jobs:
       - name: Running gsm8k e2e training tests with GRPO MindSpeed on ASCEND NPU
         run: |
           ray stop --force
+          export PYTHONPATH=$PYTHONPATH:/Megatron-LM
           USE_DIST_CKPT=True bash tests/special_npu/run_qwen2_5_05b_grpo_mindspeed.sh
           rm -rf $HOME/dist_ckpt/qwen2_5_05b_grpo_mindspeed
           rm -rf $HOME/ckpts
