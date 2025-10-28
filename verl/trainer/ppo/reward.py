@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import importlib.util
+import inspect
 import multiprocessing
 import os
 import sys
@@ -26,6 +27,7 @@ from omegaconf import DictConfig
 
 from verl import DataProto
 from verl.utils.reward_score import default_compute_score
+from verl.utils.transferqueue_utils import tqbridge
 from verl.workers.reward_manager import get_reward_manager_cls
 from verl.workers.reward_manager.abstract import AbstractRewardManager, RawRewardFn
 
@@ -37,6 +39,15 @@ def _call_with_kwargs(raw_fn, extra_kwargs, *args, **kwargs):
     """
     merged_kwargs = {**kwargs, **extra_kwargs}
     return raw_fn(*args, **merged_kwargs)
+
+
+async def _call_with_kwargs_async(raw_fn, extra_kwargs, *args, **kwargs):
+    """Calls `raw_fn` by merging `extra_kwargs` into call-time `kwargs`, with `extra_kwargs` taking precedence.
+
+    This function is used to merge additional keyword arguments with the original function's arguments.
+    """
+    merged_kwargs = {**kwargs, **extra_kwargs}
+    return await raw_fn(*args, **merged_kwargs)
 
 
 def get_custom_reward_fn(config: DictConfig) -> Optional[RawRewardFn]:
@@ -90,7 +101,10 @@ def get_custom_reward_fn(config: DictConfig) -> Optional[RawRewardFn]:
 
     reward_kwargs = dict(reward_fn_config.get("reward_kwargs", {}))
 
-    return partial(_call_with_kwargs, raw_fn, reward_kwargs)
+    if not inspect.iscoroutinefunction(raw_fn):
+        return partial(_call_with_kwargs, raw_fn, reward_kwargs)
+    else:
+        return partial(_call_with_kwargs_async, raw_fn, reward_kwargs)
 
 
 def load_reward_manager(
@@ -109,6 +123,11 @@ def load_reward_manager(
         An instance of the specified reward manager class.
     """
 
+    # Try to get a custom reward function based on the configuration
+    # user defined reward manager can be registered in custom_reward_fn
+    compute_score = get_custom_reward_fn(config)
+    final_compute_score = compute_score
+
     # The list of pre-defined reward managers are defined in `verl/workers/reward_manager/`:
     # naive: NaiveRewardManager
     # prime: PrimeRewardManager
@@ -119,10 +138,6 @@ def load_reward_manager(
     # By default reward_manager is set to naive (NaiveRewardManager)
     reward_manager_name = config.reward_model.get("reward_manager", "naive")
     reward_manager_cls = get_reward_manager_cls(reward_manager_name)
-
-    # Try to get a custom reward function based on the configuration
-    compute_score = get_custom_reward_fn(config)
-    final_compute_score = compute_score
 
     if compute_score is None:
         sandbox_config = config.reward_model.get("sandbox_fusion")
@@ -151,6 +166,7 @@ def load_reward_manager(
     )
 
 
+@tqbridge(put_data=False)
 def compute_reward(data: DataProto, reward_fn: AbstractRewardManager) -> tuple[torch.Tensor, dict[str, Any]]:
     """
     Compute reward for a batch of data.

@@ -18,6 +18,7 @@ import copy
 import logging
 import os
 import re
+import traceback
 from collections import defaultdict
 from typing import Optional
 
@@ -88,6 +89,7 @@ class RLHFDataset(Dataset):
         tokenizer: PreTrainedTokenizer,
         config: DictConfig,
         processor: Optional[ProcessorMixin] = None,
+        max_samples: int = -1,
     ):
         if not isinstance(data_files, list | ListConfig):
             data_files = [data_files]
@@ -96,6 +98,7 @@ class RLHFDataset(Dataset):
         self.original_data_files = copy.deepcopy(data_files)  # use for resume
         self.tokenizer = tokenizer
         self.processor = processor
+        self.max_samples = max_samples
         self.config = config
 
         self.cache_dir = os.path.expanduser(config.get("cache_dir", "~/.cache/verl/rlhf"))
@@ -117,6 +120,8 @@ class RLHFDataset(Dataset):
         self.filter_prompts = config.get("filter_prompts", True)
         self.serialize_dataset = False
         self.return_multi_modal_inputs = config.get("return_multi_modal_inputs", True)
+        self.shuffle = config.get("shuffle", False)
+        self.seed = config.get("seed")
 
         self._download()
         self._read_files_and_tokenize()
@@ -136,7 +141,18 @@ class RLHFDataset(Dataset):
             dataframes.append(dataframe)
         self.dataframe: datasets.Dataset = datasets.concatenate_datasets(dataframes)
 
+        total = len(self.dataframe)
         print(f"dataset len: {len(self.dataframe)}")
+
+        if self.max_samples > 0 and self.max_samples < total:
+            if self.shuffle:
+                rngs_args = (self.seed,) if self.seed is not None else ()
+                rng = np.random.default_rng(*rngs_args)
+                indices = rng.choice(total, size=self.max_samples, replace=False)
+            else:
+                indices = np.arange(self.max_samples)
+            self.dataframe = self.dataframe.select(indices.tolist())
+            print(f"selected {self.max_samples} random samples out of {total}")
 
         self.dataframe = self.maybe_filter_out_long_prompts(self.dataframe)
 
@@ -153,31 +169,41 @@ class RLHFDataset(Dataset):
                 from verl.utils.dataset.vision_utils import process_image, process_video
 
                 def doc2len(doc) -> int:
-                    messages = self._build_messages(doc)
-                    raw_prompt = self.processor.apply_chat_template(
-                        messages, add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
-                    )
-                    images = (
-                        [process_image(image) for image in doc[image_key]]
-                        if image_key in doc and doc[image_key]
-                        else None
-                    )
-                    videos = (
-                        [process_video(video) for video in doc[video_key]]
-                        if video_key in doc and doc[video_key]
-                        else None
-                    )
+                    try:
+                        messages = self._build_messages(doc)
+                        raw_prompt = self.processor.apply_chat_template(
+                            messages, add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
+                        )
+                        images = (
+                            [process_image(image) for image in doc[image_key]]
+                            if image_key in doc and doc[image_key]
+                            else None
+                        )
+                        videos = (
+                            [process_video(video) for video in doc[video_key]]
+                            if video_key in doc and doc[video_key]
+                            else None
+                        )
 
-                    return len(processor(text=[raw_prompt], images=images, videos=videos)["input_ids"][0])
+                        return len(processor(text=[raw_prompt], images=images, videos=videos)["input_ids"][0])
+                    except Exception:
+                        print("Error processing one of the samples, skipping...")
+                        traceback.print_exc()
+                        return self.max_prompt_length + 1
 
             else:
 
                 def doc2len(doc) -> int:
-                    return len(
-                        tokenizer.apply_chat_template(
-                            doc[prompt_key], add_generation_prompt=True, **self.apply_chat_template_kwargs
+                    try:
+                        return len(
+                            tokenizer.apply_chat_template(
+                                doc[prompt_key], add_generation_prompt=True, **self.apply_chat_template_kwargs
+                            )
                         )
-                    )
+                    except Exception:
+                        print("Error processing one of the samples, skipping...")
+                        traceback.print_exc()
+                        return self.max_prompt_length + 1
 
             dataframe = dataframe.filter(
                 lambda doc: doc2len(doc) <= self.max_prompt_length,
@@ -297,7 +323,11 @@ class RLHFDataset(Dataset):
         )
 
         if self.processor is not None and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__:
-            from verl.models.transformers.qwen2_vl import get_rope_index
+            # qwen-vl mrope
+            if "Qwen3VLProcessor" in self.processor.__class__.__name__:
+                from verl.models.transformers.qwen3_vl import get_rope_index
+            else:
+                from verl.models.transformers.qwen2_vl import get_rope_index
 
             vision_position_ids = get_rope_index(
                 self.processor,

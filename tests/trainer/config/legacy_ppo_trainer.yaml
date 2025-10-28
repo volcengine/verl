@@ -22,6 +22,16 @@ data:
   # Validation parquet. Can be a list or a single file.
   val_files: ~/data/rlhf/gsm8k/test.parquet
 
+  # Maximum sample length to be used.
+  # Set to -1 to use full dataset, otherwise, randomly
+  # select the specified number of samples from train dataset
+  train_max_samples: -1
+
+  # Maximum sample length to be used.
+  # Set to -1 to use full dataset, otherwise, randomly
+  # select the specified number of samples from val dataset
+  val_max_samples: -1
+
   # The field in the dataset where the prompt is located. Default is 'prompt'.
   prompt_key: prompt
 
@@ -54,6 +64,10 @@ data:
 
   # Whether to shuffle the data in the dataloader.
   shuffle: True
+
+  # An integer seed to use when shuffling the data. If not set or set to
+  # `null`, the data shuffling will not be seeded, resulting in a different data order on each run.
+  seed: null
 
   # num dataloader workers
   dataloader_num_workers: 8
@@ -301,8 +315,8 @@ actor_rollout_ref:
       # Number of cosine cycles in LR schedule
       num_cycles: 0.5
 
-      # LR warmup style: "constant" or "cosine"
-      warmup_style: constant
+      # LR scheduler type: "constant" or "cosine"
+      lr_scheduler_type: constant
 
       # Total training steps (must be overridden at runtime)
       total_training_steps: -1
@@ -605,8 +619,8 @@ critic:
     # Minimum LR ratio for cosine schedule
     min_lr_ratio: 0.0
 
-    # LR warmup style: "constant" or "cosine"
-    warmup_style: constant
+    # LR scheduler type: "constant" or "cosine"
+    lr_scheduler_type: constant
 
     # Total training steps (must be overridden at runtime)
     total_training_steps: -1

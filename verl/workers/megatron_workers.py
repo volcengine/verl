@@ -15,7 +15,6 @@
 The main entry point to run the PPO algorithm
 """
 
-import asyncio
 import datetime
 import logging
 import os
@@ -69,6 +68,7 @@ from verl.utils.profiler import (
     simple_timer,
 )
 from verl.utils.profiler.performance import reduce_timing, topk_reduce_ratio_min_max
+from verl.utils.ray_utils import get_event_loop
 from verl.workers.actor.megatron_actor import MegatronPPOActor
 from verl.workers.config import HFModelConfig, McoreCriticConfig, RolloutConfig
 from verl.workers.critic.megatron_critic import MegatronPPOCritic
@@ -397,15 +397,20 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         # 2. build rollout device mesh
         infer_tp = self.config.rollout.tensor_model_parallel_size * self.config.rollout.data_parallel_size
-        dp = self.world_size // infer_tp
-        assert self.world_size % infer_tp == 0, (
-            f"rollout world_size: {self.world_size} is not divisible by infer_tp: {infer_tp}"
+        infer_pp = self.config.rollout.pipeline_model_parallel_size
+        infer_world_size = infer_tp * infer_pp
+        dp = self.world_size // infer_world_size
+        assert self.world_size % infer_world_size == 0, (
+            f"rollout world_size: {self.world_size} is not divisible by infer_world_size: {infer_world_size}"
         )
         rollout_device_mesh = init_device_mesh(
-            get_device_name(), mesh_shape=(dp, infer_tp), mesh_dim_names=["dp", "infer_tp"]
+            get_device_name(), mesh_shape=(dp, infer_tp, infer_pp), mesh_dim_names=["dp", "infer_tp", "infer_pp"]
         )
 
-        is_collect = rollout_device_mesh["infer_tp"].get_local_rank() == 0
+        is_collect = (
+            rollout_device_mesh["infer_tp"].get_local_rank() == 0
+            and rollout_device_mesh["infer_pp"].get_local_rank() == 0
+        )
         self._register_dispatch_collect_info(
             "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
         )
@@ -439,7 +444,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         # For sync mode, we directly switch to trainer mode here.
         # For async mode, we can't call run_until_complete here, so we will switch to trainer mode in AgentLoopManager.
         if rollout_config.mode == "sync" and self._is_actor:
-            loop = asyncio.get_event_loop()
+            loop = get_event_loop()
             loop.run_until_complete(self.trainer_mode())
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
@@ -558,6 +563,8 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.actor.actor_module, load_grad=False)
+            log_gpu_memory_usage("After load actor params during rollout_mode", logger=logger)
+
         if self.bridge is not None:
             per_tensor_param = self.bridge.export_weights(self.actor.actor_module)
         else:
@@ -669,7 +676,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         timing_generate = {}
         if self._is_actor:  # For rollout only, we do not switch context.
-            loop = asyncio.get_event_loop()
+            loop = get_event_loop()
             loop.run_until_complete(self.rollout_mode())
             log_gpu_memory_usage("After switch to rollout mode", logger=logger)
 
@@ -749,6 +756,15 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def load_checkpoint(self, checkpoint_path, hdfs_path=None, del_local_after_load=True):
+        # No checkpoint to load, just offload the model and optimizer to CPU
+        if checkpoint_path is None:
+            if self._is_offload_param:
+                offload_megatron_model_to_cpu(self.actor_module)
+            if self._is_offload_optimizer:
+                offload_megatron_optimizer(self.actor_optimizer)
+            log_gpu_memory_usage("After offload actor params and optimizer during load_checkpoint", logger=logger)
+            return
+
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.actor_module)
         self.checkpoint_mananager.load_checkpoint(

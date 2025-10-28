@@ -22,6 +22,13 @@ from typing import Any, Callable, ContextManager
 import numpy as np
 import torch
 import torch.distributed as dist
+
+try:
+    # NPU patch
+    import mindspeed.megatron_adaptor  # noqa: F401
+except ImportError:
+    pass
+
 from accelerate import init_empty_weights
 from megatron.core import mpu
 from megatron.core.models.gpt.gpt_model import ModelType

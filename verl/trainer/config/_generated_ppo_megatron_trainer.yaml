@@ -75,7 +75,6 @@ actor_rollout_ref:
     clip_ratio_c: 3.0
     loss_agg_mode: token-mean
     entropy_coeff: 0
-    tis_imp_ratio_cap: -1
     use_kl_loss: false
     use_torch_compile: true
     kl_loss_coef: 0.001
@@ -190,6 +189,7 @@ actor_rollout_ref:
     tensor_model_parallel_size: 2
     data_parallel_size: 1
     expert_parallel_size: 1
+    pipeline_model_parallel_size: 1
     max_num_batched_tokens: 8192
     max_model_len: null
     max_num_seqs: 1024
@@ -233,6 +233,7 @@ actor_rollout_ref:
     agent:
       _target_: verl.workers.config.AgentLoopConfig
       num_workers: 8
+      default_agent_loop: single_turn_agent
       agent_loop_config_path: null
       custom_async_server:
         _target_: verl.workers.config.CustomAsyncServerConfig
@@ -275,6 +276,8 @@ data:
   use_shm: false
   train_files: ~/data/rlhf/gsm8k/train.parquet
   val_files: ~/data/rlhf/gsm8k/test.parquet
+  train_max_samples: -1
+  val_max_samples: -1
   prompt_key: prompt
   reward_fn_key: data_source
   max_prompt_length: 512
@@ -285,6 +288,7 @@ data:
   return_raw_chat: false
   return_full_prompt: false
   shuffle: true
+  seed: null
   dataloader_num_workers: 8
   validation_shuffle: false
   filter_overlong_prompts: false
@@ -482,6 +486,12 @@ algorithm:
   pf_ppo:
     reweight_method: pow
     weight_pow: 2.0
+  rollout_is_threshold: null
+  rollout_is_threshold_lower: null
+  rollout_is_level: token
+  rollout_is_mode: truncate
+  rollout_is_veto_threshold: null
+  rollout_is: false
 trainer:
   balance_batch: true
   total_epochs: 30
@@ -535,6 +545,8 @@ global_profiler:
       context: all
       stacks: all
       kw_args: {}
+transfer_queue:
+  enable: false
 ray_kwargs:
   ray_init:
     num_cpus: null

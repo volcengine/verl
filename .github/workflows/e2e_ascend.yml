@@ -65,6 +65,7 @@ permissions:
 
 jobs:
   test:
+    if: github.repository_owner == 'volcengine'
     name: verl Ascend test (self-host)
     runs-on: [self-hosted, npu-0]
     timeout-minutes: 40 # Increase this timeout value as needed

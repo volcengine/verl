@@ -1,7 +1,7 @@
 # default base image
 ARG REMOTE_VLLM="1"
 ARG COMMON_WORKDIR=/app
-ARG BASE_IMAGE=rocm/vllm-dev:base_rocm7_0930_rc1_20250916_tuned_20250917
+ARG BASE_IMAGE=rocm/vllm-dev:base
 
 FROM ${BASE_IMAGE} AS base
 
@@ -104,7 +104,7 @@ ARG COMMON_WORKDIR
 COPY --from=export_vllm /benchmarks ${COMMON_WORKDIR}/vllm/benchmarks
 COPY --from=export_vllm /examples ${COMMON_WORKDIR}/vllm/examples
 
-ENV RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1
+ENV RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES=1
 ENV TOKENIZERS_PARALLELISM=false
 
 # ENV that can improve safe tensor loading, and end-to-end time
@@ -115,6 +115,8 @@ ENV HIP_FORCE_DEV_KERNARG=1
 
 # -----------------------
 # Install verl
+ARG VERL_REPO=https://github.com/volcengine/verl.git
+ARG VERL_BRANCH=main
 RUN pip install "tensordict==0.6.2" --no-deps && \
     pip install accelerate \
     codetiming \
@@ -133,8 +135,9 @@ RUN pip install "tensordict==0.6.2" --no-deps && \
     pybind11
 
 WORKDIR /workspace/
-RUN git clone https://github.com/volcengine/verl.git && \
+RUN git clone ${VERL_REPO} && \
     cd verl && \
+    git checkout ${VERL_BRANCH} && \
     pip install -e .
 
 CMD ["/bin/bash"]

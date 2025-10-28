@@ -18,17 +18,16 @@ data:
   max_token_len_per_gpu: 8192
   use_dynamic_bsz: True
   train_files: ~/data/gsm8k/train.parquet
-  val_files: ~/data/gsm8k/test.parquet
+  val_files: null
+  train_max_samples: -1  # set to -1 to use full dataset
+  val_max_samples: -1  # set to -1 to use full dataset
   # Multi-turn settings
   messages_key: messages  # Key for messages list in multi-turn mode
   tools_key: tools  # Key for tools list in multi-turn mode
   enable_thinking_key: enable_thinking  # Whether to enable thinking in multi-turn mode
-  pad_mode: left_right
+  pad_mode: no_padding
   # for right padding
   max_length: 1024
-  # for left right padding
-  max_prompt_length: 512
-  max_response_length: 512
   truncation: error
   balance_dp_token: False # to be implement
   custom_cls:
