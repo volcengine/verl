@@ -39,7 +39,8 @@ class EnvLoop:
         self.rollout_wg = rollout_wg
         self.config = config
         # Extract relevant configuration
-        self.max_steps = config.env.train.max_episode_steps
+        # self.max_steps = config.env.train.max_episode_steps
+        self.max_interactions = config.env.train.max_episode_steps // config.env.actor.model.num_action_chunks
         self.stage_num = config.env.rollout.pipeline_stage_num
         self.num_envs_per_worker = config.env.train.num_envs
         self.action_dim = config.env.actor.model.action_dim
@@ -100,7 +101,7 @@ class EnvLoop:
             vla_input = staged_obs[stage_id]
             vla_input.meta_info = prompts.meta_info  # Pass along rollout config
             rollout_futures[stage_id] = self.rollout_wg.generate_sequences(vla_input)
-        for step in range(self.max_steps):
+        for step in range(self.max_interactions):
             # if is_complete.all():
             #     print(f"All environments completed at step {step}. Ending early.")
             #     break
@@ -116,7 +117,6 @@ class EnvLoop:
                 env_step_futures[stage_id] = self.env_wg.env_interact_step(action_data)
 
             staged_next_obs = {}
-            breakpoint()
             for stage_id in range(self.stage_num):
                 env_result: DataProto = env_step_futures[stage_id].get()
 
@@ -124,9 +124,6 @@ class EnvLoop:
                 trajectories[stage_id][-1]["rew"] = env_result.batch["rews"]
                 trajectories[stage_id][-1]["done"] = env_result.batch["terminations"]
 
-                # Update completion status
-                # stage_indices = slice(stage_id * self.envs_per_stage, (stage_id + 1) * self.envs_per_stage)
-                # is_complete[stage_indices] = is_complete[stage_indices] | trajectories[stage_id][-1]["done"].squeeze(-1)
                 # Prepare next observation
                 next_obs = DataProto(
                     batch=env_result.batch.select("full_image", "state"),
@@ -134,10 +131,9 @@ class EnvLoop:
                 )
                 staged_next_obs[stage_id] = next_obs
 
-            if step < self.max_steps - 1:
+            if step < self.max_interactions - 1:
                 for stage_id in range(self.stage_num):
                     # Start next trajectory step
-                    # trajectories[stage_id].append({'obs': staged_next_obs[stage_id]})
                     trajectories[stage_id].append({})
 
                     # Send next observation to model
@@ -145,6 +141,7 @@ class EnvLoop:
                     vla_input.meta_info = prompts.meta_info  # Pass along rollout config
                     rollout_futures[stage_id] = self.rollout_wg.generate_sequences(vla_input)
         self.env_wg.finish_rollout()
+        breakpoint()
         return self._collate_trajectories(trajectories, initial_state_ids, meta_info=prompts.meta_info)
 
     def _restructure_obs_data(self, data_proto: DataProto) -> list[DataProto]:
@@ -210,7 +207,7 @@ class EnvLoop:
             "attention_mask": attention_mask,
             "complete": complete,
             "action": actions,
-            "env_state_id": torch.from_numpy(initial_state_ids),
+            "env_state_id": torch.from_numpy(initial_state_ids.astype(int)),
         }
 
         return DataProto.from_single_dict(batch_dict, meta_info=meta_info)

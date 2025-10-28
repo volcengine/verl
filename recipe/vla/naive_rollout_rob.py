@@ -20,6 +20,7 @@ The output will contain
 4. log_probs
 """
 
+import contextlib
 import json
 import os
 from io import BytesIO
@@ -28,10 +29,8 @@ import numpy as np
 import torch
 import torchvision.transforms.functional as F
 from PIL import Image
-from tensordict import TensorDict
-from torch.nn.utils.rnn import pad_sequence
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-import contextlib
+from torch.nn.utils.rnn import pad_sequence
 
 from verl import DataProto
 from verl.models.openvla_oft.modeling_prismatic import OpenVLAForActionPrediction
@@ -191,12 +190,13 @@ class NaiveRolloutRob(BaseRollout):
         attention_mask = prompts["attention_mask"]  # left-padded attention_mask
         pixel_values = prompts["pixel_values"]
 
-        # generation_config = GenerationConfig(temperature=temperature, top_p=top_p, top_k=top_k)
-        if isinstance(self.module, FSDP):
-            param_ctx = FSDP.summon_full_params(self.module, writeback=False, recurse=False)
-        else:
-            param_ctx = contextlib.nullcontext()
-                    
+        # TODO(caiyunke.astra): check efficiency
+        # if isinstance(self.module, FSDP):
+        #     param_ctx = FSDP.summon_full_params(self.module, writeback=False, recurse=False)
+        # else:
+        #     param_ctx = contextlib.nullcontext()
+        param_ctx = contextlib.nullcontext()
+
         with param_ctx:
             with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
                 actions, response = self.module.generate_action_verl(

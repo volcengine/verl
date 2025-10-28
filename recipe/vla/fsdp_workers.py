@@ -15,47 +15,49 @@
 The main entry point to run the PPO algorithm
 """
 
+import contextlib
+import inspect
 import logging
 import os
 
 import torch
 import torch.distributed
 from torch.distributed.device_mesh import init_device_mesh
-import inspect
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp._unshard_param_utils import _get_module_fsdp_state, _unshard_params_for_summon
+from torch.distributed.fsdp.api import FullStateDictConfig, ShardedStateDictConfig, StateDictType
+
 from verl import DataProto
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
 from verl.utils.config import omega_conf_to_dataclass
-from verl.utils.import_utils import import_external_libs
-from verl.utils.profiler import DistProfiler
-from verl.workers.config import HFModelConfig
-from verl.workers.fsdp_workers import ActorRolloutRefWorker
-from verl.utils.device import (
-    get_torch_device,
-    get_device_name,
-
-)
+from verl.utils.device import get_device_name, get_torch_device, set_expandable_segments
 from verl.utils.fsdp_utils import (
     fsdp_version,
 )
-
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp.api import FullStateDictConfig, ShardedStateDictConfig, StateDictType
-
+from verl.utils.import_utils import import_external_libs
+from verl.utils.memory_utils import aggressive_empty_cache
+from verl.utils.profiler import DistProfiler
+from verl.workers.config import HFModelConfig
+from verl.workers.fsdp_workers import ActorRolloutRefWorker
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_PPO_LOGGING_LEVEL", "WARN"))
 
 device_name = get_device_name()
 
+
 class RobActorRolloutRefWorker(ActorRolloutRefWorker):
     """
     This worker can be instantiated as a standalone actor or a standalone rollout or a standalone reference policy
     or a hybrid engine based on the config.rollout
     """
+
     original_generate_sequences = inspect.unwrap(ActorRolloutRefWorker.generate_sequences)
+    fsdp_unshard_exit_stack = contextlib.ExitStack()
 
     def _build_rollout(self, trust_remote_code=False):
         from recipe.vla.naive_rollout_rob import NaiveRolloutRob
+
         self.base_sync_done = False
         world_size = torch.distributed.get_world_size()
         dp = world_size
@@ -87,6 +89,49 @@ class RobActorRolloutRefWorker(ActorRolloutRefWorker):
         self.rollout = NaiveRolloutRob(module=self.actor_module_fsdp, model_config=self.config.model)
         model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model, dataclass_type=HFModelConfig)
         self.model_config = model_config
+
+    async def rollout_mode(self):
+        """Context switch hybridengine to rollout mode."""
+        fsdp_unshard_exit_stack = contextlib.ExitStack()
+        optional_state = _get_module_fsdp_state(self.actor_module_fsdp)
+        if optional_state is None:
+            self.fsdp_unshard_exit_stack = fsdp_unshard_exit_stack
+        states_and_modules = ([optional_state], [self.actor_module_fsdp])
+
+        self.base_sync_done = True
+        # important: need to manually set the random states of each tp to be identical.
+        self.torch_random_states = get_torch_device().get_rng_state()
+        get_torch_device().set_rng_state(self.gen_random_states)
+        for state, fsdp_module in zip(*states_and_modules, strict=False):
+            fsdp_unshard_exit_stack.enter_context(
+                _unshard_params_for_summon(
+                    module=fsdp_module,
+                    state=state,
+                    writeback=False,
+                    rank0_only=False,
+                    offload_to_cpu=False,
+                    with_grads=False,
+                )
+            )
+
+        self.fsdp_unshard_exit_stack = fsdp_unshard_exit_stack
+
+    async def trainer_mode(self):
+        """Context switch hybridengine to trainer mode."""
+
+        self.actor_module_fsdp.train()
+
+        # add empty cache after each compute
+        aggressive_empty_cache(force_sync=True)
+
+        set_expandable_segments(True)
+
+        # restore random states
+        self.gen_random_states = get_torch_device().get_rng_state()
+        get_torch_device().set_rng_state(self.torch_random_states)
+        if self.fsdp_unshard_exit_stack is not None:
+            self.fsdp_unshard_exit_stack.close()
+            self.fsdp_unshard_exit_stack = None
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
@@ -149,8 +194,6 @@ class RobActorRolloutRefWorker(ActorRolloutRefWorker):
     @DistProfiler.annotate(color="red", role="rollout_generate")
     def generate_sequences(self, prompts: DataProto):
         return self.original_generate_sequences(prompts)
-        
-
 
     # @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     # def compute_ref_log_prob(self, data: DataProto):

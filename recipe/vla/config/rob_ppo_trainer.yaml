@@ -38,6 +38,13 @@ actor_rollout_ref:
   actor:
     num_images_in_input: 1
     traj_mini_batch_size: 16
+    fsdp_config:
+      wrap_policy:
+        # transformer_layer_cls_to_wrap: None
+        min_num_params: 0
+      param_offload: False
+      optimizer_offload: False
+      fsdp_size: -1
   rollout:
     mode: async_envloop
     prompt_length: 512
