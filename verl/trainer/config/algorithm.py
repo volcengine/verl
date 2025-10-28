@@ -78,7 +78,7 @@ class AlgoConfig(BaseConfig):
         rollout_is_threshold_lower (Optional[float]): Lower threshold for IS weights. If None, defaults to 1/upper.
         rollout_is_level (str): Aggregation level: "token", "sequence", or "geometric".
         rollout_is_mode (str): Bounding mode: "truncate" (cap upper only) or "mask" (zero outside bounds).
-        rollout_is_veto_threshold (float): Per-token veto threshold for catastrophic outliers.
+        rollout_is_veto_threshold (float or None): Per-token veto threshold for catastrophic outliers. None to disable.
         rollout_is (bool): Whether to apply IS weights to policy loss. True = apply weights,
             False = compute metrics only (useful for monitoring before enabling correction). Default: False.
     """
@@ -99,7 +99,7 @@ class AlgoConfig(BaseConfig):
     rollout_is_threshold_lower: Optional[float] = None
     rollout_is_level: str = "token"
     rollout_is_mode: str = "truncate"
-    rollout_is_veto_threshold: Optional[float] = 1e-4
+    rollout_is_veto_threshold: Optional[float] = None
     # Controls whether to apply IS weights to policy loss (only if rollout_is_threshold is set)
     # True = apply weights to loss, False = compute metrics only (no weight application)
     rollout_is: bool = False

@@ -276,6 +276,8 @@ data:
   use_shm: false
   train_files: ~/data/rlhf/gsm8k/train.parquet
   val_files: ~/data/rlhf/gsm8k/test.parquet
+  train_max_samples: -1
+  val_max_samples: -1
   prompt_key: prompt
   reward_fn_key: data_source
   max_prompt_length: 512
@@ -488,7 +490,7 @@ algorithm:
   rollout_is_threshold_lower: null
   rollout_is_level: token
   rollout_is_mode: truncate
-  rollout_is_veto_threshold: 0.0001
+  rollout_is_veto_threshold: null
   rollout_is: false
 trainer:
   balance_batch: true
@@ -543,6 +545,8 @@ global_profiler:
       context: all
       stacks: all
       kw_args: {}
+transfer_queue:
+  enable: false
 ray_kwargs:
   ray_init:
     num_cpus: null

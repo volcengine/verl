@@ -52,46 +52,71 @@ def compute_rollout_importance_weights(
     rollout_is_mode: str = "truncate",
     rollout_is_threshold: Optional[float] = None,
     rollout_is_threshold_lower: Optional[float] = None,
-    rollout_is_veto_threshold: Optional[float] = 1e-4,
-) -> tuple[Optional[DataProto], dict[str, Any]]:
-    """Compute importance sampling weights and metrics for rollout-training mismatch correction.
+    rollout_is_veto_threshold: Optional[float] = None,
+) -> tuple[Optional[DataProto], torch.Tensor, dict[str, Any]]:
+    """Compute importance sampling weights and rejection mask for rollout-training mismatch.
 
-    This function handles the computation of importance sampling (IS) weights to correct
-    for the distribution mismatch between rollout policy and training policy.
+    This function computes IS weights to correct for distribution mismatch between rollout
+    and training policies, and applies rejection sampling for outliers.
+
+    Key Design: Separation of IS Weights and Rejection Sampling
+    - IS weights (rollout_is_weights): Ratios π_train/π_rollout with processing applied:
+      * Safety-bounded to prevent overflow:
+        - Token level: exp(clamp(log_ratio, -20, 20)) per token
+        - Sequence level: exp(clamp(sum(log_ratio), -20, 20)) broadcast to all tokens
+        - Geometric level: exp(clamp(mean(log_ratio), -20, 20)) broadcast to all tokens
+      * Truncate mode: upper clamped via .clamp(max=upper_threshold)
+      * Mask mode: safety-bounded ratios preserved (no threshold clamping)
+      * All modes: zeroed at padding positions
+      Used for policy gradient calculations
+    - Response mask (modified_response_mask): Has rejection applied (mask mode + veto)
+      Used for loss aggregation to exclude rejected samples from training
 
     Reference:
         When Speed Kills Stability: https://yingru.notion.site/When-Speed-Kills-Stability-271211a558b7808d8b12d403fd15edda
 
-    Memory-efficient implementation that prevents CUDA OOM by:
-    - Using log-space computation where possible
-    - Applying safety bounds to prevent numerical overflow
-    - Computing metrics without creating huge intermediate tensors
+    Memory-efficient implementation:
+    - Log-space computation to prevent overflow
+    - Safety bounds (exp(±20)) on all exponentiations
+    - Metrics computed without large intermediate tensors
 
     Args:
-        old_log_prob: Log probabilities from training policy (e.g., FSDP), shape (batch_size, seq_length)
-        rollout_log_prob: Log probabilities from rollout policy (e.g., vLLM), shape (batch_size, seq_length)
-        response_mask: Mask for valid tokens, shape (batch_size, seq_length)
-        rollout_is_level: Level of IS aggregation:
-            - "token": Per-token ratios (biased)
-            - "sequence": Product of ratios (unbiased)
-            - "geometric": Geometric mean of ratios (experimental)
-        rollout_is_mode: How to handle weights exceeding threshold:
-            - "truncate": Cap weights at upper_threshold only
-            - "mask": Zero out weights outside [lower_threshold, upper_threshold]
-        rollout_is_threshold: Upper threshold for IS weights
-        rollout_is_threshold_lower: Lower threshold for IS weights (mask mode only; if None, defaults to 1/upper)
-        rollout_is_veto_threshold: Per-token veto threshold. If any token ratio < this, zero entire sequence.
-            If None, veto mechanism is disabled.
+        old_log_prob: Log probs from training policy (FSDP FP32), shape (batch_size, seq_length)
+        rollout_log_prob: Log probs from rollout policy (vLLM BF16), shape (batch_size, seq_length)
+        response_mask: Valid token mask (1=valid, 0=padding), shape (batch_size, seq_length)
+        rollout_is_level: IS weight aggregation level
+            - "token": Per-token ratios ρ_t = π_train(t)/π_rollout(t) (biased but low variance)
+            - "sequence": Sequence product ρ_seq = ∏ρ_t (unbiased but high variance)
+            - "geometric": Geometric mean ρ_geo = (∏ρ_t)^(1/T) (experimental trade-off)
+        rollout_is_mode: Treatment of outlier IS weights
+            - "truncate": Clamp weights at upper threshold only. No rejection for outlier ratios,
+              but veto can still apply (TIS)
+            - "mask": Reject tokens/sequences outside [lower, upper] via response_mask (MIS/rejection sampling)
+        rollout_is_threshold: Upper threshold for IS weights (required, e.g., 2.0)
+        rollout_is_threshold_lower: Lower threshold for mask mode (if None, defaults to 1/upper)
+        rollout_is_veto_threshold: Catastrophic token threshold. If any token has ratio < this,
+            reject entire sequence. Applied independently of rollout_is_mode. If None, veto disabled. Default None.
 
     Returns:
-        Tuple of (weights_proto, metrics) where:
-            weights_proto: DataProto containing IS weights with key "rollout_is_weights",
-                shape (batch_size, seq_length). Returns None if rollout_is_threshold is None.
-            metrics: Dictionary of IS statistics and mismatch metrics (KL, PPL, etc.),
-                all converted to scalars and prefixed with "mismatch/"
+        Tuple of (weights_proto, modified_response_mask, metrics):
+            weights_proto: DataProto with processed IS weights, key "rollout_is_weights",
+                shape (batch_size, seq_length). Processing applied:
+                - Safety-bounded to [exp(-20), exp(20)] ≈ [2e-9, 5e8]:
+                  * Token level: bounds per-token ratios
+                  * Sequence/geometric level: bounds aggregated ratio (broadcast to all tokens)
+                - Truncate mode: upper clamped via .clamp(max=upper_threshold)
+                - Mask mode: safety-bounded ratios preserved (no threshold clamping)
+                - All modes: zeroed at padding positions (response_mask == 0)
+                None if rollout_is_threshold is None.
+            modified_response_mask: Response mask with rejection applied:
+                - truncate mode: unchanged for outlier ratios, but veto rejection still applied
+                - mask mode: tokens outside [lower, upper] masked to 0
+                - veto: sequences with catastrophic tokens masked to 0 (applied in both modes)
+                Shape (batch_size, seq_length).
+            metrics: Dict of IS and mismatch metrics, all scalars with "mismatch/" prefix
     """
     if rollout_is_threshold is None:
-        return None, {}
+        return None, response_mask, {}
 
     # Parse thresholds: if lower not specified, use 1/upper (reciprocal)
     upper_threshold = rollout_is_threshold
@@ -179,38 +204,53 @@ def compute_rollout_importance_weights(
         SAFETY_BOUND=SAFETY_BOUND,
     )
 
-    # Step 3: Apply truncation or masking based on mode
+    # Step 3: Apply outlier handling and rejection sampling
+    # Key design principle: IS weights and rejection are separate mechanisms
+    # - rollout_is_weights: IS weight ratios with mode-specific processing
+    #   * Truncate mode: upper clamped to prevent extreme values
+    #   * Mask mode: safety-bounded ratios preserved (no threshold clamping, rejection via mask)
+    #   Used for policy gradient calculations
+    # - modified_response_mask: Has rejection applied (excludes outliers from training)
+    #   Used for loss denominator: ensures rejected samples don't dilute gradients
+
     if rollout_is_mode == "truncate":
-        # Truncate mode: only cap upper bound to prevent overweighting
+        # Truncated IS (TIS): clamp weights to prevent extreme importance ratios
+        # Weights are modified by clamping; no rejection via mask for outlier ratios
+        # Veto rejection (if enabled) will still be applied to modified_response_mask below
         rollout_is_weights = rollout_is_weights.clamp(max=upper_threshold)
+        modified_response_mask = response_mask  # Unchanged for outlier ratios (veto applied later)
 
     elif rollout_is_mode == "mask":
-        # Mask mode: zero out weights outside [lower_threshold, upper_threshold]
+        # Masked IS (MIS): rejection sampling for outlier IS weights
+        # Reject tokens/sequences with IS ratios outside [lower, upper] via response_mask
+        # IS weights themselves are NOT threshold-clamped (remain safety-bounded only)
         mask = (rollout_is_weights >= lower_threshold) & (rollout_is_weights <= upper_threshold)
         mask = mask.float()
 
-        # Track MIS-specific metrics
+        # Compute rejection rate metrics
         metrics["rollout_is_masked_fraction"] = verl_F.masked_mean(1 - mask, response_mask)
-
-        # Sequence-level masking fraction
         if rollout_is_level in ["sequence", "geometric"]:
-            # All tokens in a sequence have the same weight, so reuse mask
+            # Sequence-level: all tokens have same weight, check first token
             metrics["rollout_is_seq_masked_fraction"] = (1 - mask[:, 0]).mean()
         else:
-            # Check if any token in each sequence is masked
+            # Token-level: sequence rejected if ANY token is rejected
             seq_has_masked = verl_F.masked_sum(1 - mask, response_mask, axis=-1) > 0
             metrics["rollout_is_seq_masked_fraction"] = seq_has_masked.float().mean()
 
-        rollout_is_weights = rollout_is_weights * mask
+        # Apply rejection via response_mask (NOT by clamping IS weights)
+        modified_response_mask = response_mask * mask
+        # rollout_is_weights kept as safety-bounded ratios (no threshold clamping)
 
     else:
         raise ValueError(f"Invalid rollout_is_mode: {rollout_is_mode}. Must be 'truncate' or 'mask'.")
 
-    # Apply veto mask AFTER all thresholding
-    # This zeros out entire sequences that have any catastrophic token
-    rollout_is_weights = rollout_is_weights * veto_mask
+    # Apply veto: reject entire sequences with catastrophic tokens (ratio < veto_threshold)
+    # Veto is independent of mode - it applies to modified_response_mask after mode-specific handling
+    modified_response_mask = modified_response_mask * veto_mask
+    # Note: rollout_is_weights unaffected by veto (already clamped in truncate mode, or kept as-is in mask mode)
 
-    # Apply response_mask to ensure weights are 0 where mask is 0
+    # Zero out padding positions in IS weights for correct aggregation
+    # This is different from rejection - padding must be zeroed regardless of mode
     rollout_is_weights = rollout_is_weights * response_mask
 
     # Wrap in DataProto for consistency with worker methods
@@ -231,7 +271,7 @@ def compute_rollout_importance_weights(
         else:
             metrics_scalar[f"mismatch/{key}"] = value
 
-    return rollout_is_weights_proto, metrics_scalar
+    return rollout_is_weights_proto, modified_response_mask, metrics_scalar
 
 
 def compute_is_metrics(

@@ -22,20 +22,33 @@ python3 recipe/open_math_reasoning/prepare_eval_dataset.py --local_dataset_path 
 ```
 
 ## Train the model using SFT
-### FSDP backend
+```bash
 export CKPT_HOME=/path/to/ckpt
-export BACKEND=fsdp2
 export MODEL_ID=Qwen/Qwen3-8B-Base
 export TRAIN_FILES=/path/to/open_math_reasoning/cot_dataset.parquet
+```
+
+### FSDP backend
+```bash
+export BACKEND=fsdp2
 bash recipe/open_math_reasoning/run_sft_qwen3_8b.sh
+```
 
 ### Megatron backend
-TODO
+```bash
+export BACKEND=megatron
+bash recipe/open_math_reasoning/run_sft_qwen3_8b.sh
+```
 
 ## Eval the model
 ### Merge checkpoint into huggingface format
+FSDP backend
 ```bash
 python -m verl.model_merger merge --backend fsdp --local_dir /path/to/ckpt/global_step_19751 --target_dir /path/to/ckpt/global_step_19751/huggingface
+```
+Megatron backend
+```bash
+python -m verl.model_merger merge --backend megatron --local_dir /path/to/ckpt/global_step_19751 --target_dir /path/to/ckpt/global_step_19751/huggingface --use_cpu_initialization
 ```
 
 ### Generate the responses

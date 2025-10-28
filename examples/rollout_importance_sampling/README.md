@@ -61,7 +61,7 @@ bash examples/rollout_importance_sampling/run_with_rollout_is.sh
 - `rollout_is_threshold`: Upper threshold for IS weights (null = disabled, float = enabled). **Main on/off switch.**
 - `rollout_is`: Whether to apply weights to loss (true) or just compute metrics (false). Default: false.
 - `rollout_is_threshold_lower`: Lower threshold (null = auto 1/upper)
-- `rollout_is_veto_threshold`: Catastrophic outlier threshold (default: 1e-4)
+- `rollout_is_veto_threshold`: Catastrophic outlier threshold (default: null, disabled)
 
 ## Configuration Examples
 
@@ -73,7 +73,7 @@ algorithm:
   rollout_is: true  # Apply to loss
   rollout_is_level: token
   rollout_is_mode: truncate
-  rollout_is_veto_threshold: 1e-4
+  rollout_is_veto_threshold: null  # Disabled by default
 ```
 
 ### Example 2: Metrics Only (No Weight Application)
@@ -95,7 +95,7 @@ algorithm:
   rollout_is_threshold_lower: 0.9998
   rollout_is_level: geometric
   rollout_is_mode: mask
-  rollout_is_veto_threshold: 1e-4
+  rollout_is_veto_threshold: 1e-4  # Enable veto for this example
 ```
 
 ### Example 4: Sequence-level with Truncate
@@ -107,7 +107,7 @@ algorithm:
   rollout_is_threshold_lower: null  # Auto-reciprocal: 0.2
   rollout_is_level: sequence
   rollout_is_mode: truncate
-  rollout_is_veto_threshold: 1e-4
+  rollout_is_veto_threshold: 1e-4  # Enable veto for this example
 ```
 
 ### Example 5: Asymmetric Thresholds
@@ -226,8 +226,8 @@ The veto mechanism zeros out entire sequences containing catastrophic outliers:
 
 - If any token has ratio < `rollout_is_veto_threshold`, the entire sequence is rejected
 - This prevents extreme outliers from dominating training
-- Default threshold: 1e-4 (ratio 10,000x off)
-- Set to `null` to disable: `rollout_is_veto_threshold: null`
+- Default: `null` (disabled by default)
+- Set to `1e-4` to enable (catches ratios 10,000x off)
 
 ## Examples
 

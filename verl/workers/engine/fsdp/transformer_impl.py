@@ -353,14 +353,10 @@ class FSDPEngine(BaseEngine):
         return module
 
     def _build_optimizer(self, module):
-        from torch import optim
+        from verl.workers.config.optimizer import build_optimizer
 
-        optimizer = optim.AdamW(
-            module.parameters(),
-            lr=self.optimizer_config.lr,
-            betas=self.optimizer_config.betas,
-            weight_decay=self.optimizer_config.weight_decay,
-        )
+        optimizer = build_optimizer(module.parameters(), self.optimizer_config)
+
         return optimizer
 
     def _build_lr_scheduler(self, optimizer):

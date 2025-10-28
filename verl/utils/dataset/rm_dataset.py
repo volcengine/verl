@@ -13,7 +13,9 @@
 # limitations under the License.
 
 import os
+from typing import Optional
 
+import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
@@ -46,11 +48,17 @@ class RMDataset(Dataset):
         max_length=1024,
         add_eos=True,
         cache_dir="~/.cache/verl/rm",
+        max_samples: int = -1,
+        shuffle: bool = False,
+        seed: Optional[int] = None,
     ):
         if not isinstance(parquet_files, list):
             parquet_files = [parquet_files]
 
         self.parquet_files = parquet_files
+        self.max_samples = max_samples
+        self.shuffle = shuffle
+        self.seed = seed
         self.cache_dir = os.path.expanduser(cache_dir)
         if isinstance(tokenizer, str):
             tokenizer = hf_tokenizer(tokenizer)
@@ -88,6 +96,20 @@ class RMDataset(Dataset):
             dataframe = pd.read_parquet(parquet_file)
             dataframes.append(dataframe)
         self.dataframe = pd.concat(dataframes)
+
+        total = len(self.dataframe)
+        print(f"dataset len: {len(self.dataframe)}")
+
+        if self.max_samples > 0 and self.max_samples < total:
+            if self.shuffle:
+                rngs_args = (self.seed,) if self.seed is not None else ()
+                rng = np.random.default_rng(*rngs_args)
+                indices = rng.choice(total, size=self.max_samples, replace=False)
+            else:
+                indices = np.arange(self.max_samples)
+            self.dataframe = self.dataframe.iloc[indices.tolist()]
+            print(f"selected {self.max_samples} random samples out of {total}")
+
         self.prompts = self.dataframe[self.prompt_key].tolist()
         self.chosen_responses = self.dataframe[self.chosen_key].tolist()
         self.rejected_responses = self.dataframe[self.rejected_key].tolist()
