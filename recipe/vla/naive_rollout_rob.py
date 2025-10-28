@@ -94,7 +94,7 @@ def process_input(task_descriptions, images_and_states, processor):
 
     for i in range(len(task_descriptions)):
         task_description = task_descriptions[i]
-        image = resize_image(images_and_states["full_image"][i].numpy(), (224, 224))
+        image = resize_image(images_and_states["full_image"][i].cpu().numpy(), (224, 224))
         image = Image.fromarray(image).convert("RGB")
         image = center_crop_image(image)
         prompt = f"In: What action should the robot take to {task_description.lower()}?\nOut:"
@@ -230,24 +230,27 @@ class NaiveRolloutRob(BaseRollout):
     def generate_sequences(self, prompts: DataProto) -> DataProto:
         """Generate sequences"""
         # make sampling args can be overriden by inputs
-        do_sample = prompts.meta_info.get("do_sample", self.config.do_sample)
-        temperature = prompts.meta_info.get("temperature", self.config.temperature)
-        max_prompt_length = prompts.meta_info.get("prompt_length", self.config.prompt_length)
+        do_sample = prompts.meta_info["do_sample"]
+        temperature = prompts.meta_info["temperature"]
+        max_prompt_length = prompts.meta_info["prompt_length"]
         # TODO: split into micro-batches
         task_descriptions = prompts.non_tensor_batch["task_descriptions"]
-        images_and_states = prompts.select(batch_keys=["full_image"])
+        images_and_states = {"full_image": prompts.batch["full_image"]}
         vla_input = process_input(task_descriptions, images_and_states, self.processor)
 
         vla_output = self._generate_one_step(vla_input, do_sample, temperature, max_prompt_length)
-        batch = TensorDict(vla_output)
+        # batch = TensorDict(vla_output)
+        batch = DataProto.from_dict(tensors=vla_output)
         return batch
 
-    def update_weights(self, weights, **kwargs):
-        new_state_dict = {name: param for name, param in weights}
-        try:
-            self.module.load_state_dict(new_state_dict)
-        except Exception as e:
-            raise e
+    async def update_weights(self, weights, **kwargs):
+        # new_state_dict = {name: param for name, param in weights}
+        # try:
+        #     self.module.load_state_dict(new_state_dict)
+        # except Exception as e:
+        #     raise e
+        # TODO(caiyunke.astra): implement weight update for seperate rollout worker
+        pass
 
     def release(self):
         self.module.cpu()

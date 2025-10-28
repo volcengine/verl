@@ -243,8 +243,7 @@ class EnvWorker(Worker):
         result_list = []
         for stage_id in range(self.stage_num):
             result = self.simulator_list[stage_id].reset_envs_to_state_ids(
-                state_ids_list[stage_id * self.cfg.train.num_envs : 
-                               (stage_id + 1) * self.cfg.train.num_envs]
+                state_ids_list[stage_id * self.cfg.train.num_envs : (stage_id + 1) * self.cfg.train.num_envs]
             )
             result_list.append(result)
         output_tensor_dict = {}
@@ -266,8 +265,8 @@ class EnvWorker(Worker):
             if self.cfg.train.video_cfg.save_video:
                 for i in range(self.stage_num):
                     self.simulator_list[i].flush_video(video_sub_dir=f"stage_{i}")
-            for i in range(self.stage_num):
-                self.simulator_list[i].update_reset_state_ids()
+            # for i in range(self.stage_num):
+            #     self.simulator_list[i].update_reset_state_ids()
         # elif mode == "eval":
         #     if self.cfg.eval.video_cfg.save_video:
         #         for i in range(self.stage_num):

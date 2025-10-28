@@ -20,16 +20,30 @@ import os
 
 import torch
 import torch.distributed
+from torch.distributed.device_mesh import init_device_mesh
 
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.import_utils import import_external_libs
 from verl.workers.config import HFModelConfig
 from verl.workers.fsdp_workers import ActorRolloutRefWorker
+from verl.utils.device import (
+    get_torch_device,
+    get_device_name,
+
+)
+from verl.utils.fsdp_utils import (
+    fsdp_version,
+)
+
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp.api import FullStateDictConfig, ShardedStateDictConfig, StateDictType
+
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_PPO_LOGGING_LEVEL", "WARN"))
 
+device_name = get_device_name()
 
 class RobActorRolloutRefWorker(ActorRolloutRefWorker):
     """
@@ -39,6 +53,32 @@ class RobActorRolloutRefWorker(ActorRolloutRefWorker):
 
     def _build_rollout(self, trust_remote_code=False):
         from recipe.vla.naive_rollout_rob import NaiveRolloutRob
+        self.base_sync_done = False
+        world_size = torch.distributed.get_world_size()
+        dp = world_size
+        infer_tp = self.config.rollout.tensor_model_parallel_size
+        rollout_device_mesh = init_device_mesh(
+            device_name, mesh_shape=(dp, infer_tp), mesh_dim_names=["dp", "infer_tp"]
+        )
+        # 3. init trainer and rollout random states
+        self.torch_random_states = get_torch_device().get_rng_state()
+        gen_dp_rank = rollout_device_mesh["dp"].get_local_rank()
+        get_torch_device().manual_seed(gen_dp_rank + 1000)  # make sure all tp ranks have the same random states
+        self.gen_random_states = get_torch_device().get_rng_state()
+        get_torch_device().set_rng_state(self.torch_random_states)
+
+        if torch.distributed.get_world_size() == 1 and fsdp_version(self.actor_module_fsdp) == 1:
+            FSDP.set_state_dict_type(
+                self.actor_module_fsdp,
+                state_dict_type=StateDictType.FULL_STATE_DICT,
+                state_dict_config=FullStateDictConfig(),
+            )
+        elif fsdp_version(self.actor_module_fsdp) == 1:
+            FSDP.set_state_dict_type(
+                self.actor_module_fsdp,
+                state_dict_type=StateDictType.SHARDED_STATE_DICT,
+                state_dict_config=ShardedStateDictConfig(),
+            )
 
         self._register_dispatch_collect_info("rollout", dp_rank=self.rank, is_collect=True)
         self.rollout = NaiveRolloutRob(module=self.actor_module_fsdp, model_config=self.config.model)
@@ -85,8 +125,9 @@ class RobActorRolloutRefWorker(ActorRolloutRefWorker):
                 )
             )
 
-            # get the original unwrapped module
-            self.actor_module = self.actor_module_fsdp._fsdp_wrapped_module
+            if fsdp_version(self.actor_module_fsdp) == 1:
+                # get the original unwrapped module
+                self.actor_module = self.actor_module_fsdp._fsdp_wrapped_module
 
         if self._is_actor:
             OmegaConf.set_struct(self.config.actor, True)

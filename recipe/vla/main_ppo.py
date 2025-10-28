@@ -58,7 +58,7 @@ def main_task(config):
     tokenizer = hf_tokenizer(local_path)
 
     # define worker classes
-    if config.actor_rollout_ref.actor.strategy == "fsdp":
+    if config.actor_rollout_ref.actor.strategy in ["fsdp", "fsdp2"]:
         assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
         from recipe.vla.workers.env.env_worker import EnvWorker
         from verl.single_controller.ray import RayWorkerGroup

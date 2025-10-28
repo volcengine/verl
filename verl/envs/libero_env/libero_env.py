@@ -53,6 +53,8 @@ class LiberoEnv(gym.Env):
 
         # self.ignore_terminations = cfg.ignore_terminations
         # self.auto_reset = cfg.auto_reset
+        self.ignore_terminations = False
+        self.auto_reset = False
 
         self._generator = np.random.default_rng(seed=self.seed)
         self._generator_ordered = np.random.default_rng(seed=0)
@@ -318,7 +320,7 @@ class LiberoEnv(gym.Env):
         if actions is None:
             assert self._is_start, "Actions must be provided after the first reset."
         if self.is_start:
-            obs, infos = self.reset(reset_state_ids=self.reset_state_ids if self.use_fixed_reset_state_ids else None)
+            obs, infos = self.reset(reset_state_ids=self.reset_state_ids)
             self._is_start = False
             terminations = np.zeros(self.num_envs, dtype=bool)
             truncations = np.zeros(self.num_envs, dtype=bool)
@@ -346,14 +348,7 @@ class LiberoEnv(gym.Env):
             self.add_new_frames(raw_obs, plot_infos)
 
         infos = self._record_metrics(step_reward, terminations, infos)
-        if self.ignore_terminations:
-            infos["episode"]["success_at_end"] = to_tensor(terminations)
-            terminations[:] = False
 
-        dones = terminations | truncations
-        _auto_reset = auto_reset and self.auto_reset
-        if dones.any() and _auto_reset:
-            obs, infos = self._handle_auto_reset(dones, obs, infos)
         return (
             obs,
             to_tensor(step_reward),
@@ -456,7 +451,7 @@ class LiberoEnv(gym.Env):
 
     def reset_envs_to_state_ids(self, state_ids_list):
         """Reset environments to specified state IDs.
-        
+
         Args:
             state_ids_list: List of state IDs to reset environments to
         """
