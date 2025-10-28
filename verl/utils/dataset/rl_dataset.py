@@ -197,7 +197,7 @@ class RLHFDataset(Dataset):
                             videos_kwargs = {"video_metadata": video_metadata, "do_sample_frames": False}
                         else:
                             videos = None
-                            videos_kwargs = None
+                            videos_kwargs = {}
 
                         return len(
                             processor(text=[raw_prompt], images=images, videos=videos, videos_kwargs=videos_kwargs)[
