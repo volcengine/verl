@@ -65,8 +65,8 @@ def silu_forward(self, hidden_state):
 def apply_rotary_pos_emb_npu(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
     cos = cos.unsqueeze(unsqueeze_dim)
     sin = sin.unsqueeze(unsqueeze_dim)
-    q_embed = torch_npu.npu_rotary_mul(q.contiguous(), cos, sin)
-    k_embed = torch_npu.npu_rotary_mul(k.contiguous(), cos, sin)
+    q_embed = torch_npu.npu_rotary_mul(q, cos, sin)
+    k_embed = torch_npu.npu_rotary_mul(k, cos, sin)
     return q_embed.to(q.dtype), k_embed.to(k.dtype)
 
 
