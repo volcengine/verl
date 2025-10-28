@@ -14,7 +14,7 @@ torch_npu   2.5.1
 vLLM        0.9.1
 vLLM-ascend 0.9.1
 Megatron-LM v0.12.1
-MindSpeed   (fa781881 or newer version)
+MindSpeed   (f2b0977e or newer version)
 =========== ============
 
 二、 Dockerfile 构建镜像脚本
