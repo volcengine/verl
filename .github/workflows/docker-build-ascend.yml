@@ -74,6 +74,6 @@ jobs:
           file: ./docker/Dockerfile.ascend.vllm-0.9.1  
           push: true 
           tags: |  
-            quay.io/709222099/verl:${{ steps.version.outputs.tag }}
+            quay.io/ascend/verl:${{ steps.version.outputs.tag }}
           cache-from: type=gha  
           cache-to: type=gha,mode=max  
