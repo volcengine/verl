@@ -2,7 +2,7 @@
 set -xeuo pipefail
 
 project_name='DAPO'
-exp_name='dapo_qwen2-7B-math_28k_fsdp2_fully-async_64-64_mbs32_tpf4_fixmcs'
+exp_name='dapo_qwen2-7B-math_28k_fsdp2_fully-async_64-64'
 
 # Ray
 # RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
@@ -15,7 +15,6 @@ MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen2.5-Math-7B"}
 CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/ckpts/${project_name}/${exp_name}"}
 TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/dapo-math-17k.parquet"}
 TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/aime-2024.parquet"}
-
 
 rollout_mode="async"
 rollout_name="vllm" # sglang or vllm
@@ -59,7 +58,7 @@ ref_offload=True
 actor_offload=False
 gen_tp=4
 sp_size=4
-fsdp_size=-1
+fsdp_size=8
 
 # Fully async specific parameters
 NNODES_ROLLOUT=${NNODES_ROLLOUT:-8}
@@ -158,5 +157,6 @@ python -m recipe.fully_async_policy.fully_async_main \
     rollout.test_freq="${test_freq}" \
     async_training.staleness_threshold="${staleness_threshold}" \
     async_training.trigger_parameter_sync_step="${trigger_parameter_sync_step}" \
+    async_training.require_batches="${require_batches}" \
     async_training.partial_rollout="${partial_rollout}" \
-    async_training.require_batches="${require_batches}"
+    async_training.use_rollout_log_probs=True

@@ -2,7 +2,7 @@
 set -xeuo pipefail
 
 project_name='DAPO'
-exp_name='dapo_qwen2-7B-math_28k_fsdp2_fully-async_64-64_mbs32_tpf4_mis'
+exp_name='dapo_qwen2-7B-math_28k_fsdp2_fully-async_64-64'
 
 # Ray
 # RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
@@ -58,7 +58,7 @@ ref_offload=True
 actor_offload=False
 gen_tp=4
 sp_size=4
-fsdp_size=-1
+fsdp_size=8
 
 # Fully async specific parameters
 NNODES_ROLLOUT=${NNODES_ROLLOUT:-8}
@@ -75,7 +75,6 @@ staleness_threshold=0.5
 trigger_parameter_sync_step=4
 require_batches=4
 partial_rollout=True
-recompute_old_log_prob=True
 
 # Rollout Importance Sampling
 rollout_is_threshold=1.001
@@ -166,9 +165,9 @@ python -m recipe.fully_async_policy.fully_async_main \
     rollout.test_freq="${test_freq}" \
     async_training.staleness_threshold="${staleness_threshold}" \
     async_training.trigger_parameter_sync_step="${trigger_parameter_sync_step}" \
-    async_training.partial_rollout="${partial_rollout}" \
     async_training.require_batches="${require_batches}" \
-    async_training.recompute_old_log_prob="${recompute_old_log_prob}" \
+    async_training.partial_rollout="${partial_rollout}" \
+    async_training.use_rollout_log_probs=True \
     algorithm.rollout_is=${rollout_is} \
     algorithm.rollout_is_threshold=${rollout_is_threshold} \
     algorithm.rollout_is_threshold_lower=${rollout_is_threshold_lower} \
