@@ -120,28 +120,32 @@ def _batchmeta_to_dataproto(batchmeta: "BatchMeta") -> DataProto:
     return _run_async_in_temp_loop(_async_batchmeta_to_dataproto, batchmeta)
 
 
-async def _async_update_batchmeta_with_output(output: DataProto, batchmeta: "BatchMeta") -> None:
-    for k, v in output.meta_info.items():
-        batchmeta.set_extra_info(k, v)
+async def _async_update_batchmeta_with_output(outputs: tuple[Any], batchmeta: "BatchMeta") -> None:    
+    for output in outputs:
+        if not isinstance(output, DataProto):
+            continue
 
-    if len(output) > 0:
-        tensordict = output.to_tensordict()
-        # pop meta_info
-        for key in output.meta_info.keys():
-            tensordict.pop(key)
-        batchmeta.add_fields(tensordict)
-        if batchmeta.extra_info.get("validate", False):
-            await _VAL_TRANSFER_QUEUE_CLIENT.async_put(data=tensordict, metadata=batchmeta)
-        else:
-            await _TRANSFER_QUEUE_CLIENT.async_put(data=tensordict, metadata=batchmeta)
+        for k, v in output.meta_info.items():
+            batchmeta.set_extra_info(k, v)
+
+        if len(output) > 0:
+            tensordict = output.to_tensordict()
+            # pop meta_info
+            for key in output.meta_info.keys():
+                tensordict.pop(key)
+            batchmeta.add_fields(tensordict)
+            if batchmeta.extra_info.get("validate", False):
+                await _VAL_TRANSFER_QUEUE_CLIENT.async_put(data=tensordict, metadata=batchmeta)
+            else:
+                await _TRANSFER_QUEUE_CLIENT.async_put(data=tensordict, metadata=batchmeta)
 
 
-def _update_batchmeta_with_output(output: DataProto, batchmeta: "BatchMeta") -> None:
-    _run_async_in_temp_loop(_async_update_batchmeta_with_output, output, batchmeta)
+def _update_batchmeta_with_output(outputs: tuple[Any], batchmeta: "BatchMeta") -> None:
+    _run_async_in_temp_loop(_async_update_batchmeta_with_output, outputs, batchmeta)
 
 
-def tqbridge(put_data: bool = True):
-    """ "Creates a decorator for bridging BatchMeta and DataProto.
+def tqbridge(put_data: bool = True, multiple_outputs: bool = False):
+    """Creates a decorator for bridging BatchMeta and DataProto.
 
     This decorator automatically handles conversions between `BatchMeta` and
     `DataProto` in function parameters, and decides whether to sync function
@@ -156,6 +160,10 @@ def tqbridge(put_data: bool = True):
                   updated to `BatchMeta` and `BatchMeta` will be returned;
                   If False, the function output result will be returned directly.
                   Defaults to True.
+        multiple_outputs: If True, explicitly indicates that `func` returns multiple 
+                unpacked values (e.g., `return a, b, c` instead of `return (a, b, c)`).
+                These values will be wrapped into a tuple before syncing to `BatchMeta`.
+                Defaults to False.
 
     Returns:
         A decorator function used to decorate target functions (synchronous or asynchronous).
@@ -172,6 +180,8 @@ def tqbridge(put_data: bool = True):
                 kwargs = {k: _batchmeta_to_dataproto(v) if isinstance(v, BatchMeta) else v for k, v in kwargs.items()}
                 output = func(*args, **kwargs)
                 if put_data:
+                    if not multiple_outputs:
+                        output = (output,)
                     _update_batchmeta_with_output(output, batchmeta)
                     return batchmeta
                 else:
@@ -190,6 +200,8 @@ def tqbridge(put_data: bool = True):
                 }
                 output = await func(*args, **kwargs)
                 if put_data:
+                    if not multiple_outputs:
+                        output = (output,)
                     await _async_update_batchmeta_with_output(output, batchmeta)
                     return batchmeta
                 return output
