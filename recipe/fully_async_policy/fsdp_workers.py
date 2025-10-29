@@ -21,7 +21,7 @@ import torch.distributed
 from omegaconf import DictConfig
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
-from recipe.fully_async_policy.fstp_utils import fsdp2_sharded_load_from_cpu, fsdp2_sharded_save_to_cpu
+from recipe.fully_async_policy.fsdp2_utils import fsdp2_sharded_load_from_cpu, fsdp2_sharded_save_to_cpu
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils.device import (
     get_device_name,
