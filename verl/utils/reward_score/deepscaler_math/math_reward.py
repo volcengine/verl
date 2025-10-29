@@ -72,7 +72,7 @@ class RewardMathFn(RewardFn):
             is_correct = grade_answer_mathd(model_answer, ground_truth) or grade_answer_sympy(model_answer, ground_truth)
             if is_correct:
                 reward = RewardOutput(reward=self.config.correct_reward, is_correct=True)
-                reward.is_correct*=thinking_score
+                # reward.is_correct*=thinking_score
                 return reward
                 
         return RewardOutput(reward=self.config.incorrect_reward, is_correct=False)
