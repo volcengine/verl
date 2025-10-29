@@ -86,7 +86,6 @@ class MegatronEngine(BaseEngine):
             tensor_model_parallel_size=self.engine_config.tensor_model_parallel_size,
             pipeline_model_parallel_size=self.engine_config.pipeline_model_parallel_size,
             virtual_pipeline_model_parallel_size=self.engine_config.virtual_pipeline_model_parallel_size,
-            pipeline_model_parallel_split_rank=None,
             use_sharp=False,
             context_parallel_size=self.engine_config.context_parallel_size,
             expert_model_parallel_size=self.engine_config.expert_model_parallel_size,
