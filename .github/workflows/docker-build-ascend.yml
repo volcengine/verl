@@ -14,7 +14,7 @@ on:
 
 jobs:
   build-ascend-image:
-    if: ${{ github.event_name != 'pull_request' }}
+    if: ${{ github.event_name != 'pull_request' && github.repository_owner == 'volcengine' }}
     runs-on: ubuntu-latest
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}-build-ascend-image
