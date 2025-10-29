@@ -281,7 +281,12 @@ class RLHFDataset(Dataset):
                 # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
                 multi_modal_data["video"] = [video.numpy() for video in videos]
 
-            model_inputs = self.processor(text=[raw_prompt], images=images, videos=videos, return_tensors="pt")
+            model_inputs = self.processor(
+                text=[raw_prompt.removeprefix(self.tokenizer.bos_token or "")],
+                images=images,
+                videos=videos,
+                return_tensors="pt",
+            )
 
             input_ids = model_inputs.pop("input_ids")
             attention_mask = model_inputs.pop("attention_mask")
@@ -309,7 +314,11 @@ class RLHFDataset(Dataset):
             raw_prompt = self.tokenizer.apply_chat_template(
                 messages, add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
             )
-            model_inputs = self.tokenizer(raw_prompt, return_tensors="pt", add_special_tokens=False)
+            model_inputs = self.tokenizer(
+                raw_prompt.removeprefix(self.tokenizer.bos_token or ""),
+                return_tensors="pt",
+                add_special_tokens=False,
+            )
             input_ids = model_inputs.pop("input_ids")
             attention_mask = model_inputs.pop("attention_mask")
 
