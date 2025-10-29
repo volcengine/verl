@@ -40,6 +40,8 @@ class AgentState(Enum):
     PROCESSING_TOOLS = "processing_tools"
     TERMINATED = "terminated"
     INTERACTING = "interacting"
+    # async use
+    GENERATING_CANCELLED = "generating_cancelled"
 
 
 class AgentData:

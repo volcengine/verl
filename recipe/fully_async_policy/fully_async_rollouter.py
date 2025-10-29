@@ -31,6 +31,7 @@ from verl.trainer.ppo.ray_trainer import ResourcePoolManager
 from verl.trainer.ppo.utils import Role, WorkerType
 from verl.utils.profiler import marked_timer
 from verl.utils.tracking import ValidationGenerationsLogger
+from verl.trainer.ppo.reward import load_reward_manager
 
 
 @ray.remote(num_cpus=10, max_concurrency=100)
@@ -57,9 +58,12 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         self.tokenizer = tokenizer
         self.processor = processor
         self.config = config
-        self.reward_fn = reward_fn
-        self.val_reward_fn = val_reward_fn
-
+        self.reward_fn = load_reward_manager(
+            config, tokenizer, num_examine=0, **config.reward_model.get("reward_kwargs", {})
+        )
+        self.val_reward_fn = load_reward_manager(
+            config, tokenizer, num_examine=1, **config.reward_model.get("reward_kwargs", {})
+        )
         self.hybrid_engine = config.actor_rollout_ref.hybrid_engine
 
         assert not self.hybrid_engine
@@ -296,7 +300,9 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         for epoch, batch_dict in continuous_iterator:
             # Similar to _prepare_generate_batch: Separate data
             full_batch = prepare_single_generation_data(
-                batch_dict, self.global_steps, self.config.actor_rollout_ref.rollout.n
+                batch_dict,
+                self.config.actor_rollout_ref.rollout.multi_turn.enable,
+                self.config.actor_rollout_ref.rollout.n,
             )
 
             sample_id = f"sample_{epoch}_{self.global_steps}"

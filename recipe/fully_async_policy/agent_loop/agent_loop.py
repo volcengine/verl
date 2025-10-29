@@ -15,6 +15,7 @@ import asyncio
 import logging
 import os
 from typing import Any, Optional
+from uuid import uuid4
 
 import hydra
 import numpy as np
@@ -41,13 +42,16 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 class FullyAsyncLLMServerManager(AsyncLLMServerManager):
-    async def generate_for_partial(self, request_id, prompt_ids, sampling_params) -> TokenOutput:
+    async def generate_for_partial(
+        self, request_id, prompt_ids, sampling_params, image_data: Optional[Any] = None
+    ) -> TokenOutput:
         """Generate tokens from prompt ids. with partial rollout function"""
         server = self._choose_server(request_id)
         output = await server.generate_for_partial.remote(
             request_id=request_id,
             prompt_ids=prompt_ids,
             sampling_params=sampling_params,
+            image_data=image_data,
         )
         return output
 
@@ -59,6 +63,9 @@ class FullyAsyncAgentLoopWorker(AgentLoopWorkerBase):
     ):
         self.server_manager = FullyAsyncLLMServerManager(config, server_handles)
         super().__init__(config, server_handles, reward_router_address)
+        # Track active runs and their cancellation events
+        self.active_loops: dict[str, asyncio.Event] = {}
+        self.lock = asyncio.Lock()
 
     async def generate_sequences_no_post(
         self, batch: DataProto, partial_output_list: Optional[list[AgentLoopOutput]]
@@ -118,26 +125,46 @@ class FullyAsyncAgentLoopWorker(AgentLoopWorkerBase):
         agent_name: str,
         **kwargs,
     ) -> AgentLoopOutput:
-        with rollout_trace_attr(
-            step=trajectory["step"],
-            sample_index=trajectory["sample_index"],
-            rollout_n=trajectory["rollout_n"],
-            validate=trajectory["validate"],
-            name="agent_loop",
-        ):
-            assert agent_name in _agent_loop_registry, (
-                f"Agent loop {agent_name} not registered, registered agent loops: {_agent_loop_registry.keys()}"
-            )
+        run_id = uuid4().hex
+        cancellation_event = asyncio.Event()
 
-            agent_loop_config = _agent_loop_registry[agent_name]
-            agent_loop = hydra.utils.instantiate(
-                config=agent_loop_config,
-                trainer_config=_DummyConfig(config=self.config),
-                server_manager=self.server_manager,
-                tokenizer=self.tokenizer,
-                processor=self.processor,
-            )
-            return await agent_loop.run(sampling_params, **kwargs)
+        async with self.lock:
+            self.active_loops[run_id] = cancellation_event
+
+        try:
+            with rollout_trace_attr(
+                step=trajectory["step"],
+                sample_index=trajectory["sample_index"],
+                rollout_n=trajectory["rollout_n"],
+                validate=trajectory["validate"],
+                name="agent_loop",
+            ):
+                assert agent_name in _agent_loop_registry, (
+                    f"Agent loop {agent_name} not registered, registered agent loops: {_agent_loop_registry.keys()}"
+                )
+
+                agent_loop_config = _agent_loop_registry[agent_name]
+                agent_loop = hydra.utils.instantiate(
+                    config=agent_loop_config,
+                    trainer_config=_DummyConfig(config=self.config),
+                    server_manager=self.server_manager,
+                    tokenizer=self.tokenizer,
+                    processor=self.processor,
+                )
+                return await agent_loop.run(sampling_params, cancellation_event=cancellation_event, **kwargs)
+        except Exception as e:
+            print(f"Agent_loop run failed: {e}")
+            raise e
+
+        finally:
+            async with self.lock:
+                self.active_loops.pop(run_id, None)
+
+    async def cancel_agent_loops(self):
+        """Set cancellation events for all active agent loops."""
+        async with self.lock:
+            for event in self.active_loops.values():
+                event.set()
 
 
 class FullyAsyncAgentLoopManager(AgentLoopManager):
@@ -229,7 +256,9 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
         return worker
 
     async def cancel(self):
-        await asyncio.gather(*[replica.cancel() for replica in self.rollout_replicas])
+        rollout_cancel_tasks = [replica.cancel() for replica in self.rollout_replicas]
+        worker_cancel_tasks = [worker.cancel_agent_loops.remote() for worker in self.agent_loop_workers]
+        await asyncio.gather(*rollout_cancel_tasks, *worker_cancel_tasks)
 
     async def resume(self):
         await asyncio.gather(*[replica.resume() for replica in self.rollout_replicas])

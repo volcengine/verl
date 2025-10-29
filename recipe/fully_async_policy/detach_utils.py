@@ -132,7 +132,7 @@ class ValidateMetrics:
     param_version: Optional[int] = None
 
 
-def prepare_single_generation_data(batch_dict, global_steps, rollout_n) -> DataProto:
+def prepare_single_generation_data(batch_dict, multi_turn, rollout_n) -> DataProto:
     """
     Similar to the logic of ray_trainer._prepare_generate_batch, but for a single sample.
     Separate the data used for generation from the original data.
@@ -151,8 +151,16 @@ def prepare_single_generation_data(batch_dict, global_steps, rollout_n) -> DataP
         non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
     )
 
-    # Setting agent - partial_single_turn_agent, that supports partial
-    full_batch.non_tensor_batch["agent_name"] = np.array(["partial_single_turn_agent"] * len(full_batch), dtype=object)
+    # Setting selected agent, that supports partial
+    if full_batch.non_tensor_batch.get("agent_name", None):
+        if multi_turn:
+            full_batch.non_tensor_batch["agent_name"] = np.array(
+                ["async_partial_tool_agent"] * len(full_batch), dtype=object
+            )
+        else:
+            full_batch.non_tensor_batch["agent_name"] = np.array(
+                ["partial_single_turn_agent"] * len(full_batch), dtype=object
+            )
 
     # Add global step count to generated data
     full_batch = full_batch.repeat(repeat_times=rollout_n, interleave=True)
