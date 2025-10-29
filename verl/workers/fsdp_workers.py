@@ -179,7 +179,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
         self._lora_rank = self.config.model.get("lora_rank", 0)
-        self._is_lora = self._lora_rank > 0
+        self._is_lora = self.config.model.get("lora_adapter_path") is not None or self._lora_rank > 0
 
         self.role = role
         assert self.role in ["actor", "rollout", "ref", "actor_rollout", "actor_rollout_ref"]
@@ -404,9 +404,27 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
             if enable_gradient_checkpointing:
                 actor_module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
-            if self._is_lora:
-                print("Applying LoRA to actor module")
-                actor_module.enable_input_require_grads()
+
+        if self._is_lora:
+            print("Applying LoRA to actor module")
+            actor_module.enable_input_require_grads()
+
+            lora_adapter_path = self.config.model.get("lora_adapter_path")
+            if lora_adapter_path is not None:
+                from peft import PeftModel
+
+                print(f"Loading pre-trained LoRA adapter to {role} from: {lora_adapter_path}")
+
+                # Copy adapter to local if needed
+                local_adapter_path = copy_to_local(lora_adapter_path, use_shm=self.config.model.get("use_shm", False))
+
+                actor_module = PeftModel.from_pretrained(actor_module, local_adapter_path, is_trainable=True)
+                peft_config = actor_module.peft_config["default"]
+                # Ensure task_type is TaskType enum, not string
+                if isinstance(peft_config.task_type, str):
+                    peft_config.task_type = TaskType.CAUSAL_LM
+
+            else:
                 # Convert config to regular Python types before creating PEFT model
                 lora_config = {
                     "task_type": TaskType.CAUSAL_LM,
@@ -453,7 +471,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         auto_wrap_policy = get_fsdp_wrap_policy(
             module=actor_module,
             config=fsdp_config.get("wrap_policy", None),
-            is_lora=self.config.model.get("lora_rank", 0) > 0,
+            is_lora=self._is_lora,
         )
 
         if self._is_rollout and self.config.rollout.name == "hf":
@@ -1190,7 +1208,9 @@ class CriticWorker(Worker, DistProfilerExtension):
                 f"normalized ppo_mini_batch_size {self.config.ppo_mini_batch_size} should be larger than "
                 f"ppo_micro_batch_size_per_gpu {self.config.ppo_micro_batch_size_per_gpu}"
             )
-        self._is_lora = self.config.model.get("lora_rank", 0) > 0
+        self._is_lora = (
+            self.config.model.get("lora_adapter_path") is not None or self.config.model.get("lora_rank", 0) > 0
+        )
         self.use_orig_params = self.config.model.fsdp_config.get("use_orig_params", False)
 
     def _build_critic_model_optimizer(self, config):
@@ -1279,15 +1299,33 @@ class CriticWorker(Worker, DistProfilerExtension):
         if self._is_lora:
             print("Applying LoRA to critic module")
             critic_module.enable_input_require_grads()
-            # Convert config to regular Python types before creating PEFT model
-            lora_config = {
-                "task_type": TaskType.CAUSAL_LM,
-                "r": self.config.model.lora_rank,
-                "lora_alpha": self.config.model.lora_alpha,
-                "target_modules": convert_to_regular_types(self.config.model.target_modules),
-                "bias": "none",
-            }
-            critic_module = get_peft_model(critic_module, LoraConfig(**lora_config))
+
+            # Check if we should load a pre-trained LoRA adapter
+            lora_adapter_path = self.config.model.get("lora_adapter_path")
+            if lora_adapter_path is not None:
+                from peft import PeftModel
+
+                print(f"Loading pre-trained LoRA adapter to critic from: {lora_adapter_path}")
+
+                # Copy adapter to local if needed
+                local_adapter_path = copy_to_local(lora_adapter_path, use_shm=self.config.model.get("use_shm", False))
+
+                critic_module = PeftModel.from_pretrained(critic_module, local_adapter_path, is_trainable=True)
+                peft_config = critic_module.peft_config["default"]
+                # Ensure task_type is TaskType enum, not string
+                if isinstance(peft_config.task_type, str):
+                    peft_config.task_type = TaskType.CAUSAL_LM
+
+            else:
+                # Convert config to regular Python types before creating PEFT model
+                lora_config = {
+                    "task_type": TaskType.CAUSAL_LM,
+                    "r": self.config.model.lora_rank,
+                    "lora_alpha": self.config.model.lora_alpha,
+                    "target_modules": convert_to_regular_types(self.config.model.target_modules),
+                    "bias": "none",
+                }
+                critic_module = get_peft_model(critic_module, LoraConfig(**lora_config))
 
         if self.rank == 0:
             print_model_size(critic_module)
@@ -1310,7 +1348,7 @@ class CriticWorker(Worker, DistProfilerExtension):
         auto_wrap_policy = get_fsdp_wrap_policy(
             module=critic_module,
             config=self.config.model.fsdp_config.wrap_policy,
-            is_lora=self.config.model.get("lora_rank", 0) > 0,
+            is_lora=self._is_lora,
         )
 
         log_gpu_memory_usage("Before critic FSDP", logger=None)

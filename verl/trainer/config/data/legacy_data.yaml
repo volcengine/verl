@@ -64,6 +64,9 @@ seed: null
 # num dataloader workers
 dataloader_num_workers: 8
 
+# image patch size
+image_patch_size: 14
+
 # Whether to shuffle the validation set.
 validation_shuffle: False
 

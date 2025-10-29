@@ -264,6 +264,7 @@ actor_rollout_ref:
     lora_alpha: 16
     target_modules: all-linear
     exclude_modules: null
+    lora_adapter_path: null
     use_liger: false
     use_fused_kernels: false
     fused_kernel_options:
@@ -289,6 +290,7 @@ data:
   shuffle: true
   seed: null
   dataloader_num_workers: 8
+  image_patch_size: 14
   validation_shuffle: false
   filter_overlong_prompts: false
   filter_overlong_prompts_workers: 1
@@ -476,7 +478,7 @@ algorithm:
   rollout_is_threshold_lower: null
   rollout_is_level: token
   rollout_is_mode: truncate
-  rollout_is_veto_threshold: 0.0001
+  rollout_is_veto_threshold: null
   rollout_is: false
 trainer:
   balance_batch: true
