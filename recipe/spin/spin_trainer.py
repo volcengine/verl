@@ -310,7 +310,6 @@ def compute_onlineDPO_pref(data: DataProto):
         data.batch["preferences"] = None  # Indicate failure
     except Exception as e_pref:
         print(f"ERROR during core_algos.compute_online_dpo_preference: {e_pref}")
-        import traceback
 
         traceback.print_exc()
         data.batch["preferences"] = None  # Indicate failure
@@ -826,8 +825,6 @@ class RaySPINTrainer:
         The driver process calls worker groups for computation.
         Advantage computation is replaced by DPO logic.
         """
-        import traceback  # Ensure traceback is imported
-
         from omegaconf import OmegaConf
 
         from verl.utils.tracking import Tracking
@@ -873,7 +870,7 @@ class RaySPINTrainer:
                 logger.log(data=val_metrics, step=max(0, self.global_steps - 1))
             if self.config.trainer.get("val_only", False):
                 print("Validation only mode enabled. Exiting training.")
-                if logger and hasattr(logger, "finish"):
+                if logger:
                     logger.finish()
                 return
 
@@ -1307,6 +1304,6 @@ class RaySPINTrainer:
                     print(f"[Final Val Metrics Log Error]: {e}")
 
         pprint(f"Final validation metrics: {last_val_metrics}")
-        if logger and hasattr(logger, "finish"):
+        if logger:
             logger.finish()
         print("Online DPO Training Run Complete.")
