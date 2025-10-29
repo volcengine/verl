@@ -44,6 +44,50 @@ from verl.utils.checkpoint.checkpoint_manager import should_save_ckpt_esi
 from verl.utils.debug import marked_timer
 from verl.utils.metric import reduce_metrics
 
+def calculate_reward(data: DataProto) -> torch.Tensor:
+    complete_tensor = data.batch["complete"]
+    batch_size, num_steps = complete_tensor.shape[:2]
+    traj_has_complete = torch.any(complete_tensor, dim=(1, 2))  # shape: [batch_size]
+    reward_per_traj = traj_has_complete.float()
+    reward_per_step = reward_per_traj.unsqueeze(1).expand(batch_size, num_steps)
+    return reward_per_step
+
+def compute_response_mask(data: DataProto) -> torch.Tensor:
+    """Compute the attention mask for the response part of the sequence.
+
+    This function extracts the portion of the attention mask that corresponds to the model's response,
+    which is used for masking computations that should only apply to response tokens.
+
+    Args:
+        data (DataProto): The data containing batched model outputs and inputs.
+
+    Returns:
+        torch.Tensor: The attention mask for the response tokens.
+    """
+    complete = data.batch["complete"]  # shape: [batch_size, num_steps, chunk_size]
+
+    complete_traj = complete.view(complete.shape[0], -1)  # # shape: [batch_size, num_steps * chunk_size]
+    batch_size, action_steps = complete_traj.shape
+    
+    step_indices = torch.arange(action_steps, device=complete.device).unsqueeze(0).expand(batch_size, -1)
+    
+    first_true_idx_approx = torch.argmax(complete_traj.long(), dim=1)
+    
+    has_any_true = complete_traj.any(dim=1)
+    
+    final_first_true_idx = torch.where(
+        has_any_true,
+        first_true_idx_approx,
+        torch.tensor(action_steps - 1, device=complete.device)
+    )
+    
+    mask_traj = step_indices <= final_first_true_idx.unsqueeze(1)
+    
+    mask = mask_traj.view(complete.shape)  # shape: [batch_size, num_steps, chunk_size]
+    return mask
+
+# def filter_by_acc(data: DataProto, accuracy_lower_bound, accuracy_upper_bound) -> torch.Tensor:
+
 
 class RobRayPPOTrainer(RayPPOTrainer):
     """Distributed PPO trainer using Ray for scalable reinforcement learning.
@@ -126,7 +170,7 @@ class RobRayPPOTrainer(RayPPOTrainer):
     def _get_gen_batch(self, batch: DataProto) -> DataProto:
         # pop those keys for generation
         batch_keys_to_pop = []
-        non_tensor_batch_keys_to_pop = set(batch.non_tensor_batch.keys())
+        non_tensor_batch_keys_to_pop = set(batch.non_tensor_batch.keys()) - {"uid"}
         gen_batch = batch.pop(
             batch_keys=batch_keys_to_pop,
             non_tensor_batch_keys=list(non_tensor_batch_keys_to_pop),
@@ -221,19 +265,13 @@ class RobRayPPOTrainer(RayPPOTrainer):
                         # timing_raw.update(gen_batch_output.meta_info["timing"])
                         # gen_batch_output.meta_info.pop("timing", None)
 
+                    breakpoint()
                     # repeat to align with repeated responses in rollout
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_batch_output)
 
                     if "response_mask" not in batch.batch.keys():
                         batch.batch["response_mask"] = compute_response_mask(batch)
-                    # Balance the number of valid tokens across DP ranks.
-                    # NOTE: This usually changes the order of data in the `batch`,
-                    # which won't affect the advantage calculation (since it's based on uid),
-                    # but might affect the loss calculation (due to the change of mini-batching).
-                    # TODO: Decouple the DP balancing and mini-batching.
-                    if self.config.trainer.balance_batch:
-                        self._balance_batch(batch, metrics=metrics)
 
                     # compute global_valid tokens
                     batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
