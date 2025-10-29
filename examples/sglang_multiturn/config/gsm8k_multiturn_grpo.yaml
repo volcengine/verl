@@ -19,3 +19,5 @@ actor_rollout_ref:
     multi_turn:
       enable: True
       max_assistant_turns: 5
+      final_summary: False
+      summary_prompt: "You have reached the maximum number of interaction turns. Please provide your final answer directly in the format of `#### <answer>."
