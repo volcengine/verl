@@ -162,7 +162,7 @@ https://github.com/ArronHZG/verl-community/blob/recipe/async_policy/docs/fully_a
   Here, we additionally provide require_batches for streaming distribution and control the number of samples
   participating in training at once.
 
-    * `async_training.recompute_old_log_prob` (experimental)
+* `async_training.recompute_old_log_prob` (experimental)
 
   During the training process, we observed that metrics and response lengths may become unstable in the later
   stages of training. To mitigate this issue, we can use

@@ -132,7 +132,6 @@ common_params=(
     async_training.staleness_threshold=${staleness_threshold}
     async_training.partial_rollout="${partial_rollout}"
     async_training.trigger_parameter_sync_step="${trigger_parameter_sync_step}"
-    async_training.recompute_old_log_prob=True
 )
 
 if [ "${ACTOR_STRATEGY}" == "fsdp2" ]; then
