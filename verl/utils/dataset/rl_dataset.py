@@ -105,6 +105,7 @@ class RLHFDataset(Dataset):
         self.prompt_key = config.get("prompt_key", "prompt")
         self.image_key = config.get("image_key", "images")
         self.video_key = config.get("video_key", "videos")
+        self.image_patch_size = config.get("image_patch_size", 14)
         self.max_prompt_length = config.get("max_prompt_length", 1024)
         self.return_raw_chat = config.get("return_raw_chat", False)
         self.return_full_prompt = config.get("return_full_prompt", False)
@@ -174,18 +175,35 @@ class RLHFDataset(Dataset):
                         raw_prompt = self.processor.apply_chat_template(
                             messages, add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
                         )
-                        images = (
-                            [process_image(image) for image in doc[image_key]]
-                            if image_key in doc and doc[image_key]
-                            else None
-                        )
-                        videos = (
-                            [process_video(video) for video in doc[video_key]]
-                            if video_key in doc and doc[video_key]
-                            else None
-                        )
+                        if image_key in doc and doc[image_key]:
+                            images = [
+                                process_image(image, image_patch_size=self.image_patch_size) for image in doc[image_key]
+                            ]
+                        else:
+                            images = None
 
-                        return len(processor(text=[raw_prompt], images=images, videos=videos)["input_ids"][0])
+                        if video_key in doc and doc[video_key]:
+                            videos, video_metadata = zip(
+                                *[
+                                    process_video(
+                                        video, image_patch_size=self.image_patch_size, return_video_metadata=True
+                                    )
+                                    for video in doc[video_key]
+                                ],
+                                strict=True,
+                            )
+                            videos = list(videos)
+                            video_metadata = list(video_metadata)
+                            videos_kwargs = {"video_metadata": video_metadata, "do_sample_frames": False}
+                        else:
+                            videos = None
+                            videos_kwargs = {}
+
+                        return len(
+                            processor(text=[raw_prompt], images=images, videos=videos, videos_kwargs=videos_kwargs)[
+                                "input_ids"
+                            ][0]
+                        )
                     except Exception:
                         print("Error processing one of the samples, skipping...")
                         traceback.print_exc()
@@ -266,22 +284,36 @@ class RLHFDataset(Dataset):
             images = None
             row_dict_images = row_dict.pop(self.image_key, None)
             if row_dict_images:
-                images = [process_image(image) for image in row_dict_images]
+                images = [process_image(image, image_patch_size=self.image_patch_size) for image in row_dict_images]
 
                 # due to the image key is "image" instead of "images" in vllm, we need to use "image" here
                 # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
                 multi_modal_data["image"] = images
 
             videos = None
+            videos_kwargs = {}
             row_dict_videos = row_dict.pop(self.video_key, None)
             if row_dict_videos:
-                videos = [process_video(video) for video in row_dict_videos]
+                videos, video_metadata = zip(
+                    *[
+                        process_video(video, image_patch_size=self.image_patch_size, return_video_metadata=True)
+                        for video in row_dict_videos
+                    ],
+                    strict=True,
+                )
+                videos = list(videos)
+                video_metadata = list(video_metadata)
+                videos_kwargs = {"video_metadata": video_metadata, "do_sample_frames": False}
 
                 # due to the video key is "video" instead of "videos" in vllm, we need to use "video" here
                 # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
-                multi_modal_data["video"] = [video.numpy() for video in videos]
+                multi_modal_data["video"] = [
+                    (video.numpy(), metadata) for video, metadata in zip(videos, video_metadata, strict=True)
+                ]
 
-            model_inputs = self.processor(text=[raw_prompt], images=images, videos=videos, return_tensors="pt")
+            model_inputs = self.processor(
+                text=[raw_prompt], images=images, videos=videos, videos_kwargs=videos_kwargs, return_tensors="pt"
+            )
 
             input_ids = model_inputs.pop("input_ids")
             attention_mask = model_inputs.pop("attention_mask")
