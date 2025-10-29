@@ -94,7 +94,7 @@ class FullyAsyncRayPPOTrainer(RayPPOTrainer):
                 self.role_worker_mapping[Role.RefPolicy],
                 config=self.config.actor_rollout_ref,
                 role=str(Role.RefPolicy),
-                profile_option=self.config.trainer.npu_profile.options,
+                # profile_option=self.config.trainer.npu_profile.options,
             )
             self.resource_pool_to_cls[resource_pool][str(Role.RefPolicy)] = ref_policy_cls
 
