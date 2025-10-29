@@ -17,12 +17,16 @@ from typing import Optional
 
 import torch
 import torch.distributed as dist
+from packaging import version
 from torch.distributed.tensor import DTensor
 from torch.distributed.tensor._dtensor_spec import DTensorSpec
 
+if version.parse(torch.__version__) < version.parse("2.6"):
+    raise RuntimeError("PyTorch 2.6 or higher is required to use fstp_utils.")
+
 
 def fsdp2_sharded_save_to_cpu(
-    model: torch.nn.Module,  # Your FSDP2-wrapped model (e.g., FSDPQwen2ForCausalLM)
+    model: torch.nn.Module,
 ) -> tuple[dict[str, tuple[torch.Tensor, DTensorSpec]], DTensorSpec]:
     """
     Sharded Save: Each process only saves the local DTensor shard from its own GPU to CPU memory.
