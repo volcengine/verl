@@ -80,6 +80,9 @@ class HFModelConfig(BaseConfig):
     target_modules: Optional[str] = "all-linear"
 
     exclude_modules: Optional[str] = None
+
+    # path to pre-trained LoRA adapter to load for continued training
+    lora_adapter_path: Optional[str] = None
     use_liger: bool = False
 
     use_fused_kernels: bool = False
@@ -130,7 +133,12 @@ class HFModelConfig(BaseConfig):
                     "pad_token_id": self.tokenizer.pad_token_id,
                 }
             )
-        override_config_kwargs.update(self.override_config)
+
+        # TODO: (vermouth1992). self.config.model in megatron differs from that of fsdp in the override_config.
+        override_config = (
+            self.override_config["model_config"] if "model_config" in self.override_config else self.override_config
+        )
+        override_config_kwargs.update(override_config)
         update_model_config(self.hf_config, override_config_kwargs=override_config_kwargs)
 
         self.share_embeddings_and_output_weights = getattr(self.hf_config, "tie_word_embeddings", False)

@@ -162,8 +162,16 @@ class TaskRunner:
 
         from verl.utils.dataset.rl_dataset import collate_fn
 
-        train_dataset = create_rl_dataset(config.data.train_files, config.data, tokenizer, processor)
-        val_dataset = create_rl_dataset(config.data.val_files, config.data, tokenizer, processor)
+        train_dataset = create_rl_dataset(
+            config.data.train_files,
+            config.data,
+            tokenizer,
+            processor,
+            max_samples=config.data.get("train_max_samples", -1),
+        )
+        val_dataset = create_rl_dataset(
+            config.data.val_files, config.data, tokenizer, processor, max_samples=config.data.get("val_max_samples", -1)
+        )
         train_sampler = create_rl_sampler(config.data, train_dataset)
         trainer = RayEntropyTrainer(
             config=config,
@@ -183,7 +191,7 @@ class TaskRunner:
         trainer.fit()
 
 
-def create_rl_dataset(data_paths, data_config, tokenizer, processor):
+def create_rl_dataset(data_paths, data_config, tokenizer, processor, max_samples: int = -1):
     """Create a dataset.
 
     Arguments:
@@ -216,6 +224,7 @@ def create_rl_dataset(data_paths, data_config, tokenizer, processor):
         tokenizer=tokenizer,
         processor=processor,
         config=data_config,
+        max_samples=max_samples,
     )
 
     return dataset
@@ -237,7 +246,9 @@ def create_rl_sampler(data_config, dataset):
     # use sampler for better ckpt resume
     if data_config.shuffle:
         train_dataloader_generator = torch.Generator()
-        train_dataloader_generator.manual_seed(data_config.get("seed", 1))
+        seed = data_config.get("seed")
+        if seed is not None:
+            train_dataloader_generator.manual_seed(seed)
         sampler = RandomSampler(data_source=dataset, generator=train_dataloader_generator)
     else:
         sampler = SequentialSampler(data_source=dataset)

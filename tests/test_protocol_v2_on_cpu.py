@@ -88,6 +88,45 @@ def test_tensor_dict_constructor():
     assert data["name"] == "abdce"
 
 
+def test_index_select_tensor_dict():
+    vocab_size = 128
+    a = torch.randint(low=0, high=vocab_size, size=(11,))
+    b = torch.randint(low=0, high=vocab_size, size=(13,))
+    c = torch.randint(low=0, high=vocab_size, size=(12,))
+    d = torch.randint(low=0, high=vocab_size, size=(15,))
+    input_ids = [a, b, c, d]
+    input_ids = torch.nested.as_nested_tensor(input_ids, layout=torch.jagged)
+
+    padded_tensor = torch.randn(4, 10)
+    non_tensor_dict = {"global_batch_size": "4"}
+
+    data = tu.get_tensordict(
+        tensor_dict={
+            "input_ids": input_ids,
+            "padded_tensor": padded_tensor,
+        },
+        non_tensor_dict=non_tensor_dict,
+    )
+
+    assert data.batch_size == torch.Size([4])
+
+    # test index select
+    indices = torch.tensor([1, 3])
+    selected_data = tu.index_select_tensor_dict(data, indices)
+
+    assert selected_data.batch_size == torch.Size([2])
+
+    target_input_ids = torch.nested.as_nested_tensor([input_ids[idx] for idx in indices], layout=torch.jagged)
+    target_select_data = tu.get_tensordict(
+        tensor_dict={
+            "input_ids": target_input_ids,
+            "padded_tensor": padded_tensor[indices],
+        },
+        non_tensor_dict=non_tensor_dict,
+    )
+    tu.assert_tensordict_eq(selected_data, target_select_data)
+
+
 def test_tensordict_with_images():
     # each sample contains a sequence with multiple images of different sizes
     vocab_size = 128
@@ -172,6 +211,37 @@ def test_tensordict_eq():
 
     with pytest.raises(AssertionError):
         tu.assert_tensordict_eq(data, data2)
+
+    tensor_list = [
+        torch.tensor([1, 2, 3, 3, 2]),
+        torch.tensor([4, 5]),
+        torch.tensor([7, 8, 10, 14]),
+        torch.tensor([10, 11, 12]),
+        torch.tensor([13, 14, 15, 18]),
+        torch.tensor([16, 17]),
+    ]
+    obs = torch.nested.as_nested_tensor(tensor_list, layout=torch.jagged)
+    data_sources = ["abc", "def", "abc", "def", "pol", "klj"]
+    non_tensor_dict = {"train_sample_kwargs": {"top_p": 1.0}, "val_sample_kwargs": {"top_p": 0.7}}
+    data3 = tu.get_tensordict({"obs": obs, "data_sources": data_sources}, non_tensor_dict=non_tensor_dict)
+
+    tensor_list[0] = torch.tensor([1, 2, 3, 3, 2])
+    obs = torch.nested.as_nested_tensor(tensor_list, layout=torch.jagged)
+    data4 = tu.get_tensordict({"obs": obs, "data_sources": data_sources}, non_tensor_dict=non_tensor_dict)
+    tu.assert_tensordict_eq(data3, data4)
+
+    tensor_list[0] = torch.tensor([1, 2, 4])
+    obs = torch.nested.as_nested_tensor(tensor_list, layout=torch.jagged)
+    data5 = tu.get_tensordict({"obs": obs, "data_sources": data_sources}, non_tensor_dict=non_tensor_dict)
+    with pytest.raises(AssertionError):
+        tu.assert_tensordict_eq(data3, data5)
+
+    tensor_list[0] = torch.tensor([4, 5])
+    tensor_list[1] = torch.tensor([1, 2, 3, 3, 2])
+    obs = torch.nested.as_nested_tensor(tensor_list, layout=torch.jagged)
+    data6 = tu.get_tensordict({"obs": obs, "data_sources": data_sources}, non_tensor_dict=non_tensor_dict)
+    with pytest.raises(AssertionError):
+        tu.assert_tensordict_eq(data3, data6)
 
 
 def test_tensor_dict_make_iterator():

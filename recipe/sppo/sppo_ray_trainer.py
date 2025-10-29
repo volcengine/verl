@@ -33,7 +33,6 @@ from verl import DataProto
 from verl.single_controller.ray import RayWorkerGroup
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import agg_loss
-from verl.trainer.ppo.metric_utils import reduce_metrics
 from verl.trainer.ppo.ray_trainer import (
     AdvantageEstimator,
     RayPPOTrainer,
@@ -43,6 +42,7 @@ from verl.trainer.ppo.ray_trainer import (
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.trainer.ppo.utils import Role, WorkerType, need_reference_policy, need_reward_model
+from verl.utils.metric import reduce_metrics
 from verl.utils.profiler.performance import simple_timer
 from verl.utils.tracking import ValidationGenerationsLogger
 
@@ -182,7 +182,9 @@ class RaySPPOTrainer(RayPPOTrainer):
                     batch_keys=batch_keys_to_pop,
                     non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
                 )
-                gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+                gen_batch_output = gen_batch.repeat(
+                    repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True
+                )
 
                 is_last_step = self.global_steps >= self.total_training_steps
 
@@ -190,9 +192,9 @@ class RaySPPOTrainer(RayPPOTrainer):
                     # generate a batch
                     with simple_timer("gen", timing_raw):
                         if not self.async_rollout_mode:
-                            gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+                            gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch_output)
                         else:
-                            gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
+                            gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch_output)
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)
 
@@ -203,14 +205,22 @@ class RaySPPOTrainer(RayPPOTrainer):
                             gen_baseline_output = self.actor_rollout_wg.generate_sequences(gen_baseline_batch)
 
                             batch = batch.union(gen_baseline_output)
-                            reward_baseline_tensor = self.reward_fn(batch)
+                            # compute reward model score on batch
+                            rm_scores = None
+                            if self.use_rm and "rm_scores" not in batch.batch.keys():
+                                rm_scores = self.rm_wg.compute_rm_score(batch)
+                                batch = batch.union(rm_scores)
+                            reward_baseline_tensor, _ = compute_reward(batch, self.reward_fn)
                             reward_baseline_tensor = reward_baseline_tensor.sum(dim=-1)
 
-                            batch.pop(batch_keys=list(gen_baseline_output.batch.keys()))
+                            keys_to_pop = set(gen_baseline_output.batch.keys())
+                            if rm_scores is not None:
+                                keys_to_pop.update(rm_scores.batch.keys())
+                            batch.pop(batch_keys=list(keys_to_pop))
 
                             batch.batch["reward_baselines"] = reward_baseline_tensor
 
-                            del gen_baseline_batch, gen_baseline_output
+                            del rm_scores, gen_baseline_batch, gen_baseline_output
 
                     batch.non_tensor_batch["uid"] = np.array(
                         [str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object
@@ -233,7 +243,7 @@ class RaySPPOTrainer(RayPPOTrainer):
 
                 with simple_timer("reward", timing_raw):
                     # compute reward model score
-                    if self.use_rm:
+                    if self.use_rm and "rm_scores" not in batch.batch.keys():
                         reward_tensor = self.rm_wg.compute_rm_score(batch)
                         batch = batch.union(reward_tensor)
 
@@ -308,22 +318,7 @@ class RaySPPOTrainer(RayPPOTrainer):
                 # Log rollout generations if enabled
                 rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)
                 if rollout_data_dir:
-                    with simple_timer("dump_rollout_generations", timing_raw):
-                        print(batch.batch.keys())
-                        inputs = self.tokenizer.batch_decode(batch.batch["prompts"], skip_special_tokens=True)
-                        outputs = self.tokenizer.batch_decode(batch.batch["responses"], skip_special_tokens=True)
-                        scores = batch.batch["token_level_scores"].sum(-1).cpu().tolist()
-                        sample_gts = [
-                            item.non_tensor_batch.get("reward_model", {}).get("ground_truth", None) for item in batch
-                        ]
-                        self._dump_generations(
-                            inputs=inputs,
-                            outputs=outputs,
-                            scores=scores,
-                            reward_extra_infos_dict=reward_extra_infos_dict,
-                            gts=sample_gts,
-                            dump_path=rollout_data_dir,
-                        )
+                    self._log_rollout_data(batch, reward_extra_infos_dict, timing_raw, rollout_data_dir)
 
                 # validate
                 if (

@@ -70,6 +70,7 @@ verl is fast with:
 
    algo/ppo.md
    algo/grpo.md
+   algo/collabllm.md
    algo/dapo.md
    algo/spin.md
    algo/sppo.md
@@ -86,6 +87,7 @@ verl is fast with:
    workers/fsdp_workers
    workers/megatron_workers
    workers/sglang_worker
+   workers/model_engine
 
 .. toctree::
    :maxdepth: 1
@@ -119,8 +121,12 @@ verl is fast with:
    examples/sandbox_fusion_example
    advance/rollout_trace.rst
    advance/rollout_skip.rst
+   advance/rollout_is.md
    advance/one_step_off
    advance/agent_loop
+   advance/reward_loop
+   advance/fully_async
+   data/transfer_queue.md
 
 .. toctree::
    :maxdepth: 1
@@ -131,6 +137,8 @@ verl is fast with:
    ascend_tutorial/ascend_quick_start.rst
    ascend_tutorial/ascend_profiling_zh.rst
    ascend_tutorial/ascend_profiling_en.rst
+   ascend_tutorial/dockerfile_build_guidance.rst
+   ascend_tutorial/ascend_sglang_quick_start.rst
 
 .. toctree::
    :maxdepth: 1

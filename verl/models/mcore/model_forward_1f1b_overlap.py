@@ -36,7 +36,6 @@ def gptmodel_forward_1f1b_overlap(
     attention_mask: Tensor,
     labels: Tensor = None,
     labels_mask: Tensor = None,
-    sequence_parallel: bool = False,
     multi_modal_inputs: Optional[dict] = None,
     logits_processor: Optional[Callable] = None,
     logits_processor_args: Optional[dict] = None,

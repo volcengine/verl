@@ -46,16 +46,6 @@ actor_rollout_ref:
   # Rollout model config.
   rollout:
 
-    # may get higher throughput when set to True. When activated, Please increase max_num_batched_tokens or decrease max_model_len.
-    enable_chunked_prefill: True
-
-    # Prefix caching kv-cache blocks is a popular optimization in LLM inference to avoid redundant prompt computations.
-    enable_prefix_caching: True
-
-    # Which loader to use for rollout model weights: dummy_dtensor, hf, megatron, etc.
-    # safetensors (for huge model, and set use_shm=True); dummy_dtensor: randomly init model weight
-    load_format: dummy_dtensor
-
     # for huge model, layered summon can save memory (prevent OOM) but make it slower
     layered_summon: False
 
@@ -123,6 +113,28 @@ algorithm:
     # Power used for weight scaling in "pow" method
     weight_pow: 2.0
 
+  # Rollout Importance Sampling: corrects distribution mismatch between rollout and training policies
+  # Main control: Upper threshold for IS weights (null = disabled, float = enabled)
+  # When enabled, computes IS weights and mismatch metrics (KL, PPL, etc.)
+  rollout_is_threshold: null
+
+  # Lower threshold for IS weights (null = auto-reciprocal of upper)
+  rollout_is_threshold_lower: null
+
+  # Aggregation level: "token" (biased), "sequence" (unbiased), "geometric" (experimental)
+  rollout_is_level: token
+
+  # Bounding mode: "truncate" (cap upper only), "mask" (zero outside bounds)
+  rollout_is_mode: truncate
+
+  # Per-token veto threshold for catastrophic outliers (null to disable)
+  rollout_is_veto_threshold: null
+
+  # Whether to apply IS weights to policy loss
+  # true = apply weights to loss, false = compute metrics only (no weight application)
+  # Useful for monitoring mismatch before enabling correction
+  rollout_is: false
+
 # config for the trainer
 trainer:
 
@@ -142,7 +154,7 @@ trainer:
   experiment_name: gsm8k
 
   # Logging backends to use: "console", "wandb", etc.
-  logger: [ 'console', 'wandb' ]
+  logger: ["console", "wandb"]
 
   # Number of generations to log during validation
   log_val_generations: 0
@@ -214,7 +226,6 @@ trainer:
   # whether to use legacy worker implementation
   #  mode: "auto", "enable", or "disable"
   use_legacy_worker_impl: auto
-
 
 # profiler configs
 global_profiler:
@@ -305,6 +316,12 @@ global_profiler:
 
       # devices, record_context etc.
       kw_args: {}
+
+# configs for TransferQueue
+transfer_queue:
+
+  # Whether to enable transfer queue
+  enable: False
 
 # configs related to ray
 ray_kwargs:

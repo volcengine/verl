@@ -281,19 +281,17 @@ class MegatronRewardModel(BasePPORewardModel):
 
             multi_modal_inputs = {}
             if "multi_modal_inputs" in batch:
-                for key in batch["multi_modal_inputs"][0].keys():
-                    multi_modal_inputs[key] = torch.cat(
-                        [batch["multi_modal_inputs"][i][key] for i in batch["multi_modal_inputs_idx"]], dim=0
-                    )
+                from verl.utils.model import extract_multi_modal_inputs
 
+                indices = batch.get("multi_modal_inputs_idx", None)
+                multi_modal_inputs = extract_multi_modal_inputs(batch["multi_modal_inputs"], indices)
             output = forward_fn(
                 model,
                 input_ids,
                 attention_mask,
                 position_ids,
-                sequence_parallel=self.tf_config.sequence_parallel,
+                multi_modal_inputs,
                 value_model=True,
-                multi_modal_inputs=multi_modal_inputs,
             )
 
             return output, loss_func

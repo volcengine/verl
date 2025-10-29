@@ -13,13 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import copy
 import logging
 import os
 
 import torch
 import torch.distributed
-from omegaconf import DictConfig, OmegaConf, open_dict
+from omegaconf import DictConfig, OmegaConf
 
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
 from verl.utils.config import omega_conf_to_dataclass
@@ -180,14 +179,7 @@ class RolloutWorker(ActorRolloutRefWorker):
         log_gpu_memory_usage("Before building vllm rollout", logger=None)
 
         rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
-        # (vermouth1992). self.config.model in megatron differs from that of fsdp in the override_config.
-        # To workaround this we deepcopy self.config.model and make them compatible
-        omega_model_config = copy.deepcopy(self.config.model)
-        with open_dict(omega_model_config):
-            override_config = omega_model_config.override_config.pop("model_config")
-            omega_model_config.override_config = override_config
-
-        model_config: HFModelConfig = omega_conf_to_dataclass(omega_model_config, dataclass_type=HFModelConfig)
+        model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model, dataclass_type=HFModelConfig)
         rollout = get_rollout_class(rollout_config.name, rollout_config.mode)(
             config=rollout_config, model_config=model_config, device_mesh=rollout_device_mesh
         )
