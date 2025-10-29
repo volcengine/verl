@@ -39,7 +39,7 @@ rollout的训练， 通过合理设置资源分配情况、参数同步频率等
 * **PartialRollout**: Rollouter推理过程支持partial rollout逻辑，通过参数同步时，添加`sleep()`和`resume()`
   逻辑，保存进行中的rollout的样本，并在下一次rollout中继续使用，减少参数同步等待进行中的任务结束时间。
 
-目前支持使用模式为 fsdp+vllm。vllm必须使用基于AgentLoop的server模式。
+目前支持使用模式为 megatron/fsdp+vllm。vllm必须使用基于AgentLoop的server模式。
 
 ## 设计
 
@@ -81,6 +81,7 @@ https://github.com/ArronHZG/verl-community/blob/recipe/async_policy/docs/fully_a
 | `async_training.staleness_threshold`          | 新鲜度控制                                                           |
 | `async_training.partial_rollout`              | 是否进行partial_rollout                                             |
 | `async_training.use_rollout_log_probs`        | 使用rollout产生的log_probs                                           |
+| `async_training.recompute_old_log_prob`       | 是否在train阶段，使用train模型的参数重新计算rollout_log_prob                     |
 
 **进一步的解释：**
 
@@ -131,6 +132,14 @@ https://github.com/ArronHZG/verl-community/blob/recipe/async_policy/docs/fully_a
   在实际测试中，我们发现，如果单次下发的样本较少，由于数据分发的顺序，会导致训练不稳定，response 长度变长。
   在这里，我们额外提供 require_batches 进行流式分发，单次参与训练的样本数量控制。
 
+* `async_training.recompute_old_log_prob` （experimental）
+
+   我们在训练过程中，观测到随着训练的进行，训练后期指标和response长度可能会出现不稳定的情况，
+   这里我们可以使用 [Rollout Importance Sampling](https://verl.readthedocs.io/en/latest/advance/rollout_is.html) 的技术进行
+   重要性采样，缓解这一问题。为了使用 `Rollout Importance Sampling` 我们需要使用训练引擎重新计算old_log_prob，此开关需要打开。
+   此外，在 mode d (async stream pipeline with partial rollout) 的情况下开启 `recompute_old_log_prob` 以及
+   `Rollout Importance Sampling` 后，我们的实现已近似Areal的 `Decoupled PPO`。 
+    
 ### 模式支持
 
 1. on policy pipeline:

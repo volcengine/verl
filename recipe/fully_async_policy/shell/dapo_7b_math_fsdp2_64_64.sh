@@ -4,10 +4,17 @@ set -xeuo pipefail
 project_name='DAPO'
 exp_name='dapo_qwen2-7B-math_28k_fsdp2_fully-async_64-64_mbs32_tpf4_fixmcs'
 
-CKPTS_DIR=./ckpts/${project_name}/${exp_name}
-MODEL_PATH=/cfs_shtx5_serving_3/mlp/training/docker/user/hadoop-ai-search/houzhenggang/model/Qwen2___5-Math-7B
-TRAIN_FILE=/cfs_shtx5_serving_3/mlp/training/docker/user/hadoop-ai-search/houzhenggang/data/dapo/dapo-math-17k.parquet
-TEST_FILE=/cfs_shtx5_serving_3/mlp/training/docker/user/hadoop-ai-search/houzhenggang/data/dapo/aime-2024.parquet
+# Ray
+# RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
+# WORKING_DIR=${WORKING_DIR:-"${PWD}"}
+# RUNTIME_ENV=${RUNTIME_ENV:-"${WORKING_DIR}/verl/trainer/runtime_env.yaml"}
+# Paths
+RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
+# very important! please modify the max_position_embeddings in config.json to 32768 after downloading from huggingface
+MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen2.5-Math-7B"}
+CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/ckpts/${project_name}/${exp_name}"}
+TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/dapo-math-17k.parquet"}
+TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/aime-2024.parquet"}
 
 
 rollout_mode="async"
