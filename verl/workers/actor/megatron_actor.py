@@ -435,7 +435,7 @@ class MegatronPPOActor(BasePPOActor):
             response_mask = data["response_mask"].to(bool)
             loss_agg_mode = self.config.loss_agg_mode
             # compute policy loss
-            log_prob = output["log_probs"][:, -response_length - 1 : -1].contiguous()
+            log_prob = log_probs[:, -response_length - 1 : -1].contiguous()
             ret_entropy = None
             stats = {}
             if not forward_only:

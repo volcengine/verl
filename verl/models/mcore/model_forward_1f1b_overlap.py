@@ -16,6 +16,7 @@
 
 from typing import Callable, Optional
 
+import torch
 from megatron.core.models.common.model_chunk_schedule_plan import TransformerModelChunkSchedulePlan
 from megatron.core.models.gpt.gpt_model import GPTModel
 from megatron.core.utils import make_viewless_tensor
@@ -84,14 +85,8 @@ def gptmodel_forward_1f1b_overlap(
             Applies Multi-Token Prediction if enabled, generates output logits through
             the output layer, and computes language model loss when labels are provided.
             """
-            from megatron.core.models.gpt.gpt_model import (
-                MTPLossAutoScaler,
-                MTPLossLoggingHelper,
-                gather_from_sequence_parallel_region,
-                parallel_state,
-                roll_tensor,
-                torch,
-            )
+            from megatron.core import parallel_state
+            from megatron.core.tensor_parallel import gather_from_sequence_parallel_region
 
             in_inference_mode = inference_context is not None and not self.training
             if in_inference_mode:
@@ -122,6 +117,12 @@ def gptmodel_forward_1f1b_overlap(
                 return hidden_states
 
             if self.mtp_process:
+                from megatron.core.transformer.multi_token_prediction import (
+                    MTPLossAutoScaler,
+                    MTPLossLoggingHelper,
+                    roll_tensor,
+                )
+
                 mtp_labels = labels.clone()
                 hidden_states_list = torch.chunk(hidden_states, 1 + self.config.mtp_num_layers, dim=0)
                 hidden_states = hidden_states_list[0]
