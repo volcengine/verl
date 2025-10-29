@@ -35,6 +35,7 @@ except ImportError:
 from megatron.core import parallel_state as mpu
 
 from verl import DataProto
+from verl.models.mcore import get_mcore_weight_converter
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
 from verl.utils import hf_tokenizer
@@ -429,16 +430,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         )
         log_gpu_memory_usage(f"After building {self.config.rollout.name} rollout", logger=logger)
 
-        from verl.models.mcore import get_mcore_weight_converter
-
-        self.layer_name_mapping = {
-            "qkv_layer_name": "self_attention.linear_qkv.",
-            "gate_proj_layer_name": "linear_fc1.",
-        }
-        self.weight_converter = None
-        if not self.bridge:
-            self.weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
-
         # 5. switch to trainer mode
         # NOTE: It's critical that hybrid engine in trainer mode initially to load checkpoint.
         # For sync mode, we directly switch to trainer mode here.
@@ -474,7 +465,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         self.param_dtype = torch.bfloat16
         log_gpu_memory_usage("Before init actor model and optimizer", logger=logger)
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
-        if self._is_actor or self._is_rollout:
+        if self._is_actor:
             # we need the model for actor and rollout
             optim_config = self.config.actor.optim if self._is_actor else None
             (
@@ -554,6 +545,15 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 bridge=self.bridge,
                 use_dist_checkpointing=self.config.actor.megatron.use_dist_checkpointing,
             )
+
+            self.layer_name_mapping = {
+                "qkv_layer_name": "self_attention.linear_qkv.",
+                "gate_proj_layer_name": "linear_fc1.",
+            }
+            self.weight_converter = None
+            if not self.config.actor.megatron.use_mbridge:
+                self.weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
+
         get_torch_device().empty_cache()
         log_gpu_memory_usage("After init_model finish", logger=logger)
 

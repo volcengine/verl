@@ -90,7 +90,6 @@ common_params=(
     actor_rollout_ref.actor.clip_ratio_high=${clip_ratio_high}
     actor_rollout_ref.actor.clip_ratio_c=10.0
     actor_rollout_ref.model.path="${MODEL_PATH}"
-    actor_rollout_ref.model.enable_gradient_checkpointing=True
     actor_rollout_ref.actor.optim.lr=1e-6
     actor_rollout_ref.actor.optim.lr_warmup_steps=-1
     actor_rollout_ref.actor.optim.weight_decay=0.1
@@ -145,6 +144,7 @@ if [ "${ACTOR_STRATEGY}" == "fsdp2" ]; then
 
     python3 -m recipe.fully_async_policy.fully_async_main \
         "${common_params[@]}" \
+        actor_rollout_ref.model.enable_gradient_checkpointing=True \
         actor_rollout_ref.actor.strategy=fsdp2 \
         critic.strategy=fsdp2 \
         actor_rollout_ref.actor.grad_clip=1.0 \
@@ -175,6 +175,7 @@ elif [ "${ACTOR_STRATEGY}" == "megatron" ]; then
         "${common_params[@]}" \
         actor_rollout_ref.actor.strategy=megatron \
         critic.strategy=megatron \
+        actor_rollout_ref.actor.optim.lr_decay_steps=10000000 \
         actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
         actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
         actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4 \
