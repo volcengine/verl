@@ -26,6 +26,7 @@ from verl.utils.device import (
     get_device_name,
     get_torch_device,
 )
+from verl.utils.megatron_utils import per_tensor_generator
 from verl.workers.megatron_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
 
 logger = logging.getLogger(__file__)
@@ -92,8 +93,17 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
 class DetachActorWorker(DetachNcclSync):
     def _get_actor_params_generator(self):
         assert self._is_actor
-        assert self.bridge is not None
-        generator = self.bridge.export_weights(self.actor.actor_module)
+        if self.bridge is not None:
+            generator = self.bridge.export_weights(self.actor.actor_module)
+        else:
+            generator = per_tensor_generator(
+                self.actor.actor_module,
+                self.actor_model_config,
+                self.weight_converter,
+                self.tf_config,
+                self.layer_name_mapping,
+            )
+
         return generator
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
