@@ -1,5 +1,8 @@
 Ascend Dockerfile Build Guidance
 ===================================
+
+Last updated: 10/29/2025.
+
 一、组件版本信息
 ----------------
 
