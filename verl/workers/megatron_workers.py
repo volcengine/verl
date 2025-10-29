@@ -35,6 +35,7 @@ except ImportError:
 from megatron.core import parallel_state as mpu
 
 from verl import DataProto
+from verl.models.mcore import get_mcore_weight_converter
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
 from verl.utils import hf_tokenizer
@@ -384,16 +385,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             actor_optimizer = None
             actor_optimizer_scheduler = None
 
-        from verl.models.mcore import get_mcore_weight_converter
-
-        self.layer_name_mapping = {
-            "qkv_layer_name": "self_attention.linear_qkv.",
-            "gate_proj_layer_name": "linear_fc1.",
-        }
-        self.weight_converter = None
-        if not self.config.actor.megatron.use_mbridge:
-            self.weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
-
         log_gpu_memory_usage("After actor optimizer init", logger=logger)
 
         return actor_module, actor_optimizer, actor_optimizer_scheduler, self.hf_config, optim_config
@@ -554,6 +545,15 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 bridge=self.bridge,
                 use_dist_checkpointing=self.config.actor.megatron.use_dist_checkpointing,
             )
+
+            self.layer_name_mapping = {
+                "qkv_layer_name": "self_attention.linear_qkv.",
+                "gate_proj_layer_name": "linear_fc1.",
+            }
+            self.weight_converter = None
+            if not self.config.actor.megatron.use_mbridge:
+                self.weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
+
         get_torch_device().empty_cache()
         log_gpu_memory_usage("After init_model finish", logger=logger)
 
