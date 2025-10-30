@@ -130,7 +130,8 @@ class MegatronPPOActor(BasePPOActor):
         else:
             self.prof = None
         self.use_fused_kernels = self.config.get("use_fused_kernels", False)
-        if self.use_fused_kernels:
+        if self.use_fused_kernels and not getattr(self.config, "overlap_moe_expert_parallel_comm", False):
+            # do not patch if overlap_moe_expert_parallel_comm is enabled
             from verl.models.mcore.model_forward_fused import patch_fused_forward
 
             for model in self.actor_module:
@@ -407,7 +408,17 @@ class MegatronPPOActor(BasePPOActor):
         def loss_func(output, data, meta_info):
             # For memory efficiency
             # We move calculation of entropy to compute_log_probs, forward_only == True
-            device = output["log_probs"].device
+            log_probs = None
+            entropy = None
+            if isinstance(output, dict):
+                log_probs = output["log_probs"]
+                if "entropy" in output:
+                    entropy = output["entropy"]
+            else:
+                assert isinstance(output, torch.Tensor)
+                log_probs = output
+
+            device = log_probs.device
             metrics = {}
             if forward_only:
                 if post_process_fn is None:
@@ -424,7 +435,7 @@ class MegatronPPOActor(BasePPOActor):
             response_mask = data["response_mask"].to(bool)
             loss_agg_mode = self.config.loss_agg_mode
             # compute policy loss
-            log_prob = output["log_probs"][:, -response_length - 1 : -1].contiguous()
+            log_prob = log_probs[:, -response_length - 1 : -1].contiguous()
             ret_entropy = None
             stats = {}
             if not forward_only:
@@ -493,7 +504,26 @@ class MegatronPPOActor(BasePPOActor):
             append_to_dict(metrics, stats)
             return policy_loss, [metrics, ret_entropy]
 
-        def forward_step(batch_iter, model):
+        def forward_step(batch_iter, model, return_schedule_plan: bool = False):
+            """
+            Args:
+                batch_iter: the batch iterator
+                model: the model
+                return_schedule_plan: whether to return the schedule plan, for 1f1b overlap
+            """
+            if return_schedule_plan:
+                assert self.tf_config.overlap_moe_expert_parallel_comm, (
+                    "overlap_moe_expert_parallel_comm must be enabled to return the schedule plan"
+                )
+                # TODO: Fix this
+                assert not calculate_entropy, "calculate_entropy must be disabled to return the schedule plan"
+                from megatron.core.models.gpt.gpt_model import GPTModel
+
+                assert isinstance(model, GPTModel), "model must be a GPTModel"
+                assert self.use_fused_kernels, "use_fused_kernels must be enabled to return the schedule plan"
+                # TODO: support VLM with MoE
+                from verl.models.mcore.model_forward_1f1b_overlap import gptmodel_forward_1f1b_overlap
+
             batch = next(batch_iter)
             batch = batch.to(get_device_id())
             batch = batch.contiguous()
@@ -520,16 +550,18 @@ class MegatronPPOActor(BasePPOActor):
 
             if self.use_fused_kernels:
                 forward_fn = get_mcore_forward_fused_fn(self.hf_config)
+                if return_schedule_plan:
+                    forward_fn = gptmodel_forward_1f1b_overlap
                 # return dict of [logits, entropy]
                 output = forward_fn(
-                    model,
-                    input_ids,
-                    position_ids,
-                    attention_mask,
-                    label,
-                    label_mask,
-                    temperature,
-                    multi_modal_inputs,
+                    model=model,
+                    input_ids=input_ids,
+                    position_ids=position_ids,
+                    attention_mask=attention_mask,
+                    labels=label,
+                    labels_mask=label_mask,
+                    temperature=temperature,
+                    multi_modal_inputs=multi_modal_inputs,
                 )
             else:
                 forward_fn = get_mcore_forward_fn(self.hf_config)
@@ -557,11 +589,11 @@ class MegatronPPOActor(BasePPOActor):
 
                 logits_processor_args = {"label": label, "label_mask": label_mask}
                 output = forward_fn(
-                    model,
-                    input_ids,
-                    attention_mask,
-                    position_ids,
-                    multi_modal_inputs,
+                    model=model,
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    position_ids=position_ids,
+                    multi_modal_inputs=multi_modal_inputs,
                     logits_processor=logits_processor,
                     logits_processor_args=logits_processor_args,
                 )

@@ -971,12 +971,6 @@ def get_transformer_layer_offset(pipeline_rank, vp_stage, config: TransformerCon
         inspect.signature(parallel_state.is_pipeline_first_stage).parameters.get("vp_stage", None) is not None
     )
     extra_kwargs = {} if not has_vp_stage else {"ignore_virtual": False, "vp_stage": vp_stage}
-    # is_inside_encoder is deprecated and removed in mcore v0.14.0
-    # https://github.com/NVIDIA/Megatron-LM/commit/b600e38d7b2a5b31d8d90e35bcf0cad18977a99c
-    if hasattr(parallel_state, "is_inside_encoder") and not parallel_state.is_inside_encoder():
-        pp_decoder_start = parallel_state.get_pipeline_model_parallel_decoder_start()
-        if pp_decoder_start is not None:
-            pipeline_rank = pipeline_rank - pp_decoder_start
 
     if config.pipeline_model_parallel_size > 1:
         if hasattr(config, "pipeline_model_parallel_layout") and config.pipeline_model_parallel_layout:
