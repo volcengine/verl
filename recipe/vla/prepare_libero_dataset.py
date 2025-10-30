@@ -20,10 +20,26 @@ import os
 import random
 import sys
 
+import torch
+
 sys.path.append("/file_system/cyk/vla_mix/LIBERO/")  # TODO: delete this line after packaging libero
 import numpy as np
 from datasets import Dataset
+from libero.libero import get_libero_path
 from libero.libero.benchmark import Benchmark, get_benchmark
+
+
+def patched_get_task_init_states(self, i):
+    init_states_path = os.path.join(
+        get_libero_path("init_states"),
+        self.tasks[i].problem_folder,
+        self.tasks[i].init_states_file,
+    )
+    init_states = torch.load(init_states_path, weights_only=False)
+    return init_states
+
+
+Benchmark.get_task_init_states = patched_get_task_init_states
 
 
 def compute_total_num_group_envs(task_suite: Benchmark):
@@ -60,11 +76,8 @@ if __name__ == "__main__":
         end_id = cumsum_trial_id_bins[task_id]
         return list(range(start_id, end_id))
 
-    # all_task_ids = list(range(task_suite.get_num_tasks()))
-    # train_task_ids = sorted(random.sample(all_task_ids, 9))
-    # Notes: isaac task 3 and 9 does not work yet, exclude them
-    all_task_ids = [0, 1, 2, 4, 5, 6, 7, 8]
-    train_task_ids = sorted(random.sample(all_task_ids, 7))
+    all_task_ids = list(range(task_suite.get_num_tasks()))
+    train_task_ids = sorted(random.sample(all_task_ids, 9))
     ood_test_task_id = list(set[int](all_task_ids) - set(train_task_ids))[0]  # for OOD test
 
     print("\n[Data Split Plan]")

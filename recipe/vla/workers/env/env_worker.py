@@ -214,7 +214,9 @@ class EnvWorker(Worker):
         state_ids_list = list(data.non_tensor_batch["state_ids"])
         task_ids_list = list(data.non_tensor_batch["task_ids"])
 
-        assert len(state_ids_list) == self.cfg.train.num_envs * self.stage_num
+        assert len(state_ids_list) == self.cfg.train.num_envs * self.stage_num, (
+            f"state_ids_list length is {len(state_ids_list)}, but should be {self.cfg.train.num_envs * self.stage_num}"
+        )
         result_list = []
         for stage_id in range(self.stage_num):
             if self.cfg.train.simulator_type == "isaac":

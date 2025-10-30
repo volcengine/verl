@@ -43,6 +43,19 @@ from verl.envs.libero_env.venv import ReconfigureSubprocEnv
 logger = logging.getLogger(__name__)
 
 
+def patched_get_task_init_states(self, i):
+    init_states_path = os.path.join(
+        get_libero_path("init_states"),
+        self.tasks[i].problem_folder,
+        self.tasks[i].init_states_file,
+    )
+    init_states = torch.load(init_states_path, weights_only=False)
+    return init_states
+
+
+Benchmark.get_task_init_states = patched_get_task_init_states
+
+
 class LiberoEnv(gym.Env):
     def __init__(self, cfg, rank, world_size):
         self.rank = rank

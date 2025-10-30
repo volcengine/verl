@@ -16,8 +16,12 @@ NUM_GPUS=4
 PROJECT_NAME="vla_libero_grpo"
 experiment_name="test_0"
 
-RAY_DEBUG_POST_MORTEM=1 \
-python -m recipe.vla.main_ppo \
+ISSC_PYTHON="/workspace/isaaclab/_isaac_sim/python.sh"
+PYTHON=python
+if [ -f "$ISSC_PYTHON" ]; then
+    PYTHON=$ISSC_PYTHON
+fi
+$PYTHON -m recipe.vla.main_ppo \
     data.train_files="$train_files" \
     data.val_files="$test_files" \
     data.train_batch_size=16 \
@@ -47,7 +51,6 @@ python -m recipe.vla.main_ppo \
     actor_rollout_ref.actor.clip_ratio_high=0.28 \
     actor_rollout_ref.actor.clip_ratio_low=0.2 \
     actor_rollout_ref.actor.num_images_in_input=1 \
-    actor_rollout_ref.actor.traj_mini_batch_size=16 \
     actor_rollout_ref.model.enable_gradient_checkpointing=False \
     actor_rollout_ref.model.use_remove_padding=False \
     actor_rollout_ref.model.trust_remote_code=False \
