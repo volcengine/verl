@@ -92,6 +92,7 @@ class RobActorRolloutRefWorker(ActorRolloutRefWorker):
 
     async def rollout_mode(self):
         """Context switch hybridengine to rollout mode."""
+        aggressive_empty_cache(force_sync=True)
         fsdp_unshard_exit_stack = contextlib.ExitStack()
         optional_state = _get_module_fsdp_state(self.actor_module_fsdp)
         if optional_state is None:
@@ -153,7 +154,6 @@ class RobActorRolloutRefWorker(ActorRolloutRefWorker):
         AutoImageProcessor.register(OpenVLAConfig, PrismaticImageProcessor)
         AutoProcessor.register(OpenVLAConfig, PrismaticProcessor)
         AutoModelForVision2Seq.register(OpenVLAConfig, OpenVLAForActionPrediction)
-
         if self._is_actor or self._is_rollout:
             # we need the model for actor and rollout
             if self._is_actor:

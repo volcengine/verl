@@ -263,9 +263,9 @@ class RobRayPPOTrainer(RayPPOTrainer):
                 gen_batch.meta_info["do_sample"] = True
                 gen_batch.meta_info["temperature"] = self.config.actor_rollout_ref.rollout.temperature
                 gen_batch.meta_info["prompt_length"] = self.config.actor_rollout_ref.rollout.prompt_length
-                gen_batch.meta_info["eos_token_id"] = self.tokenizer.eos_token_id,
-                gen_batch.meta_info["n_samples"] = self.config.actor_rollout_ref.rollout.n,
-                gen_batch.meta_info["pad_token_id"] = self.tokenizer.pad_token_id,
+                gen_batch.meta_info["eos_token_id"] = self.tokenizer.eos_token_id
+                gen_batch.meta_info["n_samples"] = self.config.actor_rollout_ref.rollout.n
+                gen_batch.meta_info["pad_token_id"] = self.tokenizer.pad_token_id
 
                 gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
 
