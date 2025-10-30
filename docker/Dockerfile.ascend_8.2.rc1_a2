@@ -62,6 +62,9 @@ RUN git clone https://github.com/NVIDIA/Megatron-LM.git && \
     cd .. && \
     echo "export PYTHONPATH=\$PYTHONPATH:/Megatron-LM" >> ~/.bashrc
 
+# 9. Show pip list
+RUN pip list
+
 # Clear pip cache to reduce image size
 RUN pip cache purge
 
