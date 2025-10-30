@@ -14,13 +14,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import copy
+import logging
 import os
 from typing import Optional
 
 import gymnasium as gym
 import numpy as np
 import torch
+import sys
+sys.path.append("/file_system/cyk/vla_mix/LIBERO/")
 from libero.libero import get_libero_path
 from libero.libero.benchmark import Benchmark, get_benchmark
 from libero.libero.envs import OffScreenRenderEnv
@@ -38,6 +40,8 @@ from verl.envs.libero_env.utils import (
 )
 from verl.envs.libero_env.venv import ReconfigureSubprocEnv
 
+logger = logging.getLogger(__name__)
+
 
 class LiberoEnv(gym.Env):
     def __init__(self, cfg, rank, world_size):
@@ -45,16 +49,9 @@ class LiberoEnv(gym.Env):
         self.cfg = cfg
         self.world_size = world_size
         self.seed = self.cfg.seed + rank
-        self._is_start = True
         self.num_envs = self.cfg.num_envs
-        # self.group_size = self.cfg.group_size
-        # self.num_group = self.cfg.num_group
-        # self.use_fixed_reset_state_ids = cfg.use_fixed_reset_state_ids
 
-        # self.ignore_terminations = cfg.ignore_terminations
-        # self.auto_reset = cfg.auto_reset
         self.ignore_terminations = False
-        self.auto_reset = False
 
         self._generator = np.random.default_rng(seed=self.seed)
         self._generator_ordered = np.random.default_rng(seed=0)
@@ -64,13 +61,11 @@ class LiberoEnv(gym.Env):
 
         self._compute_total_num_group_envs()
         self.reset_state_ids_all = self.get_reset_state_ids_all()
-        # self.update_reset_state_ids()
         self.reset_state_ids = self._get_ordered_reset_state_ids(self.num_envs)
         self._init_task_and_trial_ids()
         self._init_env()
 
         self.prev_step_reward = np.zeros(self.num_envs)
-        # self.use_rel_reward = cfg.use_rel_reward
         self.use_rel_reward = False
 
         self._init_metrics()
@@ -80,9 +75,12 @@ class LiberoEnv(gym.Env):
         self.video_cnt = 0
         self.render_images = []
 
+    @property
+    def elapsed_steps(self):
+        return self._elapsed_steps
+
     def get_all_state_ids(self):
         """Returns all possible state IDs from the entire benchmark."""
-        # return self.reset_state_ids_all  # (world_size, num_states_per_rank)
         return np.arange(self.total_num_group_envs)  # (total_num_states,)
 
     def _init_env(self):
@@ -138,13 +136,6 @@ class LiberoEnv(gym.Env):
 
         self.cumsum_trial_id_bins = np.cumsum(self.trial_id_bins)
 
-    # def update_reset_state_ids(self):
-    #     if self.cfg.only_eval or self.cfg.use_ordered_reset_state_ids:
-    #         reset_state_ids = self._get_ordered_reset_state_ids(self.num_group)
-    #     else:
-    #         reset_state_ids = self._get_random_reset_state_ids(self.num_group)
-    #     self.reset_state_ids = reset_state_ids.repeat(self.group_size)
-
     def _init_task_and_trial_ids(self):
         self.task_ids, self.trial_ids = self._get_task_and_trial_ids_from_reset_state_ids(self.reset_state_ids)
 
@@ -181,7 +172,7 @@ class LiberoEnv(gym.Env):
                     trial_ids.append(reset_state_id - start_pivot)
                     break
                 start_pivot = end_pivot
-        print(
+        logger.debug(
             "get task and trial id",
             self.cumsum_trial_id_bins,
             reset_state_ids,
@@ -197,22 +188,6 @@ class LiberoEnv(gym.Env):
             self.task_suite.get_task_init_states(self.task_ids[env_id])[self.trial_ids[env_id]] for env_id in env_idx
         ]
         return init_state
-
-    @property
-    def elapsed_steps(self):
-        return self._elapsed_steps
-
-    @property
-    def info_logging_keys(self):
-        return []
-
-    @property
-    def is_start(self):
-        return self._is_start
-
-    @is_start.setter
-    def is_start(self, value):
-        self._is_start = value
 
     def _init_metrics(self):
         self.success_once = np.zeros(self.num_envs, dtype=bool)
@@ -264,12 +239,10 @@ class LiberoEnv(gym.Env):
             images_and_states = self._extract_image_and_state(obs)
             images_and_states_list.append(images_and_states)
 
-        # obs = {
-        #     "images_and_states": to_tensor(list_of_dict_to_dict_of_list(images_and_states_list)),
-        #     "task_descriptions": self.task_descriptions,
-        # }
-        obs = to_tensor(list_of_dict_to_dict_of_list(images_and_states_list))
-        obs.update({"task_descriptions": self.task_descriptions})
+        obs = {
+            "images_and_states": to_tensor(list_of_dict_to_dict_of_list(images_and_states_list)),
+            "task_descriptions": self.task_descriptions,
+        }
         return obs
 
     def _reconfigure(self, reset_state_ids, env_idx):
@@ -316,12 +289,9 @@ class LiberoEnv(gym.Env):
         infos = {}
         return obs, infos
 
-    def step(self, actions=None, auto_reset=True):
+    def step(self, actions=None):
         if actions is None:
-            assert self._is_start, "Actions must be provided after the first reset."
-        if self.is_start:
             obs, infos = self.reset(reset_state_ids=self.reset_state_ids)
-            self._is_start = False
             terminations = np.zeros(self.num_envs, dtype=bool)
             truncations = np.zeros(self.num_envs, dtype=bool)
 
@@ -336,7 +306,6 @@ class LiberoEnv(gym.Env):
         truncations = self.elapsed_steps >= self.cfg.max_episode_steps
 
         obs = self._wrap_obs(raw_obs)
-
         step_reward = self._calc_step_reward(terminations)
 
         if self.video_cfg.save_video:
@@ -367,7 +336,7 @@ class LiberoEnv(gym.Env):
         raw_chunk_truncations = []
         for i in range(chunk_size):
             actions = chunk_actions[:, i]
-            extracted_obs, step_reward, terminations, truncations, infos = self.step(actions, auto_reset=False)
+            extracted_obs, step_reward, terminations, truncations, infos = self.step(actions)
 
             chunk_rewards.append(step_reward)
             raw_chunk_terminations.append(terminations)
@@ -377,22 +346,8 @@ class LiberoEnv(gym.Env):
         raw_chunk_terminations = torch.stack(raw_chunk_terminations, dim=1)  # [num_envs, chunk_steps]
         raw_chunk_truncations = torch.stack(raw_chunk_truncations, dim=1)  # [num_envs, chunk_steps]
 
-        past_terminations = raw_chunk_terminations.any(dim=1)
-        past_truncations = raw_chunk_truncations.any(dim=1)
-        past_dones = torch.logical_or(past_terminations, past_truncations)
-
-        if past_dones.any() and self.auto_reset:
-            extracted_obs, infos = self._handle_auto_reset(past_dones.cpu().numpy(), extracted_obs, infos)
-
-        if self.auto_reset or self.ignore_terminations:
-            chunk_terminations = torch.zeros_like(raw_chunk_terminations)
-            chunk_terminations[:, -1] = past_terminations
-
-            chunk_truncations = torch.zeros_like(raw_chunk_truncations)
-            chunk_truncations[:, -1] = past_truncations
-        else:
-            chunk_terminations = raw_chunk_terminations.clone()
-            chunk_truncations = raw_chunk_truncations.clone()
+        chunk_terminations = raw_chunk_terminations.clone()
+        chunk_truncations = raw_chunk_truncations.clone()
         return (
             extracted_obs,
             chunk_rewards,
@@ -400,22 +355,6 @@ class LiberoEnv(gym.Env):
             chunk_truncations,
             infos,
         )
-
-    def _handle_auto_reset(self, dones, _final_obs, infos):
-        final_obs = copy.deepcopy(_final_obs)
-        env_idx = np.arange(0, self.num_envs)[dones]
-        final_info = copy.deepcopy(infos)
-        obs, infos = self.reset(
-            env_idx=env_idx,
-            reset_state_ids=self.reset_state_ids[env_idx] if self.use_fixed_reset_state_ids else None,
-        )
-        # gymnasium calls it final observation but it really is just o_{t+1} or the true next observation
-        infos["final_observation"] = final_obs
-        infos["final_info"] = final_info
-        infos["_final_info"] = dones
-        infos["_final_observation"] = dones
-        infos["_elapsed_steps"] = dones
-        return obs, infos
 
     def _calc_step_reward(self, terminations):
         reward = self.cfg.reward_coef * terminations
@@ -449,7 +388,7 @@ class LiberoEnv(gym.Env):
         self.video_cnt += 1
         self.render_images = []
 
-    def reset_envs_to_state_ids(self, state_ids_list):
+    def reset_envs_to_state_ids(self, state_ids_list, task_ids_list):
         """Reset environments to specified state IDs.
 
         Args:

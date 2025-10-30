@@ -12,12 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import copy
+import logging
 import os
 from typing import Optional
 
 import gymnasium as gym
 import numpy as np
+import omni
 import torch
 
 from verl.envs.action_utils import (
@@ -27,6 +28,8 @@ from verl.envs.action_utils import (
     to_tensor,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class IsaacEnv(gym.Env):
     def __init__(self, cfg, rank, world_size):
@@ -34,20 +37,17 @@ class IsaacEnv(gym.Env):
         self.cfg = cfg
         self.world_size = world_size
         self.seed = self.cfg.seed + rank
-        self._is_start = True
         self.num_envs = self.cfg.num_envs
-
-        self.ignore_terminations = cfg.ignore_terminations
-        self.auto_reset = cfg.auto_reset
+        self.action_dim = self.cfg.get("action_dim", 7)
+        self.device = self.cfg.get("device", "cuda:0")
 
         self._generator = np.random.default_rng(seed=self.seed)
 
         self.task_suite_name = self.cfg.task_suite_name
 
-        self._init_env()
-
+        self.env = None
         self.prev_step_reward = np.zeros(self.num_envs)
-        self.use_rel_reward = cfg.use_rel_reward
+        self.use_rel_reward = False
 
         self._init_metrics()
         self._elapsed_steps = np.zeros(self.num_envs, dtype=np.int32)
@@ -58,25 +58,6 @@ class IsaacEnv(gym.Env):
         self.video_cnt = 0
         self.camera_name = cfg.init_params.camera_names
 
-    def _init_env(self):
-        """Initializes the Isaac Sim environment."""
-
-        self.task_name = self.cfg.get("task_name")
-        self.task_id = 0
-        # FIXME since isaac use env to set task id, all env have to use the same task id
-        if self.task_suite_name.startswith("libero"):
-            os.environ["LIBERO_TASK_SUITE"] = self.task_suite_name
-            if hasattr(self.cfg, "task_id") and self.cfg.task_id is not None:
-                os.environ["LIBERO_TASK_ID"] = str(self.cfg.task_id)
-                self.task_id = self.cfg.task_id
-            else:
-                os.environ["LIBERO_TASK_ID"] = "0"
-
-            if not self.task_name:
-                self.task_name = "Isaac-Libero-Franka-OscPose-v0"
-
-            os.environ["LIBERO_OSC_TYPE"] = "pose_rel"
-
         # sys env must be set before import isaaclab
         from isaaclab.app import AppLauncher
 
@@ -84,17 +65,33 @@ class IsaacEnv(gym.Env):
         app_launcher = AppLauncher(**launch_args)
         self.app = app_launcher.app
 
+    def _init_env(self, task_id=0):
+        """Initializes the Isaac Sim environment."""
+
+        self.task_name = self.cfg.get("task_name")
+        self.task_id = task_id
+        # FIXME since isaac use env to set task id, all env have to use the same task id
+        if self.task_suite_name.startswith("libero"):
+            os.environ["LIBERO_TASK_SUITE"] = self.task_suite_name
+            os.environ["LIBERO_TASK_ID"] = str(task_id)
+            os.environ["LIBERO_OSC_TYPE"] = "pose_rel"
+
+            if not self.task_name:
+                self.task_name = "Isaac-Libero-Franka-OscPose-v0"
+
         from isaaclab_tasks.utils import parse_env_cfg
 
         self.env_cfg = parse_env_cfg(self.task_name, num_envs=self.num_envs)
         self.env_cfg.env_name = self.cfg.get("env_name", str(self.task_id))
-        # print(f"self.env_cfg: {self.env_cfg}")
-        self.env_cfg.sim.device = self.cfg.get("device", "cuda")
+        self.env_cfg.sim.device = self.device
         self.env_cfg.sim.physx.enable_ccd = True
         self.env_cfg.terminations.time_out = None
         self.env_cfg.observations.policy.concatenate_terms = False
 
         # create environment from loaded config
+        if self.env:
+            self.env.close()
+            omni.usd.get_context().new_stage()
         self.env = gym.make(self.task_name, cfg=self.env_cfg).unwrapped
 
         if self.cfg.video_cfg.save_video:
@@ -103,29 +100,17 @@ class IsaacEnv(gym.Env):
 
         self.action_space = self.env.action_space
         self.observation_space = self.env.observation_space
-        print("Isaac Sim environment initialized.")
-        print(f"Observation space: {self.observation_space}")
-        print(f"Action space: {self.action_space}")
-        print(f"env_cfg.osc_type: {self.env_cfg.osc_type}")
+        logger.info("Isaac Sim environment initialized")
 
         # TODO support other task suite
         if self.task_suite_name.startswith("libero"):
             self.task_descriptions = self.env.cfg.libero_config.task_info["language_instruction"]
+            assert self.env_cfg.osc_type == "pose_rel", (
+                f"Only pose_rel osc type is supported for libero. Recieved: {self.env_cfg.osc_type}"
+            )
         else:
             raise ValueError(f"Task suite {self.task_suite_name} is not supported.")
-        print(f"libero_config.workspace_name: {self.env.cfg.libero_config.workspace_name}")
-
-    @property
-    def elapsed_steps(self):
-        return self._elapsed_steps
-
-    @property
-    def is_start(self):
-        return self._is_start
-
-    @is_start.setter
-    def is_start(self, value):
-        self._is_start = value
+        logger.info("Isaac Sim environment initialized")
 
     def _init_metrics(self):
         self.success_once = np.zeros(self.num_envs, dtype=bool)
@@ -166,38 +151,20 @@ class IsaacEnv(gym.Env):
         if env_idx is None:
             env_idx = np.arange(self.num_envs)
 
-        # In Isaac Lab, reset is often for all envs, but we can reset metrics for a subset.
-        if self.is_start:
-            raw_obs, infos = self.env.reset()
-        else:
-            # This is tricky in isaaclab, as it auto-resets.
-            # We will rely on the auto-reset from step.
-            # For manual resets of some envs, we just reset their metrics.
-            raw_obs = self.last_obs
-            infos = self.last_infos
+        raw_obs, infos = self.env.reset()
+
         obs = self._wrap_obs(raw_obs)
 
         self._reset_metrics(env_idx)
 
-        # infos is already a dict from isaaclab, we just pass it on
         return obs, infos
 
-    def step(self, actions=None, auto_reset=True):
+    def step(self, actions=None):
         if actions is None:
-            assert self._is_start, "Actions must be provided after the first reset."
-        if self.is_start:
-            obs, infos = self.reset()
-            self._is_start = False
-            terminations = np.zeros(self.num_envs, dtype=bool)
-            truncations = np.zeros(self.num_envs, dtype=bool)
+            # isaac should start with reset_envs_to_initial_state
+            # do nothing for None
+            return (None, None, None, None, None)
 
-            return (
-                obs,
-                torch.zeros(self.num_envs),
-                to_tensor(terminations),
-                to_tensor(truncations),
-                infos,
-            )
         truncations = self.elapsed_steps >= self.max_episode_steps
         # _actions = torch.zeros(self.action_space.shape)
 
@@ -205,7 +172,6 @@ class IsaacEnv(gym.Env):
             actions = torch.from_numpy(actions)
 
         self._elapsed_steps += 1
-        # print(f"Step {self._elapsed_steps}: org actions {actions}, actual actions {_actions}")
         raw_obs, _reward, terminations, _, infos = self.env.step(actions)
         self.last_obs = raw_obs
         self.last_infos = infos
@@ -223,17 +189,6 @@ class IsaacEnv(gym.Env):
             self.add_new_frames(obs, plot_infos)
 
         infos = self._record_metrics(step_reward, terminations, infos)
-        if self.ignore_terminations:
-            infos["episode"]["success_at_end"] = to_tensor(terminations)
-            terminations[:] = False
-
-        # isaaclab handles auto-reset internally, so we don't need _handle_auto_reset
-        # but we do need to reset metrics for envs that are done.
-        dones = terminations.cpu().numpy() | truncations
-
-        _auto_reset = auto_reset and self.auto_reset
-        if dones.any() and _auto_reset:
-            obs, infos = self._handle_auto_reset(dones, obs, infos)
 
         return (
             obs,
@@ -253,7 +208,7 @@ class IsaacEnv(gym.Env):
         raw_chunk_truncations = []
         for i in range(chunk_size):
             actions = chunk_actions[:, i]
-            extracted_obs, step_reward, terminations, truncations, infos = self.step(actions, auto_reset=False)
+            extracted_obs, step_reward, terminations, truncations, infos = self.step(actions)
 
             chunk_rewards.append(step_reward)
             raw_chunk_terminations.append(terminations)
@@ -263,22 +218,8 @@ class IsaacEnv(gym.Env):
         raw_chunk_terminations = torch.stack(raw_chunk_terminations, dim=1)  # [num_envs, chunk_steps]
         raw_chunk_truncations = torch.stack(raw_chunk_truncations, dim=1)  # [num_envs, chunk_steps]
 
-        past_terminations = raw_chunk_terminations.any(dim=1)
-        past_truncations = raw_chunk_truncations.any(dim=1)
-        past_dones = torch.logical_or(past_terminations, past_truncations)
-
-        if past_dones.any() and self.auto_reset:
-            extracted_obs, infos = self._handle_auto_reset(past_dones.cpu().numpy(), extracted_obs, infos)
-
-        if self.auto_reset or self.ignore_terminations:
-            chunk_terminations = torch.zeros_like(raw_chunk_terminations)
-            chunk_terminations[:, -1] = past_terminations
-
-            chunk_truncations = torch.zeros_like(raw_chunk_truncations)
-            chunk_truncations[:, -1] = past_truncations
-        else:
-            chunk_terminations = raw_chunk_terminations.clone()
-            chunk_truncations = raw_chunk_truncations.clone()
+        chunk_terminations = raw_chunk_terminations.clone()
+        chunk_truncations = raw_chunk_truncations.clone()
         return (
             extracted_obs,
             chunk_rewards,
@@ -286,19 +227,6 @@ class IsaacEnv(gym.Env):
             chunk_truncations,
             infos,
         )
-
-    def _handle_auto_reset(self, dones, _final_obs, infos):
-        final_obs = copy.deepcopy(_final_obs)
-        env_idx = np.arange(0, self.num_envs)[dones]
-        final_info = copy.deepcopy(infos)
-        obs, infos = self.reset(env_idx=env_idx)
-        # gymnasium calls it final observation but it really is just o_{t+1} or the true next observation
-        infos["final_observation"] = final_obs
-        infos["final_info"] = final_info
-        infos["_final_info"] = dones
-        infos["_final_observation"] = dones
-        infos["_elapsed_steps"] = dones
-        return obs, infos
 
     def _calc_step_reward(self, reward):
         if self.use_rel_reward:
@@ -363,16 +291,34 @@ class IsaacEnv(gym.Env):
         self.render_images = []
 
     def close(self):
-        self.env.close()
-        self.app.close()
-        print("Isaac Sim environment closed.")
-
-    def update_reset_state_ids(self):
-        # TODO implement this method
-        pass
+        if self.env is not None:
+            self.env.close()
+            self.app.close()
 
     def load_state(self, state_buffer: bytes):
         self.env.load_state(state_buffer)
 
     def get_state(self):
         return None
+
+    def reset_envs_to_state_ids(self, state_ids_list, task_ids_list):
+        logger.info(f"IsaacEnv reset_envs_to_state_ids task_ids_list: {task_ids_list}")
+        assert len(set(task_ids_list)) == 1, "Isaac env only support single task"
+
+        self._init_env(task_ids_list[0])
+
+        # In Isaac, reset to random status in groups to have more test coverage
+        # TODO support reset in group with options = {"group": len(set(state_ids_list))}
+        raw_obs, infos = self.env.reset()
+        env_idx = np.arange(self.num_envs)
+        self._reset_metrics(env_idx)
+
+        self.elapsed_steps = np.zeros(self.num_envs, dtype=np.int32)
+
+        # stablize the environment
+        for _ in range(10):
+            zero_actions = torch.zeros((self.num_envs, self.action_dim), device=self.device)
+            raw_obs, _, _, _, infos = self.env.step(zero_actions)
+
+        obs = self._wrap_obs(raw_obs)
+        return obs, infos
