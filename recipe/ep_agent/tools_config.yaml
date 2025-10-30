@@ -1,0 +1,14 @@
+tools:
+  - class_name: verl.tools.mcp_base_tool.MCPBaseTool
+    config:
+      type: mcp
+      timeout: 30
+      rate_limit: 10.0
+    mcp:
+      mcp_servers_config_path: verl/recipe/ep_agent/mcp_servers.json
+      # Optional: restrict to certain tools exposed by the EP MCP server
+      # tool_selected_list:
+      #   - lake_move
+      #   - reset_env
+
+
