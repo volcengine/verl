@@ -7,6 +7,8 @@ actor_rollout_ref:
   actor:
     optim:
       _target_: verl.workers.config.FSDPOptimizerConfig
+      optimizer: AdamW
+      optimizer_impl: torch.optim
       lr: 1.0e-06
       lr_warmup_steps_ratio: 0.0
       total_training_steps: -1
@@ -20,6 +22,7 @@ actor_rollout_ref:
       num_cycles: 0.5
       lr_scheduler_type: constant
       warmup_style: null
+      override_optimizer_config: null
     fsdp_config:
       _target_: verl.workers.config.FSDPEngineConfig
       wrap_policy:
@@ -261,6 +264,7 @@ actor_rollout_ref:
     lora_alpha: 16
     target_modules: all-linear
     exclude_modules: null
+    lora_adapter_path: null
     use_liger: false
     use_fused_kernels: false
     fused_kernel_options:
@@ -286,6 +290,7 @@ data:
   shuffle: true
   seed: null
   dataloader_num_workers: 8
+  image_patch_size: 14
   validation_shuffle: false
   filter_overlong_prompts: false
   filter_overlong_prompts_workers: 1
@@ -307,6 +312,8 @@ data:
 critic:
   optim:
     _target_: verl.workers.config.FSDPOptimizerConfig
+    optimizer: AdamW
+    optimizer_impl: torch.optim
     lr: 1.0e-05
     lr_warmup_steps_ratio: 0.0
     total_training_steps: -1
@@ -320,6 +327,7 @@ critic:
     num_cycles: 0.5
     lr_scheduler_type: constant
     warmup_style: null
+    override_optimizer_config: null
   model:
     fsdp_config:
       _target_: verl.workers.config.FSDPEngineConfig
@@ -470,7 +478,7 @@ algorithm:
   rollout_is_threshold_lower: null
   rollout_is_level: token
   rollout_is_mode: truncate
-  rollout_is_veto_threshold: 0.0001
+  rollout_is_veto_threshold: null
   rollout_is: false
 trainer:
   balance_batch: true

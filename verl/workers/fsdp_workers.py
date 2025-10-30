@@ -86,6 +86,7 @@ from verl.utils.profiler.performance import reduce_timing, topk_reduce_ratio_min
 from verl.utils.py_functional import convert_to_regular_types
 from verl.utils.ray_utils import get_event_loop
 from verl.workers.config import FSDPCriticConfig, FSDPEngineConfig, HFModelConfig, RolloutConfig
+from verl.workers.config.optimizer import build_optimizer
 from verl.workers.rollout import get_rollout_class
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
@@ -178,7 +179,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
         self._lora_rank = self.config.model.get("lora_rank", 0)
-        self._is_lora = self._lora_rank > 0
+        self._is_lora = self.config.model.get("lora_adapter_path") is not None or self._lora_rank > 0
 
         self.role = role
         assert self.role in ["actor", "rollout", "ref", "actor_rollout", "actor_rollout_ref"]
@@ -279,7 +280,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         role="actor",
         enable_activation_offload=False,
     ):
-        from torch import optim
         from torch.distributed.fsdp import CPUOffload, MixedPrecision
         from transformers import (
             AutoConfig,
@@ -404,9 +404,27 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
             if enable_gradient_checkpointing:
                 actor_module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
-            if self._is_lora:
-                print("Applying LoRA to actor module")
-                actor_module.enable_input_require_grads()
+
+        if self._is_lora:
+            print("Applying LoRA to actor module")
+            actor_module.enable_input_require_grads()
+
+            lora_adapter_path = self.config.model.get("lora_adapter_path")
+            if lora_adapter_path is not None:
+                from peft import PeftModel
+
+                print(f"Loading pre-trained LoRA adapter to {role} from: {lora_adapter_path}")
+
+                # Copy adapter to local if needed
+                local_adapter_path = copy_to_local(lora_adapter_path, use_shm=self.config.model.get("use_shm", False))
+
+                actor_module = PeftModel.from_pretrained(actor_module, local_adapter_path, is_trainable=True)
+                peft_config = actor_module.peft_config["default"]
+                # Ensure task_type is TaskType enum, not string
+                if isinstance(peft_config.task_type, str):
+                    peft_config.task_type = TaskType.CAUSAL_LM
+
+            else:
                 # Convert config to regular Python types before creating PEFT model
                 lora_config = {
                     "task_type": TaskType.CAUSAL_LM,
@@ -453,7 +471,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         auto_wrap_policy = get_fsdp_wrap_policy(
             module=actor_module,
             config=fsdp_config.get("wrap_policy", None),
-            is_lora=self.config.model.get("lora_rank", 0) > 0,
+            is_lora=self._is_lora,
         )
 
         if self._is_rollout and self.config.rollout.name == "hf":
@@ -520,12 +538,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         if role == "actor" and optim_config is not None:
             from verl.utils.torch_functional import get_constant_schedule_with_warmup, get_cosine_schedule_with_warmup
 
-            actor_optimizer = optim.AdamW(
-                actor_module_fsdp.parameters(),
-                lr=optim_config.lr,
-                betas=optim_config.get("betas", (0.9, 0.999)),
-                weight_decay=optim_config.get("weight_decay", 1e-2),
-            )
+            actor_optimizer = build_optimizer(actor_module_fsdp.parameters(), optim_config)
 
             total_steps = optim_config.get("total_training_steps", 0)
             num_warmup_steps = int(optim_config.get("lr_warmup_steps", -1))
@@ -871,7 +884,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024**3)
 
             lr = self.actor_lr_scheduler.get_last_lr()[0]
-            metrics["actor/lr"] = lr
+            metrics["actor/lr"] = lr.item() if torch.is_tensor(lr) else lr
             self.actor_lr_scheduler.step()
 
             # TODO: here, we should return all metrics
@@ -1195,12 +1208,13 @@ class CriticWorker(Worker, DistProfilerExtension):
                 f"normalized ppo_mini_batch_size {self.config.ppo_mini_batch_size} should be larger than "
                 f"ppo_micro_batch_size_per_gpu {self.config.ppo_micro_batch_size_per_gpu}"
             )
-        self._is_lora = self.config.model.get("lora_rank", 0) > 0
+        self._is_lora = (
+            self.config.model.get("lora_adapter_path") is not None or self.config.model.get("lora_rank", 0) > 0
+        )
         self.use_orig_params = self.config.model.fsdp_config.get("use_orig_params", False)
 
     def _build_critic_model_optimizer(self, config):
         # the following line is necessary
-        from torch import optim
         from torch.distributed.fsdp import MixedPrecision
 
         from verl.utils.model import load_valuehead_model, print_model_size
@@ -1285,15 +1299,33 @@ class CriticWorker(Worker, DistProfilerExtension):
         if self._is_lora:
             print("Applying LoRA to critic module")
             critic_module.enable_input_require_grads()
-            # Convert config to regular Python types before creating PEFT model
-            lora_config = {
-                "task_type": TaskType.CAUSAL_LM,
-                "r": self.config.model.lora_rank,
-                "lora_alpha": self.config.model.lora_alpha,
-                "target_modules": convert_to_regular_types(self.config.model.target_modules),
-                "bias": "none",
-            }
-            critic_module = get_peft_model(critic_module, LoraConfig(**lora_config))
+
+            # Check if we should load a pre-trained LoRA adapter
+            lora_adapter_path = self.config.model.get("lora_adapter_path")
+            if lora_adapter_path is not None:
+                from peft import PeftModel
+
+                print(f"Loading pre-trained LoRA adapter to critic from: {lora_adapter_path}")
+
+                # Copy adapter to local if needed
+                local_adapter_path = copy_to_local(lora_adapter_path, use_shm=self.config.model.get("use_shm", False))
+
+                critic_module = PeftModel.from_pretrained(critic_module, local_adapter_path, is_trainable=True)
+                peft_config = critic_module.peft_config["default"]
+                # Ensure task_type is TaskType enum, not string
+                if isinstance(peft_config.task_type, str):
+                    peft_config.task_type = TaskType.CAUSAL_LM
+
+            else:
+                # Convert config to regular Python types before creating PEFT model
+                lora_config = {
+                    "task_type": TaskType.CAUSAL_LM,
+                    "r": self.config.model.lora_rank,
+                    "lora_alpha": self.config.model.lora_alpha,
+                    "target_modules": convert_to_regular_types(self.config.model.target_modules),
+                    "bias": "none",
+                }
+                critic_module = get_peft_model(critic_module, LoraConfig(**lora_config))
 
         if self.rank == 0:
             print_model_size(critic_module)
@@ -1316,7 +1348,7 @@ class CriticWorker(Worker, DistProfilerExtension):
         auto_wrap_policy = get_fsdp_wrap_policy(
             module=critic_module,
             config=self.config.model.fsdp_config.wrap_policy,
-            is_lora=self.config.model.get("lora_rank", 0) > 0,
+            is_lora=self._is_lora,
         )
 
         log_gpu_memory_usage("Before critic FSDP", logger=None)
@@ -1381,12 +1413,7 @@ class CriticWorker(Worker, DistProfilerExtension):
 
         log_gpu_memory_usage("After critic FSDP", logger=None)
 
-        critic_optimizer = optim.AdamW(
-            critic_module.parameters(),
-            lr=config.optim.lr,
-            betas=config.optim.get("betas", (0.9, 0.999)),
-            weight_decay=config.optim.get("weight_decay", 1e-2),
-        )
+        critic_optimizer = build_optimizer(critic_module.parameters(), config.optim)
 
         total_steps = config.optim.get("total_training_steps", 0)
         num_warmup_steps = int(config.optim.get("lr_warmup_steps", -1))

@@ -872,7 +872,7 @@ class SGLangRollout(BaseRollout):
                     _req.add_tool_response_messages(self.processing_class, [resp for resp, _, _ in tool_call_results])
                     for tool_call, (resp, reward, metrics) in zip(parsed_tool_calls, tool_call_results, strict=True):
                         _req.update_metrics(metrics, tool_call.function.name)
-                    if len(_req.input_ids) >= self.config.max_model_len:
+                    if _req.input_ids.size(-1) >= self.config.max_model_len:
                         finish_reason_type = FinishReasonTypeEnum.STOP
                         break
                     _req.state = AsyncRolloutRequestStateEnum.RUNNING
@@ -1010,7 +1010,7 @@ class SGLangRollout(BaseRollout):
                     break
                 else:
                     _req.add_user_message(self.processing_class, content)
-                    if len(_req.input_ids) >= self.config.max_model_len:
+                    if _req.input_ids.size(-1) >= self.config.max_model_len:
                         finish_reason_type = FinishReasonTypeEnum.STOP
                         break
                     else:

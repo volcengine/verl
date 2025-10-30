@@ -57,7 +57,7 @@ from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.debug import marked_timer
 from verl.utils.metric import reduce_metrics
 from verl.utils.rollout_skip import RolloutSkip
-from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
+from verl.utils.seqlen_balancing import calculate_workload, get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
 
@@ -332,7 +332,10 @@ class RayPPOTrainer:
         )
 
         # if ref_in_actor is True, the reference policy will be actor without lora applied
-        self.ref_in_actor = config.actor_rollout_ref.model.get("lora_rank", 0) > 0
+        self.ref_in_actor = (
+            config.actor_rollout_ref.model.get("lora_rank", 0) > 0
+            or config.actor_rollout_ref.model.get("lora_adapter_path") is not None
+        )
 
         # define in-reward KL control
         # kl loss control currently not suppoorted
@@ -914,15 +917,35 @@ class RayPPOTrainer:
             if self.use_rm:
                 self.rm_wg.stop_profile()
 
-    def _balance_batch(self, batch: DataProto, metrics, logging_prefix="global_seqlen"):
+    def _balance_batch(self, batch: DataProto, metrics, logging_prefix="global_seqlen", keep_minibatch=False):
         """Reorder the data on single controller such that each dp rank gets similar total tokens"""
         attention_mask = batch.batch["attention_mask"]
         batch_size = attention_mask.shape[0]
-        global_seqlen_lst = batch.batch["attention_mask"].view(batch_size, -1).sum(-1).tolist()  # (train_batch_size,)
+        global_seqlen_lst = batch.batch["attention_mask"].view(batch_size, -1).sum(-1)  # (train_batch_size,)
+        global_seqlen_lst = calculate_workload(global_seqlen_lst)
         world_size = self.actor_rollout_wg.world_size
-        global_partition_lst = get_seqlen_balanced_partitions(
-            global_seqlen_lst, k_partitions=world_size, equal_size=True
-        )
+        if keep_minibatch:
+            # Decouple the DP balancing and mini-batching.
+            minibatch_size = self.config.actor_rollout_ref.actor.get("ppo_mini_batch_size")
+            minibatch_num = len(global_seqlen_lst) // minibatch_size
+            global_partition_lst = [[] for _ in range(world_size)]
+            for i in range(minibatch_num):
+                rearrange_minibatch_lst = get_seqlen_balanced_partitions(
+                    global_seqlen_lst[i * minibatch_size : (i + 1) * minibatch_size],
+                    k_partitions=world_size,
+                    equal_size=True,
+                )
+                for j, part in enumerate(rearrange_minibatch_lst):
+                    global_partition_lst[j].extend([x + minibatch_size * i for x in part])
+        else:
+            global_partition_lst = get_seqlen_balanced_partitions(
+                global_seqlen_lst, k_partitions=world_size, equal_size=True
+            )
+        # Place smaller micro-batches at both ends to reduce the bubbles in pipeline parallel.
+        for idx, partition in enumerate(global_partition_lst):
+            partition.sort(key=lambda x: (global_seqlen_lst[x], x))
+            ordered_partition = partition[::2] + partition[1::2][::-1]
+            global_partition_lst[idx] = ordered_partition
         # reorder based on index. The data will be automatically equally partitioned by dispatch function
         global_idx = torch.tensor([j for partition in global_partition_lst for j in partition])
         batch.reorder(global_idx)
@@ -932,41 +955,57 @@ class RayPPOTrainer:
         metrics.update(global_balance_stats)
 
     def compute_rollout_importance_weights_and_add_to_batch(self, batch: DataProto) -> tuple[DataProto, dict]:
-        """Compute rollout importance sampling weights and mismatch metrics, conditionally add weights to batch.
+        """Compute IS weights and apply rejection sampling for rollout-training mismatch.
 
-        This method computes IS weights to correct for distribution mismatch between
-        rollout policy and training policy. It always computes metrics when enabled, but
-        only adds weights to batch if algorithm.rollout_is is True.
+        Computes importance sampling weights to correct for distribution mismatch between
+        rollout and training policies. Applies rejection sampling (mask mode/veto) by
+        modifying response_mask. Always updates response_mask; conditionally adds IS weights.
+
+        Key behavior:
+        - response_mask: ALWAYS updated with rejection (mask mode + veto excluded from training)
+        - rollout_is_weights: Added to batch ONLY if config.algorithm.rollout_is=True
+
+        This separation ensures:
+        - Rejection works even when IS weights are disabled (rollout_is=False)
+        - Metrics can be monitored before enabling IS weight application
 
         Args:
-            batch: DataProto containing old_log_probs, rollout_log_probs, response_mask
+            batch: DataProto with old_log_probs, rollout_log_probs, response_mask
 
         Returns:
-            Tuple of (updated_batch, metrics) where:
-                - updated_batch: Batch with rollout_is_weights added (if rollout_is=True)
-                - metrics: Dictionary of IS and mismatch metrics (all with mismatch/ prefix)
+            Tuple of (updated_batch, metrics):
+                updated_batch: Batch with modified response_mask (always) and rollout_is_weights (if rollout_is=True)
+                metrics: Dict of IS and mismatch metrics, all with "mismatch/" prefix
         """
         # Compute rollout IS weights if enabled and data is available
-        # rollout_is_threshold is the main on/off switch
-        if self.config.algorithm.rollout_is_threshold is not None and "rollout_log_probs" in batch.batch:
-            rollout_is_weights, rollout_is_metrics = compute_rollout_importance_weights(
+        # rollout_is_threshold is the main on/off switch (None = disabled, float = enabled)
+        rollout_is_threshold = self.config.algorithm.get("rollout_is_threshold", None)
+        if rollout_is_threshold is not None and rollout_is_threshold > 0 and "rollout_log_probs" in batch.batch:
+            # Compute IS weights and get modified response_mask
+            rollout_is_weights, modified_response_mask, rollout_is_metrics = compute_rollout_importance_weights(
                 old_log_prob=batch.batch["old_log_probs"],
                 rollout_log_prob=batch.batch["rollout_log_probs"],
                 response_mask=batch.batch["response_mask"],
                 rollout_is_level=self.config.algorithm.rollout_is_level,
                 rollout_is_mode=self.config.algorithm.rollout_is_mode,
                 rollout_is_threshold=self.config.algorithm.rollout_is_threshold,
-                rollout_is_threshold_lower=self.config.algorithm.rollout_is_threshold_lower,
-                rollout_is_veto_threshold=self.config.algorithm.rollout_is_veto_threshold,
+                rollout_is_threshold_lower=self.config.algorithm.get("rollout_is_threshold_lower", None),
+                rollout_is_veto_threshold=self.config.algorithm.get("rollout_is_veto_threshold", None),
             )
 
-            # Control: Should we apply weights to policy loss?
-            # True = add weights to batch (actor will apply them)
-            # False = don't add weights (metrics only, no loss modification)
+            # ALWAYS update response_mask with rejection (even if rollout_is=False)
+            # - Mask mode: tokens with outlier IS ratios excluded
+            # - Veto: sequences with catastrophic tokens excluded
+            # This ensures correct loss normalization (rejected samples not in denominator)
+            batch.batch["response_mask"] = modified_response_mask
+
+            # Conditionally add IS weights based on rollout_is config flag
+            # - rollout_is=True: Enable IS weight correction in policy loss
+            # - rollout_is=False: Metrics-only mode (rejection still applied via mask)
             apply_weights = self.config.algorithm.get("rollout_is", False)
 
             if apply_weights:
-                # Add IS weights to batch for distribution to workers
+                # Add IS weights (safety-bounded, mode-processed) to enable weight correction
                 batch = batch.union(rollout_is_weights)
 
             return batch, rollout_is_metrics
@@ -1103,7 +1142,6 @@ class RayPPOTrainer:
                     # NOTE: This usually changes the order of data in the `batch`,
                     # which won't affect the advantage calculation (since it's based on uid),
                     # but might affect the loss calculation (due to the change of mini-batching).
-                    # TODO: Decouple the DP balancing and mini-batching.
                     if self.config.trainer.balance_batch:
                         self._balance_batch(batch, metrics=metrics)
 
