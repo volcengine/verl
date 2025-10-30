@@ -22,7 +22,7 @@ MindSpeed   (f2b0977e)
 二、 Dockerfile 构建镜像脚本
 ---------------------------
 
-Dockerfile 脚本请参照 `此处 <https://github.com/volcengine/verl/blob/main/docker/Dockerfile.ascend_vllm-0.9.1>`_ 。
+Dockerfile 脚本请参照 `此处 <https://github.com/volcengine/verl/blob/main/docker/Dockerfile.ascend_8.2.rc1_a2>`_ 。
 
 
 三、镜像构建命令示例
@@ -33,4 +33,4 @@ Dockerfile 脚本请参照 `此处 <https://github.com/volcengine/verl/blob/main
    # Navigate to the directory containing the Dockerfile 
    cd /verl/docker
    # Build the image (specified tag: ascend-verl:cann82rc1_vllm091) 
-   docker build -f Dockerfile.ascend.vllm-0.9.1 -t verl-ascend-vllm:cann8.2.rc1-vllm-0.9.1 .
+   docker build -f Dockerfile.ascend_8.2.rc1_a2 -t verl-ascend-vllm:cann8.2.rc1-vllm-0.9.1 .
