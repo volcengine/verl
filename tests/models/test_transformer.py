@@ -176,7 +176,7 @@ def test_attn_implementation_override():
     for override_config, expected in test_cases:
         actual = override_config.get("attn_implementation", "flash_attention_2")
         assert actual == expected, f"Expected {expected}, got {actual} for config {override_config}"
-    
+
     # Test case 2: Test with local config creation (simulate FSDP worker behavior)
     # Test default behavior
     override_config_default = {}
