@@ -243,7 +243,6 @@ class RobDataParallelPPOActor(BasePPOActor):
 
     def update_policy(self, data: DataProto):
         self.actor_module.train()
-        breakpoint()
 
         assert self.config.ppo_mini_batch_size % self.config.ppo_micro_batch_size_per_gpu == 0
         self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
@@ -303,6 +302,7 @@ class RobDataParallelPPOActor(BasePPOActor):
                     "actor/pg_loss": 0,
                     "actor/pg_clipfrac": 0,
                     "actor/ppo_kl": 0,
+                    "actor/pg_clipfrac_lower": 0,
                 }
 
                 
@@ -315,7 +315,7 @@ class RobDataParallelPPOActor(BasePPOActor):
                 )
 
 
-                pg_loss, pg_clipfrac, ppo_kl = core_algos.compute_policy_loss(
+                pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = core_algos.compute_policy_loss(
                     old_log_prob=old_log_prob,
                     log_prob=log_prob,
                     advantages=advantages,
@@ -328,6 +328,7 @@ class RobDataParallelPPOActor(BasePPOActor):
                 pg_loss = pg_loss * response_mask_tmp_sum
                 pg_clipfrac = pg_clipfrac * response_mask_tmp_sum / response_mask_sum
                 ppo_kl = ppo_kl * response_mask_tmp_sum / response_mask_sum
+                pg_clipfrac_lower = pg_clipfrac_lower * response_mask_tmp_sum / response_mask_sum
 
                 policy_loss = pg_loss / response_mask_sum
 
@@ -338,7 +339,7 @@ class RobDataParallelPPOActor(BasePPOActor):
                 loss_info["actor/pg_loss"] = loss_info["actor/pg_loss"] + policy_loss.detach().item()
                 loss_info["actor/pg_clipfrac"] = loss_info["actor/pg_clipfrac"] + pg_clipfrac.detach().item()
                 loss_info["actor/ppo_kl"] = loss_info["actor/ppo_kl"] + ppo_kl.detach().item()
-
+                loss_info["actor/pg_clipfrac_lower"] = loss_info["actor/pg_clipfrac_lower"] + pg_clipfrac_lower.detach().item()
                 append_to_dict(metrics, loss_info)
 
             grad_norm = self._optimizer_step()
