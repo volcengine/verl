@@ -239,6 +239,7 @@ class NaiveRolloutRob(BaseRollout):
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto) -> DataProto:
         """Generate sequences"""
+        print(f"generate_sequences prompts: {prompts.non_tensor_batch.keys()}")
         # make sampling args can be overriden by inputs
         do_sample = prompts.meta_info["do_sample"]
         temperature = prompts.meta_info["temperature"]
