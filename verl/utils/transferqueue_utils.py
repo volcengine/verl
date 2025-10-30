@@ -120,7 +120,7 @@ def _batchmeta_to_dataproto(batchmeta: "BatchMeta") -> DataProto:
     return _run_async_in_temp_loop(_async_batchmeta_to_dataproto, batchmeta)
 
 
-async def _async_update_batchmeta_with_output(outputs: tuple[Any], batchmeta: "BatchMeta") -> None:    
+async def _async_update_batchmeta_with_output(outputs: tuple[Any], batchmeta: "BatchMeta") -> None:
     for output in outputs:
         if not isinstance(output, DataProto):
             continue
@@ -160,7 +160,7 @@ def tqbridge(put_data: bool = True, multiple_outputs: bool = False):
                   updated to `BatchMeta` and `BatchMeta` will be returned;
                   If False, the function output result will be returned directly.
                   Defaults to True.
-        multiple_outputs: If True, explicitly indicates that `func` returns multiple 
+        multiple_outputs: If True, explicitly indicates that `func` returns multiple
                 unpacked values (e.g., `return a, b, c` instead of `return (a, b, c)`).
                 These values will be wrapped into a tuple before syncing to `BatchMeta`.
                 Defaults to False.
