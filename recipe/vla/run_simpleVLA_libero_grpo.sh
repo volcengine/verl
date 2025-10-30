@@ -41,7 +41,7 @@ python -m recipe.vla.main_ppo \
     actor_rollout_ref.actor.optim.lr=5e-6 \
     actor_rollout_ref.actor.optim.warmup_style=constant \
     actor_rollout_ref.actor.ppo_mini_batch_size=128 \
-    actor_rollout_ref.actor.ppo_micro_batch_size=$NUM_GPUS \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
     actor_rollout_ref.actor.use_dynamic_bsz=False \
     actor_rollout_ref.actor.grad_clip=1 \
     actor_rollout_ref.actor.clip_ratio_high=0.28 \
@@ -69,10 +69,10 @@ python -m recipe.vla.main_ppo \
     trainer.n_gpus_per_node=$NUM_GPUS \
     trainer.nnodes=$NUM_NODES \
     trainer.save_freq=25 \
-    trainer.test_freq=4 \
+    trainer.test_freq=10 \
     trainer.total_epochs=20 \
     trainer.val_only=False \
-    algorithm.adv_estimator=grpo \
-    trainer.val_before_train=True 2>&1 | tee train_log.log
+    algorithm.adv_estimator=reinforce_plus_plus \
+    trainer.val_before_train=False 2>&1 | tee train_log.log
 
 

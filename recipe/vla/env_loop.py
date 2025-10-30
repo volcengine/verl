@@ -141,7 +141,6 @@ class EnvLoop:
                     vla_input.meta_info = prompts.meta_info  # Pass along rollout config
                     rollout_futures[stage_id] = self.rollout_wg.generate_sequences(vla_input)
         self.env_wg.finish_rollout()
-        breakpoint()
         return self._collate_trajectories(trajectories, initial_state_ids, meta_info=prompts.meta_info)
 
     def _restructure_obs_data(self, data_proto: DataProto) -> list[DataProto]:

@@ -37,20 +37,13 @@ from verl.trainer.ppo.metric_utils import (
     compute_throughout_metrics,
     compute_timing_metrics,
 )
-from verl.trainer.ppo.ray_trainer import RayPPOTrainer, apply_kl_penalty, compute_advantage, compute_response_mask
+from verl.trainer.ppo.ray_trainer import RayPPOTrainer, apply_kl_penalty, compute_advantage
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.trainer.ppo.utils import Role
 from verl.utils.checkpoint.checkpoint_manager import should_save_ckpt_esi
 from verl.utils.debug import marked_timer
 from verl.utils.metric import reduce_metrics
 
-def calculate_reward(data: DataProto) -> torch.Tensor:
-    complete_tensor = data.batch["complete"]
-    batch_size, num_steps = complete_tensor.shape[:2]
-    traj_has_complete = torch.any(complete_tensor, dim=(1, 2))  # shape: [batch_size]
-    reward_per_traj = traj_has_complete.float()
-    reward_per_step = reward_per_traj.unsqueeze(1).expand(batch_size, num_steps)
-    return reward_per_step
 
 def compute_response_mask(data: DataProto) -> torch.Tensor:
     """Compute the attention mask for the response part of the sequence.
@@ -84,7 +77,24 @@ def compute_response_mask(data: DataProto) -> torch.Tensor:
     mask_traj = step_indices <= final_first_true_idx.unsqueeze(1)
     
     mask = mask_traj.view(complete.shape)  # shape: [batch_size, num_steps, chunk_size]
+    mask = mask.repeat_interleave(7, dim=-1)  # eapand to action dim
     return mask
+
+def flatten_trajectories(data: DataProto) -> DataProto:
+    batch_size, num_steps = data.batch["action"].shape[:2]
+    new_batch_fields = {}
+    for key, tensor in data.batch.items():
+        if len(tensor.shape) >= 2 and tensor.shape[0] == batch_size and tensor.shape[1] == num_steps:
+            # (B, S, H, W) -> (B*S, H, W)
+            new_shape = (batch_size * num_steps, *tensor.shape[2:])
+            new_batch_fields[key] = tensor.reshape(new_shape)
+        elif len(tensor.shape) == 1 and tensor.shape[0] == batch_size:
+            # [e1, e2] -> [e1, e1, ..., e2, e2, ...] (S times each)
+            new_batch_fields[key] = tensor.repeat_interleave(num_steps)
+        else:
+            new_batch_fields[key] = tensor
+    new_data = DataProto.from_dict(tensors=new_batch_fields, meta_info=data.meta_info)
+    return new_data
 
 # def filter_by_acc(data: DataProto, accuracy_lower_bound, accuracy_upper_bound) -> torch.Tensor:
 
@@ -170,7 +180,7 @@ class RobRayPPOTrainer(RayPPOTrainer):
     def _get_gen_batch(self, batch: DataProto) -> DataProto:
         # pop those keys for generation
         batch_keys_to_pop = []
-        non_tensor_batch_keys_to_pop = set(batch.non_tensor_batch.keys()) - {"uid"}
+        non_tensor_batch_keys_to_pop = set(batch.non_tensor_batch.keys())
         gen_batch = batch.pop(
             batch_keys=batch_keys_to_pop,
             non_tensor_batch_keys=list(non_tensor_batch_keys_to_pop),
@@ -240,6 +250,7 @@ class RobRayPPOTrainer(RayPPOTrainer):
                     )
 
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
+                
 
                 # add uid to batch
                 batch.non_tensor_batch["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(batch))], dtype=object)
@@ -252,12 +263,22 @@ class RobRayPPOTrainer(RayPPOTrainer):
                 gen_batch.meta_info["do_sample"] = True
                 gen_batch.meta_info["temperature"] = self.config.actor_rollout_ref.rollout.temperature
                 gen_batch.meta_info["prompt_length"] = self.config.actor_rollout_ref.rollout.prompt_length
+                gen_batch.meta_info["eos_token_id"] = self.tokenizer.eos_token_id,
+                gen_batch.meta_info["n_samples"] = self.config.actor_rollout_ref.rollout.n,
+                gen_batch.meta_info["pad_token_id"] = self.tokenizer.pad_token_id,
+
                 gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
 
                 is_last_step = self.global_steps >= self.total_training_steps
                 with marked_timer("step", timing_raw):
                     # generate a batch
                     with marked_timer("gen", timing_raw, color="red"):
+                        # debug only
+                        # batch = torch.load("batch_flatten.pt", weights_only=False)
+                        # batch.meta_info["pad_token_id"] = self.tokenizer.pad_token_id
+                        # batch.batch["response_mask"] = batch.batch["response_mask"].repeat_interleave(7, dim=-1)
+                        # debug only
+
                         if not self.async_rollout_mode:
                             gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
                         else:
@@ -265,10 +286,10 @@ class RobRayPPOTrainer(RayPPOTrainer):
                         # timing_raw.update(gen_batch_output.meta_info["timing"])
                         # gen_batch_output.meta_info.pop("timing", None)
 
-                    breakpoint()
                     # repeat to align with repeated responses in rollout
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
-                    batch = batch.union(gen_batch_output)
+                    # batch = batch.union(gen_batch_output)
+                    batch = gen_batch_output
 
                     if "response_mask" not in batch.batch.keys():
                         batch.batch["response_mask"] = compute_response_mask(batch)
@@ -278,14 +299,10 @@ class RobRayPPOTrainer(RayPPOTrainer):
 
                     with marked_timer("reward", timing_raw, color="yellow"):
                         # compute reward model score
-                        if self.use_rm and "rm_scores" not in batch.batch.keys():
-                            reward_tensor = self.rm_wg.compute_rm_score(batch)
-                            batch = batch.union(reward_tensor)
+                        reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
 
-                        if self.config.reward_model.launch_reward_fn_async:
-                            future_reward = compute_reward_async.remote(data=batch, reward_fn=self.reward_fn)
-                        else:
-                            reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
+                    batch.batch["reward_tensor"] = reward_tensor
+                    batch = flatten_trajectories(batch)
 
                     # recompute old_log_probs
                     with marked_timer("old_log_prob", timing_raw, color="blue"):
@@ -322,10 +339,8 @@ class RobRayPPOTrainer(RayPPOTrainer):
 
                     with marked_timer("adv", timing_raw, color="brown"):
                         # we combine with rule-based rm
-                        reward_extra_infos_dict: dict[str, list]
-                        if self.config.reward_model.launch_reward_fn_async:
-                            reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
-                        batch.batch["token_level_scores"] = reward_tensor
+                        reward_extra_infos_dict: dict[str, list] = None
+                        batch.batch["token_level_scores"] = batch.batch["reward_tensor"].unsqueeze(-1).expand(-1, response_masks.shape[-1])
 
                         if reward_extra_infos_dict:
                             batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})

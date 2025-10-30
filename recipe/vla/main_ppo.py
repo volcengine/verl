@@ -17,12 +17,25 @@ import datasets
 import hydra
 import ray
 from omegaconf import OmegaConf
+import torch
 
 from verl.trainer.constants_ppo import get_ppo_ray_runtime_env
+from verl import DataProto
+
 
 # from verl.trainer.ppo.ray_trainer import RayTrainer
 from .rob_ray_trainer import RobRayPPOTrainer
 
+def calculate_reward(data: DataProto, return_dict: bool = False) -> torch.Tensor:
+    complete_tensor = data.batch["complete"]
+    batch_size, num_steps = complete_tensor.shape[:2]
+    traj_has_complete = torch.any(complete_tensor, dim=(1, 2))  # shape: [batch_size]
+    reward_per_traj = traj_has_complete.float()
+    reward_per_step = reward_per_traj.unsqueeze(1).expand(batch_size, num_steps)
+    if return_dict:
+        return {"reward_tensor": reward_per_step}
+    else:
+        return reward_per_step
 
 @hydra.main(config_path="config", config_name="rob_ppo_trainer", version_base=None)
 def main(config):
@@ -98,8 +111,8 @@ def main_task(config):
 
     # # Note that we always use function-based RM for validation
     # val_reward_fn = RobRewardManager( num_examine=1,config=config)
-    reward_fn = None
-    val_reward_fn = None
+    reward_fn = calculate_reward
+    val_reward_fn = calculate_reward
 
     resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
