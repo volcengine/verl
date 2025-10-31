@@ -76,6 +76,14 @@ trigger_parameter_sync_step=4
 require_batches=4
 partial_rollout=True
 
+# Rollout Importance Sampling
+rollout_is_threshold=1.001
+rollout_is=True
+rollout_is_threshold_lower=0.99
+rollout_is_level=geometric
+rollout_is_mode=mask
+rollout_is_veto_threshold=1e-4
+
 python -m recipe.fully_async_policy.fully_async_main \
     data.train_files="${TRAIN_FILE}" \
     data.val_files="${TEST_FILE}" \
@@ -159,4 +167,12 @@ python -m recipe.fully_async_policy.fully_async_main \
     async_training.trigger_parameter_sync_step="${trigger_parameter_sync_step}" \
     async_training.require_batches="${require_batches}" \
     async_training.partial_rollout="${partial_rollout}" \
-    async_training.use_rollout_log_probs=True
+    async_training.use_rollout_log_probs=True \
+    async_training.compute_prox_log_prob=True \
+    algorithm.rollout_is=${rollout_is} \
+    algorithm.rollout_is_threshold=${rollout_is_threshold} \
+    algorithm.rollout_is_threshold_lower=${rollout_is_threshold_lower} \
+    algorithm.rollout_is_level=${rollout_is_level} \
+    algorithm.rollout_is_mode=${rollout_is_mode} \
+    algorithm.rollout_is_veto_threshold=${rollout_is_veto_threshold}
+
