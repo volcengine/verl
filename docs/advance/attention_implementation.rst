@@ -3,7 +3,7 @@
 Attention Implementation Override
 ==================================
 
-Last updated: 01/28/2025.
+Last updated: 10/31/2025.
 
 By default, VERL's FSDP workers use ``flash_attention_2`` as the attention implementation for improved performance. 
 However, you can now override this setting to use different attention implementations based on your needs.
