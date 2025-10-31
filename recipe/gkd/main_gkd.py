@@ -1,4 +1,5 @@
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
+# Copyright 2025 Individual Contributor: Brilliant Hanabi, furunding
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -59,7 +60,7 @@ def run_on_policy_distill(config) -> None:
                 model paths, and training hyperparameters.
     """
     # Check if Ray is not initialized
-    
+
     if not ray.is_initialized():
         # Initialize Ray with a local cluster configuration
         # Set environment variables in the runtime environment to control tokenizer parallelism,
@@ -78,7 +79,9 @@ def run_on_policy_distill(config) -> None:
         and OmegaConf.select(config.global_profiler, "steps") is not None
         and len(OmegaConf.select(config.global_profiler, "steps")) > 0
     ):
-        nsight_options = OmegaConf.to_container(config.global_profiler.global_tool_config.nsys.controller_nsight_options)
+        nsight_options = OmegaConf.to_container(
+            config.global_profiler.global_tool_config.nsys.controller_nsight_options
+        )
         runner = TaskRunner.options(runtime_env={"nsight": nsight_options}).remote()
     else:
         runner = TaskRunner.remote()
@@ -129,7 +132,7 @@ class TaskRunner:
         )
 
         # Instantiate the tokenizer and processor.
-        from verl.utils import hf_processor, hf_tokenizer
+        from verl.utils import hf_tokenizer
 
         trust_remote_code = config.data.get("trust_remote_code", False)
         tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
@@ -144,11 +147,11 @@ class TaskRunner:
 
         # Megatron-only workers, split into rollout and actor
         if config.actor_rollout_ref.actor.strategy == "megatron":
-            from verl.single_controller.ray import RayWorkerGroup
             from recipe.gkd.megatron_workers import (
                 MegatronOnPolicyDistillActorWorker,
                 MegatronOnPolicyDistillRolloutWorker,
             )
+            from verl.single_controller.ray import RayWorkerGroup
 
             rollout_cls = MegatronOnPolicyDistillRolloutWorker
             actor_cls = MegatronOnPolicyDistillActorWorker
@@ -198,7 +201,7 @@ class TaskRunner:
             val_dataset = RLHFDataset(config.data.val_files, tokenizer, config.data, None)
         else:
             val_dataset = None
-            
+
         train_sampler = create_rl_sampler(config.data, train_dataset)
 
         # Initialize the PPO trainer.

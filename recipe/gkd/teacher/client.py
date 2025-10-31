@@ -1,21 +1,34 @@
-import io
+# Copyright 2025 Individual Contributor: furunding
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 import queue
-from datetime import datetime
 import random
 import threading
-from contextlib import nullcontext
 from concurrent.futures import Future
+from contextlib import nullcontext
+from datetime import datetime
 
+import torch
 import zmq
 from codetiming import Timer
-import torch
 
 try:
-    from .utils import serialize, deserialize
-except:
-    from utils import serialize, deserialize
+    from .utils import deserialize, serialize
+except ImportError:
+    from utils import deserialize, serialize
 
 DEBUG = False
+
 
 def check_if_invalid(topk_logps, inputs):
     is_valid = True
@@ -43,8 +56,17 @@ def check_if_invalid(topk_logps, inputs):
 
 
 class TeacherClient:
-    def __init__(self, server_ip, server_port, num_microbatches=1, max_tokens=1, 
-                 n_server_workers=1, temperature=1, only_response=False, max_seq_len=None) -> None:
+    def __init__(
+        self,
+        server_ip,
+        server_port,
+        num_microbatches=1,
+        max_tokens=1,
+        n_server_workers=1,
+        temperature=1,
+        only_response=False,
+        max_seq_len=None,
+    ) -> None:
         self.server_ip = server_ip
         self.server_port = server_port
         self.num_microbatches = num_microbatches
@@ -62,7 +84,7 @@ class TeacherClient:
         socket = self.context.socket(zmq.REQ)
         socket.connect(f"tcp://{self.server_ip}:{self.server_port}")
         socket.setsockopt(zmq.LINGER, 0)
-        socket.setsockopt(zmq.RCVTIMEO, 600000)    # 接收超时 30 分钟
+        socket.setsockopt(zmq.RCVTIMEO, 600000)  # 接收超时 30 分钟
 
         while True:
             futures = []
@@ -88,7 +110,7 @@ class TeacherClient:
                     request["only_response"] = True
 
                 socket.send(serialize(request))
-                raw = socket.recv()  
+                raw = socket.recv()
                 response = deserialize(raw)
 
                 if isinstance(response, dict) and response.get("status") == "error":
@@ -96,7 +118,7 @@ class TeacherClient:
                     err = RuntimeError(f"Teacher error: {reason}")
                     for f in futures:
                         f.set_exception(err)
-                    continue  
+                    continue
 
                 required = ("responses", "teacher_topk_logprobs", "teacher_topk_indices")
                 for k in required:
@@ -105,9 +127,7 @@ class TeacherClient:
 
                 total = len(response["teacher_topk_logprobs"])
                 if self.num_microbatches <= 0 or total % self.num_microbatches != 0:
-                    raise RuntimeError(
-                        f"Size mismatch: total={total}, num_microbatches={self.num_microbatches}"
-                    )
+                    raise RuntimeError(f"Size mismatch: total={total}, num_microbatches={self.num_microbatches}")
 
                 mbs = total // self.num_microbatches
                 for i, future in enumerate(futures):
@@ -131,8 +151,6 @@ class TeacherClient:
                     except Exception:
                         pass
                 continue
-       
-
 
     def _run(self):
         for _ in range(self.n_server_workers):
@@ -155,9 +173,10 @@ if __name__ == "__main__":
 
     prompt_lens = (n_gps * gbs) * [seq_len]
 
-    tc = TeacherClient(server_ip="127.0.0.1", server_port=15555, num_microbatches=gbs // mbs, 
-                       n_server_workers=1, only_response=False)
-    
+    tc = TeacherClient(
+        server_ip="127.0.0.1", server_port=15555, num_microbatches=gbs // mbs, n_server_workers=1, only_response=False
+    )
+
     prompt_token_ids = []
 
     for pl in prompt_lens:
@@ -172,16 +191,18 @@ if __name__ == "__main__":
             responses, teacher_topk_logprobs, teacher_topk_indices = future.result()
 
             print(len(teacher_topk_logprobs), len(teacher_topk_indices))
-            
+
             assert len(responses) == mbs
             assert len(teacher_topk_logprobs) == mbs
             assert len(teacher_topk_indices) == mbs
 
-            assert all(x.shape == y.shape for x, y in zip(teacher_topk_logprobs, teacher_topk_indices))
+            assert all(x.shape == y.shape for x, y in zip(teacher_topk_logprobs, teacher_topk_indices, strict=False))
             out_lens = [x.shape[0] for x in teacher_topk_logprobs]
             out_dims = [x.shape[1] for x in teacher_topk_logprobs]
             assert all(out_len == seq_len for out_len in out_lens)
             assert all(out_dim == 256 for out_dim in out_dims)
-            assert all(x.dtype == torch.float32 for x in teacher_topk_logprobs), [x.dtype for x in teacher_topk_logprobs]
+            assert all(x.dtype == torch.float32 for x in teacher_topk_logprobs), [
+                x.dtype for x in teacher_topk_logprobs
+            ]
             assert all(x.dtype == torch.int32 for x in teacher_topk_indices)
             assert all(x.dtype == torch.int32 for x in responses)

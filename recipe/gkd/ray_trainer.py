@@ -19,11 +19,7 @@ This trainer supports model-agonistic model initialization with huggingface
 """
 
 import time
-import uuid
-from collections import deque
-from copy import deepcopy
-from typing import Optional, Type
-from functools import lru_cache
+from typing import Optional
 
 import numpy as np
 import ray
@@ -33,9 +29,10 @@ from torch.utils.data import Dataset, Sampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
 
+from recipe.gkd.teacher import TeacherClient
+from recipe.gkd.teacher_utils import get_teacher_knowledge
 from verl import DataProto
 from verl.experimental.dataset.sampler import AbstractCurriculumSampler
-from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto, DataProtoFuture
 from verl.single_controller.base import Worker
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.single_controller.ray.base import create_colocated_worker_cls
@@ -43,20 +40,16 @@ from verl.trainer.ppo.metric_utils import (
     compute_throughout_metrics,
     compute_timing_metrics,
 )
-from verl.utils.checkpoint.checkpoint_manager import should_save_ckpt_esi
+from verl.trainer.ppo.ray_trainer import RayPPOTrainer, ResourcePoolManager, Role
 from verl.utils.debug import marked_timer
 from verl.utils.metric import (
     reduce_metrics,
 )
+from verl.utils.torch_dtypes import PrecisionType
 from verl.utils.tracking import ValidationGenerationsLogger
 
-from recipe.gkd.teacher import TeacherClient
-from recipe.gkd.teacher_utils import get_teacher_knowledge
+WorkerType = type[Worker]
 
-from verl.trainer.ppo.ray_trainer import Role, ResourcePoolManager, RayPPOTrainer
-from verl.utils.torch_dtypes import PrecisionType
-
-WorkerType = Type[Worker]
 
 class GenerationBatchFuture:
     """
@@ -171,12 +164,13 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
         self.device_name = device_name
         self.validation_generations_logger = ValidationGenerationsLogger()
         self.use_critic = False
-        
+
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
         self.teacher_config = self.config.actor_rollout_ref.teacher
         self.n_server_workers = self.teacher_config.n_server_workers
-        self.teacher_client = TeacherClient(self.teacher_config.server_ip, self.teacher_config.server_port, 
-                                            n_server_workers=self.n_server_workers)
+        self.teacher_client = TeacherClient(
+            self.teacher_config.server_ip, self.teacher_config.server_port, n_server_workers=self.n_server_workers
+        )
 
         self.params_dtype = PrecisionType.to_dtype("bfloat16")
 
@@ -248,7 +242,7 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
                 if OmegaConf.select(self.config, "critic.optim"):
                     self.config.critic.optim.total_training_steps = total_training_steps
         except Exception as e:
-            print(f"Warning: Could not set total_training_steps in config. Structure missing? Error: {e}")        
+            print(f"Warning: Could not set total_training_steps in config. Structure missing? Error: {e}")
 
     def init_workers(self):
         """Initialize distributed training workers using Ray backend.
@@ -308,7 +302,7 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
             )
             spawn_wg = wg_dict.spawn(prefix_set=class_dict.keys())
             all_wg.update(spawn_wg)
-            time.sleep(5) # avoid port conflict
+            time.sleep(5)  # avoid port conflict
 
         self.rollout_wg = all_wg["rollout"]
         self.actor_wg = all_wg["actor"]
@@ -364,9 +358,7 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
             non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
         )
         gen_batch.meta_info["global_steps"] = self.global_steps
-        gen_batch.meta_info["sampling_params"] = {
-            "top_p": self.config.actor_rollout_ref.rollout.temperature
-        }
+        gen_batch.meta_info["sampling_params"] = {"top_p": self.config.actor_rollout_ref.rollout.temperature}
         # sync weights from actor to rollout
         if sync_before_generation:
             self.sync_rollout_weights()
@@ -376,17 +368,17 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
 
     def _async_get_teacher_knowledge(self, future: GenerationBatchFuture):
         """Asynchronously obtain teacher model knowledge for generated sequences.
-        
+
         This method retrieves generated sequences from the future object, adds response length metadata,
         and asynchronously queries the teacher model for knowledge distillation. The teacher model's output
         is set in the future object for subsequent processing.
-        
+
         Args:
             future (GenerationBatchFuture): Future object containing generated sequences and metadata
-            
+
         Returns:
             GenerationBatchFuture: The same future object with teacher knowledge set
-            
+
         Raises:
             RuntimeError: If teacher client initialization fails or knowledge retrieval fails
         """
@@ -394,10 +386,10 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
         gen_batch_output.meta_info["response_length"] = self.config.data.max_response_length
 
         future.set_teacher_batch_output(
-            get_teacher_knowledge(gen_batch_output, self.teacher_client, 
-                                  self.n_server_workers, is_async=True))
+            get_teacher_knowledge(gen_batch_output, self.teacher_client, self.n_server_workers, is_async=True)
+        )
         return future
-    
+
     def _maybe_reload_rollout_from_ckpt(self, last_ckpt_path: Optional[str]):
         """
         Optionally reload rollout weights from the latest actor checkpoint.
@@ -413,20 +405,20 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
 
     def one_step_off_scheduler(self, continuous_iterator):
         """One-step-off scheduler implementation (version 1) for GKD training with improved pipeline.
-        
+
         This scheduler optimizes the training pipeline by:
         1. Overlapping rollout weight synchronization with teacher knowledge processing
         2. Maintaining consistent timing measurement across iterations
         3. Reducing idle time between generation and knowledge distillation phases
-        
+
         The scheduler maintains the following timing metrics:
         - sync_rollout_weights: Time taken to synchronize rollout weights
         - wait_prev_gen: Time waiting for previous generation to complete
         - wait_prev_teacher: Time waiting for teacher knowledge to be ready
-        
+
         Args:
             continuous_iterator: Iterator providing (epoch, batch_dict) tuples for training
-            
+
         Yields:
             tuple: Contains (batch, gen_batch_output, teacher_batch_output, timing_metrics)
                 - batch: Original input batch data
@@ -474,7 +466,7 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
                 # wait for previous rollout finish and start async generate teacher knowledge
                 with marked_timer("wait_prev_gen", timing):
                     prev_fut = self._async_get_teacher_knowledge(fut)
-        
+
         # for last step
         with marked_timer("wait_prev_teacher", timing):
             prev_result = prev_fut.get()
@@ -482,29 +474,29 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
 
     def two_step_off_scheduler(self, continuous_iterator):
         """Two-step-off scheduler implementation for GKD training with optimized pipeline.
-        
+
         This scheduler implements a double-buffered pipeline that overlaps:
         1. Sequence generation with teacher knowledge distillation
         2. Weight synchronization with previous batch processing
-        
+
         Key features:
         - Maintains two parallel processing streams (current and previous batches)
         - Overlaps computation and communication where possible
         - Provides consistent timing metrics across iterations
-        
+
         Pipeline stages:
         1. Initialization: Start first generation without teacher processing
         2. Steady state: Alternate between processing teacher knowledge and starting new generation
         3. Final state: Process last batch of teacher knowledge
-        
+
         Timing metrics collected:
         - sync_rollout_weights: Time for weight synchronization between actor and rollout workers
         - wait_prev_prev_teacher: Time waiting for teacher knowledge from two batches ago
         - wait_prev_gen: Time waiting for previous generation to complete
-        
+
         Args:
             continuous_iterator: Iterator providing (epoch, batch_dict) tuples for training
-            
+
         Yields:
             tuple: Contains (batch, gen_batch_output, teacher_batch_output, timing_metrics)
                 - batch: Original input batch data
@@ -576,8 +568,7 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
         self._load_checkpoint()
 
         # add tqdm
-        progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps, 
-                            desc="Training Progress")
+        progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps, desc="Training Progress")
 
         # we start from step 1
         self.global_steps += 1
@@ -611,7 +602,7 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
             metrics = {}
             timing_raw = {}
             is_last_step = self.global_steps >= self.total_training_steps
-                
+
             with marked_timer("step", timing_raw):
                 _, batch, gen_batch_output, teacher_batch_output, schedule_timing = next(scheduler)
                 if teacher_batch_output is None:
@@ -636,10 +627,11 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
                         timing_raw[k] = v
 
                 timing_raw.update(teacher_batch_output.meta_info.pop("timing"))
-                
+
                 # Compute statistics of generated response lengths distribution
-                response_lens = (gen_batch_output.batch["responses"] != 
-                    self.tokenizer.pad_token_id).sum(dim=-1).tolist()
+                response_lens = (
+                    (gen_batch_output.batch["responses"] != self.tokenizer.pad_token_id).sum(dim=-1).tolist()
+                )
                 metrics.update(
                     {
                         "response_seq_len/average": sum(response_lens) / len(response_lens),
@@ -649,7 +641,7 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
                         "response_seq_len/min_count": response_lens.count(min(response_lens)),
                     }
                 )
-                
+
                 # Merge generated outputs back
                 batch = batch.union(gen_batch_output)
 
@@ -661,13 +653,13 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
 
                 # compute global_valid tokens
                 batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
-                
+
                 batch = batch.union(teacher_batch_output)
 
                 # # update actor
                 # with marked_timer("send_teacher_knowledge", timing_raw, color="red"):
                 #     self.actor_wg.send_teacher_knowledge(teacher_batch_output)
-                
+
                 # update actor
                 with marked_timer("update_actor", timing_raw, color="red"):
                     actor_output = self.actor_wg.update_actor(batch)
@@ -678,8 +670,7 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
 
                 # save model
                 if self.config.trainer.save_freq > 0 and (
-                    is_last_step
-                    or self.global_steps % self.config.trainer.save_freq == 0
+                    is_last_step or self.global_steps % self.config.trainer.save_freq == 0
                 ):
                     with marked_timer("save_checkpoint", timing_raw, color="green"):
                         try:

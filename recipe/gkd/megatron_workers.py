@@ -1,39 +1,46 @@
-import asyncio
-import os
-import logging
-from functools import partial
-from typing import Dict, List, Any
+# Copyright 2025 Bytedance Ltd. and/or its affiliates
+# Copyright 2025 Meituan Ltd. and/or its affiliates
+# Copyright 2025 Individual Contributor: Brilliant Hanabi, funrunding
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-import torch
-from torch import nn
-from torch.nn import functional as F
+import logging
+import os
+
 import numpy as np
 import psutil
+import torch
 from codetiming import Timer
-from omegaconf import DictConfig, OmegaConf
-
-from megatron.core import mpu
-from megatron.core.optimizer import DistributedOptimizer
-from megatron.core.distributed import finalize_model_grads
-from megatron.core.pipeline_parallel import get_forward_backward_func
 from megatron.core import parallel_state as mpu
+from megatron.core.distributed import finalize_model_grads
+from megatron.core.optimizer import DistributedOptimizer
+from megatron.core.pipeline_parallel import get_forward_backward_func
+from megatron_kl_loss import vocab_parallel_kl_divergence
+from omegaconf import DictConfig, OmegaConf
+from torch import nn
+
 from verl import DataProto
-from verl.workers.megatron_workers import ActorRolloutRefWorker
 from verl.single_controller.base.decorator import (
-    Dispatch, 
-    register, 
+    Dispatch,
     make_nd_compute_dataproto_dispatch_fn,
+    register,
 )
-from verl.utils.device import get_device_id, get_device_name, get_torch_device
-from verl.utils.megatron_utils import get_model_config
-from verl.utils.torch_functional import broadcast_dict_tensor
-from verl.utils.py_functional import append_to_dict
-from verl.utils.profiler.profile import Profiler
-from verl.utils.seqlen_balancing import rearrange_micro_batches
-from verl.utils.megatron.pipeline_parallel import make_batch_generator
-from verl.utils.flops_counter import FlopsCounter
 from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpointManager
+from verl.utils.device import get_device_id, get_device_name, get_torch_device
+from verl.utils.flops_counter import FlopsCounter
+from verl.utils.megatron.pipeline_parallel import make_batch_generator
 from verl.utils.megatron_utils import (
+    get_model_config,
     load_megatron_model_to_gpu,
     load_megatron_optimizer,
     offload_megatron_model_to_cpu,
@@ -46,7 +53,10 @@ from verl.utils.profiler import (
     simple_timer,
 )
 from verl.utils.profiler.performance import gather_timing
-from megatron_kl_loss import vocab_parallel_kl_divergence
+from verl.utils.profiler.profile import Profiler
+from verl.utils.py_functional import append_to_dict
+from verl.utils.seqlen_balancing import rearrange_micro_batches
+from verl.workers.megatron_workers import ActorRolloutRefWorker
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -56,7 +66,7 @@ class OnPolicyDistillActor:
     """
     Responsible purely for the training step (forward-backward + optimizer).
     """
-    
+
     def __init__(
         self,
         config,
@@ -145,7 +155,7 @@ class OnPolicyDistillActor:
             print("[Warining] Because actor tp size == 1, set sp to False")
             config.megatron.sequence_parallel = False
         self.config = config
-   
+
     def forward_backward_batch(
         self,
         data: DataProto,
@@ -205,7 +215,7 @@ class OnPolicyDistillActor:
                     responses = mb["responses"]
                     response_length = responses.size(1)
                     calc_kl_mask = mb["attention_mask"].clone()
-                    calc_kl_mask[:, :(-response_length - 1)] = False
+                    calc_kl_mask[:, : (-response_length - 1)] = False
                     mb["calc_kl_mask"] = calc_kl_mask
                     mb["kl_losses"] = torch.zeros_like(calc_kl_mask, dtype=torch.float32)
                     mb["teacher_topk_logps"] = teacher_topk_logps[i].pin_memory()
@@ -224,7 +234,7 @@ class OnPolicyDistillActor:
                     responses = mb["responses"]
                     response_length = responses.size(1)
                     calc_kl_mask = mb["attention_mask"].clone()
-                    calc_kl_mask[:, :(-response_length - 1)] = False
+                    calc_kl_mask[:, : (-response_length - 1)] = False
                     mb["calc_kl_mask"] = calc_kl_mask
                     mb["kl_losses"] = torch.zeros_like(calc_kl_mask, dtype=torch.float32)
                     mb["teacher_topk_logps"] = torch.tensor(teacher_topk_logps[i]).pin_memory()
@@ -239,7 +249,7 @@ class OnPolicyDistillActor:
             # For memory efficiency
             # We move calculation of entropy to compute_log_probs, forward_only == True
             metrics = {}
-            
+
             ret_entropy = None
             stats = {}
             kl_losses = output["kl_losses"]
@@ -251,7 +261,7 @@ class OnPolicyDistillActor:
             masked_kl_lossed = kl_losses[calc_kl_mask]
             mean_kl_loss = masked_kl_lossed.mean()
             stats.update({"actor/kl_loss": mean_kl_loss.detach().item()})
-                
+
             append_to_dict(metrics, stats)
             return mean_kl_loss, [metrics, ret_entropy]
 
@@ -260,7 +270,7 @@ class OnPolicyDistillActor:
             input_ids = batch["input_ids"]
             attention_mask = batch["attention_mask"]
             position_ids = batch["position_ids"]
-            
+
             def logits_processor(logits, teacher_topk_logps, teacher_topk_indices, calc_kl_mask, kl_losses):
                 assert logits.shape[:2] == calc_kl_mask.shape[:2]
                 assert logits.shape[:2] == teacher_topk_indices.shape[:2]
@@ -270,19 +280,19 @@ class OnPolicyDistillActor:
                 masked_teacher_topk_logps = teacher_topk_logps[calc_kl_mask]
                 masked_teacher_topk_indices = teacher_topk_indices[calc_kl_mask]
 
-                kl_losses[calc_kl_mask] = vocab_parallel_kl_divergence(masked_logits, 
-                                                                       masked_teacher_topk_logps, 
-                                                                       masked_teacher_topk_indices)
+                kl_losses[calc_kl_mask] = vocab_parallel_kl_divergence(
+                    masked_logits, masked_teacher_topk_logps, masked_teacher_topk_indices
+                )
                 return {"kl_losses": kl_losses, "calc_kl_mask": calc_kl_mask}
 
             if mpu.is_pipeline_last_stage():
                 teacher_topk_logps = batch["teacher_topk_logps"].cuda(non_blocking=True)
                 teacher_topk_indices = batch["teacher_topk_indices"].cuda(non_blocking=True)
                 logits_processor_args = {
-                    "calc_kl_mask": batch["calc_kl_mask"], 
+                    "calc_kl_mask": batch["calc_kl_mask"],
                     "kl_losses": batch["kl_losses"],
                     "teacher_topk_logps": teacher_topk_logps,
-                    "teacher_topk_indices": teacher_topk_indices
+                    "teacher_topk_indices": teacher_topk_indices,
                 }
             else:
                 logits_processor_args = None
@@ -291,11 +301,16 @@ class OnPolicyDistillActor:
 
             forward_fn = get_mcore_forward_fn(self.hf_config)
 
-            output = forward_fn(model, input_ids, attention_mask, position_ids, 
-                                     sequence_parallel=self.tf_config.sequence_parallel, 
-                                     logits_processor=logits_processor, 
-                                     logits_processor_args=logits_processor_args)
-            
+            output = forward_fn(
+                model,
+                input_ids,
+                attention_mask,
+                position_ids,
+                sequence_parallel=self.tf_config.sequence_parallel,
+                logits_processor=logits_processor,
+                logits_processor_args=logits_processor_args,
+            )
+
             return output, loss_func
 
         # batch should be a list of batches inside micro-batches
@@ -312,7 +327,7 @@ class OnPolicyDistillActor:
             micro_batch_size=-1,  # no use when variable_seq_lengths was set
             forward_only=False,
         )
-        
+
         # loss_reduces contains the stats returned from loss_func
 
         losses_reduced = {"output": losses_reduced}
@@ -321,7 +336,7 @@ class OnPolicyDistillActor:
         return losses_reduced
 
     @GPUMemoryLogger(role="megatron actor", logger=logger)
-    def update_policy(self, data: DataProto) -> Dict:
+    def update_policy(self, data: DataProto) -> dict:
         """Update the policy with an iterator of DataProto
 
         Args:
@@ -413,11 +428,12 @@ class MegatronOnPolicyDistillActorWorker(ActorRolloutRefWorker):
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
         from verl.utils.torch_dtypes import PrecisionType
+
         override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
         override_transformer_config = OmegaConf.to_container(
             self.config.actor.megatron.get("override_transformer_config", OmegaConf.create()), resolve=True
         )
-       
+
         self.param_dtype = torch.bfloat16
         log_gpu_memory_usage("Before init actor model and optimizer", logger=logger)
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
@@ -487,7 +503,7 @@ class MegatronOnPolicyDistillActorWorker(ActorRolloutRefWorker):
         if self._is_offload_optimizer:
             load_megatron_optimizer(self.actor_optimizer)
             log_gpu_memory_usage("After load actor optimizer during update_actor", logger=logger)
-        
+
         with Timer(name="update_policy", logger=None) as timer:
             metrics = self.actor.update_policy(data=data)
 
@@ -524,7 +540,7 @@ class MegatronOnPolicyDistillActorWorker(ActorRolloutRefWorker):
         """
         ckpt_path = self.checkpoint_mananager.save_checkpoint()
         return ckpt_path
-    
+
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
     def sync_rollout_weights(self):
         assert self._is_actor and not self.config.hybrid_engine
@@ -537,7 +553,7 @@ class MegatronOnPolicyDistillActorWorker(ActorRolloutRefWorker):
             assert shape == weight.size()
             try:
                 assert dtype == weight.dtype
-            except:
+            except AssertionError:
                 if not key.endswith("e_score_correction_bias"):
                     raise
             tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
@@ -578,19 +594,17 @@ class MegatronOnPolicyDistillRolloutWorker(ActorRolloutRefWorker):
         #     config.rollout.n = 1
         # OmegaConf.set_struct(config, is_struct)
         import datetime
-        from verl.workers.megatron_workers import MegatronWorker
-        from verl.utils.distributed import set_numa_affinity
+
+        from verl.utils.config import omega_conf_to_dataclass
         from verl.utils.device import (
-            get_device_id,
-            get_device_name,
             get_nccl_backend,
             get_torch_device,
-            set_expandable_segments,
         )
-        from verl.utils.config import omega_conf_to_dataclass
-        from verl.utils.profiler import DistProfilerExtension, ProfilerConfig
-        from verl.utils.model import get_generation_config
+        from verl.utils.distributed import set_numa_affinity
         from verl.utils.fs import copy_to_local
+        from verl.utils.model import get_generation_config
+        from verl.utils.profiler import DistProfilerExtension, ProfilerConfig
+        from verl.workers.megatron_workers import MegatronWorker
 
         MegatronWorker.__init__(self)
         self.config = config
@@ -622,7 +636,7 @@ class MegatronOnPolicyDistillRolloutWorker(ActorRolloutRefWorker):
         # NOTE: In colocation mode, rollout config may not take effect (follow the actor config)
         # This is for extendability in AsyncRL cases
         omega_profiler_config = config.rollout.get("profiler", {})
-       
+
         # omega_profiler_config is DictConfig
         # profiler_config is a ProfilerConfig dataclass
         profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
@@ -641,7 +655,7 @@ class MegatronOnPolicyDistillRolloutWorker(ActorRolloutRefWorker):
         self._is_offload_param = False
         self._is_offload_grad = False
         self._is_offload_optimizer = False
-        
+
         # self._build_rollout will use this variable
         self.bridge = "none"
         self.generation_config = get_generation_config(self.local_path)
@@ -657,9 +671,7 @@ class MegatronOnPolicyDistillRolloutWorker(ActorRolloutRefWorker):
         log_gpu_memory_usage("Before init rollout model", logger=logger)
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
 
-        self._build_rollout(
-            trust_remote_code=self.config.model.get("trust_remote_code", False)
-        )
+        self._build_rollout(trust_remote_code=self.config.model.get("trust_remote_code", False))
         log_gpu_memory_usage("After rollout init", logger=logger)
         get_torch_device().empty_cache()
 
@@ -697,13 +709,13 @@ class MegatronOnPolicyDistillRolloutWorker(ActorRolloutRefWorker):
         output = output.to("cpu")
         # clear kv cache
         get_torch_device().empty_cache()
-            
+
         return output
-    
+
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="rollout"), blocking=False)
     def async_generate_sequences(self, *args, **kwargs):
         return self.generate_sequences(*args, **kwargs)
-    
+
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
     def sync_rollout_weights(self):
         assert self._is_rollout and not self.config.hybrid_engine

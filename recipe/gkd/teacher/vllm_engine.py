@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: furunding
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import argparse
 import random
 from typing import NamedTuple
@@ -5,10 +19,9 @@ from typing import NamedTuple
 import torch
 from codetiming import Timer
 from transformers import AutoConfig
-from vllm import LLM, SamplingParams, envs
+from vllm import LLM, SamplingParams
 
 # from vllm.v1.outputs import LogprobsTensors
-from vllm.v1 import outputs
 from vllm.v1.engine.logprobs import LogprobsProcessor
 
 
@@ -76,7 +89,6 @@ LogprobsProcessor._update_sample_logprobs = _update_sample_logprobs
 
 
 class LogprobsTensors(NamedTuple):
-
     # [num_reqs, max_num_logprobs + 1]
     logprob_token_ids: torch.Tensor
     # [num_reqs, max_num_logprobs + 1]
@@ -92,18 +104,12 @@ class LogprobsTensors(NamedTuple):
         )
 
     @staticmethod
-    def empty_cpu(
-        num_positions: int, num_tokens_per_position: int
-    ) -> "LogprobsTensors":
+    def empty_cpu(num_positions: int, num_tokens_per_position: int) -> "LogprobsTensors":
         """Create empty LogprobsTensors on CPU."""
 
-        logprob_token_ids = torch.empty(
-            (num_positions, num_tokens_per_position), dtype=torch.int32, device="cpu"
-        )
+        logprob_token_ids = torch.empty((num_positions, num_tokens_per_position), dtype=torch.int32, device="cpu")
         logprobs = torch.empty_like(logprob_token_ids, dtype=torch.float32)
-        selected_token_ranks = torch.empty(
-            num_positions, dtype=torch.int32, device="cpu"
-        )
+        selected_token_ranks = torch.empty(num_positions, dtype=torch.int32, device="cpu")
         return LogprobsTensors(
             logprob_token_ids=logprob_token_ids,
             logprobs=logprobs,
@@ -142,9 +148,7 @@ class VLLMEngine:
             gpu_memory_utilization=0.7,
         )
 
-    def get_topk_logprobs(
-        self, prompt_token_ids, temperature=0.8, max_new_tokens=1, only_response=False
-    ):
+    def get_topk_logprobs(self, prompt_token_ids, temperature=0.8, max_new_tokens=1, only_response=False):
         def make_sampling_params(i=None):
             return SamplingParams(
                 temperature=temperature,
@@ -157,21 +161,15 @@ class VLLMEngine:
 
         if isinstance(max_new_tokens, list):
             assert len(prompt_token_ids) == len(max_new_tokens)
-            sampling_params = [
-                make_sampling_params(i) for i in range(len(max_new_tokens))
-            ]
+            sampling_params = [make_sampling_params(i) for i in range(len(max_new_tokens))]
         else:
             sampling_params = make_sampling_params()
 
-        outputs = self.llm.generate(
-            prompt_token_ids=prompt_token_ids, sampling_params=sampling_params
-        )
+        outputs = self.llm.generate(prompt_token_ids=prompt_token_ids, sampling_params=sampling_params)
 
         responses, teacher_topk_logprobs, teacher_topk_indices = [], [], []
         for output in outputs:
-            responses.append(
-                torch.tensor(output.outputs[0].token_ids, dtype=torch.int32)
-            )
+            responses.append(torch.tensor(output.outputs[0].token_ids, dtype=torch.int32))
             if self.n_logprobs > 0:
                 response_topk_logprobs = torch.tensor(
                     [x.logprobs[0] for x in output.outputs[0].logprobs],
@@ -185,20 +183,10 @@ class VLLMEngine:
                     teacher_topk_logprobs.append(response_topk_logprobs)
                     teacher_topk_indices.append(response_topk_indices)
                 else:
-                    prompt_topk_logprobs = (
-                        output.prompt_logprobs[1].logprobs[:, 1:].to(torch.float32)
-                    )
-                    prompt_topk_indices = (
-                        output.prompt_logprobs[1]
-                        .logprob_token_ids[:, 1:]
-                        .to(torch.int32)
-                    )
-                    teacher_topk_logprobs.append(
-                        torch.vstack([prompt_topk_logprobs, response_topk_logprobs])
-                    )
-                    teacher_topk_indices.append(
-                        torch.vstack([prompt_topk_indices, response_topk_indices])
-                    )
+                    prompt_topk_logprobs = output.prompt_logprobs[1].logprobs[:, 1:].to(torch.float32)
+                    prompt_topk_indices = output.prompt_logprobs[1].logprob_token_ids[:, 1:].to(torch.int32)
+                    teacher_topk_logprobs.append(torch.vstack([prompt_topk_logprobs, response_topk_logprobs]))
+                    teacher_topk_indices.append(torch.vstack([prompt_topk_indices, response_topk_indices]))
 
         return responses, teacher_topk_logprobs, teacher_topk_indices
 
@@ -224,12 +212,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Test vLLM logprob")
     parser.add_argument("model_dir", help="Model directory")
     parser.add_argument("--tp-size", type=int, default=1, help="TP size")
-    parser.add_argument(
-        "--batch-size", "-b", type=int, default=64, help="Test bactch size"
-    )
-    parser.add_argument(
-        "--seq-len", "-s", type=int, default=3840, help="Test sequence length"
-    )
+    parser.add_argument("--batch-size", "-b", type=int, default=64, help="Test bactch size")
+    parser.add_argument("--seq-len", "-s", type=int, default=3840, help="Test sequence length")
     parser.add_argument("--token-file", "-t", type=str, help="Input token file")
     args = parser.parse_args()
 
@@ -246,17 +230,15 @@ if __name__ == "__main__":
         # Init input randomly
         prompt_lens = args.batch_size * [args.seq_len]
         for pl in prompt_lens:
-            prompt_token_ids.append(
-                [random.randint(1, config.vocab_size - 1000) for j in range(pl)]
-            )
+            prompt_token_ids.append([random.randint(1, config.vocab_size - 1000) for j in range(pl)])
 
     engine = VLLMEngine(ckpt_path=args.model_dir, n_logprobs=256, tp_size=args.tp_size)
 
     with Timer(name="get_topk_logprobs", initial_text=True):
-        responses, teacher_topk_logprobs, teacher_topk_indices = (
-            engine.get_topk_logprobs(
-                prompt_token_ids, temperature=0.7, max_new_tokens=1, only_response=True
-            )
+        responses, teacher_topk_logprobs, teacher_topk_indices = engine.get_topk_logprobs(
+            prompt_token_ids, temperature=0.7, max_new_tokens=1, only_response=True
         )
     # debug
-    import ipdb;ipdb.set_trace()
+    import ipdb
+
+    ipdb.set_trace()
