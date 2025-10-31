@@ -1,5 +1,5 @@
 
-#FROM nvcr.nju.edu.cn/nvidia/isaac-lab:2.2.0
+#FROM nvcr.nju.edu.cn/nvidia/isaac-lab:2.3.0
 FROM isaac-lab-base:latest
 
 ARG http_proxy=http://100.68.175.150:3128
@@ -110,10 +110,34 @@ RUN chmod +x /root/.vnc/xstartup && \
 
 RUN /workspace/isaaclab/_isaac_sim/isaac-sim.sh --allow-root --ext-precache-mode
 
-# RUN apt update && \
-#     apt install -y git screen vim \
-#        libglu1-mesa mesa-utils libegl1-mesa-dev \
-#        libgl1-mesa-glx libxrandr2 libxss1 libxcursor1 libxcomposite1 \
-#        libasound2 libxi6 libxtst6 libxt6 zenity; \
-#     mv /root/miniconda3/lib/libstdc++.so.6 /root/miniconda3/lib/libstdc++.so.6.old; \
-#     ln -s /usr/lib/x86_64-linux-gnu/libstdc++.so.6 /root/miniconda3/lib/libstdc++.so.6
+RUN cd /root && \
+    git clone https://github.com/Lifelong-Robot-Learning/LIBERO.git && \
+    cd LIBERO && \
+    git apply <<'EOP'
+diff --git a/setup.py b/setup.py
+index 59d4900..dbe9811 100644
+--- a/setup.py
++++ b/setup.py
+@@ -13,7 +13,8 @@ long_description = "".join(lines)
+
+ setup(
+     name="libero",
+-    packages=[package for package in find_packages() if package.startswith("libero")],
++    #packages=[package for package in find_packages() if package.startswith("libero")],
++    packages=["libero"],
+     install_requires=[],
+     eager_resources=["*"],
+     include_package_data=True,
+EOP
+
+RUN cd /root/LIBERO && \
+    /workspace/isaaclab/_isaac_sim/python.sh -m pip install -e .
+
+
+
+# from https://github.com/nvidia-china-sae/RobotLearningLab
+COPY RobotLearningLab/ /root/RobotLearningLab/
+
+RUN cd /workspace/isaaclab/ && \
+    rm -rf source && \
+    ln -s /root/RobotLearningLab/source source

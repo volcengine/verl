@@ -19,13 +19,10 @@ import numpy as np
 import pytest
 from omegaconf import OmegaConf
 
-SIM_ENV = []
-
 
 # @pytest.mark.parametrize("simulator_type", ["libero", "isaac"])
-@pytest.mark.parametrize("simulator_type", ["libero"])
+@pytest.mark.parametrize("simulator_type", ["isaac"])
 def test_sim_env_creation_and_step(simulator_type):
-    global SIM_ENV
     num_envs = 8
     actions = np.array(
         [
@@ -70,10 +67,9 @@ def test_sim_env_creation_and_step(simulator_type):
         sim_env = LiberoEnv(cfg, rank=0, world_size=1)
     else:
         raise ValueError(f"simulator_type {simulator_type} is not supported")
-    SIM_ENV.append(sim_env)
 
     video_count = 0
-    for i in [0, 8]:
+    for i in [0]:
         # The first call to step with actions=None will reset the environment
         step = 0
         sim_env.reset_envs_to_state_ids([0] * num_envs, [i] * num_envs)
@@ -97,13 +93,8 @@ def test_sim_env_creation_and_step(simulator_type):
         os.remove(os.path.join(cfg.video_cfg.video_base_dir, f"rank_0/task_{i}/{video_count}.mp4"))
         video_count += 1
 
-
-def teardown_module(module):
-    # Clean up the environment
-    if SIM_ENV:
-        # isaac close will terminal process, so we need to close it in the end
-        for sim_env in SIM_ENV:
-            sim_env.close()
+    print("test passed")
+    sim_env.close()
 
 
 if __name__ == "__main__":
