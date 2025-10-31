@@ -101,6 +101,7 @@ async def compute_score_fapo(
     extra_info: dict,
     reward_router_address: str,
     reward_model_tokenizer: PreTrainedTokenizer,
+    reward_model_path: str,
 ):
     """Compute the reward score for FAPO."""
     loop = asyncio.get_running_loop()

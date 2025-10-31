@@ -83,6 +83,7 @@ class RolloutReplica(ABC):
         model_config: DictConfig,
         gpus_per_node: int = 8,
         is_reward_model: bool = False,
+        reward_model_name: str = "",
     ) -> None:
         self.replica_rank = replica_rank
         self.config = omega_conf_to_dataclass(config)
@@ -99,6 +100,7 @@ class RolloutReplica(ABC):
         )
         self.nnodes = self.world_size // self.gpus_per_node
         self.is_reward_model = is_reward_model
+        self.reward_model_name = reward_model_name
 
         self.rollout_mode: RolloutMode = None
         self.workers: list[ActorHandle] = []
@@ -141,8 +143,8 @@ class RolloutReplica(ABC):
         self.rollout_mode = RolloutMode.STANDALONE
         resource_pool_name = (
             f"rollout_pool_{self.replica_rank}"
-            if not self.is_reward_model
-            else f"rollout_pool_reward_{self.replica_rank}"
+            if not not self.is_reward_model
+            else f"rollout_pool_reward_{self.replica_rank}_{self.reward_model_name}"
         )
         resource_pool_spec = {
             resource_pool_name: [self.gpus_per_node] * self.nnodes,
@@ -159,7 +161,7 @@ class RolloutReplica(ABC):
             bin_pack=False,
             name_prefix=f"rollout_standalone_{self.replica_rank}"
             if not self.is_reward_model
-            else f"rollout_reward_standalone_{self.replica_rank}",
+            else f"rollout_reward_standalone_{self.replica_rank}_{self.reward_model_name}",
         )
         self.workers = worker_group.workers
         await self.launch_servers()
