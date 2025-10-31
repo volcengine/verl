@@ -18,12 +18,11 @@ PPO Trainer with Ray-based single controller.
 This trainer supports model-agonistic model initialization with huggingface
 """
 
-from collections import defaultdict
 import uuid
+from collections import defaultdict
 from pprint import pprint
 
 import numpy as np
-import ray
 import torch
 from omegaconf import OmegaConf
 from tqdm import tqdm
@@ -38,10 +37,10 @@ from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
     compute_throughout_metrics,
     compute_timing_metrics,
-    process_validation_metrics
+    process_validation_metrics,
 )
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer, apply_kl_penalty, compute_advantage
-from verl.trainer.ppo.reward import compute_reward, compute_reward_async
+from verl.trainer.ppo.reward import compute_reward
 from verl.trainer.ppo.utils import Role
 from verl.utils.checkpoint.checkpoint_manager import should_save_ckpt_esi
 from verl.utils.debug import marked_timer
@@ -64,24 +63,23 @@ def compute_response_mask(data: DataProto) -> torch.Tensor:
 
     complete_traj = complete.view(complete.shape[0], -1)  # # shape: [batch_size, num_steps * chunk_size]
     batch_size, action_steps = complete_traj.shape
-    
+
     step_indices = torch.arange(action_steps, device=complete.device).unsqueeze(0).expand(batch_size, -1)
-    
+
     first_true_idx_approx = torch.argmax(complete_traj.long(), dim=1)
-    
+
     has_any_true = complete_traj.any(dim=1)
-    
+
     final_first_true_idx = torch.where(
-        has_any_true,
-        first_true_idx_approx,
-        torch.tensor(action_steps - 1, device=complete.device)
+        has_any_true, first_true_idx_approx, torch.tensor(action_steps - 1, device=complete.device)
     )
-    
+
     mask_traj = step_indices <= final_first_true_idx.unsqueeze(1)
-    
+
     mask = mask_traj.view(complete.shape)  # shape: [batch_size, num_steps, chunk_size]
     mask = mask.repeat_interleave(7, dim=-1)  # eapand to action dim
     return mask
+
 
 def flatten_trajectories(data: DataProto) -> DataProto:
     batch_size, num_steps = data.batch["action"].shape[:2]
@@ -98,6 +96,7 @@ def flatten_trajectories(data: DataProto) -> DataProto:
             new_batch_fields[key] = tensor
     new_data = DataProto.from_dict(tensors=new_batch_fields, meta_info=data.meta_info)
     return new_data
+
 
 # def filter_by_acc(data: DataProto, accuracy_lower_bound, accuracy_upper_bound) -> torch.Tensor:
 
@@ -253,7 +252,6 @@ class RobRayPPOTrainer(RayPPOTrainer):
                     )
 
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
-                
 
                 # add uid to batch
                 batch.non_tensor_batch["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(batch))], dtype=object)
@@ -343,7 +341,9 @@ class RobRayPPOTrainer(RayPPOTrainer):
                     with marked_timer("adv", timing_raw, color="brown"):
                         # we combine with rule-based rm
                         reward_extra_infos_dict: dict[str, list] = None
-                        batch.batch["token_level_scores"] = batch.batch["reward_tensor"].unsqueeze(-1).expand(-1, response_masks.shape[-1])
+                        batch.batch["token_level_scores"] = (
+                            batch.batch["reward_tensor"].unsqueeze(-1).expand(-1, response_masks.shape[-1])
+                        )
 
                         if reward_extra_infos_dict:
                             batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
@@ -516,10 +516,12 @@ class RobRayPPOTrainer(RayPPOTrainer):
         sample_scores = []
         sample_turns = []
         sample_uids = []
-        breakpoint()
 
         for test_data in self.val_dataloader:
             test_batch = DataProto.from_single_dict(test_data)
+            if len(test_batch) < self.config.data.val_batch_size:
+                print(f"drop last batch in val_dataloader, len {len(test_batch)}")
+                break
 
             if "uid" not in test_batch.non_tensor_batch:
                 test_batch.non_tensor_batch["uid"] = np.array(
@@ -538,9 +540,10 @@ class RobRayPPOTrainer(RayPPOTrainer):
                 "validate": True,
                 "global_steps": self.global_steps,
             }
-            print(f"test_gen_batch meta info: {test_gen_batch.meta_info}")
 
-            test_gen_batch = test_gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+            test_gen_batch = test_gen_batch.repeat(
+                repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True
+            )
 
             sample_uids.extend(test_gen_batch.non_tensor_batch["uid"])
 

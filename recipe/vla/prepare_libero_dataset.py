@@ -18,12 +18,9 @@ Preprocess the Geometry3k dataset to parquet format
 import argparse
 import os
 import random
-import sys
 
-import torch
-
-sys.path.append("/file_system/cyk/vla_mix/LIBERO/")  # TODO: delete this line after packaging libero
 import numpy as np
+import torch
 from datasets import Dataset
 from libero.libero import get_libero_path
 from libero.libero.benchmark import Benchmark, get_benchmark
