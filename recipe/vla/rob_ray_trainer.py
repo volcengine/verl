@@ -294,15 +294,15 @@ class RobRayPPOTrainer(RayPPOTrainer):
                     if "response_mask" not in batch.batch.keys():
                         batch.batch["response_mask"] = compute_response_mask(batch)
 
-                    # compute global_valid tokens
-                    batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
-
                     with marked_timer("reward", timing_raw, color="yellow"):
                         # compute reward model score
                         reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
 
                     batch.batch["reward_tensor"] = reward_tensor
                     batch = flatten_trajectories(batch)
+
+                    # compute global_valid tokens
+                    batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
 
                     # recompute old_log_probs
                     with marked_timer("old_log_prob", timing_raw, color="blue"):

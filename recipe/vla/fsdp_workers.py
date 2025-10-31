@@ -24,6 +24,8 @@ import torch
 import torch.distributed
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from verl.utils.flops_counter import FlopsCounter
+from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from torch.distributed.fsdp._unshard_param_utils import _get_module_fsdp_state, _unshard_params_for_summon
 from torch.distributed.fsdp.api import FullStateDictConfig, ShardedStateDictConfig, StateDictType
 
@@ -185,6 +187,16 @@ class RobActorRolloutRefWorker(ActorRolloutRefWorker):
 
         if self._is_rollout:
             self._build_rollout(trust_remote_code=self.config.model.get("trust_remote_code", False))
+
+        if self._is_actor:
+            self.flops_counter = FlopsCounter(self.actor_model_config)
+            self.checkpoint_manager = FSDPCheckpointManager(
+                model=self.actor_module_fsdp,
+                optimizer=self.actor.actor_optimizer,
+                lr_scheduler=self.actor_lr_scheduler,
+                processing_class=self.processor if self.processor is not None else self.tokenizer,
+                checkpoint_config=self.config.actor.checkpoint,
+            )
 
         torch.cuda.synchronize()
         torch.distributed.barrier()
