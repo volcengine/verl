@@ -480,6 +480,7 @@ algorithm:
   rollout_is_mode: truncate
   rollout_is_veto_threshold: null
   rollout_is: false
+  rollout_is_self_norm: false
 trainer:
   balance_batch: true
   total_epochs: 30
