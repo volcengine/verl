@@ -1,35 +1,18 @@
-hydra:
-  searchpath:
-    - file://verl/trainer/config
+openaioss:
+    _target_: verl.workers.config.RewardModelConfig
 
-defaults:
-  - ppo_trainer
-  - _self_
+    reward_manager: naive
 
-reward_model:
+    n_gpus_per_node: 0
+    nnodes: 0
 
-  reward_manager: dapo
-  enable: False
-
-  # Whether to deploy the model to a separate resource pool.
-  enable_resource_pool: False
-  
-  reward_models:
-    fapo_genrm:
-      _target_: verl.workers.config.RewardModelConfig
-
-      reward_manager: dapo
-
-      n_gpus_per_node: 0
-      nnodes: 0
-
-      model:
+    model:
         _target_: verl.workers.config.HFModelConfig
-        path: ~/models/FsfairX-LLaMA3-RM-v0.1
+        path: "openai/gpt-oss-20b"
         external_lib: ${actor_rollout_ref.model.external_lib}
         trust_remote_code: False
 
-      rollout:
+    rollout:
         _target_: verl.workers.config.RolloutConfig
         name: ???
         dtype: bfloat16
