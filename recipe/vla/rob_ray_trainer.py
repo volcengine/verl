@@ -545,11 +545,7 @@ class RobRayPPOTrainer(RayPPOTrainer):
             sample_uids.extend(test_gen_batch.non_tensor_batch["uid"])
 
             # pad to be divisible by dp_size
-            size_divisor = (
-                self.actor_rollout_wg.world_size
-                if not self.async_rollout_mode
-                else self.config.actor_rollout_ref.rollout.agent.num_workers
-            )
+            size_divisor = self.config.env.train.num_envs * self.config.env.rollout.pipeline_stage_num
             test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(test_gen_batch, size_divisor)
             if not self.async_rollout_mode:
                 test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
