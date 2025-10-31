@@ -24,6 +24,9 @@ async_training:
   # Whether to use rollout log probs for training
   use_rollout_log_probs: True
 
+  # compute_prox_log_prob
+  compute_prox_log_prob: False
+
 # Rollout config
 rollout:
 
