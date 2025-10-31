@@ -105,14 +105,33 @@ class BaseModelMerger(ABC):
             )
             self.hf_model_config_path = config.hf_model_path
 
+        # Auto-detect huggingface subdirectory if it exists
+        huggingface_subdir = os.path.join(self.hf_model_config_path, "huggingface")
+        if os.path.isdir(huggingface_subdir):
+            self.hf_model_config_path = huggingface_subdir
+
         self.model_config = AutoConfig.from_pretrained(self.hf_model_config_path)
 
     def get_transformers_auto_model_class(self):
-        if "ForTokenClassification" in self.model_config.architectures[0]:
+        # Handle case where architectures might be None or empty
+        if self.model_config.architectures is None or len(self.model_config.architectures) == 0:
+            # Try to infer from model_type if architectures is missing
+            model_type = getattr(self.model_config, 'model_type', '').lower()
+            if 'vision' in model_type or 'vl' in model_type:
+                return AutoModelForVision2Seq
+            elif 'causal' in model_type or 'gpt' in model_type or 'llama' in model_type or 'qwen' in model_type:
+                return AutoModelForCausalLM
+            else:
+                raise NotImplementedError(
+                    f"Cannot determine model class: architectures is None and model_type '{model_type}' is not recognized"
+                )
+        
+        architecture = self.model_config.architectures[0]
+        if "ForTokenClassification" in architecture:
             return AutoModelForTokenClassification
-        elif "ForCausalLM" in self.model_config.architectures[0]:
+        elif "ForCausalLM" in architecture:
             return AutoModelForCausalLM
-        elif "ForConditionalGeneration" in self.model_config.architectures[0]:
+        elif "ForConditionalGeneration" in architecture:
             return AutoModelForVision2Seq
 
         raise NotImplementedError(f"Unknown architecture {self.model_config.architectures}")
@@ -207,7 +226,11 @@ class BaseModelMerger(ABC):
         del model
 
         processor = hf_processor(self.hf_model_config_path)
-        tokenizer = hf_tokenizer(self.hf_model_config_path)
+        try:
+            tokenizer = hf_tokenizer(self.hf_model_config_path)
+        except Exception as e:
+            warnings.warn(f"Failed to create tokenizer: {e}. This may affect tokenizer saving", stacklevel=1)
+            tokenizer = None
         if processor is not None:
             print(f"Saving processor to {self.config.target_dir}")
             processor.save_pretrained(self.config.target_dir)
