@@ -35,7 +35,6 @@ VALID_CONFIG_TYPE = {
     "gemma3_text",
     "seed_oss",
     "apertus",
-    "glm4v",
 }
 
 
