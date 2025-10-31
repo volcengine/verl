@@ -348,7 +348,6 @@ class FullyAsyncRayPPOTrainer(RayPPOTrainer):
             else:
                 reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
 
-        # recompute old_log_probs
         with marked_timer("old_log_prob", timing_raw, color="blue"):
 
             def compute_old_log_prob(batch):

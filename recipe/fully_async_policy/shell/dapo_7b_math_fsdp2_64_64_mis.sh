@@ -168,7 +168,7 @@ python -m recipe.fully_async_policy.fully_async_main \
     async_training.require_batches="${require_batches}" \
     async_training.partial_rollout="${partial_rollout}" \
     async_training.use_rollout_log_probs=True \
-    async_training.recompute_old_log_prob=True \
+    async_training.compute_prox_log_prob=True \
     algorithm.rollout_is=${rollout_is} \
     algorithm.rollout_is_threshold=${rollout_is_threshold} \
     algorithm.rollout_is_threshold_lower=${rollout_is_threshold_lower} \
