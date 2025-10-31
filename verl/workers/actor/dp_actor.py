@@ -440,7 +440,10 @@ class DataParallelPPOActor(BasePPOActor):
                                     global_snis_denom = denom_sum / weights_full.shape[-1]
                                 else:
                                     raise ValueError(f"loss_agg_mode: {lam} not supported for SNIS")
-                except Exception:
+                except Exception as e:
+                    logger.warning(
+                        f"SNIS denominator could not be calculated. Error: {e}", exc_info=True
+                    )
                     global_snis_denom = None
 
                 for micro_batch in micro_batches:
