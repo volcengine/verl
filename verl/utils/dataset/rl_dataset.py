@@ -25,8 +25,10 @@ from typing import Optional
 import datasets
 import numpy as np
 import torch
+import pandas as pd
 from omegaconf import DictConfig, ListConfig
 from torch.utils.data import Dataset
+import datasets
 from transformers import PreTrainedTokenizer, ProcessorMixin
 
 import verl.utils.torch_functional as verl_F
@@ -64,6 +66,23 @@ def collate_fn(data_list: list[dict]) -> dict:
         non_tensors[key] = np.fromiter(val, dtype=object, count=len(val))
 
     return {**tensors, **non_tensors}
+
+def filter_allowed_keys(input_dict):
+    """
+    Filter a dictionary to include only specified allowed keys.
+    
+    Args:
+        input_dict (dict): The input dictionary to filter
+        allowed_keys (list or set): Collection of keys to keep
+    
+    Returns:
+        dict: A new dictionary containing only the allowed keys
+    """
+    allowed_keys = ["data_source", "prompt", "images", "ability", "reward_model", "extra_info"]
+    returned_dict = {key: input_dict[key] for key in allowed_keys if key in input_dict}
+    returned_dict["extra_info"] = {}
+    return returned_dict
+
 
 
 class RLHFDataset(Dataset):
@@ -136,9 +155,45 @@ class RLHFDataset(Dataset):
 
     def _read_files_and_tokenize(self):
         dataframes = []
+        allowed_keys = ["data_source", "prompt", "images", "reward_model"]
         for parquet_file in self.data_files:
-            # read parquet files and cache
-            dataframe = datasets.load_dataset("parquet", data_files=parquet_file)["train"]
+            # read parquet files and 
+            if parquet_file.endswith(".pkl"):
+                dataframe = pd.read_pickle(parquet_file)
+                if not isinstance(dataframe, pd.core.frame.DataFrame):
+                    dataframe = pd.DataFrame(dataframe)
+                dataframe = datasets.Dataset.from_pandas(dataframe)
+                names = dataframe.column_names
+                print(names)
+                for name in names:
+                    if name not in allowed_keys:
+                        dataframe = dataframe.remove_columns(name)
+                dataframe = dataframe.map(filter_allowed_keys)
+                dataframe = dataframe.shuffle()
+                if len(dataframe) > 4000:
+                    dataframe = dataframe.select(range(4000))
+            elif parquet_file.endswith(".jsonl"):
+                dataframe = datasets.load_dataset("json", data_files=parquet_file)["train"]
+                names = dataframe.column_names
+                print(names)
+                for name in names:
+                    if name not in allowed_keys:
+                        dataframe = dataframe.remove_columns(name)
+                dataframe = dataframe.map(filter_allowed_keys)
+                dataframe = dataframe.shuffle()
+                if len(dataframe) > 4000:
+                    dataframe = dataframe.select(range(4000))
+            else:
+                dataframe = datasets.load_dataset("parquet", data_files=parquet_file)["train"]
+                names = dataframe.column_names
+                print(names)
+                for name in names:
+                    if name not in allowed_keys:
+                        dataframe = dataframe.remove_columns(name)
+                dataframe = dataframe.map(filter_allowed_keys)
+                dataframe = dataframe.shuffle()
+                if len(dataframe) > 4000:
+                    dataframe = dataframe.select(range(4000))
             dataframes.append(dataframe)
         self.dataframe: datasets.Dataset = datasets.concatenate_datasets(dataframes)
 
@@ -154,8 +209,9 @@ class RLHFDataset(Dataset):
                 indices = np.arange(self.max_samples)
             self.dataframe = self.dataframe.select(indices.tolist())
             print(f"selected {self.max_samples} random samples out of {total}")
-
         self.dataframe = self.maybe_filter_out_long_prompts(self.dataframe)
+        self.dataframe = self.dataframe.shuffle(seed=42)
+        print("Done shuffle")
 
     def maybe_filter_out_long_prompts(self, dataframe: datasets.Dataset = None):
         # filter out too long prompts

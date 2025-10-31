@@ -17,6 +17,9 @@ from .batch import BatchRewardManager
 from .dapo import DAPORewardManager
 from .naive import NaiveRewardManager
 from .prime import PrimeRewardManager
+from .semantic_novelty import SemanticTTRLRewardManager
+from .hf_math_verify import MathVerifyRewardManager
+from .yr_code import YRRewardManager
 
 # Note(haibin.lin): no need to include all reward managers here in case of complicated dependencies
 __all__ = [
@@ -24,6 +27,9 @@ __all__ = [
     "DAPORewardManager",
     "NaiveRewardManager",
     "PrimeRewardManager",
+    "SemanticTTRLRewardManager",
+    "MathVerifyRewardManager",
+    "YRRewardManager",
     "register",
     "get_reward_manager_cls",
 ]
