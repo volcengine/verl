@@ -441,9 +441,7 @@ class DataParallelPPOActor(BasePPOActor):
                                 else:
                                     raise ValueError(f"loss_agg_mode: {lam} not supported for SNIS")
                 except Exception as e:
-                    logger.warning(
-                        f"SNIS denominator could not be calculated. Error: {e}", exc_info=True
-                    )
+                    logger.warning(f"SNIS denominator could not be calculated. Error: {e}", exc_info=True)
                     global_snis_denom = None
 
                 for micro_batch in micro_batches:
