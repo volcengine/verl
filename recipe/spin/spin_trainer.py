@@ -390,7 +390,7 @@ class RaySPINTrainer:
         if train_dataset is None:
             train_dataset = create_rl_dataset(
                 self.config.data.train_files,
-                self.config.data,
+                self.config,
                 self.tokenizer,
                 self.processor,
                 max_samples=self.config.data.get("train_max_samples", -1),
@@ -398,7 +398,7 @@ class RaySPINTrainer:
         if val_dataset is None:
             val_dataset = create_rl_dataset(
                 self.config.data.val_files,
-                self.config.data,
+                self.config,
                 self.tokenizer,
                 self.processor,
                 max_samples=self.config.data.get("val_max_samples", -1),
