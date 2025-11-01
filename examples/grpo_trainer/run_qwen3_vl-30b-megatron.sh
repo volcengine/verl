@@ -2,11 +2,7 @@ set -x
 ENGINE=${1:-vllm}
 export CUDA_DEVICE_MAX_CONNECTIONS=1 # For megatron communication/computation overlapping
 
-# VLLM version >= 0.11.0 for qwen3-vl support, recommend to use container docker://iseekyan/verl:nemo.gptoss_vllm0.11.0
-# pip install -U git+https://github.com/ISEEKYAN/mbridge.git # for latest mbridge
-# pip install -U transformers # for qwen3-vl support
-# pip install --no-deps --no-cache-dir git+https://github.com/NVIDIA/Megatron-LM.git@core_v0.13.1 # for megatron-lm0.13.1
- 
+# VLLM version >= 0.11.0 for qwen3-vl support, recommend to use container docker://iseekyan/verl:vllm011.stable, which is built with dockerfile `verl/docker/Dockerfile.stable.vllm011`
 
 export VLLM_ALLREDUCE_USE_SYMM_MEM=0 # for vllm0.11.0 with TP
 
