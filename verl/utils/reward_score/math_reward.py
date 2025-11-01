@@ -99,7 +99,7 @@ def fix_fracs(string):
             else:
                 try:
                     assert len(substr) >= 2
-                except:  # noqa: E722
+                except Exception:
                     return string
                 a = substr[0]
                 b = substr[1]
@@ -130,7 +130,7 @@ def fix_a_slash_b(string):
         assert string == "{}/{}".format(a, b)
         new_string = "\\frac{" + str(a) + "}{" + str(b) + "}"
         return new_string
-    except:  # noqa: E722
+    except Exception:
         return string
 
 
@@ -188,8 +188,8 @@ def strip_string(string):
     string = remove_right_units(string)
 
     # remove percentage
+    string = string.replace("\\\\%", "")
     string = string.replace("\\%", "")
-    string = string.replace("\%", "")  # noqa: W605
 
     # " 0." equivalent to " ." and "{0." equivalent to "{." Alternatively, add "0" if "." is the start of the string
     string = string.replace(" .", " 0.")

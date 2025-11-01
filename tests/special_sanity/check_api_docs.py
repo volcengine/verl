@@ -65,7 +65,7 @@ def iter_submodules(root: ModuleType) -> Iterable[ModuleType]:
         for mod_info in pkgutil.walk_packages(root.__path__, prefix=f"{root.__name__}.", onerror=print_pkg_error):
             try:
                 yield importlib.import_module(mod_info.name)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 print(f"[warn] Skipping {mod_info.name!r}: {exc}", file=sys.stderr)
 
 
