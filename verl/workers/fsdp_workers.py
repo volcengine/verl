@@ -1251,9 +1251,11 @@ class CriticWorker(Worker, DistProfilerExtension):
 
         from transformers import AutoConfig
 
+        # override model kwargs
+        attn_implementation = override_config.get("attn_implementation", "flash_attention_2")
         critic_model_config = AutoConfig.from_pretrained(
             local_path,
-            attn_implementation="flash_attention_2",
+            attn_implementation=attn_implementation,
             trust_remote_code=config.model.get("trust_remote_code", False),
         )
         # TODO: VL models use VisionAttention, which directly uses flash_attention in transformers>=4.53
