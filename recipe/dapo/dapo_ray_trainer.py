@@ -27,13 +27,13 @@ import torch
 from tqdm import tqdm
 
 from verl import DataProto
+from verl.trainer.ppo.advantage import apply_kl_penalty, compute_advantage
 from verl.trainer.ppo.core_algos import agg_loss
 from verl.trainer.ppo.metric_utils import compute_data_metrics, compute_throughout_metrics, compute_timing_metrics
+from verl.trainer.ppo.mismatch_helper import compute_rollout_importance_weights_and_add_to_batch
 from verl.trainer.ppo.ray_trainer import (
     AdvantageEstimator,
     RayPPOTrainer,
-    apply_kl_penalty,
-    compute_advantage,
     compute_response_mask,
 )
 from verl.trainer.ppo.reward import compute_reward
@@ -317,7 +317,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                             batch = batch.union(values)
 
                     # Compute rollout IS weights and mismatch metrics (inherited from RayPPOTrainer)
-                    batch, is_metrics = self.compute_rollout_importance_weights_and_add_to_batch(batch)
+                    batch, is_metrics = compute_rollout_importance_weights_and_add_to_batch(batch, self.config)
                     # IS and mismatch metrics already have mismatch/ prefix
                     metrics.update(is_metrics)
 

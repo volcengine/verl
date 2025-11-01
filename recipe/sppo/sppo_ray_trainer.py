@@ -32,12 +32,12 @@ from tqdm import tqdm
 from verl import DataProto
 from verl.single_controller.ray import RayWorkerGroup
 from verl.trainer.ppo import core_algos
+from verl.trainer.ppo.advantage import apply_kl_penalty
 from verl.trainer.ppo.core_algos import agg_loss
 from verl.trainer.ppo.ray_trainer import (
     AdvantageEstimator,
     RayPPOTrainer,
     ResourcePoolManager,
-    apply_kl_penalty,
     compute_response_mask,
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
