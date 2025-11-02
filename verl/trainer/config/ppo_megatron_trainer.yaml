@@ -76,6 +76,7 @@ algorithm:
   # Rollout Correction: corrects distribution mismatch between rollout and training policies
   # Configuration is nested under rollout_correction. Set to null to disable entirely.
   rollout_correction: null
+
   # Example configuration:
   # rollout_correction:
   #   rollout_is: token                      # IS weights: "token", "sequence", or null
