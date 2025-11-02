@@ -12,28 +12,55 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Rollout Importance Sampling (IS) Helper Module
+Rollout Correction Helper Module
 
-This module handles importance sampling weight computation for correcting
-distribution mismatch between rollout policy (e.g., vLLM BFloat16) and
-training policy (e.g., FSDP FP32).
+This module provides a complete pipeline to address distribution mismatch between
+**rollout policies** (e.g., vLLM BFloat16 for fast inference) and
+**training policies** (e.g., FSDP FP32 for stable training).
 
-Key Features:
-1. Three aggregation levels: token, sequence, geometric
-2. Two handling modes: truncate, mask
-3. Per-token veto mechanism for catastrophic outliers
-4. Memory-efficient computation to prevent CUDA OOM
-5. Comprehensive metrics tracking
+Its core capabilities include computing importance sampling (IS) weights,
+filtering outlier samples via rejection sampling (RS), and
+tracking mismatch metrics to ensure training stability.
 
-Usage Notes:
-- compute_rollout_importance_weights() computes both IS weights and mismatch metrics
-- Used in ray_trainer.py via compute_rollout_importance_weights_and_add_to_batch()
-- Also used in dp_actor.py for distributed worker computations
-- compute_mismatch_metrics() is called internally by compute_rollout_importance_weights()
+## Core Capabilities
+1. **Multi-Granularity Aggregation**:
+   - Importance Sampling (IS):
+        Token-level
+        Sequence-level
+   - Rejection Sampling (RS):
+        Token-level
+        Sequence/geometric (sequence-level geometric mean) — supports flexible outlier filtering.
+2. **Catastrophic Outlier Veto**:
+    Independent per-token veto mechanism — fully reject sequences containing tokens
+    with extremely low IS weights (prevents catastrophic updates).
+3. **Memory-Efficient Design**:
+   - Log-space computations to avoid numerical overflow/underflow.
+   - Fixed safety bounds (exp(±20)) for stable exponentiation.
+   - Metrics calculated without large intermediate tensors (prevents CUDA OOM).
+4. **Comprehensive Metrics Tracking**:
+   - IS/RS statistics (mean/max/min, effective sample size ESS, rejection rate).
+   - Policy mismatch metrics (KL divergence, perplexity PPL, log PPL difference).
+   - Sequence-level breakdowns (deviation from ideal weights, outlier fraction).
 
-References:
-- When Speed Kills Stability: https://yingru.notion.site/When-Speed-Kills-Stability-271211a558b7808d8b12d403fd15edda
-- Off-policy RL: https://fengyao.notion.site/off-policy-rl
+
+## Key Interfaces & Usage
+- compute_rollout_correction_and_rejection_mask(): compute IS weights + rejection mask + veto
+  (most common for LLM training).
+- compute_rollout_correction_weights(): only compute truncated IS weights (for variance
+  reduction, no outlier rejection).
+- compute_rollout_rejection_mask(): only filter outliers (for sample cleaning, no IS weight
+  computation).
+- compute_mismatch_metrics(): called by core functions to calculate KL/PPL — no direct external calls needed.
+
+### Integration Notes
+- Used in `ray_trainer.py` via `compute_rollout_correction_and_add_to_batch()` (batch training pipeline).
+- Used in `dp_actor.py` for distributed worker computations (distributed training scenarios).
+- All functions support batch inputs and valid token masking (via `response_mask`).
+
+
+## References
+- "When Speed Kills Stability" (LLM training stability analysis): https://yingru.notion.site/When-Speed-Kills-Stability-271211a558b7808d8b12d403fd15edda
+- Off-policy RL (theoretical basis for IS): https://fengyao.notion.site/off-policy-rl
 """
 
 from typing import Any, Optional
@@ -43,359 +70,594 @@ import torch
 import verl.utils.torch_functional as verl_F
 from verl.protocol import DataProto
 
+# Safety bound to prevent numerical overflow/underflow when exponentiating
+# exp(20) ≈ 485 million (upper limit for stable weights), exp(-20) ≈ 2e-9 (lower limit)
+SAFETY_BOUND = 20.0
 
-def compute_rollout_importance_weights(
-    old_log_prob: torch.Tensor,
-    rollout_log_prob: torch.Tensor,
+
+def compute_rollout_rejection_mask(
+    log_ratio: torch.Tensor,
     response_mask: torch.Tensor,
-    rollout_is_level: str = "token",
-    rollout_is_mode: str = "truncate",
-    rollout_is_threshold: Optional[float] = None,
-    rollout_is_threshold_lower: Optional[float] = None,
-    rollout_is_veto_threshold: Optional[float] = None,
-) -> tuple[Optional[DataProto], torch.Tensor, dict[str, Any]]:
-    """Compute importance sampling weights and rejection mask for rollout-training mismatch.
+    rollout_rs: str = "token",
+    rollout_rs_threshold: Optional[float] = None,
+    rollout_rs_threshold_lower: Optional[float] = None,
+) -> tuple[torch.Tensor, dict[str, float]]:
+    """Compute rejection mask for outlier handling in rollout-training policy mismatch.
 
-    This function computes IS weights to correct for distribution mismatch between rollout
-    and training policies, and applies rejection sampling for outliers.
+    This function identifies and masks outlier tokens/sequences using precomputed log ratios
+    (log(π_train / π_rollout)). It supports multiple aggregation levels and uses log-space
+    computations for numerical stability.
 
-    Key Design: Separation of IS Weights and Rejection Sampling
-    - IS weights (rollout_is_weights): Ratios π_train/π_rollout with processing applied:
-      * Safety-bounded to prevent overflow:
-        - Token level: exp(clamp(log_ratio, -20, 20)) per token
-        - Sequence level: exp(clamp(sum(log_ratio), -20, 20)) broadcast to all tokens
-        - Geometric level: exp(clamp(mean(log_ratio), -20, 20)) broadcast to all tokens
-      * Truncate mode: upper clamped via .clamp(max=upper_threshold)
-      * Mask mode: safety-bounded ratios preserved (no threshold clamping)
-      * All modes: zeroed at padding positions
-      Used for policy gradient calculations
-    - Response mask (modified_response_mask): Has rejection applied (mask mode + veto)
-      Used for loss aggregation to exclude rejected samples from training
-
-    Reference:
-        When Speed Kills Stability: https://yingru.notion.site/When-Speed-Kills-Stability-271211a558b7808d8b12d403fd15edda
-
-    Memory-efficient implementation:
-    - Log-space computation to prevent overflow
-    - Safety bounds (exp(±20)) on all exponentiations
+    Memory-efficient design:
+    - Log-space calculations to avoid overflow
+    - Fixed safety bounds on exponentiation
     - Metrics computed without large intermediate tensors
 
     Args:
-        old_log_prob: Log probs from training policy (FSDP FP32), shape (batch_size, seq_length)
-        rollout_log_prob: Log probs from rollout policy (vLLM BF16), shape (batch_size, seq_length)
-        response_mask: Valid token mask (1=valid, 0=padding), shape (batch_size, seq_length)
-        rollout_is_level: IS weight aggregation level
-            - "token": Per-token ratios ρ_t = π_train(t)/π_rollout(t) (biased but low variance)
-            - "sequence": Sequence product ρ_seq = ∏ρ_t (unbiased but high variance)
-            - "geometric": Geometric mean ρ_geo = (∏ρ_t)^(1/T) (experimental trade-off)
-        rollout_is_mode: Treatment of outlier IS weights
-            - "truncate": Clamp weights at upper threshold only. No rejection for outlier ratios,
-              but veto can still apply (TIS)
-            - "mask": Reject tokens/sequences outside [lower, upper] via response_mask (MIS/rejection sampling)
-        rollout_is_threshold: Upper threshold for IS weights (required, e.g., 2.0)
-        rollout_is_threshold_lower: Lower threshold for mask mode (if None, defaults to 1/upper)
-        rollout_is_veto_threshold: Catastrophic token threshold. If any token has ratio < this,
-            reject entire sequence. Applied independently of rollout_is_mode. If None, veto disabled. Default None.
+        log_ratio: Log ratio of training policy probability to rollout policy probability,
+            shape (batch_size, seq_length).
+        response_mask: Binary mask for valid tokens (1=valid, 0=padding),
+            shape (batch_size, seq_length).
+        rollout_rs: Rejection sampling aggregation level, must be one of:
+            - "token": Per-token outlier detection
+            - "sequence": Aggregate across entire sequence (product of token ratios)
+            - "geometric": Geometric mean across entire sequence
+        rollout_rs_threshold: Upper threshold for valid IS weights (required for outlier detection).
+        rollout_rs_threshold_lower: Lower threshold for valid IS weights. If None, defaults to 1/upper threshold.
 
     Returns:
-        Tuple of (weights_proto, modified_response_mask, metrics):
-            weights_proto: DataProto with processed IS weights, key "rollout_is_weights",
-                shape (batch_size, seq_length). Processing applied:
-                - Safety-bounded to [exp(-20), exp(20)] ≈ [2e-9, 5e8]:
-                  * Token level: bounds per-token ratios
-                  * Sequence/geometric level: bounds aggregated ratio (broadcast to all tokens)
-                - Truncate mode: upper clamped via .clamp(max=upper_threshold)
-                - Mask mode: safety-bounded ratios preserved (no threshold clamping)
-                - All modes: zeroed at padding positions (response_mask == 0)
-                None if rollout_is_threshold is None.
-            modified_response_mask: Response mask with rejection applied:
-                - truncate mode: unchanged for outlier ratios, but veto rejection still applied
-                - mask mode: tokens outside [lower, upper] masked to 0
-                - veto: sequences with catastrophic tokens masked to 0 (applied in both modes)
-                Shape (batch_size, seq_length).
-            metrics: Dict of IS and mismatch metrics, all scalars with "mismatch/" prefix
+        Tuple containing:
+            modified_response_mask: Response mask with outliers masked (0=rejected),
+                shape (batch_size, seq_length).
+            metrics: Dictionary of rejection sampling metrics (all scalars), including:
+                - rollout_rs_mean/max/min: Statistic of IS weights
+                - rollout_rs_ratio_fraction_high/low: Fraction of weights exceeding thresholds
+                - rollout_rs_masked_fraction: Overall rejection rate
+                - rollout_rs_seq_masked_fraction: Sequence-level rejection rate
     """
-    if rollout_is_threshold is None:
-        return None, response_mask, {}
+    # Validate input parameters
+    valid_rs_levels = {"token", "sequence", "geometric"}
+    if rollout_rs not in valid_rs_levels:
+        raise ValueError(f"Invalid rollout_rs: {rollout_rs}. Must be one of {valid_rs_levels}.")
+    if rollout_rs_threshold is None:
+        raise ValueError("rollout_rs_threshold must be provided for rejection sampling.")
 
-    # Parse thresholds: if lower not specified, use 1/upper (reciprocal)
-    upper_threshold = rollout_is_threshold
-    if rollout_is_threshold_lower is not None:
-        lower_threshold = rollout_is_threshold_lower
-    else:
-        # Default: lower = 1/upper (reciprocal)
-        lower_threshold = 1.0 / upper_threshold
+    # Set default lower threshold if not specified (reciprocal of upper threshold)
+    upper_threshold = rollout_rs_threshold
+    lower_threshold = rollout_rs_threshold_lower if rollout_rs_threshold_lower is not None else 1.0 / upper_threshold
 
-    # Step 1: Compute raw importance weights based on the specified level
-    log_ratio = old_log_prob - rollout_log_prob
+    # Compute IS weights from log ratio (handles different aggregation levels)
+    if rollout_rs == "token":
+        # Per-token IS weight: exp(log(π_train/π_rollout)) with safety clamp
+        log_ratio_for_metrics: torch.Tensor = log_ratio
+        log_ratio_safe: torch.Tensor = torch.clamp(log_ratio, min=-SAFETY_BOUND, max=SAFETY_BOUND)
+        rollout_is_weights: torch.Tensor = torch.exp(log_ratio_safe)
 
-    # Pre-compute log thresholds
-    device = old_log_prob.device
-    log_threshold_upper = torch.log(torch.tensor(upper_threshold, device=device))
-    log_threshold_lower = torch.log(torch.tensor(lower_threshold, device=device))
+    elif rollout_rs == "sequence":
+        # Sequence-level IS weight: product of token ratios (exp(sum(log ratios)))
+        log_ratio_sum: torch.Tensor = verl_F.masked_sum(log_ratio, response_mask, axis=-1).unsqueeze(
+            -1
+        )  # Shape: (batch_size, 1)
+        log_ratio_for_metrics = log_ratio_sum
 
-    # Safety bound to prevent numerical overflow (exp(20) ≈ 485M)
-    SAFETY_BOUND = 20.0
+        log_ratio_sum_safe: torch.Tensor = torch.clamp(log_ratio_sum, min=-SAFETY_BOUND, max=SAFETY_BOUND)
+        rollout_is_weights = torch.exp(log_ratio_sum_safe).expand_as(log_ratio)  # Broadcast to (batch_size, seq_length)
 
-    # Store unclamped values in log-space for accurate metrics
-    if rollout_is_level == "token":
-        # Token-level IS: π_train(a|s) / π_rollout(a|s) per token
-        log_ratio_for_metrics = log_ratio
+    elif rollout_rs == "geometric":
+        # Sequence-level geometric mean: exp(mean(log ratios))
+        log_ratio_mean: torch.Tensor = verl_F.masked_mean(log_ratio, response_mask, axis=-1).unsqueeze(
+            -1
+        )  # Shape: (batch_size, 1)
+        log_ratio_for_metrics = log_ratio_mean
 
-        # Apply safety bound to prevent overflow
-        log_ratio_safe = torch.clamp(log_ratio, min=-SAFETY_BOUND, max=SAFETY_BOUND)
-        rollout_is_weights = torch.exp(log_ratio_safe)
-
-    elif rollout_is_level == "sequence":
-        # Sequence-level IS: π_train(y|x) / π_rollout(y|x) for entire sequence
-        # Product of token ratios: exp(Σ log(π_train/π_rollout))
-        log_ratio_sum = verl_F.masked_sum(log_ratio, response_mask, axis=-1).unsqueeze(-1)
-        log_ratio_for_metrics = log_ratio_sum  # Store for metrics
-
-        # Apply safety bound to prevent overflow
-        log_ratio_sum_safe = torch.clamp(log_ratio_sum, min=-SAFETY_BOUND, max=SAFETY_BOUND)
-        rollout_is_weights = torch.exp(log_ratio_sum_safe).expand_as(old_log_prob)
-
-    elif rollout_is_level == "geometric":
-        # Geometric mean IS: (∏ π_train/π_rollout)^(1/T)
-        # Equivalent to exp(mean(log(π_train/π_rollout)))
-        log_ratio_mean = verl_F.masked_mean(log_ratio, response_mask, axis=-1).unsqueeze(-1)
-        log_ratio_for_metrics = log_ratio_mean  # Store for metrics
-
-        # Geometric mean rarely explodes due to averaging, but apply safety bound anyway
-        log_ratio_mean_safe = torch.clamp(log_ratio_mean, min=-SAFETY_BOUND, max=SAFETY_BOUND)
-        rollout_is_weights = torch.exp(log_ratio_mean_safe).expand_as(old_log_prob)
+        log_ratio_mean_safe: torch.Tensor = torch.clamp(log_ratio_mean, min=-SAFETY_BOUND, max=SAFETY_BOUND)
+        rollout_is_weights = torch.exp(log_ratio_mean_safe).expand_as(log_ratio)
 
     else:
-        raise ValueError(f"Invalid rollout_is_level: {rollout_is_level}. Must be 'token', 'sequence', or 'geometric'.")
+        raise ValueError(f"Unsupported rollout_rs: {rollout_rs}")
 
-    # Step 1.5: Apply per-token veto check in log space (memory efficient)
-    if rollout_is_veto_threshold is not None:
-        log_veto_threshold = torch.log(torch.tensor(rollout_is_veto_threshold, device=device))
+    # Generate outlier mask: 1=valid (within [lower, upper] threshold), 0=outlier
+    mask: torch.Tensor = (rollout_is_weights >= lower_threshold) & (rollout_is_weights <= upper_threshold)
+    mask = mask.float()
 
-        # Check if any token ratio is below veto threshold (in log space)
-        # log(π_train/π_rollout) < log(veto_threshold) ⟺ π_train/π_rollout < veto_threshold
-        catastrophic_tokens = (log_ratio < log_veto_threshold) & response_mask.bool()
-
-        # For each sequence, check if it has any catastrophic token
-        # Use broadcasting instead of expand_as to save memory
-        has_catastrophic = catastrophic_tokens.any(dim=-1, keepdim=True)
-
-        # Create veto mask: 0 if sequence has catastrophic token, 1 otherwise
-        veto_mask = (~has_catastrophic).float()
-    else:
-        # No veto mechanism
-        catastrophic_tokens = torch.zeros_like(response_mask, dtype=torch.bool)
-        has_catastrophic = torch.zeros((old_log_prob.size(0), 1), dtype=torch.bool, device=device)
-        veto_mask = torch.ones((old_log_prob.size(0), 1), dtype=torch.float32, device=device)
-
-    # Step 2: Compute comprehensive metrics
-    metrics = compute_is_metrics(
+    # Compute rejection sampling metrics
+    metrics: dict[str, float] = compute_rs_metrics(
         rollout_is_weights=rollout_is_weights,
         log_ratio_for_metrics=log_ratio_for_metrics,
         response_mask=response_mask,
-        rollout_is_level=rollout_is_level,
-        rollout_is_threshold=upper_threshold,
-        rollout_is_threshold_lower=lower_threshold,
-        log_threshold_upper=log_threshold_upper,
-        log_threshold_lower=log_threshold_lower,
-        has_catastrophic=has_catastrophic,
-        catastrophic_tokens=catastrophic_tokens,
-        SAFETY_BOUND=SAFETY_BOUND,
+        rollout_rs=rollout_rs,
+        rollout_rs_threshold=upper_threshold,
+        rollout_rs_threshold_lower=lower_threshold,
     )
 
-    # Step 3: Apply outlier handling and rejection sampling
-    # Key design principle: IS weights and rejection are separate mechanisms
-    # - rollout_is_weights: IS weight ratios with mode-specific processing
-    #   * Truncate mode: upper clamped to prevent extreme values
-    #   * Mask mode: safety-bounded ratios preserved (no threshold clamping, rejection via mask)
-    #   Used for policy gradient calculations
-    # - modified_response_mask: Has rejection applied (excludes outliers from training)
-    #   Used for loss denominator: ensures rejected samples don't dilute gradients
+    # Track overall and sequence-level rejection rates
+    metrics["rollout_rs_masked_fraction"] = verl_F.masked_mean(1 - mask, response_mask).item()
+    if rollout_rs == "token":
+        # Token-level aggregation: sequence is rejected if any token is rejected
+        seq_has_masked: torch.Tensor = verl_F.masked_sum(1 - mask, response_mask, axis=-1) > 0
+        metrics["rollout_rs_seq_masked_fraction"] = seq_has_masked.float().mean().item()
+    else:
+        # Sequence-level aggregation: check first token's mask (all tokens in sequence have same mask)
+        metrics["rollout_rs_seq_masked_fraction"] = (1 - mask[:, 0]).mean().item()
 
-    if rollout_is_mode == "truncate":
-        # Truncated IS (TIS): clamp weights to prevent extreme importance ratios
-        # Weights are modified by clamping; no rejection via mask for outlier ratios
-        # Veto rejection (if enabled) will still be applied to modified_response_mask below
-        rollout_is_weights = rollout_is_weights.clamp(max=upper_threshold)
-        modified_response_mask = response_mask  # Unchanged for outlier ratios (veto applied later)
+    # Apply rejection mask to original response mask
+    modified_response_mask: torch.Tensor = response_mask * mask
 
-    elif rollout_is_mode == "mask":
-        # Masked IS (MIS): rejection sampling for outlier IS weights
-        # Reject tokens/sequences with IS ratios outside [lower, upper] via response_mask
-        # IS weights themselves are NOT threshold-clamped (remain safety-bounded only)
-        mask = (rollout_is_weights >= lower_threshold) & (rollout_is_weights <= upper_threshold)
-        mask = mask.float()
+    return modified_response_mask, metrics
 
-        # Compute rejection rate metrics
-        metrics["rollout_is_masked_fraction"] = verl_F.masked_mean(1 - mask, response_mask)
-        if rollout_is_level in ["sequence", "geometric"]:
-            # Sequence-level: all tokens have same weight, check first token
-            metrics["rollout_is_seq_masked_fraction"] = (1 - mask[:, 0]).mean()
-        else:
-            # Token-level: sequence rejected if ANY token is rejected
-            seq_has_masked = verl_F.masked_sum(1 - mask, response_mask, axis=-1) > 0
-            metrics["rollout_is_seq_masked_fraction"] = seq_has_masked.float().mean()
 
-        # Apply rejection via response_mask (NOT by clamping IS weights)
-        modified_response_mask = response_mask * mask
-        # rollout_is_weights kept as safety-bounded ratios (no threshold clamping)
+def compute_rs_metrics(
+    rollout_is_weights: torch.Tensor,
+    log_ratio_for_metrics: torch.Tensor,
+    response_mask: torch.Tensor,
+    rollout_rs: str,
+    rollout_rs_threshold: float,
+    rollout_rs_threshold_lower: float,
+) -> dict[str, float]:
+    """Compute comprehensive metrics for rejection sampling.
+
+    This function calculates statistics for IS weights used in rejection sampling,
+    balancing numerical stability (using clamped weights) and accuracy (using log-space
+    for threshold checks).
+
+    Args:
+        rollout_is_weights: Clamped IS weights (π_train / π_rollout),
+            shape (batch_size, seq_length).
+        log_ratio_for_metrics: Log ratio of training to rollout probabilities (unclamped),
+            shape varies by aggregation level.
+        response_mask: Binary mask for valid tokens (1=valid, 0=padding),
+            shape (batch_size, seq_length).
+        rollout_rs: Rejection sampling aggregation level (matches compute_rollout_rejection_mask).
+        rollout_rs_threshold: Upper threshold for valid IS weights.
+        rollout_rs_threshold_lower: Lower threshold for valid IS weights.
+
+    Returns:
+        Dictionary of rejection sampling metrics (all scalars).
+    """
+    if not response_mask.any():
+        raise ValueError("response_mask must contain at least one valid token (1).")
+
+    metrics: dict[str, float] = {}
+    device: torch.device = rollout_is_weights.device
+
+    # Precompute log thresholds for accurate threshold checks
+    log_threshold_upper: torch.Tensor = torch.log(torch.tensor(rollout_rs_threshold, device=device))
+    log_threshold_lower: torch.Tensor = torch.log(torch.tensor(rollout_rs_threshold_lower, device=device))
+
+    # Compute metrics based on aggregation level
+    if rollout_rs in ["sequence", "geometric"]:
+        # Sequence-level aggregation: use log-space for accurate max/min/threshold checks
+        # True max/min (unclamped) converted with safety bounds
+        log_max: torch.Tensor = log_ratio_for_metrics.max()
+        log_min: torch.Tensor = log_ratio_for_metrics.min()
+        metrics["rollout_rs_max"] = torch.exp(torch.clamp(log_max, max=SAFETY_BOUND)).item()
+        metrics["rollout_rs_min"] = torch.exp(log_min).item()
+
+        # Mean uses clamped weights to avoid overflow
+        metrics["rollout_rs_mean"] = verl_F.masked_mean(rollout_is_weights, response_mask).item()
+
+        # Fraction of weights exceeding thresholds (log-space for accuracy)
+        exceeds_upper: torch.Tensor = log_ratio_for_metrics > log_threshold_upper
+        below_lower: torch.Tensor = log_ratio_for_metrics < log_threshold_lower
+
+        if rollout_rs == "sequence":
+            # Sequence-level: all tokens in a sequence have the same weight
+            metrics["rollout_rs_ratio_fraction_high"] = exceeds_upper.float().mean().item()
+            metrics["rollout_rs_ratio_fraction_low"] = below_lower.float().mean().item()
+        else:  # geometric
+            # Broadcast threshold checks to match token dimensions
+            exceeds_upper_expanded: torch.Tensor = exceeds_upper.expand_as(response_mask)
+            below_lower_expanded: torch.Tensor = below_lower.expand_as(response_mask)
+            metrics["rollout_rs_ratio_fraction_high"] = verl_F.masked_mean(
+                exceeds_upper_expanded.float(), response_mask
+            ).item()
+            metrics["rollout_rs_ratio_fraction_low"] = verl_F.masked_mean(
+                below_lower_expanded.float(), response_mask
+            ).item()
+
+    else:  # token-level
+        # Token-level aggregation: compute directly from clamped weights
+        metrics["rollout_rs_mean"] = verl_F.masked_mean(rollout_is_weights, response_mask).item()
+
+        # Fraction of tokens exceeding thresholds
+        rollout_is_above_threshold: torch.Tensor = rollout_is_weights > rollout_rs_threshold
+        rollout_is_below_threshold: torch.Tensor = rollout_is_weights < rollout_rs_threshold_lower
+        metrics["rollout_rs_ratio_fraction_high"] = verl_F.masked_mean(
+            rollout_is_above_threshold.float(), response_mask
+        ).item()
+        metrics["rollout_rs_ratio_fraction_low"] = verl_F.masked_mean(
+            rollout_is_below_threshold.float(), response_mask
+        ).item()
+
+        # Max/min (mask out padding tokens first)
+        mask_bool: torch.Tensor = response_mask.bool()
+        metrics["rollout_rs_max"] = rollout_is_weights.masked_fill(~mask_bool, float("-inf")).max().item()
+        metrics["rollout_rs_min"] = rollout_is_weights.masked_fill(~mask_bool, float("inf")).min().item()
+
+    # Compute standard deviation (using clamped weights for stability)
+    mask_count: torch.Tensor = response_mask.sum()
+    if mask_count > 1:
+        # Clamp weights to threshold range to avoid squaring extreme values
+        weights_for_std: torch.Tensor = rollout_is_weights.clamp(
+            min=rollout_rs_threshold_lower, max=rollout_rs_threshold
+        )
+        mean_clamped: torch.Tensor = verl_F.masked_mean(weights_for_std, response_mask)
+        # Variance = E[X²] - (E[X])² (masked to valid tokens)
+        rollout_is_var: torch.Tensor = (
+            verl_F.masked_mean(weights_for_std.square(), response_mask) - mean_clamped.square()
+        )
+        metrics["rollout_rs_std"] = torch.sqrt(torch.clamp(rollout_is_var, min=0.0)).item()
+    else:
+        metrics["rollout_rs_std"] = 0.0
+
+    # Compute Effective Sample Size (ESS) for IS weights
+    # ESS = 1 / E[(w_i / E[w_i])²] (using clamped weights for stability)
+    weights_for_ess: torch.Tensor = rollout_is_weights.clamp(min=rollout_rs_threshold_lower, max=rollout_rs_threshold)
+    mean_for_ess: torch.Tensor = verl_F.masked_mean(weights_for_ess, response_mask)
+    is_weights_normalized: torch.Tensor = weights_for_ess / (mean_for_ess + 1e-8)  # Avoid division by zero
+    metrics["rollout_rs_eff_sample_size"] = (
+        1.0 / verl_F.masked_mean(is_weights_normalized.square(), response_mask).item()
+    )
+
+    # Add sequence-level metrics if weights have batch dimension
+    if rollout_is_weights.dim() > 1:
+        # Mean weight per sequence (masked to valid tokens)
+        seq_mean_weights: torch.Tensor = verl_F.masked_mean(rollout_is_weights, response_mask, axis=-1)
+
+        metrics["rollout_rs_seq_mean"] = seq_mean_weights.mean().item()
+        metrics["rollout_rs_seq_std"] = seq_mean_weights.std().item() if seq_mean_weights.numel() > 1 else 0.0
+        metrics["rollout_rs_seq_max"] = seq_mean_weights.max().item()
+        metrics["rollout_rs_seq_min"] = seq_mean_weights.min().item()
+
+        # Sequence deviation from ideal weight (1.0)
+        seq_deviation: torch.Tensor = (seq_mean_weights - 1.0).abs()
+        metrics["rollout_rs_seq_max_deviation"] = seq_deviation.max().item()
+
+        # Fraction of sequences with extreme weights
+        metrics["rollout_rs_seq_fraction_high"] = (seq_mean_weights > rollout_rs_threshold).float().mean().item()
+        metrics["rollout_rs_seq_fraction_low"] = (seq_mean_weights < rollout_rs_threshold_lower).float().mean().item()
+
+    return metrics
+
+
+def compute_rollout_correction_weights(
+    log_ratio: torch.Tensor,
+    response_mask: torch.Tensor,
+    rollout_is: str = "token",
+    rollout_is_threshold: float = 2.0,
+) -> tuple[torch.Tensor, dict[str, float]]:
+    """Compute importance sampling weights to correct rollout-training policy mismatch.
+
+    This function calculates IS weights (π_train / π_rollout) using log ratios for numerical stability.
+    It supports multiple aggregation levels and truncates extreme weights to prevent training instability.
+
+    Key design:
+    - Log-space computations to avoid overflow
+    - Truncation of extreme weights (TIS: Truncated Importance Sampling)
+    - Metrics tracking for weight distribution analysis
+
+    Args:
+        log_ratio: Log ratio of training policy probability to rollout policy probability,
+            shape (batch_size, seq_length).
+        response_mask: Binary mask for valid tokens (1=valid, 0=padding),
+            shape (batch_size, seq_length).
+        rollout_is: IS weight aggregation level, must be one of:
+            - "token": Per-token weights (biased, low variance)
+            - "sequence": Per-sequence weight (product of tokens; unbiased, high variance)
+        rollout_is_threshold: Upper threshold for truncating extreme weights (e.g., 2.0),
+            default 2.0.
+
+    Returns:
+        Tuple containing:
+            rollout_is_weights: Truncated IS weights (masked to zero for padding tokens),
+                shape (batch_size, seq_length).
+            metrics: Dictionary of IS weight metrics (all scalars), including:
+                - rollout_is_mean/max/min: Statistic of truncated weights
+                - rollout_is_eff_sample_size: Effective sample size (ESS)
+                - rollout_is_seq_*: Sequence-level weight statistics
+    """
+    # Validate input parameters
+    valid_is_levels = {"token", "sequence"}
+    if rollout_is not in valid_is_levels:
+        raise ValueError(f"Invalid rollout_is: {rollout_is}. Must be one of {valid_is_levels}.")
+    if rollout_is_threshold <= 0:
+        raise ValueError(f"rollout_is_threshold must be positive, got {rollout_is_threshold}.")
+
+    # Compute IS weights from log ratio (handles different aggregation levels)
+    if rollout_is == "token":
+        # Per-token IS weight: exp(log(π_train/π_rollout)) with safety clamp
+        log_ratio_for_metrics: torch.Tensor = log_ratio
+        log_ratio_safe: torch.Tensor = torch.clamp(log_ratio, min=-SAFETY_BOUND, max=SAFETY_BOUND)
+        rollout_is_weights: torch.Tensor = torch.exp(log_ratio_safe)
+
+    elif rollout_is == "sequence":
+        # Sequence-level IS weight: product of token ratios (exp(sum(log ratios)))
+        log_ratio_sum: torch.Tensor = verl_F.masked_sum(log_ratio, response_mask, axis=-1).unsqueeze(
+            -1
+        )  # Shape: (batch_size, 1)
+        log_ratio_for_metrics = log_ratio_sum
+
+        log_ratio_sum_safe: torch.Tensor = torch.clamp(log_ratio_sum, min=-SAFETY_BOUND, max=SAFETY_BOUND)
+        rollout_is_weights = torch.exp(log_ratio_sum_safe).expand_as(log_ratio)  # Broadcast to sequence length
 
     else:
-        raise ValueError(f"Invalid rollout_is_mode: {rollout_is_mode}. Must be 'truncate' or 'mask'.")
+        raise ValueError(f"Unsupported rollout_is: {rollout_is}")
 
-    # Apply veto: reject entire sequences with catastrophic tokens (ratio < veto_threshold)
-    # Veto is independent of mode - it applies to modified_response_mask after mode-specific handling
-    modified_response_mask = modified_response_mask * veto_mask
-    # Note: rollout_is_weights unaffected by veto (already clamped in truncate mode, or kept as-is in mask mode)
-
-    # Zero out padding positions in IS weights for correct aggregation
-    # This is different from rejection - padding must be zeroed regardless of mode
+    # Truncate extreme weights (TIS: Truncated Importance Sampling)
+    rollout_is_weights = rollout_is_weights.clamp(max=rollout_is_threshold)
+    # Zero out weights for padding tokens using response mask
     rollout_is_weights = rollout_is_weights * response_mask
 
-    # Wrap in DataProto for consistency with worker methods
-    rollout_is_weights_proto = DataProto.from_dict(tensors={"rollout_is_weights": rollout_is_weights})
-
-    # Compute mismatch metrics (KL, PPL, etc.) and merge with IS metrics
-    mismatch_metrics = compute_mismatch_metrics(
-        old_log_prob=old_log_prob, rollout_log_prob=rollout_log_prob, response_mask=response_mask
+    # Compute IS weight metrics
+    metrics: dict[str, float] = compute_is_metrics(
+        rollout_is_weights=rollout_is_weights,
+        log_ratio_for_metrics=log_ratio_for_metrics,
+        response_mask=response_mask,
+        rollout_is=rollout_is,
+        rollout_is_threshold=rollout_is_threshold,
     )
-    metrics.update(mismatch_metrics)
 
-    # Convert all tensor metrics to scalars for logging
-    # Note: No need to detach since old_log_prob and rollout_log_prob are computed with torch.no_grad()
-    metrics_scalar = {}
-    for key, value in metrics.items():
-        if isinstance(value, torch.Tensor):
-            metrics_scalar[f"mismatch/{key}"] = value.item()
-        else:
-            metrics_scalar[f"mismatch/{key}"] = value
-
-    return rollout_is_weights_proto, modified_response_mask, metrics_scalar
+    return rollout_is_weights, metrics
 
 
 def compute_is_metrics(
     rollout_is_weights: torch.Tensor,
     log_ratio_for_metrics: torch.Tensor,
     response_mask: torch.Tensor,
-    rollout_is_level: str,
+    rollout_is: str,
     rollout_is_threshold: float,
-    rollout_is_threshold_lower: float,
-    log_threshold_upper: torch.Tensor,
-    log_threshold_lower: torch.Tensor,
-    has_catastrophic: torch.Tensor,
-    catastrophic_tokens: torch.Tensor,
-    SAFETY_BOUND: float,
-) -> dict[str, Any]:
-    """Compute comprehensive metrics for importance sampling weights.
+) -> dict[str, float]:
+    """Compute comprehensive metrics for truncated importance sampling weights.
 
-    Reference:
-        When Speed Kills Stability: https://yingru.notion.site/When-Speed-Kills-Stability-271211a558b7808d8b12d403fd15edda
+    This function calculates statistics for truncated IS weights (TIS), using log-space
+    for accurate threshold checks and clamped weights for stable mean/std calculations.
 
-    This function computes metrics using a mix of true unclamped values (for max/min/fractions
-    in sequence/geometric mode via log-space) and safety-clamped values (for mean/std/ESS)
-    to balance accuracy with numerical stability and avoid overflow.
+    Args:
+        rollout_is_weights: Truncated IS weights (π_train / π_rollout),
+            shape (batch_size, seq_length).
+        log_ratio_for_metrics: Log ratio of training to rollout probabilities (unclamped),
+            shape varies by aggregation level.
+        response_mask: Binary mask for valid tokens (1=valid, 0=padding),
+            shape (batch_size, seq_length).
+        rollout_is: IS weight aggregation level (matches compute_rollout_correction_weights).
+        rollout_is_threshold: Upper threshold for truncated IS weights.
+
+    Returns:
+        Dictionary of IS weight metrics (all scalars).
     """
-    # Validate that we have at least one valid sample
-    assert response_mask.any(), "Expected at least one valid sample in response_mask"
+    if not response_mask.any():
+        raise ValueError("response_mask must contain at least one valid token (1).")
 
-    metrics = {}
-    device = rollout_is_weights.device
+    metrics: dict[str, float] = {}
+    device: torch.device = rollout_is_weights.device
+    # Default lower threshold (reciprocal of upper threshold)
+    rollout_is_threshold_lower: float = 1.0 / rollout_is_threshold
 
-    # Track veto statistics
-    metrics["rollout_is_veto_fraction"] = has_catastrophic.float().mean()
-    metrics["rollout_is_catastrophic_token_fraction"] = verl_F.masked_mean(catastrophic_tokens.float(), response_mask)
+    # Precompute log thresholds for accurate checks
+    log_threshold_upper: torch.Tensor = torch.log(torch.tensor(rollout_is_threshold, device=device))
+    log_threshold_lower: torch.Tensor = torch.log(torch.tensor(rollout_is_threshold_lower, device=device))
 
-    # Compute metrics based on IS level
-    if rollout_is_level in ["sequence", "geometric"]:
-        # For sequence/geometric, compute true statistics from log-space
-        # This reflects the actual distribution before clamping
+    # Compute metrics based on aggregation level
+    if rollout_is == "sequence":
+        # Sequence-level aggregation: use log-space for unclamped stats
+        log_max: torch.Tensor = log_ratio_for_metrics.max()
+        log_min: torch.Tensor = log_ratio_for_metrics.min()
+        metrics["rollout_is_max"] = torch.exp(torch.clamp(log_max, max=SAFETY_BOUND)).item()
+        metrics["rollout_is_min"] = torch.exp(log_min).item()
 
-        # True max/min in log space
-        log_max = log_ratio_for_metrics.max()
-        log_min = log_ratio_for_metrics.min()
+        # Mean uses truncated weights to avoid overflow
+        metrics["rollout_is_mean"] = verl_F.masked_mean(rollout_is_weights, response_mask).item()
 
-        # Convert to regular space with safety bound
-        metrics["rollout_is_max"] = torch.exp(torch.clamp(log_max, max=SAFETY_BOUND))
-        metrics["rollout_is_min"] = torch.exp(log_min)
+        # Fraction of weights exceeding thresholds (log-space for accuracy)
+        exceeds_upper: torch.Tensor = log_ratio_for_metrics > log_threshold_upper
+        below_lower: torch.Tensor = log_ratio_for_metrics < log_threshold_lower
+        metrics["rollout_is_ratio_fraction_high"] = exceeds_upper.float().mean().item()
+        metrics["rollout_is_ratio_fraction_low"] = below_lower.float().mean().item()
 
-        # Mean uses clamped weights to avoid overflow
-        metrics["rollout_is_mean"] = verl_F.masked_mean(rollout_is_weights, response_mask)
+    else:  # token-level
+        # Token-level aggregation: compute directly from truncated weights
+        metrics["rollout_is_mean"] = verl_F.masked_mean(rollout_is_weights, response_mask).item()
 
-        # Compute fraction exceeding threshold in log space (accurate)
-        exceeds_upper = log_ratio_for_metrics > log_threshold_upper
-        below_lower = log_ratio_for_metrics < log_threshold_lower
-
-        if rollout_is_level == "sequence":
-            # For sequence level, all tokens in a sequence have the same weight
-            metrics["rollout_is_ratio_fraction_high"] = exceeds_upper.float().mean()
-            metrics["rollout_is_ratio_fraction_low"] = below_lower.float().mean()
-        else:  # geometric
-            # Need to expand to match token dimensions
-            exceeds_upper_expanded = exceeds_upper.expand_as(response_mask)
-            below_lower_expanded = below_lower.expand_as(response_mask)
-            metrics["rollout_is_ratio_fraction_high"] = verl_F.masked_mean(
-                exceeds_upper_expanded.float(), response_mask
-            )
-            metrics["rollout_is_ratio_fraction_low"] = verl_F.masked_mean(below_lower_expanded.float(), response_mask)
-
-    else:
-        # Token-level: compute directly from weights
-        metrics["rollout_is_mean"] = verl_F.masked_mean(rollout_is_weights, response_mask)
-
-        # Fraction exceeding thresholds
-        rollout_is_above_threshold = rollout_is_weights > rollout_is_threshold
-        rollout_is_below_threshold = rollout_is_weights < rollout_is_threshold_lower
+        # Fraction of tokens exceeding thresholds
+        rollout_is_above_threshold: torch.Tensor = rollout_is_weights > rollout_is_threshold
+        rollout_is_below_threshold: torch.Tensor = rollout_is_weights < rollout_is_threshold_lower
         metrics["rollout_is_ratio_fraction_high"] = verl_F.masked_mean(
             rollout_is_above_threshold.float(), response_mask
-        )
-        metrics["rollout_is_ratio_fraction_low"] = verl_F.masked_mean(rollout_is_below_threshold.float(), response_mask)
+        ).item()
+        metrics["rollout_is_ratio_fraction_low"] = verl_F.masked_mean(
+            rollout_is_below_threshold.float(), response_mask
+        ).item()
 
-        # Max/min for token level
-        mask_bool = response_mask.bool()
-        metrics["rollout_is_max"] = rollout_is_weights.masked_fill(~mask_bool, float("-inf")).max()
-        metrics["rollout_is_min"] = rollout_is_weights.masked_fill(~mask_bool, float("inf")).min()
+        # Max/min (mask out padding tokens)
+        mask_bool: torch.Tensor = response_mask.bool()
+        metrics["rollout_is_max"] = rollout_is_weights.masked_fill(~mask_bool, float("-inf")).max().item()
+        metrics["rollout_is_min"] = rollout_is_weights.masked_fill(~mask_bool, float("inf")).min().item()
 
-    # Compute standard deviation using clamped weights to avoid overflow
-    mask_count = response_mask.sum()
+    # Compute standard deviation (using clamped weights for stability)
+    mask_count: torch.Tensor = response_mask.sum()
     if mask_count > 1:
-        # Use clamped weights for variance to avoid squaring huge values
-        weights_for_std = rollout_is_weights.clamp(min=rollout_is_threshold_lower, max=rollout_is_threshold)
-        # Use mean from clamped weights for consistency
-        mean_clamped = verl_F.masked_mean(weights_for_std, response_mask)
-        rollout_is_var = verl_F.masked_mean(weights_for_std.square(), response_mask) - mean_clamped.square()
-        metrics["rollout_is_std"] = torch.sqrt(torch.clamp(rollout_is_var, min=0.0))
-    else:
-        metrics["rollout_is_std"] = torch.tensor(0.0, device=device)
-
-    # Effective sample size (use clamped weights to avoid overflow)
-    weights_for_ess = rollout_is_weights.clamp(min=rollout_is_threshold_lower, max=rollout_is_threshold)
-    mean_for_ess = verl_F.masked_mean(weights_for_ess, response_mask)
-    is_weights_normalized = weights_for_ess / (mean_for_ess + 1e-8)
-    metrics["rollout_is_eff_sample_size"] = 1.0 / verl_F.masked_mean(is_weights_normalized.square(), response_mask)
-
-    # Per-sequence breakdown metrics
-    if rollout_is_weights.dim() > 1:
-        # Compute mean IS weight per sequence
-        seq_mean_weights = verl_F.masked_mean(rollout_is_weights, response_mask, axis=-1)
-
-        # Per-sequence statistics
-        metrics["rollout_is_seq_mean"] = seq_mean_weights.mean()
-        metrics["rollout_is_seq_std"] = (
-            seq_mean_weights.std() if seq_mean_weights.numel() > 1 else torch.tensor(0.0, device=device)
+        weights_for_std: torch.Tensor = rollout_is_weights.clamp(
+            min=rollout_is_threshold_lower, max=rollout_is_threshold
         )
-        metrics["rollout_is_seq_max"] = seq_mean_weights.max()
-        metrics["rollout_is_seq_min"] = seq_mean_weights.min()
+        mean_clamped: torch.Tensor = verl_F.masked_mean(weights_for_std, response_mask)
+        rollout_is_var: torch.Tensor = (
+            verl_F.masked_mean(weights_for_std.square(), response_mask) - mean_clamped.square()
+        )
+        metrics["rollout_is_std"] = torch.sqrt(torch.clamp(rollout_is_var, min=0.0)).item()
+    else:
+        metrics["rollout_is_std"] = 0.0
 
-        # Identify most problematic sequences
-        seq_deviation = (seq_mean_weights - 1.0).abs()
-        metrics["rollout_is_seq_max_deviation"] = seq_deviation.max()
+    # Compute Effective Sample Size (ESS) for truncated weights
+    weights_for_ess: torch.Tensor = rollout_is_weights.clamp(min=rollout_is_threshold_lower, max=rollout_is_threshold)
+    mean_for_ess: torch.Tensor = verl_F.masked_mean(weights_for_ess, response_mask)
+    is_weights_normalized: torch.Tensor = weights_for_ess / (mean_for_ess + 1e-8)  # Avoid division by zero
+    metrics["rollout_is_eff_sample_size"] = (
+        1.0 / verl_F.masked_mean(is_weights_normalized.square(), response_mask).item()
+    )
 
-        # Fraction of sequences with high IS weights
-        metrics["rollout_is_seq_fraction_high"] = (seq_mean_weights > rollout_is_threshold).float().mean()
-        metrics["rollout_is_seq_fraction_low"] = (seq_mean_weights < rollout_is_threshold_lower).float().mean()
+    # Add sequence-level metrics if weights have batch dimension
+    if rollout_is_weights.dim() > 1:
+        seq_mean_weights: torch.Tensor = verl_F.masked_mean(rollout_is_weights, response_mask, axis=-1)
+
+        metrics["rollout_is_seq_mean"] = seq_mean_weights.mean().item()
+        metrics["rollout_is_seq_std"] = seq_mean_weights.std().item() if seq_mean_weights.numel() > 1 else 0.0
+        metrics["rollout_is_seq_max"] = seq_mean_weights.max().item()
+        metrics["rollout_is_seq_min"] = seq_mean_weights.min().item()
+
+        # Sequence deviation from ideal weight (1.0)
+        seq_deviation: torch.Tensor = (seq_mean_weights - 1.0).abs()
+        metrics["rollout_is_seq_max_deviation"] = seq_deviation.max().item()
+
+        # Fraction of sequences with extreme weights
+        metrics["rollout_is_seq_fraction_high"] = (seq_mean_weights > rollout_is_threshold).float().mean().item()
+        metrics["rollout_is_seq_fraction_low"] = (seq_mean_weights < rollout_is_threshold_lower).float().mean().item()
 
     return metrics
+
+
+def compute_rollout_correction_and_rejection_mask(
+    old_log_prob: torch.Tensor,
+    rollout_log_prob: torch.Tensor,
+    response_mask: torch.Tensor,
+    rollout_is: Optional[str] = None,
+    rollout_is_threshold: Optional[float] = 2.0,
+    rollout_rs: Optional[str] = None,
+    rollout_rs_threshold: Optional[float] = 2.0,
+    rollout_rs_threshold_lower: Optional[float] = None,
+    rollout_token_veto_threshold: Optional[float] = None,
+) -> tuple[Optional[DataProto], torch.Tensor, dict[str, float]]:
+    """Unified interface for computing IS weights and rejection masks.
+
+    This function combines IS weight calculation (truncated) and rejection sampling (masked)
+    into a single pipeline. It also applies a per-token veto for catastrophic outliers
+    (sequences with extremely low token ratios are fully rejected).
+
+    Key design:
+    - Separation of IS weights (for variance reduction) and rejection masks (for sample filtering)
+    - Veto mechanism for catastrophic sequences (applied independently of other modes)
+    - Comprehensive metrics tracking for mismatch diagnosis
+
+    Args:
+        old_log_prob: Log probabilities from the training policy (e.g., FSDP FP32),
+            shape (batch_size, seq_length).
+        rollout_log_prob: Log probabilities from the rollout policy (e.g., vLLM BF16),
+            shape (batch_size, seq_length).
+        response_mask: Binary mask for valid tokens (1=valid, 0=padding),
+            shape (batch_size, seq_length).
+        rollout_is: IS weight aggregation level (see compute_rollout_correction_weights for options).
+            Set to None to disable IS weight computation.
+        rollout_is_threshold: Upper threshold for truncated IS weights (used if rollout_is is set),
+            default 2.0.
+        rollout_rs: Rejection sampling aggregation level (see compute_rollout_rejection_mask for options).
+            Set to None to disable rejection sampling.
+        rollout_rs_threshold: Upper threshold for rejection sampling (used if rollout_rs is set),
+            default 2.0.
+        rollout_rs_threshold_lower: Lower threshold for rejection sampling (used if rollout_rs is set).
+            Defaults to 1/rollout_rs_threshold if None.
+        rollout_token_veto_threshold: Minimum allowed token-level IS weight. Sequences containing
+            any token below this threshold are fully rejected. Set to None to disable veto.
+
+    Returns:
+        Tuple containing:
+            rollout_is_weights_proto: DataProto with IS weights (None if rollout_is is None),
+                key "rollout_is_weights", shape (batch_size, seq_length).
+            modified_response_mask: Response mask with rejection sampling and veto applied,
+                shape (batch_size, seq_length).
+            metrics: Dictionary of all metrics (prefixed with "mismatch/"), including:
+                - IS weight statistics
+                - Rejection sampling rates
+                - Veto statistics
+                - Policy mismatch metrics (KL, PPL, etc.)
+    """
+    # Validate input masks
+    if not response_mask.any():
+        raise ValueError("response_mask must contain at least one valid token (1).")
+    if old_log_prob.shape != rollout_log_prob.shape:
+        raise ValueError(
+            f"old_log_prob shape {old_log_prob.shape} does not match rollout_log_prob shape {rollout_log_prob.shape}."
+        )
+    if old_log_prob.shape != response_mask.shape:
+        raise ValueError(
+            f"log_prob shape {old_log_prob.shape} does not match response_mask shape {response_mask.shape}."
+        )
+
+    # Step 1: Compute log ratio (log(π_train / π_rollout))
+    log_ratio: torch.Tensor = old_log_prob - rollout_log_prob
+    device: torch.device = log_ratio.device
+    metrics: dict[str, float] = {}
+
+    # Step 2: Compute IS weights (if enabled)
+    rollout_is_weights: Optional[torch.Tensor] = None
+    if rollout_is is not None and rollout_is_threshold is not None:
+        rollout_is_weights, is_metrics = compute_rollout_correction_weights(
+            log_ratio=log_ratio,
+            response_mask=response_mask,
+            rollout_is=rollout_is,
+            rollout_is_threshold=rollout_is_threshold,
+        )
+        metrics.update(is_metrics)
+
+    # Step 3: Compute rejection mask (if enabled)
+    modified_response_mask: torch.Tensor = response_mask.clone()
+    if rollout_rs is not None and rollout_rs_threshold is not None:
+        modified_response_mask, rs_metrics = compute_rollout_rejection_mask(
+            log_ratio=log_ratio,
+            response_mask=response_mask,
+            rollout_rs=rollout_rs,
+            rollout_rs_threshold=rollout_rs_threshold,
+            rollout_rs_threshold_lower=rollout_rs_threshold_lower,
+        )
+        metrics.update(rs_metrics)
+
+    # Step 4: Apply per-token veto (reject sequences with catastrophic tokens)
+    if rollout_token_veto_threshold is not None:
+        if rollout_token_veto_threshold <= 0:
+            raise ValueError(f"rollout_token_veto_threshold must be positive, got {rollout_token_veto_threshold}.")
+
+        # Compute log threshold for numerical stability
+        log_veto_threshold: torch.Tensor = torch.log(torch.tensor(rollout_token_veto_threshold, device=device))
+        # Identify catastrophic tokens (log ratio below threshold + valid mask)
+        catastrophic_tokens: torch.Tensor = (log_ratio < log_veto_threshold) & response_mask.bool()
+        # Check if sequence contains any catastrophic token
+        has_catastrophic: torch.Tensor = catastrophic_tokens.any(dim=-1, keepdim=True)
+        # Create veto mask (0=reject sequence, 1=keep)
+        veto_mask: torch.Tensor = (~has_catastrophic).float()
+
+        # Track veto metrics
+        metrics["rollout_is_veto_fraction"] = has_catastrophic.float().mean().item()
+        metrics["rollout_is_catastrophic_token_fraction"] = verl_F.masked_mean(
+            catastrophic_tokens.float(), response_mask
+        ).item()
+
+        # Apply veto to response mask (overrides previous rejection)
+        modified_response_mask = modified_response_mask * veto_mask
+    else:
+        # Add placeholder metrics if veto is disabled
+        metrics["rollout_is_veto_fraction"] = 0.0
+        metrics["rollout_is_catastrophic_token_fraction"] = 0.0
+
+    # Step 5: Compute policy mismatch metrics (KL, PPL, etc.)
+    mismatch_metrics: dict[str, float] = compute_mismatch_metrics(
+        old_log_prob=old_log_prob,
+        rollout_log_prob=rollout_log_prob,
+        response_mask=response_mask,
+    )
+    metrics.update(mismatch_metrics)
+
+    # Step 6: Add "mismatch/" prefix to all metrics for logging consistency
+    metrics_scalar: dict[str, float] = {}
+    for key, value in metrics.items():
+        if isinstance(value, torch.Tensor):
+            metrics_scalar[f"mismatch/{key}"] = value.item()
+        else:
+            metrics_scalar[f"mismatch/{key}"] = value
+
+    # Step 7: Wrap IS weights in DataProto for consistency with API
+    rollout_is_weights_proto: Optional[DataProto] = None
+    if rollout_is_weights is not None:
+        rollout_is_weights_proto = DataProto.from_dict(tensors={"rollout_is_weights": rollout_is_weights})
+
+    return rollout_is_weights_proto, modified_response_mask, metrics_scalar
 
 
 def compute_mismatch_metrics(
@@ -406,8 +668,8 @@ def compute_mismatch_metrics(
     """Compute training-inference mismatch metrics (helper function).
 
     This helper function operates on raw tensors and is used internally by:
-    - compute_rollout_importance_weights() in this module (automatically included)
-    - Tests (test_rollout_is.py, test_rollout_is_integration.py)
+    - compute_rollout_correction_and_rejection_mask() in this module (automatically included)
+    - Tests (test_rollout_corr.py, test_rollout_corr_integration.py)
 
     These metrics help diagnose the mismatch between the rollout policy (e.g., vLLM)
     and the training policy (e.g., FSDP), which can cause training instability.
@@ -427,9 +689,6 @@ def compute_mismatch_metrics(
 
     Returns:
         Dictionary of mismatch metrics (without prefix)
-
-    Reference:
-    - When Speed Kills Stability: https://yingru.notion.site/When-Speed-Kills-Stability-271211a558b7808d8b12d403fd15edda
     """
     # Validate that we have at least one valid token
     assert response_mask.any(), "Expected at least one valid token in response_mask"

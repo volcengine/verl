@@ -577,8 +577,8 @@ class OneStepOffRayTrainer(RayPPOTrainer):
                     else:
                         batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
 
-                    # Compute rollout IS weights and mismatch metrics (inherited from RayPPOTrainer)
-                    batch, is_metrics = self.compute_rollout_importance_weights_and_add_to_batch(batch)
+                    # Compute rollout correction weights and mismatch metrics (inherited from RayPPOTrainer)
+                    batch, is_metrics = self.compute_rollout_correction_and_add_to_batch(batch)
                     # IS and mismatch metrics already have mismatch/ prefix
                     metrics.update(is_metrics)
 

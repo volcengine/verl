@@ -1,6 +1,6 @@
-# Rollout Importance Sampling (IS) Examples
+# Rollout Correction Examples
 
-This directory contains examples and documentation for using Rollout Importance Sampling to correct distribution mismatch between rollout and training policies.
+This directory contains examples and documentation for using Rollout Correction to address distribution mismatch between rollout and training policies.
 
 **References:**
 - When Speed Kills Stability: https://yingru.notion.site/When-Speed-Kills-Stability-271211a558b7808d8b12d403fd15edda
@@ -8,10 +8,12 @@ This directory contains examples and documentation for using Rollout Importance 
 
 ## Overview
 
-Rollout Importance Sampling corrects for distribution mismatch when:
+Rollout Correction addresses distribution mismatch when:
 1. **Rollout generation** uses one policy (e.g., vLLM with BFloat16)
 2. **Training** uses another policy (e.g., FSDP with FP32)
 3. This mismatch leads to biased gradient estimates
+
+Rollout Correction uses importance sampling (IS) weights and rejection sampling (RS) to correct these biases.
 
 ## Quick Start
 
@@ -19,12 +21,13 @@ Rollout Importance Sampling corrects for distribution mismatch when:
 
 ```yaml
 algorithm:
-  # Main control: set threshold to enable (null = disabled)
-  rollout_is_threshold: 2.0
-  # Whether to apply weights to policy loss (true) or just compute metrics (false)
-  rollout_is: true
-  rollout_is_level: token
-  rollout_is_mode: truncate
+  rollout_correction:
+    rollout_is: token  # IS weights: token/sequence/null
+    rollout_is_threshold: 2.0  # Upper threshold
+    rollout_rs: null  # Rejection sampling: token/sequence/geometric/null
+    rollout_rs_threshold: null
+    rollout_rs_threshold_lower: null
+    rollout_token_veto_threshold: null  # Veto threshold
 
 # IMPORTANT: Must enable log prob calculation
 actor_rollout_ref:
@@ -36,89 +39,93 @@ actor_rollout_ref:
 
 ```bash
 # Basic example with token-level truncate
-bash examples/rollout_importance_sampling/run_with_rollout_is.sh
+bash examples/rollout_correction/run_with_rollout_corr.sh
 ```
 
 ## Configuration Options
 
-### Aggregation Levels (`rollout_is_level`)
+### IS Weights Aggregation Levels (`rollout_is`)
 
 | Level | Properties | Threshold Range |
 |-------|-----------|-----------------|
-| **token** | Per-token | 1.5 - 5.0 |
-| **sequence** | Per-sequence | 2.0 - 10.0 |
-| **geometric** | Geometric mean | 1.0002 - 1.001 |
+| **token** | Per-token weighting | 1.5 - 5.0 |
+| **sequence** | Per-sequence weighting | 2.0 - 10.0 |
+| **null** | Disabled | N/A |
 
-### Bounding Modes (`rollout_is_mode`)
+### Rejection Sampling Modes (`rollout_rs`)
 
-| Mode | Behavior |
-|------|----------|
-| **truncate** | Cap weights at upper threshold only |
-| **clip** | Zero out weights outside [lower, upper] |
+| Mode | Behavior | Threshold Range |
+|------|----------|-----------------|
+| **token** | Per-token rejection | 1.5 - 5.0 |
+| **sequence** | Per-sequence rejection | 2.0 - 10.0 |
+| **geometric** | Geometric mean rejection | 1.0002 - 1.001 |
+| **null** | Disabled | N/A |
 
 ### Key Parameters
 
-- `rollout_is_threshold`: Upper threshold for IS weights (null = disabled, float = enabled). **Main on/off switch.**
-- `rollout_is`: Whether to apply weights to loss (true) or just compute metrics (false). Default: false.
-- `rollout_is_threshold_lower`: Lower threshold (null = auto 1/upper)
-- `rollout_is_veto_threshold`: Catastrophic outlier threshold (default: null, disabled)
+- `rollout_is`: IS weights aggregation level (`token`, `sequence`, or `null`)
+- `rollout_is_threshold`: Upper threshold for IS weights
+- `rollout_rs`: Rejection sampling mode (`token`, `sequence`, `geometric`, or `null`)
+- `rollout_rs_threshold`: RS upper threshold
+- `rollout_rs_threshold_lower`: RS lower threshold (null = auto 1/upper)
+- `rollout_token_veto_threshold`: Per-token catastrophic outlier veto threshold (null = disabled)
 
 ## Configuration Examples
 
-### Example 1: Full IS Correction (Apply Weights)
+### Example 1: IS Weights Only (Token-level)
 
 ```yaml
 algorithm:
-  rollout_is_threshold: 2.0
-  rollout_is: true  # Apply to loss
-  rollout_is_level: token
-  rollout_is_mode: truncate
-  rollout_is_veto_threshold: null  # Disabled by default
+  rollout_correction:
+    rollout_is: token
+    rollout_is_threshold: 2.0
+    rollout_rs: null  # No rejection sampling
 ```
 
-### Example 2: Metrics Only (No Weight Application)
+### Example 2: Rejection Sampling Only
 
 ```yaml
 algorithm:
-  rollout_is_threshold: 2.0
-  rollout_is: false  # Compute metrics only, don't apply to loss
-  rollout_is_level: token
-  rollout_is_mode: truncate
+  rollout_correction:
+    rollout_is: null  # No IS weights
+    rollout_rs: sequence
+    rollout_rs_threshold: 3.0
 ```
 
-### Example 3: Geometric Mean with Mask
+### Example 3: Combined IS + RS
 
 ```yaml
 algorithm:
-  rollout_is_threshold: 1.0002
-  rollout_is: true
-  rollout_is_threshold_lower: 0.9998
-  rollout_is_level: geometric
-  rollout_is_mode: mask
-  rollout_is_veto_threshold: 1e-4  # Enable veto for this example
+  rollout_correction:
+    rollout_is: token
+    rollout_is_threshold: 2.0
+    rollout_rs: token
+    rollout_rs_threshold: 2.0
 ```
 
-### Example 4: Sequence-level with Truncate
+### Example 4: Geometric Mean RS with Veto
 
 ```yaml
 algorithm:
-  rollout_is_threshold: 5.0
-  rollout_is: true
-  rollout_is_threshold_lower: null  # Auto-reciprocal: 0.2
-  rollout_is_level: sequence
-  rollout_is_mode: truncate
-  rollout_is_veto_threshold: 1e-4  # Enable veto for this example
+  rollout_correction:
+    rollout_is: null
+    rollout_rs: geometric
+    rollout_rs_threshold: 1.0002
+    rollout_rs_threshold_lower: 0.9998
+    rollout_token_veto_threshold: 1e-4
 ```
 
-### Example 5: Asymmetric Thresholds
+### Example 5: Full Configuration
 
 ```yaml
 algorithm:
-  rollout_is_threshold: 5.0
-  rollout_is: true
-  rollout_is_threshold_lower: 0.8
-  rollout_is_level: token
-  rollout_is_mode: mask
+  rollout_correction:
+    rollout_is: sequence
+    rollout_is_threshold: 5.0
+    rollout_rs: token
+    rollout_rs_threshold: 3.0
+    rollout_rs_threshold_lower: 0.5
+    rollout_token_veto_threshold: 1e-4
 ```
 
 ## Monitoring Metrics
@@ -169,7 +176,12 @@ These metrics help diagnose the distribution mismatch between rollout and traini
 **Symptoms**: `rollout_is_veto_fraction` > 0.1
 
 **Solutions**:
-1. Relax veto threshold: `rollout_is_veto_threshold: 1e-3`
+1. Relax veto threshold in config:
+   ```yaml
+   algorithm:
+     rollout_correction:
+       rollout_token_veto_threshold: 1e-3
+   ```
 2. Check for numerical issues in log prob computation
 3. Verify rollout and training policies aren't completely different
 
@@ -194,7 +206,7 @@ These metrics help diagnose the distribution mismatch between rollout and traini
 ## Performance Considerations
 
 ### Memory Usage
-- Rollout IS adds minimal memory overhead (~1% of model memory)
+- Rollout Correction adds minimal memory overhead (~1% of model memory)
 - Log-space computation prevents numerical overflow
 
 ### Computational Cost
@@ -224,7 +236,7 @@ rollout_is_threshold_lower: null
 
 The veto mechanism zeros out entire sequences containing catastrophic outliers:
 
-- If any token has ratio < `rollout_is_veto_threshold`, the entire sequence is rejected
+- If any token has ratio < `rollout_token_veto_threshold`, the entire sequence is rejected
 - This prevents extreme outliers from dominating training
 - Default: `null` (disabled by default)
 - Set to `1e-4` to enable (catches ratios 10,000x off)
@@ -232,7 +244,7 @@ The veto mechanism zeros out entire sequences containing catastrophic outliers:
 ## Examples
 
 See the script in this directory:
-- `run_with_rollout_is.sh`: Basic example with token-level truncate mode
+- `run_with_rollout_corr.sh`: Basic example with token-level truncate mode
 
 ## References
 

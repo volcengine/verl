@@ -49,7 +49,7 @@ from verl.trainer.ppo.metric_utils import (
     compute_timing_metrics,
     process_validation_metrics,
 )
-from verl.trainer.ppo.mismatch_helper import compute_rollout_importance_weights
+from verl.trainer.ppo.mismatch_helper import compute_rollout_correction_and_rejection_mask
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.trainer.ppo.utils import Role, WorkerType, need_critic, need_reference_policy, need_reward_model
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
@@ -954,63 +954,65 @@ class RayPPOTrainer:
         )
         metrics.update(global_balance_stats)
 
-    def compute_rollout_importance_weights_and_add_to_batch(self, batch: DataProto) -> tuple[DataProto, dict]:
-        """Compute IS weights and apply rejection sampling for rollout-training mismatch.
+    def compute_rollout_correction_and_add_to_batch(self, batch: DataProto) -> tuple[DataProto, dict]:
+        """Compute rollout correction weights and apply rejection sampling for rollout-training mismatch.
 
         Computes importance sampling weights to correct for distribution mismatch between
-        rollout and training policies. Applies rejection sampling (mask mode/veto) by
-        modifying response_mask. Always updates response_mask; conditionally adds IS weights.
+        rollout and training policies. Applies rejection sampling by modifying response_mask.
+        Always updates response_mask; conditionally adds IS weights.
 
         Key behavior:
-        - response_mask: ALWAYS updated with rejection (mask mode + veto excluded from training)
-        - rollout_is_weights: Added to batch ONLY if config.algorithm.rollout_is=True
+        - response_mask: ALWAYS updated with rejection (veto + optional RS excluded from training)
+        - rollout_is_weights: Added to batch ONLY if rollout_is parameter is set
 
         This separation ensures:
-        - Rejection works even when IS weights are disabled (rollout_is=False)
-        - Metrics can be monitored before enabling IS weight application
+        - Rejection works independently of IS weight application
+        - Metrics can be monitored before enabling IS weight correction
 
         Args:
             batch: DataProto with old_log_probs, rollout_log_probs, response_mask
 
         Returns:
             Tuple of (updated_batch, metrics):
-                updated_batch: Batch with modified response_mask (always) and rollout_is_weights (if rollout_is=True)
+                updated_batch: Batch with modified response_mask (always) and rollout_is_weights (if enabled)
                 metrics: Dict of IS and mismatch metrics, all with "mismatch/" prefix
         """
-        # Compute rollout IS weights if enabled and data is available
-        # rollout_is_threshold is the main on/off switch (None = disabled, float = enabled)
-        rollout_is_threshold = self.config.algorithm.get("rollout_is_threshold", None)
-        if rollout_is_threshold is not None and rollout_is_threshold > 0 and "rollout_log_probs" in batch.batch:
+        # Compute rollout correction if enabled and data is available
+        rollout_corr_config = self.config.algorithm.get("rollout_correction", None)
+        if rollout_corr_config is not None and "rollout_log_probs" in batch.batch:
+            # Get new API parameters directly from config
+            rollout_is = rollout_corr_config.get("rollout_is", None)
+            rollout_is_threshold = rollout_corr_config.get("rollout_is_threshold", 2.0)
+            rollout_rs = rollout_corr_config.get("rollout_rs", None)
+            rollout_rs_threshold = rollout_corr_config.get("rollout_rs_threshold", None)
+            rollout_rs_threshold_lower = rollout_corr_config.get("rollout_rs_threshold_lower", None)
+            rollout_token_veto_threshold = rollout_corr_config.get("rollout_token_veto_threshold", None)
+
             # Compute IS weights and get modified response_mask
-            rollout_is_weights, modified_response_mask, rollout_is_metrics = compute_rollout_importance_weights(
-                old_log_prob=batch.batch["old_log_probs"],
-                rollout_log_prob=batch.batch["rollout_log_probs"],
-                response_mask=batch.batch["response_mask"],
-                rollout_is_level=self.config.algorithm.rollout_is_level,
-                rollout_is_mode=self.config.algorithm.rollout_is_mode,
-                rollout_is_threshold=self.config.algorithm.rollout_is_threshold,
-                rollout_is_threshold_lower=self.config.algorithm.get("rollout_is_threshold_lower", None),
-                rollout_is_veto_threshold=self.config.algorithm.get("rollout_is_veto_threshold", None),
+            rollout_is_weights, modified_response_mask, rollout_corr_metrics = (
+                compute_rollout_correction_and_rejection_mask(
+                    old_log_prob=batch.batch["old_log_probs"],
+                    rollout_log_prob=batch.batch["rollout_log_probs"],
+                    response_mask=batch.batch["response_mask"],
+                    rollout_is=rollout_is,
+                    rollout_is_threshold=rollout_is_threshold,
+                    rollout_rs=rollout_rs,
+                    rollout_rs_threshold=rollout_rs_threshold,
+                    rollout_rs_threshold_lower=rollout_rs_threshold_lower,
+                    rollout_token_veto_threshold=rollout_token_veto_threshold,
+                )
             )
 
-            # ALWAYS update response_mask with rejection (even if rollout_is=False)
-            # - Mask mode: tokens with outlier IS ratios excluded
-            # - Veto: sequences with catastrophic tokens excluded
-            # This ensures correct loss normalization (rejected samples not in denominator)
+            # ALWAYS update response_mask with rejection applied
             batch.batch["response_mask"] = modified_response_mask
 
-            # Conditionally add IS weights based on rollout_is config flag
-            # - rollout_is=True: Enable IS weight correction in policy loss
-            # - rollout_is=False: Metrics-only mode (rejection still applied via mask)
-            apply_weights = self.config.algorithm.get("rollout_is", False)
-
-            if apply_weights:
-                # Add IS weights (safety-bounded, mode-processed) to enable weight correction
+            # Add IS weights to batch if computed
+            if rollout_is_weights is not None:
                 batch = batch.union(rollout_is_weights)
 
-            return batch, rollout_is_metrics
+            return batch, rollout_corr_metrics
 
-        # Return unchanged batch and empty metrics if IS is disabled
+        # Return unchanged batch and empty metrics if disabled
         return batch, {}
 
     def fit(self):
@@ -1213,10 +1215,10 @@ class RayPPOTrainer:
                         else:
                             batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
 
-                        # Compute rollout importance sampling weights centrally (once per batch)
+                        # Compute rollout correction weights centrally (once per batch)
                         # This corrects for mismatch between rollout policy and training policy
                         # Also computes mismatch metrics (KL, PPL, etc.)
-                        batch, is_metrics = self.compute_rollout_importance_weights_and_add_to_batch(batch)
+                        batch, is_metrics = self.compute_rollout_correction_and_add_to_batch(batch)
                         # IS and mismatch metrics already have mismatch/ prefix
                         metrics.update(is_metrics)
 

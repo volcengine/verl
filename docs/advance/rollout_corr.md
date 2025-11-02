@@ -1,10 +1,12 @@
-# Rollout Importance Sampling
+# Rollout Correction
 
 **Author:** [Yingru Li](https://richardli.xyz/)
 
 Last updated: 10/27/2025.
 
-This document provides a comprehensive overview of the Rollout Importance Sampling (IS) implementation in verl.
+This document provides a comprehensive overview of the Rollout Correction implementation in verl.
+
+**Note on Naming**: This feature is called "Rollout Correction" to reflect the complete functionality: importance sampling (IS) weights, rejection sampling (RS), and veto mechanism. The internal variable `rollout_is_weights` retains its name as it specifically refers to the IS weights component.
 
 ### BibTeX Citation
 
@@ -20,11 +22,11 @@ This document provides a comprehensive overview of the Rollout Importance Sampli
 
 ## Overview
 
-Rollout Importance Sampling corrects for distribution mismatch between:
+Rollout Correction addresses distribution mismatch between:
 - **Rollout policy**: e.g., vLLM with BFloat16
 - **Training policy**: e.g., FSDP with FP32
 
-This mismatch can lead to biased gradient estimates and unstable training. Rollout IS applies importance sampling weights to correct these biases.
+This mismatch can lead to biased gradient estimates and unstable training. Rollout Correction uses importance sampling (IS) weights and rejection sampling (RS) to correct these biases.
 
 ### Key Design Principle: Separation of IS Weights and Rejection Sampling
 
@@ -54,16 +56,14 @@ This separation ensures:
 ## Configuration
 
 ```yaml
-# Rollout IS configuration (all in algorithm config)
 algorithm:
-  # Main control: set threshold to enable (null = disabled)
-  rollout_is_threshold: 2.0
-  # Whether to apply weights to loss (default: false = metrics only)
-  rollout_is: true
-  rollout_is_threshold_lower: null  # Auto-reciprocal
-  rollout_is_level: token
-  rollout_is_mode: truncate
-  rollout_is_veto_threshold: null  # Disable veto by default
+  rollout_correction:
+    rollout_is: token                      # IS weights: "token", "sequence", or null
+    rollout_is_threshold: 2.0              # Upper threshold for IS weights
+    rollout_rs: null                       # Rejection sampling: "token", "sequence", "geometric", or null
+    rollout_rs_threshold: null             # RS upper threshold (uses rollout_is_threshold if null)
+    rollout_rs_threshold_lower: null       # RS lower threshold (auto-reciprocal if null)
+    rollout_token_veto_threshold: null     # Per-token veto threshold (null = disabled)
 
 # REQUIRED: Enable log prob calculation
 actor_rollout_ref:
@@ -84,16 +84,16 @@ Key features:
 
 ### **Core Implementation**
 
-- `verl/trainer/ppo/mismatch_helper.py` - Contains `compute_rollout_importance_weights()` and `compute_is_metrics()`
-- `verl/trainer/ppo/core_algos.py` - Rollout IS integration with PPO
+- `verl/trainer/ppo/mismatch_helper.py` - Contains `compute_rollout_correction_and_rejection_mask()` and `compute_mismatch_metrics()`
+- `verl/trainer/ppo/core_algos.py` - Rollout Correction integration with PPO
 - `verl/workers/actor/dp_actor.py` - Metrics collection and logging
 
 ### **Configuration Files**
 
-- `verl/trainer/config/algorithm.py` - Rollout IS parameters in `AlgoConfig`
-- `verl/workers/config/actor.py` - Rollout IS parameters in `ActorConfig`
-- `verl/trainer/config/actor/actor.yaml` - Rollout IS configuration section
-- `verl/trainer/config/ppo_trainer.yaml` - Algorithm config with rollout IS
+- `verl/trainer/config/algorithm.py` - Rollout Correction parameters in `AlgoConfig`
+- `verl/workers/config/actor.py` - Rollout Correction parameters in `ActorConfig`
+- `verl/trainer/config/actor/actor.yaml` - Rollout Correction configuration section
+- `verl/trainer/config/ppo_trainer.yaml` - Algorithm config with Rollout Correction
 
 ### **Documentation**
 
@@ -101,76 +101,61 @@ Key features:
 
 ### **Example Scripts**
 
-- `recipe/dapo/run_dapo_qwen2.5_32b_rollout_is.sh` - DAPO example with rollout IS
-- `examples/rollout_importance_sampling/README.md` - Comprehensive usage guide
-- `examples/rollout_importance_sampling/run_with_rollout_is.sh` - Basic example
+- `recipe/dapo/run_dapo_qwen2.5_32b_rollout_corr.sh` - DAPO example with Rollout Correction
+- `examples/rollout_correction/README.md` - Comprehensive usage guide
+- `examples/rollout_correction/run_with_rollout_corr.sh` - Basic example
 
 ### **Tests**
 
-- `tests/trainer/ppo/test_rollout_is.py` - Unit tests
-- `tests/trainer/ppo/test_rollout_is_integration.py` - Integration tests
+- `tests/trainer/ppo/test_rollout_corr.py` - Unit tests
+- `tests/trainer/ppo/test_rollout_corr_integration.py` - Integration tests
 
 ## Configuration Parameters
 
-### `algorithm.rollout_is_threshold` (float or null)
-**Main on/off switch.** Upper threshold for IS weights.
-- `null` = disabled (no computation, no metrics)
-- `float` value (e.g., 2.0) = enabled (compute weights and metrics)
+All parameters are under `algorithm.rollout_correction`:
 
-### `algorithm.rollout_is` (bool)
-Whether to apply IS weights to policy loss. Default: `False`
-- `true` = apply weights to loss (full IS correction)
-- `false` = metrics only mode (no weight correction, but rejection still applies)
+### `rollout_is` (str or null)
+Importance sampling weights aggregation level:
+- `null` = No IS weights computed (metrics-only mode)
+- `"token"`: Per-token IS weights ρ_t = π_train(t)/π_rollout(t)
+  - Biased estimator, low variance
+  - Recommended threshold: 1.5 - 5.0
+- `"sequence"`: Per-sequence weight ρ_seq = ∏_t ρ_t
+  - Unbiased estimator, high variance
+  - Recommended threshold: 2.0 - 10.0
 
-**IMPORTANT**: This flag controls IS weight application, NOT rejection sampling. See "Operation Modes" below.
+All IS weights are safety-bounded to [exp(-20), exp(20)] ≈ [2e-9, 5e8]
 
-**Recommended threshold ranges:**
-- Token level: 1.5 - 5.0
-- Sequence level: 2.0 - 10.0
-- Geometric level: 1.0002 - 1.001
+### `rollout_is_threshold` (float)
+Upper threshold for IS weights. Default: `2.0`
+- Used to clamp IS weights (not for rejection)
+- Rejection is controlled by `rollout_rs` parameters
 
-### `algorithm.rollout_is_threshold_lower` (float or null)
-Lower threshold for IS weights. If `null`, defaults to 1/upper (reciprocal).
+### `rollout_rs` (str or null)
+Rejection sampling aggregation level:
+- `null` = No rejection sampling
+- `"token"`: Reject individual tokens with outlier ratios
+- `"sequence"`: Reject entire sequences with outlier ratios
+- `"geometric"`: Geometric mean aggregation for rejection
+  - Recommended threshold: 1.0002 - 1.001
 
-### `algorithm.rollout_is_level` (str)
-Aggregation level for IS weights:
-- `"token"`: Per-token ratios ρ_t = π_train(t)/π_rollout(t)
-  - Each token has its own IS weight
-  - Safety bound: each token's ratio bounded to [exp(-20), exp(20)]
-  - Biased estimator but low variance
-- `"sequence"`: Product of ratios ρ_seq = ∏_t ρ_t for entire sequence
-  - All tokens in a sequence share the same IS weight (product of per-token ratios)
-  - Safety bound: product bounded to [exp(-20), exp(20)], then broadcast to all tokens
-  - Unbiased estimator but high variance
-- `"geometric"`: Geometric mean ρ_geo = (∏_t ρ_t)^(1/T) (experimental)
-  - All tokens in a sequence share the same IS weight (geometric mean)
-  - Safety bound: geometric mean bounded to [exp(-20), exp(20)], then broadcast to all tokens
-  - Trade-off between bias and variance
+### `rollout_rs_threshold` (float or null)
+Upper threshold for rejection sampling. Default: `null`
+- If `null`, uses `rollout_is_threshold`
+- Tokens/sequences with ratios > threshold are masked out
 
-### `algorithm.rollout_is_mode` (str)
-Bounding mode for handling outlier IS weights:
-- `"truncate"`: Clamp weights at upper threshold only (TIS)
-  - No lower bound clamping or rejection for outlier ratios
-  - **IS weights modified**: Upper bound clamped via .clamp(max=upper_threshold)
-  - Lower bound remains at exp(-20) ≈ 2e-9 from safety bound
-  - **Note**: Veto-based rejection can still occur via response_mask (see `rollout_is_veto_threshold`)
-- `"mask"`: Rejection sampling via response_mask (MIS)
-  - Rejects tokens/sequences with IS ratios outside [lower, upper]
-  - **Important**: Rejection applied to `response_mask`, NOT by modifying IS weights
-  - **IS weights**: Safety-bounded ratios preserved (no threshold clamping, rejection via mask)
-  - **Note**: Veto-based rejection also applies via response_mask (independent mechanism)
+### `rollout_rs_threshold_lower` (float or null)
+Lower threshold for rejection sampling. Default: `null`
+- If `null`, uses reciprocal of upper threshold (1/upper)
+- Tokens/sequences with ratios < threshold are masked out
 
-### `algorithm.rollout_is_veto_threshold` (float or None)
-Per-token veto threshold for catastrophic outliers.
-- If any token has **unclamped** ratio < this threshold, the entire sequence is rejected via `response_mask`
-- Veto checks the **true per-token ratio** π_train(t)/π_rollout(t) before any bounds are applied
-- Applied for all levels (token, sequence, geometric) - always checks individual token ratios
-- Default: `None` (veto disabled by default)
-- Recommended: `1e-4` to `1e-6` when enabled (catches extreme outliers like 10,000x off)
-- Set to `None` to disable veto mechanism
-- **Important**: Applied **independently** of `rollout_is_mode` (works in both truncate and mask modes)
-- Veto applies rejection to `response_mask`, NOT by modifying IS weights
-- **IS weights unchanged by veto**: Already processed by mode (truncate: clamped, mask: safety-bounded)
+### `rollout_token_veto_threshold` (float or null)
+Per-token veto for catastrophic outliers. Default: `null`
+- Checks **unclamped per-token ratios** before safety bounds
+- If ANY token has ratio < threshold, entire sequence is rejected
+- Independent of `rollout_is` and `rollout_rs` settings
+- Recommended: `1e-4` to `1e-6` when enabled
+- Example: `1e-4` catches tokens 10,000x less likely
 
 ### Summary: How IS Weights are Processed
 
@@ -194,59 +179,58 @@ The final IS weights go through multiple stages of processing:
 
 ## Operation Modes
 
-The system has **two independent control flags** that combine to create different operation modes:
+The system uses **two independent mechanisms** that can be enabled separately or together:
 
-1. **`rollout_is_threshold`**: Main on/off switch (None = disabled, float = enabled)
-2. **`rollout_is`**: Apply IS weights to loss (True/False)
+1. **Importance Sampling (IS) weights**: Controlled by `rollout_is` parameter
+2. **Rejection Sampling (RS)**: Controlled by `rollout_rs` parameter
 
 ### Mode Combinations
 
-| `rollout_is_threshold` | `rollout_is` | `rollout_is_mode` | Behavior |
-|------------------------|--------------|-------------------|----------|
-| `None` | any | any | **Disabled**: No computation, no metrics, no rejection |
-| `2.0` | `False` | `truncate` | **Metrics only**: Compute weights & metrics, NO weight correction, NO rejection for outliers |
-| `2.0` | `False` | `mask` | **Rejection only**: Compute weights & metrics, NO weight correction, YES rejection sampling |
-| `2.0` | `True` | `truncate` | **Truncate mode**: Weight correction enabled, weights upper-clamped, NO rejection for outliers |
-| `2.0` | `True` | `mask` | **Mask mode (full)**: Weight correction enabled, rejection sampling enabled |
+| `rollout_is` | `rollout_rs` | Behavior |
+|--------------|--------------|----------|
+| `null` | `null` | **Disabled**: No computation, no metrics, no rejection |
+| `null` | `"token"` or `"sequence"` | **Rejection only**: Compute metrics, NO weight correction, YES rejection sampling |
+| `"token"` or `"sequence"` | `null` | **IS weights only**: Weight correction enabled, NO rejection sampling |
+| `"token"` or `"sequence"` | `"token"` or `"sequence"` | **Full correction**: Both weight correction and rejection sampling enabled |
 
 ### Key Insights
 
-**Rejection sampling is ALWAYS applied when:**
-- `rollout_is_threshold` is set (not None)
-- AND `rollout_is_mode = "mask"`
-- **Regardless of the `rollout_is` flag**
+- ✅ You can use **rejection sampling alone** without IS weight correction (`rollout_is=null, rollout_rs="token"`)
+- ✅ You can use **IS weights alone** without outlier rejection (`rollout_is="token", rollout_rs=null`)
+- ✅ You can use **both together** (`rollout_is="token", rollout_rs="token"`)
+- ✅ You can **monitor metrics only** without any correction by setting both to `null` but still providing rollout_log_probs
 
-This means:
-- ✅ You can use **rejection sampling alone** without IS weight correction (`rollout_is=False, rollout_is_mode="mask"`)
-- ✅ You can use **IS weights alone** without outlier rejection (`rollout_is=True, rollout_is_mode="truncate"`)
-- ✅ You can use **both together** (`rollout_is=True, rollout_is_mode="mask"`)
-- ✅ You can **monitor metrics only** without any correction or outlier rejection (`rollout_is=False, rollout_is_mode="truncate"`)
-
-**Veto rejection** (if enabled via `rollout_is_veto_threshold`) is applied **independently** in all modes where `rollout_is_threshold` is set.
+**Veto rejection** (if enabled via `rollout_token_veto_threshold`) is applied **independently** of IS and RS settings.
 
 ### Recommended Workflow
 
 1. **Start with metrics only** to understand the mismatch:
    ```yaml
-   rollout_is_threshold: 2.0
-   rollout_is: false
-   rollout_is_mode: truncate
+   algorithm:
+     rollout_correction:
+       rollout_is: null
+       rollout_rs: null
    ```
    Monitor `mismatch/rollout_is_mean`, `mismatch/mismatch_kl` to assess distribution mismatch.
 
 2. **Enable rejection sampling** if you see high outlier fractions:
    ```yaml
-   rollout_is_threshold: 2.0
-   rollout_is: false
-   rollout_is_mode: mask  # Rejection now applies
+   algorithm:
+     rollout_correction:
+       rollout_is: null
+       rollout_rs: token
+       rollout_rs_threshold: 2.0
    ```
    This excludes outliers from training without modifying gradients.
 
 3. **Enable full IS correction** once comfortable with metrics:
    ```yaml
-   rollout_is_threshold: 2.0
-   rollout_is: true
-   rollout_is_mode: mask  # Both rejection and weight correction
+   algorithm:
+     rollout_correction:
+       rollout_is: token
+       rollout_is_threshold: 2.0
+       rollout_rs: token
+       rollout_rs_threshold: 2.0
    ```
 
 ## Usage
@@ -255,10 +239,11 @@ This means:
 
 ```yaml
 algorithm:
-  rollout_is_threshold: 2.0  # Main control
-  rollout_is: true           # Apply to loss (default: false)
-  rollout_is_level: token
-  rollout_is_mode: truncate
+  rollout_correction:
+    rollout_is: token           # Enable IS weights at token level
+    rollout_is_threshold: 2.0   # Threshold for IS weights
+    rollout_rs: null            # No rejection sampling
+    rollout_token_veto_threshold: null  # No veto
 
 actor_rollout_ref:
   rollout:
@@ -406,31 +391,32 @@ All metrics are prefixed with `mismatch/`. For example, `rollout_is_mean` appear
 #### **Example: Accessing Metrics in Code**
 
 ```python
-# Metrics are returned from compute_rollout_importance_weights
-from verl.trainer.ppo.mismatch_helper import compute_rollout_importance_weights
+# Metrics are returned from compute_rollout_correction_and_rejection_mask
+from verl.trainer.ppo.mismatch_helper import compute_rollout_correction_and_rejection_mask
 
-# NEW: Returns 3 values (weights, modified_response_mask, metrics)
-weights_proto, modified_response_mask, metrics = compute_rollout_importance_weights(
+# Returns 3 values (weights, modified_response_mask, metrics)
+weights_proto, modified_response_mask, metrics = compute_rollout_correction_and_rejection_mask(
     old_log_prob=training_log_probs,      # from training policy
     rollout_log_prob=rollout_log_probs,   # from rollout policy
     response_mask=response_mask,
-    rollout_is_level="token",
-    rollout_is_mode="mask",  # Using mask mode for rejection sampling
+    rollout_is="token",  # Enable IS weights at token level
     rollout_is_threshold=2.0,
-    rollout_is_threshold_lower=0.5,
-    rollout_is_veto_threshold=1e-4,  # Enable veto for catastrophic outliers
+    rollout_rs="token",  # Enable rejection sampling at token level
+    rollout_rs_threshold=2.0,
+    rollout_rs_threshold_lower=0.5,
+    rollout_token_veto_threshold=1e-4,  # Enable veto for catastrophic outliers
 )
 
 # Extract IS weights (processed, zeroed at padding)
 is_weights = weights_proto.batch["rollout_is_weights"]
 
-# IS weights processing (mask mode with token level):
+# IS weights processing (with IS enabled at token level):
 # 1. Safety-bounded: exp(clamp(log_ratio, -20, 20)) per token
-# 2. Mask mode: no threshold clamping (safety-bounded ratios preserved)
-# 3. Zeroed at padding positions
+# 2. Zeroed at padding positions
+# Note: Not threshold-clamped since we're using rejection sampling (rollout_rs)
 
-# modified_response_mask has rejection applied:
-# 1. Outlier rejection: tokens outside [0.5, 2.0] masked to 0 (mask mode)
+# modified_response_mask has rejection applied (since rollout_rs="token"):
+# 1. Outlier rejection: tokens outside [0.5, 2.0] masked to 0
 # 2. Veto rejection: sequences with catastrophic tokens (ratio < 1e-4) masked to 0
 # Note: Veto checks unclamped per-token ratios, not the safety-bounded weights
 
@@ -450,9 +436,8 @@ print(f"✓ All valid IS weights > 0: {(valid_weights > 0).all()}")
 # Check rejection via response_mask
 rejected_tokens = (response_mask == 1) & (modified_response_mask == 0)
 print(f"\n✓ Rejected {rejected_tokens.sum()} tokens via response_mask")
-print(f"✓ In mask mode: IS weights for rejected tokens are NON-ZERO (safety-bounded ratios)")
-print(f"✓ In truncate mode: IS weights upper clamped to {rollout_is_threshold}")
-print(f"✓ Both modes: IS weights safety-bounded to [exp(-20), exp(20)] ≈ [2e-9, 5e8]")
+print(f"✓ With rejection sampling (rollout_rs): tokens outside thresholds are masked")
+print(f"✓ IS weights are always safety-bounded to [exp(-20), exp(20)] ≈ [2e-9, 5e8]")
 
 # Check for warning conditions
 if metrics['mismatch/rollout_is_mean'] < 0.5 or metrics['mismatch/rollout_is_mean'] > 2.0:
@@ -473,17 +458,20 @@ for epoch in range(num_epochs):
     for batch_idx, batch in enumerate(dataloader):
         # ... rollout phase ...
 
-        # Compute IS weights and get metrics (NEW: 3 return values)
-        weights_proto, modified_response_mask, metrics = compute_rollout_importance_weights(
-            old_log_prob=batch.old_log_prob,
-            rollout_log_prob=batch.rollout_log_prob,
-            response_mask=batch.response_mask,
-            rollout_is_level=config.rollout_is_level,
-            rollout_is_mode=config.rollout_is_mode,
-            rollout_is_threshold=config.rollout_is_threshold,
-            rollout_is_threshold_lower=config.rollout_is_threshold_lower,
-            rollout_is_veto_threshold=config.rollout_is_veto_threshold,
-        )
+        # Compute IS weights and get metrics
+        rollout_corr_config = config.algorithm.get("rollout_correction", None)
+        if rollout_corr_config is not None:
+            weights_proto, modified_response_mask, metrics = compute_rollout_correction_and_rejection_mask(
+                old_log_prob=batch.old_log_prob,
+                rollout_log_prob=batch.rollout_log_prob,
+                response_mask=batch.response_mask,
+                rollout_is=rollout_corr_config.get("rollout_is", None),
+                rollout_is_threshold=rollout_corr_config.get("rollout_is_threshold", 2.0),
+                rollout_rs=rollout_corr_config.get("rollout_rs", None),
+                rollout_rs_threshold=rollout_corr_config.get("rollout_rs_threshold", None),
+                rollout_rs_threshold_lower=rollout_corr_config.get("rollout_rs_threshold_lower", None),
+                rollout_token_veto_threshold=rollout_corr_config.get("rollout_token_veto_threshold", None),
+            )
 
         # Log to tensorboard/wandb
         for metric_name, metric_value in metrics.items():
@@ -492,10 +480,7 @@ for epoch in range(num_epochs):
         # IMPORTANT: Update batch response_mask with rejection applied
         batch.response_mask = modified_response_mask
 
-        # Use IS weights in training (processed based on mode)
-        # Truncate mode: upper clamped to min(weight, upper_threshold)
-        # Mask mode: safety-bounded ratios preserved (no threshold clamping)
-        # Both modes: safety bounded to [exp(-20), exp(20)], zeroed at padding
+        # Use IS weights in training (always safety-bounded, zeroed at padding)
         is_weights = weights_proto.batch["rollout_is_weights"]
         # ... apply weights to policy gradient ...
 ```
@@ -503,8 +488,8 @@ for epoch in range(num_epochs):
 #### **Example: Conditional Alerting Based on Metrics**
 
 ```python
-def check_rollout_is_health(metrics, config):
-    """Check if rollout IS metrics indicate healthy training."""
+def check_rollout_correction_health(metrics, config):
+    """Check if Rollout Correction metrics indicate healthy training."""
     warnings = []
 
     # Check mean IS weight
@@ -533,17 +518,17 @@ def check_rollout_is_health(metrics, config):
         warnings.append(f"KL divergence {kl:.3f} indicates significant mismatch")
 
     if warnings:
-        print("⚠️  Rollout IS Health Warnings:")
+        print("⚠️  Rollout Correction Health Warnings:")
         for warning in warnings:
             print(f"  - {warning}")
         return False
     else:
-        print("✅ Rollout IS metrics look healthy")
+        print("✅ Rollout Correction metrics look healthy")
         return True
 
-# Use in training (NEW: 3 return values)
-_, _, metrics = compute_rollout_importance_weights(...)
-is_healthy = check_rollout_is_health(metrics, config)
+# Use in training
+_, _, metrics = compute_rollout_correction_and_rejection_mask(...)
+is_healthy = check_rollout_correction_health(metrics, config)
 
 if not is_healthy:
     # Consider adjusting config or investigating issues
@@ -557,49 +542,53 @@ if not is_healthy:
 
 Start with the basic token-level truncate configuration:
 ```bash
-bash examples/rollout_importance_sampling/run_with_rollout_is.sh
+bash examples/rollout_correction/run_with_rollout_corr.sh
 ```
 
 Monitor metrics for 1-2 epochs before adjusting parameters.
 
 ## Configuration Examples
 
-### Example 1: Full IS Correction
+### Example 1: IS Weights Only (Token Level)
 ```yaml
 algorithm:
-  rollout_is_threshold: 2.0
-  rollout_is: true  # Apply weights to loss
-  rollout_is_level: token
-  rollout_is_mode: truncate
+  rollout_correction:
+    rollout_is: token
+    rollout_is_threshold: 2.0
+    rollout_rs: null  # No rejection sampling
 ```
 
-### Example 2: Metrics Only (Monitoring Mode)
+### Example 2: Rejection Sampling Only (No IS Weights)
 ```yaml
 algorithm:
-  rollout_is_threshold: 2.0
-  rollout_is: false  # Compute metrics, don't apply weights
-  rollout_is_level: token
-  rollout_is_mode: truncate
+  rollout_correction:
+    rollout_is: null  # No IS weights
+    rollout_rs: token
+    rollout_rs_threshold: 2.0
+    rollout_rs_threshold_lower: 0.5
 ```
 
-### Example 3: Geometric Mean with Mask
+### Example 3: Both IS and RS (Geometric RS)
 ```yaml
 algorithm:
-  rollout_is_threshold: 1.0002
-  rollout_is: true
-  rollout_is_threshold_lower: 0.9998
-  rollout_is_level: geometric
-  rollout_is_mode: mask
+  rollout_correction:
+    rollout_is: token
+    rollout_is_threshold: 2.0
+    rollout_rs: geometric
+    rollout_rs_threshold: 1.0002
+    rollout_rs_threshold_lower: 0.9998
 ```
 
-### Example 4: Asymmetric Thresholds
+### Example 4: Full Correction with Veto
 ```yaml
 algorithm:
-  rollout_is_threshold: 5.0
-  rollout_is: true
-  rollout_is_threshold_lower: 0.8
-  rollout_is_level: token
-  rollout_is_mode: mask
+  rollout_correction:
+    rollout_is: sequence
+    rollout_is_threshold: 5.0
+    rollout_rs: token
+    rollout_rs_threshold: 5.0
+    rollout_rs_threshold_lower: 0.2
+    rollout_token_veto_threshold: 1e-4  # Veto catastrophic tokens
 ```
 
 ## Troubleshooting
@@ -616,7 +605,12 @@ algorithm:
 **Symptoms:** `rollout_is_veto_fraction` > 0.1
 
 **Solutions:**
-1. Relax veto threshold: `rollout_is_veto_threshold: 1e-3`
+1. Relax veto threshold in config:
+   ```yaml
+   algorithm:
+     rollout_correction:
+       rollout_token_veto_threshold: 1e-3
+   ```
 2. Check for numerical issues in log prob computation
 3. Verify policies aren't completely different
 
@@ -700,8 +694,8 @@ metrics_history = {
 
 # In training loop
 for step in range(num_steps):
-    # ... compute IS weights ... (NEW: 3 return values)
-    _, _, metrics = compute_rollout_importance_weights(...)
+    # ... compute IS weights and rejection mask ...
+    _, _, metrics = compute_rollout_correction_and_rejection_mask(...)
 
     # Store metrics
     for key in metrics_history.keys():
@@ -726,10 +720,10 @@ Run the test suite to verify everything works:
 
 ```bash
 # Basic unit tests
-python test_rollout_is.py
+python test_rollout_corr.py
 
 # Integration tests (if pytest is available)
-pytest tests/trainer/ppo/test_rollout_is_integration.py -v
+pytest tests/trainer/ppo/test_rollout_corr_integration.py -v
 ```
 
 Expected output: All tests pass ✓
@@ -737,12 +731,12 @@ Expected output: All tests pass ✓
 ## Additional Resources
 
 - **Implementation**: `verl/trainer/ppo/mismatch_helper.py`
-- **Examples**: `examples/rollout_importance_sampling/`
-- **DAPO Example**: `recipe/dapo/run_dapo_qwen2.5_32b_rollout_is.sh`
+- **Examples**: `examples/rollout_correction/`
+- **DAPO Example**: `recipe/dapo/run_dapo_qwen2.5_32b_rollout_corr.sh`
 
 ## Summary
 
-Rollout Importance Sampling provides:
+Rollout Correction provides:
 - ✅ Robust handling of distribution mismatch
 - ✅ Numerical stability
 - ✅ Comprehensive metrics for monitoring

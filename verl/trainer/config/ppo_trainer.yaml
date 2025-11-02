@@ -113,27 +113,17 @@ algorithm:
     # Power used for weight scaling in "pow" method
     weight_pow: 2.0
 
-  # Rollout Importance Sampling: corrects distribution mismatch between rollout and training policies
-  # Main control: Upper threshold for IS weights (null = disabled, float = enabled)
-  # When enabled, computes IS weights and mismatch metrics (KL, PPL, etc.)
-  rollout_is_threshold: null
-
-  # Lower threshold for IS weights (null = auto-reciprocal of upper)
-  rollout_is_threshold_lower: null
-
-  # Aggregation level: "token" (biased), "sequence" (unbiased), "geometric" (experimental)
-  rollout_is_level: token
-
-  # Bounding mode: "truncate" (cap upper only), "mask" (zero outside bounds)
-  rollout_is_mode: truncate
-
-  # Per-token veto threshold for catastrophic outliers (null to disable)
-  rollout_is_veto_threshold: null
-
-  # Whether to apply IS weights to policy loss
-  # true = apply weights to loss, false = compute metrics only (no weight application)
-  # Useful for monitoring mismatch before enabling correction
-  rollout_is: false
+  # Rollout Correction: corrects distribution mismatch between rollout and training policies
+  # Configuration is nested under rollout_correction. Set to null to disable entirely.
+  rollout_correction: null
+  # Example configuration:
+  # rollout_correction:
+  #   rollout_is: token                      # IS weights: "token", "sequence", or null
+  #   rollout_is_threshold: 2.0              # Upper threshold for IS weights
+  #   rollout_rs: null                       # Rejection sampling: "token", "sequence", "geometric", or null
+  #   rollout_rs_threshold: null             # RS upper threshold
+  #   rollout_rs_threshold_lower: null       # RS lower threshold
+  #   rollout_token_veto_threshold: null     # Per-token veto threshold
 
 # config for the trainer
 trainer:

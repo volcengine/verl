@@ -962,7 +962,7 @@ def compute_policy_loss_vanilla(
 
     pg_losses = torch.where(advantages < 0, clip_pg_losses2, clip_pg_losses1)
 
-    # Apply rollout importance sampling weights if provided
+    # Apply rollout correction weights if provided
     if rollout_is_weights is not None:
         pg_losses = pg_losses * rollout_is_weights
 
@@ -1025,7 +1025,7 @@ def compute_policy_loss_gspo(
     pg_losses2 = -advantages * torch.clamp(seq_importance_ratio, 1 - clip_ratio_low, 1 + clip_ratio_high)
     pg_losses = torch.maximum(pg_losses1, pg_losses2)
 
-    # Apply rollout importance sampling weights if provided
+    # Apply rollout correction weights if provided
     if rollout_is_weights is not None:
         pg_losses = pg_losses * rollout_is_weights
 
@@ -1066,7 +1066,7 @@ def compute_policy_loss_gpg(
     """
     pg_losses = -log_prob * advantages
 
-    # Apply rollout importance sampling weights if provided
+    # Apply rollout correction weights if provided
     if rollout_is_weights is not None:
         pg_losses = pg_losses * rollout_is_weights
 
@@ -1165,7 +1165,7 @@ def compute_policy_loss_clip_cov(
 
     pg_losses = torch.maximum(pg_losses1, pg_losses2) * corr
 
-    # Apply rollout importance sampling weights if provided
+    # Apply rollout correction weights if provided
     if rollout_is_weights is not None:
         pg_losses = pg_losses * rollout_is_weights
 
@@ -1241,7 +1241,7 @@ def compute_policy_loss_kl_cov(
                 large_cov_idxs // advantages.shape[1], large_cov_idxs % advantages.shape[1]
             ]
 
-    # Apply rollout importance sampling weights if provided
+    # Apply rollout correction weights if provided
     if rollout_is_weights is not None:
         pg_losses = pg_losses * rollout_is_weights
 
@@ -1312,11 +1312,11 @@ def compute_policy_loss_geo_mean(
     advantage = (advantages * response_mask).sum(dim=-1) / (response_mask_sum + 1e-8)
     pg_losses = -advantage * ratio
 
-    # Apply rollout importance sampling weights if provided
+    # Apply rollout correction weights if provided
     # For geo_mean, IS weights are 2D (batch_size, seq_length) and need to be aggregated to sequence level
     if rollout_is_weights is not None:
         # Aggregate token-level weights to sequence level using geometric mean for consistency
-        # Note: rollout_is_weights is always 2D regardless of rollout_is_level
+        # Note: rollout_is_weights is always 2D regardless of aggregation mode
         seq_is_weights = torch.exp(
             (torch.log(rollout_is_weights + 1e-10) * response_mask).sum(dim=-1) / (response_mask_sum + 1e-8)
         )
