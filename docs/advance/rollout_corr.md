@@ -61,7 +61,7 @@ algorithm:
     rollout_is: token                      # IS weights: "token", "sequence", or null
     rollout_is_threshold: 2.0              # Upper threshold for IS weights
     rollout_rs: null                       # Rejection sampling: "token", "sequence", "geometric", or null
-    rollout_rs_threshold: null             # RS upper threshold (uses rollout_is_threshold if null)
+    rollout_rs_threshold: null             # RS upper threshold (required if rollout_rs is enabled)
     rollout_rs_threshold_lower: null       # RS lower threshold (auto-reciprocal if null)
     rollout_token_veto_threshold: null     # Per-token veto threshold (null = disabled)
 

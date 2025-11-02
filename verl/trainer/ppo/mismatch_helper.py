@@ -550,8 +550,8 @@ def compute_rollout_correction_and_rejection_mask(
             default 2.0.
         rollout_rs: Rejection sampling aggregation level (see compute_rollout_rejection_mask for options).
             Set to None to disable rejection sampling.
-        rollout_rs_threshold: Upper threshold for rejection sampling (used if rollout_rs is set),
-            default 2.0.
+        rollout_rs_threshold: Upper threshold for rejection sampling. Required if rollout_rs is enabled.
+            Default 2.0.
         rollout_rs_threshold_lower: Lower threshold for rejection sampling (used if rollout_rs is set).
             Defaults to 1/rollout_rs_threshold if None.
         rollout_token_veto_threshold: Minimum allowed token-level IS weight. Sequences containing
@@ -599,7 +599,12 @@ def compute_rollout_correction_and_rejection_mask(
 
     # Step 3: Compute rejection mask (if enabled)
     modified_response_mask: torch.Tensor = response_mask.clone()
-    if rollout_rs is not None and rollout_rs_threshold is not None:
+    if rollout_rs is not None:
+        if rollout_rs_threshold is None:
+            raise ValueError(
+                "rollout_rs_threshold must be explicitly provided when rollout_rs is enabled. "
+                "Set rollout_rs_threshold to the desired threshold value."
+            )
         modified_response_mask, rs_metrics = compute_rollout_rejection_mask(
             log_ratio=log_ratio,
             response_mask=response_mask,
