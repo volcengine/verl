@@ -187,7 +187,7 @@ class AsyncPartialToolAgentLoop(ToolAgentLoop):
         add_messages: list[dict[str, Any]] = []
 
         with simple_timer("generate_sequences", agent_data.metrics):
-            # 使用 partial 生成接口
+            # partial interface
             if self.enable_partial_rollout:
                 response_ids, log_probs, is_cancel = await self.server_manager.generate_for_partial(
                     request_id=agent_data.request_id,

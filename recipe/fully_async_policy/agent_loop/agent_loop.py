@@ -14,7 +14,7 @@
 import asyncio
 import logging
 import os
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 from uuid import uuid4
 
 import hydra
@@ -34,18 +34,38 @@ from verl.experimental.agent_loop.agent_loop import (
 )
 from verl.protocol import DataProto
 from verl.single_controller.ray import RayWorkerGroup
-from verl.utils.rollout_trace import rollout_trace_attr
-from verl.workers.rollout.replica import TokenOutput
+from verl.utils.rollout_trace import (
+    rollout_trace_attr,
+    rollout_trace_op,
+)
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 class FullyAsyncLLMServerManager(AsyncLLMServerManager):
+    @rollout_trace_op
     async def generate_for_partial(
-        self, request_id, prompt_ids, sampling_params, image_data: Optional[Any] = None
-    ) -> TokenOutput:
-        """Generate tokens from prompt ids. with partial rollout function"""
+        self,
+        request_id,
+        *,
+        prompt_ids: list[int],
+        sampling_params: dict[str, Any],
+        image_data: Optional[list[Any]] = None,
+    ) -> tuple[list[Any], list[Any], Any] | tuple[Sequence[int], list[float], bool]:
+        """Generate tokens from prompt ids, used for async partial.
+
+        Args:
+            request_id (str): request id for sticky session.
+            prompt_ids (List[int]): List of prompt token ids.
+            sampling_params (Dict[str, Any]): Sampling parameters for the chat completion.
+
+        Returns:
+            output: A tuple representing the generation output.
+            - Element 0 (Sequence[int]): Generated response token IDs.
+            - Element 1 (list[float]): Log probabilities for the response token IDs.
+            - Element 2 (bool): A flag or status indicating cancellation.
+        """
         server = self._choose_server(request_id)
         output = await server.generate_for_partial.remote(
             request_id=request_id,
