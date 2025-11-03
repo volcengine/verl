@@ -348,7 +348,11 @@ $$
 
 where:
 - $w_{\text{seq}} = \min\left( \prod_{t \in T} \rho_t, \tau_{\text{IS}} \right)$ (sequence-level IS weight)
-- $\mathbb{1}_{\text{accept}} = \begin{cases} 1 & \text{if } \tau_{\text{lower}} \leq \prod_{t \in T} \rho_t \leq \tau_{\text{upper}} \\ 0 & \text{otherwise} \end{cases}$ (rejection mask)
+- (rejection mask)
+
+$$
+\mathbb{1}_{\text{accept}} = \begin{cases} 1 & \text{if } \tau_{\text{lower}} \leq \prod_{t \in T} \rho_t \leq \tau_{\text{upper}} \\ 0 & \text{otherwise} \end{cases}
+$$
 
 #### Properties
 
@@ -430,6 +434,12 @@ This prevents catastrophic updates from tokens that $\pi_{\text{old}}$ assigned 
 
 To monitor the severity of the off-policy gap (Drift 1: rollout $\to$ old/current), `verl` computes the following diagnostic metrics. These metrics help you determine whether off-policy correction is needed and which method to use.
 
+**Note on notation:** The diagnostic metrics compare the **training policy** against $\pi_{\text{rollout}}$ (the behavior policy). The training policy depends on the mode:
+- **Standard mode (no bypass)**: Training policy = $\pi_{\text{old}}$ (computed at start of epoch via `actor.compute_log_prob()`)
+- **Bypass mode**: Training policy = $\pi_{\theta}$ (current policy parameters)
+
+The IS ratio $\rho_t = \frac{\pi_{\text{train}}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}$ measures the distribution shift from rollout to the training policy, where $\pi_{\text{train}}$ is whichever policy is being used as the training reference.
+
 ### KL Divergence
 
 **Direct KL estimator:**
@@ -443,6 +453,8 @@ $$
 $$
 \text{KL}_{\text{K3}} = \mathbb{E}_{t \sim \pi_{\text{rollout}}} \left[ \rho_t - \log \rho_t - 1 \right]
 $$
+
+where $\rho_t = \frac{\pi_{\text{train}}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}$.
 
 ### Perplexity
 
@@ -458,11 +470,15 @@ $$
 \text{PPL}_{\text{rollout}} = \exp\left( -\frac{1}{|T|} \sum_{t \in T} \log \pi_{\text{rollout}}(a_t|s_t) \right)
 $$
 
-**PPL ratio (inverse of geometric IS):**
+**PPL ratio (inverse of geometric IS weight):**
 
 $$
-\text{PPL}_{\text{ratio}} = \frac{\text{PPL}_{\text{train}}}{\text{PPL}_{\text{rollout}}} = \exp\left( \frac{1}{|T|} \sum_{t \in T} \log \rho_t \right) = \left(\prod_{t \in T} \rho_t\right)^{1/|T|}
+\text{PPL}_{\text{ratio}} = \frac{\text{PPL}_{\text{train}}}{\text{PPL}_{\text{rollout}}} = \exp\left( -\frac{1}{|T|} \sum_{t \in T} \log \rho_t \right) = \left(\prod_{t \in T} \rho_t\right)^{-1/|T|}
 $$
+
+Equivalently: $\text{PPL}_{\text{ratio}} = \frac{1}{\text{geometric mean of } \rho_t}$
+
+**Interpretation:** Higher values indicate the training policy assigns lower probability (higher perplexity) than the rollout policy, signaling a distribution shift.
 
 ### Chi-squared ($\chi^2$) Divergence
 
@@ -473,6 +489,8 @@ As established in prior work, this is the correct metric for diagnosing the pote
 $$
 \chi^2_{\text{token}}(\pi_{\text{train}} \| \pi_{\text{rollout}}) = \mathbb{E}_{t \sim \pi_{\text{rollout}}} \left[ \rho_t^2 \right] - 1
 $$
+
+where $\rho_t = \frac{\pi_{\text{train}}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}$.
 
 **Sequence-level χ² divergence:**
 
@@ -491,14 +509,14 @@ $$
 
 ## Summary Table
 
-| Method | IS Weight | RS | PPO Clip | Bypass | $\pi_{\text{old}}$ | IS Correction | Variance | Bias | Speed |
-|--------|-----------|----|---------|---------|--------------------|---------------|----------|------|-------|
-| `token_is` | Per-token | ❌ | ✅ | ❌ | Computed | ✅ (rollout→old) | Low | Biased | Standard |
-| `seq_is` | Sequence | ❌ | ✅ | ❌ | Computed | ✅ (rollout→old) | High | Unbiased† | Standard |
-| `seq_is_rs` | Sequence | Sequence | ✅ | ❌ | Computed | ✅ (rollout→old) | Medium | Unbiased | Standard |
-| `geo_rs` | ❌ | Geometric | ✅ | ❌ | Computed | ❌ (rejection only) | High | Unbiased | Standard |
-| `ppo_is_bypass` | ~~Per-token~~ | ❌ | ✅ (vs rollout) | ✅ | **= Rollout** | ❌ (w=1.0) | Low | Biased | **Faster** |
-| `pure_is` | Sequence | ❌ | ❌ | ✅ | N/A | ✅ (direct θ→rollout) | Very High | Unbiased† | **Faster** |
+| Method | IS Weight | RS | PPO Clip | Bypass | $\pi_{\text{old}}$ | IS Correction | Speed |
+|--------|-----------|----|---------|---------|--------------------|---------------|-------|
+| `token_is` | Per-token | ❌ | ✅ | ❌ | Computed | ✅ (rollout→old) | Standard |
+| `seq_is` | Sequence | ❌ | ✅ | ❌ | Computed | ✅ (rollout→old) | Standard |
+| `seq_is_rs` | Sequence | Sequence | ✅ | ❌ | Computed | ✅ (rollout→old) | Standard |
+| `geo_rs` | ❌ | Geometric | ✅ | ❌ | Computed | ❌ (rejection only) | Standard |
+| `ppo_is_bypass` | ~~Per-token~~ | ❌ | ✅ (vs rollout) | ✅ | **= Rollout** | ❌ (w=1.0) | **Faster** |
+| `pure_is` | Sequence | ❌ | ❌ | ✅ | N/A | ✅ (direct θ→rollout) | **Faster** |
 
 ### Table Key
 
