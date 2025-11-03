@@ -1163,23 +1163,58 @@ class RayPPOTrainer:
                         else:
                             reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
 
-                    # recompute old_log_probs
-                    with marked_timer("old_log_prob", timing_raw, color="blue"):
-                        old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
-                        entropys = old_log_prob.batch["entropys"]
-                        response_masks = batch.batch["response_mask"]
-                        loss_agg_mode = self.config.actor_rollout_ref.actor.loss_agg_mode
-                        entropy_agg = agg_loss(loss_mat=entropys, loss_mask=response_masks, loss_agg_mode=loss_agg_mode)
-                        old_log_prob_metrics = {"actor/entropy": entropy_agg.detach().item()}
-                        metrics.update(old_log_prob_metrics)
-                        old_log_prob.batch.pop("entropys")
-                        batch = batch.union(old_log_prob)
+                    # Rollout correction mode selection
+                    rollout_corr_config = self.config.algorithm.get("rollout_correction", None)
+                    bypass_mode = (
+                        rollout_corr_config.get("bypass_old_logprob_for_rollout", False)
+                        if rollout_corr_config
+                        else False
+                    )
 
-                        if "rollout_log_probs" in batch.batch.keys():
-                            # TODO: we may want to add diff of probs too.
-                            from verl.utils.debug.metrics import calculate_debug_metrics
+                    if bypass_mode:
+                        # BYPASS MODE: Use rollout_log_probs as old_log_probs
+                        # Skips expensive actor forward pass for old_log_prob computation
+                        #
+                        # Two sub-modes (controlled by use_pure_rollout_correction in actor):
+                        # 1. PPO_IS mode (use_pure_rollout_correction=False, default):
+                        #    - Actor uses standard PPO with old_log_prob=rollout_log_prob
+                        #    - PPO clips ratio = π_current / π_rollout (not π_current / π_old)
+                        #
+                        # 2. Pure rollout correction mode (use_pure_rollout_correction=True):
+                        #    - Actor uses compute_policy_loss_with_rollout_correction()
+                        #    - Pure policy gradient with IS correction (no PPO clipping)
+                        if "rollout_log_probs" not in batch.batch:
+                            raise ValueError(
+                                "bypass_old_logprob_for_rollout=True requires rollout_log_probs in batch. "
+                                "Ensure rollout worker is configured to calculate_log_probs=true."
+                            )
 
-                            metrics.update(calculate_debug_metrics(batch))
+                        # Use rollout log probs as old log probs (zero-cost substitution)
+                        batch.batch["old_log_probs"] = batch.batch["rollout_log_probs"]
+
+                        # Log bypass mode metrics
+                        metrics["rollout_correction/bypass_mode"] = 1.0
+                        metrics["rollout_correction/old_logprob_computation_skipped"] = 1.0
+                    else:
+                        # LEGACY MODE: Compute old_log_probs from actor
+                        with marked_timer("old_log_prob", timing_raw, color="blue"):
+                            old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
+                            entropys = old_log_prob.batch["entropys"]
+                            response_masks = batch.batch["response_mask"]
+                            loss_agg_mode = self.config.actor_rollout_ref.actor.loss_agg_mode
+                            entropy_agg = agg_loss(
+                                loss_mat=entropys, loss_mask=response_masks, loss_agg_mode=loss_agg_mode
+                            )
+                            old_log_prob_metrics = {"actor/entropy": entropy_agg.detach().item()}
+                            metrics.update(old_log_prob_metrics)
+                            old_log_prob.batch.pop("entropys")
+                            batch = batch.union(old_log_prob)
+
+                            if "rollout_log_probs" in batch.batch.keys():
+                                # TODO: we may want to add diff of probs too.
+                                from verl.utils.debug.metrics import calculate_debug_metrics
+
+                                metrics.update(calculate_debug_metrics(batch))
 
                     if self.use_reference_policy:
                         # compute reference log_prob

@@ -81,6 +81,8 @@ class AlgoConfig(BaseConfig):
             - rollout_rs_threshold (float or None): RS upper threshold
             - rollout_rs_threshold_lower (float or None): RS lower threshold
             - rollout_token_veto_threshold (float or None): Per-token veto threshold
+            - bypass_old_logprob_for_rollout (bool): Skip old_log_prob computation, reuse rollout_log_prob
+            - use_pure_rollout_correction (bool): Use pure policy gradient with IS (no PPO clipping)
     """
 
     gamma: float = 1.0

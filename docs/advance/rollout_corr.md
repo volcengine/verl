@@ -65,6 +65,10 @@ algorithm:
     rollout_rs_threshold_lower: null       # RS lower threshold (auto-reciprocal if null)
     rollout_token_veto_threshold: null     # Per-token veto threshold (null = disabled)
 
+  # Bypass Mode: Skip old_log_prob computation (NEW)
+  bypass_old_logprob_for_rollout: false    # Uses rollout_log_prob as old_log_prob (saves compute)
+  use_pure_rollout_correction: false       # Uses pure policy gradient with IS (no PPO clipping)
+
 # REQUIRED: Enable log prob calculation
 actor_rollout_ref:
   rollout:
@@ -85,8 +89,9 @@ Key features:
 ### **Core Implementation**
 
 - `verl/trainer/ppo/mismatch_helper.py` - Contains `compute_rollout_correction_and_rejection_mask()` and `compute_mismatch_metrics()`
-- `verl/trainer/ppo/core_algos.py` - Rollout Correction integration with PPO
-- `verl/workers/actor/dp_actor.py` - Metrics collection and logging
+- `verl/trainer/ppo/core_algos.py` - Rollout Correction integration with PPO and pure IS mode (`compute_policy_loss_with_rollout_correction()`)
+- `verl/trainer/ppo/ray_trainer.py` - Bypass mode implementation (skips `old_log_prob` computation)
+- `verl/workers/actor/dp_actor.py` - Mode selection logic and metrics collection
 
 ### **Configuration Files**
 
@@ -107,8 +112,9 @@ Key features:
 
 ### **Tests**
 
-- `tests/trainer/ppo/test_rollout_corr.py` - Unit tests
+- `tests/trainer/ppo/test_rollout_corr.py` - Unit tests for IS/RS mechanisms
 - `tests/trainer/ppo/test_rollout_corr_integration.py` - Integration tests
+- `tests/trainer/ppo/test_bypass_rollout_correction.py` - Tests for bypass and pure IS modes
 
 ## Configuration Parameters
 
@@ -179,7 +185,24 @@ The final IS weights go through multiple stages of processing:
 
 ## Operation Modes
 
-The system uses **two independent mechanisms** that can be enabled separately or together:
+The system has **three main training modes** that determine how rollout correction is applied:
+
+### Training Modes
+
+| Mode | `bypass_old_logprob_for_rollout` | `use_pure_rollout_correction` | Loss Function | Description |
+|------|----------------------------------|------------------------------|---------------|-------------|
+| **Legacy** | `false` | `false` | PPO | Standard: Trainer computes `old_log_prob` via `actor.compute_log_prob()` |
+| **PPO_IS** | `true` | `false` | PPO | Bypass: Trainer sets `old_log_prob = rollout_log_prob`, PPO clips against rollout policy |
+| **Pure IS** | `true` | `true` | Pure Policy Gradient | No PPO clipping, uses `L = -E[w * log π * A]` with IS correction |
+
+**Key Differences:**
+- **Legacy**: Requires extra forward pass to compute `old_log_prob` separately
+- **PPO_IS**: Skips forward pass by reusing rollout log probs; clips ratio `π_current / π_rollout` instead of `π_current / π_old`
+- **Pure IS**: New loss function with explicit IS correction, no clipping constraints (higher variance but unbiased)
+
+### IS Weights and Rejection Sampling
+
+Within each training mode, you can independently control **two correction mechanisms**:
 
 1. **Importance Sampling (IS) weights**: Controlled by `rollout_is` parameter
 2. **Rejection Sampling (RS)**: Controlled by `rollout_rs` parameter
@@ -232,6 +255,21 @@ The system uses **two independent mechanisms** that can be enabled separately or
        rollout_rs: token
        rollout_rs_threshold: 2.0
    ```
+
+4. **Optional: Enable bypass mode** to save compute:
+   ```yaml
+   algorithm:
+     bypass_old_logprob_for_rollout: true    # Skip old_log_prob computation
+     use_pure_rollout_correction: false      # Use PPO_IS mode (recommended)
+     rollout_correction:
+       rollout_is: token
+       rollout_is_threshold: 2.0
+   ```
+   **Benefits**: Skips expensive forward pass for `old_log_prob` computation
+
+   **Trade-off**: PPO clips against rollout policy instead of true old policy
+
+   **Alternative**: Set `use_pure_rollout_correction: true` for pure policy gradient with IS (no clipping, higher variance)
 
 ## Usage
 
@@ -590,6 +628,31 @@ algorithm:
     rollout_rs_threshold_lower: 0.2
     rollout_token_veto_threshold: 1e-4  # Veto catastrophic tokens
 ```
+
+### Example 5: Bypass Mode (PPO_IS)
+```yaml
+algorithm:
+  bypass_old_logprob_for_rollout: true   # Skip old_log_prob computation
+  use_pure_rollout_correction: false     # Use PPO with rollout_log_prob as old_log_prob
+  rollout_correction:
+    rollout_is: token
+    rollout_is_threshold: 2.0
+    rollout_rs: token
+    rollout_rs_threshold: 2.0
+```
+**Skips expensive `actor.compute_log_prob()` forward pass**
+
+### Example 6: Pure Policy Gradient Mode
+```yaml
+algorithm:
+  bypass_old_logprob_for_rollout: true   # Required for pure mode
+  use_pure_rollout_correction: true      # Use pure policy gradient with IS
+  rollout_correction:
+    rollout_is: token                    # Explicit IS correction in loss
+    rollout_is_threshold: 2.0
+    rollout_rs: null                     # Optional: can add rejection sampling
+```
+**No PPO clipping, higher variance but unbiased gradients**
 
 ## Troubleshooting
 
