@@ -1,4 +1,4 @@
-name: scheduled_test_ascend
+name: docker_validate_ascend
 
 on:
   schedule:
@@ -11,7 +11,7 @@ on:
     branches:
       - main
     paths:
-      - ".github/workflows/scheduled_test_ascend.yml"
+      - ".github/workflows/docker_validate_ascend.yml"
 
 
 concurrency:
