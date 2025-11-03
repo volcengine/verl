@@ -1,0 +1,125 @@
+# DeepSpeed PPO Multi-run Summary
+
+## dp_2gpu_full
+- Log: `/home/ubuntu/verl/examples/benchmarks/fsdp_vs_deepspeed_ppo/results/dp_2gpu_full.log`
+- Final step: 58
+- Final reward: 0.4503
+- Key metrics at final step:
+  - actor_entropy: 0.3148
+  - actor_pg_loss: -0.0015
+  - critic_vf_loss: 0.0064
+  - actor_grad_norm: 2.2344
+  - critic_grad_norm: 1.0938
+  - throughput: 1785.9835
+- 并行与批量设置：
+  - trainer.nnodes: 1
+  - trainer.n_gpus_per_node: 2
+  - derived_data_parallel_size: 2
+  - data_parallel_size: 1
+  - tensor_model_parallel_size: 1
+  - pipeline_model_parallel_size: 1
+  - ulysses_sequence_parallel_size: 1
+  - ppo_mini_batch_size: 128
+  - ppo_micro_batch_size_per_gpu: 8
+  - gradient_accumulation_steps: 8
+  - train_batch_size: 128
+  - train_micro_batch_size_per_gpu: 16
+- 精度与内存：
+  - model_dtype: bf16
+  - mixed_precision: bf16
+  - zero_stage: 0
+  - param_offload: False
+  - optimizer_offload: False
+
+## tp_2gpu_full
+- Log: `/home/ubuntu/verl/examples/benchmarks/fsdp_vs_deepspeed_ppo/results/tp_full.log`
+- Final step: 58
+- Final reward: 0.4253
+- Key metrics at final step:
+  - actor_entropy: 0.3302
+  - actor_pg_loss: -0.0047
+  - critic_vf_loss: 0.0079
+  - actor_grad_norm: 2.7031
+  - critic_grad_norm: 12.3750
+  - throughput: 1403.5251
+- 并行与批量设置：
+  - trainer.nnodes: 1
+  - trainer.n_gpus_per_node: 2
+  - derived_data_parallel_size: 1
+  - data_parallel_size: 1
+  - tensor_model_parallel_size: 2
+  - pipeline_model_parallel_size: 1
+  - ulysses_sequence_parallel_size: 1
+  - ppo_mini_batch_size: 128
+  - ppo_micro_batch_size_per_gpu: 8
+  - gradient_accumulation_steps: 8
+  - train_batch_size: 128
+  - train_micro_batch_size_per_gpu: 16
+- 精度与内存：
+  - model_dtype: bf16
+  - mixed_precision: bf16
+  - zero_stage: 0
+  - param_offload: False
+  - optimizer_offload: False
+
+## dp_tp_ep1
+- Log: `/home/ubuntu/verl/examples/benchmarks/fsdp_vs_deepspeed_ppo/results/dp_tp_full.log`
+- Final step: 58
+- Final reward: 0.1524
+- Key metrics at final step:
+  - actor_entropy: 0.8693
+  - actor_pg_loss: 0.0003
+  - critic_vf_loss: 0.0047
+  - actor_grad_norm: 3.3438
+  - critic_grad_norm: 14.6250
+  - throughput: 963.0196
+- 并行与批量设置：
+  - trainer.nnodes: 1
+  - trainer.n_gpus_per_node: 4
+  - derived_data_parallel_size: 2
+  - data_parallel_size: 2
+  - tensor_model_parallel_size: 2
+  - pipeline_model_parallel_size: 1
+  - ulysses_sequence_parallel_size: 1
+  - ppo_mini_batch_size: 128
+  - ppo_micro_batch_size_per_gpu: 8
+  - gradient_accumulation_steps: 8
+  - train_batch_size: 128
+  - train_micro_batch_size_per_gpu: 16
+- 精度与内存：
+  - model_dtype: bf16
+  - mixed_precision: bf16
+  - zero_stage: 0
+  - param_offload: False
+  - optimizer_offload: False
+
+## dp_tp_ep2
+- Log: `/home/ubuntu/verl/examples/benchmarks/fsdp_vs_deepspeed_ppo/results/dp_tp_full_ep2.log`
+- Final step: 116
+- Final reward: 0.4731
+- Key metrics at final step:
+  - actor_entropy: 0.3055
+  - actor_pg_loss: -0.0051
+  - critic_vf_loss: 0.0084
+  - actor_grad_norm: 1.6562
+  - critic_grad_norm: 14.5625
+  - throughput: 1395.7707
+- 并行与批量设置：
+  - trainer.nnodes: 1
+  - trainer.n_gpus_per_node: 4
+  - derived_data_parallel_size: 2
+  - data_parallel_size: 2
+  - tensor_model_parallel_size: 2
+  - pipeline_model_parallel_size: 1
+  - ulysses_sequence_parallel_size: 1
+  - ppo_mini_batch_size: 128
+  - ppo_micro_batch_size_per_gpu: 8
+  - gradient_accumulation_steps: 8
+  - train_batch_size: 128
+  - train_micro_batch_size_per_gpu: 16
+- 精度与内存：
+  - model_dtype: bf16
+  - mixed_precision: bf16
+  - zero_stage: 0
+  - param_offload: False
+  - optimizer_offload: False

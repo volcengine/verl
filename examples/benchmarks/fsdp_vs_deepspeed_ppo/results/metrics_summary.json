@@ -1,0 +1,138 @@
+{
+  "dp_2gpu_full": {
+    "log_path": "/home/ubuntu/verl/examples/benchmarks/fsdp_vs_deepspeed_ppo/results/dp_2gpu_full.log",
+    "final_step": 58,
+    "final_metrics": {
+      "reward": 0.45034116755117515,
+      "actor_entropy": 0.3148263394832611,
+      "actor_pg_loss": -0.0014725349028594792,
+      "critic_vf_loss": 0.006390743015799671,
+      "actor_grad_norm": 2.234375,
+      "critic_grad_norm": 1.09375,
+      "throughput": 1785.9835494759416
+    },
+    "final_validation": {},
+    "config": {
+      "trainer.total_epochs": 1,
+      "trainer.n_gpus_per_node": 2,
+      "trainer.nnodes": 1,
+      "tensor_model_parallel_size": 1,
+      "pipeline_model_parallel_size": 1,
+      "data_parallel_size": 1,
+      "ulysses_sequence_parallel_size": 1,
+      "ppo_mini_batch_size": 128,
+      "ppo_micro_batch_size_per_gpu": 8,
+      "gradient_accumulation_steps": 8,
+      "train_batch_size": 128,
+      "train_micro_batch_size_per_gpu": 16,
+      "model_dtype": "bf16",
+      "mixed_precision": "bf16",
+      "optimizer_offload": false,
+      "param_offload": false,
+      "zero_stage": 0,
+      "derived_data_parallel_size": 2
+    }
+  },
+  "tp_2gpu_full": {
+    "log_path": "/home/ubuntu/verl/examples/benchmarks/fsdp_vs_deepspeed_ppo/results/tp_full.log",
+    "final_step": 58,
+    "final_metrics": {
+      "reward": 0.42532221379833207,
+      "actor_entropy": 0.3302465081214905,
+      "actor_pg_loss": -0.004671593655075412,
+      "critic_vf_loss": 0.007854405179386958,
+      "actor_grad_norm": 2.703125,
+      "critic_grad_norm": 12.375,
+      "throughput": 1403.5251046644594
+    },
+    "final_validation": {},
+    "config": {
+      "trainer.total_epochs": 1,
+      "trainer.n_gpus_per_node": 2,
+      "trainer.nnodes": 1,
+      "tensor_model_parallel_size": 2,
+      "pipeline_model_parallel_size": 1,
+      "data_parallel_size": 1,
+      "ulysses_sequence_parallel_size": 1,
+      "ppo_mini_batch_size": 128,
+      "ppo_micro_batch_size_per_gpu": 8,
+      "gradient_accumulation_steps": 8,
+      "train_batch_size": 128,
+      "train_micro_batch_size_per_gpu": 16,
+      "model_dtype": "bf16",
+      "mixed_precision": "bf16",
+      "optimizer_offload": false,
+      "param_offload": false,
+      "zero_stage": 0,
+      "derived_data_parallel_size": 1
+    }
+  },
+  "dp_tp_ep1": {
+    "log_path": "/home/ubuntu/verl/examples/benchmarks/fsdp_vs_deepspeed_ppo/results/dp_tp_full.log",
+    "final_step": 58,
+    "final_metrics": {
+      "reward": 0.15238817285822592,
+      "actor_entropy": 0.8692860007286072,
+      "actor_pg_loss": 0.00027368016890250146,
+      "critic_vf_loss": 0.004743953488286934,
+      "actor_grad_norm": 3.34375,
+      "critic_grad_norm": 14.625,
+      "throughput": 963.0195924241784
+    },
+    "final_validation": {},
+    "config": {
+      "trainer.total_epochs": 1,
+      "trainer.n_gpus_per_node": 4,
+      "trainer.nnodes": 1,
+      "tensor_model_parallel_size": 2,
+      "pipeline_model_parallel_size": 1,
+      "data_parallel_size": 2,
+      "ulysses_sequence_parallel_size": 1,
+      "ppo_mini_batch_size": 128,
+      "ppo_micro_batch_size_per_gpu": 8,
+      "gradient_accumulation_steps": 8,
+      "train_batch_size": 128,
+      "train_micro_batch_size_per_gpu": 16,
+      "model_dtype": "bf16",
+      "mixed_precision": "bf16",
+      "optimizer_offload": false,
+      "param_offload": false,
+      "zero_stage": 0,
+      "derived_data_parallel_size": 2
+    }
+  },
+  "dp_tp_ep2": {
+    "log_path": "/home/ubuntu/verl/examples/benchmarks/fsdp_vs_deepspeed_ppo/results/dp_tp_full_ep2.log",
+    "final_step": 116,
+    "final_metrics": {
+      "reward": 0.47308567096285065,
+      "actor_entropy": 0.3055407404899597,
+      "actor_pg_loss": -0.005118719796882942,
+      "critic_vf_loss": 0.008427997658145614,
+      "actor_grad_norm": 1.65625,
+      "critic_grad_norm": 14.5625,
+      "throughput": 1395.7706837868673
+    },
+    "final_validation": {},
+    "config": {
+      "trainer.total_epochs": 2,
+      "trainer.n_gpus_per_node": 4,
+      "trainer.nnodes": 1,
+      "tensor_model_parallel_size": 2,
+      "pipeline_model_parallel_size": 1,
+      "data_parallel_size": 2,
+      "ulysses_sequence_parallel_size": 1,
+      "ppo_mini_batch_size": 128,
+      "ppo_micro_batch_size_per_gpu": 8,
+      "gradient_accumulation_steps": 8,
+      "train_batch_size": 128,
+      "train_micro_batch_size_per_gpu": 16,
+      "model_dtype": "bf16",
+      "mixed_precision": "bf16",
+      "optimizer_offload": false,
+      "param_offload": false,
+      "zero_stage": 0,
+      "derived_data_parallel_size": 2
+    }
+  }
+}
