@@ -827,7 +827,13 @@ class DeepSpeedEngine(BaseEngine):
         return torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
 
     def get_data_parallel_group(self):
-        """Return the process group used for data parallel communication."""
+        """Return the process group used for data-parallel collectives.
+
+        If Ulysses sequence parallel is enabled, use the DP group from the
+        Ulysses device mesh to match FSDP's DP semantics.
+        """
+        if self.ulysses_device_mesh is not None:
+            return self.ulysses_device_mesh.get_group(mesh_dim="dp")
         if hasattr(self, "engine") and self.engine is not None:
             for attr in ("data_parallel_group", "dp_group"):
                 group = getattr(self.engine, attr, None)
@@ -855,11 +861,20 @@ class DeepSpeedEngine(BaseEngine):
         outputs = []
         ctx = torch.no_grad() if forward_only else nullcontext()
 
+        # Expected metadata for loss scaling
+        if not forward_only:
+            assert "global_batch_size" in tensordict.keys(), "global_batch_size missing in batch metadata"
+            per_dp_global = int(tensordict["global_batch_size"]) // self.get_data_parallel_size()
+            assert per_dp_global > 0, "invalid per-DP global batch size"
+
         for micro_batch in micro_batches:
             with ctx:
                 loss, output = self.forward_step(micro_batch, loss_function=loss_function, forward_only=forward_only)
                 if not forward_only and loss is not None:
-                    self.engine.backward(loss)
+                    # Match FSDP: average gradients over global batch size
+                    local_micro_bsz = int(micro_batch.batch_size[0])
+                    scale = local_micro_bsz / per_dp_global
+                    self.engine.backward(loss * scale)
 
             outputs.append(output)
 
