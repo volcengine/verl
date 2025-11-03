@@ -2,7 +2,7 @@
 
 **Author:** [Yingru Li](https://richardli.xyz/)
 
-Last updated: 10/27/2025.
+Last updated: 10/30/2025.
 
 This document provides a comprehensive overview of the Rollout Correction implementation in verl.
 
@@ -12,8 +12,8 @@ This document provides a comprehensive overview of the Rollout Correction implem
 
 ```bibtex
 @misc{liu-li-2025,
-  title = {When Speed Kills Stability: Demystifying RL Collapse from the Inference-Training Mismatch},
-  url = {https://yingru.notion.site/When-Speed-Kills-Stability-Demystifying-RL-Collapse-from-the-Inference-Training-Mismatch-271211a558b7808d8b12d403fd15edda},
+  title = {When Speed Kills Stability: Demystifying RL Collapse from the Training-Inference Mismatch},
+  url = {https://yingru.notion.site/When-Speed-Kills-Stability-Demystifying-RL-Collapse-from-the-Training-Inference-Mismatch-271211a558b7808d8b12d403fd15edda},
   author = {Jiacai Liu and Yingru Li and Yuqian Fu and Jiawei Wang and Qian Liu and Yu Shen},
   year = {2025},
   month = september,
@@ -22,23 +22,36 @@ This document provides a comprehensive overview of the Rollout Correction implem
 
 ## Overview
 
-Rollout Correction addresses **off-policy issues** in RL training that arise from multiple sources:
+Rollout Correction provides a unified framework to handle **general off-policy problems** in RL training. Any scenario where the data collection distribution differs from the training distribution can benefit from these methods.
+
+**Common off-policy scenarios:**
 
 1. **Policy Mismatch** (Implementation Differences)
-   - **Rollout policy**: e.g., vLLM with BFloat16
-   - **Training policy**: e.g., FSDP with FP32
-   - Different implementations lead to distribution shifts even with same weights
+   - Different precision: BFloat16 rollout vs FP32 training
+   - Different backends: vLLM rollout vs PyTorch/FSDP training
+   - Different implementations even with identical weights
 
-2. **Model Update Staleness** (Temporal Lag)
-   - Rollout data collected from older policy checkpoints
-   - Training on stale trajectories while policy has already updated
-   - Common in asynchronous/distributed RL systems
+2. **Temporal Lag** (Model Staleness)
+   - Rollout uses older checkpoint while training has progressed
+   - Asynchronous rollout workers with stale parameters
+   - Common in distributed/async RL systems
 
-3. **General Off-Policy Scenarios**
-   - Any distribution shift between data collection and training
-   - Replay buffers, off-policy algorithms, etc.
+3. **Replay Buffers**
+   - Training on historical trajectories from earlier iterations
+   - Experience replay from different policy versions
+   - Data augmentation or resampling strategies
 
-These off-policy issues can lead to biased gradient estimates and unstable training. Rollout Correction uses importance sampling (IS) weights and rejection sampling (RS) to correct for the distribution shift, regardless of its source.
+4. **Off-Policy Algorithms**
+   - Behavioral cloning from expert demonstrations
+   - DAPO (data from auxiliary policies)
+   - Any algorithm using trajectories from a different policy
+
+5. **Data Quality Filtering**
+   - Reweighting or filtering collected data
+   - Preference learning with modified distributions
+   - Curriculum learning with distribution shifts
+
+These off-policy gaps can cause biased gradient estimates, training instability, and policy collapse. Rollout Correction uses importance sampling (IS) weights and rejection sampling (RS) to correct for any distribution shift between data collection and training.
 
 ### Key Design Principle: Separation of IS Weights and Rejection Sampling
 
@@ -321,7 +334,7 @@ algorithm:
 ```
 
 **Benefits:**
-- 15-20% training speedup
+- Faster training (skips expensive forward pass)
 - Reduced memory usage
 - PPO safety preserved
 
@@ -349,7 +362,7 @@ config = RolloutCorrectionConfig.pure_is(threshold=2.0)
 
 ```
 Start here: Do you have off-policy issues?
-(Policy mismatch, model staleness, distribution shift, etc.)
+(Any distribution shift between data collection and training)
 │
 ├─ No / Unknown
 │  └─ Use: RolloutCorrectionConfig.disabled()
@@ -361,7 +374,7 @@ Start here: Do you have off-policy issues?
 │  │
 │  └─ Prefer unbiased → RolloutCorrectionConfig.seq_is()
 │
-└─ Yes, high (kl > 0.1, or async/distributed with staleness)
+└─ Yes, high (kl > 0.1, or known distribution shift)
    │
    ├─ Standard → RolloutCorrectionConfig.seq_is_rs()
    │
@@ -373,8 +386,9 @@ Need speedup?
 Need unbiased gradients (research)?
 └─ Use: RolloutCorrectionConfig.pure_is()
 
-Note: "Off-policy" includes policy mismatch (BF16/FP32), model staleness
-(async rollouts), and any distribution shift between rollout and training.
+Note: "Off-policy" includes ANY scenario where data collection distribution
+differs from training: policy mismatch, model staleness, replay buffers,
+off-policy algorithms, data filtering, etc.
 ```
 
 ### Migrating from Issue #3597 (Qwen3 Training)
@@ -464,7 +478,7 @@ Within each training mode, you can independently control **two correction mechan
 
 ### Example Workflow
 
-1. **Start with metrics only** to understand the mismatch:
+1. **Start with metrics only** to understand the off-policy gap:
    ```yaml
    algorithm:
      rollout_correction:
@@ -536,8 +550,8 @@ These metrics cover both:
 #### **Core IS Weight Metrics**
 
 - **`rollout_is_mean`**: Mean importance sampling weight across all valid tokens
-  - **Ideal value**: Close to 1.0 (indicates minimal distribution mismatch)
-  - **Warning**: < 0.5 or > 2.0 suggests significant policy mismatch
+  - **Ideal value**: Close to 1.0 (indicates minimal off-policy gap)
+  - **Warning**: < 0.5 or > 2.0 suggests significant off-policy gap
 
 - **`rollout_is_std`**: Standard deviation of IS weights
   - **Ideal value**: < 0.5 for stable training
@@ -605,7 +619,7 @@ These metrics cover both:
 
 - **`rollout_is_seq_max_deviation`**: Maximum absolute deviation from 1.0 at sequence level
   - **Ideal value**: < 1.0
-  - Shows worst-case sequence mismatch
+  - Shows worst-case sequence off-policy gap
 
 - **`rollout_is_seq_fraction_high`**: Fraction of sequences exceeding upper threshold
 
@@ -624,7 +638,7 @@ These metrics cover both:
   - For token-level: sequence rejected if ANY token is outside [lower, upper]
   - For sequence-level: all tokens have same weight, so entire sequence rejected or accepted
 
-#### **Distribution Mismatch Metrics** (Training vs Rollout Policy)
+#### **Off-Policy Diagnostic Metrics** (Training vs Rollout Policy)
 
 - **`training_ppl`**: Perplexity of training policy (e.g., FSDP FP32)
   - **Formula**: `exp(-mean(log_probs))`
@@ -720,7 +734,7 @@ print(f"✓ IS weights are always safety-bounded to [exp(-20), exp(20)] ≈ [2e-
 
 # Check for warning conditions
 if metrics['rollout_corr/rollout_is_mean'] < 0.5 or metrics['rollout_corr/rollout_is_mean'] > 2.0:
-    print("⚠️  Warning: Mean IS weight far from 1.0, significant policy mismatch detected")
+    print("⚠️  Warning: Mean IS weight far from 1.0, significant off-policy gap detected")
 
 if metrics['rollout_corr/rollout_is_eff_sample_size'] < 0.3:
     print("⚠️  Warning: Low effective sample size, high variance in IS weights")
@@ -794,7 +808,7 @@ def check_rollout_correction_health(metrics, config):
     # Check KL divergence
     kl = metrics['rollout_corr/kl']
     if abs(kl) > 0.1:
-        warnings.append(f"KL divergence {kl:.3f} indicates significant mismatch")
+        warnings.append(f"KL divergence {kl:.3f} indicates significant off-policy gap")
 
     if warnings:
         print("⚠️  Rollout Correction Health Warnings:")
@@ -1015,7 +1029,7 @@ for step in range(num_steps):
 
 - **Memory overhead**: ~1% of model memory
 - **Computational overhead**: 1-3% depending on level
-- **Training stability**: Significantly improved when mismatch exists
+- **Training stability**: Significantly improved when off-policy gap exists
 
 
 ## Testing
@@ -1040,14 +1054,16 @@ Expected output: All tests pass ✓
 
 ## Summary
 
-Rollout Correction provides:
-- ✅ Robust handling of distribution mismatch
-- ✅ Numerical stability
-- ✅ Comprehensive metrics for monitoring
-- ✅ Flexibility for different scenarios
-- ✅ Memory-efficient computation
+Rollout Correction provides a unified framework for handling general off-policy problems in RL:
+- ✅ Corrects ANY distribution shift between data collection and training
+- ✅ Supports diverse scenarios: policy mismatch, staleness, replay buffers, off-policy algorithms
+- ✅ Numerical stability with safety bounds and rejection mechanisms
+- ✅ Comprehensive diagnostics: KL, perplexity, χ² divergence
+- ✅ Flexible methods from low-variance (token_is) to unbiased (seq_is_rs)
+- ✅ Memory-efficient implementation
 
 ## References
 
-- [When Speed Kills Stability: Demystifying RL Collapse from the Inference-Training Mismatch](https://yingru.notion.site/When-Speed-Kills-Stability-Demystifying-RL-Collapse-from-the-Inference-Training-Mismatch-271211a558b7808d8b12d403fd15edda)
+- **[Mathematical Formulations](rollout_corr_math.md)** - Detailed mathematical theory and derivations for all rollout correction methods
+- [When Speed Kills Stability: Demystifying RL Collapse from the Training-Inference Mismatch](https://yingru.notion.site/When-Speed-Kills-Stability-Demystifying-RL-Collapse-from-the-Training-Inference-Mismatch-271211a558b7808d8b12d403fd15edda)
 - [Your Efficient RL Framework Secretly Brings You Off-Policy RL Training](https://fengyao.notion.site/off-policy-rl)

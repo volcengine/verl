@@ -122,6 +122,7 @@ verl is fast with:
    advance/rollout_trace.rst
    advance/rollout_skip.rst
    advance/rollout_corr.md
+   advance/rollout_corr_math.md
    advance/one_step_off
    advance/agent_loop
    advance/reward_loop
