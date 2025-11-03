@@ -327,7 +327,7 @@ class ToolAgentLoop(AgentLoopBase):
 
             if tool_reward is not None:
                 agent_data.tool_rewards.append(tool_reward)
-        
+
         agent_data.messages.extend(add_messages)
         # Update prompt with tool responses
         if self.processor is not None:
