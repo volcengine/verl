@@ -276,7 +276,7 @@ class SFTTrainer:
                 if self.engine.is_mp_src_rank_with_outputs():
                     metrics = output["metrics"]
 
-                    loss = torch.mean(torch.tensor(metrics["loss"], device=self.device_name))
+                    loss = torch.sum(torch.tensor(metrics["loss"], device=self.device_name))
 
                     # mean over dp group
                     is_nested = data["input_ids"].is_nested
