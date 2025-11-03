@@ -720,19 +720,24 @@ class MegatronOnPolicyDistillRolloutWorker(ActorRolloutRefWorker):
     def sync_rollout_weights(self):
         assert self._is_rollout and not self.config.hybrid_engine
         assert hasattr(self, "_weights_info") and self._weights_info is not None
-
+        load_weights_size = self.config.vllm_load_weights_size
         inference_model = (
             self.rollout.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
         )
         from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 
         patch_vllm_moe_model_weight_loader(inference_model)
+        tensors = []
         for key, shape, dtype in self._weights_info:
             tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
             from ray.util.collective import collective
 
             collective.broadcast(tensor, src_rank=0, group_name="actor_rollout")
-            inference_model.load_weights([(key, tensor)])
+            tensors.append((key, tensor))
+            if len(tensors) >= load_weights_size:
+                inference_model.load_weights(tensors)
+                tensors.clear()
+        inference_model.load_weights(tensors)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def set_actor_weights_info(self, weights_info):
