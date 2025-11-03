@@ -24,14 +24,17 @@ Usage:
 
 This tests:
 - Basic rollout correction functionality (IS weights + rejection sampling)
-- Metrics completeness (IS metrics + rejection metrics + mismatch metrics)
+- Metrics completeness (IS metrics + rejection metrics + off-policy metrics)
 - Veto mechanism
 - Edge cases
 """
 
 import torch
 
-from verl.trainer.ppo.rollout_corr_helper import compute_mismatch_metrics, compute_rollout_correction_and_rejection_mask
+from verl.trainer.ppo.rollout_corr_helper import (
+    compute_offpolicy_metrics,
+    compute_rollout_correction_and_rejection_mask,
+)
 
 
 def test_basic_rollout_correction():
@@ -149,8 +152,8 @@ def test_basic_rollout_correction():
 
     assert weights_disabled is None, "Should return None when IS is disabled"
     assert torch.equal(modified_response_mask_disabled, eos_mask), "Should return original mask unchanged"
-    # Note: mismatch metrics are still computed even when IS/RS are disabled
-    assert "rollout_corr/mismatch_kl" in metrics_disabled, "Should still compute mismatch metrics"
+    # Note: off-policy metrics are still computed even when IS/RS are disabled
+    assert "rollout_corr/kl" in metrics_disabled, "Should still compute off-policy metrics"
     print("   ✓ Disabled IS passed")
 
     print("\n✓ All tests passed!")
@@ -190,21 +193,23 @@ def test_metrics_completeness():
     ]
 
     # Expected off-policy diagnostic metrics (also included now)
-    expected_mismatch_metrics = [
-        "rollout_corr/mismatch_training_ppl",
-        "rollout_corr/mismatch_training_log_ppl",
-        "rollout_corr/mismatch_kl",
-        "rollout_corr/mismatch_k3_kl",
-        "rollout_corr/mismatch_rollout_ppl",
-        "rollout_corr/mismatch_rollout_log_ppl",
-        "rollout_corr/mismatch_log_ppl_diff",
-        "rollout_corr/mismatch_log_ppl_abs_diff",
-        "rollout_corr/mismatch_log_ppl_diff_max",
-        "rollout_corr/mismatch_log_ppl_diff_min",
-        "rollout_corr/mismatch_ppl_ratio",
+    expected_offpolicy_metrics = [
+        "rollout_corr/training_ppl",
+        "rollout_corr/training_log_ppl",
+        "rollout_corr/kl",
+        "rollout_corr/k3_kl",
+        "rollout_corr/rollout_ppl",
+        "rollout_corr/rollout_log_ppl",
+        "rollout_corr/log_ppl_diff",
+        "rollout_corr/log_ppl_abs_diff",
+        "rollout_corr/log_ppl_diff_max",
+        "rollout_corr/log_ppl_diff_min",
+        "rollout_corr/ppl_ratio",
+        "rollout_corr/chi2_token",
+        "rollout_corr/chi2_seq",
     ]
 
-    expected_metrics = expected_is_metrics + expected_mismatch_metrics
+    expected_metrics = expected_is_metrics + expected_offpolicy_metrics
 
     missing_metrics = [m for m in expected_metrics if m not in metrics]
     if missing_metrics:
@@ -216,9 +221,9 @@ def test_metrics_completeness():
     return True
 
 
-def test_mismatch_metrics():
-    """Test mismatch metrics computation."""
-    print("\nTesting mismatch metrics computation...")
+def test_offpolicy_metrics():
+    """Test off-policy metrics computation."""
+    print("\nTesting off-policy metrics computation...")
 
     batch_size, seq_length = 4, 12
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -229,46 +234,48 @@ def test_mismatch_metrics():
     response_mask = torch.ones(batch_size, seq_length, device=device)
 
     # Test with rollout log probs
-    metrics = compute_mismatch_metrics(
+    metrics = compute_offpolicy_metrics(
         old_log_prob=old_log_prob,
         rollout_log_prob=rollout_log_prob,
         response_mask=response_mask,
     )
 
     expected_metrics = [
-        "mismatch_training_ppl",
-        "mismatch_training_log_ppl",
-        "mismatch_kl",
-        "mismatch_k3_kl",
-        "mismatch_rollout_ppl",
-        "mismatch_rollout_log_ppl",
-        "mismatch_log_ppl_diff",
-        "mismatch_log_ppl_abs_diff",
-        "mismatch_log_ppl_diff_max",
-        "mismatch_log_ppl_diff_min",
-        "mismatch_ppl_ratio",
+        "training_ppl",
+        "training_log_ppl",
+        "kl",
+        "k3_kl",
+        "rollout_ppl",
+        "rollout_log_ppl",
+        "log_ppl_diff",
+        "log_ppl_abs_diff",
+        "log_ppl_diff_max",
+        "log_ppl_diff_min",
+        "ppl_ratio",
+        "chi2_token",
+        "chi2_seq",
     ]
 
     for metric in expected_metrics:
         assert metric in metrics, f"Missing metric: {metric}"
 
-    print(f"   Training PPL: {metrics['mismatch_training_ppl']:.4f}")
-    print(f"   Rollout PPL: {metrics['mismatch_rollout_ppl']:.4f}")
-    print(f"   KL divergence: {metrics['mismatch_kl']:.6f}")
-    print(f"   K3 KL: {metrics['mismatch_k3_kl']:.6f}")
-    print(f"   PPL ratio: {metrics['mismatch_ppl_ratio']:.4f}")
-    print(f"   ✓ All {len(expected_metrics)} mismatch metrics present")
+    print(f"   Training PPL: {metrics['training_ppl']:.4f}")
+    print(f"   Rollout PPL: {metrics['rollout_ppl']:.4f}")
+    print(f"   KL divergence: {metrics['kl']:.6f}")
+    print(f"   K3 KL: {metrics['k3_kl']:.6f}")
+    print(f"   PPL ratio: {metrics['ppl_ratio']:.4f}")
+    print(f"   ✓ All {len(expected_metrics)} off-policy metrics present")
 
     # Test without rollout log probs
-    metrics_no_rollout = compute_mismatch_metrics(
+    metrics_no_rollout = compute_offpolicy_metrics(
         old_log_prob=old_log_prob,
         rollout_log_prob=None,
         response_mask=response_mask,
     )
 
-    assert "mismatch_training_ppl" in metrics_no_rollout
-    assert "mismatch_rollout_ppl" not in metrics_no_rollout
-    print("   ✓ Mismatch metrics work without rollout log probs")
+    assert "training_ppl" in metrics_no_rollout
+    assert "rollout_ppl" not in metrics_no_rollout
+    print("   ✓ Off-policy metrics work without rollout log probs")
 
 
 def test_mask_mode():
@@ -338,7 +345,7 @@ if __name__ == "__main__":
     try:
         test_basic_rollout_correction()
         test_metrics_completeness()
-        test_mismatch_metrics()
+        test_offpolicy_metrics()
         test_mask_mode()
         print("\n" + "=" * 60)
         print("ALL TESTS PASSED ✓")

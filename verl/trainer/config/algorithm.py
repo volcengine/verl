@@ -149,9 +149,9 @@ class RolloutCorrectionConfig(BaseConfig):
 
     @classmethod
     def token_is(cls, threshold: float = 2.0) -> "RolloutCorrectionConfig":
-        """Token-level Importance Sampling (TIS).
+        """Token-level Truncated Importance Sampling.
 
-        IS weight correction at token level without rejection sampling.
+        IS weight correction at token level.
 
         Args:
             threshold (float): Upper threshold for IS weights. Default: 2.0
@@ -168,9 +168,7 @@ class RolloutCorrectionConfig(BaseConfig):
 
     @classmethod
     def seq_is(cls, threshold: float = 2.0) -> "RolloutCorrectionConfig":
-        """Sequence-level Importance Sampling.
-
-        Sequence-level IS weights.
+        """Sequence-level Truncated Importance Sampling.
 
         Args:
             threshold (float): Upper threshold for IS weights. Default: 2.0

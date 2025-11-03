@@ -17,7 +17,10 @@ import pytest
 import torch
 
 from verl.trainer.ppo.core_algos import compute_policy_loss_vanilla
-from verl.trainer.ppo.rollout_corr_helper import compute_mismatch_metrics, compute_rollout_correction_and_rejection_mask
+from verl.trainer.ppo.rollout_corr_helper import (
+    compute_offpolicy_metrics,
+    compute_rollout_correction_and_rejection_mask,
+)
 from verl.workers.config.actor import ActorConfig
 
 
@@ -168,19 +171,19 @@ class TestRolloutISIntegration:
         assert "rollout_corr/rollout_is_mean" in metrics_mask
         assert "rollout_corr/rollout_rs_mean" in metrics_mask
 
-    def test_mismatch_metrics(self, sample_data):
-        """Test mismatch diagnostic metrics computation."""
-        metrics = compute_mismatch_metrics(
+    def test_offpolicy_metrics(self, sample_data):
+        """Test off-policy diagnostic metrics computation."""
+        metrics = compute_offpolicy_metrics(
             old_log_prob=sample_data["old_log_prob"],
             rollout_log_prob=sample_data["rollout_log_prob"],
             response_mask=sample_data["response_mask"],
         )
 
         # Check key metrics are present
-        assert "mismatch_training_ppl" in metrics
-        assert "mismatch_rollout_ppl" in metrics
-        assert "mismatch_kl" in metrics
-        assert isinstance(metrics["mismatch_kl"], float)
+        assert "training_ppl" in metrics
+        assert "rollout_ppl" in metrics
+        assert "kl" in metrics
+        assert isinstance(metrics["kl"], float)
 
     def test_veto_mechanism(self):
         """Test veto mechanism with catastrophic outliers."""
