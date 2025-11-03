@@ -235,7 +235,7 @@ class FSDPModelMerger(BaseModelMerger):
             if match:
                 return int(match.group(1))
         raise FileNotFoundError(
-            f"Could not determine world size. No file matching 'model_world_size_(\d+)_rank_0.pt' found in {self.config.local_dir}"
+            f"Could not determine world size. No file matching 'model_world_size_(\\d+)_rank_0.pt' found in {self.config.local_dir}"
         )
 
     def _load_rank_zero_state_dict(self, world_size: int) -> dict:
