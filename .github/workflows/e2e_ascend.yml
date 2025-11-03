@@ -1,4 +1,4 @@
-name: scheduled_ascend_a2
+name: e2e_ascend
 
 on:
   schedule:
@@ -8,6 +8,7 @@ on:
       - main
     paths:
       - ".github/workflows/scheduled_test_ascend.yml"
+      - ".github/workflows/e2e_ascend.yml"
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
