@@ -19,13 +19,15 @@ from tensordict import TensorDict
 from verl.trainer.ppo.core_algos import agg_loss, compute_value_loss, get_policy_loss_fn, kl_penalty
 from verl.utils import tensordict_utils as tu
 from verl.utils.dataset.dataset_utils import DatasetPadMode
-from verl.utils.torch_functional import masked_mean
+from verl.utils.torch_functional import masked_mean, masked_sum
 from verl.workers.config import ActorConfig, CriticConfig
 from verl.workers.roles.utils.padding import no_padding_2_padding
 
 
 def sft_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None):
     pad_mode = tu.get_non_tensor_data(data=data, key="pad_mode", default=DatasetPadMode.NO_PADDING)
+    dp_size = data["dp_size"]
+    batch_num_tokens = data["batch_num_tokens"]
 
     log_prob = model_output["log_probs"]
 
@@ -35,16 +37,18 @@ def sft_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
         loss_mask = data["loss_mask"]
 
         log_prob_flatten = log_prob.values()
-        cu_seqlens = log_prob.offsets()
         loss_mask_flatten = loss_mask.values()
 
         # left-shift the loss mask by one token to align with log_prob
         loss_mask_flatten = torch.roll(loss_mask_flatten, shifts=-1, dims=0)
-        loss_mask_flatten[cu_seqlens[1:] - 1] = 0
-        loss = -masked_mean(log_prob_flatten, loss_mask_flatten)
+
+        # NOTE: loss is averaged over all tokens in the batch across all data parallel groups,
+        # For FSDP backend, the loss is directly used for backward; while for Megatron backend,
+        # the loss should be scaled by `num_microbatches` and `cp_size` for pp schedule.
+        loss = -masked_sum(log_prob_flatten, loss_mask_flatten) / batch_num_tokens * dp_size
     else:
         response_mask = data["response_mask"].to(bool)
-        loss = -masked_mean(log_prob, response_mask)
+        loss = -masked_sum(log_prob, response_mask) / batch_num_tokens * dp_size
 
     return loss, {"loss": loss.detach().item()}
 
