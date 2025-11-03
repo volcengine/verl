@@ -5,24 +5,18 @@ export VLLM_USE_V1=1
 # ================= data/model/tool =================
 HDFS_ROOT=${HDFS_ROOT:-$PWD}
 DATA_ROOT=${DATA_ROOT:-$PWD}
-# dapo_math_17k=$DATA_ROOT/dataset/BytedTsinghua-SIA/DAPO-Math-17k
-# aime_2024=$DATA_ROOT/dataset/Maxwell-Jia/AIME_2024
-# aime_2025=$DATA_ROOT/dataset/yentinglin/aime_2025
-# model_path=$HDFS_ROOT/checkpoint/multiturn-sft-qwen-2.5-7b-instruct/global_step_372
 
-# train_files="['$dapo_math_17k']"
-# test_files="['$aime_2025', '$aime_2024']
+dapo_math_17k=$DATA_ROOT/dataset/BytedTsinghua-SIA/DAPO-Math-17k
+aime_2024=$DATA_ROOT/dataset/Maxwell-Jia/AIME_2024
+aime_2025=$DATA_ROOT/dataset/yentinglin/aime_2025
+model_path=$HDFS_ROOT/checkpoint/multiturn-sft-qwen-2.5-7b-instruct/global_step_372
 
-dapo_math_17k=/mnt/dolphinfs/hdd_pool/docker/user/hadoop-djst-algoplat/wangshulin02/data/BytedTsinghua-SIA___dapo-math-17k
-# aime_2024=/mnt/dolphinfs/hdd_pool/docker/user/hadoop-djst-algoplat/wangshulin02/data/Maxwell-Jia/AIME_2024
-aime_2025=/mnt/dolphinfs/hdd_pool/docker/user/hadoop-djst-algoplat/wangshulin02/data/yentinglin/aime_2025
-model_path=/mnt/dolphinfs/hdd_pool/docker/user/hadoop-djst-algoplat/wangshulin02/model/checkpoint/multiturn-sft-qwen-2.5-7b-instruct/global_step_372-merged_hf_model
 train_files="['$dapo_math_17k']"
-test_files="['$aime_2025']"
+test_files="['$aime_2025', '$aime_2024']"
 
 # tool
-tool_config_path=/mnt/dolphinfs/hdd_pool/docker/user/hadoop-djst-algoplat/wangshulin02/verl/recipe/retool/sandbox_fusion_tool_config.yaml
-retool_path=/mnt/dolphinfs/hdd_pool/docker/user/hadoop-djst-algoplat/wangshulin02/verl/recipe/retool/retool.py
+tool_config_path=recipe/retool/sandbox_fusion_tool_config.yaml
+retool_path=recipe/retool/retool.py
 
 # wandb / tensorboard
 project_name=retool
@@ -45,14 +39,10 @@ max_prompt_length=2048
 max_response_length=16384
 actor_lr=1e-6
 
-train_batch_size=64
-ppo_mini_batch_size=16
-n_resp_per_prompt=16
-n_resp_per_prompt_val=30
-
 # ================= perfomance =================
 infer_tp=4 # vllm
 train_sp=4 # train
+fsdp_size=4 # train
 offload=True
 
 actor_max_token_len_per_gpu=$(( (max_prompt_length + max_response_length) * 1 ))
@@ -61,21 +51,22 @@ log_prob_max_token_len_per_gpu=$(( actor_max_token_len_per_gpu * 4 ))
 # ================= async policy =================
 rollout_name="vllm"
 rollout_mode="async"
+
 NNODES=${NNODES:-1}
 NGPUS_PER_NODE=${NGPUS_PER_NODE:-8}
-
 n_gpus_rollout=4
 n_gpus_training=$((NGPUS_PER_NODE - n_gpus_rollout))
 
 train_batch_size=0
+ppo_mini_batch_size=16
 gen_prompt_bsz=1
 n_resp_per_prompt=16
-train_prompt_mini_bsz=32
-total_rollout_steps=$(((512*100)))
+n_resp_per_prompt_val=30
+total_rollout_steps=$(((64*250)))
 test_freq=10
-staleness_threshold=0.1
+staleness_threshold=0.5
 trigger_parameter_sync_step=4
-require_batches=4
+require_batches=1
 partial_rollout=True
 
 python3 -m recipe.fully_async_policy.fully_async_main \
@@ -109,6 +100,7 @@ python3 -m recipe.fully_async_policy.fully_async_main \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=$actor_max_token_len_per_gpu \
     actor_rollout_ref.actor.strategy=fsdp2 \
     critic.strategy=fsdp2 \
+    actor_rollout_ref.actor.fsdp_config.fsdp_size=${fsdp_size} \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=$train_sp \
     actor_rollout_ref.actor.fsdp_config.param_offload=$offload \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=$offload \
@@ -130,7 +122,7 @@ python3 -m recipe.fully_async_policy.fully_async_main \
     trainer.logger=['console','tensorboard'] \
     trainer.project_name=$project_name \
     trainer.experiment_name=$experiment_name \
-    trainer.val_before_train=False \
+    trainer.val_before_train=True \
     trainer.log_val_generations=20 \
     trainer.save_freq=-1 \
     trainer.default_local_dir=$default_local_dir \
