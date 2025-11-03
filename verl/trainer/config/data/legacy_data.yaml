@@ -44,6 +44,9 @@ train_batch_size: 1024
 # Batch size used during validation. Can be null.
 val_batch_size: null
 
+# use tool config to calculate true prompt length
+tool_config_path: ${oc.select:actor_rollout_ref.rollout.multi_turn.tool_config_path, null}
+
 # Whether to return the original input_ids without adding chat template.
 # This is used when the reward model's chat template differs from the policy.
 # If using a model-based RM with different templates, this should be True.
