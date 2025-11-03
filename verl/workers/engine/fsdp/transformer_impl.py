@@ -476,6 +476,14 @@ class FSDPEngine(BaseEngine):
         # note that the global_batch_size should include data on all the dp
         tu.assign_non_tensor(data, sp_size=self.ulysses_sequence_parallel_size)
 
+        # compute num_tokens in global batch for loss normalization
+        batch_num_tokens = data["loss_mask"].sum().to(get_device_id())
+        torch.distributed.all_reduce(
+            batch_num_tokens, op=torch.distributed.ReduceOp.SUM, group=self.get_data_parallel_group()
+        )
+        tu.assign_non_tensor(data, batch_num_tokens=batch_num_tokens.item())
+        tu.assign_non_tensor(data, dp_size=self.get_data_parallel_size())
+
         micro_batches, indices = prepare_micro_batches(
             data=data, dp_group=self.get_data_parallel_group(), same_micro_num_in_dp=True
         )
@@ -489,12 +497,6 @@ class FSDPEngine(BaseEngine):
                 loss, meta_info = self.forward_step(micro_batch, loss_function=loss_function, forward_only=forward_only)
 
                 if not forward_only:
-                    global_bsz = data["global_batch_size"]
-                    local_micro_bsz = micro_batch.batch_size[0]
-                    # metrics contain the output, loss is dummy
-                    loss_scale_factor = local_micro_bsz / (global_bsz / self.get_data_parallel_size())
-                    # scale loss
-                    loss = loss * loss_scale_factor
                     loss.backward()
 
             output_lst.append(meta_info)
