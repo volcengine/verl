@@ -1,14 +1,30 @@
 name: e2e_ascend
 
 on:
+  # Trigger the workflow on push or pull request,
+  # but only for the main branch
   schedule:
     - cron: '0 4 * * *'
   push:
     branches:
       - main
+      - v0.*
+  pull_request:
+    branches:
+      - main
     paths:
-      - ".github/workflows/scheduled_test_ascend.yml"
       - ".github/workflows/e2e_ascend.yml"
+      - "**/*.py"
+      - "docs/ascend_tutorial/**"
+      - "examples/**"
+      - "recipe/**"
+      - "tests/special_npu/**"
+      - "tests/special_sanity/**"
+      - "verl/**"
+      - "pyproject.toml"
+      - "requirements-npu.txt"
+      - "setup.py"
+
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
