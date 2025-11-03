@@ -41,6 +41,10 @@ def sft_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
 
         # left-shift the loss mask by one token to align with log_prob
         loss_mask_flatten = torch.roll(loss_mask_flatten, shifts=-1, dims=0)
+
+        # NOTE: loss is averaged over all tokens in the batch across all data parallel groups,
+        # For FSDP backend, the loss is directly used for backward; while for Megatron backend,
+        # the loss should be scaled by `num_microbatches` and `cp_size` for pp schedule.
         loss = -masked_sum(log_prob_flatten, loss_mask_flatten) / batch_num_tokens * dp_size
     else:
         response_mask = data["response_mask"].to(bool)
