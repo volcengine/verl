@@ -22,11 +22,23 @@ This document provides a comprehensive overview of the Rollout Correction implem
 
 ## Overview
 
-Rollout Correction addresses distribution mismatch between:
-- **Rollout policy**: e.g., vLLM with BFloat16
-- **Training policy**: e.g., FSDP with FP32
+Rollout Correction addresses **off-policy issues** in RL training that arise from multiple sources:
 
-This mismatch can lead to biased gradient estimates and unstable training. Rollout Correction uses importance sampling (IS) weights and rejection sampling (RS) to correct these biases.
+1. **Policy Mismatch** (Implementation Differences)
+   - **Rollout policy**: e.g., vLLM with BFloat16
+   - **Training policy**: e.g., FSDP with FP32
+   - Different implementations lead to distribution shifts even with same weights
+
+2. **Model Update Staleness** (Temporal Lag)
+   - Rollout data collected from older policy checkpoints
+   - Training on stale trajectories while policy has already updated
+   - Common in asynchronous/distributed RL systems
+
+3. **General Off-Policy Scenarios**
+   - Any distribution shift between data collection and training
+   - Replay buffers, off-policy algorithms, etc.
+
+These off-policy issues can lead to biased gradient estimates and unstable training. Rollout Correction uses importance sampling (IS) weights and rejection sampling (RS) to correct for the distribution shift, regardless of its source.
 
 ### Key Design Principle: Separation of IS Weights and Rejection Sampling
 
@@ -53,7 +65,40 @@ This separation ensures:
 - ✅ Padding positions zeroed in weights (necessary for correct aggregation)
 - ✅ Safety bounds always applied (prevent overflow in all modes)
 
-## Configuration
+## Quick Start: Using Verified Presets
+
+**NEW**: We now provide typed configuration with verified presets for common scenarios. These presets have been validated with tens of thousands of GPU hours across various models and training scenarios.
+
+### Python API
+
+```python
+from verl.trainer.config.algorithm import RolloutCorrectionConfig
+
+# Token-level IS
+config = RolloutCorrectionConfig.token_is()
+
+# Sequence-level IS
+config = RolloutCorrectionConfig.seq_is()
+
+# Sequence IS + rejection sampling - alias: seq_mis()
+config = RolloutCorrectionConfig.seq_is_rs()
+
+# Geometric IS + RS + Veto (maximum outlier sensitivity)
+config = RolloutCorrectionConfig.geo_rs()
+
+# Performance mode: PPO with bypass
+config = RolloutCorrectionConfig.ppo_is_bypass()
+
+# Advanced: Pure policy gradient with IS
+config = RolloutCorrectionConfig.pure_is()
+
+# Metrics only (no correction)
+config = RolloutCorrectionConfig.disabled()
+```
+
+### YAML Configuration (Advanced)
+
+For advanced customization or YAML-based configs:
 
 ```yaml
 algorithm:
@@ -64,10 +109,8 @@ algorithm:
     rollout_rs_threshold: null             # RS upper threshold (required if rollout_rs is enabled)
     rollout_rs_threshold_lower: null       # RS lower threshold (auto-reciprocal if null)
     rollout_token_veto_threshold: null     # Per-token veto threshold (null = disabled)
-
-  # Bypass Mode: Skip old_log_prob computation (NEW)
-  bypass_old_logprob_for_rollout: false    # Uses rollout_log_prob as old_log_prob (saves compute)
-  use_pure_rollout_correction: false       # Uses pure policy gradient with IS (no PPO clipping)
+    bypass_old_logprob_for_rollout: false  # Skip old_log_prob computation
+    use_pure_rollout_correction: false     # Pure policy gradient with IS
 
 # REQUIRED: Enable log prob calculation
 actor_rollout_ref:
@@ -75,20 +118,11 @@ actor_rollout_ref:
     calculate_log_probs: true
 ```
 
-Key features:
-- ✅ Three aggregation levels: token, sequence, geometric
-- ✅ Two bounding modes: truncate, mask
-- ✅ Dual threshold support (upper/lower)
-- ✅ Veto mechanism for catastrophic outliers
-- ✅ 30+ comprehensive metrics
-- ✅ Log-space computation for numerical stability
-- ✅ Memory-efficient implementation
-
 ## Files
 
 ### **Core Implementation**
 
-- `verl/trainer/ppo/mismatch_helper.py` - Contains `compute_rollout_correction_and_rejection_mask()` and `compute_mismatch_metrics()`
+- `verl/trainer/ppo/rollout_corr_helper.py` - Contains `compute_rollout_correction_and_rejection_mask()` and `compute_mismatch_metrics()`
 - `verl/trainer/ppo/core_algos.py` - Rollout Correction integration with PPO and pure IS mode (`compute_policy_loss_with_rollout_correction()`)
 - `verl/trainer/ppo/ray_trainer.py` - Bypass mode implementation (skips `old_log_prob` computation)
 - `verl/workers/actor/dp_actor.py` - Mode selection logic and metrics collection
@@ -125,10 +159,10 @@ Importance sampling weights aggregation level:
 - `null` = No IS weights computed (metrics-only mode)
 - `"token"`: Per-token IS weights ρ_t = π_train(t)/π_rollout(t)
   - Biased estimator, low variance
-  - Recommended threshold: 1.5 - 5.0
+  - Typical threshold: 1.5 - 5.0
 - `"sequence"`: Per-sequence weight ρ_seq = ∏_t ρ_t
   - Unbiased estimator, high variance
-  - Recommended threshold: 2.0 - 10.0
+  - Typical threshold: 2.0 - 10.0
 
 All IS weights are safety-bounded to [exp(-20), exp(20)] ≈ [2e-9, 5e8]
 
@@ -143,7 +177,7 @@ Rejection sampling aggregation level:
 - `"token"`: Reject individual tokens with outlier ratios
 - `"sequence"`: Reject entire sequences with outlier ratios
 - `"geometric"`: Geometric mean aggregation for rejection
-  - Recommended threshold: 1.0002 - 1.001
+  - Typical threshold: 1.0002 - 1.001
 
 ### `rollout_rs_threshold` (float or null)
 Upper threshold for rejection sampling. Default: `null`
@@ -160,8 +194,211 @@ Per-token veto for catastrophic outliers. Default: `null`
 - Checks **unclamped per-token ratios** before safety bounds
 - If ANY token has ratio < threshold, entire sequence is rejected
 - Independent of `rollout_is` and `rollout_rs` settings
-- Recommended: `1e-4` to `1e-6` when enabled
+- Typical values: `1e-4` to `1e-6` when enabled
 - Example: `1e-4` catches tokens 10,000x less likely
+
+## Preset Configuration Guide
+
+This section provides detailed guidance on choosing and using the verified presets for different scenarios.
+
+### 1. Token-level Importance Sampling
+
+**When to use:**
+- Standard training scenarios
+- Moderate off-policiness
+- Prefer lower variance
+
+**Configuration:**
+```python
+config = RolloutCorrectionConfig.token_is(threshold=2.0)
+```
+
+**Equivalent YAML:**
+```yaml
+algorithm:
+  rollout_correction:
+    rollout_is: token
+    rollout_is_threshold: 2.0
+    rollout_rs: null
+```
+
+### 2. Sequence-level Importance Sampling
+
+**When to use:**
+- Unbiased gradient estimation required
+- Short sequences (< 512 tokens)
+- Research settings
+
+**Configuration:**
+```python
+config = RolloutCorrectionConfig.seq_is(threshold=2.0)
+```
+
+**Equivalent YAML:**
+```yaml
+algorithm:
+  rollout_correction:
+    rollout_is: sequence
+    rollout_is_threshold: 2.0
+    rollout_rs: null
+```
+
+**Important:** Sequence-level IS has higher variance, so requires larger thresholds (5.0-10.0) compared to token-level (1.5-5.0).
+
+### 3. Sequence-level IS + Rejection Sampling
+
+**Alias:** `seq_mis(threshold)`
+
+**When to use:**
+- Unbiased gradient estimation required
+- Higher off-policy scenarios
+- Need both IS correction and outlier filtering
+
+**Configuration:**
+```python
+config = RolloutCorrectionConfig.seq_is_rs(is_threshold=2.0, rs_threshold=2.0)
+# OR use alias with single threshold (sets rs_threshold_lower=0)
+config = RolloutCorrectionConfig.seq_mis(threshold=2.0)
+```
+
+**Equivalent YAML:**
+```yaml
+algorithm:
+  rollout_correction:
+    rollout_is: sequence
+    rollout_is_threshold: 2.0
+    rollout_rs: sequence
+    rollout_rs_threshold: 2.0
+    rollout_rs_threshold_lower: 0.5  # Reciprocal of threshold
+```
+
+### 4. Geometric IS + RS + Veto (Maximum Sensitivity)
+
+**When to use:**
+- Very sensitive outlier detection needed
+- Maximum protection required
+- Advanced configuration
+
+**Configuration:**
+```python
+config = RolloutCorrectionConfig.geo_rs(rs_threshold=1.001, veto_threshold=1e-4)
+```
+
+**Equivalent YAML:**
+```yaml
+algorithm:
+  rollout_correction:
+    rollout_is: null
+    rollout_rs: geometric
+    rollout_rs_threshold: 1.001
+    rollout_rs_threshold_lower: 0.999
+    rollout_token_veto_threshold: 1e-4
+```
+
+**Important:** Geometric thresholds must be very close to 1.0 (typical: 1.0001-1.001, ±0.01%-0.1%).
+
+### 5. PPO with IS Bypass (Performance Mode)
+
+**When to use:**
+- Training is slow and you need speedup
+- Memory is constrained
+- You can tolerate slight approximation
+
+**Configuration:**
+```python
+config = RolloutCorrectionConfig.ppo_is_bypass(threshold=2.0)
+```
+
+**Equivalent YAML:**
+```yaml
+algorithm:
+  rollout_correction:
+    rollout_is: token
+    rollout_is_threshold: 2.0
+    rollout_rs: null
+    bypass_old_logprob_for_rollout: true
+    use_pure_rollout_correction: false
+```
+
+**Benefits:**
+- 15-20% training speedup
+- Reduced memory usage
+- PPO safety preserved
+
+**Requirements:**
+- Must set `actor_rollout_ref.rollout.calculate_log_probs: true`
+
+### 8. Pure IS (Research Mode)
+
+**When to use:**
+- Research requiring unbiased gradients
+- PPO clipping is undesirable
+- You understand variance-bias tradeoffs
+
+**Configuration:**
+```python
+config = RolloutCorrectionConfig.pure_is(threshold=2.0)
+```
+
+**Trade-offs:**
+- ✅ Theoretically unbiased
+- ❌ Higher variance (may need larger batches)
+- ❌ Requires careful monitoring
+
+### Decision Tree
+
+```
+Start here: Do you have off-policy issues?
+(Policy mismatch, model staleness, distribution shift, etc.)
+│
+├─ No / Unknown
+│  └─ Use: RolloutCorrectionConfig.disabled()
+│     Monitor rollout_corr/kl for 1-2 epochs
+│
+├─ Yes, moderate (kl < 0.1)
+│  │
+│  ├─ Prefer low variance → RolloutCorrectionConfig.token_is()
+│  │
+│  └─ Prefer unbiased → RolloutCorrectionConfig.seq_is()
+│
+└─ Yes, high (kl > 0.1, or async/distributed with staleness)
+   │
+   ├─ Standard → RolloutCorrectionConfig.seq_is_rs()
+   │
+   └─ Maximum sensitivity → RolloutCorrectionConfig.geo_rs()
+
+Need speedup?
+└─ Add: RolloutCorrectionConfig.ppo_is_bypass()
+
+Need unbiased gradients (research)?
+└─ Use: RolloutCorrectionConfig.pure_is()
+
+Note: "Off-policy" includes policy mismatch (BF16/FP32), model staleness
+(async rollouts), and any distribution shift between rollout and training.
+```
+
+### Migrating from Issue #3597 (Qwen3 Training)
+
+If you're coming from the Qwen3-14B/30B long DAPO training issue (#3597), here's the verified configuration that resolved the crashes:
+
+**Before (crashing):**
+```yaml
+algorithm:
+  rollout_correction: null  # or not set
+```
+
+**After (stable):**
+```python
+from verl.trainer.config.algorithm import RolloutCorrectionConfig
+
+# For development/testing
+config = RolloutCorrectionConfig.seq_is_rs(threshold=2.0)
+
+# Maximum protection
+config = RolloutCorrectionConfig.geo_rs(rs_threshold=1.001, veto_threshold=1e-4)
+```
+
+These configurations were verified with **tens of thousands of GPU hours** on Qwen3-14B and Qwen3-30B models.
 
 ### Summary: How IS Weights are Processed
 
@@ -225,7 +462,7 @@ Within each training mode, you can independently control **two correction mechan
 
 **Veto rejection** (if enabled via `rollout_token_veto_threshold`) is applied **independently** of IS and RS settings.
 
-### Recommended Workflow
+### Example Workflow
 
 1. **Start with metrics only** to understand the mismatch:
    ```yaml
@@ -234,7 +471,7 @@ Within each training mode, you can independently control **two correction mechan
        rollout_is: null
        rollout_rs: null
    ```
-   Monitor `mismatch/rollout_is_mean`, `mismatch/mismatch_kl` to assess distribution mismatch.
+   Monitor `rollout_corr/rollout_is_mean`, `rollout_corr/kl` to assess off-policy gap.
 
 2. **Enable rejection sampling** if you see high outlier fractions:
    ```yaml
@@ -260,7 +497,7 @@ Within each training mode, you can independently control **two correction mechan
    ```yaml
    algorithm:
      bypass_old_logprob_for_rollout: true    # Skip old_log_prob computation
-     use_pure_rollout_correction: false      # Use PPO_IS mode (recommended)
+     use_pure_rollout_correction: false      # Use PPO_IS mode
      rollout_correction:
        rollout_is: token
        rollout_is_threshold: 2.0
@@ -290,7 +527,11 @@ actor_rollout_ref:
 
 ### Metrics
 
-All metrics are prefixed with `mismatch/`. For example, `rollout_is_mean` appears as `mismatch/rollout_is_mean` in logs.
+All metrics are prefixed with `rollout_corr/` in logs. For example, `rollout_is_mean` appears as `rollout_corr/rollout_is_mean`.
+
+These metrics cover both:
+- **Diagnostic metrics**: KL divergence, perplexity differences (measuring off-policy gap)
+- **Correction statistics**: IS weights, rejection rates, veto stats (measuring correction applied)
 
 #### **Core IS Weight Metrics**
 
@@ -385,43 +626,43 @@ All metrics are prefixed with `mismatch/`. For example, `rollout_is_mean` appear
 
 #### **Distribution Mismatch Metrics** (Training vs Rollout Policy)
 
-- **`mismatch_training_ppl`**: Perplexity of training policy (e.g., FSDP FP32)
+- **`training_ppl`**: Perplexity of training policy (e.g., FSDP FP32)
   - **Formula**: `exp(-mean(log_probs))`
   - Lower is better (model is more confident)
 
-- **`mismatch_rollout_ppl`**: Perplexity of rollout policy (e.g., vLLM BF16)
-  - Should be close to `mismatch_training_ppl` if policies match well
+- **`rollout_ppl`**: Perplexity of rollout policy (e.g., vLLM BF16)
+  - Should be close to `training_ppl` if policies match well
 
-- **`mismatch_ppl_ratio`**: Ratio of training PPL to rollout PPL
+- **`ppl_ratio`**: Ratio of training PPL to rollout PPL
   - **Formula**: `exp(mean(log(training_ppl / rollout_ppl)))`
   - **Ideal value**: Close to 1.0
   - **Meaning**: > 1.0 means training is less confident than rollout
 
-- **`mismatch_training_log_ppl`**: Log perplexity of training policy
+- **`training_log_ppl`**: Log perplexity of training policy
   - Useful for identifying trends (linear scale)
 
-- **`mismatch_rollout_log_ppl`**: Log perplexity of rollout policy
+- **`rollout_log_ppl`**: Log perplexity of rollout policy
 
-- **`mismatch_log_ppl_diff`**: Mean difference in log perplexities
+- **`log_ppl_diff`**: Mean difference in log perplexities
   - **Formula**: `mean(log_ppl_rollout - log_ppl_training)`
   - **Ideal value**: Close to 0.0
   - Sign indicates which policy is more confident
 
-- **`mismatch_log_ppl_abs_diff`**: Mean absolute log perplexity difference
-  - Magnitude of mismatch regardless of direction
+- **`log_ppl_abs_diff`**: Mean absolute log perplexity difference
+  - Magnitude of off-policy gap regardless of direction
 
-- **`mismatch_log_ppl_diff_max`**: Maximum log perplexity difference across sequences
+- **`log_ppl_diff_max`**: Maximum log perplexity difference across sequences
   - Identifies worst-case sequence
 
-- **`mismatch_log_ppl_diff_min`**: Minimum log perplexity difference across sequences
+- **`log_ppl_diff_min`**: Minimum log perplexity difference across sequences
 
-- **`mismatch_kl`**: KL divergence KL(π_rollout || π_training)
+- **`kl`**: KL divergence KL(π_rollout || π_training)
   - **Formula**: `mean(log_prob_rollout - log_prob_training)`
   - **Ideal value**: Close to 0.0 (policies match)
-  - **Warning**: > 0.1 indicates significant mismatch
+  - **Warning**: > 0.1 indicates significant off-policy gap
   - **Note**: Can be negative (rollout is less confident)
 
-- **`mismatch_k3_kl`**: K3 KL estimator
+- **`k3_kl`**: K3 KL estimator
   - **Formula**: `mean(exp(log_ratio) - log_ratio - 1)`
   - More stable for small KL values
   - Always non-negative
@@ -430,7 +671,7 @@ All metrics are prefixed with `mismatch/`. For example, `rollout_is_mean` appear
 
 ```python
 # Metrics are returned from compute_rollout_correction_and_rejection_mask
-from verl.trainer.ppo.mismatch_helper import compute_rollout_correction_and_rejection_mask
+from verl.trainer.ppo.rollout_corr_helper import compute_rollout_correction_and_rejection_mask
 
 # Returns 3 values (weights, modified_response_mask, metrics)
 weights_proto, modified_response_mask, metrics = compute_rollout_correction_and_rejection_mask(
@@ -458,12 +699,12 @@ is_weights = weights_proto.batch["rollout_is_weights"]
 # 2. Veto rejection: sequences with catastrophic tokens (ratio < 1e-4) masked to 0
 # Note: Veto checks unclamped per-token ratios, not the safety-bounded weights
 
-# All metrics have 'mismatch/' prefix
-print(f"Mean IS weight: {metrics['mismatch/rollout_is_mean']:.3f}")
-print(f"Effective sample size: {metrics['mismatch/rollout_is_eff_sample_size']:.3f}")
-print(f"Veto fraction: {metrics['mismatch/rollout_is_veto_fraction']:.3f}")
-print(f"Masked fraction: {metrics['mismatch/rollout_is_masked_fraction']:.3f}")
-print(f"KL divergence: {metrics['mismatch/mismatch_kl']:.3f}")
+# All metrics have 'rollout_corr/' prefix
+print(f"Mean IS weight: {metrics['rollout_corr/rollout_is_mean']:.3f}")
+print(f"Effective sample size: {metrics['rollout_corr/rollout_is_eff_sample_size']:.3f}")
+print(f"Veto fraction: {metrics['rollout_corr/rollout_is_veto_fraction']:.3f}")
+print(f"Masked fraction: {metrics['rollout_corr/rollout_is_masked_fraction']:.3f}")
+print(f"KL divergence: {metrics['rollout_corr/kl']:.3f}")
 
 # Check IS weights for valid tokens (non-padding)
 valid_weights = is_weights[response_mask.bool()]
@@ -478,13 +719,13 @@ print(f"✓ With rejection sampling (rollout_rs): tokens outside thresholds are 
 print(f"✓ IS weights are always safety-bounded to [exp(-20), exp(20)] ≈ [2e-9, 5e8]")
 
 # Check for warning conditions
-if metrics['mismatch/rollout_is_mean'] < 0.5 or metrics['mismatch/rollout_is_mean'] > 2.0:
+if metrics['rollout_corr/rollout_is_mean'] < 0.5 or metrics['rollout_corr/rollout_is_mean'] > 2.0:
     print("⚠️  Warning: Mean IS weight far from 1.0, significant policy mismatch detected")
 
-if metrics['mismatch/rollout_is_eff_sample_size'] < 0.3:
+if metrics['rollout_corr/rollout_is_eff_sample_size'] < 0.3:
     print("⚠️  Warning: Low effective sample size, high variance in IS weights")
 
-if metrics['mismatch/rollout_is_veto_fraction'] > 0.1:
+if metrics['rollout_corr/rollout_is_veto_fraction'] > 0.1:
     print("⚠️  Warning: High veto fraction, policies may be too different")
 ```
 
@@ -531,27 +772,27 @@ def check_rollout_correction_health(metrics, config):
     warnings = []
 
     # Check mean IS weight
-    mean_weight = metrics['mismatch/rollout_is_mean']
+    mean_weight = metrics['rollout_corr/rollout_is_mean']
     if mean_weight < 0.5 or mean_weight > 2.0:
         warnings.append(f"Mean IS weight {mean_weight:.3f} is far from 1.0")
 
     # Check effective sample size
-    ess = metrics['mismatch/rollout_is_eff_sample_size']
+    ess = metrics['rollout_corr/rollout_is_eff_sample_size']
     if ess < 0.3:
         warnings.append(f"Effective sample size {ess:.3f} is too low")
 
     # Check veto fraction
-    veto_frac = metrics['mismatch/rollout_is_veto_fraction']
+    veto_frac = metrics['rollout_corr/rollout_is_veto_fraction']
     if veto_frac > 0.1:
         warnings.append(f"Veto fraction {veto_frac:.3f} is too high")
 
     # Check variance
-    std = metrics['mismatch/rollout_is_std']
+    std = metrics['rollout_corr/rollout_is_std']
     if std > 1.0:
         warnings.append(f"IS weight std {std:.3f} is too high")
 
     # Check KL divergence
-    kl = metrics['mismatch/mismatch_kl']
+    kl = metrics['rollout_corr/kl']
     if abs(kl) > 0.1:
         warnings.append(f"KL divergence {kl:.3f} indicates significant mismatch")
 
@@ -622,10 +863,10 @@ algorithm:
 algorithm:
   rollout_correction:
     rollout_is: sequence
-    rollout_is_threshold: 5.0
+    rollout_is_threshold: 2.0
     rollout_rs: token
-    rollout_rs_threshold: 5.0
-    rollout_rs_threshold_lower: 0.2
+    rollout_rs_threshold: 2.0
+    rollout_rs_threshold_lower: 0.5
     rollout_token_veto_threshold: 1e-4  # Veto catastrophic tokens
 ```
 
@@ -698,14 +939,14 @@ def plot_is_metrics(metrics_history):
     fig, axes = plt.subplots(2, 3, figsize=(15, 10))
 
     # Plot 1: Mean IS weight over time
-    axes[0, 0].plot(metrics_history['mismatch/rollout_is_mean'])
+    axes[0, 0].plot(metrics_history['rollout_corr/rollout_is_mean'])
     axes[0, 0].axhline(y=1.0, color='r', linestyle='--', label='Ideal')
     axes[0, 0].set_title('Mean IS Weight')
     axes[0, 0].set_xlabel('Step')
     axes[0, 0].legend()
 
     # Plot 2: Effective sample size
-    axes[0, 1].plot(metrics_history['mismatch/rollout_is_eff_sample_size'])
+    axes[0, 1].plot(metrics_history['rollout_corr/rollout_is_eff_sample_size'])
     axes[0, 1].axhline(y=0.5, color='g', linestyle='--', label='Good')
     axes[0, 1].axhline(y=0.3, color='r', linestyle='--', label='Warning')
     axes[0, 1].set_title('Effective Sample Size')
@@ -713,22 +954,22 @@ def plot_is_metrics(metrics_history):
     axes[0, 1].legend()
 
     # Plot 3: Veto fraction
-    axes[0, 2].plot(metrics_history['mismatch/rollout_is_veto_fraction'])
+    axes[0, 2].plot(metrics_history['rollout_corr/rollout_is_veto_fraction'])
     axes[0, 2].axhline(y=0.1, color='r', linestyle='--', label='Warning')
     axes[0, 2].set_title('Veto Fraction')
     axes[0, 2].set_xlabel('Step')
     axes[0, 2].legend()
 
     # Plot 4: KL divergence over time
-    axes[1, 0].plot(metrics_history['mismatch/mismatch_kl'], label='KL')
-    axes[1, 0].plot(metrics_history['mismatch/mismatch_k3_kl'], label='K3 KL')
+    axes[1, 0].plot(metrics_history['rollout_corr/kl'], label='KL')
+    axes[1, 0].plot(metrics_history['rollout_corr/k3_kl'], label='K3 KL')
     axes[1, 0].axhline(y=0, color='g', linestyle='--', alpha=0.3)
     axes[1, 0].set_title('KL Divergence')
     axes[1, 0].set_xlabel('Step')
     axes[1, 0].legend()
 
     # Plot 5: PPL ratio over time
-    axes[1, 1].plot(metrics_history['mismatch/mismatch_ppl_ratio'])
+    axes[1, 1].plot(metrics_history['rollout_corr/ppl_ratio'])
     axes[1, 1].axhline(y=1.0, color='r', linestyle='--', label='Ideal')
     axes[1, 1].set_title('PPL Ratio (Training/Rollout)')
     axes[1, 1].set_xlabel('Step')
@@ -747,12 +988,12 @@ def plot_is_metrics(metrics_history):
 ```python
 # Collect metrics over time
 metrics_history = {
-    'mismatch/rollout_is_mean': [],
-    'mismatch/rollout_is_eff_sample_size': [],
-    'mismatch/rollout_is_veto_fraction': [],
-    'mismatch/mismatch_kl': [],
-    'mismatch/mismatch_k3_kl': [],
-    'mismatch/mismatch_ppl_ratio': [],
+    'rollout_corr/rollout_is_mean': [],
+    'rollout_corr/rollout_is_eff_sample_size': [],
+    'rollout_corr/rollout_is_veto_fraction': [],
+    'rollout_corr/kl': [],
+    'rollout_corr/k3_kl': [],
+    'rollout_corr/ppl_ratio': [],
 }
 
 # In training loop
@@ -793,7 +1034,7 @@ Expected output: All tests pass ✓
 
 ## Additional Resources
 
-- **Implementation**: `verl/trainer/ppo/mismatch_helper.py`
+- **Implementation**: `verl/trainer/ppo/rollout_corr_helper.py`
 - **Examples**: `examples/rollout_correction/`
 - **DAPO Example**: `recipe/dapo/run_dapo_qwen2.5_32b_rollout_corr.sh`
 

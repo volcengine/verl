@@ -1,6 +1,6 @@
 # Rollout Correction Examples
 
-This directory contains examples and documentation for using Rollout Correction to address distribution mismatch between rollout and training policies.
+This directory contains examples and documentation for using Rollout Correction to address off-policy issues in RL training.
 
 **References:**
 - When Speed Kills Stability: https://yingru.notion.site/When-Speed-Kills-Stability-271211a558b7808d8b12d403fd15edda
@@ -8,12 +8,12 @@ This directory contains examples and documentation for using Rollout Correction 
 
 ## Overview
 
-Rollout Correction addresses distribution mismatch when:
-1. **Rollout generation** uses one policy (e.g., vLLM with BFloat16)
-2. **Training** uses another policy (e.g., FSDP with FP32)
-3. This mismatch leads to biased gradient estimates
+Rollout Correction addresses off-policy issues including:
+1. **Policy mismatch**: Rollout policy (e.g., vLLM BFloat16) vs Training policy (e.g., FSDP FP32)
+2. **Model staleness**: Training on trajectories from older policy checkpoints
+3. **Distribution shifts**: Any distribution gap between data collection and training
 
-Rollout Correction uses importance sampling (IS) weights and rejection sampling (RS) to correct these biases.
+Rollout Correction uses importance sampling (IS) weights and rejection sampling (RS) to correct for these distribution shifts.
 
 ## Quick Start
 
@@ -121,16 +121,16 @@ algorithm:
 algorithm:
   rollout_correction:
     rollout_is: sequence
-    rollout_is_threshold: 5.0
+    rollout_is_threshold: 2.0
     rollout_rs: token
-    rollout_rs_threshold: 3.0
+    rollout_rs_threshold: 2.0
     rollout_rs_threshold_lower: 0.5
     rollout_token_veto_threshold: 1e-4
 ```
 
 ## Monitoring Metrics
 
-Key metrics to watch (all prefixed with `mismatch/` in logs):
+Key metrics to watch (all prefixed with `rollout_corr/` in logs):
 
 ### Health Indicators
 - `rollout_is_mean`: Mean IS weight across sequences
@@ -151,14 +151,14 @@ Key metrics to watch (all prefixed with `mismatch/` in logs):
 These metrics help diagnose the distribution mismatch between rollout and training policies:
 
 **Perplexity Metrics:**
-- `mismatch_training_ppl`: Perplexity of training policy
-- `mismatch_rollout_ppl`: Perplexity of rollout policy
-- `mismatch_ppl_ratio`: Ratio of training PPL to rollout PPL
-- `mismatch_log_ppl_diff`: Log perplexity difference
+- `training_ppl`: Perplexity of training policy
+- `rollout_ppl`: Perplexity of rollout policy
+- `ppl_ratio`: Ratio of training PPL to rollout PPL
+- `log_ppl_diff`: Log perplexity difference
 
 **KL Divergence Metrics:**
-- `mismatch_kl`: KL divergence KL(π_rollout || π_training)
-- `mismatch_k3_kl`: K3 KL estimator
+- `kl`: KL divergence KL(π_rollout || π_training)
+- `k3_kl`: K3 KL estimator
 
 ## Troubleshooting
 
@@ -248,6 +248,6 @@ See the script in this directory:
 
 ## References
 
-- Implementation: `verl/trainer/ppo/mismatch_helper.py`
+- Implementation: `verl/trainer/ppo/rollout_corr_helper.py`
 - Core algorithm: `verl/trainer/ppo/core_algos.py`
 - Paper: "Your Efficient RL Framework Secretly Brings You Off-Policy RL Training"

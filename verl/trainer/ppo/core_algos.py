@@ -1618,7 +1618,7 @@ def compute_policy_loss_with_rollout_correction(
         - Variance: Higher than PPO (no clipping safety net)
     """
     # Import rollout correction helper
-    from verl.trainer.ppo.mismatch_helper import compute_rollout_correction_and_rejection_mask
+    from verl.trainer.ppo.rollout_corr_helper import compute_rollout_correction_and_rejection_mask
 
     # Compute IS weights and rejection mask on-the-fly
     rollout_is_weights_proto, modified_response_mask, rollout_metrics = compute_rollout_correction_and_rejection_mask(

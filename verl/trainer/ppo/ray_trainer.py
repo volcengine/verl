@@ -49,8 +49,8 @@ from verl.trainer.ppo.metric_utils import (
     compute_timing_metrics,
     process_validation_metrics,
 )
-from verl.trainer.ppo.mismatch_helper import compute_rollout_correction_and_rejection_mask
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
+from verl.trainer.ppo.rollout_corr_helper import compute_rollout_correction_and_rejection_mask
 from verl.trainer.ppo.utils import Role, WorkerType, need_critic, need_reference_policy, need_reward_model
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
 from verl.utils.config import omega_conf_to_dataclass
@@ -955,9 +955,9 @@ class RayPPOTrainer:
         metrics.update(global_balance_stats)
 
     def compute_rollout_correction_and_add_to_batch(self, batch: DataProto) -> tuple[DataProto, dict]:
-        """Compute rollout correction weights and apply rejection sampling for rollout-training mismatch.
+        """Compute rollout correction weights and apply rejection sampling.
 
-        Computes importance sampling weights to correct for distribution mismatch between
+        Computes importance sampling weights to correct for off-policy issues between
         rollout and training policies. Applies rejection sampling by modifying response_mask.
         Always updates response_mask; conditionally adds IS weights.
 
@@ -975,7 +975,7 @@ class RayPPOTrainer:
         Returns:
             Tuple of (updated_batch, metrics):
                 updated_batch: Batch with modified response_mask (always) and rollout_is_weights (if enabled)
-                metrics: Dict of IS and mismatch metrics, all with "mismatch/" prefix
+                metrics: Dict of IS and off-policy metrics, all with "rollout_corr/" prefix
         """
         # Compute rollout correction if enabled and data is available
         rollout_corr_config = self.config.algorithm.get("rollout_correction", None)
@@ -1251,10 +1251,10 @@ class RayPPOTrainer:
                             batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
 
                         # Compute rollout correction weights centrally (once per batch)
-                        # This corrects for mismatch between rollout policy and training policy
-                        # Also computes mismatch metrics (KL, PPL, etc.)
+                        # This corrects for off-policy issues (policy mismatch, model staleness, etc.)
+                        # Also computes off-policy diagnostic metrics (KL, PPL, etc.)
                         batch, is_metrics = self.compute_rollout_correction_and_add_to_batch(batch)
-                        # IS and mismatch metrics already have mismatch/ prefix
+                        # IS and off-policy metrics already have rollout_corr/ prefix
                         metrics.update(is_metrics)
 
                         # compute advantages, executed on the driver process

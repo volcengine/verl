@@ -17,7 +17,7 @@ import pytest
 import torch
 
 from verl.trainer.ppo.core_algos import compute_policy_loss_vanilla
-from verl.trainer.ppo.mismatch_helper import compute_mismatch_metrics, compute_rollout_correction_and_rejection_mask
+from verl.trainer.ppo.rollout_corr_helper import compute_mismatch_metrics, compute_rollout_correction_and_rejection_mask
 from verl.workers.config.actor import ActorConfig
 
 
@@ -113,7 +113,7 @@ class TestRolloutISIntegration:
         # Check metrics are returned
         assert isinstance(metrics, dict)
         assert len(metrics) > 0
-        assert "mismatch/rollout_is_mean" in metrics
+        assert "rollout_corr/rollout_is_mean" in metrics
 
     def test_all_aggregation_levels(self, sample_data):
         """Test all aggregation levels (token, sequence for IS; geometric for RS)."""
@@ -128,7 +128,7 @@ class TestRolloutISIntegration:
                 rollout_is_threshold=2.0,
                 rollout_rs=None,
             )
-            assert "mismatch/rollout_is_mean" in metrics
+            assert "rollout_corr/rollout_is_mean" in metrics
 
         # Test rejection sampling with geometric level
         _, _, metrics_geo = compute_rollout_correction_and_rejection_mask(
@@ -139,7 +139,7 @@ class TestRolloutISIntegration:
             rollout_rs="geometric",
             rollout_rs_threshold=2.0,
         )
-        assert "mismatch/rollout_rs_mean" in metrics_geo
+        assert "rollout_corr/rollout_rs_mean" in metrics_geo
 
     def test_both_bounding_modes(self, sample_data):
         """Test both truncate and mask modes."""
@@ -152,7 +152,7 @@ class TestRolloutISIntegration:
             rollout_is_threshold=2.0,
             rollout_rs=None,
         )
-        assert "mismatch/rollout_is_mean" in metrics_truncate
+        assert "rollout_corr/rollout_is_mean" in metrics_truncate
 
         # Test mask mode (rejection sampling)
         _, _, metrics_mask = compute_rollout_correction_and_rejection_mask(
@@ -165,8 +165,8 @@ class TestRolloutISIntegration:
             rollout_rs_threshold=2.0,
             rollout_rs_threshold_lower=0.5,
         )
-        assert "mismatch/rollout_is_mean" in metrics_mask
-        assert "mismatch/rollout_rs_mean" in metrics_mask
+        assert "rollout_corr/rollout_is_mean" in metrics_mask
+        assert "rollout_corr/rollout_rs_mean" in metrics_mask
 
     def test_mismatch_metrics(self, sample_data):
         """Test mismatch diagnostic metrics computation."""
@@ -206,8 +206,8 @@ class TestRolloutISIntegration:
         )
 
         # Should have vetoed one sequence
-        assert metrics["mismatch/rollout_is_veto_fraction"] > 0
-        assert metrics["mismatch/rollout_is_veto_fraction"] <= 1.0
+        assert metrics["rollout_corr/rollout_is_veto_fraction"] > 0
+        assert metrics["rollout_corr/rollout_is_veto_fraction"] <= 1.0
 
     def test_metrics_only_mode(self, sample_data, config_with_rollout_is):
         """Test metrics-only mode: compute IS weights/metrics but don't apply to loss.
@@ -227,7 +227,7 @@ class TestRolloutISIntegration:
 
         # Metrics should be computed
         assert len(is_metrics) > 0
-        assert "mismatch/rollout_is_mean" in is_metrics
+        assert "rollout_corr/rollout_is_mean" in is_metrics
 
         # In metrics-only mode, we compute loss WITHOUT applying weights
         # (simulating rollout_is=False)

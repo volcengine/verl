@@ -424,10 +424,10 @@ class FullyAsyncRayPPOTrainer(RayPPOTrainer):
                 batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
 
             # Compute rollout correction weights centrally (once per batch)
-            # This corrects for mismatch between rollout policy and training policy
-            # Also computes mismatch metrics (KL, PPL, etc.)
+            # This corrects for off-policy issues (policy mismatch, model staleness, etc.)
+            # Also computes off-policy diagnostic metrics (KL, PPL, etc.)
             batch, is_metrics = self.compute_rollout_correction_and_add_to_batch(batch)
-            # IS and mismatch metrics already have mismatch/ prefix
+            # IS and off-policy metrics already have rollout_corr/ prefix
             metrics.update(is_metrics)
 
             # compute advantages, executed on the driver process

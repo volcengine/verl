@@ -14,13 +14,15 @@
 """
 Rollout Correction Helper Module
 
-This module provides a complete pipeline to address distribution mismatch between
-**rollout policies** (e.g., vLLM BFloat16 for fast inference) and
-**training policies** (e.g., FSDP FP32 for stable training).
+This module provides a complete pipeline to address **off-policy issues** in RL training,
+including:
+1. Policy mismatch between rollout and training implementations (e.g., vLLM BFloat16 vs FSDP FP32)
+2. Model update staleness (training on trajectories from older checkpoints)
+3. General distribution shifts between data collection and training
 
 Its core capabilities include computing importance sampling (IS) weights,
 filtering outlier samples via rejection sampling (RS), and
-tracking mismatch metrics to ensure training stability.
+tracking metrics to diagnose and correct off-policy issues.
 
 ## Core Capabilities
 1. **Multi-Granularity Aggregation**:
@@ -44,8 +46,7 @@ tracking mismatch metrics to ensure training stability.
 
 
 ## Key Interfaces & Usage
-- compute_rollout_correction_and_rejection_mask(): compute IS weights + rejection mask + veto
-  (most common for LLM training).
+- compute_rollout_correction_and_rejection_mask(): compute IS weights + rejection mask + veto.
 - compute_rollout_correction_weights(): only compute truncated IS weights (for variance
   reduction, no outlier rejection).
 - compute_rollout_rejection_mask(): only filter outliers (for sample cleaning, no IS weight
@@ -82,7 +83,7 @@ def compute_rollout_rejection_mask(
     rollout_rs_threshold: Optional[float] = None,
     rollout_rs_threshold_lower: Optional[float] = None,
 ) -> tuple[torch.Tensor, dict[str, float]]:
-    """Compute rejection mask for outlier handling in rollout-training policy mismatch.
+    """Compute rejection mask for outlier handling in off-policy RL training.
 
     This function identifies and masks outlier tokens/sequences using precomputed log ratios
     (log(π_train / π_rollout)). It supports multiple aggregation levels and uses log-space
@@ -326,7 +327,7 @@ def compute_rollout_correction_weights(
     rollout_is: str = "token",
     rollout_is_threshold: float = 2.0,
 ) -> tuple[torch.Tensor, dict[str, float]]:
-    """Compute importance sampling weights to correct rollout-training policy mismatch.
+    """Compute importance sampling weights to correct for off-policy distribution shifts.
 
     This function calculates IS weights (π_train / π_rollout) using log ratios for numerical stability.
     It supports multiple aggregation levels and truncates extreme weights to prevent training instability.
@@ -563,7 +564,7 @@ def compute_rollout_correction_and_rejection_mask(
                 key "rollout_is_weights", shape (batch_size, seq_length).
             modified_response_mask: Response mask with rejection sampling and veto applied,
                 shape (batch_size, seq_length).
-            metrics: Dictionary of all metrics (prefixed with "mismatch/"), including:
+            metrics: Dictionary of all metrics (prefixed with "rollout_corr/"), including:
                 - IS weight statistics
                 - Rejection sampling rates
                 - Veto statistics
@@ -649,13 +650,13 @@ def compute_rollout_correction_and_rejection_mask(
     )
     metrics.update(mismatch_metrics)
 
-    # Step 6: Add "mismatch/" prefix to all metrics for logging consistency
+    # Step 6: Add "rollout_corr/" prefix to all metrics for logging consistency
     metrics_scalar: dict[str, float] = {}
     for key, value in metrics.items():
         if isinstance(value, torch.Tensor):
-            metrics_scalar[f"mismatch/{key}"] = value.item()
+            metrics_scalar[f"rollout_corr/{key}"] = value.item()
         else:
-            metrics_scalar[f"mismatch/{key}"] = value
+            metrics_scalar[f"rollout_corr/{key}"] = value
 
     # Step 7: Wrap IS weights in DataProto for consistency with API
     rollout_is_weights_proto: Optional[DataProto] = None
@@ -670,14 +671,20 @@ def compute_mismatch_metrics(
     rollout_log_prob: Optional[torch.Tensor],
     response_mask: torch.Tensor,
 ) -> dict[str, Any]:
-    """Compute training-inference mismatch metrics (helper function).
+    """Compute off-policy diagnostic metrics (helper function).
 
     This helper function operates on raw tensors and is used internally by:
     - compute_rollout_correction_and_rejection_mask() in this module (automatically included)
     - Tests (test_rollout_corr.py, test_rollout_corr_integration.py)
 
-    These metrics help diagnose the mismatch between the rollout policy (e.g., vLLM)
-    and the training policy (e.g., FSDP), which can cause training instability.
+    These metrics help diagnose the off-policy gap between rollout and training policies,
+    which can arise from:
+    - Policy mismatch (e.g., vLLM BF16 vs FSDP FP32)
+    - Model staleness (training on trajectories from older checkpoints)
+    - General distribution shifts
+
+    NOTE: Function name "compute_mismatch_metrics" is historical. It now computes general
+    off-policy diagnostic metrics.
 
     Key metrics:
     - mismatch_kl: Direct KL divergence estimator KL(π_rollout || π_training)
