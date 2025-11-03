@@ -42,15 +42,9 @@ class AsyncPartialToolAgentLoop(ToolAgentLoop):
     Support for partial rollout with multiple tool invocations in Agent Loop
 
     """
-
-    @classmethod
-    def init_class(cls, config, tokenizer, processor, **kwargs):
-        """Class-level ToolAgentLoop initialization"""
-        if cls._class_initialized:
-            return
-        # additonal config
-        cls.enable_partial_rollout = config.async_training.get("partial_rollout", True)
-        super().init_class(config, tokenizer, processor, **kwargs)
+    def __init__(self, trainer_config, **kwargs):
+        super().__init__(trainer_config, **kwargs)
+        self.enable_partial_rollout = trainer_config.config.async_training.get("partial_rollout", False)
 
     # async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
     async def run(
