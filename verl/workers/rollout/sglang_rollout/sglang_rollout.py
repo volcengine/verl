@@ -434,7 +434,7 @@ class SGLangRollout(BaseRollout):
         if self.config.mode == "async" and not self.config.skip_tokenizer_init:
             raise ValueError("async mode requires skip_tokenizer_init to be True")
         backend = attention_backend if attention_backend is not None else "fa3"
-        sglang_port = os.getenv("SGLANG_PORT",30000) + (dist.get_rank() *2)
+        sglang_port = int(os.getenv("SGLANG_PORT", "30000")) + (dist.get_rank() * 2)
         if effective_first:
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
             args = {
