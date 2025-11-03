@@ -408,8 +408,10 @@ class MegatronOnPolicyDistillActorWorker(ActorRolloutRefWorker):
 
     def _get_actor_params_generator(self):
         assert self._is_actor
+        # from verl.utils.megatron_utils import per_tensor_generator
+        from megatron_utils import per_tensor_generator
+
         from verl.models.mcore import get_mcore_weight_converter
-        from verl.utils.megatron_utils import per_tensor_generator
 
         layer_name_mapping = {
             "qkv_layer_name": "self_attention.linear_qkv.",
@@ -547,6 +549,9 @@ class MegatronOnPolicyDistillActorWorker(ActorRolloutRefWorker):
         assert hasattr(self, "_weights_info") and self._weights_info is not None
 
         params_generator = self._get_actor_params_generator()
+
+        from ray.util.collective import collective
+
         for key, shape, dtype in self._weights_info:
             weight_key, weight = next(params_generator)
             assert key == weight_key
@@ -556,12 +561,9 @@ class MegatronOnPolicyDistillActorWorker(ActorRolloutRefWorker):
             except AssertionError:
                 if not key.endswith("e_score_correction_bias"):
                     raise
-            tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
+            # tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
             if torch.distributed.get_rank() == 0:
-                tensor.copy_(weight)
-            from ray.util.collective import collective
-
-            collective.broadcast(tensor, src_rank=0, group_name="actor_rollout")
+                collective.broadcast(weight, src_rank=0, group_name="actor_rollout")
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def get_actor_weights_info(self):
