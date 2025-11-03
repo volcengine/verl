@@ -39,13 +39,7 @@ from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpoint
 from verl.utils.device import get_device_id, get_device_name, get_torch_device
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.megatron.pipeline_parallel import make_batch_generator
-from verl.utils.megatron_utils import (
-    get_model_config,
-    load_megatron_model_to_gpu,
-    load_megatron_optimizer,
-    offload_megatron_model_to_cpu,
-    offload_megatron_optimizer,
-)
+from verl.utils.megatron_utils import get_model_config
 from verl.utils.profiler import (
     DistProfiler,
     GPUMemoryLogger,
@@ -453,12 +447,6 @@ class MegatronOnPolicyDistillActorWorker(ActorRolloutRefWorker):
             override_model_config=override_model_config,
             override_transformer_config=override_transformer_config,
         )
-        if self._is_offload_param:
-            offload_megatron_model_to_cpu(self.actor_module)
-            log_gpu_memory_usage("After offload actor params and grad during init", logger=logger)
-        if self._is_offload_optimizer:
-            offload_megatron_optimizer(self.actor_optimizer)
-            log_gpu_memory_usage("After offload actor optimizer during init", logger=logger)
 
         self.actor = OnPolicyDistillActor(
             config=self.config.actor,
@@ -499,13 +487,6 @@ class MegatronOnPolicyDistillActorWorker(ActorRolloutRefWorker):
     def update_actor(self, data: DataProto):
         assert self._is_actor and not self._is_rollout
 
-        if self._is_offload_param:
-            load_megatron_model_to_gpu(self.actor_module)
-            log_gpu_memory_usage("After load actor params and grad during update_actor", logger=logger)
-        if self._is_offload_optimizer:
-            load_megatron_optimizer(self.actor_optimizer)
-            log_gpu_memory_usage("After load actor optimizer during update_actor", logger=logger)
-
         with Timer(name="update_policy", logger=None) as timer:
             metrics = self.actor.update_policy(data=data)
 
@@ -524,13 +505,6 @@ class MegatronOnPolicyDistillActorWorker(ActorRolloutRefWorker):
         # TODO: here, we should return all metrics
         output = DataProto(meta_info={"metrics": metrics})
         output = output.to("cpu")
-
-        if self._is_offload_param:
-            offload_megatron_model_to_cpu(self.actor_module)
-            log_gpu_memory_usage("After offload actor params and grad during update_actor", logger=logger)
-        if self._is_offload_optimizer:
-            offload_megatron_optimizer(self.actor_optimizer)
-            log_gpu_memory_usage("After offload actor optimizer during update_actor", logger=logger)
 
         get_torch_device().empty_cache()
         return output
@@ -652,8 +626,6 @@ class MegatronOnPolicyDistillRolloutWorker(ActorRolloutRefWorker):
             self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config)
         )
 
-        # TODO(sgm): Currently, we only support reference model param offload
-        # will support other offload later
         self._is_offload_param = False
         self._is_offload_grad = False
         self._is_offload_optimizer = False

@@ -23,15 +23,6 @@ export NVTE_DEBUG_LEVEL=2
 gsm8k_train_path=/path/to/train.parquet
 train_files=$gsm8k_train_path
 
-ALL_OFFLOAD=${ALL_OFFLOAD:-True}
-COMMON_PARAM_OFFLOAD=${COMMON_PARAM_OFFLOAD:-$ALL_OFFLOAD}
-COMMON_GRAD_OFFLOAD=${COMMON_GRAD_OFFLOAD:-$ALL_OFFLOAD}
-COMMON_OPTIMIZER_OFFLOAD=${COMMON_OPTIMIZER_OFFLOAD:-$ALL_OFFLOAD}
-
-ACTOR_PARAM_OFFLOAD=${ACTOR_PARAM_OFFLOAD:-$COMMON_PARAM_OFFLOAD}
-ACTOR_GRAD_OFFLOAD=${ACTOR_GRAD_OFFLOAD:-$COMMON_GRAD_OFFLOAD}
-ACTOR_OPTIMIZER_OFFLOAD=${ACTOR_OPTIMIZER_OFFLOAD:-$COMMON_OPTIMIZER_OFFLOAD}
-
 # 512 H20(96GB)
 NODES=1
 PP=3
@@ -102,9 +93,6 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     actor_rollout_ref.actor.megatron.tensor_model_parallel_size=$TP \
     actor_rollout_ref.actor.megatron.expert_model_parallel_size=$EP \
     actor_rollout_ref.actor.megatron.expert_tensor_parallel_size=$ETP \
-    actor_rollout_ref.actor.megatron.param_offload=${ACTOR_PARAM_OFFLOAD} \
-    actor_rollout_ref.actor.megatron.optimizer_offload=${ACTOR_OPTIMIZER_OFFLOAD} \
-    actor_rollout_ref.actor.megatron.grad_offload=${ACTOR_GRAD_OFFLOAD} \
     actor_rollout_ref.actor.megatron.use_dist_checkpointing=True \
     actor_rollout_ref.actor.megatron.dist_checkpointing_path=$DIST_CKPT_PATH \
     actor_rollout_ref.rollout.name=vllm \
