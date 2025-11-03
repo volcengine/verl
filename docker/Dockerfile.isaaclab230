@@ -71,7 +71,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 
 RUN mkdir -p /root/.vnc && \
-    cat <<'EOP' > /root/.vnc/xstartup 
+    echo <<'EOP' > /root/.vnc/xstartup 
 #!/bin/sh
 unset SESSION_MANAGER
 unset DBUS_SESSION_BUS_ADDRESS
@@ -133,7 +133,15 @@ EOP
 RUN cd /root/LIBERO && \
     /workspace/isaaclab/_isaac_sim/python.sh -m pip install -e .
 
-
+# libero config
+RUN mkdir -p /root/.libero && \
+echo <<'EOP' > /root/.libero/config.yaml
+assets: /root/LIBERO/libero/libero/./assets
+bddl_files: /root/LIBERO/libero/libero/./bddl_files
+benchmark_root: /root/LIBERO/libero/libero
+datasets: /root/LIBERO/libero/libero/../datasets
+init_states: /root/LIBERO/libero/libero/./init_files
+EOP
 
 # from https://github.com/nvidia-china-sae/RobotLearningLab
 COPY RobotLearningLab/ /root/RobotLearningLab/

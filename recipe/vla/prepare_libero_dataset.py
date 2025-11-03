@@ -73,11 +73,8 @@ if __name__ == "__main__":
         end_id = cumsum_trial_id_bins[task_id]
         return list(range(start_id, end_id))
 
-    # all_task_ids = list(range(task_suite.get_num_tasks()))
-    # train_task_ids = sorted(random.sample(all_task_ids, 9))
-    # Notes: isaac task 3 and 9 does not work yet, exclude them
-    all_task_ids = [0, 1, 2, 4, 5, 6, 7, 8]
-    train_task_ids = sorted(random.sample(all_task_ids, 7))
+    all_task_ids = list(range(task_suite.get_num_tasks()))
+    train_task_ids = sorted(random.sample(all_task_ids, 9))
     ood_test_task_id = list(set[int](all_task_ids) - set(train_task_ids))[0]  # for OOD test
 
     print("\n[Data Split Plan]")
