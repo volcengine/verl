@@ -76,7 +76,7 @@ You should output a JSON object with three entries:
 - Completion Signal: Use "{termination_signal}" as your response when you believe your goal has been solved or if you determine the AI cannot help further.
 - Double check if the JSON object is formatted correctly. Ensure that all fields are present and properly structured.
 
-Remember to stay in character as a user throughout your response, and follow the instructions and guidelines carefully."""  # noqa
+Remember to stay in character as a user throughout your response, and follow the instructions and guidelines carefully."""  # noqa: E501
 
 
 class CollabLLMInteraction(BaseInteraction):
