@@ -37,6 +37,9 @@ pip install vllm==0.11.0 --extra-index-url https://download.pytorch.org/whl/cu12
 
 # Install Flash Attention
 pip install --no-cache-dir --no-build-isolation flash_attn==2.7.4.post1
+
+# Install verl
+pip install -e .
 ```
 
 ### Environment Reference
