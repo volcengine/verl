@@ -454,7 +454,7 @@ class SGLangRollout(BaseRollout):
                 # NOTE(linjunrong): add rank to prevent SGLang generate same port inside PortArgs.init_new
                 # when random.seed is being set during training
                 "port": sglang_port,
-                "nccl_port": sglang_port+1,
+                "nccl_port": sglang_port + 1,
                 # NOTE(Chenyang): if you want to debug the SGLang engine output
                 # please set the following parameters
                 # Otherwise, it will make the engine run too slow
