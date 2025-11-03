@@ -114,6 +114,7 @@ verl is fast with:
 
    advance/checkpoint
    advance/rope
+   advance/attention_implementation
    advance/ppo_lora.rst
    sglang_multiturn/multiturn.rst
    sglang_multiturn/interaction_system.rst

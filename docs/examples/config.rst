@@ -109,6 +109,7 @@ Actor/Rollout/Reference Policy
       path: ~/models/deepseek-llm-7b-chat
       external_lib: null
       override_config:
+        attn_implementation: flash_attention_2  # or eager, sdpa - attention implementation override
         model_config: {}
         moe_config:  # Megatron only, can adjust moe configuration
           freeze_moe_router: False  # Megatron only, can freeze moe router (no grad)
@@ -226,7 +227,12 @@ Actor/Rollout/Reference Policy
   that need to be imported. Used to register models or tokenizers into
   the Huggingface system.
 - ``actor_rollout_ref.model.override_config``: Used to override some of
-  the model's original configurations, mainly dropout
+  the model's original configurations. Common overrides include:
+  
+  - ``attn_implementation``: Override the attention implementation. Default is ``flash_attention_2``.
+    Supported values: ``flash_attention_2``, ``eager``, ``sdpa``. Use ``eager`` for debugging or
+    compatibility issues. See :ref:`attention-implementation-override` for detailed usage.
+
 - ``actor_rollout_ref.model.enable_gradient_checkpointing``: FSDP only, decide
   Whether to enable gradient checkpointing for the actor,
   Megatron uses recompute options in ``override_transformer_config`` to set this
