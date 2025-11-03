@@ -575,6 +575,9 @@ class DeepSpeedEngine(BaseEngine):
             "disable_scheduler": True,
         }
 
+        # Note: gradient clipping for DeepSpeed can be enabled by passing
+        # `gradient_clipping` via ds_config_kwargs if needed by callers.
+
         # Only pass zero_optimization params if zero_stage > 0
         if self.zero_stage > 0:
             ds_config_kwargs["zero_optimization"] = {

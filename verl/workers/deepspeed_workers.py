@@ -31,6 +31,31 @@ import torch
 
 # Performance optimization: conditionally enable debug logging
 _DEBUG_ENABLED = os.getenv("VERL_DEBUG", "0") == "1"
+
+
+def _get_or_create_event_loop():
+    """Return a usable asyncio event loop.
+
+    - If no current loop, create and set a new one (prefer uvloop when available).
+    - If the existing loop is closed (e.g., uvloop policy teardown), recreate it.
+    """
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        # No current event loop; set policy and create one
+        try:
+            import uvloop  # type: ignore
+
+            asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+        except Exception:
+            pass
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    if loop.is_closed():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    return loop
 import torch.distributed
 from tensordict import TensorDict
 from codetiming import Timer
@@ -339,11 +364,17 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
             zero_stage = getattr(self.config.actor, "zero_stage", deepspeed_config.get("zero_stage", 2))
 
+            world_size = torch.distributed.get_world_size() if torch.distributed.is_initialized() else 1
+            per_rank_mini = self.config.actor.ppo_mini_batch_size
+            micro_bsz = self.config.actor.get("ppo_micro_batch_size_per_gpu", 1) or 1
+            ds_train_batch_size = max(1, per_rank_mini * world_size)
+            ds_grad_accum = max(1, per_rank_mini // micro_bsz)
+
             ds_config = get_deepspeed_config(
                 optimizer_type=optim_config.get("optimizer", "AdamW"),
-                train_batch_size=self.config.actor.ppo_mini_batch_size,
-                train_micro_batch_size_per_gpu=self.config.actor.get("ppo_micro_batch_size_per_gpu", 1),
-                gradient_accumulation_steps=self.config.actor.get("gradient_accumulation_steps", 1),
+                train_batch_size=ds_train_batch_size,
+                train_micro_batch_size_per_gpu=micro_bsz,
+                gradient_accumulation_steps=ds_grad_accum,
                 zero_stage=zero_stage,
                 lr=optim_config.get("lr", 1e-5),
                 betas=optim_config.get("betas", [0.9, 0.999]),
@@ -393,7 +424,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         # Switch to trainer mode for sync rollout
         if rollout_config.mode == "sync" and self._is_actor:
-            loop = asyncio.get_event_loop()
+            loop = _get_or_create_event_loop()
             loop.run_until_complete(self.trainer_mode())
 
 
@@ -701,7 +732,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             # Dummy mode also needs mode switching for RNG consistency
             if self._is_actor:
                 import asyncio
-                loop = asyncio.get_event_loop()
+                loop = _get_or_create_event_loop()
                 loop.run_until_complete(self.rollout_mode())
 
             start = time.perf_counter()
@@ -794,7 +825,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             # Switch back to trainer mode after dummy generation
             if self._is_actor:
                 import asyncio
-                loop = asyncio.get_event_loop()
+                loop = _get_or_create_event_loop()
                 loop.run_until_complete(self.trainer_mode())
 
             return output
@@ -802,7 +833,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         # Normal mode: Use vLLM for actual generation
         if self._is_actor:
             import asyncio
-            loop = asyncio.get_event_loop()
+            loop = _get_or_create_event_loop()
             loop.run_until_complete(self.rollout_mode())
 
         with simple_timer("generate_sequences", timing_generate):
@@ -810,7 +841,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         if self._is_actor:
             import asyncio
-            loop = asyncio.get_event_loop()
+            loop = _get_or_create_event_loop()
             loop.run_until_complete(self.trainer_mode())
 
         timing_generate_topk_ratio, timing_generate_min, timing_generate_max = topk_reduce_ratio_min_max(
@@ -1294,11 +1325,17 @@ class CriticWorker(Worker, DistProfilerExtension):
 
         zero_stage = getattr(self.config, "zero_stage", self.config.deepspeed_config.get("zero_stage", 2))
 
+        world_size = torch.distributed.get_world_size() if torch.distributed.is_initialized() else 1
+        per_rank_mini = self.config.ppo_mini_batch_size
+        micro_bsz = self.config.get("ppo_micro_batch_size_per_gpu", 1) or 1
+        ds_train_batch_size = max(1, per_rank_mini * world_size)
+        ds_grad_accum = max(1, per_rank_mini // micro_bsz)
+
         ds_config = get_deepspeed_config(
             optimizer_type=self.config.optim.get("optimizer", "AdamW"),
-            train_batch_size=self.config.ppo_mini_batch_size,
-            train_micro_batch_size_per_gpu=self.config.get("ppo_micro_batch_size_per_gpu", 1),
-            gradient_accumulation_steps=self.config.get("gradient_accumulation_steps", 1),
+            train_batch_size=ds_train_batch_size,
+            train_micro_batch_size_per_gpu=micro_bsz,
+            gradient_accumulation_steps=ds_grad_accum,
             zero_stage=zero_stage,
             lr=self.config.optim.lr,
             betas=self.config.optim.get("betas", [0.9, 0.999]),
