@@ -51,7 +51,7 @@ Rollout Correction provides a unified framework to handle **general off-policy p
    - Preference learning with modified distributions
    - Curriculum learning with distribution shifts
 
-These off-policy gaps can cause biased gradient estimates, training instability, and policy collapse. Rollout Correction uses importance sampling (IS) weights and rejection sampling (RS) to correct for any distribution shift between data collection and training.
+These off-policy gaps can cause training instability and policy collapse. Rollout Correction uses importance sampling (IS) weights and rejection sampling (RS) to correct for any distribution shift between data collection and training.
 
 ### Key Design Principle: Separation of IS Weights and Rejection Sampling
 
@@ -171,10 +171,10 @@ All parameters are under `algorithm.rollout_correction`:
 Importance sampling weights aggregation level:
 - `null` = No IS weights computed (metrics-only mode)
 - `"token"`: Per-token IS weights ρ_t = π_train(t)/π_rollout(t)
-  - Biased estimator, low variance
+  - Independent truncation per token
   - Typical threshold: 1.5 - 5.0
 - `"sequence"`: Per-sequence weight ρ_seq = ∏_t ρ_t
-  - Unbiased estimator, high variance
+  - Multiplicative aggregation across sequence
   - Typical threshold: 2.0 - 10.0
 
 All IS weights are safety-bounded to [exp(-20), exp(20)] ≈ [2e-9, 5e8]
@@ -219,7 +219,7 @@ This section provides detailed guidance on choosing and using the verified prese
 **When to use:**
 - Standard training scenarios
 - Moderate off-policiness
-- Prefer lower variance
+- Per-token correction needed
 
 **Configuration:**
 ```python
@@ -238,7 +238,7 @@ algorithm:
 ### 2. Sequence-level Importance Sampling
 
 **When to use:**
-- Unbiased gradient estimation required
+- Multiplicative sequence-level correction needed
 - Short sequences (< 512 tokens)
 - Research settings
 
@@ -256,16 +256,16 @@ algorithm:
     rollout_rs: null
 ```
 
-**Important:** Sequence-level IS has higher variance, so requires larger thresholds (5.0-10.0) compared to token-level (1.5-5.0).
+**Important:** Sequence-level IS uses multiplicative aggregation, which typically requires larger thresholds (5.0-10.0) compared to token-level (1.5-5.0).
 
 ### 3. Sequence-level IS + Rejection Sampling
 
 **Alias:** `seq_mis(threshold)`
 
 **When to use:**
-- Unbiased gradient estimation required
+- Sequence-level correction with outlier filtering
 - Higher off-policy scenarios
-- Need both IS correction and outlier filtering
+- Need both IS correction and rejection sampling
 
 **Configuration:**
 ```python
@@ -344,9 +344,9 @@ algorithm:
 ### 8. Pure IS (Research Mode)
 
 **When to use:**
-- Research requiring unbiased gradients
+- Research requiring pure policy gradient with IS
 - PPO clipping is undesirable
-- You understand variance-bias tradeoffs
+- You understand the tradeoffs
 
 **Configuration:**
 ```python
@@ -354,8 +354,8 @@ config = RolloutCorrectionConfig.pure_is(threshold=2.0)
 ```
 
 **Trade-offs:**
-- ✅ Theoretically unbiased
-- ❌ Higher variance (may need larger batches)
+- ✅ Pure policy gradient with IS correction
+- ❌ No PPO clipping safety net (may need larger batches)
 - ❌ Requires careful monitoring
 
 ### Decision Tree
@@ -370,9 +370,9 @@ Start here: Do you have off-policy issues?
 │
 ├─ Yes, moderate (kl < 0.1)
 │  │
-│  ├─ Prefer low variance → RolloutCorrectionConfig.token_is()
+│  ├─ Token-level correction → RolloutCorrectionConfig.token_is()
 │  │
-│  └─ Prefer unbiased → RolloutCorrectionConfig.seq_is()
+│  └─ Sequence-level correction → RolloutCorrectionConfig.seq_is()
 │
 └─ Yes, high (kl > 0.1, or known distribution shift)
    │
@@ -383,7 +383,7 @@ Start here: Do you have off-policy issues?
 Need speedup?
 └─ Add: RolloutCorrectionConfig.ppo_is_bypass()
 
-Need unbiased gradients (research)?
+Need pure policy gradient (research)?
 └─ Use: RolloutCorrectionConfig.pure_is()
 
 Note: "Off-policy" includes ANY scenario where data collection distribution
@@ -449,7 +449,7 @@ The system has **three main training modes** that determine how rollout correcti
 **Key Differences:**
 - **Legacy**: Requires extra forward pass to compute `old_log_prob` separately
 - **PPO_IS**: Skips forward pass by reusing rollout log probs; clips ratio `π_current / π_rollout` instead of `π_current / π_old`
-- **Pure IS**: New loss function with explicit IS correction, no clipping constraints (higher variance but unbiased)
+- **Pure IS**: Pure policy gradient with explicit IS correction, no PPO clipping constraints
 
 ### IS Weights and Rejection Sampling
 
@@ -520,7 +520,7 @@ Within each training mode, you can independently control **two correction mechan
 
    **Trade-off**: PPO clips against rollout policy instead of true old policy
 
-   **Alternative**: Set `use_pure_rollout_correction: true` for pure policy gradient with IS (no clipping, higher variance)
+   **Alternative**: Set `use_pure_rollout_correction: true` for pure policy gradient with IS (no clipping)
 
 ## Usage
 
@@ -555,7 +555,7 @@ These metrics cover both:
 
 - **`rollout_is_std`**: Standard deviation of IS weights
   - **Ideal value**: < 0.5 for stable training
-  - **Warning**: > 1.0 indicates high variance, may need tighter thresholds
+  - **Warning**: > 1.0 indicates high spread in IS weights, may need tighter thresholds
 
 - **`rollout_is_min`**: Minimum IS weight observed
   - Shows the most underweighted token/sequence
@@ -574,7 +574,7 @@ These metrics cover both:
   - **Formula**: `1 / mean(weights²)` where weights are normalized
   - **Range**: 0.0 to 1.0 (as fraction of original batch)
   - **Ideal value**: > 0.5 (retaining at least 50% effective samples)
-  - **Warning**: < 0.3 means high variance, losing too many effective samples
+  - **Warning**: < 0.3 means high weight concentration, losing too many effective samples
 
 #### **Veto Mechanism Metrics**
 
@@ -737,7 +737,7 @@ if metrics['rollout_corr/rollout_is_mean'] < 0.5 or metrics['rollout_corr/rollou
     print("⚠️  Warning: Mean IS weight far from 1.0, significant off-policy gap detected")
 
 if metrics['rollout_corr/rollout_is_eff_sample_size'] < 0.3:
-    print("⚠️  Warning: Low effective sample size, high variance in IS weights")
+    print("⚠️  Warning: Low effective sample size, high weight concentration")
 
 if metrics['rollout_corr/rollout_is_veto_fraction'] > 0.1:
     print("⚠️  Warning: High veto fraction, policies may be too different")
@@ -800,7 +800,7 @@ def check_rollout_correction_health(metrics, config):
     if veto_frac > 0.1:
         warnings.append(f"Veto fraction {veto_frac:.3f} is too high")
 
-    # Check variance
+    # Check standard deviation
     std = metrics['rollout_corr/rollout_is_std']
     if std > 1.0:
         warnings.append(f"IS weight std {std:.3f} is too high")
@@ -907,11 +907,11 @@ algorithm:
     rollout_is_threshold: 2.0
     rollout_rs: null                     # Optional: can add rejection sampling
 ```
-**No PPO clipping, higher variance but unbiased gradients**
+**No PPO clipping, pure policy gradient with IS correction**
 
 ## Troubleshooting
 
-### Issue: High variance in IS weights
+### Issue: High spread in IS weights
 **Symptoms:** `rollout_is_std` > 1.0, `rollout_is_eff_sample_size` < 0.3
 
 **Solutions:**
@@ -938,7 +938,7 @@ algorithm:
 **Solutions:**
 1. Verify `calculate_log_probs=True` is set
 2. Check rollout_log_probs are correctly passed
-3. Check for systematic bias
+3. Check for systematic distribution shift
 
 ### Debugging: Visualizing Metrics
 
@@ -1059,7 +1059,7 @@ Rollout Correction provides a unified framework for handling general off-policy 
 - ✅ Supports diverse scenarios: policy mismatch, staleness, replay buffers, off-policy algorithms
 - ✅ Numerical stability with safety bounds and rejection mechanisms
 - ✅ Comprehensive diagnostics: KL, perplexity, χ² divergence
-- ✅ Flexible methods from low-variance (token_is) to unbiased (seq_is_rs)
+- ✅ Flexible methods from token-level (token_is) to sequence-level (seq_is_rs)
 - ✅ Memory-efficient implementation
 
 ## References

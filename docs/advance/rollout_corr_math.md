@@ -47,8 +47,8 @@ The policy used for data collection. This represents the behavior distribution $
 - **Purpose**: Generate trajectories for training (from ANY source)
 - **Common sources in practice**:
   1. **Policy mismatch**: Same model weights, different implementation
-     - Different precision: BF16 rollout vs FP32 training
-     - Different backends: vLLM vs PyTorch/FSDP
+     - Different precision
+     - Different backends/kernel implementation
   2. **Temporal lag**: Stale model checkpoint
      - Asynchronous rollout workers using older parameters
      - Distributed systems with parameter staleness
@@ -140,7 +140,7 @@ where:
 
 ### Method: `pure_is` (Pure Importance Sampling)
 
-This method discards the PPO framework entirely and implements a pure policy gradient (REINFORCE) with IS correction for the off-policy gap. It uses bypass mode, meaning $\pi_{\text{old}}$ is not used. This is appropriate for **any off-policy scenario** where unbiased gradient estimates are required.
+This method discards the PPO framework entirely and implements a pure policy gradient (REINFORCE) with IS correction for the off-policy gap. It uses bypass mode, meaning $\pi_{\text{old}}$ is not used. This is appropriate for **any off-policy scenario** where pure policy gradient with IS correction is desired.
 
 **Configuration:**
 ```python
@@ -175,9 +175,9 @@ $$
 
 #### Properties
 
-- **Unbiased**: An unbiased estimator (when $\tau = \infty$) of the policy gradient
+- **Sequence-level IS**: Uses product of all token ratios across sequence
 - **No PPO Clipping**: Does not use the PPO clipping objective
-- **High Variance**: Suffers from both sequence-level IS variance and no clipping safety net
+- **No clipping safety net**: Gradient updates not constrained by PPO
 - **Fast**: Bypasses the $\pi_{\text{old}}$ log-prob computation (faster training)
 - **On-the-fly IS**: Computes IS weights during actor forward pass
 
@@ -187,11 +187,11 @@ $$
 
 ## PPO + IS Hybrid Methods
 
-These methods combine PPO clipping (for on-policy drift) with IS weight correction (for the off-policy gap). They provide the most comprehensive correction for **general off-policy scenarios** where both distribution shifts need to be addressed.
+These methods combine PPO clipping (for Drift 2: old→current) with IS weight correction (for Drift 1: rollout→old). They provide the most comprehensive correction for **general off-policy scenarios** where both distribution shifts need to be addressed.
 
 ### Method: `token_is` / `token_tis` (Token-level Truncated IS)
 
-This is the most common, low-variance correction for general off-policy problems, implementing a per-token version of Truncated Importance Sampling (TIS). **Recommended as the default method** for most off-policy scenarios with moderate distribution shift.
+This implements a per-token version of Truncated Importance Sampling (TIS). **Recommended as the default method** for most off-policy scenarios with moderate distribution shift.
 
 **Configuration:**
 ```python
@@ -219,7 +219,7 @@ where:
 
 #### Properties
 
-- **Biased but Low Variance**: Per-token truncation is stable
+- **Per-token truncation**: Stable IS weight computation
 - **Double Correction**: $w_t$ corrects Drift 1, $r_t(\theta)$ is clipped for Drift 2
 - **Standard Mode**: Computes $\pi_{\text{old}}$ separately. Slower, but most accurate
 
@@ -231,7 +231,7 @@ where:
 
 ### Method: `seq_is` (Sequence-level IS)
 
-This is the unbiased (but high-variance) version of the hybrid method.
+This uses sequence-level IS weights with PPO clipping.
 
 **Configuration:**
 ```python
@@ -260,8 +260,7 @@ $$w_{\text{seq}} = \min\left( \prod_{t \in T} \rho_t, \tau \right) = \min\left( 
 
 #### Properties
 
-- **Unbiased** (when $\tau = \infty$)
-- **High Variance**: Uses the exponential product of ratios
+- **Sequence-level IS**: Uses exponential product of ratios
 - **Double Correction**: $w_{\text{seq}}$ corrects Drift 1, $r_t(\theta)$ is clipped for Drift 2
 - **Standard Mode**: Computes $\pi_{\text{old}}$ separately. Slower, but most accurate
 
@@ -323,7 +322,7 @@ where $r_t(\theta) = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}
 
 These methods filter outlier sequences/tokens (by zeroing them out) instead of re-weighting them.
 
-### Method: `seq_is_rs` / `seq_mis` (Mixture Importance Sampling)
+### Method: `seq_is_rs` / `seq_mis` (Mixture/Masked Importance Sampling)
 
 This method combines sequence-level IS weighting with sequence-level rejection.
 
@@ -340,23 +339,25 @@ RolloutCorrectionConfig.seq_mis(threshold=2.0)
 
 #### Loss Function
 
-The PPO loss is multiplied by both the IS weight $w_{\text{seq}}$ and a binary acceptance mask $\mathbb{1}_{\text{accept}}$.
+The PPO loss is weighted by $w_{\text{seq}}$ and computed only over the acceptance set $\mathcal{A}$.
 
 $$
-L_{\text{PPO+MIS}}(\theta) = -\mathbb{E}_t \left[ w_{\text{seq}} \cdot \mathbb{1}_{\text{accept}} \cdot \min\left( r_t(\theta) A_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t \right) \right]
+L_{\text{PPO+MIS}}(\theta) = -\mathbb{E}_{t \mid \text{seq} \in \mathcal{A}} \left[ w_{\text{seq}} \cdot \min\left( r_t(\theta) A_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t \right) \right]
 $$
 
 where:
 - $w_{\text{seq}} = \min\left( \prod_{t \in T} \rho_t, \tau_{\text{IS}} \right)$ (sequence-level IS weight)
-- (rejection mask)
+- Acceptance set:
 
 $$
-\mathbb{1}_{\text{accept}} = \begin{cases} 1 & \text{if } \tau_{\text{lower}} \leq \prod_{t \in T} \rho_t \leq \tau_{\text{upper}} \\ 0 & \text{otherwise} \end{cases}
+\mathcal{A} = \{ \text{seq} : \tau_{\text{lower}} \leq \prod_{t \in T} \rho_t \leq \tau_{\text{upper}} \}
 $$
+
+**Implementation note:** Rejection sampling is implemented by multiplying the response mask by a binary acceptance mask, so rejected sequences contribute zero to the loss and are excluded from the gradient computation.
 
 #### Properties
 
-- **Unbiased**: Rejects outliers rather than truncating
+- **Rejection-based**: Rejects outliers rather than truncating
 - **Lower Effective Sample Size**: Rejects entire sequences
 - **Combines IS + RS**: Double correction mechanism
 
@@ -380,13 +381,13 @@ RolloutCorrectionConfig.geo_rs(
 #### Loss Function
 
 $$
-L_{\text{GeoRS}}(\theta) = -\mathbb{E}_t \left[ \mathbb{1}_{\text{geo}} \cdot \mathbb{1}_{\text{veto}} \cdot \min\left( r_t(\theta) A_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t \right) \right]
+L_{\text{GeoRS}}(\theta) = -\mathbb{E}_{t \mid \text{seq} \in \mathcal{A}_{\text{geo}} \cap \mathcal{A}_{\text{veto}}} \left[ \min\left( r_t(\theta) A_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t \right) \right]
 $$
 
 where:
 - Geometric mean: $\rho_{\text{geo}} = \exp\left( \frac{1}{|T|} \sum_{t \in T} \log \rho_t \right) = \left(\prod_{t \in T} \rho_t\right)^{1/|T|}$
-- Geometric acceptance: $\mathbb{1}_{\text{geo}} = \begin{cases} 1 & \text{if } \tau_{\text{lower}} \leq \rho_{\text{geo}} \leq \tau_{\text{upper}} \\ 0 & \text{otherwise} \end{cases}$
-- Veto mask: $\mathbb{1}_{\text{veto}} = \begin{cases} 1 & \text{if } \rho_t \geq \tau_{\text{veto}} \text{ for all } t \in T \\ 0 & \text{otherwise (any catastrophic token)} \end{cases}$
+- Geometric acceptance set: $\mathcal{A}_{\text{geo}} = \left\{ \text{seq} : \tau_{\text{lower}} \leq \rho_{\text{geo}} \leq \tau_{\text{upper}} \right\}$
+- Veto acceptance set: $\mathcal{A}_{\text{veto}} = \left\{ \text{seq} : \rho_t \geq \tau_{\text{veto}} \text{ for all } t \in T \right\}$
 
 #### Properties
 
@@ -482,7 +483,7 @@ Equivalently: $\text{PPL}_{\text{ratio}} = \frac{1}{\text{geometric mean of } \r
 
 ### Chi-squared ($\chi^2$) Divergence
 
-As established in prior work, this is the correct metric for diagnosing the potential for variance explosion.
+This metric measures the second moment of the IS weight distribution.
 
 **Token-level χ² divergence:**
 
@@ -500,7 +501,7 @@ $$
 
 **Interpretation:**
 - $\chi^2 = 0$: Policies are identical
-- $\chi^2 > 0$: Measures variance of IS weights (higher = more off-policy)
+- $\chi^2 > 0$: Measures second moment of IS weights (higher = more off-policy)
 - Used to diagnose off-policy severity
 
 **Implementation:** `compute_offpolicy_metrics()` in [rollout_corr_helper.py](verl/trainer/ppo/rollout_corr_helper.py#L670-L776)
@@ -530,7 +531,6 @@ $$
   - **rollout→old**: Corrects drift from rollout to old policy (computed at epoch start)
   - **direct θ→rollout**: Corrects drift from current parameters to rollout (on-the-fly)
   - **w=1.0**: No actual correction (bypass makes old = rollout)
-- **†Unbiased**: Only when threshold $\tau = \infty$; biased when truncated
 - **Speed**: Relative computational cost. "Faster" methods skip the `actor.compute_log_prob()` call
 
 ### Method Comparison by Policy Count
@@ -545,7 +545,7 @@ $$
 **Trade-offs:**
 - **3 policies (standard mode)**: Maximum observability - can separately measure Drift 1 (rollout→old) and Drift 2 (old→current). Cost: slower due to extra `old_log_prob` computation
 - **2 policies (bypass mode)**: **Recommended for most users** - accepts that rollout ≈ old (valid assumption when rollout uses recent checkpoint). Benefit: faster, simpler
-- **2 policies (pure_is)**: High variance approach - no PPO clipping safety net. Use when you need unbiased gradient estimates
+- **2 policies (pure_is)**: No PPO clipping safety net. Use when you need pure policy gradient with IS correction
 
 **Key insight**: Computing `old_log_prob` separately is **only necessary** if you want to:
 1. Measure the magnitude of Drift 1 (rollout→old off-policy gap) via IS weight statistics
