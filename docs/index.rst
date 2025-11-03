@@ -94,6 +94,7 @@ verl is fast with:
    :caption: Performance Tuning Guide
 
    perf/dpsk.md
+   perf/best_practices
    perf/perf_tuning
    README_vllm0.8.md
    perf/device_tuning
