@@ -192,7 +192,7 @@ def is_correct_minerva(
 
 def is_correct_strict_box(
     pred: str, gt: str, pause_tokens_index: Optional[list[int]] = None
-) -> tuple[int, Optional[str]]:
+) -> tuple[bool, str]:
     """Check if the prediction is correct using strict boxed answer criteria.
 
     Args:
@@ -201,7 +201,7 @@ def is_correct_strict_box(
         pause_tokens_index: Indices of pause tokens
 
     Returns:
-        Tuple of (score, extracted_prediction)
+        Tuple of (is_correct, extracted_prediction)
     """
     # Extract the relevant part of the prediction
     if pause_tokens_index is not None:
@@ -212,9 +212,9 @@ def is_correct_strict_box(
 
     # Extract and check the boxed answer
     boxed_pred = last_boxed_only_string(pred)
-    extracted_pred = remove_boxed(boxed_pred) if boxed_pred is not None else None
+    extracted_pred = remove_boxed(boxed_pred) if boxed_pred is not None else "[INVALID]"
 
-    return 1 if (extracted_pred == gt) else -1, extracted_pred
+    return (extracted_pred == gt), extracted_pred
 
 
 def verify(
@@ -233,9 +233,9 @@ def verify(
     """
     if strict_box_verify:
         correct, pred = is_correct_strict_box(solution_str, answer, pause_tokens_index)
-        return correct == 1, pred
+    else:
+        correct, pred = is_correct_minerva(solution_str, answer)
 
-    correct, pred = is_correct_minerva(solution_str, answer)
     return correct, pred
 
 
