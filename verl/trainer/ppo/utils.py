@@ -35,7 +35,6 @@ class Role(Enum):
     RefPolicy = 4
     RewardModel = 5
     ActorRolloutRef = 6
-    Env = 7
 
 
 def need_reference_policy(

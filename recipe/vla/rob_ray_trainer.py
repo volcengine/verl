@@ -40,12 +40,18 @@ from verl.trainer.ppo.metric_utils import (
     process_validation_metrics,
 )
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer, apply_kl_penalty, compute_advantage
-from verl.trainer.ppo.reward import compute_reward
 from verl.trainer.ppo.utils import Role
 from verl.utils.checkpoint.checkpoint_manager import should_save_ckpt_esi
 from verl.utils.debug import marked_timer
 from verl.utils.metric import reduce_metrics
 
+
+class EnvRole(Role):
+    """
+    To create more roles dynamically, you can subclass Role and add new members
+    """
+
+    Env = 7
 
 def compute_response_mask(data: DataProto) -> torch.Tensor:
     """Compute the attention mask for the response part of the sequence.
@@ -112,18 +118,18 @@ class RobRayPPOTrainer(RayPPOTrainer):
     def init_workers(self):
         self.resource_pool_manager.create_resource_pool()
         self.resource_pool_to_cls = {pool: {} for pool in self.resource_pool_manager.resource_pool_dict.values()}
-        resource_pool = self.resource_pool_manager.get_resource_pool(Role.ActorRollout)
+        resource_pool = self.resource_pool_manager.get_resource_pool(EnvRole.ActorRollout)
         actor_rollout_cls = RayClassWithInitArgs(
-            cls=self.role_worker_mapping[Role.ActorRollout],
+            cls=self.role_worker_mapping[EnvRole.ActorRollout],
             config=self.config.actor_rollout_ref,
             role="actor_rollout",
         )
         self.resource_pool_to_cls[resource_pool]["actor_rollout"] = actor_rollout_cls
 
-        assert Role.Env in self.role_worker_mapping
-        if Role.Env in self.role_worker_mapping:
-            resource_pool = self.resource_pool_manager.get_resource_pool(Role.Env)
-            env_cls = RayClassWithInitArgs(self.role_worker_mapping[Role.Env], config=self.config.env)
+        assert EnvRole.Env in self.role_worker_mapping
+        if EnvRole.Env in self.role_worker_mapping:
+            resource_pool = self.resource_pool_manager.get_resource_pool(EnvRole.Env)
+            env_cls = RayClassWithInitArgs(self.role_worker_mapping[EnvRole.Env], config=self.config.env)
             self.resource_pool_to_cls[resource_pool]["env"] = env_cls
 
         # initialize WorkerGroup
@@ -275,32 +281,34 @@ class RobRayPPOTrainer(RayPPOTrainer):
                     # generate a batch
                     with marked_timer("gen", timing_raw, color="red"):
                         # debug only
-                        # batch = torch.load("batch_flatten.pt", weights_only=False)
-                        # batch.meta_info["pad_token_id"] = self.tokenizer.pad_token_id
-                        # batch.batch["response_mask"] = batch.batch["response_mask"].repeat_interleave(7, dim=-1)
+                        batch = torch.load("batch_flatten.pt", weights_only=False)
+                        batch.meta_info["pad_token_id"] = self.tokenizer.pad_token_id
+                        batch.batch["response_mask"] = batch.batch["response_mask"].repeat_interleave(7, dim=-1)
                         # debug only
 
-                        if not self.async_rollout_mode:
-                            gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
-                        else:  # vla loop
-                            gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
-                        # timing_raw.update(gen_batch_output.meta_info["timing"])
-                        # gen_batch_output.meta_info.pop("timing", None)
+                    # real rollout
+                    #     if not self.async_rollout_mode:
+                    #         gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+                    #     else:  # vla loop
+                    #         gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
+                    #     # timing_raw.update(gen_batch_output.meta_info["timing"])
+                    #     # gen_batch_output.meta_info.pop("timing", None)
 
-                    # repeat to align with repeated responses in rollout
-                    batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
-                    # batch = batch.union(gen_batch_output)
-                    batch = gen_batch_output
+                    # # repeat to align with repeated responses in rollout
+                    # batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+                    # # batch = batch.union(gen_batch_output)
+                    # batch = gen_batch_output
 
-                    if "response_mask" not in batch.batch.keys():
-                        batch.batch["response_mask"] = compute_response_mask(batch)
+                    # if "response_mask" not in batch.batch.keys():
+                    #     batch.batch["response_mask"] = compute_response_mask(batch)
 
-                    with marked_timer("reward", timing_raw, color="yellow"):
-                        # compute reward model score
-                        reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
+                    # with marked_timer("reward", timing_raw, color="yellow"):
+                    #     # compute reward model score
+                    #     reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
 
-                    batch.batch["reward_tensor"] = reward_tensor
-                    batch = flatten_trajectories(batch)
+                    # batch.batch["reward_tensor"] = reward_tensor
+                    # batch = flatten_trajectories(batch)
+                    # real rollout
 
                     # compute global_valid tokens
                     batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
@@ -372,7 +380,8 @@ class RobRayPPOTrainer(RayPPOTrainer):
                             norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
                             config=self.config.algorithm,
                         )
-
+                    
+                    breakpoint()
                     # update critic
                     if self.use_critic:
                         with marked_timer("update_critic", timing_raw, color="pink"):
