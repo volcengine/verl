@@ -434,8 +434,8 @@ class SGLangRollout(BaseRollout):
         if self.config.mode == "async" and not self.config.skip_tokenizer_init:
             raise ValueError("async mode requires skip_tokenizer_init to be True")
         backend = attention_backend if attention_backend is not None else "fa3"
+        sglang_port = int(os.getenv("SGLANG_PORT", "30000")) + (dist.get_rank() * 2)
         if effective_first:
-            rank = dist.get_rank()
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
             args = {
                 "model_path": actor_module,
@@ -453,7 +453,8 @@ class SGLangRollout(BaseRollout):
                 "max_running_requests": max_running_requests,
                 # NOTE(linjunrong): add rank to prevent SGLang generate same port inside PortArgs.init_new
                 # when random.seed is being set during training
-                "port": 30000 + rank,
+                "port": sglang_port,
+                "nccl_port": sglang_port + 1,
                 # NOTE(Chenyang): if you want to debug the SGLang engine output
                 # please set the following parameters
                 # Otherwise, it will make the engine run too slow
