@@ -535,9 +535,10 @@ class MegatronOnPolicyDistillActorWorker(ActorRolloutRefWorker):
             except AssertionError:
                 if not key.endswith("e_score_correction_bias"):
                     raise
-            # tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
+            tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
             if torch.distributed.get_rank() == 0:
-                collective.broadcast(weight, src_rank=0, group_name="actor_rollout")
+                tensor.copy_(weight)
+                collective.broadcast(tensor, src_rank=0, group_name="actor_rollout")
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def get_actor_weights_info(self):
