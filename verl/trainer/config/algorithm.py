@@ -250,7 +250,7 @@ class RolloutCorrectionConfig(BaseConfig):
     def geo_mis(
         cls,
         rs_threshold: float = 1.001,
-        rs_threshold_lower: Optional[float] = None,
+        rs_threshold_lower: float = 0.999,
         veto_threshold: float = 1e-4,
     ) -> "RolloutCorrectionConfig":
         """Alias for geo_rs()."""

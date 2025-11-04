@@ -1,7 +1,7 @@
 # Mathematical Formulations of Rollout Correction Methods in `verl`
 
 **Author:** Yingru Li
-**Date:** 2025-11-03
+**Last updated:** 2025-11-03
 
 ---
 
