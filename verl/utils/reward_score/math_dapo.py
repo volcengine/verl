@@ -190,9 +190,7 @@ def is_correct_minerva(
     return (pred == gt), pred
 
 
-def is_correct_strict_box(
-    pred: str, gt: str, pause_tokens_index: Optional[list[int]] = None
-) -> tuple[bool, str]:
+def is_correct_strict_box(pred: str, gt: str, pause_tokens_index: Optional[list[int]] = None) -> tuple[bool, str]:
     """Check if the prediction is correct using strict boxed answer criteria.
 
     Args:
