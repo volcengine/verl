@@ -76,8 +76,7 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip install -e .[test,prime,geo]
-          pip install --upgrade "ray>=2.40.0" pillow
+          pip install -e .[test,geo]
       - name: Download datasets
         run: |
           huggingface-cli download verl-team/gsm8k-v0.4.1 --repo-type dataset --local-dir ~/verl-data/gsm8k
