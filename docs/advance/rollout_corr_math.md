@@ -9,7 +9,7 @@
 
 This document provides the definitive mathematical formulations for rollout correction methods in `verl`, following the natural progression from **REINFORCE** to **PPO** to **Decoupled PPO**.
 
-The `verl` library implements **decoupled PPO** ([Hilton et al., 2021](https://arxiv.org/abs/2110.00641)) via a three-policy framework that separates the behavior policy (for off-policy correction) from the proximal policy (for trust region control). This enables off-policy RL with PPO-style stability, supporting scenarios where data collection differs from the training distribution.
+The `verl` library implements **decoupled PPO** ([Hilton et al., 2021](https://arxiv.org/abs/2110.00641)) via a three-policy framework that decouples the proximal policy (for controlling policy update size) from the behavior policy (for off-policy correction). This decoupling achieves **batch size invariance** and enables efficient use of stale data, supporting scenarios where data collection differs from the training distribution.
 
 **Applicable scenarios include:**
 - **Policy mismatch**: Different precision (FP8 vs FP16 vs BF16 vs FP32), different backends (vLLM vs SGLang vs FSDP vs Megatron)
@@ -69,27 +69,29 @@ where $r_t(\theta) = \frac{\pi_\theta(a_t|s_t)}{\pi_{\text{old}}(a_t|s_t)}$ and 
 
 **Limitation:** Standard PPO assumes on-policy data (data collected from $\pi_{\text{old}}$). When data comes from a different policy, off-policy correction is needed.
 
-### 1.3 Decoupled PPO: Enabling Off-Policy PPO
+### 1.3 Decoupled PPO: Achieving Batch Size Invariance
 
-Decoupled PPO ([Hilton et al., 2021](https://arxiv.org/abs/2110.00641)) extends PPO to handle off-policy data by **separating two roles**:
-1. **Behavior policy** $\mu$: The policy that collected the data (for importance sampling correction)
-2. **Proximal policy** $\pi_{\text{ref}}$: The anchor policy for PPO clipping (for trust region control)
+Decoupled PPO ([Hilton et al., 2021](https://arxiv.org/abs/2110.00641)) solves PPO's batch size sensitivity by **decoupling two roles**:
+1. **Proximal policy** $\pi_{\text{ref}}$: The anchor policy for PPO clipping (controls policy update size)
+2. **Behavior policy** $\mu$: The policy that collected the data (for off-policy correction via importance sampling)
 
-This leads to a **three-policy formulation**:
+**The problem**: Standard PPO controls policy update size via the ratio $\frac{\pi_\theta}{\pi_{\text{old}}}$, where $\pi_{\text{old}}$ is assumed to be both the proximal policy *and* the behavior policy. This coupling makes the algorithm sensitive to batch size because aggregating data from multiple workers or using replay buffers changes the effective behavior policy.
+
+**The solution**: Decouple these two roles, leading to a **three-policy formulation**:
 
 $$
 L_{\text{DecoupledPPO}}(\theta) = -\mathbb{E}_{(s,a) \sim \mu} \left[ w_t \cdot \min\left( r_t(\theta) A_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t \right) \right]
 $$
 
 where:
-- $w_t = \frac{\pi_{\text{ref}}(a_t|s_t)}{\mu(a_t|s_t)}$: Importance sampling weight (corrects for off-policy data)
-- $r_t(\theta) = \frac{\pi_\theta(a_t|s_t)}{\pi_{\text{ref}}(a_t|s_t)}$: PPO ratio (trust region control)
+- $w_t = \frac{\pi_{\text{ref}}(a_t|s_t)}{\mu(a_t|s_t)}$: Importance sampling weight (corrects for behavior policy $\mu$)
+- $r_t(\theta) = \frac{\pi_\theta(a_t|s_t)}{\pi_{\text{ref}}(a_t|s_t)}$: PPO ratio (controls policy update size against proximal policy $\pi_{\text{ref}}$)
 
-**Key insight:** By decoupling $\mu$ from $\pi_{\text{ref}}$, we can:
-- Use **any behavior policy** $\mu$ for data collection (off-policy)
-- Maintain **PPO-style stability** via clipping against $\pi_{\text{ref}}$
-- Achieve **batch size invariance** (can aggregate data across multiple rollout workers)
-- Utilize **stale data** (replay buffers, asynchronous workers)
+**Key insight**: By decoupling, we can:
+- **Achieve batch size invariance**: Policy update control (via $\pi_{\text{ref}}$) is independent of data aggregation
+- **Use any behavior policy** $\mu$: Different workers, replay buffers, or stale checkpoints
+- **Make efficient use of stale data**: Older trajectories can be corrected via importance sampling
+- **Maintain PPO-style stability**: Clipping against $\pi_{\text{ref}}$ prevents destructive updates
 
 **This is the algorithm that `verl` implements via its three-policy framework.**
 
@@ -121,8 +123,8 @@ The reference policy for PPO clipping. This is the "proximal policy" from decoup
   - **Standard mode**: Computed at start of training epoch via `actor.compute_log_prob()`
   - **Bypass mode**: Set equal to $\pi_{\text{rollout}}$ (skips separate computation)
 - **Purpose**:
-  - Anchor point for PPO clipping (trust region control)
-  - Enables decoupled PPO when separate from $\pi_{\text{rollout}}$
+  - Anchor point for PPO clipping (controls policy update size)
+  - When separate from $\pi_{\text{rollout}}$: Enables batch size invariance and efficient use of stale data
 - **Fixed**: Frozen during all PPO update epochs on the same batch
 
 **$\pi_{\theta}$ (Current Policy)**
@@ -138,8 +140,8 @@ The three-policy framework can operate in two modes:
 **Standard Mode (Three Policies)**
 - Computes $\pi_{\text{old}}$ separately at the start of each training epoch
 - **Algorithm**: Full decoupled PPO with three policies
-- **Use when**: You need maximum correction accuracy and can afford the computational cost
-- **Benefits**: Separately corrects Drift 1 (rollout→old) and Drift 2 (old→current)
+- **Use when**: You need batch size invariance and efficient use of stale data
+- **Benefits**: Achieves batch size invariance; separately corrects Drift 1 (rollout→old) and Drift 2 (old→current)
 
 **Bypass Mode (Two Policies)**
 - Sets $\pi_{\text{old}} = \pi_{\text{rollout}}$ (skips separate computation)
@@ -570,7 +572,7 @@ Computing `old_log_prob` separately (standard mode, no bypass) is **only necessa
 - **Williams, R. J. (1992).** "Simple statistical gradient-following algorithms for connectionist reinforcement learning." *Machine Learning*, 8(3-4), 229-256. https://doi.org/10.1007/BF00992696
 - **Schulman, J., Wolski, F., Dhariwal, P., Radford, A., & Klimov, O. (2017).** "Proximal policy optimization algorithms." *arXiv preprint arXiv:1707.06347.* https://arxiv.org/abs/1707.06347
 - **Hilton, J., Cobbe, K., & Schulman, J. (2021).** "Batch size-invariance for policy optimization." *arXiv preprint arXiv:2110.00641.* https://arxiv.org/abs/2110.00641
-  - Introduced decoupled PPO: separating behavior policy (off-policy correction) from proximal policy (trust region)
+  - Introduced decoupled PPO: separating proximal policy (for controlling policy update size) from behavior policy (for off-policy correction) to achieve batch size invariance
 - **Li, Y.** "When Speed Kills Stability: Demystifying RL Collapse from the Training-Inference Mismatch"
   - Blog post: https://yingru.notion.site/When-Speed-Kills-Stability-Demystifying-RL-Collapse-from-the-Training-Inference-Mismatch-271211a558b7808d8b12d403fd15edda
 - **Off-Policy RL Theory:** https://fengyao.notion.site/off-policy-rl
