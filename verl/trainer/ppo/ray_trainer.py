@@ -38,7 +38,6 @@ from tqdm import tqdm
 from verl import DataProto
 from verl.experimental.dataset.sampler import AbstractCurriculumSampler
 from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
-from verl.single_controller.base.worker import Worker
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.ppo.advantage import compute_advantage_on_worker
@@ -634,12 +633,6 @@ class RayPPOTrainer:
                 config=self.config, worker_group=self.actor_rollout_wg, rm_wg=self.rm_wg
             )
 
-        # A CPU workgroup is created to take over the computational tasks
-        # that drive the process, such as advantage computing.
-        resource_pool = RayResourcePool([1], use_gpu=False, name_prefix="cpu_pool")
-        class_with_args = RayClassWithInitArgs(cls=ray.remote(Worker))
-        self.cpu_wg = RayWorkerGroup(resource_pool, class_with_args)
-
     def _save_checkpoint(self):
         from verl.utils.fs import local_mkdir_safe
 
@@ -1006,7 +999,7 @@ class RayPPOTrainer:
                             batch = batch.union(values)
 
                     with marked_timer("adv", timing_raw, color="brown"):
-                        batch, metrics = self.cpu_wg.execute_func_rank_zero(
+                        batch, metrics = self.actor_rollout_wg.execute_func_rank_zero(
                             func=compute_advantage_on_worker, batch=batch, config=self.config, metrics=metrics
                         )
 

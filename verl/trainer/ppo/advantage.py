@@ -23,6 +23,7 @@ from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import AdvantageEstimator
 from verl.trainer.ppo.mismatch_helper import compute_rollout_importance_weights_and_add_to_batch
 from verl.trainer.ppo.utils import compute_response_mask
+from verl.utils.device import get_device_id, get_device_name, get_torch_device
 from verl.utils.torch_functional import masked_mean
 
 
@@ -150,7 +151,7 @@ def compute_advantage(
 
 
 def compute_advantage_on_worker(batch: DataProto, config, metrics: dict) -> tuple[DataProto, dict]:
-    """Compute advantage estimates and add to batch."""
+    """Compute advantage estimates on worker and add to batch."""
     # we combine with rule-based rm
     if config.reward_model.launch_reward_fn_async:
         # reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
@@ -188,4 +189,7 @@ def compute_advantage_on_worker(batch: DataProto, config, metrics: dict) -> tupl
         norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
         config=config.algorithm,
     )
+
+    if get_device_name() != "cpu":
+        get_torch_device().empty_cache()
     return batch, metrics
