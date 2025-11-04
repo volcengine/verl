@@ -219,7 +219,7 @@ def is_correct_strict_box(
 
 def verify(
     solution_str: str, answer: str, strict_box_verify: bool = False, pause_tokens_index: Optional[list[int]] = None
-) -> bool:
+) -> tuple[bool, str]:
     """Verify if the solution is correct.
 
     Args:
@@ -229,7 +229,7 @@ def verify(
         pause_tokens_index: Indices of pause tokens
 
     Returns:
-        True if the solution is correct, False otherwise
+        Tuple of (is_correct, extracted_prediction)
     """
     if strict_box_verify:
         correct, pred = is_correct_strict_box(solution_str, answer, pause_tokens_index)
@@ -244,7 +244,7 @@ def compute_score(
     ground_truth: str,
     strict_box_verify: bool = False,
     pause_tokens_index: Optional[list[int]] = None,
-) -> float:
+) -> dict:
     """Compute the reward score for a solution.
 
     Args:
@@ -254,7 +254,7 @@ def compute_score(
         pause_tokens_index: Indices of pause tokens
 
     Returns:
-        Reward score (1.0 for correct, -1.0 for incorrect)
+        Dictionary containing score (1.0 for correct, -1.0 for incorrect), accuracy, and prediction
     """
     # Limit solution length for efficiency
     solution_str = solution_str[-300:]  # The longest answer in MATH-500 has 159 characters
