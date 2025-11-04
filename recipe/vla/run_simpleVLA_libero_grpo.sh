@@ -76,11 +76,11 @@ $PYTHON -m recipe.vla.main_ppo \
     trainer.default_local_dir=$OUTPUT_DIR \
     trainer.n_gpus_per_node=$NUM_GPUS \
     trainer.nnodes=$NUM_NODES \
-    trainer.save_freq=-1 \
+    trainer.save_freq=50 \
     trainer.test_freq=10 \
     trainer.total_epochs=20 \
     trainer.val_only=False \
     algorithm.adv_estimator=reinforce_plus_plus \
-    trainer.val_before_train=False 2>&1 | tee train_log.log
+    trainer.val_before_train=False 2>&1
 
 

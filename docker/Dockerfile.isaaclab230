@@ -71,7 +71,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 
 RUN mkdir -p /root/.vnc && \
-    echo <<'EOP' > /root/.vnc/xstartup 
+    cat <<'EOP' > /root/.vnc/xstartup 
 #!/bin/sh
 unset SESSION_MANAGER
 unset DBUS_SESSION_BUS_ADDRESS
@@ -80,7 +80,7 @@ xsetroot -solid grey
 exec startxfce4
 EOP
 
-RUN echo <<'EOP' > /root/.vnc/config
+RUN cat <<'EOP' > /root/.vnc/config
 geometry=1920x1080
 depth=24
 desktop=Isaac-Sim-Desktop
@@ -88,7 +88,7 @@ dpi=96
 localhost=no
 EOP
 
-RUN echo <<'EOP' > /root/start_isaac_vnc.sh
+RUN cat <<'EOP' > /root/start_isaac_vnc.sh
 #!/bin/bash
 # 设置显示变量
 export DISPLAY=:1
@@ -135,7 +135,7 @@ RUN cd /root/LIBERO && \
 
 # libero config
 RUN mkdir -p /root/.libero && \
-echo <<'EOP' > /root/.libero/config.yaml
+cat <<'EOP' > /root/.libero/config.yaml
 assets: /root/LIBERO/libero/libero/./assets
 bddl_files: /root/LIBERO/libero/libero/./bddl_files
 benchmark_root: /root/LIBERO/libero/libero
@@ -148,4 +148,5 @@ COPY RobotLearningLab/ /root/RobotLearningLab/
 
 RUN cd /workspace/isaaclab/ && \
     rm -rf source && \
-    ln -s /root/RobotLearningLab/source source
+    ln -s /root/RobotLearningLab/source source && \
+    /workspace/isaaclab/_isaac_sim/python.sh -m pip install -e ./source/isaaclab

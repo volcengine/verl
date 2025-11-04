@@ -64,6 +64,8 @@ class IsaacEnv(gym.Env):
         launch_args = {"headless": True, "enable_cameras": True}
         app_launcher = AppLauncher(**launch_args)
         self.app = app_launcher.app
+        # force franka registration
+        import isaaclab_playground.tasks.manipulation.libero.config.franka  # noqa
 
     def _init_env(self, task_id=0):
         """Initializes the Isaac Sim environment."""

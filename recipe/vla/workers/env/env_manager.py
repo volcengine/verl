@@ -200,7 +200,7 @@ class EnvManager:
         self.process.start()
 
         # Wait for initialization
-        result = self.result_queue.get(timeout=60)
+        result = self.result_queue.get(timeout=180)
         if result["status"] != "ready":
             raise RuntimeError(f"Simulator initialization failed: {result}")
 
@@ -212,7 +212,7 @@ class EnvManager:
         self.command_queue.put({"method": "get_state", "args": [], "kwargs": {}})
 
         # Get saved state
-        result = self.result_queue.get(timeout=60)
+        result = self.result_queue.get(timeout=180)
         if result["status"] == "success":
             self.state_buffer = result["data"]
 
