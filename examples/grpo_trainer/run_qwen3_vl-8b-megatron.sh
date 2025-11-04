@@ -2,7 +2,6 @@ set -x
 ENGINE=${1:-vllm}
 export CUDA_DEVICE_MAX_CONNECTIONS=1 # For megatron communication/computation overlapping
 
-
 # dependency: vllm>=0.11.0, megatron-lm>=0.13, mbridge with qwen3vl_cp branch
 # environment option1: use a stable container later than docker://verlai/verl:vllm011.dev6 
     # and install mbridge in it by following the instruction in the container
@@ -14,14 +13,12 @@ export CUDA_DEVICE_MAX_CONNECTIONS=1 # For megatron communication/computation ov
 export VLLM_ALLREDUCE_USE_SYMM_MEM=0 # for vllm0.11.0 with TP
 
 
-HF_MODEL_PATH=${HF_MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen3-VL-30B-A3B-Instruct"}
+HF_MODEL_PATH=${HF_MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen3-VL-8B-Instruct"}
 
 GEN_TP=${GEN_TP:-4}
 CP=${CP:-2}
 TP=${TP:-2}
-PP=${PP:-1}
-EP=${EP:-8}
-ETP=${ETP:-1}
+PP=${PP:-2}
 
 train_path=$HOME/data/geo3k/train.parquet
 test_path=$HOME/data/geo3k/test.parquet
@@ -43,8 +40,6 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     actor_rollout_ref.actor.megatron.pipeline_model_parallel_size=$PP \
     actor_rollout_ref.actor.megatron.tensor_model_parallel_size=$TP \
     actor_rollout_ref.actor.megatron.context_parallel_size=$CP \
-    actor_rollout_ref.actor.megatron.expert_model_parallel_size=$EP \
-    actor_rollout_ref.actor.megatron.expert_tensor_parallel_size=$ETP \
     actor_rollout_ref.actor.use_kl_loss=True \
     actor_rollout_ref.actor.kl_loss_coef=0.01 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
@@ -83,7 +78,7 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_grpo_example_geo3k' \
-    trainer.experiment_name='qwen3_vl_30b_megatron' \
+    trainer.experiment_name='qwen3_vl_8b_megatron' \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
     trainer.save_freq=20 \
