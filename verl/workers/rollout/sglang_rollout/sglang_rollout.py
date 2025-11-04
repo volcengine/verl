@@ -741,6 +741,12 @@ class SGLangRollout(BaseRollout):
 
         # Most naive implementation, can extract tensor and send via gloo if too slow
         dist.barrier()
+
+        # Because the logic below requires GPU memory proportional to the batch size, so free cache first to avoid OOM
+        if self._engine is not None and self._tp_rank == 0:
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(self._engine.flush_cache())
+
         [output] = broadcast_pyobj(
             data=[output],
             rank=self._rank,
@@ -795,11 +801,6 @@ class SGLangRollout(BaseRollout):
         if self.config.calculate_log_probs:
             # we will recompute old log prob with actor
             batch["rollout_log_probs"] = rollout_log_probs
-
-        # free cache engine
-        if self._engine is not None and self._tp_rank == 0:
-            loop = asyncio.get_event_loop()
-            loop.run_until_complete(self._engine.flush_cache())
 
         return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
 
@@ -1179,6 +1180,12 @@ class SGLangRollout(BaseRollout):
             sorted_output_req_list = None
 
         dist.barrier()
+
+        # Because the logic below requires GPU memory proportional to the batch size, so free cache first to avoid OOM
+        if self._engine is not None and self._tp_rank == 0:
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(self._engine.flush_cache())
+
         [sorted_output_req_list] = broadcast_pyobj(
             data=[sorted_output_req_list],
             rank=self._rank,
@@ -1333,11 +1340,6 @@ class SGLangRollout(BaseRollout):
         if self.config.calculate_log_probs:
             batch["rollout_log_probs"] = output_logprobs
             batch["rollout_output_token_ids"] = rollout_output_token_ids
-
-        # free cache engine
-        if self._engine is not None and self._tp_rank == 0:
-            loop = asyncio.get_event_loop()
-            loop.run_until_complete(self._engine.flush_cache())
 
         non_tensor_batch = {
             "messages": np.array(messages),
