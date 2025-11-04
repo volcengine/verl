@@ -38,36 +38,56 @@ This section establishes the theoretical progression that `verl` implements.
 
 ### 1.1 REINFORCE: Policy Gradient Baseline
 
-The REINFORCE algorithm ([Williams, 1992](https://doi.org/10.1007/BF00992696)) is the foundation of policy gradient methods. For data sampled from a behavior policy $\mu$, the policy gradient with importance sampling is:
+The REINFORCE algorithm ([Williams, 1992](https://doi.org/10.1007/BF00992696)) is the foundation of policy gradient methods.
+
+**Vanilla REINFORCE (On-Policy)**
+
+For trajectories $\tau = (s_0, a_0, s_1, a_1, \ldots, s_T, a_T)$ sampled from the current policy $\pi_\theta$, the policy gradient is:
 
 $$
-\nabla_\theta J(\theta) = \mathbb{E}_{(s,a) \sim \mu} \left[ \frac{\pi_\theta(a|s)}{\mu(a|s)} \cdot \nabla_\theta \log \pi_\theta(a|s) \cdot A(s,a) \right]
+\nabla_\theta J(\theta) = \mathbb{E}_{\tau \sim \pi_\theta} \left[ \sum_{t=0}^T \nabla_\theta \log \pi_\theta(a_t|s_t) \cdot A_t \right]
 $$
+
+where $A_t$ is the advantage function at timestep $t$.
+
+**Off-Policy REINFORCE**
+
+When trajectories are sampled from a different behavior policy $\mu$, we apply importance sampling over the **joint trajectory distribution**:
+
+$$
+\nabla_\theta J(\theta) = \mathbb{E}_{\tau \sim \mu} \left[ \frac{P_{\pi_\theta}(\tau)}{P_\mu(\tau)} \sum_{t=0}^T \nabla_\theta \log \pi_\theta(a_t|s_t) \cdot A_t \right]
+$$
+
+where the trajectory-level importance weight is:
+
+$$
+\frac{P_{\pi_\theta}(\tau)}{P_\mu(\tau)} = \frac{p(s_0) \prod_{t=0}^T \pi_\theta(a_t|s_t) p(s_{t+1}|s_t, a_t)}{p(s_0) \prod_{t=0}^T \mu(a_t|s_t) p(s_{t+1}|s_t, a_t)} = \prod_{t=0}^T \frac{\pi_\theta(a_t|s_t)}{\mu(a_t|s_t)}
+$$
+
+The transition dynamics $p(s_{t+1}|s_t, a_t)$ and initial state $p(s_0)$ cancel out, leaving only the product of per-step action probability ratios.
 
 **Key properties:**
 - **Off-policy capable**: Can learn from any behavior policy via importance sampling
-- **High variance**: Gradient estimates can be unstable
-- **No trust region**: Large policy updates can destabilize training
+- **No trust region**: Policy updates not constrained
 
-**Implementation in verl:** The `pure_is` method implements REINFORCE with truncated importance sampling.
+**Implementation in verl:** The `pure_is` method implements off-policy REINFORCE with truncated importance sampling.
 
 ### 1.2 PPO: Adding Trust Region Control
 
-Proximal Policy Optimization ([Schulman et al., 2017](https://arxiv.org/abs/1707.06347)) adds a clipped surrogate objective to stabilize training:
+Proximal Policy Optimization ([Schulman et al., 2017](https://arxiv.org/abs/1707.06347)) adds a clipped surrogate objective:
 
 $$
-L_{\text{PPO}}(\theta) = -\mathbb{E}_{(s,a) \sim \pi_{\text{old}}} \left[ \min\left( r_t(\theta) A_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t \right) \right]
+L_{\text{PPO}}(\theta) = -\mathbb{E}_{(s,a) \sim \mu} \left[ \min\left( r_t(\theta) A_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t \right) \right]
 $$
 
-where $r_t(\theta) = \frac{\pi_\theta(a_t|s_t)}{\pi_{\text{old}}(a_t|s_t)}$ and $\epsilon$ is the clip range (typically 0.2).
+where $r_t(\theta) = \frac{\pi_\theta(a_t|s_t)}{\mu(a_t|s_t)}$ and $\epsilon$ is the clip range (typically 0.2).
 
 **Key properties:**
-- **Two policies**: $\pi_{\text{old}}$ (reference/anchor) and $\pi_\theta$ (being updated)
-- **Trust region via clipping**: Prevents destructive large policy updates
-- **On-policy**: Original PPO assumes data is collected from $\pi_{\text{old}}$
-- **Stable training**: Significantly more stable than vanilla REINFORCE
+- **Two policies**: $\mu$ (reference for clipping) and $\pi_\theta$ (being updated)
+- **Trust region via clipping**: Limits policy update magnitude via ratio $r_t(\theta) = \frac{\pi_\theta}{\mu}$
+- **On-policy assumption**: Original PPO assumes behavior policy $\mu$ is the current policy at data collection time
 
-**Limitation:** Standard PPO assumes on-policy data (data collected from $\pi_{\text{old}}$). When data comes from a different policy, off-policy correction is needed.
+**Limitation:** When $\mu$ differs from the current policy at collection time, the clipping objective does not account for the distribution shift.
 
 ### 1.3 Decoupled PPO: Achieving Batch Size Invariance
 
@@ -87,11 +107,11 @@ where:
 - $w_t = \frac{\pi_{\text{ref}}(a_t|s_t)}{\mu(a_t|s_t)}$: Importance sampling weight (corrects for behavior policy $\mu$)
 - $r_t(\theta) = \frac{\pi_\theta(a_t|s_t)}{\pi_{\text{ref}}(a_t|s_t)}$: PPO ratio (controls policy update size against proximal policy $\pi_{\text{ref}}$)
 
-**Key insight**: By decoupling, we can:
-- **Achieve batch size invariance**: Policy update control (via $\pi_{\text{ref}}$) is independent of data aggregation
-- **Use any behavior policy** $\mu$: Different workers, replay buffers, or stale checkpoints
-- **Make efficient use of stale data**: Older trajectories can be corrected via importance sampling
-- **Maintain PPO-style stability**: Clipping against $\pi_{\text{ref}}$ prevents destructive updates
+**Key properties**: By decoupling:
+- **Batch size invariance**: Policy update control (via $\pi_{\text{ref}}$) is independent of data aggregation
+- **Flexible behavior policy**: Any $\mu$ can be used (different workers, replay buffers, or stale checkpoints)
+- **Stale data utilization**: Older trajectories can be corrected via importance sampling
+- **Clipping preserved**: Clipping against $\pi_{\text{ref}}$ limits update magnitude
 
 **This is the algorithm that `verl` implements via its three-policy framework.**
 
@@ -140,14 +160,13 @@ The three-policy framework can operate in two modes:
 **Standard Mode (Three Policies)**
 - Computes $\pi_{\text{old}}$ separately at the start of each training epoch
 - **Algorithm**: Full decoupled PPO with three policies
-- **Use when**: You need batch size invariance and efficient use of stale data
-- **Benefits**: Achieves batch size invariance; separately corrects Drift 1 (rollout→old) and Drift 2 (old→current)
+- **Properties**: Achieves batch size invariance; separately corrects Drift 1 (rollout→old) and Drift 2 (old→current)
 
 **Bypass Mode (Two Policies)**
 - Sets $\pi_{\text{old}} = \pi_{\text{rollout}}$ (skips separate computation)
 - **Algorithm**: Degenerates to either standard PPO or off-policy REINFORCE
-- **Use when**: $\pi_{\text{rollout}} \approx \pi_{\text{old}}$ (e.g., recent checkpoint, minor implementation differences)
-- **Benefits**: Faster (skips `actor.compute_log_prob()` call)
+- **Assumption**: $\pi_{\text{rollout}} \approx \pi_{\text{old}}$ (e.g., recent checkpoint, minor implementation differences)
+- **Properties**: Faster (skips `actor.compute_log_prob()` call)
 
 ### 2.3 Two Distribution Shifts
 
@@ -224,7 +243,6 @@ $$
 - **No PPO clipping**: Pure policy gradient
 - **Always uses bypass mode**: No $\pi_{\text{old}}$ computation
 - **Fast**: Single forward pass for IS weights
-- **Use when**: You want pure policy gradient with off-policy correction
 
 **Implementation:** `compute_policy_loss_with_rollout_correction()` in [core_algos.py](verl/trainer/ppo/core_algos.py#L1537-L1681)
 
@@ -236,7 +254,7 @@ These methods apply PPO clipping without importance sampling for off-policy corr
 
 #### 3.2.1 Standard PPO (On-Policy)
 
-**Theory:** Original PPO, assumes data is collected from $\pi_{\text{old}}$ (on-policy).
+**Theory:** Original PPO with on-policy assumption ($\mu = \pi_{\text{old}}$).
 
 **Loss Function:**
 
@@ -250,7 +268,6 @@ where $r_t(\theta) = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{old}}(a_t|s_t)}$.
 - **Algorithm**: Standard PPO
 - **Policies**: Two ($\pi_{\text{old}}$, $\pi_\theta$)
 - **Ignores $\pi_{\text{rollout}}$**: Assumes on-policy data
-- **Use when**: Data is truly on-policy (or off-policy gap is negligible)
 
 **Implementation:** `compute_policy_loss()` in [core_algos.py](verl/trainer/ppo/core_algos.py#L812-L884)
 
@@ -263,7 +280,7 @@ where $r_t(\theta) = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{old}}(a_t|s_t)}$.
 RolloutCorrectionConfig.ppo_is_bypass(threshold=2.0)
 ```
 
-**Key insight:** When `bypass_old_logprob_for_rollout=True`, we set $\pi_{\text{old}} = \pi_{\text{rollout}}$:
+**Implementation:** When `bypass_old_logprob_for_rollout=True`, we set $\pi_{\text{old}} = \pi_{\text{rollout}}$:
 - IS weight: $w_t = \frac{\pi_{\text{old}}}{\pi_{\text{rollout}}} = 1$
 - PPO ratio: $r_t(\theta) = \frac{\pi_{\theta}}{\pi_{\text{old}}} = \frac{\pi_{\theta}}{\pi_{\text{rollout}}}$
 
@@ -281,7 +298,6 @@ where $r_t(\theta) = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}
 - **No IS correction**: Assumes $\pi_{\text{rollout}} \approx \pi_{\text{old}}$
 - **PPO clips against rollout**: Trust region relative to data collection policy
 - **Fast**: Skips `actor.compute_log_prob()` call
-- **Use when**: Rollout policy is close to what old policy would be (e.g., recent checkpoint)
 
 ---
 
@@ -313,7 +329,6 @@ where:
 - **Algorithm**: Decoupled PPO
 - **Policies**: Three ($\pi_{\text{rollout}}$, $\pi_{\text{old}}$, $\pi_\theta$) in standard mode
 - **Double correction**: IS weights correct Drift 1, PPO clips correct Drift 2
-- **Recommended default**: Best for most off-policy scenarios with moderate drift
 - **Per-token truncation**: Stable IS weight computation
 
 **Implementation:**
@@ -344,7 +359,7 @@ $$w_{\text{seq}} = \min\left( \prod_{t \in T} \rho_t, \tau \right) = \min\left( 
 - **Algorithm**: Decoupled PPO
 - **Policies**: Three ($\pi_{\text{rollout}}$, $\pi_{\text{old}}$, $\pi_\theta$) in standard mode
 - **Sequence-level IS**: Uses product of all token ratios
-- **More aggressive**: Higher variance than token-level, but potentially more accurate
+- **Higher variance**: Compared to token-level truncation
 
 #### 3.3.3 Mixed IS + Rejection Sampling (seq_is_rs / seq_mis)
 
@@ -373,7 +388,6 @@ where:
 - **Algorithm**: Decoupled PPO + rejection sampling
 - **Double mechanism**: IS reweighting + rejection filtering
 - **Lower effective sample size**: Rejects outlier sequences
-- **Use when**: Severe off-policy distribution shift with outliers
 
 **Implementation:** `compute_rollout_rejection_mask()` in [rollout_corr_helper.py](verl/trainer/ppo/rollout_corr_helper.py#L80-L188)
 
@@ -415,7 +429,7 @@ A threshold of 1.001 means rejecting sequences with average per-token deviation 
 **Properties:**
 - **No IS weights**: Pure rejection
 - **Extremely selective**: Requires near-perfect policy match
-- **High rejection rate**: Suitable for very slight distribution shifts only
+- **High rejection rate**: Only suitable for very slight distribution shifts
 
 ### 4.2 Veto Mechanism
 
@@ -443,7 +457,7 @@ $$
 
 ## 5. Off-Policy Diagnostic Metrics
 
-These metrics help monitor the severity of off-policy drift and guide method selection.
+These metrics quantify the severity of off-policy drift.
 
 **Note on notation:** Metrics use $\rho_t = \frac{\pi_{\text{old}}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}$. In bypass mode, $\pi_{\text{old}} = \pi_{\text{rollout}}$, so metrics measure rollout→current drift using $\rho_t = \frac{\pi_{\theta}}{\pi_{\text{rollout}}}$ instead.
 
@@ -455,7 +469,7 @@ $$
 \text{KL}(\pi_{\text{rollout}} \| \pi_{\text{old}}) = \mathbb{E}_{t \sim \pi_{\text{rollout}}} \left[ \log \pi_{\text{rollout}}(a_t|s_t) - \log \pi_{\text{old}}(a_t|s_t) \right]
 $$
 
-**K3 KL estimator** (more stable for small KL):
+**K3 KL estimator** (alternative formulation):
 
 $$
 \text{KL}_{\text{K3}} = \mathbb{E}_{t \sim \pi_{\text{rollout}}} \left[ \rho_t - \log \rho_t - 1 \right]
@@ -523,37 +537,30 @@ $$
 | `seq_is_rs` | Decoupled PPO + RS | 3 (rollout, old, θ) | ✅ | ✅ + Rejection | ❌ | Standard |
 | `geo_rs` | PPO + Geo RS | 3 (rollout, old, θ) | ✅ | Rejection only | ❌ | Standard |
 
-### 6.2 Decision Guide
+### 6.2 Method Characteristics by Scenario
 
-**Choose your method based on:**
+**Off-policy severity:**
+- **Negligible** (same checkpoint, minor differences): `ppo_is_bypass` and standard PPO assume negligible off-policy gap
+- **Moderate** (async workers, slight staleness): `token_is` provides per-token IS correction
+- **Severe** (replay buffers, old data): `seq_is` and `seq_is_rs` provide sequence-level IS correction with optional rejection sampling
 
-1. **Off-policy severity:**
-   - **Negligible** (same checkpoint, minor differences): `ppo_is_bypass` or standard PPO
-   - **Moderate** (async workers, slight staleness): `token_is` (recommended default)
-   - **Severe** (replay buffers, old data): `seq_is` or `seq_is_rs`
+**Algorithm properties:**
+- **Batch size invariance**: Standard mode with three policies (`token_is`, `seq_is`) achieves batch size invariance
+- **Computational efficiency**: Bypass mode (`ppo_is_bypass`) skips `old_log_prob` computation
+- **Pure policy gradient**: `pure_is` implements off-policy REINFORCE without PPO clipping
 
-2. **Algorithm preference:**
-   - **Want decoupled PPO benefits** (batch size invariance, stale data): Use standard mode (`token_is`, `seq_is`)
-   - **Want computational efficiency**: Use bypass mode (`ppo_is_bypass`)
-   - **Want pure policy gradient**: Use `pure_is`
+### 6.3 Standard Mode vs Bypass Mode
 
-3. **Stability requirements:**
-   - **Need PPO stability**: Any method except `pure_is`
-   - **Accept higher variance for simplicity**: `pure_is`
+**Standard mode** (computes `old_log_prob` separately):
+- Implements full decoupled PPO with three policies
+- Separately measures and corrects Drift 1 (rollout→old) and Drift 2 (old→current)
+- Achieves batch size invariance and efficient stale data utilization
+- Enables accurate off-policy metrics monitoring
 
-### 6.3 When to Compute $\pi_{\text{old}}$ Separately
-
-Computing `old_log_prob` separately (standard mode, no bypass) is **only necessary** if you want to:
-
-1. **Implement full decoupled PPO** with three policies
-2. **Separately measure and correct** Drift 1 (rollout→old) and Drift 2 (old→current)
-3. **Enable batch size invariance** and better stale data utilization
-4. **Monitor off-policy metrics** accurately
-
-**Bypass mode is valid when:**
-- $\pi_{\text{rollout}} \approx \pi_{\text{old}}$ (recent checkpoint, minor implementation differences)
-- Computational efficiency is priority
-- Off-policy gap is negligible
+**Bypass mode** (sets $\pi_{\text{old}} = \pi_{\text{rollout}}$):
+- Assumption: $\pi_{\text{rollout}} \approx \pi_{\text{old}}$ (recent checkpoint, minor implementation differences)
+- Computational efficiency: Skips separate computation
+- Does not achieve batch size invariance
 
 ---
 
@@ -575,4 +582,3 @@ Computing `old_log_prob` separately (standard mode, no bypass) is **only necessa
   - Introduced decoupled PPO: separating proximal policy (for controlling policy update size) from behavior policy (for off-policy correction) to achieve batch size invariance
 - **Li, Y.** "When Speed Kills Stability: Demystifying RL Collapse from the Training-Inference Mismatch"
   - Blog post: https://yingru.notion.site/When-Speed-Kills-Stability-Demystifying-RL-Collapse-from-the-Training-Inference-Mismatch-271211a558b7808d8b12d403fd15edda
-- **Off-Policy RL Theory:** https://fengyao.notion.site/off-policy-rl

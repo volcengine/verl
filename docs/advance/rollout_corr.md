@@ -75,7 +75,7 @@ These off-policy gaps can cause training instability and policy collapse. Rollou
 This separation ensures:
 - ✅ Correct loss normalization (rejected samples excluded from denominator)
 - ✅ Mode-specific weight processing (truncate: upper clamped, mask: safety-bounded only)
-- ✅ Padding positions zeroed in weights (necessary for correct aggregation)
+- ✅ Padding positions zeroed in weights (for correct aggregation)
 - ✅ Safety bounds always applied (prevent overflow in all modes)
 
 ## Quick Start: Using Verified Presets
@@ -216,10 +216,10 @@ This section provides detailed guidance on choosing and using the verified prese
 
 ### 1. Token-level Importance Sampling
 
-**When to use:**
+**Applicable scenarios:**
 - Standard training scenarios
 - Moderate off-policiness
-- Per-token correction needed
+- Per-token correction
 
 **Configuration:**
 ```python
@@ -237,8 +237,8 @@ algorithm:
 
 ### 2. Sequence-level Importance Sampling
 
-**When to use:**
-- Multiplicative sequence-level correction needed
+**Applicable scenarios:**
+- Multiplicative sequence-level correction
 - Short sequences (< 512 tokens)
 - Research settings
 
@@ -256,16 +256,16 @@ algorithm:
     rollout_rs: null
 ```
 
-**Important:** Sequence-level IS uses multiplicative aggregation, which typically requires larger thresholds (5.0-10.0) compared to token-level (1.5-5.0).
+**Note:** Sequence-level IS uses multiplicative aggregation. Typical thresholds: 5.0-10.0 (compared to token-level: 1.5-5.0).
 
 ### 3. Sequence-level IS + Rejection Sampling
 
 **Alias:** `seq_mis(threshold)`
 
-**When to use:**
+**Applicable scenarios:**
 - Sequence-level correction with outlier filtering
 - Higher off-policy scenarios
-- Need both IS correction and rejection sampling
+- Both IS correction and rejection sampling
 
 **Configuration:**
 ```python
@@ -287,9 +287,9 @@ algorithm:
 
 ### 4. Geometric IS + RS + Veto (Maximum Sensitivity)
 
-**When to use:**
-- Very sensitive outlier detection needed
-- Maximum protection required
+**Applicable scenarios:**
+- Very sensitive outlier detection
+- Maximum protection
 - Advanced configuration
 
 **Configuration:**
@@ -308,12 +308,12 @@ algorithm:
     rollout_token_veto_threshold: 1e-4
 ```
 
-**Important:** Geometric thresholds must be very close to 1.0 (typical: 1.0001-1.001, ±0.01%-0.1%).
+**Note:** Geometric thresholds are typically very close to 1.0 (typical: 1.0001-1.001, ±0.01%-0.1%).
 
 ### 5. PPO with IS Bypass (Standard PPO Mode)
 
-**When to use:**
-- Training is slow and you need speedup
+**Applicable scenarios:**
+- Training is slow and computational efficiency is priority
 - Memory is constrained
 - Rollout policy is close to old policy (e.g., recent checkpoint)
 
@@ -333,21 +333,21 @@ algorithm:
     use_pure_rollout_correction: false
 ```
 
-**Benefits:**
-- Faster training (skips expensive forward pass for old policy)
+**Properties:**
+- Faster training (skips forward pass for old policy)
 - Reduced memory usage
-- PPO safety preserved (clips against rollout policy)
+- PPO clipping preserved (clips against rollout policy)
 
-**Theory:** This is standard PPO (two policies) applied to off-policy data by using rollout policy as the PPO anchor.
+**Theory:** Standard PPO (two policies) applied to off-policy data by using rollout policy as the PPO anchor.
 
-**Requirements:**
-- Must set `actor_rollout_ref.rollout.calculate_log_probs: true`
+**Configuration requirement:**
+- Set `actor_rollout_ref.rollout.calculate_log_probs: true`
 
 ### 8. Pure IS (Off-Policy REINFORCE)
 
-**When to use:**
-- Need pure policy gradient with importance sampling
-- PPO clipping is not desired for your algorithm
+**Applicable scenarios:**
+- Pure policy gradient with importance sampling
+- PPO clipping is not desired for the algorithm
 - Working with off-policy data
 
 **Configuration:**
@@ -355,69 +355,14 @@ algorithm:
 config = RolloutCorrectionConfig.pure_is(threshold=2.0)
 ```
 
-**Theory:** This implements off-policy REINFORCE (policy gradient with importance sampling), without PPO clipping.
+**Theory:** Off-policy REINFORCE with sequence-level truncated importance sampling.
 
-**Trade-offs:**
-- ✅ Pure policy gradient with IS correction
-- ✅ Legitimate algorithm (REINFORCE + IS)
-- ❌ No PPO clipping safety net (higher variance)
-- ❌ May need larger batches for stability
-
-### Decision Tree
-
-```
-Start here: Do you have off-policy issues?
-(Any distribution shift between data collection and training)
-│
-├─ No / Unknown
-│  └─ Use: RolloutCorrectionConfig.disabled()
-│     Monitor rollout_corr/kl for 1-2 epochs
-│
-├─ Yes, moderate (kl < 0.1)
-│  │
-│  ├─ Token-level correction → RolloutCorrectionConfig.token_is()
-│  │
-│  └─ Sequence-level correction → RolloutCorrectionConfig.seq_is()
-│
-└─ Yes, high (kl > 0.1, or known distribution shift)
-   │
-   ├─ Standard → RolloutCorrectionConfig.seq_is_rs()
-   │
-   └─ Maximum sensitivity → RolloutCorrectionConfig.geo_rs()
-
-Need speedup?
-└─ Add: RolloutCorrectionConfig.ppo_is_bypass()
-
-Need pure policy gradient (research)?
-└─ Use: RolloutCorrectionConfig.pure_is()
-
-Note: "Off-policy" includes ANY scenario where data collection distribution
-differs from training: policy mismatch, model staleness, replay buffers,
-off-policy algorithms, data filtering, etc.
-```
-
-### Migrating from Issue #3597 (Qwen3 Training)
-
-If you're coming from the Qwen3-14B/30B long DAPO training issue (#3597), here's the verified configuration that resolved the crashes:
-
-**Before (crashing):**
-```yaml
-algorithm:
-  rollout_correction: null  # or not set
-```
-
-**After (stable):**
-```python
-from verl.trainer.config.algorithm import RolloutCorrectionConfig
-
-# For development/testing
-config = RolloutCorrectionConfig.seq_is_rs(threshold=2.0)
-
-# Maximum protection
-config = RolloutCorrectionConfig.geo_rs(rs_threshold=1.001, veto_threshold=1e-4)
-```
-
-These configurations were verified with **tens of thousands of GPU hours** on Qwen3-14B and Qwen3-30B models.
+**Properties:**
+- **Algorithm**: Off-policy REINFORCE + IS
+- **Policies**: Two ($\pi_{\text{rollout}}$, $\pi_\theta$)
+- **No PPO clipping**: Pure policy gradient
+- **Always uses bypass mode**: No $\pi_{\text{old}}$ computation
+- **Fast**: Single forward pass for IS weights
 
 ### Summary: How IS Weights are Processed
 
@@ -560,7 +505,7 @@ These metrics cover both:
 
 - **`rollout_is_std`**: Standard deviation of IS weights
   - **Ideal value**: < 0.5 for stable training
-  - **Warning**: > 1.0 indicates high spread in IS weights, may need tighter thresholds
+  - **Warning**: > 1.0 indicates high spread in IS weights
 
 - **`rollout_is_min`**: Minimum IS weight observed
   - Shows the most underweighted token/sequence
@@ -647,7 +592,7 @@ These metrics cover both:
 
 - **`training_ppl`**: Perplexity of training policy (e.g., FSDP FP32)
   - **Formula**: `exp(-mean(log_probs))`
-  - Lower is better (model is more confident)
+  - Lower values indicate higher model confidence
 
 - **`rollout_ppl`**: Perplexity of rollout policy (e.g., vLLM BF16)
   - Should be close to `training_ppl` if policies match well
