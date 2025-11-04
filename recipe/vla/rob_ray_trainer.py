@@ -19,6 +19,7 @@ This trainer supports model-agonistic model initialization with huggingface
 """
 
 import uuid
+from enum import Enum
 from collections import defaultdict
 from pprint import pprint
 
@@ -40,17 +41,23 @@ from verl.trainer.ppo.metric_utils import (
     process_validation_metrics,
 )
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer, apply_kl_penalty, compute_advantage
-from verl.trainer.ppo.utils import Role
+# from verl.trainer.ppo.utils import Role
 from verl.utils.checkpoint.checkpoint_manager import should_save_ckpt_esi
 from verl.utils.debug import marked_timer
 from verl.utils.metric import reduce_metrics
 
 
-class EnvRole(Role):
+class EnvRole(Enum):
     """
     To create more roles dynamically, you can subclass Role and add new members
     """
-
+    Actor = 0
+    Rollout = 1
+    ActorRollout = 2
+    Critic = 3
+    RefPolicy = 4
+    RewardModel = 5
+    ActorRolloutRef = 6
     Env = 7
 
 def compute_response_mask(data: DataProto) -> torch.Tensor:

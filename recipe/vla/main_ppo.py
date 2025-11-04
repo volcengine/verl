@@ -21,9 +21,11 @@ from omegaconf import OmegaConf
 
 from verl import DataProto
 from verl.trainer.constants_ppo import get_ppo_ray_runtime_env
+from verl.trainer.ppo.ray_trainer import ResourcePoolManager
 
 # from verl.trainer.ppo.ray_trainer import RayTrainer
-from .rob_ray_trainer import RobRayPPOTrainer
+from .rob_ray_trainer import RobRayPPOTrainer, EnvRole
+
 
 
 def calculate_reward(data: DataProto, return_dict: bool = False) -> torch.Tensor:
@@ -84,13 +86,12 @@ def main_task(config):
     else:
         raise NotImplementedError
 
-    from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
 
     role_worker_mapping = {
-        # Role.Critic: ray.remote(RobActorRolloutRefWorker),
-        Role.ActorRollout: ray.remote(RobActorRolloutRefWorker),
-        # Role.RefPolicy: ray.remote(RobActorRolloutRefWorker),
-        Role.Env: ray.remote(EnvWorker),
+        # EnvRole.Critic: ray.remote(RobActorRolloutRefWorker),
+        EnvRole.ActorRollout: ray.remote(RobActorRolloutRefWorker),
+        # EnvRole.RefPolicy: ray.remote(RobActorRolloutRefWorker),
+        EnvRole.Env: ray.remote(EnvWorker),
     }
 
     global_pool_id = "global_pool"
@@ -101,10 +102,10 @@ def main_task(config):
         "env_gpu_pool": [rollout_gpu_num] * config.trainer.nnodes,
     }
     mapping = {
-        Role.ActorRollout: global_pool_id,
-        # Role.Critic: global_pool_id,
-        # Role.RefPolicy: global_pool_id,
-        Role.Env: "env_gpu_pool",
+        EnvRole.ActorRollout: global_pool_id,
+        # EnvRole.Critic: global_pool_id,
+        # EnvRole.RefPolicy: global_pool_id,
+        EnvRole.Env: "env_gpu_pool",
     }
 
     # reward_fn = RobRewardManager( num_examine=0, config=config) # note: verifier is called
