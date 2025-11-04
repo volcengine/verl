@@ -310,12 +310,12 @@ algorithm:
 
 **Important:** Geometric thresholds must be very close to 1.0 (typical: 1.0001-1.001, ±0.01%-0.1%).
 
-### 5. PPO with IS Bypass (Performance Mode)
+### 5. PPO with IS Bypass (Standard PPO Mode)
 
 **When to use:**
 - Training is slow and you need speedup
 - Memory is constrained
-- You can tolerate slight approximation
+- Rollout policy is close to old policy (e.g., recent checkpoint)
 
 **Configuration:**
 ```python
@@ -334,29 +334,34 @@ algorithm:
 ```
 
 **Benefits:**
-- Faster training (skips expensive forward pass)
+- Faster training (skips expensive forward pass for old policy)
 - Reduced memory usage
-- PPO safety preserved
+- PPO safety preserved (clips against rollout policy)
+
+**Theory:** This is standard PPO (two policies) applied to off-policy data by using rollout policy as the PPO anchor.
 
 **Requirements:**
 - Must set `actor_rollout_ref.rollout.calculate_log_probs: true`
 
-### 8. Pure IS (Research Mode)
+### 8. Pure IS (Off-Policy REINFORCE)
 
 **When to use:**
-- Research requiring pure policy gradient with IS
-- PPO clipping is undesirable
-- You understand the tradeoffs
+- Need pure policy gradient with importance sampling
+- PPO clipping is not desired for your algorithm
+- Working with off-policy data
 
 **Configuration:**
 ```python
 config = RolloutCorrectionConfig.pure_is(threshold=2.0)
 ```
 
+**Theory:** This implements off-policy REINFORCE (policy gradient with importance sampling), without PPO clipping.
+
 **Trade-offs:**
 - ✅ Pure policy gradient with IS correction
-- ❌ No PPO clipping safety net (may need larger batches)
-- ❌ Requires careful monitoring
+- ✅ Legitimate algorithm (REINFORCE + IS)
+- ❌ No PPO clipping safety net (higher variance)
+- ❌ May need larger batches for stability
 
 ### Decision Tree
 
