@@ -161,7 +161,7 @@ def load_reward_manager(
         tokenizer=tokenizer,
         num_examine=num_examine,
         compute_score=final_compute_score,
-        reward_fn_key=config.data.reward_fn_key,
+        reward_fn_key=getattr(config.data, "reward_fn_key", "data_source"),
         **reward_kwargs,
     )
 
