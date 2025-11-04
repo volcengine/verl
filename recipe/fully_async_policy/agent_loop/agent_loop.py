@@ -83,9 +83,8 @@ class FullyAsyncAgentLoopWorker(AgentLoopWorkerBase):
     ):
         self.server_manager = FullyAsyncLLMServerManager(config, server_handles)
         super().__init__(config, server_handles, reward_router_address)
-        # Track active runs and their cancellation events
-        self.active_loops: dict[str, asyncio.Event] = {}
-        self.lock = asyncio.Lock()
+        # A shared cancellation event for all agent loops running on this worker.
+        self.cancellation_event = asyncio.Event()
 
     async def generate_sequences_no_post(
         self, batch: DataProto, partial_output_list: Optional[list[AgentLoopOutput]]
@@ -145,12 +144,6 @@ class FullyAsyncAgentLoopWorker(AgentLoopWorkerBase):
         agent_name: str,
         **kwargs,
     ) -> AgentLoopOutput:
-        run_id = uuid4().hex
-        cancellation_event = asyncio.Event()
-
-        async with self.lock:
-            self.active_loops[run_id] = cancellation_event
-
         try:
             with rollout_trace_attr(
                 step=trajectory["step"],
@@ -171,20 +164,18 @@ class FullyAsyncAgentLoopWorker(AgentLoopWorkerBase):
                     tokenizer=self.tokenizer,
                     processor=self.processor,
                 )
-                return await agent_loop.run(sampling_params, cancellation_event=cancellation_event, **kwargs)
+                return await agent_loop.run(sampling_params, cancellation_event=self.cancellation_event, **kwargs)
         except Exception as e:
             print(f"Agent_loop run failed: {e}")
             raise e
 
-        finally:
-            async with self.lock:
-                self.active_loops.pop(run_id, None)
-
     async def cancel_agent_loops(self):
-        """Set cancellation events for all active agent loops."""
-        async with self.lock:
-            for event in self.active_loops.values():
-                event.set()
+        """Set the shared cancellation event to stop all agent loops."""
+        self.cancellation_event.set()
+
+    async def resume_agent_loops(self):
+        """Clear the shared cancellation event."""
+        self.cancellation_event.clear()
 
 
 class FullyAsyncAgentLoopManager(AgentLoopManager):
@@ -276,12 +267,14 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
         return worker
 
     async def cancel(self):
-        rollout_cancel_tasks = [replica.cancel() for replica in self.rollout_replicas]
         worker_cancel_tasks = [worker.cancel_agent_loops.remote() for worker in self.agent_loop_workers]
+        rollout_cancel_tasks = [replica.cancel() for replica in self.rollout_replicas]
         await asyncio.gather(*rollout_cancel_tasks, *worker_cancel_tasks)
 
     async def resume(self):
-        await asyncio.gather(*[replica.resume() for replica in self.rollout_replicas])
+        rollout_resume_tasks = [replica.resume() for replica in self.rollout_replicas]
+        worker_resume_tasks = [worker.resume_agent_loops.remote() for worker in self.agent_loop_workers]
+        await asyncio.gather(*rollout_resume_tasks, *worker_resume_tasks)
 
     async def wake_up(self):
         await asyncio.gather(*[replica.wake_up() for replica in self.rollout_replicas])

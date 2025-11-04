@@ -55,6 +55,7 @@ class AsyncPartialToolAgentLoop(ToolAgentLoop):
 
         Args:
             sampling_params: Sampling parameters
+            cancellation_event: cancellationn sginal
             **kwargs: Contains output (for recovery), raw_prompt, param_version, etc.
 
         Returns:
@@ -79,14 +80,13 @@ class AsyncPartialToolAgentLoop(ToolAgentLoop):
             state = AgentState.PENDING
             logger.info(f"[PartialToolAgent] Start from scratch")
         # 2. run state machine
-        # state = await self._run_state_machine(agent_data, state, sampling_params)
         state = await self._run_state_machine(agent_data, state, sampling_params, cancellation_event)
 
         # 3. bulid output
         if state == AgentState.TERMINATED:
             return self._build_completed_output(agent_data, param_version)
         else:
-            # assert state in AgentState, f"Expected AgentState, got {type(state)}"
+            # build cancelled output
             return self._build_cancelled_output(agent_data, state)
 
     async def _init_agent_data(self, kwargs: dict, param_version: int) -> AgentData:
@@ -136,8 +136,6 @@ class AsyncPartialToolAgentLoop(ToolAgentLoop):
         agent_state = output.extra_fields.get("agent_state", None)
         if agent_data is None or agent_state is None:
             raise ValueError(f"Unexpected situation: agent_data is {None}, agent_state is {agent_state}")
-        if agent_state == AgentState.GENERATING_CANCELLED:
-            agent_state = AgentState.GENERATING
         return agent_data, agent_state
 
     async def _run_state_machine(
@@ -148,15 +146,12 @@ class AsyncPartialToolAgentLoop(ToolAgentLoop):
         cancellation_event: asyncio.Event = None,
     ) -> AgentState:
         """
-        state machine, currently, only support interruption(partial) in GENERATING state
+        State machine, currently, interruptions are only supported to occur in the GENERATING state or other states have ended.
         """
         # State machine loop
         while state != AgentState.TERMINATED:
-            if state == AgentState.GENERATING_CANCELLED:
-                logger.info(f"[PartialToolAgent] Cancellation detected. Interrupted at state: GENERATING")
-                return state
             if cancellation_event and cancellation_event.is_set():
-                logger.info(f"[PartialToolAgent] Cancellation detected. Interrupted before state: {state.value}")
+                logger.info(f"[PartialToolAgent] Cancellation detected. Interrupted before/at state: {state.value}")
                 return state
             if state == AgentState.PENDING:
                 state = await self._handle_pending_state(agent_data, sampling_params)
@@ -202,7 +197,7 @@ class AsyncPartialToolAgentLoop(ToolAgentLoop):
                         # it is considered to have ended normally.
                         agent_data.assistant_turns += 1
                         return AgentState.TERMINATED
-                    return AgentState.GENERATING_CANCELLED
+                    return AgentState.GENERATING
             else:
                 # original generate interface
                 output = await self.server_manager.generate(
