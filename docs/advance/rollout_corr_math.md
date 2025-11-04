@@ -1,7 +1,7 @@
 # Mathematical Formulations of Rollout Correction Methods in `verl`
 
-**Author:** Yingru Li
-**Last updated:** 2025-11-03
+**Author:** [Yingru Li](https://richardli.xyz)
+**Last updated:** 2025-11-04
 
 ---
 
@@ -10,13 +10,13 @@
 This document provides the definitive mathematical formulations for all rollout correction methods implemented in the `verl` library. These methods provide a **unified framework for general off-policy reinforcement learning**, addressing any scenario where the data collection distribution differs from the training distribution.
 
 **Applicable scenarios include:**
-- **Policy mismatch**: Different precision (BF16 vs FP32), different backends (vLLM vs SGLang)
+- **Policy mismatch**: Different precision (FP8 vs FP16 vs BF16 vs FP32), different backends (vLLM vs SGLang vs FSDP vs Megatron)
 - **Temporal lag**: Model staleness, asynchronous rollout workers
 - **Replay buffers**: Training on historical trajectories from earlier policy versions
 - **Off-policy algorithms**: Behavioral cloning, DAPO, expert demonstrations
 - **Data filtering**: Reweighting, preference learning, curriculum learning
 
-We detail the "three-policy problem" ($\pi_{\text{rollout}}$, $\pi_{\text{old}}$, $\pi_{\theta}$) and formalize the implementation of standard PPO, hybrid PPO+IS methods (token-level and sequence-level), high-speed bypass modes, and rejection sampling techniques. Finally, we document the diagnostic metrics used to monitor off-policy severity, such as $\chi^2$-divergence and KL divergence.
+We detail the "three-policy problem" ($\pi_{\text{rollout}}$, $\pi_{\text{old}}$, $\pi_{\theta}$) and formalize the implementation of standard PPO, pure IS methods, hybrid PPO+IS methods (token-level and sequence-level), high-speed bypass modes, and rejection sampling techniques. Finally, we document the diagnostic metrics used to monitor off-policy severity, such as $\chi^2$-divergence and KL divergence.
 
 ---
 
@@ -37,6 +37,8 @@ We detail the "three-policy problem" ($\pi_{\text{rollout}}$, $\pi_{\text{old}}$
 ## The Three-Policy Problem and Notation
 
 In general off-policy RL, we must manage three distinct policies that create two sources of distribution drift. The rollout correction framework handles **any scenario** where the data collection distribution differs from the training distribution.
+
+**Note:** This three-policy framework implements **decoupled PPO** ([Hilton et al., 2021](https://arxiv.org/abs/2110.00641)), which separates the behavior policy (for off-policy correction) from the proximal policy (for PPO clipping). This decoupling enables batch size invariance and better utilization of stale data.
 
 ### The Three Policies
 
@@ -65,15 +67,17 @@ The policy used for data collection. This represents the behavior distribution $
      - Curriculum learning with distribution shifts
 - **Fixed**: Never changes during training on a batch (frozen behavior distribution)
 
-**$\pi_{\text{old}}$ (Old Policy)**
-The reference policy for PPO clipping. **Note: This is optional** - if `rollout_log_prob` is available, you can skip computing this separately.
+**$\pi_{\text{old}}$ (Old Policy / Proximal Policy)**
+The reference policy for PPO clipping. This is the "proximal policy" in decoupled PPO terminology. **Note: This is optional** - if `rollout_log_prob` is available, you can skip computing this separately unless you need the full decoupled PPO benefits.
 
 - **When created**:
-  - **Standard mode (optional)**: Computed at start of training epoch via `actor.compute_log_prob()` to separately track rollout→old drift
-  - **Bypass mode (recommended)**: Reused from $\pi_{\text{rollout}}$ (zero-cost, assumes rollout ≈ old)
-- **Purpose**: Anchor point for PPO clipping
+  - **Standard mode**: Computed at start of training epoch via `actor.compute_log_prob()` to enable decoupled PPO (separate behavior and proximal policies)
+  - **Bypass mode**: Reused from $\pi_{\text{rollout}}$ (zero-cost, assumes rollout ≈ old, loses decoupling benefits)
+- **Purpose**:
+  - Anchor point for PPO clipping (trust region control)
+  - Enables decoupled PPO: batch size invariance and better stale data usage
 - **Fixed**: Frozen during all PPO epochs on same batch
-- **Key insight**: Computing `old_log_prob` separately is **not necessary** if you're willing to clip directly against the rollout policy
+- **Key insight**: Computing `old_log_prob` separately implements full decoupled PPO. Bypass mode sacrifices this for speed when rollout ≈ old.
 
 **$\pi_{\theta}$ (Current Policy)**
 The training policy being actively optimized. This represents the target distribution $\pi$ from theory.
@@ -96,8 +100,8 @@ This is the **fundamental off-policy gap** that arises whenever the data collect
 - **Optional**: Many users skip this correction (bypass mode) when the gap is negligible, setting $w = 1$
 - **Key insight**: The severity of this drift determines which correction method to use (or whether to use any correction at all)
 
-**Drift 2: $\pi_{\text{old}} \to \pi_{\theta}$** (On-Policy Drift)
-This is the standard on-policy drift that occurs as $\pi_{\theta}$ is updated over multiple gradient steps. It is corrected by **PPO clipping**, independent of the off-policy gap.
+**Drift 2: $\pi_{\text{old}} \to \pi_{\theta}$** (Policy Update Drift)
+This is the drift that occurs as $\pi_{\theta}$ is updated over multiple gradient steps during training. It is corrected by **PPO clipping**, independent of the off-policy gap.
 
 - **Source**: Policy updates via gradient descent during training
 - **Correction**: PPO clips ratio $r = \pi_{\theta} / \pi_{\text{old}}$ to prevent overly large updates
@@ -120,7 +124,7 @@ This is the standard on-policy drift that occurs as $\pi_{\theta}$ is updated ov
 
 ## Standard PPO (Baseline)
 
-The baseline PPO formulation only corrects for Drift 2 (on-policy drift) and **ignores any off-policy gap** between $\pi_{\text{rollout}}$ and $\pi_{\text{old}}$. This is appropriate when the off-policy gap is negligible or when no rollout policy log-probs are available.
+The baseline PPO formulation only corrects for Drift 2 (policy update drift) and **ignores any off-policy gap** between $\pi_{\text{rollout}}$ and $\pi_{\text{old}}$. This is appropriate when the off-policy gap is negligible or when no rollout policy log-probs are available.
 
 ### Loss Function
 
@@ -158,20 +162,22 @@ RolloutCorrectionConfig(
 #### Loss Function
 
 $$
-L_{\text{PureIS}}(\theta) = -\mathbb{E}_{(s,a) \sim \pi_{\text{rollout}}} \left[ w_{\text{seq}} \cdot \sum_{t \in T} \log \pi_{\theta}(a_t|s_t) \cdot A_t \right]
+L_{\text{PureIS}}(\theta) = -\mathbb{E}_{(s,a) \sim \pi_{\text{rollout}}} \left[ w_{\text{seq}}(\theta) \cdot \sum_{t \in T} \log \pi_{\theta}(a_t|s_t) \cdot A_t \right]
 $$
 
-The gradient is therefore:
+where the sequence-level IS weight $w_{\text{seq}}(\theta)$ is computed on-the-fly and directly compares $\pi_{\theta}$ to $\pi_{\text{rollout}}$:
 
 $$
-\nabla_\theta L_{\text{PureIS}} = -\mathbb{E}_{(s,a) \sim \pi_{\text{rollout}}} \left[ w_{\text{seq}} \cdot \sum_{t \in T} \nabla_\theta \log \pi_{\theta}(a_t|s_t) \cdot A_t \right]
+w_{\text{seq}}(\theta) = \min\left( \prod_{t \in T} \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}, \tau \right)
 $$
 
-where the sequence-level IS weight $w_{\text{seq}}$ is computed on-the-fly and directly compares $\pi_{\theta}$ to $\pi_{\text{rollout}}$:
+**Gradient computation:** The IS weight $w_{\text{seq}}(\theta)$ is **detached from the gradient** (treated as constant) to avoid high-variance gradient estimates. The effective gradient is:
 
 $$
-w_{\text{seq}} = \min\left( \prod_{t \in T} \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}, \tau \right)
+\nabla_\theta L_{\text{PureIS}} = -\mathbb{E}_{(s,a) \sim \pi_{\text{rollout}}} \left[ \text{stopgrad}(w_{\text{seq}}(\theta)) \cdot \sum_{t \in T} \nabla_\theta \log \pi_{\theta}(a_t|s_t) \cdot A_t \right]
 $$
+
+This is standard practice in importance sampling: the weight corrects for the distribution shift but is not differentiated through.
 
 #### Properties
 
@@ -204,12 +210,12 @@ RolloutCorrectionConfig(
 )
 ```
 
-#### Objective Function
+#### Loss Function
 
-The PPO objective $J(\theta)$ is modified by multiplying the loss term by a per-token IS weight $w_t$.
+The PPO loss is modified by weighting each token's contribution with a per-token IS weight $w_t$.
 
 $$
-J_{\text{PPO+TIS}}(\theta) = \mathbb{E}_t \left[ w_t \cdot \min\left( r_t(\theta) A_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t \right) \right]
+L_{\text{PPO+TIS}}(\theta) = -\mathbb{E}_t \left[ w_t \cdot \min\left( r_t(\theta) A_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t \right) \right]
 $$
 
 where:
@@ -244,12 +250,12 @@ RolloutCorrectionConfig(
 )
 ```
 
-#### Objective Function
+#### Loss Function
 
-The objective is identical to `token_is`, but uses a sequence-level weight $w_{\text{seq}}$ broadcast to all tokens.
+The loss is identical to `token_is`, but uses a sequence-level weight $w_{\text{seq}}$ broadcast to all tokens.
 
 $$
-J_{\text{PPO+SeqIS}}(\theta) = \mathbb{E}_t \left[ w_{\text{seq}} \cdot \min\left( r_t(\theta) A_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t \right) \right]
+L_{\text{PPO+SeqIS}}(\theta) = -\mathbb{E}_t \left[ w_{\text{seq}} \cdot \min\left( r_t(\theta) A_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t \right) \right]
 $$
 
 where:
@@ -301,10 +307,10 @@ $$
 
 This method degenerates to standard PPO, but clips directly against the rollout policy.
 
-#### Objective Function
+#### Loss Function
 
 $$
-J_{\text{PPO-Bypass}}(\theta) = \mathbb{E}_t \left[ 1.0 \cdot \min\left( r_t(\theta) A_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t \right) \right]
+L_{\text{PPO-Bypass}}(\theta) = -\mathbb{E}_t \left[ 1.0 \cdot \min\left( r_t(\theta) A_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t \right) \right]
 $$
 
 where $r_t(\theta) = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}$.
@@ -435,18 +441,16 @@ This prevents catastrophic updates from tokens that $\pi_{\text{old}}$ assigned 
 
 To monitor the severity of the off-policy gap (Drift 1: rollout $\to$ old/current), `verl` computes the following diagnostic metrics. These metrics help you determine whether off-policy correction is needed and which method to use.
 
-**Note on notation:** The diagnostic metrics compare the **training policy** against $\pi_{\text{rollout}}$ (the behavior policy). The training policy depends on the mode:
-- **Standard mode (no bypass)**: Training policy = $\pi_{\text{old}}$ (computed at start of epoch via `actor.compute_log_prob()`)
-- **Bypass mode**: Training policy = $\pi_{\theta}$ (current policy parameters)
-
-The IS ratio $\rho_t = \frac{\pi_{\text{train}}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}$ measures the distribution shift from rollout to the training policy, where $\pi_{\text{train}}$ is whichever policy is being used as the training reference.
+**Note on notation:** The diagnostic metrics use the IS ratio $\rho_t = \frac{\pi_{\text{old}}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}$ as defined above. The interpretation of $\pi_{\text{old}}$ depends on the mode:
+- **Standard mode (no bypass)**: $\pi_{\text{old}}$ is computed at start of epoch via `actor.compute_log_prob()`, so metrics measure rollout→old drift
+- **Bypass mode**: $\pi_{\text{old}} = \pi_{\text{rollout}}$, so $\rho_t = 1$ and metrics measure rollout→current drift using $\rho_t = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}$ instead
 
 ### KL Divergence
 
 **Direct KL estimator:**
 
 $$
-\text{KL}(\pi_{\text{rollout}} \| \pi_{\text{train}}) = \mathbb{E}_{t \sim \pi_{\text{rollout}}} \left[ \log \pi_{\text{rollout}}(a_t|s_t) - \log \pi_{\text{train}}(a_t|s_t) \right]
+\text{KL}(\pi_{\text{rollout}} \| \pi_{\text{old}}) = \mathbb{E}_{t \sim \pi_{\text{rollout}}} \left[ \log \pi_{\text{rollout}}(a_t|s_t) - \log \pi_{\text{old}}(a_t|s_t) \right]
 $$
 
 **K3 KL estimator (more stable for small KL):**
@@ -455,48 +459,48 @@ $$
 \text{KL}_{\text{K3}} = \mathbb{E}_{t \sim \pi_{\text{rollout}}} \left[ \rho_t - \log \rho_t - 1 \right]
 $$
 
-where $\rho_t = \frac{\pi_{\text{train}}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}$.
+where $\rho_t = \frac{\pi_{\text{old}}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}$.
 
 ### Perplexity
 
-**Training policy:**
+**Old policy perplexity:**
 
 $$
-\text{PPL}_{\text{train}} = \exp\left( -\frac{1}{|T|} \sum_{t \in T} \log \pi_{\text{train}}(a_t|s_t) \right)
+\text{PPL}_{\text{old}} = \exp\left( -\frac{1}{|T|} \sum_{t \in T} \log \pi_{\text{old}}(a_t|s_t) \right)
 $$
 
-**Rollout policy:**
+**Rollout policy perplexity:**
 
 $$
 \text{PPL}_{\text{rollout}} = \exp\left( -\frac{1}{|T|} \sum_{t \in T} \log \pi_{\text{rollout}}(a_t|s_t) \right)
 $$
 
-**PPL ratio (inverse of geometric IS weight):**
+**PPL ratio (inverse of geometric mean IS weight):**
 
 $$
-\text{PPL}_{\text{ratio}} = \frac{\text{PPL}_{\text{train}}}{\text{PPL}_{\text{rollout}}} = \exp\left( -\frac{1}{|T|} \sum_{t \in T} \log \rho_t \right) = \left(\prod_{t \in T} \rho_t\right)^{-1/|T|}
+\text{PPL}_{\text{ratio}} = \frac{\text{PPL}_{\text{old}}}{\text{PPL}_{\text{rollout}}} = \exp\left( -\frac{1}{|T|} \sum_{t \in T} \log \rho_t \right) = \left(\prod_{t \in T} \rho_t\right)^{-1/|T|}
 $$
 
 Equivalently: $\text{PPL}_{\text{ratio}} = \frac{1}{\text{geometric mean of } \rho_t}$
 
-**Interpretation:** Higher values indicate the training policy assigns lower probability (higher perplexity) than the rollout policy, signaling a distribution shift.
+**Interpretation:** Higher values indicate $\pi_{\text{old}}$ assigns lower probability (higher perplexity) than $\pi_{\text{rollout}}$ to the observed actions, signaling a distribution shift. Values > 1 mean old policy is less likely to generate the rollout data.
 
 ### Chi-squared ($\chi^2$) Divergence
 
-This metric measures the second moment of the IS weight distribution.
+This metric measures the second moment of the IS weight distribution. We use the notation $\chi^2_{\pi_{\text{rollout}}}[\cdot]$ to indicate sampling from $\pi_{\text{rollout}}$.
 
 **Token-level χ² divergence:**
 
 $$
-\chi^2_{\text{token}}(\pi_{\text{train}} \| \pi_{\text{rollout}}) = \mathbb{E}_{t \sim \pi_{\text{rollout}}} \left[ \rho_t^2 \right] - 1
+\chi^2_{\text{token}} = \mathbb{E}_{t \sim \pi_{\text{rollout}}} \left[ \rho_t^2 \right] - 1
 $$
 
-where $\rho_t = \frac{\pi_{\text{train}}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}$.
+where $\rho_t = \frac{\pi_{\text{old}}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}$.
 
 **Sequence-level χ² divergence:**
 
 $$
-\chi^2_{\text{seq}}(\pi_{\text{train}} \| \pi_{\text{rollout}}) = \mathbb{E}_{\text{seq} \sim \pi_{\text{rollout}}} \left[ \left(\prod_{t \in T} \rho_t\right)^2 \right] - 1 = \mathbb{E}_{\text{seq}} \left[ \exp\left(2 \sum_{t \in T} \log \rho_t\right) \right] - 1
+\chi^2_{\text{seq}} = \mathbb{E}_{\text{seq} \sim \pi_{\text{rollout}}} \left[ \left(\prod_{t \in T} \rho_t\right)^2 \right] - 1 = \mathbb{E}_{\text{seq}} \left[ \exp\left(2 \sum_{t \in T} \log \rho_t\right) \right] - 1
 $$
 
 **Interpretation:**
@@ -550,8 +554,9 @@ $$
 **Key insight**: Computing `old_log_prob` separately is **only necessary** if you want to:
 1. Measure the magnitude of Drift 1 (rollout→old off-policy gap) via IS weight statistics
 2. Apply IS correction to Drift 1 while keeping PPO clipping for Drift 2
+3. Enable full decoupled PPO (batch size invariance, better stale data usage)
 
-If `rollout_log_prob` is available and you trust your rollout policy is close to your training policy, **bypass mode is perfectly valid and often preferred**.
+If `rollout_log_prob` is available and you trust your rollout policy is close to your training policy AND you don't need decoupled PPO benefits, **bypass mode is perfectly valid and often preferred**.
 
 ---
 
@@ -565,9 +570,10 @@ If `rollout_log_prob` is available and you trust your rollout policy is close to
 
 ---
 
-## Reference
+## References
 
-For more details, see:
-- **Paper:** "When Speed Kills Stability: Demystifying RL Collapse from the Training-Inference Mismatch"
+- **Hilton, J., Cobbe, K., & Schulman, J. (2021).** "Batch size-invariance for policy optimization." *arXiv preprint arXiv:2110.00641.* https://arxiv.org/abs/2110.00641
+  - Introduced decoupled PPO: separating behavior policy (off-policy correction) from proximal policy (trust region)
+- **Li, Y.** "When Speed Kills Stability: Demystifying RL Collapse from the Training-Inference Mismatch"
   - Blog post: https://yingru.notion.site/When-Speed-Kills-Stability-Demystifying-RL-Collapse-from-the-Training-Inference-Mismatch-271211a558b7808d8b12d403fd15edda
 - **Off-Policy RL Theory:** https://fengyao.notion.site/off-policy-rl
