@@ -296,7 +296,6 @@ class ToolAgentLoop(AgentLoopBase):
                 message = {"role": "tool", "content": tool_response.text or ""}
 
             add_messages.append(message)
-            agent_data.messages.extend(add_messages)
 
             # Handle image data
             if tool_response.image:
@@ -329,6 +328,7 @@ class ToolAgentLoop(AgentLoopBase):
             if tool_reward is not None:
                 agent_data.tool_rewards.append(tool_reward)
 
+        agent_data.messages.extend(add_messages)
         # Update prompt with tool responses
         if self.processor is not None:
             raw_tool_response = await self.loop.run_in_executor(
