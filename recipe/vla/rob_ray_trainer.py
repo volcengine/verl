@@ -42,6 +42,7 @@ from verl.trainer.ppo.metric_utils import (
 )
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer, apply_kl_penalty, compute_advantage
 from verl.trainer.ppo.utils import Role
+from verl.trainer.ppo.reward import compute_reward
 from verl.utils.checkpoint.checkpoint_manager import should_save_ckpt_esi
 from verl.utils.debug import marked_timer
 from verl.utils.metric import reduce_metrics
@@ -275,36 +276,42 @@ class RobRayPPOTrainer(RayPPOTrainer):
                     # generate a batch
                     with marked_timer("gen", timing_raw, color="red"):
                         # debug only
-                        batch = torch.load("batch_flatten.pt", weights_only=False)
-                        batch.meta_info["pad_token_id"] = self.tokenizer.pad_token_id
-                        batch.batch["response_mask"] = batch.batch["response_mask"].repeat_interleave(7, dim=-1)
+                        # batch = torch.load("batch_flatten.pt", weights_only=False)
+                        # batch.meta_info["pad_token_id"] = self.tokenizer.pad_token_id
+                        # batch.batch["response_mask"] = batch.batch["response_mask"].repeat_interleave(7, dim=-1)
                         # debug only
 
                     # real rollout
-                    #     if not self.async_rollout_mode:
-                    #         gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
-                    #     else:  # vla loop
-                    #         gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
-                    #     # timing_raw.update(gen_batch_output.meta_info["timing"])
-                    #     # gen_batch_output.meta_info.pop("timing", None)
+                        if not self.async_rollout_mode:
+                            gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+                        else:  # vla loop
+                            gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
+                        # timing_raw.update(gen_batch_output.meta_info["timing"])
+                        # gen_batch_output.meta_info.pop("timing", None)
 
-                    # # repeat to align with repeated responses in rollout
-                    # batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
-                    # # batch = batch.union(gen_batch_output)
-                    # batch = gen_batch_output
+                    # repeat to align with repeated responses in rollout
+                    batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+                    # batch = batch.union(gen_batch_output)
+                    batch = gen_batch_output
 
-                    # if "response_mask" not in batch.batch.keys():
-                    #     batch.batch["response_mask"] = compute_response_mask(batch)
+                    if "response_mask" not in batch.batch.keys():
+                        batch.batch["response_mask"] = compute_response_mask(batch)
 
-                    # with marked_timer("reward", timing_raw, color="yellow"):
-                    #     # compute reward model score
-                    #     reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
+                    with marked_timer("reward", timing_raw, color="yellow"):
+                        # compute reward model score
+                        reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
 
-                    # batch.batch["reward_tensor"] = reward_tensor
-                    # batch = flatten_trajectories(batch)
+                    batch.batch["reward_tensor"] = reward_tensor
+                    batch = flatten_trajectories(batch)
                     # real rollout
 
                     # compute global_valid tokens
+                    # valid_rows_mask = batch.batch["response_mask"].any(dim=1)
+                    # valid_rows_idx = valid_rows_mask.nonzero(as_tuple=False).flatten().tolist()
+                    # batch = batch[valid_rows_idx]
+                    # size_divisor = self.actor_rollout_wg.world_size
+                    # batch, pad_size = pad_dataproto_to_divisor(batch, size_divisor)
+
                     batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
 
                     # recompute old_log_probs
@@ -343,10 +350,20 @@ class RobRayPPOTrainer(RayPPOTrainer):
                     with marked_timer("adv", timing_raw, color="brown"):
                         # we combine with rule-based rm
                         reward_extra_infos_dict: dict[str, list] = None
-                        batch.batch["token_level_scores"] = (
-                            batch.batch["reward_tensor"].unsqueeze(-1).expand(-1, response_masks.shape[-1])
-                        )
-
+                        # batch.batch["token_level_scores"] = (
+                        #     batch.batch["reward_tensor"].unsqueeze(-1).expand(-1, response_masks.shape[-1])
+                        # )
+                        token_level_scores = torch.zeros_like(response_masks, dtype=torch.float32)
+                        flipped_mask = response_masks.flip(dims=[1])
+                        indices_in_flipped = torch.argmax(flipped_mask.long(), dim=1)
+                        
+                        last_true_indices = response_masks.shape[-1] - 1 - indices_in_flipped
+                        rows_with_response = response_masks.any(dim=1)
+                        effective_rewards = batch.batch["reward_tensor"] * rows_with_response.to(batch.batch["reward_tensor"].dtype)
+                        row_indices = torch.arange(response_masks.shape[0], device=token_level_scores.device)
+                        
+                        token_level_scores[row_indices, last_true_indices] = effective_rewards
+                        batch.batch["token_level_scores"] = token_level_scores
                         if reward_extra_infos_dict:
                             batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
 
