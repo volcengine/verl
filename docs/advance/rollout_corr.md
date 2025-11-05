@@ -525,12 +525,10 @@ These metrics cover both:
 #### **Core IS Weight Metrics**
 
 - **`rollout_is_mean`**: Mean importance sampling weight across all valid tokens
-  - **Ideal value**: Close to 1.0 (indicates minimal off-policy gap)
-  - **Warning**: < 0.5 or > 2.0 suggests significant off-policy gap
+  - Value close to 1.0 indicates minimal off-policy gap
 
 - **`rollout_is_std`**: Standard deviation of IS weights
-  - **Ideal value**: < 0.5 for stable training
-  - **Warning**: > 1.0 indicates high spread in IS weights
+  - Higher values indicate greater variance in IS weights
 
 - **`rollout_is_min`**: Minimum IS weight observed
   - Shows the most underweighted token/sequence
@@ -548,8 +546,7 @@ These metrics cover both:
 - **`rollout_is_eff_sample_size`**: Effective sample size after IS weighting
   - **Formula**: `1 / mean(weights²)` where weights are normalized
   - **Range**: 0.0 to 1.0 (as fraction of original batch)
-  - **Ideal value**: > 0.5 (retaining at least 50% effective samples)
-  - **Warning**: < 0.3 means high weight concentration, losing too many effective samples
+  - Lower values indicate weight concentration on fewer samples
 
 #### **Veto Mechanism Metrics**
 
@@ -560,14 +557,11 @@ These metrics cover both:
     - Decoupled mode: π_old(t)/π_rollout(t)
     - Bypass/Pure IS mode: π_θ(t)/π_rollout(t)
   - Detects catastrophic tokens (true ratio < veto_threshold, e.g., < 1e-4)
-  - **Ideal value**: < 0.05 (less than 5% vetoed)
-  - **Warning**: > 0.1 suggests policies are too different or numerical issues
 
 - **`rollout_is_catastrophic_token_fraction`**: Fraction of tokens below veto threshold
   - Identifies problematic tokens before sequence-level veto is applied
   - Checks **unclamped per-token ratios** (true ratios, not safety-bounded)
   - Each catastrophic token causes its entire sequence to be rejected
-  - **Warning**: > 0.01 indicates widespread distribution issues or numerical instability
 
 #### **Threshold Exceedance Metrics**
 
@@ -575,13 +569,11 @@ These metrics cover both:
   - Shows how often truncation/masking occurs on high end
   - For sequence/geometric: computed from unclamped log-space ratios (true exceedance)
   - For token: computed from safety-bounded weights (before threshold clamping)
-  - **Ideal value**: < 0.1 (most weights within bounds)
 
 - **`rollout_is_ratio_fraction_low`**: Fraction of weights below lower threshold
   - Shows how often masking occurs on low end (mask mode only)
   - For sequence/geometric: computed from unclamped log-space ratios (true exceedance)
   - For token: computed from safety-bounded weights
-  - **Ideal value**: < 0.1
 
 #### **Sequence-Level Metrics** (for sequence/geometric modes)
 
@@ -595,7 +587,6 @@ These metrics cover both:
 - **`rollout_is_seq_max`**: Maximum sequence-level IS weight
 
 - **`rollout_is_seq_max_deviation`**: Maximum absolute deviation from 1.0 at sequence level
-  - **Ideal value**: < 1.0
   - Shows worst-case sequence off-policy gap
 
 - **`rollout_is_seq_fraction_high`**: Fraction of sequences exceeding upper threshold
@@ -607,8 +598,6 @@ These metrics cover both:
 - **`rollout_is_masked_fraction`**: Fraction of tokens rejected via response_mask (mask mode only)
   - **Important**: Tokens are rejected by setting `response_mask=0`, NOT by modifying IS weights
   - **IS weights in mask mode**: Safety-bounded ratios preserved (no threshold clamping)
-  - **Ideal value**: < 0.1 (less than 10% rejected)
-  - **Warning**: > 0.3 means losing too much data
 
 - **`rollout_is_seq_masked_fraction`**: Fraction of sequences with at least one rejected token
   - Shows sequence-level impact of rejection sampling
@@ -628,11 +617,9 @@ In bypass/pure IS mode, metrics measure the drift between π_θ and π_rollout d
   - Lower values indicate higher model confidence
 
 - **`rollout_ppl`**: Perplexity of rollout policy π_rollout (e.g., vLLM BF16)
-  - Should be close to `training_ppl` if policies match well
 
 - **`ppl_ratio`**: Ratio of training PPL to rollout PPL
   - **Formula**: `exp(mean(log(training_ppl / rollout_ppl)))`
-  - **Ideal value**: Close to 1.0
   - **Meaning**: > 1.0 means training is less confident than rollout
 
 - **`training_log_ppl`**: Log perplexity of training policy
@@ -642,7 +629,6 @@ In bypass/pure IS mode, metrics measure the drift between π_θ and π_rollout d
 
 - **`log_ppl_diff`**: Mean difference in log perplexities
   - **Formula**: `mean(log_ppl_rollout - log_ppl_training)`
-  - **Ideal value**: Close to 0.0
   - Sign indicates which policy is more confident
 
 - **`log_ppl_abs_diff`**: Mean absolute log perplexity difference
@@ -655,8 +641,6 @@ In bypass/pure IS mode, metrics measure the drift between π_θ and π_rollout d
 
 - **`kl`**: KL divergence KL(π_rollout || π_training)
   - **Formula**: `mean(log_prob_rollout - log_prob_training)`
-  - **Ideal value**: Close to 0.0 (policies match)
-  - **Warning**: > 0.1 indicates significant off-policy gap
   - **Note**: Can be negative (rollout is less confident)
 
 - **`k3_kl`**: K3 KL estimator
@@ -667,15 +651,11 @@ In bypass/pure IS mode, metrics measure the drift between π_θ and π_rollout d
 - **`chi2_token`**: Chi-squared divergence at token level
   - **Formula**: `mean(ratio²) - 1` where ratio = π_training/π_rollout
   - Measures second moment of IS weight distribution
-  - **Ideal value**: Close to 0.0 (policies match)
-  - **Warning**: > 1.0 indicates severe off-policy distribution shift
   - Always non-negative
 
 - **`chi2_seq`**: Chi-squared divergence at sequence level
   - **Formula**: `mean((∏_t ratio_t)²) - 1`
   - Sequence-level second moment of IS weights
-  - **Ideal value**: Close to 0.0
-  - **Warning**: > 1.0 indicates severe sequence-level distribution shift
   - More sensitive than token-level chi-squared
 
 #### **Example: Accessing Metrics in Code**
