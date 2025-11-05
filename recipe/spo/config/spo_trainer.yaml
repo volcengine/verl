@@ -10,3 +10,11 @@ defaults:
 
 trainer:
   debug: false
+  spo:
+    enable: False
+    offline_values: null
+    offline_N: 8
+    rho:
+      type: "kl"
+      value: 0.875
+      clip_lower: 0.875
