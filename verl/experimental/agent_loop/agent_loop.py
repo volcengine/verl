@@ -13,6 +13,7 @@
 # limitations under the License.
 import asyncio
 import heapq
+import json
 import logging
 import os
 import random
@@ -45,6 +46,54 @@ from verl.workers.rollout.replica import TokenOutput, get_rollout_replica_class
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
+
+
+def resolve_config_path(config_path: str) -> str:
+    """Resolve agent loop configuration file path.
+    
+    In multi-node Ray training, relative paths may not resolve correctly
+    because the working directory on remote nodes can differ from the driver node.
+    This function resolves relative paths by checking multiple locations in order:
+    1. If already absolute, return as-is
+    2. Try current working directory
+    3. Try relative to verl package installation (project root)
+    
+    Args:
+        config_path: Configuration file path (relative or absolute)
+        
+    Returns:
+        Absolute path to the configuration file
+        
+    Raises:
+        FileNotFoundError: If the configuration file cannot be found
+    """
+    # Return absolute paths unchanged
+    if os.path.isabs(config_path):
+        return config_path
+    
+    # Try current working directory first
+    cwd_path = os.path.abspath(config_path)
+    if os.path.exists(cwd_path):
+        return cwd_path
+    
+    # Try relative to verl project root (where verl package is installed)
+    try:
+        import verl
+        verl_package_dir = os.path.dirname(verl.__file__)
+        # verl package is at <project_root>/verl, so project root is parent dir
+        project_root = os.path.dirname(verl_package_dir)
+        project_path = os.path.join(project_root, config_path)
+        if os.path.exists(project_path):
+            return project_path
+    except (ImportError, AttributeError):
+        pass  # verl not installed or __file__ not available
+    
+    # File not found - raise clear error
+    raise FileNotFoundError(
+        f"Agent loop configuration file not found: {config_path}. "
+        f"Tried current directory and verl project root."
+    )
+
 
 
 class AsyncLLMServerManager:
@@ -281,7 +330,8 @@ class AgentLoopWorkerBase:
 
         agent_loop_config_path = config.actor_rollout_ref.rollout.agent.agent_loop_config_path
         if agent_loop_config_path:
-            agent_loop_configs = OmegaConf.load(agent_loop_config_path)
+            resolved_path = resolve_config_path(agent_loop_config_path)
+            agent_loop_configs = OmegaConf.load(resolved_path)
             for agent_loop_config in agent_loop_configs:
                 _agent_loop_registry[agent_loop_config.name] = agent_loop_config
         if self.config.actor_rollout_ref.model.get("custom_chat_template", None) is not None:
