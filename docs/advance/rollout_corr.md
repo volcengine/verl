@@ -920,25 +920,25 @@ algorithm:
 ### Example 5: Bypass Mode
 ```yaml
 algorithm:
-  bypass_old_logprob_for_rollout: true   # Skip old_log_prob computation
-  use_pure_rollout_correction: false     # Use bypass mode: PPO with rollout_log_prob as old_log_prob
   rollout_correction:
     rollout_is: token
     rollout_is_threshold: 2.0
     rollout_rs: token
     rollout_rs_threshold: 2.0
+    bypass_old_logprob_for_rollout: true   # Skip old_log_prob computation
+    use_pure_rollout_correction: false     # Use bypass mode: PPO with rollout_log_prob as old_log_prob
 ```
 **Skips expensive `actor.compute_log_prob()` forward pass**
 
 ### Example 6: Pure Policy Gradient Mode
 ```yaml
 algorithm:
-  bypass_old_logprob_for_rollout: true   # Required for pure mode
-  use_pure_rollout_correction: true      # Use pure policy gradient with IS
   rollout_correction:
-    rollout_is: token                    # Explicit IS correction in loss
+    rollout_is: token                      # Explicit IS correction in loss
     rollout_is_threshold: 2.0
-    rollout_rs: null                     # Optional: can add rejection sampling
+    rollout_rs: null                       # Optional: can add rejection sampling
+    bypass_old_logprob_for_rollout: true   # Required for pure mode
+    use_pure_rollout_correction: true      # Use pure policy gradient with IS
 ```
 **No PPO clipping, pure policy gradient with IS correction**
 

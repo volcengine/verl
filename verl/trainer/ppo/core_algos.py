@@ -1678,3 +1678,69 @@ def compute_policy_loss_with_rollout_correction(
     # Return tuple matching compute_policy_loss signature: (loss, clip_fraction, kl, clip_fraction_lower)
     # Note: Algorithm metrics (rollout_metrics) should be handled separately by caller
     return pg_loss, clip_fraction, kl_divergence, clip_fraction
+
+
+@register_policy_loss("rollout_correction")
+def compute_policy_loss_rollout_correction_wrapper(
+    old_log_prob: torch.Tensor,
+    log_prob: torch.Tensor,
+    advantages: torch.Tensor,
+    response_mask: torch.Tensor,
+    loss_agg_mode: str = "token-mean",
+    config: Optional[DictConfig | AlgoConfig] = None,
+    rollout_is_weights: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Wrapper for compute_policy_loss_with_rollout_correction to match PolicyLossFn interface.
+
+    This function is used when algorithm.rollout_correction.use_pure_rollout_correction=True.
+    In this mode, the trainer has already set old_log_prob=rollout_log_prob (bypass mode).
+
+    Args:
+        old_log_prob: In bypass mode, this is actually rollout_log_prob
+        log_prob: Current policy log probabilities
+        advantages: Advantage estimates
+        response_mask: Valid token mask
+        loss_agg_mode: Loss aggregation mode
+        config: Actor config containing rollout_correction settings
+        rollout_is_weights: Pre-computed IS weights (ignored, computed internally)
+
+    Returns:
+        Tuple of (loss, clip_fraction, kl, clip_fraction_lower)
+    """
+    assert config is not None, "config is required for rollout_correction loss mode"
+
+    # Extract rollout_correction config
+    # In ray_trainer, when use_pure_rollout_correction=True, the rollout_correction config
+    # is embedded in actor config's policy_loss field
+    rollout_corr_config = config.policy_loss.get("rollout_correction", None) if hasattr(config, "policy_loss") else None
+
+    if rollout_corr_config is None:
+        raise ValueError(
+            "rollout_correction config not found in policy_loss. "
+            "When using loss_mode='rollout_correction', ensure rollout_correction config is passed."
+        )
+
+    # Extract parameters
+    rollout_is = rollout_corr_config.get("rollout_is", None)
+    rollout_is_threshold = rollout_corr_config.get("rollout_is_threshold", 2.0)
+    rollout_rs = rollout_corr_config.get("rollout_rs", None)
+    rollout_rs_threshold = rollout_corr_config.get("rollout_rs_threshold", None)
+    rollout_rs_threshold_lower = rollout_corr_config.get("rollout_rs_threshold_lower", None)
+    rollout_token_veto_threshold = rollout_corr_config.get("rollout_token_veto_threshold", None)
+
+    # Call the actual implementation
+    # In bypass mode, old_log_prob IS rollout_log_prob
+    return compute_policy_loss_with_rollout_correction(
+        rollout_log_prob=old_log_prob,  # This is rollout_log_prob in bypass mode
+        log_prob=log_prob,
+        advantages=advantages,
+        eos_mask=response_mask,
+        loss_agg_mode=loss_agg_mode,
+        loss_scale_factor=1.0,
+        rollout_is=rollout_is,
+        rollout_is_threshold=rollout_is_threshold,
+        rollout_rs=rollout_rs,
+        rollout_rs_threshold=rollout_rs_threshold,
+        rollout_rs_threshold_lower=rollout_rs_threshold_lower,
+        rollout_token_veto_threshold=rollout_token_veto_threshold,
+    )
