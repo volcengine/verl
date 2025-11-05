@@ -434,6 +434,9 @@ class MegatronPPOActor(BasePPOActor):
             response_length = responses.size(1)
             response_mask = data["response_mask"].to(bool)
             loss_agg_mode = self.config.loss_agg_mode
+            n_samples = response_mask.shape[0]
+            loss_scale_factor = n_samples / self.config.ppo_mini_batch_size
+            loss_scale_factor *= n_micro_batch  # for megatron backend
             # compute policy loss
             log_prob = log_probs[:, -response_length - 1 : -1].contiguous()
             ret_entropy = None
@@ -469,13 +472,13 @@ class MegatronPPOActor(BasePPOActor):
 
                 stats.update(
                     {
-                        "actor/pg_loss": pg_loss.detach().item(),
+                        "actor/pg_loss": pg_loss.detach().item() * loss_scale_factor,
                         "actor/pg_clipfrac": pg_clipfrac.detach().item(),
                         "actor/ppo_kl": ppo_kl.detach().item(),
                         "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
                     }
                 )
-                policy_loss = pg_loss
+                policy_loss = pg_loss * loss_scale_factor
 
             if calculate_entropy:
                 entropy = output["entropy"][:, -response_length - 1 : -1].contiguous()
@@ -494,6 +497,7 @@ class MegatronPPOActor(BasePPOActor):
                     # compute kl loss
                     kld = kl_penalty(logprob=log_prob, ref_logprob=ref_log_prob, kl_penalty=self.config.kl_loss_type)
                     kl_loss = agg_loss(loss_mat=kld, loss_mask=response_mask, loss_agg_mode=self.config.loss_agg_mode)
+                    kl_loss = kl_loss * loss_scale_factor
 
                     policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
                     metrics["actor/kl_loss"] = kl_loss.detach().item()
