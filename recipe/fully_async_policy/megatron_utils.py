@@ -45,7 +45,6 @@ def copy_megatron_model_to_cpu(models):
                     # Copy parameter data to CPU
                     if buffer.param_data.storage().size() > 0:
                         buffer_state['param_data'] = buffer.param_data.data.cpu().clone().pin_memory()
-                        buffer_state['param_data_size'] = buffer.param_data.storage().size()
                     
                     buffer_list.append(buffer_state)
                 buffer_states.append(buffer_list)
@@ -59,7 +58,7 @@ def copy_megatron_model_to_cpu(models):
             model_state = {}
             for name, param in model_chunk.named_parameters():
                 param_state = {
-                    'data': param.data.cpu().clone()
+                    'data': param.data.cpu().clone().pin_memory()
                 }
                 model_state[name] = param_state
             
