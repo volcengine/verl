@@ -112,6 +112,16 @@ if is_version_ge(pkg="vllm", minver="0.7.3"):
     VLLMHijack.hijack()
 
 
+def _check_vllm_version_for_sleep_level():
+    # https://github.com/vllm-project/vllm/issues/25171
+    minver = "0.11.0"
+    current_version = get_version("vllm")
+    if not current_version:
+        logger.warning("Could not determine vLLM version, assuming an older version for sleep_level configuration.")
+        return False
+    return vs.parse(current_version) >= vs.parse(minver)
+
+
 class vLLMRollout(BaseRollout):
     def __init__(
         self,
@@ -521,18 +531,7 @@ class vLLMAsyncRollout(BaseRollout):
             else {}
         )
 
-        def check_vllm_version():
-            # https://github.com/vllm-project/vllm/issues/25171
-            minver = "0.11.0"
-            current_version = get_version("vllm")
-            if not current_version:
-                logger.warning(
-                    "Could not determine vLLM version, assuming an older version for sleep_level configuration."
-                )
-                return False
-            return vs.parse(current_version) >= vs.parse(minver)
-
-        if config.layered_summon or (config.expert_parallel_size > 1 and not check_vllm_version()):
+        if config.layered_summon or (config.expert_parallel_size > 1 and not _check_vllm_version_for_sleep_level()):
             logger.warning("Setting the sleep level to 1 may cause a memory overflow.")
             self.sleep_level = 1
         else:
