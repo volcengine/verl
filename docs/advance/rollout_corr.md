@@ -135,7 +135,7 @@ actor_rollout_ref:
 
 ### **Core Implementation**
 
-- `verl/trainer/ppo/rollout_corr_helper.py` - Contains `compute_rollout_correction_and_rejection_mask()` and `compute_mismatch_metrics()`
+- `verl/trainer/ppo/rollout_corr_helper.py` - Contains `compute_rollout_correction_and_rejection_mask()` and `compute_offpolicy_metrics()`
 - `verl/trainer/ppo/core_algos.py` - Rollout Correction integration with PPO and pure IS mode (`compute_policy_loss_with_rollout_correction()`)
 - `verl/trainer/ppo/ray_trainer.py` - Bypass mode implementation (skips `old_log_prob` computation)
 - `verl/workers/actor/dp_actor.py` - Mode selection logic and metrics collection
@@ -161,7 +161,6 @@ actor_rollout_ref:
 
 - `tests/trainer/ppo/test_rollout_corr.py` - Unit tests for IS/RS mechanisms
 - `tests/trainer/ppo/test_rollout_corr_integration.py` - Integration tests
-- `tests/trainer/ppo/test_bypass_rollout_correction.py` - Tests for bypass and pure IS modes
 
 ## Configuration Parameters
 

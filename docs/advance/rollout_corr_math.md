@@ -85,9 +85,6 @@ where $r_t(\theta) = \frac{\pi_\theta(a_t|s_t)}{\mu(a_t|s_t)}$ and $\epsilon$ is
 **Key properties:**
 - **Two policies**: $\mu$ (reference for clipping) and $\pi_\theta$ (being updated)
 - **Trust region via clipping**: Limits policy update magnitude via ratio $r_t(\theta) = \frac{\pi_\theta}{\mu}$
-- **On-policy assumption**: Original PPO assumes behavior policy $\mu$ is the current policy at data collection time
-
-**Limitation:** When $\mu$ differs from the current policy at collection time, the clipping objective does not account for the distribution shift.
 
 ### 1.3 Decoupled PPO: Achieving Batch Size Invariance
 
@@ -140,7 +137,7 @@ The policy used for data collection. This is the behavior distribution $\mu$ fro
 The reference policy for PPO clipping. This is the "proximal policy" from decoupled PPO theory.
 
 - **When created**:
-  - **Standard mode**: Computed at start of training epoch via `actor.compute_log_prob()`
+  - **Decoupled mode**: Computed at start of training epoch via `actor.compute_log_prob()`
   - **Bypass mode**: Set equal to $\pi_{\text{rollout}}$ (skips separate computation)
 - **Purpose**:
   - Anchor point for PPO clipping (controls policy update size)
@@ -157,16 +154,16 @@ The policy being actively optimized during training.
 
 The three-policy framework can operate in two modes:
 
-**Standard Mode (Three Policies)**
+**Decoupled Mode (Three Policies)**
 - Computes $\pi_{\text{old}}$ separately at the start of each training epoch
-- **Algorithm**: Full decoupled PPO with three policies
+- **Algorithm**: Full decoupled PPO with three policies (mathematically correct)
 - **Properties**: Achieves batch size invariance; separately corrects Drift 1 (rollout→old) and Drift 2 (old→current)
 
 **Bypass Mode (Two Policies)**
 - Sets $\pi_{\text{old}} = \pi_{\text{rollout}}$ (skips separate computation)
-- **Algorithm**: Degenerates to either standard PPO or off-policy REINFORCE
-- **Assumption**: $\pi_{\text{rollout}} \approx \pi_{\text{old}}$ (e.g., recent checkpoint, minor implementation differences)
-- **Properties**: Faster (skips `actor.compute_log_prob()` call)
+- **Algorithm**: Uses $\pi_{\text{rollout}}$ as both behavior policy and proximal policy (mathematically correct)
+- **Key difference**: Proximal policy equals behavior policy, so no IS correction needed between them
+- **Properties**: Faster (skips `actor.compute_log_prob()` call); does not achieve batch size invariance
 
 ### 2.3 Two Distribution Shifts
 
@@ -245,17 +242,17 @@ $$
 - **Always uses bypass mode**: No $\pi_{\text{old}}$ computation
 - **Fast**: Single forward pass for IS weights
 
-**Implementation:** `compute_policy_loss_with_rollout_correction()` in [core_algos.py](verl/trainer/ppo/core_algos.py#L1537-L1681)
+**Implementation:** `compute_policy_loss_with_rollout_correction()` in [core_algos.py](../../verl/trainer/ppo/core_algos.py#L1537-L1681)
 
 ---
 
-### 3.2 Standard PPO Methods
+### 3.2 Two-Policy PPO Methods
 
-These methods apply PPO clipping without importance sampling for off-policy correction.
+These methods use two policies without importance sampling between behavior and proximal policies.
 
-#### 3.2.1 Standard PPO (On-Policy)
+#### 3.2.1 Incorrect LLM-RL Implementation (PPO Without Rollout Correction)
 
-**Theory:** Original PPO with on-policy assumption ($\mu = \pi_{\text{old}}$).
+**Theory:** Naive LLM-RL implementation that incorrectly applies PPO by ignoring the actual rollout policy and assuming $\mu = \pi_{\text{old}}$.
 
 **Loss Function:**
 
@@ -266,11 +263,13 @@ $$
 where $r_t(\theta) = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{old}}(a_t|s_t)}$.
 
 **Properties:**
-- **Algorithm**: Standard PPO
+- **Algorithm**: Common but incorrect LLM-RL implementation (mathematically wrong when $\pi_{\text{rollout}} \neq \pi_{\text{old}}$)
 - **Policies**: Two ($\pi_{\text{old}}$, $\pi_\theta$)
-- **Ignores $\pi_{\text{rollout}}$**: Assumes on-policy data
+- **Ignores $\pi_{\text{rollout}}$**: Uses $\pi_{\text{old}}$ as behavior policy instead of actual $\pi_{\text{rollout}}$
+- **Policy mismatch**: This is the typical case in LLM-RL - rollout uses different precision/backend/checkpoint than training, causing $\pi_{\text{rollout}} \neq \pi_{\text{old}}$ even with same model weights
+- **Not PPO's fault**: PPO itself is correct; the issue is the incorrect assumption that $\pi_{\text{old}} = \pi_{\text{rollout}}$ in LLM-RL implementations
 
-**Implementation:** `compute_policy_loss()` in [core_algos.py](verl/trainer/ppo/core_algos.py#L812-L884)
+**Implementation:** `compute_policy_loss()` in [core_algos.py](../../verl/trainer/ppo/core_algos.py#L812-L884)
 
 #### 3.2.2 PPO Bypass (ppo_is_bypass)
 
@@ -294,9 +293,9 @@ $$
 where $r_t(\theta) = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}$ (clips against rollout policy).
 
 **Properties:**
-- **Algorithm**: Standard PPO (two policies)
+- **Algorithm**: PPO with $\pi_{\text{rollout}}$ as proximal policy (two policies)
 - **Policies**: Two ($\pi_{\text{rollout}}$, $\pi_\theta$)
-- **No IS correction**: Assumes $\pi_{\text{rollout}} \approx \pi_{\text{old}}$
+- **No IS correction needed**: Uses actual behavior policy $\pi_{\text{rollout}}$ as proximal policy (mathematically correct)
 - **PPO clips against rollout**: Trust region relative to data collection policy
 - **Fast**: Skips `actor.compute_log_prob()` call
 
@@ -328,13 +327,13 @@ where:
 
 **Properties:**
 - **Algorithm**: Decoupled PPO
-- **Policies**: Three ($\pi_{\text{rollout}}$, $\pi_{\text{old}}$, $\pi_\theta$) in standard mode
+- **Policies**: Three ($\pi_{\text{rollout}}$, $\pi_{\text{old}}$, $\pi_\theta$) in decoupled mode
 - **Double correction**: IS weights correct Drift 1, PPO clips correct Drift 2
 - **Per-token truncation**: Stable IS weight computation
 
 **Implementation:**
-- IS weights: `compute_rollout_correction_weights()` in [rollout_corr_helper.py](verl/trainer/ppo/rollout_corr_helper.py#L325-L402)
-- Loss: `compute_policy_loss()` in [core_algos.py](verl/trainer/ppo/core_algos.py#L812-L884)
+- IS weights: `compute_rollout_correction_weights()` in [rollout_corr_helper.py](../../verl/trainer/ppo/rollout_corr_helper.py#L325-L402)
+- Loss: `compute_policy_loss()` in [core_algos.py](../../verl/trainer/ppo/core_algos.py#L812-L884)
 
 #### 3.3.2 Sequence-Level IS (seq_is)
 
@@ -358,9 +357,8 @@ $$w_{\text{seq}} = \min\left( \prod_{t \in T} \rho_t, C_{\text{IS}} \right) = \m
 
 **Properties:**
 - **Algorithm**: Decoupled PPO
-- **Policies**: Three ($\pi_{\text{rollout}}$, $\pi_{\text{old}}$, $\pi_\theta$) in standard mode
+- **Policies**: Three ($\pi_{\text{rollout}}$, $\pi_{\text{old}}$, $\pi_\theta$) in decoupled mode
 - **Sequence-level IS**: Uses product of all token ratios
-- **Higher variance**: Compared to token-level truncation
 
 #### 3.3.3 Mixed IS + Rejection Sampling (seq_is_rs / seq_mis)
 
@@ -390,7 +388,7 @@ where:
 - **Double mechanism**: IS reweighting + rejection filtering
 - **Lower effective sample size**: Rejects outlier sequences
 
-**Implementation:** `compute_rollout_rejection_mask()` in [rollout_corr_helper.py](verl/trainer/ppo/rollout_corr_helper.py#L80-L188)
+**Implementation:** `compute_rollout_rejection_mask()` in [rollout_corr_helper.py](../../verl/trainer/ppo/rollout_corr_helper.py#L80-L188)
 
 ---
 
@@ -452,7 +450,7 @@ $$
 - Independent of IS/RS settings
 - Typical values: $10^{-4}$ to $10^{-6}$
 
-**Implementation:** [rollout_corr_helper.py](verl/trainer/ppo/rollout_corr_helper.py#L620-L640)
+**Implementation:** [rollout_corr_helper.py](../../verl/trainer/ppo/rollout_corr_helper.py#L620-L640)
 
 ---
 
@@ -520,7 +518,7 @@ $$
 - $\chi^2 = 0$: Policies are identical
 - $\chi^2 > 0$: Higher values indicate more severe off-policy distribution shift
 
-**Implementation:** `compute_offpolicy_metrics()` in [rollout_corr_helper.py](verl/trainer/ppo/rollout_corr_helper.py#L670-L776)
+**Implementation:** `compute_offpolicy_metrics()` in [rollout_corr_helper.py](../../verl/trainer/ppo/rollout_corr_helper.py#L670-L776)
 
 ---
 
@@ -528,40 +526,40 @@ $$
 
 ### 6.1 Method Summary Table
 
-| Method | Theory | Policies | PPO Clip | IS Correction | Bypass | Speed |
-|--------|--------|----------|----------|---------------|--------|-------|
-| `pure_is` | Off-policy REINFORCE | 2 (rollout, θ) | ❌ | ✅ Seq-level | Always | **Fast** |
-| Standard PPO | PPO | 2 (old, θ) | ✅ | ❌ | N/A | Standard |
-| `ppo_is_bypass` | PPO | 2 (rollout, θ) | ✅ | ❌ | Always | **Fast** |
-| `token_is` | Decoupled PPO | 3 (rollout, old, θ) | ✅ | ✅ Token-level | ❌ | Standard |
-| `seq_is` | Decoupled PPO | 3 (rollout, old, θ) | ✅ | ✅ Seq-level | ❌ | Standard |
-| `seq_is_rs` | Decoupled PPO + RS | 3 (rollout, old, θ) | ✅ | ✅ + Rejection | ❌ | Standard |
-| `geo_rs` | PPO + Geo RS | 3 (rollout, old, θ) | ✅ | Rejection only | ❌ | Standard |
+| Method | Theory | Policies | PPO Clip | IS Correction | Correctness | Speed |
+|--------|--------|----------|----------|---------------|-------------|-------|
+| `pure_is` | Off-policy REINFORCE | 2 (rollout, θ) | ❌ | ✅ Seq-level | ✅ Correct | **Fast** |
+| Naive LLM-RL | Incorrect PPO usage | 2 (old, θ) | ✅ | ❌ | ⚠️ Incorrect | Standard |
+| `ppo_is_bypass` | PPO (rollout as prox) | 2 (rollout, θ) | ✅ | ❌ | ✅ Correct | **Fast** |
+| `token_is` | Decoupled PPO | 3 (rollout, old, θ) | ✅ | ✅ Token-level | ✅ Correct | Standard |
+| `seq_is` | Decoupled PPO | 3 (rollout, old, θ) | ✅ | ✅ Seq-level | ✅ Correct | Standard |
+| `seq_is_rs` | Decoupled PPO + RS | 3 (rollout, old, θ) | ✅ | ✅ + Rejection | ✅ Correct | Standard |
+| `geo_rs` | Decoupled PPO + Geo RS | 3 (rollout, old, θ) | ✅ | Rejection only | ✅ Correct | Standard |
 
 ### 6.2 Method Characteristics by Scenario
 
 **Off-policy severity:**
-- **Negligible** (same checkpoint, minor differences): `ppo_is_bypass` and standard PPO assume negligible off-policy gap
-- **Moderate** (async workers, slight staleness): `token_is` provides per-token IS correction
+- **Negligible** (same checkpoint, minor differences): `ppo_is_bypass` uses $\pi_{\text{rollout}}$ as proximal policy (mathematically correct); naive LLM-RL implementations use $\pi_{\text{old}}$ instead of $\pi_{\text{rollout}}$ (mathematically incorrect when $\pi_{\text{rollout}} \neq \pi_{\text{old}}$)
+- **Moderate** (async workers, slight staleness): `token_is` provides per-token IS correction with separate proximal policy
 - **Severe** (replay buffers, old data): `seq_is` and `seq_is_rs` provide sequence-level IS correction with optional rejection sampling
 
 **Algorithm properties:**
-- **Batch size invariance**: Standard mode with three policies (`token_is`, `seq_is`) achieves batch size invariance
+- **Batch size invariance**: Decoupled mode with three policies (`token_is`, `seq_is`) achieves batch size invariance
 - **Computational efficiency**: Bypass mode (`ppo_is_bypass`) skips `old_log_prob` computation
 - **Pure policy gradient**: `pure_is` implements off-policy REINFORCE without PPO clipping
 
-### 6.3 Standard Mode vs Bypass Mode
+### 6.3 Decoupled Mode vs Bypass Mode
 
-**Standard mode** (computes `old_log_prob` separately):
-- Implements full decoupled PPO with three policies
+**Decoupled mode** (computes `old_log_prob` separately):
+- Implements full decoupled PPO with three policies (mathematically correct)
 - Separately measures and corrects Drift 1 (rollout→old) and Drift 2 (old→current)
 - Achieves batch size invariance and efficient stale data utilization
 - Enables accurate off-policy metrics monitoring
 
 **Bypass mode** (sets $\pi_{\text{old}} = \pi_{\text{rollout}}$):
-- Assumption: $\pi_{\text{rollout}} \approx \pi_{\text{old}}$ (recent checkpoint, minor implementation differences)
-- Computational efficiency: Skips separate computation
-- Does not achieve batch size invariance
+- Uses $\pi_{\text{rollout}}$ as both behavior policy and proximal policy (mathematically correct)
+- Computational efficiency: Skips separate `old_log_prob` computation
+- Does not achieve batch size invariance (proximal policy depends on data collection)
 
 ---
 
@@ -581,5 +579,5 @@ $$
 - **Schulman, J., Wolski, F., Dhariwal, P., Radford, A., & Klimov, O. (2017).** "Proximal policy optimization algorithms." *arXiv preprint arXiv:1707.06347.* https://arxiv.org/abs/1707.06347
 - **Hilton, J., Cobbe, K., & Schulman, J. (2021).** "Batch size-invariance for policy optimization." *arXiv preprint arXiv:2110.00641.* https://arxiv.org/abs/2110.00641
   - Introduced decoupled PPO: separating proximal policy (for controlling policy update size) from behavior policy (for off-policy correction) to achieve batch size invariance
-- **Li, Y.** "When Speed Kills Stability: Demystifying RL Collapse from the Training-Inference Mismatch"
+- **"When Speed Kills Stability: Demystifying RL Collapse from the Training-Inference Mismatch"**
   - Blog post: https://yingru.notion.site/When-Speed-Kills-Stability-Demystifying-RL-Collapse-from-the-Training-Inference-Mismatch-271211a558b7808d8b12d403fd15edda
