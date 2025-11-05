@@ -68,7 +68,7 @@ jobs:
       NO_PROXY: "localhost,127.0.0.1,hf-mirror.com"
       HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
-      TORCH_COMPILE: 0
+      TORCH_COMPILE_DISABLE: 1
       TORCHINDUCTOR_DISABLE: 1
     container:
       image: verl-ci-cn-beijing.cr.volces.com/verlai/verl:vllm011.dev7
