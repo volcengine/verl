@@ -269,8 +269,9 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
                 return True
 
             # Execute on all nodes to ensure consistency
+            cpu_count = int(ray.cluster_resources().get('CPU', 1))
             write_tasks = [write_config_file.remote(prometheus_config, prometheus_config_path)
-                           for _ in range(ray.cluster_resources().get('CPU', 1))]
+                           for _ in range(cpu_count)]
             await asyncio.gather(*[asyncio.wrap_future(task.future()) for task in write_tasks])
 
             logger.info(
@@ -301,7 +302,7 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
             reload_url = f"http://{ip_address}:{port}/-/reload"
             try:
                 result = subprocess.run(
-                    ["curl", "-X", "GET", reload_url],
+                    ["curl", "-X", "POST", reload_url],
                     capture_output=True,
                     text=True,
                     timeout=10
@@ -331,7 +332,7 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
 
             # Get first node (using the first available resource)
 
-        node_info = await asyncio.wrap_future(get_node_info_and_reload.remote(prometheus_port).future())
+        node_info = await asyncio.wrap_future(get_node_info_and_reload.remote().future())
 
         if node_info["success"]:
             logger.info(f"Successfully reloaded Prometheus on node {node_info['ip']} via {node_info['url']}")
