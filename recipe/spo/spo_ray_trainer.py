@@ -646,6 +646,8 @@ class RayPPOTrainer:
         # dump generations
         val_data_dir = self.config.trainer.get("validation_data_dir", None)
         if val_data_dir:
+            # pop "acc" from `reward_extra_infos_dict`
+            reward_extra_infos_dict.pop("acc", None)
             self._dump_generations(
                 inputs=sample_inputs,
                 outputs=sample_outputs,

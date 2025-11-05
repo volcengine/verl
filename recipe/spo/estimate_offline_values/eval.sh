@@ -45,6 +45,7 @@ actor_lr=1e-6
 train_batch_size=64
 val_batch_size=96
 if [ "$DEBUG" = "True" ]; then
+    train_batch_size=16
     val_batch_size=16
 fi
 ppo_mini_batch_size=16
