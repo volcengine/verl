@@ -80,11 +80,16 @@ def resolve_config_path(config_path: str) -> str:
     try:
         import verl
         verl_package_dir = os.path.dirname(verl.__file__)
-        # verl package is at <project_root>/verl, so project root is parent dir
-        project_root = os.path.dirname(verl_package_dir)
-        project_path = os.path.join(project_root, config_path)
-        if os.path.exists(project_path):
-            return project_path
+        # Strategy 1: For development/editable installs.
+        # Assumes a layout like: <project_root>/verl and <project_root>/recipe
+        dev_path = os.path.join(os.path.dirname(verl_package_dir), config_path)
+        if os.path.exists(dev_path):
+            return dev_path
+        # Strategy 2: For standard package installations.
+        # Assumes `recipe` is a data folder inside the `verl` package.
+        install_path = os.path.join(verl_package_dir, config_path)
+        if os.path.exists(install_path):
+            return install_path
     except (ImportError, AttributeError):
         pass  # verl not installed or __file__ not available
     
@@ -93,7 +98,6 @@ def resolve_config_path(config_path: str) -> str:
         f"Agent loop configuration file not found: {config_path}. "
         f"Tried current directory and verl project root."
     )
-
 
 
 class AsyncLLMServerManager:
