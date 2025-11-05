@@ -182,7 +182,7 @@ class TaskRunner:
             global_pool_id: [config.trainer.n_gpus_per_node] * config.trainer.nnodes,
         }
         # TODO Here you can use the new registration method to support dynamic registration of roles
-        if config.reward_model.enable_resource_pool:
+        if config.reward_model.enable_resource_pool and config.actor_rollout_ref.rollout.mode != "async":  # with async rollouts, the reward model pool is created inside the reward loop
             if config.reward_model.n_gpus_per_node <= 0:
                 raise ValueError("config.reward_model.n_gpus_per_node must be greater than 0")
             if config.reward_model.nnodes <= 0:
@@ -200,6 +200,10 @@ class TaskRunner:
 
     def add_reward_model_worker(self, config):
         """Add reward model worker if enabled."""
+        if config.actor_rollout_ref.rollout.mode == "async":
+            # Async rollout mode detected, skipping reward model worker addition as it will be initialized in the agent loop.
+            return
+
         from verl.trainer.ppo.ray_trainer import Role
 
         if config.reward_model.enable:
