@@ -468,9 +468,9 @@ Within each training mode, you can independently control **two correction mechan
 | `rollout_is` | `rollout_rs` | Behavior |
 |--------------|--------------|----------|
 | `null` | `null` | **Disabled**: No computation, no metrics, no rejection |
-| `null` | `"token"` or `"sequence"` | **Rejection only**: Compute metrics, NO weight correction, YES rejection sampling |
+| `null` | `"token"`, `"sequence"`, or `"geometric"` | **Rejection only**: Compute metrics, NO weight correction, YES rejection sampling |
 | `"token"` or `"sequence"` | `null` | **IS weights only**: Weight correction enabled, NO rejection sampling |
-| `"token"` or `"sequence"` | `"token"` or `"sequence"` | **Full correction**: Both weight correction and rejection sampling enabled |
+| `"token"` or `"sequence"` | `"token"`, `"sequence"`, or `"geometric"` | **Full correction**: Both weight correction and rejection sampling enabled |
 
 ### Key Insights
 
