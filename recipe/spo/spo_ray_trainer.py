@@ -21,12 +21,13 @@ This trainer supports model-agonistic model initialization with huggingface
 
 import json
 import os
+import random
 import uuid
 from collections import defaultdict
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pprint import pprint
-from typing import Optional
+from typing import Dict, List, Optional
 
 import numpy as np
 import ray
@@ -529,7 +530,7 @@ class RayPPOTrainer:
         self.validation_generations_logger.log(self.config.trainer.logger, samples, self.global_steps)
 
     def _get_gen_batch(self, batch: DataProto) -> DataProto:
-        reward_model_keys = set({"data_source", "reward_model", "extra_info", "uid"}) & batch.non_tensor_batch.keys()
+        reward_model_keys = set({"data_source", "reward_model", "extra_info", "uid", "raw_prompt"}) & batch.non_tensor_batch.keys()
 
         # pop those keys for generation
         batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
@@ -1033,6 +1034,71 @@ class RayPPOTrainer:
         # Return unchanged batch and empty metrics if IS is disabled
         return batch, {}
 
+    def _get_spo_rho(
+        self, 
+        prompt2protodata: Dict[str, DataProto], 
+        prompt2log_probs: Dict[str, torch.Tensor],
+        prompt2D: Dict[str, torch.Tensor],
+        micro_prompts: List[str], 
+        spo_log_prob_batch_backup: DataProto
+    ) -> torch.Tensor:
+        """Calculate rho for alpha and beta updating."""
+        rho_metrics = {}
+
+        if self.config.trainer.spo.rho.type == "constant":
+            # Repeat a constant to len(micro_prompts) as a torch.Tensor
+            rho = torch.full((len(micro_prompts),), self.config.trainer.spo.rho.value, dtype=torch.float32)
+            D = torch.full((len(micro_prompts),), 0.0, dtype=torch.float32)
+            rho_metrics["spo/rho"] = rho.mean().item()
+            rho_metrics["spo/D"] = D.mean().item()
+            return rho, prompt2protodata, prompt2log_probs, prompt2D, rho_metrics
+        elif self.config.trainer.spo.rho.type == "kl":
+            # Extract past dataprotos of micro_prompts
+            past_dataprotos = []
+            first_sampled_number = 0
+            for pid_, p_ in enumerate(micro_prompts):
+                if p_ in prompt2protodata.keys():
+                    past_dataprotos.append(prompt2protodata[p_])
+                else:
+                    first_sampled_number += 1
+                    past_dataprotos.append(spo_log_prob_batch_backup.select_idxs([pid_]))
+            past_dataprotos = DataProto.concat(past_dataprotos)
+            response_mask = compute_response_mask(past_dataprotos)
+            first_sampled_ratio = first_sampled_number / len(micro_prompts)
+            rho_metrics["spo/first_sampled_ratio"] = first_sampled_ratio
+
+            cur_log_probs = self.actor_rollout_wg.compute_log_prob(past_dataprotos)
+            cur_log_probs = cur_log_probs.batch['old_log_probs']
+            old_log_probs = []
+            for pid_, p_ in enumerate(micro_prompts):
+                if p_ in prompt2log_probs.keys():
+                    old_log_probs.append(prompt2log_probs[p_])
+                else:
+                    old_log_probs.append(cur_log_probs[pid_].unsqueeze(0))
+            old_log_probs = torch.cat(old_log_probs, dim=0)  # (M, seq_len)
+
+            kl = (old_log_probs - cur_log_probs).abs()
+            D = masked_mean(kl, response_mask, axis=-1)  # (M,)
+            rho_metrics["spo/D"] = D.mean().item()
+            D_half = torch.as_tensor(0.06, dtype=D.dtype, device=D.device)
+            rho = torch.pow(2.0, -D / D_half)
+            rho_metrics["spo/rho"] = rho.mean().item()
+            rho_clipped = torch.clamp(rho, min=self.config.trainer.spo.rho.clip_lower, max=0.96)
+            rho_metrics["spo/rho_clipped"] = rho_clipped.mean().item()
+            rho_metrics["spo/rho_clip_ratio"] = (rho_clipped != rho).type(torch.float).mean().item()
+
+            # Update prompt2protodata and prompt2log_probs
+            new_log_probs = self.actor_rollout_wg.compute_log_prob(spo_log_prob_batch_backup)
+            for pid_, p_ in enumerate(micro_prompts):
+                prompt2protodata[p_] = spo_log_prob_batch_backup.select_idxs([pid_])
+                prompt2log_probs[p_] = new_log_probs.batch['old_log_probs'][pid_].unsqueeze(0)
+                prompt2D[p_] = D[pid_].item()
+            
+            return rho_clipped, prompt2protodata, prompt2log_probs, prompt2D, rho_metrics
+        else:
+            raise ValueError(f"Unknown rho type: {self.config.trainer.spo.rho.type}")
+
+
     def fit(self):
         """
         The training loop of PPO.
@@ -1086,8 +1152,88 @@ class RayPPOTrainer:
         )
         next_step_profile = False
 
+        if self.config.trainer.spo.enable:
+            prompt2scores = json.load(open(self.config.trainer.spo.offline_values))
+            Neff = self.config.trainer.spo.offline_N
+            prompt2scores = {k: [int(_ > 0) for _ in v] for k, v in prompt2scores.items()}
+            print(f"[DEBUG] Select {Neff} samples for each prompt to calculate offline values.")
+            full_prompts = list(prompt2scores.keys())
+            if Neff == 0:
+                prompt2alpha = {k: 0.5 for k in full_prompts}
+                prompt2beta = {k: 0.5 for k in full_prompts}
+            else:
+                for k, v in prompt2scores.items():
+                    if len(v) > Neff:
+                        prompt2scores[k] = random.sample(v, Neff)
+                N_init = 1 / (1 - self.config.trainer.spo.rho.clip_lower)
+                print(f"[DEBUG] N_init: {N_init}")
+                prompt2alpha = {k: N_init * (sum(prompt2scores[k]) + 0.5) / (Neff + 1) for k in full_prompts}
+                prompt2beta = {k: N_init * (Neff - sum(prompt2scores[k]) + 0.5) / (Neff + 1) for k in full_prompts}
+            prompt2protodata = {}
+            prompt2log_probs = {}
+            prompt2D = {}
+            prompt2sampled_number = defaultdict(int)
+
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
+                if self.config.trainer.spo.enable:
+                    EXPLORATION_EPSILON = 0.05
+
+                    prompt2phat = {k: float(prompt2alpha[k]) / float(prompt2alpha[k] + prompt2beta[k]) for k in full_prompts}
+                    prompt2weight = {k: ((prompt2phat[k] * (1.0 - prompt2phat[k])) ** 0.5) + EXPLORATION_EPSILON for k in full_prompts}
+
+                    items = []
+                    weights = []
+                    for i, p in enumerate(batch_dict["raw_prompt"]):
+                        p_str = p[0]["content"].strip()
+                        w = float(prompt2weight.get(p_str, 0.0))
+                        items.append(i)
+                        weights.append(w)
+
+                    M = len(items)
+                    if M > 0:
+                        weights_np = np.asarray(weights, dtype=np.float64)
+                        wsum = float(weights_np.sum())
+
+                        if wsum > 0.0:
+                            probs = weights_np / wsum
+                        else:
+                            probs = np.full(M, 1.0 / M, dtype=np.float64)
+
+                        probs = probs / probs.sum()
+
+                        target_bs = int(self.config.data.train_batch_size)
+                        replace = target_bs > M
+
+                        # 按概率采样得到 keep_idx（原始索引）
+                        selected_pos = np.random.choice(M, size=target_bs, replace=replace, p=probs)
+                        keep_idx = [items[j] for j in selected_pos.tolist()]
+                        keep_weights = weights_np[selected_pos]
+                        keep_probs = probs[selected_pos]
+
+                        print(f"[DEBUG] Weighted sampling: M={M}, target_bs={target_bs}, replace={replace}")
+                        print(f"[DEBUG] Sampled probs: min={keep_probs.min():.6f}, max={keep_probs.max():.6f}, mean={keep_probs.mean():.6f}")
+                        print(f"[DEBUG] Sampled weights: min={keep_weights.min():.6f}, max={keep_weights.max():.6f}, mean={keep_weights.mean():.6f}")
+
+                        if keep_idx:
+                            sampled_batch_dict = {}
+                            for k, v in batch_dict.items():
+                                try:
+                                    sampled_batch_dict[k] = v[keep_idx]
+                                    continue
+                                except Exception:
+                                    pass
+
+                                # 兼容 Python 原生 list/tuple
+                                if isinstance(v, (list, tuple)):
+                                    sampled_batch_dict[k] = type(v)(v[i] for i in keep_idx)
+                                else:
+                                    sampled_batch_dict[k] = v
+
+                            batch_dict = sampled_batch_dict
+                            print(f"[DEBUG] Final size of keep_idx: {len(keep_idx)}")
+                
+
                 metrics = {}
                 timing_raw = {}
 
@@ -1181,8 +1327,60 @@ class RayPPOTrainer:
                         else:
                             reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
 
+
+
+                    micro_prompts = batch.non_tensor_batch.get("raw_prompt", None)
+                    micro_prompts = [_[0]["content"].strip() for _ in micro_prompts]
+                    if self.config.trainer.spo.enable:
+                        idx2score = []
+                        alpha = [prompt2alpha[_] for _ in micro_prompts]
+                        beta = [prompt2beta[_] for _ in micro_prompts]
+                        D = [prompt2D.get(_, 0.0) for _ in micro_prompts]
+                        sum_reward_tensor = reward_tensor.sum(dim=-1)
+                        save_reward = sum_reward_tensor.cpu().numpy().tolist()
+                        idx2score.append({"score": save_reward, "prompt": micro_prompts, "alpha": alpha , "beta": beta, "D": D})
+                        rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)
+                        if rollout_data_dir:
+                            save_dir = rollout_data_dir
+                            os.makedirs(save_dir, exist_ok=True)
+                            with open(f"{save_dir}/spo_dump_{self.global_steps}.jsonl", "a") as f:
+                                for i in range(len(idx2score)):
+                                    f.write(json.dumps(idx2score[i]) + "\n")
+                    
+                        spo_metrics = {}
+                        r = sum_reward_tensor
+                        alpha = torch.tensor(alpha, dtype=torch.float).to(r)
+                        beta = torch.tensor(beta, dtype=torch.float).to(r)
+                        spo_metrics["spo/reward"] = r.mean().detach().item()
+                        spo_metrics["spo/alpha"] = alpha.mean().detach().item()
+                        spo_metrics["spo/beta"] = beta.mean().detach().item()
+                        Neff = alpha + beta
+                        spo_metrics["spo/Neff"] = Neff.mean().detach().item()
+                        p_hats = alpha / Neff
+                        spo_metrics["spo/p_hats"] = p_hats.mean().detach().item()
+                        
+                        # Recalculate advantages
+                        advantages = r - p_hats
+                        spo_metrics["spo/adv_before_norm"] = advantages.mean().detach().item()
+
+                        response_mask = compute_response_mask(batch)
+                        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+                        quantiles = torch.tensor([0.1, 0.3, 0.5, 0.7, 0.9], device=advantages.device)
+                        q_vals = torch.quantile(advantages, quantiles)
+                        spo_metrics["spo/adv_after_norm/p10"] = q_vals[0].item()
+                        spo_metrics["spo/adv_after_norm/p30"] = q_vals[1].item()
+                        spo_metrics["spo/adv_after_norm/p50"] = q_vals[2].item()
+                        spo_metrics["spo/adv_after_norm/p70"] = q_vals[3].item()
+                        spo_metrics["spo/adv_after_norm/p90"] = q_vals[4].item()
+                        advantages = advantages.unsqueeze(-1) * response_mask
+                        batch.batch['advantages'] = advantages
+                        batch.batch['returns'] = advantages
+
                     # recompute old_log_probs
                     with marked_timer("old_log_prob", timing_raw, color="blue"):
+                        if self.config.trainer.spo.enable:
+                            spo_log_prob_batch_backup = batch.select(deepcopy=True)
+
                         old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
                         entropys = old_log_prob.batch["entropys"]
                         response_masks = batch.batch["response_mask"]
@@ -1245,15 +1443,16 @@ class RayPPOTrainer:
                             "norm_adv_by_std_in_grpo", True
                         )  # GRPO adv normalization factor
 
-                        batch = compute_advantage(
-                            batch,
-                            adv_estimator=self.config.algorithm.adv_estimator,
-                            gamma=self.config.algorithm.gamma,
-                            lam=self.config.algorithm.lam,
-                            num_repeat=self.config.actor_rollout_ref.rollout.n,
-                            norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
-                            config=self.config.algorithm,
-                        )
+                        if "advantages" not in batch.batch:
+                            batch = compute_advantage(
+                                batch,
+                                adv_estimator=self.config.algorithm.adv_estimator,
+                                gamma=self.config.algorithm.gamma,
+                                lam=self.config.algorithm.lam,
+                                num_repeat=self.config.actor_rollout_ref.rollout.n,
+                                norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
+                                config=self.config.algorithm,
+                            )
 
                     # update critic
                     if self.use_critic:
@@ -1270,6 +1469,34 @@ class RayPPOTrainer:
                             actor_output = self.actor_rollout_wg.update_actor(batch)
                         actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
                         metrics.update(actor_output_metrics)
+
+                    if self.config.trainer.spo.enable:
+                        rho, prompt2protodata, prompt2log_probs, prompt2D, rho_metrics = self._get_spo_rho(
+                            prompt2protodata, 
+                            prompt2log_probs, 
+                            prompt2D,
+                            micro_prompts, 
+                            spo_log_prob_batch_backup
+                        )
+                        spo_metrics.update(rho_metrics)
+
+                        # if you want exact Beta intervals, maintain alpha/beta as well:
+                        alpha = rho * alpha + r
+                        beta  = rho * beta  + (1 - r)
+
+                        cur_sampled_numbers = []
+                        for i in range(len(alpha)):
+                            prompt2alpha[micro_prompts[i]] = alpha[i].item()
+                            prompt2beta[micro_prompts[i]] = beta[i].item()
+                            prompt2sampled_number[micro_prompts[i]] += 1
+                            cur_sampled_numbers.append(prompt2sampled_number[micro_prompts[i]])
+
+                        cur_sampled_numbers = np.array(cur_sampled_numbers, dtype=np.int32)
+                        spo_metrics["spo/cur_sampled_number/min"] = cur_sampled_numbers.min()
+                        spo_metrics["spo/cur_sampled_number/max"] = cur_sampled_numbers.max()
+                        spo_metrics["spo/cur_sampled_number/mean"] = cur_sampled_numbers.mean()
+
+                        metrics.update(spo_metrics)
 
                     # Log rollout generations if enabled
                     rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)

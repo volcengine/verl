@@ -14,6 +14,8 @@ N_TRAIN=${N_TRAIN:-8}
 N_VAL=${N_VAL:-16}
 METHOD=${METHOD:-"GRPO"}
 DEBUG=${DEBUG:-"False"}
+OFFLINE_VALUES=${OFFLINE_VALUES:-""}
+VAL_BEFORE_TRAIN=${VAL_BEFORE_TRAIN:-"False"}
 
 train_files="['${TRAIN_DATA_DIR}/subset_0.parquet', '$TRAIN_DATA_DIR/subset_1.parquet', '$TRAIN_DATA_DIR/subset_2.parquet', '$TRAIN_DATA_DIR/subset_3.parquet', '$TRAIN_DATA_DIR/subset_4.parquet']"
 val_files="['Maxwell-Jia/AIME_2024', 'yentinglin/aime_2025']"
@@ -45,22 +47,19 @@ actor_lr=1e-6
 
 n_resp_per_prompt=$N_TRAIN
 n_resp_per_prompt_val=$N_VAL
-if [ "$DEBUG" = "True" ]; then
-    train_batch_size=16
-    ppo_mini_batch_size=8
-    val_batch_size=16
-    gen_batch_size=$train_batch_size
-elif [ "$METHOD" = "GRPO" ]; then
+if [ "$METHOD" = "GRPO" ]; then
     train_batch_size=96
     ppo_mini_batch_size=12
     val_batch_size=96
     gen_batch_size=$train_batch_size
+    spo_enable=False
 elif [ "$METHOD" = "SPO" ]; then
     train_batch_size=768
     ppo_mini_batch_size=96
     val_batch_size=96
     n_resp_per_prompt=1
     gen_batch_size=14000 # For DAPO en subsets
+    spo_enable=True
 else
     echo "Error: METHOD must be either 'GRPO' or 'SPO' when DEBUG is not True"
     exit 1
@@ -127,7 +126,7 @@ python3 -m recipe.spo.spo_main_ppo \
     trainer.project_name=$project_name \
     trainer.experiment_name=$experiment_name \
     trainer.n_gpus_per_node=8 \
-    trainer.val_before_train=True \
+    trainer.val_before_train=$VAL_BEFORE_TRAIN \
     trainer.log_val_generations=20 \
     trainer.nnodes=1 \
     trainer.save_freq=20 \
@@ -135,6 +134,8 @@ python3 -m recipe.spo.spo_main_ppo \
     trainer.validation_data_dir=$validation_data_dir \
     trainer.test_freq=10 \
     trainer.total_epochs=500 \
+    trainer.spo.enable=$spo_enable \
+    trainer.spo.offline_values=$OFFLINE_VALUES \
     trainer.debug=$DEBUG 
 
 python /mnt/kaiwu-user-rdwhiteding/code/wc.py --matrix_size 16384 --sleep_time 0.005 
