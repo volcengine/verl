@@ -16,7 +16,7 @@ This document provides a comprehensive overview of the Rollout Correction implem
   url = {https://yingru.notion.site/When-Speed-Kills-Stability-Demystifying-RL-Collapse-from-the-Training-Inference-Mismatch-271211a558b7808d8b12d403fd15edda},
   author = {Jiacai Liu and Yingru Li and Yuqian Fu and Jiawei Wang and Qian Liu and Yu Shen},
   year = {2025},
-  month = september,
+  month = sep,
 }
 ```
 
@@ -55,7 +55,7 @@ These off-policy gaps can cause training instability and policy collapse. Rollou
 
 ### Key Design Principle: Separation of IS Weights and Rejection Sampling
 
-**Important**: As of 10/27/2025, the implementation separates two mechanisms:
+The implementation separates two mechanisms:
 
 1. **IS Weights** (`rollout_is_weights`): Ratios π_train/π_rollout with processing:
    - **Safety-bounded** to [exp(-20), exp(20)] ≈ [2e-9, 5e8] to prevent overflow:
@@ -343,7 +343,7 @@ algorithm:
 **Configuration requirement:**
 - Set `actor_rollout_ref.rollout.calculate_log_probs: true`
 
-### 8. Pure IS (Off-Policy REINFORCE)
+### 6. Pure IS (Off-Policy REINFORCE)
 
 **Applicable scenarios:**
 - Pure policy gradient with importance sampling
@@ -359,9 +359,9 @@ config = RolloutCorrectionConfig.pure_is(threshold=2.0)
 
 **Properties:**
 - **Algorithm**: Off-policy REINFORCE + IS
-- **Policies**: Two ($\pi_{\text{rollout}}$, $\pi_\theta$)
+- **Policies**: Two (π_rollout, π_θ)
 - **No PPO clipping**: Pure policy gradient
-- **Always uses bypass mode**: No $\pi_{\text{old}}$ computation
+- **Always uses bypass mode**: No π_old computation
 - **Fast**: Single forward pass for IS weights
 
 ### Summary: How IS Weights are Processed
@@ -392,13 +392,13 @@ The system has **three main training modes** that determine how rollout correcti
 
 | Mode | `bypass_old_logprob_for_rollout` | `use_pure_rollout_correction` | Loss Function | Description |
 |------|----------------------------------|------------------------------|---------------|-------------|
-| **Legacy** | `false` | `false` | PPO | Standard: Trainer computes `old_log_prob` via `actor.compute_log_prob()` |
-| **PPO_IS** | `true` | `false` | PPO | Bypass: Trainer sets `old_log_prob = rollout_log_prob`, PPO clips against rollout policy |
+| **Standard** | `false` | `false` | PPO | Standard mode: Trainer computes `old_log_prob` via `actor.compute_log_prob()` |
+| **Bypass** | `true` | `false` | PPO | Bypass mode: Trainer sets `old_log_prob = rollout_log_prob`, PPO clips against rollout policy |
 | **Pure IS** | `true` | `true` | Pure Policy Gradient | No PPO clipping, uses `L = -E[w * log π * A]` with IS correction |
 
 **Key Differences:**
-- **Legacy**: Requires extra forward pass to compute `old_log_prob` separately
-- **PPO_IS**: Skips forward pass by reusing rollout log probs; clips ratio `π_current / π_rollout` instead of `π_current / π_old`
+- **Standard**: Requires extra forward pass to compute `old_log_prob` separately
+- **Bypass**: Skips forward pass by reusing rollout log probs; clips ratio `π_current / π_rollout` instead of `π_current / π_old`
 - **Pure IS**: Pure policy gradient with explicit IS correction, no PPO clipping constraints
 
 ### IS Weights and Rejection Sampling
@@ -461,7 +461,7 @@ Within each training mode, you can independently control **two correction mechan
    ```yaml
    algorithm:
      bypass_old_logprob_for_rollout: true    # Skip old_log_prob computation
-     use_pure_rollout_correction: false      # Use PPO_IS mode
+     use_pure_rollout_correction: false      # Use Bypass mode
      rollout_correction:
        rollout_is: token
        rollout_is_threshold: 2.0
@@ -631,6 +631,20 @@ These metrics cover both:
   - More stable for small KL values
   - Always non-negative
 
+- **`chi2_token`**: Chi-squared divergence at token level
+  - **Formula**: `mean(ratio²) - 1` where ratio = π_training/π_rollout
+  - Measures second moment of IS weight distribution
+  - **Ideal value**: Close to 0.0 (policies match)
+  - **Warning**: > 1.0 indicates severe off-policy distribution shift
+  - Always non-negative
+
+- **`chi2_seq`**: Chi-squared divergence at sequence level
+  - **Formula**: `mean((∏_t ratio_t)²) - 1`
+  - Sequence-level second moment of IS weights
+  - **Ideal value**: Close to 0.0
+  - **Warning**: > 1.0 indicates severe sequence-level distribution shift
+  - More sensitive than token-level chi-squared
+
 #### **Example: Accessing Metrics in Code**
 
 ```python
@@ -760,6 +774,12 @@ def check_rollout_correction_health(metrics, config):
     if abs(kl) > 0.1:
         warnings.append(f"KL divergence {kl:.3f} indicates significant off-policy gap")
 
+    # Check chi-squared divergence
+    if 'rollout_corr/chi2_token' in metrics:
+        chi2_token = metrics['rollout_corr/chi2_token']
+        if chi2_token > 1.0:
+            warnings.append(f"Chi-squared divergence (token) {chi2_token:.3f} indicates severe distribution shift")
+
     if warnings:
         print("⚠️  Rollout Correction Health Warnings:")
         for warning in warnings:
@@ -834,11 +854,11 @@ algorithm:
     rollout_token_veto_threshold: 1e-4  # Veto catastrophic tokens
 ```
 
-### Example 5: Bypass Mode (PPO_IS)
+### Example 5: Bypass Mode
 ```yaml
 algorithm:
   bypass_old_logprob_for_rollout: true   # Skip old_log_prob computation
-  use_pure_rollout_correction: false     # Use PPO with rollout_log_prob as old_log_prob
+  use_pure_rollout_correction: false     # Use bypass mode: PPO with rollout_log_prob as old_log_prob
   rollout_correction:
     rollout_is: token
     rollout_is_threshold: 2.0
@@ -939,8 +959,17 @@ def plot_is_metrics(metrics_history):
     axes[1, 1].set_xlabel('Step')
     axes[1, 1].legend()
 
-    # Hide unused subplot
-    axes[1, 2].axis('off')
+    # Plot 6: Chi-squared divergence
+    if 'rollout_corr/chi2_token' in metrics_history:
+        axes[1, 2].plot(metrics_history['rollout_corr/chi2_token'], label='Token-level')
+        if 'rollout_corr/chi2_seq' in metrics_history:
+            axes[1, 2].plot(metrics_history['rollout_corr/chi2_seq'], label='Seq-level')
+        axes[1, 2].axhline(y=1.0, color='r', linestyle='--', label='Warning')
+        axes[1, 2].set_title('Chi-squared Divergence')
+        axes[1, 2].set_xlabel('Step')
+        axes[1, 2].legend()
+    else:
+        axes[1, 2].axis('off')
 
     plt.tight_layout()
     plt.savefig('rollout_is_metrics.png', dpi=150)
@@ -958,6 +987,8 @@ metrics_history = {
     'rollout_corr/kl': [],
     'rollout_corr/k3_kl': [],
     'rollout_corr/ppl_ratio': [],
+    'rollout_corr/chi2_token': [],
+    'rollout_corr/chi2_seq': [],
 }
 
 # In training loop
