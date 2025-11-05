@@ -106,3 +106,86 @@ done
 ```
 
 Replace `N` with the actual number of subsets generated in Step 1.
+
+**Output Directory Structure**
+
+All subset outputs are saved in the `trainer.validation_data_dir` directory. The directory structure will look like this:
+
+```
+offline_value_estimation/
+├── offline_value_estimation_subset_0
+│   └── validation_data
+│       └── 0.jsonl
+├── offline_value_estimation_subset_1
+│   └── validation_data
+│       └── 0.jsonl
+├── offline_value_estimation_subset_2
+│   └── validation_data
+│       └── 0.jsonl
+├── offline_value_estimation_subset_3
+│   └── validation_data
+│       └── 0.jsonl
+└── offline_value_estimation_subset_4
+    └── validation_data
+        └── 0.jsonl
+```
+
+Each subset directory contains:
+- A `validation_data` subdirectory with the estimated values stored in JSONL format
+- The `0.jsonl` file contains the offline value estimates for each response in the corresponding subset
+
+### Step 3: Merge Offline Value Estimates
+
+After generating offline value estimates for all subsets, merge them into a single file for downstream training:
+
+```bash
+python recipe/spo/estimate_offline_values/merge_offline_values.py \
+    --input_dir offline_value_estimation \
+    --output_file offline_values.json
+```
+
+**Parameters:**
+- `--input_dir`: Directory containing all subset outputs (the `trainer.validation_data_dir` from Step 2)
+- `--output_file`: Path where the merged offline values JSON file will be saved
+- `--pattern`: (Optional) Custom glob pattern to match subset result files (default: `offline_value_estimation_subset_*/validation_data/0.jsonl`)
+- `--max_scores_per_prompt`: (Optional) Maximum number of scores to keep per prompt. If a prompt has more scores, they will be randomly subsampled (default: 8)
+
+**Output Format:**
+
+The merged file contains a dictionary mapping prompts to their corresponding offline value scores:
+
+```json
+{
+  "prompt_1": [score_1, score_2, ...],
+  "prompt_2": [score_1, score_2, ...],
+  ...
+}
+```
+
+**Example:**
+
+```bash
+# Merge all subsets from the default output directory
+python recipe/spo/estimate_offline_values/merge_offline_values.py \
+    --input_dir spo_verl_pr/offline_value_estimation \
+    --output_file DAPO-Math-17k-Processed_Splits/offline_values.json
+
+# With custom pattern
+python recipe/spo/estimate_offline_values/merge_offline_values.py \
+    --input_dir /path/to/validation_data_dir \
+    --output_file /path/to/output/offline_values.json \
+    --pattern "custom_subset_*/validation_data/0.jsonl"
+
+# With custom max scores per prompt
+python recipe/spo/estimate_offline_values/merge_offline_values.py \
+    --input_dir spo_verl_pr/offline_value_estimation \
+    --output_file DAPO-Math-17k-Processed_Splits/offline_values.json \
+    --max_scores_per_prompt 16
+```
+
+The script will:
+- Automatically discover all subset result files matching the pattern
+- Use concurrent processing to efficiently load data from multiple files
+- Merge scores by prompt/question
+- Display statistics about the merged data
+- Save the final merged results to the specified output file
