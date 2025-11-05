@@ -19,7 +19,6 @@ from typing import Any, Optional
 import hydra
 import numpy as np
 import ray
-import yaml
 from omegaconf import DictConfig
 
 from recipe.fully_async_policy.vllm_rollout.vllm_async_server import FullyAsyncvLLMReplica
@@ -229,10 +228,9 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
             logger.warning("No server addresses available to update Prometheus config")
             return
 
-        prometheus_config_path = str(os.getenv("PROMETHEUS_FILE", "/workdir/tmp/prometheus.yml"))
-
         try:
             # Read existing Prometheus config or create default one
+            prometheus_config_path = str(os.getenv("PROMETHEUS_FILE", "/workdir/tmp/prometheus.yml"))
             prometheus_config = {
                 "global": {"scrape_interval": "10s", "evaluation_interval": "10s"},
                 "scrape_configs": [
@@ -247,21 +245,38 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
             # Write the configuration to file on all nodes
             @ray.remote(num_cpus=0)
             def write_config_file(config_data, config_path):
+                import yaml
+                import os
+
                 os.makedirs(os.path.dirname(config_path), exist_ok=True)
                 with open(config_path, "w") as f:
                     yaml.dump(config_data, f, default_flow_style=False, indent=2)
                 return True
 
+            @ray.remote(num_cpus=0)
+            def reload_prometheus():
+                import os
+                import socket
+                import subprocess
+
+                hostname = socket.gethostname()
+                ip_address = socket.gethostbyname(hostname)
+                port = int(os.getenv("PROMETHEUS_PORT", "44398"))
+
+                reload_url = f"http://{ip_address}:{port}/-/reload"
+
+                try:
+                    subprocess.run(["curl", "-X", "POST", reload_url], capture_output=True, text=True, timeout=10)
+                    print(f"Reloading Prometheus on node: {reload_url}")
+                except Exception as e:
+                    pass
+
+            # Schedule task on each specific node
+
             # Get all available nodes and schedule task on each node
             nodes = ray.nodes()
             alive_nodes = [node for node in nodes if node["Alive"]]
-            node_count = len(alive_nodes)
 
-            print(f"Found {node_count} alive nodes")
-            for i, node in enumerate(alive_nodes):
-                print(f"Node {i + 1}: {node['NodeManagerAddress']} ({node['NodeManagerHostname']})")
-
-            # Schedule task on each specific node
             write_tasks = []
             for node in alive_nodes:
                 node_ip = node["NodeManagerAddress"]
@@ -272,135 +287,23 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
 
             await asyncio.gather(*[asyncio.wrap_future(task.future()) for task in write_tasks])
 
-            logger.info(
+            print(
                 f"Updated Prometheus configuration at {prometheus_config_path} "
                 f"with {len(self.server_addresses)} VLLM servers"
             )
-            logger.info(f"VLLM targets: {self.server_addresses}")
 
-            # Get first node IP and execute reload
-            await self._reload_prometheus_on_first_node()
+            reload_tasks = []
+            for node in alive_nodes:
+                node_ip = node["NodeManagerAddress"]
+                task = reload_prometheus.options(
+                    resources={"node:" + node_ip: 0.001}  # Schedule to specific node
+                ).remote()
+                reload_tasks.append(task)
+
+            await asyncio.gather(*[asyncio.wrap_future(task.future()) for task in reload_tasks], return_exceptions=True)
 
         except Exception as e:
             logger.error(f"Failed to update Prometheus configuration: {e}")
-
-    async def _reload_prometheus_on_first_node(self):
-        """尝试在每个节点上重载 Prometheus 配置，失败的节点会被忽略"""
-
-        def get_ray_nodes_info():
-            """获取 Ray 集群中所有节点的信息"""
-            nodes = ray.nodes()
-
-            alive_nodes = [node for node in nodes if node["Alive"]]
-            print(f"Total alive nodes: {len(alive_nodes)}")
-
-            for i, node in enumerate(alive_nodes):
-                print(f"Node {i + 1}:")
-                print(f"  Node ID: {node['NodeID']}")
-                print(f"  IP Address: {node['NodeManagerAddress']}")
-                print(f"  Hostname: {node['NodeManagerHostname']}")
-                print(f"  Alive: {node['Alive']}")
-                print(f"  Resources: {node['Resources']}")
-                print(f"  Labels: {node['Labels']}")
-                print("---")
-
-        # 使用示例
-        get_ray_nodes_info()
-
-        @ray.remote(num_cpus=0)
-        def reload_prometheus_on_node():
-            import os
-            import socket
-            import subprocess
-
-            # 获取当前节点的 IP
-            hostname = socket.gethostname()
-            ip_address = socket.gethostbyname(hostname)
-            port = int(os.getenv("PROMETHEUS_PORT", "44398"))
-
-            # 执行 curl 重载命令
-            reload_url = f"http://{ip_address}:{port}/-/reload"
-            print(f"Reloading Prometheus on node: {reload_url}")
-
-            try:
-                result = subprocess.run(["curl", "-X", "POST", reload_url], capture_output=True, text=True, timeout=10)
-
-                return {
-                    "success": result.returncode == 0,
-                    "ip": ip_address,
-                    "hostname": hostname,
-                    "url": reload_url,
-                    "stdout": result.stdout,
-                    "stderr": result.stderr,
-                }
-            except subprocess.TimeoutExpired:
-                return {
-                    "success": False,
-                    "ip": ip_address,
-                    "hostname": hostname,
-                    "url": reload_url,
-                    "error": "Timeout after 10 seconds",
-                }
-            except Exception as e:
-                return {"success": False, "ip": ip_address, "hostname": hostname, "url": reload_url, "error": str(e)}
-
-        # Get all available nodes and schedule task on each node
-        nodes = ray.nodes()
-        alive_nodes = [node for node in nodes if node["Alive"]]
-        node_count = len(alive_nodes)
-
-        print(f"Scheduling reload tasks on {node_count} nodes")
-
-        # Schedule task on each specific node
-        reload_tasks = []
-        for node in alive_nodes:
-            node_ip = node["NodeManagerAddress"]
-            task = reload_prometheus_on_node.options(
-                resources={"node:" + node_ip: 0.001}  # Schedule to specific node
-            ).remote()
-            reload_tasks.append(task)
-
-        # 等待所有任务完成
-        results = await asyncio.gather(
-            *[asyncio.wrap_future(task.future()) for task in reload_tasks],
-            return_exceptions=True,  # 确保即使有异常也不会中断其他任务
-        )
-
-        # 统计成功和失败的节点
-        successful_reloads = []
-        failed_reloads = []
-
-        for result in results:
-            if isinstance(result, Exception):
-                logger.error(f"Task exception: {result}")
-                failed_reloads.append({"error": str(result)})
-                continue
-
-            if result["success"]:
-                successful_reloads.append(result)
-                logger.info(
-                    f"Successfully reloaded Prometheus on node {result['hostname']} "
-                    f"({result['ip']}) via {result['url']}"
-                )
-                if result["stdout"]:
-                    logger.info(f"Prometheus reload response: {result['stdout'].strip()}")
-            else:
-                failed_reloads.append(result)
-                logger.warning(
-                    f"Failed to reload Prometheus on node {result['hostname']} ({result['ip']}) via {result['url']}"
-                )
-                if "error" in result:
-                    logger.warning(f"Error: {result['error']}")
-                if result.get("stderr"):
-                    logger.warning(f"Stderr: {result['stderr']}")
-
-        if successful_reloads:
-            logger.info(f"Successfully reloaded Prometheus on nodes: {[r['hostname'] for r in successful_reloads]}")
-
-        if failed_reloads:
-            logger.warning(
-                f"Failed to reload Prometheus on nodes: {[r.get('hostname', 'unknown') for r in failed_reloads]}"
-            )
 
     async def generate_single_sample_async(
         self,
