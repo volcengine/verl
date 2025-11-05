@@ -217,14 +217,15 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
 
         print(f"AgentLoopManager: {self.server_addresses}")
         # Update Prometheus configuration with server addresses
-        await self._update_prometheus_config()
+
+        if os.getenv("PROMETHEUS_FILE") is not None and os.getenv("PROMETHEUS_PORT") is not None:
+            assert rollout_config.disable_log_stats == False, "PROMETHEUS need disable_log_stats==False"
+            await self._update_prometheus_config()
 
     async def _update_prometheus_config(self):
         """Update Prometheus configuration file with server addresses and reload on first node.
-
-        Args:
-            prometheus_config_path: Path to the Prometheus configuration file
         """
+
         if not self.server_addresses:
             logger.warning("No server addresses available to update Prometheus config")
             return
