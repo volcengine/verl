@@ -6,16 +6,17 @@ export VLLM_ALLREDUCE_USE_SYMM_MEM=0
 
 # ================= data/model/tool =================
 OUTPUT_DIR=${OUTPUT_DIR:-"."}
-DATA_FILE=${DATA_FILE:-""}
-EXP_NAME=${EXP_NAME:-"offline_value_estimation"}
+TRAIN_DATA_DIR=${TRAIN_DATA_DIR:-""}
+EXP_NAME=${EXP_NAME:-""}
 MODEL_PATH=${MODEL_PATH:-""}
 RESPONSE_LENGTH=${RESPONSE_LENGTH:-8192}
-N_VAL=${N_VAL:-8}
+N_TRAIN=${N_TRAIN:-8}
+N_VAL=${N_VAL:-16}
+METHOD=${METHOD:-"GRPO"}
 DEBUG=${DEBUG:-"False"}
 
-train_files="['${DATA_FILE}']"
-val_files="$train_files"
-echo "Evaluating on train_files"
+train_files="['${TRAIN_DATA_DIR}/subset_0.parquet', '$TRAIN_DATA_DIR/subset_1.parquet', '$TRAIN_DATA_DIR/subset_2.parquet', '$TRAIN_DATA_DIR/subset_3.parquet', '$TRAIN_DATA_DIR/subset_4.parquet']"
+val_files="['Maxwell-Jia/AIME_2024', 'yentinglin/aime_2025']"
 
 # tool
 tool_config_path=recipe/spo/spo_tool_config.yaml
@@ -42,15 +43,28 @@ max_prompt_length=2048
 max_response_length=$RESPONSE_LENGTH
 actor_lr=1e-6
 
-train_batch_size=64
-val_batch_size=96
+n_resp_per_prompt=$N_TRAIN
+n_resp_per_prompt_val=$N_VAL
 if [ "$DEBUG" = "True" ]; then
     train_batch_size=16
+    ppo_mini_batch_size=8
     val_batch_size=16
+    gen_batch_size=$train_batch_size
+elif [ "$METHOD" = "GRPO" ]; then
+    train_batch_size=96
+    ppo_mini_batch_size=12
+    val_batch_size=96
+    gen_batch_size=$train_batch_size
+elif [ "$METHOD" = "SPO" ]; then
+    train_batch_size=768
+    ppo_mini_batch_size=96
+    val_batch_size=96
+    n_resp_per_prompt=1
+    gen_batch_size=14000 # For DAPO en subsets
+else
+    echo "Error: METHOD must be either 'GRPO' or 'SPO' when DEBUG is not True"
+    exit 1
 fi
-ppo_mini_batch_size=16
-n_resp_per_prompt=8
-n_resp_per_prompt_val=$N_VAL
 
 # ================= perfomance =================
 infer_tp=4 # vllm
@@ -76,6 +90,7 @@ python3 -m recipe.spo.spo_main_ppo \
     data.truncation='error' \
     data.custom_cls.path=recipe/spo/spo_retool.py \
     data.custom_cls.name=CustomRLHFDataset \
+    +data.gen_batch_size=$gen_batch_size \
     custom_reward_function.path=recipe/spo/spo_retool.py \
     custom_reward_function.name=compute_score \
     actor_rollout_ref.model.path=$MODEL_PATH \
@@ -113,14 +128,13 @@ python3 -m recipe.spo.spo_main_ppo \
     trainer.experiment_name=$experiment_name \
     trainer.n_gpus_per_node=8 \
     trainer.val_before_train=True \
-    trainer.val_only=True \
     trainer.log_val_generations=20 \
     trainer.nnodes=1 \
     trainer.save_freq=20 \
     trainer.default_local_dir=$default_local_dir \
     trainer.validation_data_dir=$validation_data_dir \
     trainer.test_freq=10 \
-    trainer.total_epochs=100 \
+    trainer.total_epochs=500 \
     trainer.debug=$DEBUG 
 
 python /mnt/kaiwu-user-rdwhiteding/code/wc.py --matrix_size 16384 --sleep_time 0.005 
