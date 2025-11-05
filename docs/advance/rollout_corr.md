@@ -515,11 +515,11 @@ Within each training mode, you can independently control **two correction mechan
 4. **Optional: Enable bypass mode** to save compute:
    ```yaml
    algorithm:
-     bypass_old_logprob_for_rollout: true    # Skip old_log_prob computation
-     use_pure_rollout_correction: false      # Use Bypass mode
      rollout_correction:
        rollout_is: token
        rollout_is_threshold: 2.0
+       bypass_old_logprob_for_rollout: true    # Skip old_log_prob computation
+       use_pure_rollout_correction: false      # Use Bypass mode
    ```
    **Benefits**: Skips expensive forward pass for `old_log_prob` computation
 
