@@ -385,12 +385,10 @@ def compute_rollout_correction_weights(
     else:
         raise ValueError(f"Unsupported rollout_is: {rollout_is}")
 
-    # Truncate extreme weights (TIS: Truncated Importance Sampling)
-    rollout_is_weights = rollout_is_weights.clamp(max=rollout_is_threshold)
     # Zero out weights for padding tokens using response mask
     rollout_is_weights = rollout_is_weights * response_mask
 
-    # Compute IS weight metrics
+    # Compute IS weight metrics (BEFORE truncation to get accurate fraction_high/low)
     metrics: dict[str, float] = compute_is_metrics(
         rollout_is_weights=rollout_is_weights,
         log_ratio_for_metrics=log_ratio_for_metrics,
@@ -398,6 +396,9 @@ def compute_rollout_correction_weights(
         rollout_is=rollout_is,
         rollout_is_threshold=rollout_is_threshold,
     )
+
+    # Truncate extreme weights (TIS: Truncated Importance Sampling)
+    rollout_is_weights = rollout_is_weights.clamp(max=rollout_is_threshold)
 
     return rollout_is_weights, metrics
 
