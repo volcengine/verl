@@ -41,24 +41,11 @@ from verl.trainer.ppo.metric_utils import (
     process_validation_metrics,
 )
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer, apply_kl_penalty, compute_advantage
-# from verl.trainer.ppo.utils import Role
+from verl.trainer.ppo.utils import Role
 from verl.utils.checkpoint.checkpoint_manager import should_save_ckpt_esi
 from verl.utils.debug import marked_timer
 from verl.utils.metric import reduce_metrics
 
-
-class EnvRole(Enum):
-    """
-    To create more roles dynamically, you can subclass Role and add new members
-    """
-    Actor = 0
-    Rollout = 1
-    ActorRollout = 2
-    Critic = 3
-    RefPolicy = 4
-    RewardModel = 5
-    ActorRolloutRef = 6
-    Env = 7
 
 def compute_response_mask(data: DataProto) -> torch.Tensor:
     """Compute the attention mask for the response part of the sequence.
@@ -125,18 +112,18 @@ class RobRayPPOTrainer(RayPPOTrainer):
     def init_workers(self):
         self.resource_pool_manager.create_resource_pool()
         self.resource_pool_to_cls = {pool: {} for pool in self.resource_pool_manager.resource_pool_dict.values()}
-        resource_pool = self.resource_pool_manager.get_resource_pool(EnvRole.ActorRollout)
+        resource_pool = self.resource_pool_manager.get_resource_pool(Role.ActorRollout)
         actor_rollout_cls = RayClassWithInitArgs(
-            cls=self.role_worker_mapping[EnvRole.ActorRollout],
+            cls=self.role_worker_mapping[Role.ActorRollout],
             config=self.config.actor_rollout_ref,
             role="actor_rollout",
         )
         self.resource_pool_to_cls[resource_pool]["actor_rollout"] = actor_rollout_cls
 
-        assert EnvRole.Env in self.role_worker_mapping
-        if EnvRole.Env in self.role_worker_mapping:
-            resource_pool = self.resource_pool_manager.get_resource_pool(EnvRole.Env)
-            env_cls = RayClassWithInitArgs(self.role_worker_mapping[EnvRole.Env], config=self.config.env)
+        assert Role.Env in self.role_worker_mapping
+        if Role.Env in self.role_worker_mapping:
+            resource_pool = self.resource_pool_manager.get_resource_pool(Role.Env)
+            env_cls = RayClassWithInitArgs(self.role_worker_mapping[Role.Env], config=self.config.env)
             self.resource_pool_to_cls[resource_pool]["env"] = env_cls
 
         # initialize WorkerGroup
