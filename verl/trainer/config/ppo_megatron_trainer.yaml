@@ -74,17 +74,16 @@ algorithm:
     weight_pow: 2.0
 
   # Rollout Correction: corrects distribution mismatch between rollout and training policies
-  # Configuration is nested under rollout_correction. Set to null to disable entirely.
-  rollout_correction: null
-
-  # Example configuration:
-  # rollout_correction:
-  #   rollout_is: token                      # IS weights: "token", "sequence", or null
-  #   rollout_is_threshold: 2.0              # Upper threshold for IS weights
-  #   rollout_rs: null                       # Rejection sampling: "token", "sequence", "geometric", or null
-  #   rollout_rs_threshold: null             # RS upper threshold
-  #   rollout_rs_threshold_lower: null       # RS lower threshold
-  #   rollout_token_veto_threshold: null     # Per-token veto threshold
+  # Override via CLI: algorithm.rollout_correction.rollout_is="token_is"
+  rollout_correction:
+    rollout_is: null
+    rollout_is_threshold: 2.0
+    rollout_rs: null
+    rollout_rs_threshold: null
+    rollout_rs_threshold_lower: null
+    rollout_token_veto_threshold: null
+    bypass_old_logprob_for_rollout: false
+    use_pure_rollout_correction: false
 
 trainer:
   balance_batch: True
