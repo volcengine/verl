@@ -232,11 +232,6 @@ This section provides detailed guidance on choosing and using the verified prese
 
 **Theory:** Decoupled PPO with per-token truncated importance sampling.
 
-**Applicable scenarios:**
-- Standard training scenarios
-- Moderate off-policiness
-- Per-token correction
-
 **Configuration:**
 ```python
 config = RolloutCorrectionConfig.token_is(threshold=2.0)
@@ -259,11 +254,6 @@ algorithm:
 ### 2. Sequence-level Importance Sampling
 
 **Theory:** Decoupled PPO with sequence-level importance sampling.
-
-**Applicable scenarios:**
-- Multiplicative sequence-level correction
-- Short sequences (< 512 tokens)
-- Research settings
 
 **Configuration:**
 ```python
@@ -292,11 +282,6 @@ algorithm:
 
 **Alias:** `seq_mis(threshold)`
 
-**Applicable scenarios:**
-- Sequence-level correction with outlier filtering
-- Higher off-policy scenarios
-- Both IS correction and rejection sampling
-
 **Configuration:**
 ```python
 config = RolloutCorrectionConfig.seq_is_rs(is_threshold=2.0, rs_threshold=2.0)
@@ -323,11 +308,6 @@ algorithm:
 ### 4. Geometric IS + RS + Veto (Maximum Sensitivity)
 
 **Theory:** Pure rejection sampling based on geometric mean of IS ratios.
-
-**Applicable scenarios:**
-- Very sensitive outlier detection
-- Maximum protection
-- Advanced configuration
 
 **Configuration:**
 ```python
@@ -357,11 +337,6 @@ algorithm:
 
 **Theory:** PPO applied to off-policy data by using π_rollout as the PPO anchor (bypass mode).
 
-**Applicable scenarios:**
-- Training is slow and computational efficiency is priority
-- Memory is constrained
-- Rollout policy is close to old policy (e.g., recent checkpoint)
-
 **Configuration:**
 ```python
 config = RolloutCorrectionConfig.ppo_is_bypass(threshold=2.0)
@@ -389,11 +364,6 @@ algorithm:
 - Set `actor_rollout_ref.rollout.calculate_log_probs: true`
 
 ### 6. Pure IS (Off-Policy REINFORCE)
-
-**Applicable scenarios:**
-- Pure policy gradient with importance sampling
-- PPO clipping is not desired for the algorithm
-- Working with off-policy data
 
 **Configuration:**
 ```python
