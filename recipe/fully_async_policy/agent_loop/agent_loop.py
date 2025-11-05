@@ -19,7 +19,6 @@ from typing import Any, Optional
 import hydra
 import numpy as np
 import ray
-import yaml
 from omegaconf import DictConfig
 
 from recipe.fully_async_policy.vllm_rollout.vllm_async_server import FullyAsyncvLLMReplica
@@ -70,13 +69,13 @@ class FullyAsyncAgentLoopOutput(AgentLoopOutput):
 @ray.remote
 class FullyAsyncAgentLoopWorker(AgentLoopWorkerBase):
     def __init__(
-            self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], reward_router_address: str = None
+        self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], reward_router_address: str = None
     ):
         self.server_manager = FullyAsyncLLMServerManager(config, server_handles)
         super().__init__(config, server_handles, reward_router_address)
 
     async def generate_sequences_no_post(
-            self, batch: DataProto, partial_output_list: Optional[list[AgentLoopOutput]]
+        self, batch: DataProto, partial_output_list: Optional[list[AgentLoopOutput]]
     ) -> list[AgentLoopOutput]:
         """Generate sequences from agent loop.
 
@@ -126,19 +125,19 @@ class FullyAsyncAgentLoopWorker(AgentLoopWorkerBase):
         return await asyncio.gather(*tasks)
 
     async def _partial_run_agent_loop(
-            self,
-            sampling_params: dict[str, Any],
-            trajectory: dict[str, Any],
-            *,
-            agent_name: str,
-            **kwargs,
+        self,
+        sampling_params: dict[str, Any],
+        trajectory: dict[str, Any],
+        *,
+        agent_name: str,
+        **kwargs,
     ) -> AgentLoopOutput:
         with rollout_trace_attr(
-                step=trajectory["step"],
-                sample_index=trajectory["sample_index"],
-                rollout_n=trajectory["rollout_n"],
-                validate=trajectory["validate"],
-                name="agent_loop",
+            step=trajectory["step"],
+            sample_index=trajectory["sample_index"],
+            rollout_n=trajectory["rollout_n"],
+            validate=trajectory["validate"],
+            name="agent_loop",
         ):
             assert agent_name in _agent_loop_registry, (
                 f"Agent loop {agent_name} not registered, registered agent loops: {_agent_loop_registry.keys()}"
@@ -223,8 +222,7 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
             await self._update_prometheus_config()
 
     async def _update_prometheus_config(self):
-        """Update Prometheus configuration file with server addresses and reload on first node.
-        """
+        """Update Prometheus configuration file with server addresses and reload on first node."""
 
         if not self.server_addresses:
             logger.warning("No server addresses available to update Prometheus config")
@@ -235,48 +233,38 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
         try:
             # Read existing Prometheus config or create default one
             prometheus_config = {
-                "global": {
-                    "scrape_interval": "10s",
-                    "evaluation_interval": "10s"
-                },
+                "global": {"scrape_interval": "10s", "evaluation_interval": "10s"},
                 "scrape_configs": [
                     {
                         "job_name": "ray",
-                        "file_sd_configs": [
-                            {
-                                "files": ["/tmp/ray/prom_metrics_service_discovery.json"]
-                            }
-                        ]
+                        "file_sd_configs": [{"files": ["/tmp/ray/prom_metrics_service_discovery.json"]}],
                     },
-                    {
-                        "job_name": "vllm",
-                        "static_configs": [
-                            {
-                                "targets": self.server_addresses
-                            }
-                        ]
-                    }
-                ]
+                    {"job_name": "vllm", "static_configs": [{"targets": self.server_addresses}]},
+                ],
             }
 
             # Write the configuration to file on all nodes
             @ray.remote(num_cpus=0)
             def write_config_file(config_data, config_path):
-                import yaml
                 import os
+
+                import yaml
+
                 os.makedirs(os.path.dirname(config_path), exist_ok=True)
-                with open(config_path, 'w') as f:
+                with open(config_path, "w") as f:
                     yaml.dump(config_data, f, default_flow_style=False, indent=2)
                 return True
 
             # Execute on all nodes to ensure consistency
-            cpu_count = int(ray.cluster_resources().get('CPU', 1))
-            write_tasks = [write_config_file.remote(prometheus_config, prometheus_config_path)
-                           for _ in range(cpu_count)]
+            cpu_count = int(ray.cluster_resources().get("CPU", 1))
+            write_tasks = [
+                write_config_file.remote(prometheus_config, prometheus_config_path) for _ in range(cpu_count)
+            ]
             await asyncio.gather(*[asyncio.wrap_future(task.future()) for task in write_tasks])
 
             logger.info(
-                f"Updated Prometheus configuration at {prometheus_config_path} with {len(self.server_addresses)} VLLM servers")
+                f"Updated Prometheus configuration at {prometheus_config_path} with {len(self.server_addresses)} VLLM servers"
+            )
             logger.info(f"VLLM targets: {self.server_addresses}")
 
             # Get first node IP and execute reload
@@ -286,8 +274,7 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
             logger.error(f"Failed to update Prometheus configuration: {e}")
 
     async def _reload_prometheus_on_first_node(self):
-        """Get first node IP and reload Prometheus configuration.
-        """
+        """Get first node IP and reload Prometheus configuration."""
 
         @ray.remote(num_cpus=0, resources={"node:1": 1})
         def get_node_info_and_reload(port):
@@ -302,34 +289,19 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
             # Execute curl reload command
             reload_url = f"http://{ip_address}:{port}/-/reload"
             try:
-                result = subprocess.run(
-                    ["curl", "-X", "POST", reload_url],
-                    capture_output=True,
-                    text=True,
-                    timeout=10
-                )
+                result = subprocess.run(["curl", "-X", "POST", reload_url], capture_output=True, text=True, timeout=10)
 
                 return {
                     "success": result.returncode == 0,
                     "ip": ip_address,
                     "url": reload_url,
                     "stdout": result.stdout,
-                    "stderr": result.stderr
+                    "stderr": result.stderr,
                 }
             except subprocess.TimeoutExpired:
-                return {
-                    "success": False,
-                    "ip": ip_address,
-                    "url": reload_url,
-                    "error": "Timeout after 10 seconds"
-                }
+                return {"success": False, "ip": ip_address, "url": reload_url, "error": "Timeout after 10 seconds"}
             except Exception as e:
-                return {
-                    "success": False,
-                    "ip": ip_address,
-                    "url": reload_url,
-                    "error": str(e)
-                }
+                return {"success": False, "ip": ip_address, "url": reload_url, "error": str(e)}
 
             # Get first node (using the first available resource)
 
@@ -347,9 +319,9 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
                 logger.error(f"Stderr: {node_info['stderr']}")
 
     async def generate_single_sample_async(
-            self,
-            sample: DataProto,
-            partial_output_list: Optional[list[AgentLoopOutput]],
+        self,
+        sample: DataProto,
+        partial_output_list: Optional[list[AgentLoopOutput]],
     ) -> list[AgentLoopOutput]:
         """
         Asynchronously process a single sample
