@@ -53,11 +53,24 @@ Rollout Correction provides a unified framework to handle **general off-policy p
 
 These off-policy gaps can cause training instability and policy collapse. Rollout Correction uses importance sampling (IS) weights and rejection sampling (RS) to correct for any distribution shift between data collection and training.
 
+**Important Note on Common Implementation Mistakes:**
+
+Many LLM-RL implementations incorrectly apply PPO by **ignoring the actual rollout policy** π_rollout and assuming the training reference policy π_old is the behavior policy. This is mathematically incorrect when π_rollout ≠ π_old (which is typical in LLM-RL due to precision/backend differences between rollout and training).
+
+**This is not PPO's fault** - PPO itself is mathematically correct. The issue is the incorrect assumption that π_old = π_rollout in naive implementations.
+
+**Mathematically correct approaches:**
+- **Decoupled mode**: Three policies (π_rollout, π_old, π_θ) with IS correction from π_rollout to π_old
+- **Bypass mode**: Two policies (π_rollout = π_old, π_θ) using actual rollout policy as PPO anchor
+- **Pure IS mode**: Two policies (π_rollout, π_θ) with IS correction and no PPO clipping
+
+See [Mathematical Formulations](rollout_corr_math.md#321-incorrect-llm-rl-implementation-ppo-without-rollout-correction) for detailed explanation.
+
 ### Key Design Principle: Separation of IS Weights and Rejection Sampling
 
 The implementation separates two mechanisms:
 
-1. **IS Weights** (`rollout_is_weights`): Ratios π_train/π_rollout with processing:
+1. **IS Weights** (`rollout_is_weights`): Policy ratios with processing (π_old/π_rollout in decoupled mode, π_θ/π_rollout in bypass/pure IS mode):
    - **Safety-bounded** to [exp(-20), exp(20)] ≈ [2e-9, 5e8] to prevent overflow:
      * Token level: Bounds per-token ratios
      * Sequence level: Bounds product of ratios (broadcast to all tokens in sequence)
@@ -169,7 +182,9 @@ All parameters are under `algorithm.rollout_correction`:
 ### `rollout_is` (str or null)
 Importance sampling weights aggregation level:
 - `null` = No IS weights computed (metrics-only mode)
-- `"token"`: Per-token IS weights ρ_t = π_train(t)/π_rollout(t)
+- `"token"`: Per-token IS weights
+  - **Decoupled mode**: ρ_t = π_old(t)/π_rollout(t)
+  - **Bypass/Pure IS mode**: ρ_t = π_θ(t)/π_rollout(t)
   - Independent truncation per token
   - Typical threshold: 1.5 - 5.0
 - `"sequence"`: Per-sequence weight ρ_seq = ∏_t ρ_t
@@ -215,6 +230,8 @@ This section provides detailed guidance on choosing and using the verified prese
 
 ### 1. Token-level Importance Sampling
 
+**Theory:** Decoupled PPO with per-token truncated importance sampling.
+
 **Applicable scenarios:**
 - Standard training scenarios
 - Moderate off-policiness
@@ -234,7 +251,14 @@ algorithm:
     rollout_rs: null
 ```
 
+**Properties:**
+- **Algorithm**: Decoupled PPO
+- **Policies**: Three (π_rollout, π_old, π_θ) in decoupled mode
+- **Double correction**: IS weights correct Drift 1 (rollout→old), PPO clips correct Drift 2 (old→current)
+
 ### 2. Sequence-level Importance Sampling
+
+**Theory:** Decoupled PPO with sequence-level importance sampling.
 
 **Applicable scenarios:**
 - Multiplicative sequence-level correction
@@ -255,9 +279,16 @@ algorithm:
     rollout_rs: null
 ```
 
+**Properties:**
+- **Algorithm**: Decoupled PPO
+- **Policies**: Three (π_rollout, π_old, π_θ) in decoupled mode
+- **Sequence-level IS**: Uses product of all token ratios (broadcast to all tokens)
+
 **Note:** Sequence-level IS uses multiplicative aggregation. Typical thresholds: 5.0-10.0 (compared to token-level: 1.5-5.0).
 
 ### 3. Sequence-level IS + Rejection Sampling
+
+**Theory:** Decoupled PPO combining sequence-level IS weighting with rejection sampling.
 
 **Alias:** `seq_mis(threshold)`
 
@@ -284,7 +315,14 @@ algorithm:
     rollout_rs_threshold_lower: 0.5  # Reciprocal of threshold
 ```
 
+**Properties:**
+- **Algorithm**: Decoupled PPO + rejection sampling
+- **Policies**: Three (π_rollout, π_old, π_θ) in decoupled mode
+- **Double mechanism**: IS reweighting + rejection filtering
+
 ### 4. Geometric IS + RS + Veto (Maximum Sensitivity)
+
+**Theory:** Pure rejection sampling based on geometric mean of IS ratios.
 
 **Applicable scenarios:**
 - Very sensitive outlier detection
@@ -307,9 +345,17 @@ algorithm:
     rollout_token_veto_threshold: 1e-4
 ```
 
-**Note:** Geometric thresholds are typically very close to 1.0 (typical: 1.0001-1.001, ±0.01%-0.1%).
+**Properties:**
+- **Algorithm**: Decoupled PPO + geometric rejection sampling
+- **Policies**: Three (π_rollout, π_old, π_θ) in decoupled mode
+- **No IS weights**: Pure rejection (no reweighting)
+- **Extremely selective**: Requires near-perfect policy match
 
-### 5. PPO with IS Bypass (Standard PPO Mode)
+**Note:** Geometric thresholds are typically very close to 1.0 (typical: 1.0001-1.001, ±0.01%-0.1%). Geometric mean is very sensitive - a threshold of 1.001 rejects sequences with average per-token deviation > 0.1%.
+
+### 5. PPO with IS Bypass
+
+**Theory:** PPO applied to off-policy data by using π_rollout as the PPO anchor (bypass mode).
 
 **Applicable scenarios:**
 - Training is slow and computational efficiency is priority
@@ -333,11 +379,11 @@ algorithm:
 ```
 
 **Properties:**
-- Faster training (skips forward pass for old policy)
-- Reduced memory usage
-- PPO clipping preserved (clips against rollout policy)
-
-**Theory:** Standard PPO (two policies) applied to off-policy data by using rollout policy as the PPO anchor.
+- **Algorithm**: PPO in bypass mode
+- **Policies**: Two (π_rollout = π_old, π_θ)
+- **Faster**: Skips `actor.compute_log_prob()` forward pass
+- **PPO clipping**: Clips against π_rollout
+- **Mathematically correct**: Uses actual behavior policy π_rollout as proximal policy (avoids common mistake of ignoring π_rollout)
 
 **Configuration requirement:**
 - Set `actor_rollout_ref.rollout.calculate_log_probs: true`
@@ -385,20 +431,30 @@ The final IS weights go through multiple stages of processing:
 
 ## Operation Modes
 
-The system has **three main training modes** that determine how rollout correction is applied:
+The system has **two operating modes** for computing π_old, plus an additional algorithmic option:
 
-### Training Modes
+### Operating Modes and Configuration
 
-| Mode | `bypass_old_logprob_for_rollout` | `use_pure_rollout_correction` | Loss Function | Description |
-|------|----------------------------------|------------------------------|---------------|-------------|
-| **Standard** | `false` | `false` | PPO | Standard mode: Trainer computes `old_log_prob` via `actor.compute_log_prob()` |
-| **Bypass** | `true` | `false` | PPO | Bypass mode: Trainer sets `old_log_prob = rollout_log_prob`, PPO clips against rollout policy |
-| **Pure IS** | `true` | `true` | Pure Policy Gradient | No PPO clipping, uses `L = -E[w * log π * A]` with IS correction |
+| Configuration | `bypass_old_logprob_for_rollout` | `use_pure_rollout_correction` | Operating Mode | Loss Function | Description |
+|---------------|----------------------------------|------------------------------|----------------|---------------|-------------|
+| **Decoupled** | `false` | `false` | Decoupled | PPO | Computes `old_log_prob` separately via `actor.compute_log_prob()` |
+| **Bypass** | `true` | `false` | Bypass | PPO | Sets `old_log_prob = rollout_log_prob`, PPO clips against rollout policy |
+| **Pure IS** | `true` | `true` | Bypass | Pure Policy Gradient | Bypass mode with pure IS loss (no PPO clipping) |
 
-**Key Differences:**
-- **Standard**: Requires extra forward pass to compute `old_log_prob` separately
-- **Bypass**: Skips forward pass by reusing rollout log probs; clips ratio `π_current / π_rollout` instead of `π_current / π_old`
-- **Pure IS**: Pure policy gradient with explicit IS correction, no PPO clipping constraints
+**Operating Mode Descriptions:**
+
+**Decoupled Mode** (three policies: π_rollout, π_old, π_θ):
+- Computes π_old separately at start of training epoch
+- Requires extra forward pass via `actor.compute_log_prob()`
+- Achieves batch size invariance
+- Separately corrects Drift 1 (rollout→old) and Drift 2 (old→current)
+
+**Bypass Mode** (two policies: π_rollout = π_old, π_θ):
+- Sets π_old = π_rollout (skips separate computation)
+- Faster: No extra forward pass needed
+- Uses π_rollout as both behavior policy and proximal policy
+- Does not achieve batch size invariance
+- Can be used with PPO clipping or pure policy gradient (Pure IS)
 
 ### IS Weights and Rejection Sampling
 
@@ -530,7 +586,9 @@ These metrics cover both:
 - **`rollout_is_veto_fraction`**: Fraction of sequences rejected by veto mechanism
   - **Important**: Sequences are rejected via `response_mask=0`, NOT by modifying IS weights
   - **IS weights unchanged by veto**: Already processed by mode (truncate: clamped, mask: safety-bounded)
-  - Veto checks **unclamped per-token ratios** π_train(t)/π_rollout(t) (true ratios before safety bound)
+  - Veto checks **unclamped per-token ratios** (true ratios before safety bound)
+    - Decoupled mode: π_old(t)/π_rollout(t)
+    - Bypass/Pure IS mode: π_θ(t)/π_rollout(t)
   - Detects catastrophic tokens (true ratio < veto_threshold, e.g., < 1e-4)
   - **Ideal value**: < 0.05 (less than 5% vetoed)
   - **Warning**: > 0.1 suggests policies are too different or numerical issues
@@ -589,11 +647,17 @@ These metrics cover both:
 
 #### **Off-Policy Diagnostic Metrics** (Training vs Rollout Policy)
 
-- **`training_ppl`**: Perplexity of training policy (e.g., FSDP FP32)
+**Note on terminology:** These metrics use "training" to refer to the training reference policy and "rollout" to refer to π_rollout (the behavior policy used for data collection).
+- **Decoupled mode**: "training" = π_old (computed at start of training epoch)
+- **Bypass/Pure IS mode**: "training" = π_θ (current policy being trained)
+
+In bypass/pure IS mode, metrics measure the drift between π_θ and π_rollout directly.
+
+- **`training_ppl`**: Perplexity of training reference policy (π_old in decoupled mode, π_θ in bypass/pure IS mode)
   - **Formula**: `exp(-mean(log_probs))`
   - Lower values indicate higher model confidence
 
-- **`rollout_ppl`**: Perplexity of rollout policy (e.g., vLLM BF16)
+- **`rollout_ppl`**: Perplexity of rollout policy π_rollout (e.g., vLLM BF16)
   - Should be close to `training_ppl` if policies match well
 
 - **`ppl_ratio`**: Ratio of training PPL to rollout PPL
