@@ -381,6 +381,15 @@ class MegatronEngine(BaseEngine):
 
     def forward_backward_batch(self, data: TensorDict, loss_function: Callable, forward_only=False) -> Any:
         tu.assign_non_tensor(data, sp_size=self.engine_config.context_parallel_size)
+
+        # compute num_tokens in global batch for loss normalization
+        batch_num_tokens = data["loss_mask"].sum().to(get_device_id())
+        torch.distributed.all_reduce(
+            batch_num_tokens, op=torch.distributed.ReduceOp.SUM, group=self.get_data_parallel_group()
+        )
+        tu.assign_non_tensor(data, batch_num_tokens=batch_num_tokens.item())
+        tu.assign_non_tensor(data, dp_size=self.get_data_parallel_size())
+
         vpp_size = mpu.get_virtual_pipeline_model_parallel_world_size()
         if vpp_size is not None and vpp_size > 1:
             num_batches_divided_by = self.tf_config.microbatch_group_size_per_vp_stage
@@ -595,7 +604,13 @@ class MegatronEngineWithLMHead(MegatronEngine):
             else:
                 logits_bak = logits
 
-            # FIXME(houmin): maybe shift label in another place
+            # Create the final labels for next-token prediction.
+            # The `label` tensor starts as a clone of `input_ids`. `torch.roll` is not applied
+            # earlier because `input_ids` is a nested tensor, which is incompatible with the operation.
+            # The `preprocess_packed_seqs_no_padding` function unnests and flattens the tensor
+            # into `input_ids_rmpad` (shape: [1, total_seqlen]).
+            # Now, on this simple, unpadded tensor, we can perform the standard left shift
+            # to align the target token `t+1` with the prediction for token `t`.
             label = torch.roll(label, shifts=-1, dims=1)
 
             log_probs = vocab_parallel_log_probs_from_logits(logits_bak, label)
@@ -607,7 +622,7 @@ class MegatronEngineWithLMHead(MegatronEngine):
         output = forward_fn(
             model,
             input_ids,
-            multi_modal_inputs=multi_modal_inputs,
+            multi_modal_inputs,
             logits_processor=logits_processor,
             logits_processor_args=logits_processor_args,
         )
@@ -618,18 +633,13 @@ class MegatronEngineWithLMHead(MegatronEngine):
         # For memory efficiency
         # We move calculation of entropy to compute_log_probs, forward_only == True
         device = data["input_ids"].device
-        local_micro_bsz = data["input_ids"].shape[0]
         model_output = self.prepare_model_outputs(output, data)
 
         if loss_function is not None:
             loss, metrics = loss_function(model_output=model_output, data=data, dp_group=self.get_data_parallel_group())
             # scale loss by num_micro_batch because megatron will scale loss
             # by n_micro_batch and cp size inside pp schedule
-            n_micro_batch = data["num_micro_batch"]
-            loss = loss * n_micro_batch / mpu.get_context_parallel_world_size()
-            global_bsz = data["global_batch_size"]
-            loss_scale_factor = local_micro_bsz / (global_bsz / self.get_data_parallel_size())
-            loss = loss * loss_scale_factor
+            loss = loss * data["num_micro_batch"] / mpu.get_context_parallel_world_size()
         else:
             assert forward_only, "forward_only must be True when loss_function is None"
             loss = torch.tensor(1.0, device=device)
@@ -662,8 +672,7 @@ class MegatronEngineWithValueHead(MegatronEngineWithLMHead):
         output = forward_fn(
             model,
             input_ids,
-            sequence_parallel=self.tf_config.sequence_parallel,
-            multi_modal_inputs=multi_modal_inputs,
+            multi_modal_inputs,
             value_model=True,
         )
 

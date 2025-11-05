@@ -204,6 +204,7 @@ class McoreActorConfig(ActorConfig):
     load_weight: bool = True
     megatron: McoreEngineConfig = field(default_factory=McoreEngineConfig)
     profile: dict[str, Any] = field(default_factory=dict)
+    use_rollout_log_probs: bool = False
 
 
 @dataclass
@@ -231,6 +232,7 @@ class FSDPActorConfig(ActorConfig):
     fsdp_config: FSDPEngineConfig = field(default_factory=FSDPEngineConfig)
     use_remove_padding: bool = False
     profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
+    use_rollout_log_probs: bool = False
 
     def __post_init__(self):
         """Validate FSDP actor configuration parameters."""

@@ -13,6 +13,16 @@ train_files: ~/data/rlhf/gsm8k/train.parquet
 # Validation parquet. Can be a list or a single file.
 val_files: ~/data/rlhf/gsm8k/test.parquet
 
+# Maximum sample length to be used.
+# Set to -1 to use full dataset, otherwise, randomly
+# select the specified number of samples from train dataset
+train_max_samples: -1
+
+# Maximum sample length to be used.
+# Set to -1 to use full dataset, otherwise, randomly
+# select the specified number of samples from val dataset
+val_max_samples: -1
+
 # The field in the dataset where the prompt is located. Default is 'prompt'.
 prompt_key: prompt
 
@@ -34,6 +44,9 @@ train_batch_size: 1024
 # Batch size used during validation. Can be null.
 val_batch_size: null
 
+# use tool config to calculate true prompt length
+tool_config_path: ${oc.select:actor_rollout_ref.rollout.multi_turn.tool_config_path, null}
+
 # Whether to return the original input_ids without adding chat template.
 # This is used when the reward model's chat template differs from the policy.
 # If using a model-based RM with different templates, this should be True.
@@ -48,8 +61,14 @@ return_full_prompt: False
 # Whether to shuffle the data in the dataloader.
 shuffle: True
 
+# Seed to use when shuffling the data
+seed: null
+
 # num dataloader workers
 dataloader_num_workers: 8
+
+# image patch size
+image_patch_size: 14
 
 # Whether to shuffle the validation set.
 validation_shuffle: False

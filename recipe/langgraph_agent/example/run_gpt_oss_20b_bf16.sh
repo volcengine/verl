@@ -123,7 +123,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.multi_turn.max_user_turns=$max_turns \
     actor_rollout_ref.rollout.multi_turn.max_assistant_turns=$max_turns \
     actor_rollout_ref.rollout.multi_turn.format=gpt-oss \
-    actor_rollout_ref.rollout.agent.tool_parser=gpt-oss \
+    +actor_rollout_ref.rollout.engine_kwargs.sglang.attention_backend=triton \
     actor_rollout_ref.rollout.agent.agent_loop_config_path=$agent_loop_config_path \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.7 \
     actor_rollout_ref.rollout.n=$n_resp_per_prompt \

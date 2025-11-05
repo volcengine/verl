@@ -187,7 +187,9 @@ class RayPRIMETrainer(RayPPOTrainer):
         # use sampler for better ckpt resume
         if self.config.data.shuffle:
             train_dataloader_generator = torch.Generator()
-            train_dataloader_generator.manual_seed(self.config.data.get("seed", 1))
+            seed = self.config.data.get("seed")
+            if seed is not None:
+                train_dataloader_generator.manual_seed(seed)
             sampler = RandomSampler(data_source=self.train_dataset, generator=train_dataloader_generator)
         else:
             sampler = SequentialSampler(data_source=self.train_dataset)
@@ -329,6 +331,45 @@ class RayPRIMETrainer(RayPPOTrainer):
         if isinstance(self.train_dataloader.dataset, RLHFDataset):
             self.train_dataloader.dataset.resume_dataset_state()
 
+    def compute_reward(self, batch: DataProto, n_samples: int):
+        update_style = self.config.reward_model.model.get("update", "none")
+        reward_output_metrics = {}
+        if update_style == "none":  # only run forward
+            reward_output = self.rm_wg.compute_rm_score(batch)
+        elif update_style == "after":  # update and directly return the reward
+            reward_output = self.rm_wg.update_rm(batch)
+        elif update_style == "before":  # update reward model, and then run forward
+            reward_output = self.rm_wg.update_rm(batch)
+            if "metrics" in reward_output.meta_info.keys():
+                reward_output_metrics = reduce_metrics(reward_output.meta_info["metrics"])
+
+            reward_output = self.rm_wg.compute_rm_score(batch)
+        elif update_style == "reverse":  # run forward to calculate statistics, then update reward model
+            reward_output = self.rm_wg.compute_rm_score(batch)
+
+            # broadcast q and acc tensor to each result
+            bc_td = DataProto.from_dict(
+                tensors={
+                    "Q_bc": reward_output.batch["q"]
+                    .sum(dim=-1)
+                    .view(-1, n_samples)
+                    .unsqueeze(1)
+                    .expand(-1, n_samples, -1)
+                    .reshape(-1, n_samples),
+                    "acc_bc": batch.batch["acc"]
+                    .view(-1, n_samples)
+                    .unsqueeze(1)
+                    .expand(-1, n_samples, -1)
+                    .reshape(-1, n_samples),
+                }
+            )
+            batch = batch.union(bc_td)
+            reward_output = self.rm_wg.update_rm(batch)
+        else:
+            raise NotImplementedError
+
+        return reward_output, reward_output_metrics
+
     def fit(self):
         """
         The training loop of PPO.
@@ -373,12 +414,14 @@ class RayPRIMETrainer(RayPPOTrainer):
 
                 # pop those keys for generation
                 gen_batch = batch.pop(batch_keys=["input_ids", "attention_mask", "position_ids"])
-                gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+                gen_batch_output = gen_batch.repeat(
+                    repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True
+                )
 
                 with simple_timer("step", timing_raw):
                     # generate a batch
                     with simple_timer("gen", timing_raw):
-                        gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+                        gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch_output)
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)
 
@@ -389,10 +432,19 @@ class RayPRIMETrainer(RayPPOTrainer):
                             gen_baseline_output = self.actor_rollout_wg.generate_sequences(gen_baseline_batch)
 
                             batch = batch.union(gen_baseline_output)
-                            reward_baseline_tensor = self.reward_fn(batch)
+                            rm_scores, _ = self.compute_reward(batch, 1)
+                            reward_baseline_tensor = rm_scores.batch.get(
+                                "rm_scores", rm_scores.batch.get("acc_bc", None)
+                            )
+                            if reward_baseline_tensor is None:
+                                raise ValueError(
+                                    "Neither 'rm_scores' nor 'acc_bc' found in reward model output for baseline."
+                                )
                             reward_baseline_tensor = reward_baseline_tensor.sum(dim=-1)
 
-                            batch.pop(batch_keys=list(gen_baseline_output.batch.keys()))
+                            keys_to_pop = set(gen_baseline_output.batch.keys())
+                            keys_to_pop.update(rm_scores.batch.keys())
+                            batch.pop(batch_keys=list(keys_to_pop))
 
                             batch.batch["reward_baselines"] = reward_baseline_tensor
 
@@ -448,46 +500,11 @@ class RayPRIMETrainer(RayPPOTrainer):
 
                     with simple_timer("adv", timing_raw):
                         if self.use_rm:
-                            update_style = self.config.reward_model.model.get("update", "none")
-                            if update_style == "none":  # only run forward
-                                reward_output = self.rm_wg.compute_rm_score(batch)
-                            elif update_style == "after":  # update and directly return the reward
-                                reward_output = self.rm_wg.update_rm(batch)
-                            elif update_style == "before":  # update reward model, and then run forward
-                                reward_output = self.rm_wg.update_rm(batch)
-                                if "metrics" in reward_output.meta_info.keys():
-                                    reward_output_metrics = reduce_metrics(reward_output.meta_info["metrics"])
-                                    metrics.update(reward_output_metrics)
-
-                                reward_output = self.rm_wg.compute_rm_score(batch)
-                            elif (
-                                update_style == "reverse"
-                            ):  # run forward to calculate statistics, then update reward model
-                                reward_output = self.rm_wg.compute_rm_score(batch)
-                                # broadcast q and acc tensor to each result
-                                bc_td = DataProto.from_dict(
-                                    tensors={
-                                        "Q_bc": reward_output.batch["q"]
-                                        .sum(dim=-1)
-                                        .view(-1, n_samples)
-                                        .unsqueeze(1)
-                                        .expand(-1, n_samples, -1)
-                                        .reshape(-1, n_samples),
-                                        "acc_bc": batch.batch["acc"]
-                                        .view(-1, n_samples)
-                                        .unsqueeze(1)
-                                        .expand(-1, n_samples, -1)
-                                        .reshape(-1, n_samples),
-                                    }
-                                )
-                                batch = batch.union(bc_td)
-                                reward_output = self.rm_wg.update_rm(batch)
-                            else:
-                                raise NotImplementedError
+                            reward_output, reward_output_metrics = self.compute_reward(batch, n_samples)
                             batch = batch.union(reward_output)
                             if "metrics" in reward_output.meta_info.keys():
-                                reward_output_metrics = reduce_metrics(reward_output.meta_info["metrics"])
-                                metrics.update(reward_output_metrics)
+                                reward_output_metrics.update(reduce_metrics(reward_output.meta_info["metrics"]))
+                            metrics.update(reward_output_metrics)
 
                         # compute advantages, executed on the driver process
                         batch = compute_advantage(

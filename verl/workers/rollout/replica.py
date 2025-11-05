@@ -24,7 +24,7 @@ from ray.actor import ActorHandle
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.trainer.ppo.ray_trainer import RayResourcePool, ResourcePoolManager
 from verl.utils.config import omega_conf_to_dataclass
-from verl.workers.config import HFModelConfig, RewardModelConfig, RolloutConfig
+from verl.workers.config import HFModelConfig, RolloutConfig
 
 logger = logging.getLogger(__file__)
 
@@ -70,16 +70,17 @@ class RolloutReplica(ABC):
 
     Args:
         replica_rank: int, rank of this rollout replica.
-        config: RolloutConfig | RewardModelConfig, full config.
+        config: RolloutConfig, full config.
         gpus_per_node: int, number of gpus per node.
     """
 
     def __init__(
         self,
         replica_rank: int,
-        config: RolloutConfig | RewardModelConfig,
+        config: RolloutConfig,
         model_config: HFModelConfig,
         gpus_per_node: int = 8,
+        is_reward_model: bool = False,
     ) -> None:
         self.replica_rank = replica_rank
         self.config = omega_conf_to_dataclass(config)
@@ -95,6 +96,7 @@ class RolloutReplica(ABC):
             f"world_size {self.world_size} must be divisible by gpus_per_node {self.gpus_per_node}"
         )
         self.nnodes = self.world_size // self.gpus_per_node
+        self.is_reward_model = is_reward_model
 
         self.rollout_mode: RolloutMode = None
         self.workers: list[ActorHandle] = []
@@ -116,32 +118,43 @@ class RolloutReplica(ABC):
         ]
         await self.launch_servers()
 
-    async def init_colocated(self, resource_pool: RayResourcePool):
+    # TODO(@dyy): init with resource_pool?
+    async def init_colocated(self, worker_group: RayWorkerGroup):
         """Init colocated rollout server, rollout engine and hybrid engine colocated in same ray placement group
         but in separate processes.
 
         Args:
             resource_pool: RayResourcePool, ray placement group where hybrid engine processes have been launched.
         """
-        raise NotImplementedError
+        self.rollout_mode = RolloutMode.COLOCATED
+        self.workers = worker_group.workers[
+            self.world_size * self.replica_rank : self.world_size * (self.replica_rank + 1)
+        ]
+        await self.launch_servers()
 
     async def init_standalone(self):
         """Init standalone rollout server, create new resource pool for this rollout."""
         # create resource pool for this rollout
         self.rollout_mode = RolloutMode.STANDALONE
+        resource_pool_name = (
+            f"rollout_pool_{self.replica_rank}" if self.is_reward_model else f"rollout_pool_reward_{self.replica_rank}"
+        )
         resource_pool_spec = {
-            f"rollout_pool_{self.replica_rank}": [self.gpus_per_node] * self.nnodes,
+            resource_pool_name: [self.gpus_per_node] * self.nnodes,
         }
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=None)
         resource_pool_manager.create_resource_pool()
-        self.resource_pool = resource_pool_manager.resource_pool_dict[f"rollout_pool_{self.replica_rank}"]
+        self.resource_pool = resource_pool_manager.resource_pool_dict[resource_pool_name]
 
         # create worker group for this rollout
+
         worker_group = RayWorkerGroup(
             resource_pool=self.resource_pool,
             ray_cls_with_init=self.get_ray_class_with_init_args(),
             bin_pack=False,
-            name_prefix=f"rollout_standalone_{self.replica_rank}",
+            name_prefix=f"rollout_standalone_{self.replica_rank}"
+            if not self.is_reward_model
+            else f"rollout_reward_standalone_{self.replica_rank}",
         )
         self.workers = worker_group.workers
         await self.launch_servers()
