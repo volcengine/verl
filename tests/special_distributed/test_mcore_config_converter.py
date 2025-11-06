@@ -80,7 +80,6 @@ def test_mcore_config_converter():
         tensor_model_parallel_size=2,
         pipeline_model_parallel_size=2,
         virtual_pipeline_model_parallel_size=None,
-        pipeline_model_parallel_split_rank=None,
         use_sharp=False,
         context_parallel_size=2,
         expert_model_parallel_size=1,
