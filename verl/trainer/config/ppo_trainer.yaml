@@ -135,6 +135,9 @@ algorithm:
   # Useful for monitoring mismatch before enabling correction
   rollout_is: false
 
+  # Whether to apply self-normalized IS
+  rollout_is_self_norm: false
+
 # config for the trainer
 trainer:
 

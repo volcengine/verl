@@ -377,6 +377,8 @@ class DataParallelPPOActor(BasePPOActor):
         # Weights are computed centrally in trainer and added to batch when algorithm.rollout_is=True
         if "rollout_is_weights" in data.batch.keys():
             select_keys.append("rollout_is_weights")
+        if "rollout_is_self_norm_flag" in data.batch.keys():
+            select_keys.append("rollout_is_self_norm_flag")
 
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
         non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
@@ -402,6 +404,45 @@ class DataParallelPPOActor(BasePPOActor):
                     micro_batches = mini_batch.split(self.config.ppo_micro_batch_size_per_gpu)
 
                 self.actor_optimizer.zero_grad()
+
+                global_snis_denom = None
+                try:
+                    if (
+                        "rollout_is_weights" in mini_batch.batch.keys()
+                        and "rollout_is_self_norm_flag" in mini_batch.batch.keys()
+                    ):
+                        # Compute a global SNIS denominator
+                        with torch.no_grad():
+                            weights_full = mini_batch.batch["rollout_is_weights"]
+                            response_mask_full = mini_batch.batch["response_mask"]
+                            mask_float = response_mask_full.to(dtype=weights_full.dtype)
+
+                            loss_mode_batch = self.config.policy_loss.get("loss_mode", "vanilla")
+                            loss_agg_mode_batch = self.config.loss_agg_mode
+
+                            if loss_mode_batch == "geo_mean":
+                                global_snis_denom = None
+                            else:
+                                lam = "seq-mean-token-mean" if loss_mode_batch == "gspo" else loss_agg_mode_batch
+                                if lam == "token-mean":
+                                    if torch.distributed.is_available() and torch.distributed.is_initialized():
+                                        global_snis_denom = verl_F.distributed_masked_mean(weights_full, mask_float)
+                                    else:
+                                        global_snis_denom = verl_F.masked_mean(weights_full, mask_float)
+                                elif lam == "seq-mean-token-sum":
+                                    global_snis_denom = None
+                                elif lam == "seq-mean-token-mean":
+                                    global_snis_denom = None
+                                elif lam == "seq-mean-token-sum-norm":
+                                    denom_sum = (weights_full * mask_float).sum()
+                                    if torch.distributed.is_available() and torch.distributed.is_initialized():
+                                        torch.distributed.all_reduce(denom_sum, op=torch.distributed.ReduceOp.SUM)
+                                    global_snis_denom = denom_sum / weights_full.shape[-1]
+                                else:
+                                    raise ValueError(f"loss_agg_mode: {lam} not supported for SNIS")
+                except Exception as e:
+                    logger.warning(f"SNIS denominator could not be calculated. Error: {e}", exc_info=True)
+                    global_snis_denom = None
 
                 for micro_batch in micro_batches:
                     micro_batch = micro_batch.to(get_device_id())
@@ -442,6 +483,53 @@ class DataParallelPPOActor(BasePPOActor):
                     # Extract pre-computed rollout importance sampling weights if present
                     # Weights are computed centrally in trainer and added when algorithm.rollout_is=True
                     rollout_is_weights = model_inputs.get("rollout_is_weights", None)
+
+                    if (
+                        rollout_is_weights is not None
+                        and model_inputs.get("rollout_is_self_norm_flag", None) is not None
+                    ):
+                        # Determine effective aggregation mode for this micro-batch
+                        loss_mode_mb = self.config.policy_loss.get("loss_mode", "vanilla")
+                        lam = "seq-mean-token-mean" if loss_mode_mb == "gspo" else self.config.loss_agg_mode
+
+                        mask_float_mb = response_mask.to(dtype=rollout_is_weights.dtype)
+
+                        if loss_mode_mb == "geo_mean":
+                            # Per-sequence geometric mean (vector).
+                            with torch.no_grad():
+                                den_vec = (
+                                    torch.exp(
+                                        verl_F.masked_mean(
+                                            torch.log(rollout_is_weights.clamp_min(1e-10)),
+                                            mask_float_mb,
+                                            axis=-1,
+                                        )
+                                    )
+                                    .unsqueeze(-1)
+                                    .clamp_min(1e-8)
+                                )
+                            rollout_is_weights /= den_vec
+                        elif lam == "seq-mean-token-mean":
+                            # Per-sequence masked mean denominator (vector)
+                            with torch.no_grad():
+                                den_vec = (
+                                    verl_F.masked_mean(rollout_is_weights, mask_float_mb, axis=-1)
+                                    .unsqueeze(-1)
+                                    .clamp_min(1e-8)
+                                )
+                            rollout_is_weights /= den_vec
+                        elif lam == "seq-mean-token-sum":
+                            # Per-sequence masked sum denominator (vector)
+                            with torch.no_grad():
+                                den_vec = (
+                                    verl_F.masked_sum(rollout_is_weights, mask_float_mb, axis=-1)
+                                    .unsqueeze(-1)
+                                    .clamp_min(1e-8)
+                                )
+                            rollout_is_weights /= den_vec
+                        elif lam in ("token-mean", "seq-mean-token-sum-norm") and global_snis_denom is not None:
+                            # Global/batch scalar denominator
+                            rollout_is_weights /= global_snis_denom.clamp_min(1e-8)
 
                     # NOTE: Both mismatch diagnostic metrics (PPL, KL, etc.) and IS weight metrics
                     # are computed centrally in ray_trainer.py for consistency and efficiency.

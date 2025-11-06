@@ -1005,6 +1005,13 @@ class RayPPOTrainer:
             apply_weights = self.config.algorithm.get("rollout_is", False)
 
             if apply_weights:
+                if getattr(self.config.algorithm, "rollout_is_self_norm", False):
+                    weights = rollout_is_weights.batch["rollout_is_weights"]
+                    flag = torch.ones((weights.size(0), 1), dtype=torch.bool, device=weights.device)
+                    rollout_is_weights = rollout_is_weights.union(
+                        DataProto.from_dict(tensors={"rollout_is_self_norm_flag": flag})
+                    )
+
                 # Add IS weights (safety-bounded, mode-processed) to enable weight correction
                 batch = batch.union(rollout_is_weights)
 
