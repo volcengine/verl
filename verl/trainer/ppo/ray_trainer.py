@@ -1171,10 +1171,6 @@ class RayPPOTrainer:
                         else False
                     )
 
-                    # Variables to track if we need to restore config after actor training
-                    original_loss_mode = None
-                    original_rollout_correction_config = None
-
                     if bypass_mode:
                         # BYPASS MODE: Use rollout_log_probs as old_log_probs
                         # Skips expensive actor forward pass for old_log_prob computation
@@ -1202,15 +1198,6 @@ class RayPPOTrainer:
                         if use_pure_rollout_correction:
                             # Pure IS mode: Configure actor to use rollout_correction loss function
                             # This will use compute_policy_loss_with_rollout_correction (no PPO clipping)
-                            # Temporarily modify actor config's loss_mode
-                            original_loss_mode = self.config.actor_rollout_ref.actor.policy_loss.get(
-                                "loss_mode", "vanilla"
-                            )
-                            original_rollout_correction_config = self.config.actor_rollout_ref.actor.policy_loss.get(
-                                "rollout_correction", None
-                            )
-
-                            # Store rollout_correction config in policy_loss for the wrapper function
                             self.config.actor_rollout_ref.actor.policy_loss["loss_mode"] = "rollout_correction"
                             self.config.actor_rollout_ref.actor.policy_loss["rollout_correction"] = rollout_corr_config
 
@@ -1314,16 +1301,6 @@ class RayPPOTrainer:
                             actor_output = self.actor_rollout_wg.update_actor(batch)
                         actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
                         metrics.update(actor_output_metrics)
-
-                        # Restore original loss_mode if it was temporarily changed for pure IS mode
-                        if original_loss_mode is not None:
-                            self.config.actor_rollout_ref.actor.policy_loss["loss_mode"] = original_loss_mode
-                            if original_rollout_correction_config is None:
-                                self.config.actor_rollout_ref.actor.policy_loss.pop("rollout_correction", None)
-                            else:
-                                self.config.actor_rollout_ref.actor.policy_loss["rollout_correction"] = (
-                                    original_rollout_correction_config
-                                )
 
                     # Log rollout generations if enabled
                     rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)
