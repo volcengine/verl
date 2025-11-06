@@ -36,7 +36,7 @@ from verl import DataProto
 from verl.models.openvla_oft.modeling_prismatic import OpenVLAForActionPrediction
 from verl.models.openvla_oft.processing_prismatic import PrismaticProcessor
 from verl.workers.rollout.base import BaseRollout
-
+# from recipe.vla.profiler_utils import conditional_profiler
 
 def center_crop_image(image: Image.Image) -> Image.Image:
     crop_scale = 0.9
@@ -169,9 +169,7 @@ class NaiveRolloutRob(BaseRollout):
         if module is not None:
             self.module = module
         else:
-            self.module = OpenVLAForActionPrediction.from_pretrained(model_config["path"], trust_remote_code=True).to(
-                torch.cuda.current_device()
-            )
+            self.module = OpenVLAForActionPrediction.from_pretrained(model_config["path"], trust_remote_code=True)
         self.module.vision_backbone.set_num_images_in_input(1)
         self.processor = PrismaticProcessor.from_pretrained(model_config["path"], trust_remote_code=True)
         dataset_statistics_path = os.path.join(model_config["path"], "dataset_statistics.json")
@@ -190,24 +188,16 @@ class NaiveRolloutRob(BaseRollout):
         attention_mask = prompts["attention_mask"]  # left-padded attention_mask
         pixel_values = prompts["pixel_values"]
 
-        # TODO(caiyunke.astra): check efficiency
-        # if isinstance(self.module, FSDP):
-        #     param_ctx = FSDP.summon_full_params(self.module, writeback=False, recurse=False)
-        # else:
-        #     param_ctx = contextlib.nullcontext()
-        param_ctx = contextlib.nullcontext()
-
-        with param_ctx:
-            with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
-                actions, response = self.module.generate_action_verl(
-                    input_ids=idx,
-                    pixel_values=pixel_values,
-                    attention_mask=attention_mask,
-                    padding_idx=self.processor.tokenizer.pad_token_id,
-                    do_sample=do_sample,
-                    unnorm_key="libero_10_no_noops",
-                    temperature=temperature,
-                )
+        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            actions, response = self.module.generate_action_verl(
+                input_ids=idx,
+                pixel_values=pixel_values,
+                attention_mask=attention_mask,
+                padding_idx=self.processor.tokenizer.pad_token_id,
+                do_sample=do_sample,
+                unnorm_key="libero_10_no_noops",
+                temperature=temperature,
+            )
 
         assert self.processor.tokenizer.pad_token_id is not None
 
@@ -236,6 +226,7 @@ class NaiveRolloutRob(BaseRollout):
 
         return batch
 
+    # @conditional_profiler(name="generate_sequences", path="traces/rollout", max_steps=5)
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto) -> DataProto:
         """Generate sequences"""
@@ -254,17 +245,44 @@ class NaiveRolloutRob(BaseRollout):
         batch = DataProto.from_dict(tensors=vla_output)
         return batch
 
-    async def update_weights(self, weights, **kwargs):
-        # new_state_dict = {name: param for name, param in weights}
-        # try:
-        #     self.module.load_state_dict(new_state_dict)
-        # except Exception as e:
-        #     raise e
-        # TODO(caiyunke.astra): implement weight update for seperate rollout worker
-        pass
-
-    def release(self):
-        self.module.cpu()
-
-    def resume(self, tags: list[str]):
-        self.module.to(torch.cuda.current_device())
+    async def update_weights(self, weights_iterator, **kwargs):
+        prefix = "_fsdp_wrapped_module."
+        
+        # cleaned_state_dict = {
+        #     name.replace(prefix, ""): param.cpu() 
+        #     for name, param in weights_iterator
+        # }
+        
+        # self.module.load_state_dict(cleaned_state_dict, strict=False)
+        target_state_dict = self.module.state_dict()
+    
+        loaded_tensors_count = 0
+        for name, param in weights_iterator:
+            cleaned_name = name.replace(prefix, "")
+            
+            if cleaned_name in target_state_dict:
+                target_tensor = target_state_dict[cleaned_name]
+                
+                try:
+                    target_tensor.copy_(param, non_blocking=True)
+                    loaded_tensors_count += 1
+                except Exception as e:
+                    print(f"Warning: Failed to copy tensor '{cleaned_name}'. Error: {e}")
+            else:
+                print(f"Warning: Failed to copy tensor '{cleaned_name}'. Model has no such key.")
+                pass
+        print(f"Rollout model weights updated. Loaded {loaded_tensors_count} tensors one by one.")
+    
+    async def release(self):
+        if self.module.device.type == 'cuda':
+            print("Releasing rollout model to CPU.")
+            self.module.cpu()
+            self.device = torch.device("cpu")
+            torch.cuda.empty_cache()
+            
+    async def resume(self, **kwargs):
+        if self.module.device.type == 'cpu':
+            target_device = "cuda"
+            print(f"Resuming rollout model to device: {target_device}.")
+            self.module.to(target_device)
+            self.device = torch.device(target_device)

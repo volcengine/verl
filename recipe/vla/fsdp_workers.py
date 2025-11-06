@@ -32,13 +32,21 @@ from torch.distributed.fsdp.api import FullStateDictConfig, ShardedStateDictConf
 from verl import DataProto
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
 from verl.utils.config import omega_conf_to_dataclass
-from verl.utils.device import get_device_name, get_torch_device, set_expandable_segments
+from verl.utils.device import get_device_id, get_device_name, get_torch_device, set_expandable_segments
 from verl.utils.fsdp_utils import (
     fsdp_version,
+    load_fsdp_model_to_gpu,
+    offload_fsdp_model_to_cpu,
 )
+try:
+    # for torch 2.5+
+    from torch.distributed.tensor import DTensor
+except ImportError:
+    from torch.distributed._tensor import DTensor
+
 from verl.utils.import_utils import import_external_libs
 from verl.utils.memory_utils import aggressive_empty_cache
-from verl.utils.profiler import DistProfiler
+from verl.utils.profiler import DistProfiler, log_gpu_memory_usage
 from verl.workers.config import HFModelConfig
 from verl.workers.fsdp_workers import ActorRolloutRefWorker
 
@@ -88,42 +96,56 @@ class RobActorRolloutRefWorker(ActorRolloutRefWorker):
             )
 
         self._register_dispatch_collect_info("rollout", dp_rank=self.rank, is_collect=True)
-        self.rollout = NaiveRolloutRob(module=self.actor_module_fsdp, model_config=self.config.model)
+        # self.rollout = NaiveRolloutRob(module=self.actor_module_fsdp, model_config=self.config.model)
+        self.rollout = NaiveRolloutRob(module=None, model_config=self.config.model)
         model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model, dataclass_type=HFModelConfig)
         self.model_config = model_config
 
     async def rollout_mode(self):
         """Context switch hybridengine to rollout mode."""
         aggressive_empty_cache(force_sync=True)
-        fsdp_unshard_exit_stack = contextlib.ExitStack()
-        optional_state = _get_module_fsdp_state(self.actor_module_fsdp)
-        if optional_state is None:
-            self.fsdp_unshard_exit_stack = fsdp_unshard_exit_stack
-        states_and_modules = ([optional_state], [self.actor_module_fsdp])
+        log_gpu_memory_usage("Before load_fsdp_model_to_gpu", logger=logger)
+        if self._is_offload_param:
+            load_fsdp_model_to_gpu(self.actor_module_fsdp)
+        log_gpu_memory_usage("After load_fsdp_model_to_gpu", logger=logger)
+        params = self.actor_module_fsdp.state_dict()
+
+        # params = convert_weight_keys(
+        #     params, getattr(self.actor_module_fsdp, "_fsdp_wrapped_module", self.actor_module_fsdp)
+        # )
+        log_gpu_memory_usage("Before offload_fsdp_model_to_cpu", logger=logger)
+        if self._is_offload_param:
+            offload_fsdp_model_to_cpu(self.actor_module_fsdp)
+        log_gpu_memory_usage("After offload_fsdp_model_to_cpu", logger=logger)
+        await self.rollout.resume()
+        log_gpu_memory_usage("After resume weights", logger=logger)
+        device = get_device_id()  # used when fsdp2 set cpu_offload_policy
+        # TODO(caiyunke.astra): check speed
+        per_tensor_param = (
+            (name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param)
+            for name, param in params.items()
+        )
+        # per_tensor_param = (
+        #     (name, param.full_tensor() if isinstance(param, DTensor) else param)
+        #     for name, param in params.items()
+        # )
+        await self.rollout.update_weights(per_tensor_param, peft_config=None, base_sync_done=self.base_sync_done)
+        log_gpu_memory_usage("After update_weights", logger=logger)
+
+        del params, per_tensor_param
 
         self.base_sync_done = True
         # important: need to manually set the random states of each tp to be identical.
         self.torch_random_states = get_torch_device().get_rng_state()
         get_torch_device().set_rng_state(self.gen_random_states)
-        for state, fsdp_module in zip(*states_and_modules, strict=False):
-            fsdp_unshard_exit_stack.enter_context(
-                _unshard_params_for_summon(
-                    module=fsdp_module,
-                    state=state,
-                    writeback=False,
-                    rank0_only=False,
-                    offload_to_cpu=False,
-                    with_grads=False,
-                )
-            )
-
-        self.fsdp_unshard_exit_stack = fsdp_unshard_exit_stack
 
     async def trainer_mode(self):
         """Context switch hybridengine to trainer mode."""
-
+        log_gpu_memory_usage("Before rollout offload", logger=logger)
+        await self.rollout.release()
+        log_gpu_memory_usage("After rollout offload", logger=logger)
         self.actor_module_fsdp.train()
-
+        
         # add empty cache after each compute
         aggressive_empty_cache(force_sync=True)
 

@@ -97,10 +97,10 @@ def main_task(config):
 
     global_pool_id = "global_pool"
     env_gpu_num = config.trainer.n_env_gpus_per_node
-    rollout_gpu_num = config.trainer.n_gpus_per_node - env_gpu_num
+    train_rollout_gpu_num = config.trainer.n_rollout_gpus_per_node
     resource_pool_spec = {
-        global_pool_id: [env_gpu_num] * config.trainer.nnodes,
-        "env_gpu_pool": [rollout_gpu_num] * config.trainer.nnodes,
+        global_pool_id: [train_rollout_gpu_num] * config.trainer.nnodes,
+        "env_gpu_pool": [env_gpu_num] * config.trainer.nnodes,
     }
     mapping = {
         Role.ActorRollout: global_pool_id,

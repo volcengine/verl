@@ -44,8 +44,9 @@ actor_rollout_ref:
           - PrismaticProjector
           - LlamaDecoderLayer
         min_num_params: 0
-      param_offload: False
+      param_offload: True
       optimizer_offload: False
+      forward_prefetch: True
       fsdp_size: -1
   rollout:
     mode: async_envloop
