@@ -64,7 +64,7 @@ concurrency:
 
 
 env:
-  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:app-verl0.5-transformers4.55.4-vllm0.10.0-mcore0.13.0-te2.2"
+  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:vllm011.dev7"
   DYNAMIC_RUNNER_ENDPOINT: "https://sd10g3clalm04ug7alq90.apigateway-cn-beijing.volceapi.com/runner"
 
 jobs:
@@ -99,7 +99,7 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository and upgrade to latest transformers(4.54.0)/flash_attn, transformers 4.55.0 has strange behavior with model backward
         run: |
-          pip3 install --no-deps -e .[test]
+          pip3 install -e .[test]
           pip3 install --upgrade transformers
       - name: Running rmpad model tests on 8 L20 GPUs + flash_attn 2.5.8
         run: |
@@ -147,8 +147,7 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository and upgrade to latest transformers/flash_attn
         run: |
-          pip3 install --no-deps -e .[test]
-          pip3 install --upgrade transformers
+          pip3 install -e .[test]
       - name: Running FSDP2 rmpad model tests on 8 L20 GPUs + latest flash_attn
         run: |
           STRATEGY=fsdp2 torchrun --nproc_per_node=8 tests/special_distributed/test_fsdp_ckpt.py
@@ -169,8 +168,7 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install --no-deps -e .[test]
-          pip install --upgrade "huggingface_hub[cli]"
+          pip3 install -e .[test]
 #      - name: Download model config files
 #        run: |
 #          hf download Qwen/Qwen2.5-7B config.json --local-dir $HOME/configs/Qwen/Qwen2.5-7B
@@ -199,9 +197,7 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install --no-deps -e .[test]
-          pip3 install --upgrade tensordict transformers
-          pip install --upgrade "huggingface_hub[cli]"
+          pip3 install -e .[test]
       - name: Download model config files
         run: |
           hf download Qwen/Qwen2.5-0.5B-Instruct --local-dir $HOME/models/Qwen/Qwen2.5-0.5B-Instruct

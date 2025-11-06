@@ -68,16 +68,17 @@ jobs:
       NO_PROXY: "localhost,127.0.0.1,hf-mirror.com"
       HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
+      TORCH_COMPILE_DISABLE: 1
+      TORCHINDUCTOR_DISABLE: 1
     container:
-      image: verlai/verl:app-verl0.5-transformers4.55.4-vllm0.10.0-mcore0.13.0-te2.2
+      image: verl-ci-cn-beijing.cr.volces.com/verlai/verl:vllm011.dev7
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip install -e .[test,prime,geo]
-          pip install --upgrade "ray>=2.40.0" pillow
+          pip install -e .[test,geo]
       - name: Download datasets
         run: |
           huggingface-cli download verl-team/gsm8k-v0.4.1 --repo-type dataset --local-dir ~/verl-data/gsm8k
