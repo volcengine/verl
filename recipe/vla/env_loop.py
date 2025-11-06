@@ -65,7 +65,9 @@ class EnvLoop:
         """
 
         loop = asyncio.get_event_loop()
+        loop.run_until_complete(self.rollout_wg.rollout_mode())
         output = loop.run_until_complete(self.run(prompts))
+        loop.run_until_complete(self.rollout_wg.trainer_mode())
         # TODO(caiyunke.astra): add timing metrics
         return output
 
