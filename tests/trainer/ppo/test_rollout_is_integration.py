@@ -61,7 +61,7 @@ class TestRolloutISIntegration:
         This test simulates that workflow.
         """
         # First compute IS weights (as trainer would do centrally)
-        rollout_is_weights_proto, _ = compute_rollout_importance_weights(
+        rollout_is_weights_proto, _, _ = compute_rollout_importance_weights(
             old_log_prob=sample_data["old_log_prob"],
             rollout_log_prob=sample_data["rollout_log_prob"],
             response_mask=sample_data["response_mask"],
@@ -92,7 +92,7 @@ class TestRolloutISIntegration:
 
     def test_rollout_is_weights_computation(self, sample_data):
         """Test rollout IS weights and metrics computation."""
-        weights_proto, metrics = compute_rollout_importance_weights(
+        weights_proto, _, metrics = compute_rollout_importance_weights(
             old_log_prob=sample_data["old_log_prob"],
             rollout_log_prob=sample_data["rollout_log_prob"],
             response_mask=sample_data["response_mask"],
@@ -120,7 +120,7 @@ class TestRolloutISIntegration:
         levels = ["token", "sequence", "geometric"]
 
         for level in levels:
-            _, metrics = compute_rollout_importance_weights(
+            _, _, metrics = compute_rollout_importance_weights(
                 old_log_prob=sample_data["old_log_prob"],
                 rollout_log_prob=sample_data["rollout_log_prob"],
                 response_mask=sample_data["response_mask"],
@@ -136,7 +136,7 @@ class TestRolloutISIntegration:
         modes = ["truncate", "mask"]
 
         for mode in modes:
-            _, metrics = compute_rollout_importance_weights(
+            _, _, metrics = compute_rollout_importance_weights(
                 old_log_prob=sample_data["old_log_prob"],
                 rollout_log_prob=sample_data["rollout_log_prob"],
                 response_mask=sample_data["response_mask"],
@@ -175,7 +175,7 @@ class TestRolloutISIntegration:
 
         response_mask = torch.ones(batch_size, seq_length, device=device)
 
-        _, metrics = compute_rollout_importance_weights(
+        _, _, metrics = compute_rollout_importance_weights(
             old_log_prob=old_log_prob,
             rollout_log_prob=rollout_log_prob,
             response_mask=response_mask,
@@ -196,7 +196,7 @@ class TestRolloutISIntegration:
         but rollout_is=False (disables weight application to policy loss).
         """
         # Compute IS weights (as trainer would do)
-        rollout_is_weights_proto, is_metrics = compute_rollout_importance_weights(
+        rollout_is_weights_proto, _, is_metrics = compute_rollout_importance_weights(
             old_log_prob=sample_data["old_log_prob"],
             rollout_log_prob=sample_data["rollout_log_prob"],
             response_mask=sample_data["response_mask"],

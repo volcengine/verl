@@ -109,6 +109,7 @@ Actor/Rollout/Reference Policy
       path: ~/models/deepseek-llm-7b-chat
       external_lib: null
       override_config:
+        attn_implementation: flash_attention_2  # or eager, sdpa - attention implementation override
         model_config: {}
         moe_config:  # Megatron only, can adjust moe configuration
           freeze_moe_router: False  # Megatron only, can freeze moe router (no grad)
@@ -133,7 +134,7 @@ Actor/Rollout/Reference Policy
       rollout_is_threshold_lower: null # Lower threshold (null = auto 1/upper)
       rollout_is_level: token # Aggregation: token/sequence/geometric
       rollout_is_mode: truncate # Bounding: truncate/mask
-      rollout_is_veto_threshold: 1e-4 # Catastrophic outlier threshold
+      rollout_is_veto_threshold: null # Catastrophic outlier threshold (null to disable)
       use_torch_compile: True # False to disable torch compile
       kl_loss_coef: 0.001 # for grpo
       kl_loss_type: low_var_kl # for grpo
@@ -226,7 +227,12 @@ Actor/Rollout/Reference Policy
   that need to be imported. Used to register models or tokenizers into
   the Huggingface system.
 - ``actor_rollout_ref.model.override_config``: Used to override some of
-  the model's original configurations, mainly dropout
+  the model's original configurations. Common overrides include:
+  
+  - ``attn_implementation``: Override the attention implementation. Default is ``flash_attention_2``.
+    Supported values: ``flash_attention_2``, ``eager``, ``sdpa``. Use ``eager`` for debugging or
+    compatibility issues. See :ref:`attention-implementation-override` for detailed usage.
+
 - ``actor_rollout_ref.model.enable_gradient_checkpointing``: FSDP only, decide
   Whether to enable gradient checkpointing for the actor,
   Megatron uses recompute options in ``override_transformer_config`` to set this
@@ -521,7 +527,7 @@ Algorithm
      rollout_is_threshold_lower: null
      rollout_is_level: token
      rollout_is_mode: truncate
-     rollout_is_veto_threshold: 1e-4
+     rollout_is_veto_threshold: null  # Disabled by default
 
 - ``gamma``: discount factor
 - ``lam``: Trade-off between bias and variance in the GAE estimator
@@ -541,7 +547,7 @@ Algorithm
 - ``rollout_is_threshold_lower``: Lower threshold for IS weights. If ``null``, defaults to reciprocal of upper (1/upper).
 - ``rollout_is_level``: Aggregation level: ``token`` (biased), ``sequence`` (unbiased), or ``geometric`` (experimental).
 - ``rollout_is_mode``: Bounding mode: ``truncate`` (cap upper only) or ``mask`` (zero outside bounds).
-- ``rollout_is_veto_threshold``: Per-token veto threshold for catastrophic outliers. Default is 1e-4.
+- ``rollout_is_veto_threshold``: Per-token veto threshold for catastrophic outliers. Default is null (disabled).
   Note: Rollout IS requires setting ``actor_rollout_ref.rollout.calculate_log_probs=True``.
 
 Trainer

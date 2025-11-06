@@ -49,7 +49,7 @@ def test_basic_rollout_is():
 
     # Test token-level truncate mode
     print("\n1. Testing token-level truncate mode...")
-    weights_proto, metrics = compute_rollout_importance_weights(
+    weights_proto, modified_response_mask, metrics = compute_rollout_importance_weights(
         old_log_prob=old_log_prob,
         rollout_log_prob=rollout_log_prob,
         response_mask=eos_mask,
@@ -71,7 +71,7 @@ def test_basic_rollout_is():
 
     # Test sequence-level mode
     print("\n2. Testing sequence-level mode...")
-    weights_seq_proto, metrics_seq = compute_rollout_importance_weights(
+    weights_seq_proto, _, metrics_seq = compute_rollout_importance_weights(
         old_log_prob=old_log_prob,
         rollout_log_prob=rollout_log_prob,
         response_mask=eos_mask,
@@ -92,7 +92,7 @@ def test_basic_rollout_is():
 
     # Test geometric mean mode
     print("\n3. Testing geometric mean mode...")
-    weights_geo_proto, metrics_geo = compute_rollout_importance_weights(
+    weights_geo_proto, _, metrics_geo = compute_rollout_importance_weights(
         old_log_prob=old_log_prob,
         rollout_log_prob=rollout_log_prob,
         response_mask=eos_mask,
@@ -116,7 +116,7 @@ def test_basic_rollout_is():
     rollout_log_prob_veto[0, 2] = old_log_prob_veto[0, 2] + 15.0  # ratio ~= 3e-7
     eos_mask_veto = torch.ones(2, 5, device=device)
 
-    weights_veto_proto, metrics_veto = compute_rollout_importance_weights(
+    weights_veto_proto, modified_response_mask_veto, metrics_veto = compute_rollout_importance_weights(
         old_log_prob=old_log_prob_veto,
         rollout_log_prob=rollout_log_prob_veto,
         response_mask=eos_mask_veto,
@@ -128,14 +128,17 @@ def test_basic_rollout_is():
 
     weights_veto = weights_veto_proto.batch["rollout_is_weights"]
     print(f"   Veto fraction: {metrics_veto['mismatch/rollout_is_veto_fraction']:.4f}")
-    # Check that the sequence with catastrophic token has all weights zeroed
-    assert weights_veto[0].sum() == 0, "Sequence with catastrophic token should be vetoed"
-    assert weights_veto[1].sum() > 0, "Normal sequence should not be vetoed"
+    # KEY FIX: Veto is applied via response_mask, not by zeroing weights
+    # Check that weights are NON-ZERO (safety-bounded ratios preserved, not zeroed)
+    assert weights_veto[0].sum() > 0, "Weights should be non-zero (not zeroed by veto)"
+    # Check that response_mask has veto applied
+    assert modified_response_mask_veto[0].sum() == 0, "Vetoed sequence should have response_mask zeroed"
+    assert modified_response_mask_veto[1].sum() > 0, "Normal sequence should have response_mask unchanged"
     print("   ✓ Veto mechanism passed")
 
     # Test disabled IS (threshold=None)
     print("\n5. Testing disabled IS...")
-    weights_disabled, metrics_disabled = compute_rollout_importance_weights(
+    weights_disabled, modified_response_mask_disabled, metrics_disabled = compute_rollout_importance_weights(
         old_log_prob=old_log_prob,
         rollout_log_prob=rollout_log_prob,
         response_mask=eos_mask,
@@ -143,6 +146,7 @@ def test_basic_rollout_is():
     )
 
     assert weights_disabled is None, "Should return None when threshold is None"
+    assert torch.equal(modified_response_mask_disabled, eos_mask), "Should return original mask unchanged"
     assert len(metrics_disabled) == 0, "Should return empty metrics when disabled"
     print("   ✓ Disabled IS passed")
 
@@ -160,7 +164,7 @@ def test_metrics_completeness():
     rollout_log_prob = old_log_prob + torch.randn(batch_size, seq_length, device=device) * 0.2
     eos_mask = torch.ones(batch_size, seq_length, device=device)
 
-    _, metrics = compute_rollout_importance_weights(
+    _, _, metrics = compute_rollout_importance_weights(
         old_log_prob=old_log_prob,
         rollout_log_prob=rollout_log_prob,
         response_mask=eos_mask,
@@ -264,6 +268,64 @@ def test_mismatch_metrics():
     print("   ✓ Mismatch metrics work without rollout log probs")
 
 
+def test_mask_mode():
+    """Test mask mode applies rejection via response_mask, keeps true IS weights."""
+    print("\nTesting mask mode behavior...")
+
+    batch_size = 2
+    seq_length = 5
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    # Sequence 0: ratio ≈ 0.37 (below 0.5, should be rejected)
+    # Sequence 1: ratio ≈ 1.65 (in [0.5, 2.0], should be accepted)
+    old_log_prob = torch.tensor([[-2.0] * seq_length, [-2.0] * seq_length], device=device)
+    rollout_log_prob = torch.tensor(
+        [
+            [-1.0] * seq_length,  # exp(-2.0 - (-1.0)) = exp(-1.0) ≈ 0.37
+            [-2.5] * seq_length,  # exp(-2.0 - (-2.5)) = exp(0.5) ≈ 1.65
+        ],
+        device=device,
+    )
+    response_mask = torch.ones(batch_size, seq_length, device=device)
+
+    weights_proto, modified_response_mask, metrics = compute_rollout_importance_weights(
+        old_log_prob=old_log_prob,
+        rollout_log_prob=rollout_log_prob,
+        response_mask=response_mask,
+        rollout_is_level="token",
+        rollout_is_mode="mask",
+        rollout_is_threshold=2.0,
+        rollout_is_threshold_lower=0.5,
+        rollout_is_veto_threshold=None,
+    )
+
+    weights = weights_proto.batch["rollout_is_weights"]
+
+    # KEY FIX: Weights should be safety-bounded ratios (NOT zeroed)
+    assert torch.all(weights[0, :] > 0), "Weights should remain as safety-bounded ratios (not zeroed)"
+    assert torch.allclose(weights[0, 0], torch.tensor(0.368, device=device), atol=0.01), (
+        "First seq ratio should be ≈0.37"
+    )
+    assert torch.allclose(weights[1, 0], torch.tensor(1.649, device=device), atol=0.01), (
+        "Second seq ratio should be ≈1.65"
+    )
+
+    # Rejection should be applied via response_mask
+    assert torch.all(modified_response_mask[0, :] == 0), "First sequence should be rejected via mask"
+    assert torch.all(modified_response_mask[1, :] == 1), "Second sequence should be accepted"
+
+    # Verify mask metrics exist
+    assert "mismatch/rollout_is_masked_fraction" in metrics
+    assert abs(metrics["mismatch/rollout_is_masked_fraction"] - 0.5) < 0.01, "Should reject 50% of tokens"
+
+    print(f"   First seq IS weight: {weights[0, 0]:.4f} (expected ≈0.37)")
+    print(f"   Second seq IS weight: {weights[1, 0]:.4f} (expected ≈1.65)")
+    print(f"   First seq mask: {modified_response_mask[0, 0]:.0f} (expected 0 - rejected)")
+    print(f"   Second seq mask: {modified_response_mask[1, 0]:.0f} (expected 1 - accepted)")
+    print(f"   Masked fraction: {metrics['mismatch/rollout_is_masked_fraction']:.2f}")
+    print("   ✓ Mask mode correctly separates IS weights from rejection")
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("Rollout Importance Sampling Test Suite")
@@ -273,6 +335,7 @@ if __name__ == "__main__":
         test_basic_rollout_is()
         test_metrics_completeness()
         test_mismatch_metrics()
+        test_mask_mode()
         print("\n" + "=" * 60)
         print("ALL TESTS PASSED ✓")
         print("=" * 60)

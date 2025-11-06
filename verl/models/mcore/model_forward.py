@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 from verl.utils.megatron_utils import unwrap_model
 
 from .util import (
@@ -37,8 +38,8 @@ def model_forward_gen(vision_model: bool = False):
     ):
         """Forward pass for models with sequence packing."""
         pre_process = (
-            unwrap_model(model).pre_process if not vision_model else True
-        )  # vision model always needs pre_process
+            unwrap_model(model).pre_process if not vision_model else False
+        )  # vision model does not need pre_process, because we pack the input_ids to thd in the forward function
         post_process = unwrap_model(model).post_process
 
         model_kwargs = {}
@@ -46,17 +47,32 @@ def model_forward_gen(vision_model: bool = False):
             model_kwargs["pixel_values"] = multi_modal_inputs["pixel_values"].to(input_ids.device)
         if "image_grid_thw" in multi_modal_inputs:
             model_kwargs["image_grid_thw"] = multi_modal_inputs["image_grid_thw"].to(input_ids.device)
+        if "pixel_values_videos" in multi_modal_inputs:
+            model_kwargs["pixel_values_videos"] = multi_modal_inputs["pixel_values_videos"].to(input_ids.device)
+        if "video_grid_thw" in multi_modal_inputs:
+            model_kwargs["video_grid_thw"] = multi_modal_inputs["video_grid_thw"].to(input_ids.device)
 
         batch_size, seq_len = attention_mask.shape[:2]
         input_ids_rmpad, packed_seq_params = preprocess_packed_seqs(input_ids, attention_mask, pre_process=pre_process)
         input_ids_rmpad = input_ids_rmpad.contiguous()
-        output_orig = model(
+
+        input_args = dict(
             input_ids=input_ids_rmpad,
             attention_mask=None,
             position_ids=position_ids if not vision_model else None,  # vision models will calculate position_ids
             packed_seq_params=packed_seq_params,
             **model_kwargs,
         )
+
+        if vision_model:
+            # workaround for supporting sequence packing with context parallelism
+            # cp split with sequence packing will make model lose vision token information, so we need to keep
+            # the original input_ids and pack them after vision embedding is calculated,
+            # cooporate with mbridge
+            input_args["input_ids"] = input_ids
+            input_args["attention_mask"] = attention_mask
+
+        output_orig = model(**input_args)
         if post_process and logits_processor is not None:
             args = {
                 k: preprocess_packed_seqs(v, attention_mask, pre_process=True)[0]

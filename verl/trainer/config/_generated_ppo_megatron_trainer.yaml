@@ -286,12 +286,15 @@ data:
   max_response_length: 512
   train_batch_size: 1024
   val_batch_size: null
+  tool_config_path: ${oc.select:actor_rollout_ref.rollout.multi_turn.tool_config_path,
+    null}
   return_raw_input_ids: false
   return_raw_chat: false
   return_full_prompt: false
   shuffle: true
   seed: null
   dataloader_num_workers: 8
+  image_patch_size: 14
   validation_shuffle: false
   filter_overlong_prompts: false
   filter_overlong_prompts_workers: 1
@@ -492,7 +495,7 @@ algorithm:
   rollout_is_threshold_lower: null
   rollout_is_level: token
   rollout_is_mode: truncate
-  rollout_is_veto_threshold: 0.0001
+  rollout_is_veto_threshold: null
   rollout_is: false
 trainer:
   balance_batch: true

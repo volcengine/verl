@@ -41,7 +41,7 @@ RUN cd vllm \
     && python3 -m pip install -r requirements/rocm.txt \
     && python3 setup.py clean --all  \
     && ln -sf /opt/rocm/lib/libamdhip64.so /usr/lib/libamdhip64.so \
-    && VLLM_TARGET_DEVICE=rocm ROCM_PATH=/opt/rocm/ VLLM_GPU_LANG=HIP SETUPTOOLS_SCM_PRETEND_VERSION=0.8.4.dev python3 setup.py bdist_wheel --dist-dir=dist
+    && VLLM_TARGET_DEVICE=rocm ROCM_PATH=/opt/rocm/ VLLM_GPU_LANG=HIP SETUPTOOLS_SCM_PRETEND_VERSION=0.11.0.dev python3 setup.py bdist_wheel --dist-dir=dist
     #&& python3 setup.py bdist_wheel --dist-dir=dist
 FROM scratch AS export_vllm
 ARG COMMON_WORKDIR
@@ -59,8 +59,15 @@ FROM base AS test
 RUN python3 -m pip install --upgrade pip && rm -rf /var/lib/apt/lists/*
 
 # Install vLLM
-RUN --mount=type=bind,from=export_vllm,src=/,target=/install \
-    cd /install \
+#RUN --mount=type=bind,from=export_vllm,src=/,target=/install \
+COPY --from=export_vllm /*.whl /install
+COPY --from=export_vllm /requirements /install/requirements
+COPY --from=export_vllm /benchmarks /install/benchmarks
+COPY --from=export_vllm /tests /install/tests
+COPY --from=export_vllm /examples /install/examples
+COPY --from=export_vllm /.buildkite /install/.buildkite
+
+RUN cd /install \
     && pip install -U -r requirements/rocm.txt \
     && pip install -U -r requirements/rocm-test.txt \
     && pip uninstall -y vllm \

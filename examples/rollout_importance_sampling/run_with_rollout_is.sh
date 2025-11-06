@@ -24,8 +24,8 @@ rollout_is_level=token
 # Bounding mode: truncate (cap upper) | mask (zero outside bounds)
 rollout_is_mode=truncate
 
-# Catastrophic outlier veto threshold
-rollout_is_veto_threshold=1e-4
+# Catastrophic outlier veto threshold (set to null to disable, or e.g., 1e-4 to enable)
+rollout_is_veto_threshold=null
 
 # ==============================================================================
 # Model and Data Configuration
