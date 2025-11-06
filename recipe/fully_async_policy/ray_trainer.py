@@ -32,13 +32,15 @@ from verl import DataProto
 from verl.experimental.dataset.sampler import AbstractCurriculumSampler
 from verl.single_controller.ray import RayClassWithInitArgs
 from verl.single_controller.ray.base import create_colocated_worker_cls
+from verl.trainer.ppo.advantage import apply_kl_penalty, compute_advantage
 from verl.trainer.ppo.core_algos import AdvantageEstimator, agg_loss
 from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
     compute_throughout_metrics,
     compute_timing_metrics,
 )
-from verl.trainer.ppo.ray_trainer import RayPPOTrainer, apply_kl_penalty, compute_advantage, compute_response_mask
+from verl.trainer.ppo.mismatch_helper import compute_rollout_importance_weights_and_add_to_batch
+from verl.trainer.ppo.ray_trainer import RayPPOTrainer, compute_response_mask
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.trainer.ppo.utils import Role
 from verl.utils.checkpoint.checkpoint_manager import should_save_ckpt_esi
@@ -426,7 +428,7 @@ class FullyAsyncRayPPOTrainer(RayPPOTrainer):
             # Compute rollout importance sampling weights centrally (once per batch)
             # This corrects for mismatch between rollout policy and training policy
             # Also computes mismatch metrics (KL, PPL, etc.)
-            batch, is_metrics = self.compute_rollout_importance_weights_and_add_to_batch(batch)
+            batch, is_metrics = compute_rollout_importance_weights_and_add_to_batch(batch, self.config)
             # IS and mismatch metrics already have mismatch/ prefix
             metrics.update(is_metrics)
 

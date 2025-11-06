@@ -44,6 +44,67 @@ import verl.utils.torch_functional as verl_F
 from verl.protocol import DataProto
 
 
+def compute_rollout_importance_weights_and_add_to_batch(batch: DataProto, config=None) -> tuple[DataProto, dict]:
+    """Compute IS weights and apply rejection sampling for rollout-training mismatch.
+
+    Computes importance sampling weights to correct for distribution mismatch between
+    rollout and training policies. Applies rejection sampling (mask mode/veto) by
+    modifying response_mask. Always updates response_mask; conditionally adds IS weights.
+
+    Key behavior:
+    - response_mask: ALWAYS updated with rejection (mask mode + veto excluded from training)
+    - rollout_is_weights: Added to batch ONLY if config.algorithm.rollout_is=True
+
+    This separation ensures:
+    - Rejection works even when IS weights are disabled (rollout_is=False)
+    - Metrics can be monitored before enabling IS weight application
+
+    Args:
+        batch: DataProto with old_log_probs, rollout_log_probs, response_mask
+        config: Algorithm configuration with rollout_is settings
+
+    Returns:
+        Tuple of (updated_batch, metrics):
+            updated_batch: Batch with modified response_mask (always) and rollout_is_weights (if rollout_is=True)
+            metrics: Dict of IS and mismatch metrics, all with "mismatch/" prefix
+    """
+    # Compute rollout IS weights if enabled and data is available
+    # rollout_is_threshold is the main on/off switch (None = disabled, float = enabled)
+    rollout_is_threshold = config.algorithm.get("rollout_is_threshold", None)
+    if rollout_is_threshold is not None and rollout_is_threshold > 0 and "rollout_log_probs" in batch.batch:
+        # Compute IS weights and get modified response_mask
+        rollout_is_weights, modified_response_mask, rollout_is_metrics = compute_rollout_importance_weights(
+            old_log_prob=batch.batch["old_log_probs"],
+            rollout_log_prob=batch.batch["rollout_log_probs"],
+            response_mask=batch.batch["response_mask"],
+            rollout_is_level=config.algorithm.rollout_is_level,
+            rollout_is_mode=config.algorithm.rollout_is_mode,
+            rollout_is_threshold=config.algorithm.rollout_is_threshold,
+            rollout_is_threshold_lower=config.algorithm.get("rollout_is_threshold_lower", None),
+            rollout_is_veto_threshold=config.algorithm.get("rollout_is_veto_threshold", None),
+        )
+
+        # ALWAYS update response_mask with rejection (even if rollout_is=False)
+        # - Mask mode: tokens with outlier IS ratios excluded
+        # - Veto: sequences with catastrophic tokens excluded
+        # This ensures correct loss normalization (rejected samples not in denominator)
+        batch.batch["response_mask"] = modified_response_mask
+
+        # Conditionally add IS weights based on rollout_is config flag
+        # - rollout_is=True: Enable IS weight correction in policy loss
+        # - rollout_is=False: Metrics-only mode (rejection still applied via mask)
+        apply_weights = config.algorithm.get("rollout_is", False)
+
+        if apply_weights:
+            # Add IS weights (safety-bounded, mode-processed) to enable weight correction
+            batch = batch.union(rollout_is_weights)
+
+        return batch, rollout_is_metrics
+
+    # Return unchanged batch and empty metrics if IS is disabled
+    return batch, {}
+
+
 def compute_rollout_importance_weights(
     old_log_prob: torch.Tensor,
     rollout_log_prob: torch.Tensor,
