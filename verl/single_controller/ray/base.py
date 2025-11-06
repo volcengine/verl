@@ -13,8 +13,8 @@
 # limitations under the License.
 import inspect
 import logging
-import socket
 import os
+import socket
 from copy import deepcopy
 from typing import Any, Optional
 
