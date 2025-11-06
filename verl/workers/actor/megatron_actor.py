@@ -146,7 +146,6 @@ class MegatronPPOActor(BasePPOActor):
                 "sequence_parallel": self.tf_config.sequence_parallel,
                 "DDP_impl": "local",
                 "layernorm_allreduce_bucket_threshold": 0,
-                "pipeline_model_parallel_split_rank": None,
                 "reduce_grads_use_alltoall": False,
             }
         )

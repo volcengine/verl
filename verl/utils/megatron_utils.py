@@ -80,6 +80,7 @@ def get_model(
         post_process = mpu.is_pipeline_last_stage()
         add_encoder = True
         add_decoder = True
+        assert model_type != ModelType.encoder_and_decoder, "Model type encoder_and_decoder is not supported"
         if model_type == ModelType.encoder_and_decoder:
             if mpu.get_pipeline_model_parallel_world_size() > 1:
                 assert mpu.get_pipeline_model_parallel_split_rank() is not None, (
