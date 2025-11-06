@@ -14,6 +14,7 @@
 import inspect
 import logging
 import socket
+import os
 from copy import deepcopy
 from typing import Any, Optional
 
@@ -28,6 +29,9 @@ from verl.single_controller.base.decorator import MAGIC_ATTR, Dispatch
 from verl.utils.py_functional import temp_env_var
 
 __all__ = ["Worker"]
+
+logger = logging.getLogger(__file__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 def get_random_string(length: int) -> str:
@@ -400,10 +404,10 @@ class RayWorkerGroup(WorkerGroup):
                     "MASTER_PORT": self._master_port,
                 }
                 if worker_env is not None:
-                    logging.debug(f"Appending ray class env, origin: {env_vars}, customized env: {worker_env}")
+                    logger.debug(f"Appending ray class env, origin: {env_vars}, customized env: {worker_env}")
                     conflict_env_vars = set(env_vars.keys()) & set(worker_env.keys())
                     if len(conflict_env_vars) > 0:
-                        logging.error(
+                        logger.error(
                             f"User customized env vars conflict with system env: {conflict_env_vars} "
                             f"Overriding may cause unexpected behavior."
                         )
