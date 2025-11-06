@@ -92,7 +92,7 @@ where $r_t(\theta) = \frac{\pi_\theta(a_t|s_t)}{\mu(a_t|s_t)}$ and $\epsilon$ is
 ### 1.3 Decoupled PPO: Achieving Batch Size Invariance
 
 Decoupled PPO ([Hilton et al., 2021](https://arxiv.org/abs/2110.00641)) solves PPO's batch size sensitivity by **decoupling two roles**:
-1. **Proximal policy** $\pi_{\text{ref}}$: The anchor policy for PPO clipping (controls policy update size)
+1. **Proximal policy** $\pi_{\text{prox}}$: The anchor policy for PPO clipping (controls policy update size)
 2. **Behavior policy** $\mu$: The policy that collected the data (for off-policy correction via importance sampling)
 
 **The problem**: Standard PPO controls policy update size via the ratio $\frac{\pi_\theta}{\pi_{\text{old}}}$, where $\pi_{\text{old}}$ is assumed to be both the proximal policy *and* the behavior policy. This coupling makes the algorithm sensitive to batch size because aggregating data from multiple workers or using replay buffers changes the effective behavior policy.
@@ -104,14 +104,14 @@ L_{\text{DecoupledPPO}}(\theta) = -\mathbb{E}_{(s,a) \sim \mu} \left[ w_t \cdot 
 $$
 
 where:
-- $w_t = \frac{\pi_{\text{ref}}(a_t|s_t)}{\mu(a_t|s_t)}$: Importance sampling weight (corrects for behavior policy $\mu$)
-- $r_t(\theta) = \frac{\pi_\theta(a_t|s_t)}{\pi_{\text{ref}}(a_t|s_t)}$: PPO ratio (controls policy update size against proximal policy $\pi_{\text{ref}}$)
+- $w_t = \frac{\pi_{\text{prox}}(a_t|s_t)}{\mu(a_t|s_t)}$: Importance sampling weight (corrects for behavior policy $\mu$)
+- $r_t(\theta) = \frac{\pi_\theta(a_t|s_t)}{\pi_{\text{prox}}(a_t|s_t)}$: PPO ratio (controls policy update size against proximal policy $\pi_{\text{prox}}$)
 
 **Key properties**: By decoupling:
-- **Batch size invariance**: Policy update control (via $\pi_{\text{ref}}$) is independent of data aggregation
+- **Batch size invariance**: Policy update control (via $\pi_{\text{prox}}$) is independent of data aggregation
 - **Flexible behavior policy**: Any $\mu$ can be used (different workers, replay buffers, or stale checkpoints)
 - **Stale data utilization**: Older trajectories can be corrected via importance sampling
-- **Clipping preserved**: Clipping against $\pi_{\text{ref}}$ limits update magnitude
+- **Clipping preserved**: Clipping against $\pi_{\text{prox}}$ limits update magnitude
 
 **This is the algorithm that `verl` implements via its three-policy framework.**
 
@@ -136,7 +136,7 @@ The policy used for data collection. This is the behavior distribution $\mu$ fro
   - Data filtering: Reweighted or filtered data
 - **Fixed**: Frozen during training on a batch
 
-**$\pi_{\text{old}}$ (Proximal Policy $\pi_{\text{ref}}$)**
+**$\pi_{\text{old}}$ (Proximal Policy $\pi_{\text{prox}}$)**
 The reference policy for PPO clipping. This is the "proximal policy" from decoupled PPO theory.
 
 - **When created**:
@@ -197,8 +197,9 @@ This is the drift from policy parameter updates during training.
 - $r_t(\theta) = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{old}}(a_t|s_t)}$: PPO ratio (corrects Drift 2)
 - $A_t$: Advantage at token $t$
 - $T$: Set of valid tokens in a sequence
-- $\tau$: Upper threshold for IS weights (e.g., 2.0)
-- $\tau_{\text{lower}}$: Lower threshold for IS weights (typically $1/\tau$)
+- $C_{\text{IS}}$: Upper threshold for IS weights (e.g., 2.0)
+- $C_{\text{RS-upper}}$: Upper threshold for RS mask (e.g., 2.0)
+- $C_{\text{RS-lower}}$: Lower threshold for RS mask (typically $1/C_{\text{RS-upper}}$)
 - $\epsilon$: PPO clip range (typically 0.2)
 
 ---
@@ -227,7 +228,7 @@ L_{\text{PureIS}}(\theta) = -\mathbb{E}_{(s,a) \sim \pi_{\text{rollout}}} \left[
 $$
 
 where:
-- Sequence-level IS weight: $w_{\text{seq}}(\theta) = \min\left( \prod_{t \in T} \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}, \tau \right)$
+- Sequence-level IS weight: $w_{\text{seq}}(\theta) = \min\left( \prod_{t \in T} \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}, C_{\text{IS}} \right)$
 - IS weight is **detached from gradient** (treated as constant)
 - Direct comparison: $\pi_\theta$ to $\pi_{\text{rollout}}$
 
@@ -321,7 +322,7 @@ L_{\text{PPO+TIS}}(\theta) = -\mathbb{E}_t \left[ w_t \cdot \min\left( r_t(\thet
 $$
 
 where:
-- Per-token IS weight: $w_t = \min(\rho_t, \tau) = \min\left(\frac{\pi_{\text{old}}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}, \tau\right)$
+- Per-token IS weight: $w_t = \min(\rho_t, C_{\text{IS}}) = \min\left(\frac{\pi_{\text{old}}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}, C_{\text{IS}} \right)$
 - PPO ratio: $r_t(\theta) = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{old}}(a_t|s_t)}$
 - $\pi_{\text{old}}$ is computed at **start of training epoch**
 
@@ -352,7 +353,7 @@ $$
 
 where:
 - Sequence-level IS weight (broadcast to all tokens):
-$$w_{\text{seq}} = \min\left( \prod_{t \in T} \rho_t, \tau \right) = \min\left( \exp\left(\sum_{t \in T} \log \rho_t\right), \tau \right)$$
+$$w_{\text{seq}} = \min\left( \prod_{t \in T} \rho_t, C_{\text{IS}} \right) = \min\left( \exp\left(\sum_{t \in T} \log \rho_t\right), C_{\text{IS}} \right)$$
 - PPO ratio: $r_t(\theta) = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{old}}(a_t|s_t)}$
 
 **Properties:**
@@ -381,8 +382,8 @@ L_{\text{PPO+MIS}}(\theta) = -\mathbb{E}_{t \mid \text{seq} \in \mathcal{A}} \le
 $$
 
 where:
-- IS weight: $w_{\text{seq}} = \min\left( \prod_{t \in T} \rho_t, \tau_{\text{IS}} \right)$
-- Acceptance set: $\mathcal{A} = \{ \text{seq} : \tau_{\text{lower}} \leq \prod_{t \in T} \rho_t \leq \tau_{\text{upper}} \}$
+- IS weight: $w_{\text{seq}} = \min\left( \prod_{t \in T} \rho_t, C_{\text{IS}} \right)$
+- Acceptance set: $\mathcal{A} = \{ \text{seq} : C_{\text{RS-lower}} \leq \prod_{t \in T} \rho_t \leq C_{\text{RS-upper}} \}$
 
 **Properties:**
 - **Algorithm**: Decoupled PPO + rejection sampling
@@ -416,8 +417,8 @@ $$
 
 where:
 - Geometric mean: $\rho_{\text{geo}} = \exp\left( \frac{1}{|T|} \sum_{t \in T} \log \rho_t \right) = \left(\prod_{t \in T} \rho_t\right)^{1/|T|}$
-- Geometric acceptance: $\mathcal{A}_{\text{geo}} = \{ \text{seq} : \tau_{\text{lower}} \leq \rho_{\text{geo}} \leq \tau_{\text{upper}} \}$
-- Veto acceptance: $\mathcal{A}_{\text{veto}} = \{ \text{seq} : \rho_t \geq \tau_{\text{veto}} \text{ for all } t \in T \}$
+- Geometric acceptance: $\mathcal{A}_{\text{geo}} = \{ \text{seq} : C_{\text{RS-lower}} \leq \rho_{\text{geo}} \leq C_{\text{RS-upper}} \}$
+- Veto acceptance: $\mathcal{A}_{\text{veto}} = \{ \text{seq} : \rho_t \geq C_{\text{veto}} \text{ for all } t \in T \}$
 
 **Why tight thresholds?**
 Geometric mean is extremely sensitive. For 100 tokens with $\rho_t = 1.01$ each:
@@ -443,7 +444,7 @@ RolloutCorrectionConfig(..., rollout_token_veto_threshold=1e-4)
 **Veto condition:**
 
 $$
-\text{Reject entire sequence if } \exists t \in T \text{ such that } \rho_t < \tau_{\text{veto}}
+\text{Reject entire sequence if } \exists t \in T \text{ such that } \rho_t < C_{\text{veto}}
 $$
 
 **Purpose:**
