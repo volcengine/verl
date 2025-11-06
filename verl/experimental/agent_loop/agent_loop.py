@@ -72,23 +72,25 @@ def resolve_config_path(config_path: str) -> str:
         return config_path
     
     # Try current working directory first
-    cwd_path = os.path.abspath(config_path)
-    if os.path.exists(cwd_path):
+    cwd = os.path.abspath(os.getcwd())
+    cwd_path = os.path.abspath(os.path.join(cwd, config_path))
+    if (cwd_path == cwd or cwd_path.startswith(cwd + os.sep)) and os.path.exists(cwd_path):
         return cwd_path
     
     # Try relative to verl project root (where verl package is installed)
     try:
         import verl
-        verl_package_dir = os.path.dirname(verl.__file__)
+        verl_package_dir = os.path.abspath(os.path.dirname(verl.__file__))
+        
         # Strategy 1: For development/editable installs.
-        # Assumes a layout like: <project_root>/verl and <project_root>/recipe
-        dev_path = os.path.join(os.path.dirname(verl_package_dir), config_path)
-        if os.path.exists(dev_path):
+        project_root = os.path.dirname(verl_package_dir)
+        dev_path = os.path.abspath(os.path.join(project_root, config_path))
+        if (dev_path == project_root or dev_path.startswith(project_root + os.sep)) and os.path.exists(dev_path):
             return dev_path
+        
         # Strategy 2: For standard package installations.
-        # Assumes `recipe` is a data folder inside the `verl` package.
-        install_path = os.path.join(verl_package_dir, config_path)
-        if os.path.exists(install_path):
+        install_path = os.path.abspath(os.path.join(verl_package_dir, config_path))
+        if (install_path == verl_package_dir or install_path.startswith(verl_package_dir + os.sep)) and os.path.exists(install_path):
             return install_path
     except (ImportError, AttributeError):
         pass  # verl not installed or __file__ not available
