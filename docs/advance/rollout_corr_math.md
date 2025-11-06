@@ -10,7 +10,7 @@
 This document provides the definitive mathematical formulations for all rollout correction methods implemented in the `verl` library. These methods provide a **unified framework for general off-policy reinforcement learning**, addressing any scenario where the data collection distribution differs from the training distribution.
 
 **Applicable scenarios include:**
-- **Policy mismatch**: Different precision (BF16 vs FP32), different backends (vLLM vs PyTorch)
+- **Policy mismatch**: Different precision (BF16 vs FP32), different backends (vLLM vs SGLang)
 - **Temporal lag**: Model staleness, asynchronous rollout workers
 - **Replay buffers**: Training on historical trajectories from earlier policy versions
 - **Off-policy algorithms**: Behavioral cloning, DAPO, expert demonstrations
