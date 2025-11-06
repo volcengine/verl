@@ -100,8 +100,7 @@ class GenerationBatchFuture:
             except Exception as e:
                 # set result to empty
                 teacher_batch_result = None
-                self.gen_batch_result = None
-                print(f"{e}\nSkip this batch.")
+                print(f"{e}")
         else:
             teacher_batch_result = self.teacher_batch_output
 
@@ -606,6 +605,7 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
             with marked_timer("step", timing_raw):
                 _, batch, gen_batch_output, teacher_batch_output, schedule_timing = next(scheduler)
                 if teacher_batch_output is None:
+                    print("Error in getting teacher knowledge. Skip this batch.")
                     progress_bar.update(1)
                     self.global_steps += 1
                     if is_last_step:

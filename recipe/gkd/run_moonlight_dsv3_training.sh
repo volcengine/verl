@@ -118,6 +118,5 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     trainer.scheduler="two_step_off" \
     trainer.save_freq=100000 \
     trainer.test_freq=-1 \
-    trainer.default_local_dir=$CKPT_PATH \
     trainer.val_before_train=False \
     trainer.total_epochs=10 $@

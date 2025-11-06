@@ -28,7 +28,7 @@ wait_server_ready proxy localhost $PROXY_BACKEND_PORT
 
 echo "teacher proxy is ready"
 
-CUDA_VISIBLE_DEVICES=$i nohup python worker.py --backend $BACKEND --tp-size 1 --seq-len 4096 --ckpt-path $CKPT_PATH &> worker_$i.log &
-echo "start teacher worker_$i..."
+nohup python worker.py --backend $BACKEND --tp-size 1 --seq-len 4096 --ckpt-path $CKPT_PATH &> worker.log &
+echo "start teacher worker"
 
 echo "teacher server is ready"

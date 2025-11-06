@@ -80,7 +80,6 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     actor_rollout_ref.actor.megatron.tensor_model_parallel_size=$TP \
     actor_rollout_ref.actor.megatron.expert_model_parallel_size=$EP \
     actor_rollout_ref.actor.megatron.expert_tensor_parallel_size=$ETP \
-    trainer.default_local_dir=$CKPT_DIR \
     trainer.val_before_train=False \
     trainer.total_training_steps=10 \
     trainer.total_epochs=1 $@
