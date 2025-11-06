@@ -94,6 +94,15 @@ def postprocess_agent_loop_outputs(inputs: list[AgentLoopOutput], tokenizer, con
         },
         batch_size=len(input_ids),
     )
+    
+    if inputs[0].response_logprobs is not None:
+        response_logprobs_list = []
+        for input in inputs:
+            pad_size = config.actor_rollout_ref.rollout.response_length - len(input.response_logprobs)
+            response_logprobs = torch.tensor(input.response_logprobs + [0.0] * pad_size).unsqueeze(0)
+            response_logprobs_list.append(response_logprobs)
+        rollout_log_probs = torch.cat(response_logprobs_list, dim=0)
+        batch["rollout_log_probs"] = rollout_log_probs  # [bsz, response_length]
 
     num_turns = np.array([input.num_turns for input in inputs], dtype=np.int32)
     metrics = [input.metrics.model_dump() for input in inputs]
@@ -204,9 +213,6 @@ def merge_rollout_sample(config, tokenizer, rs: RolloutSample):
     """
     # Step 1: Create a DataProto from the AgentLoopOutput to generate the result
     gen_batch_output = postprocess_agent_loop_outputs(rs.agent_loop_output_list, tokenizer, config)
-    rollout_log_probs = [x.response_logprobs for x in rs.agent_loop_output_list]
-    rollout_log_probs = process_rollout_log_probs(gen_batch_output, rollout_log_probs)
-    gen_batch_output.batch["rollout_log_probs"] = rollout_log_probs.to(torch.float32)
 
     # Step 2: Add uid
     rs.full_batch.non_tensor_batch["uid"] = np.array([f"uid_{rs.sample_id}"] * len(rs.full_batch), dtype=object)

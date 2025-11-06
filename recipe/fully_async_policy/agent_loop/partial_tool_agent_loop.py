@@ -223,15 +223,18 @@ class AsyncPartialToolAgentLoop(ToolAgentLoop):
         if self.max_user_turns and agent_data.user_turns >= self.max_user_turns:
             return AgentState.TERMINATED
 
+        # Extract tool calls
         _, agent_data.tool_calls = await self.tool_parser.extract_tool_calls(agent_data.response_ids)
 
-        if self.interaction_config_file or agent_data.tool_calls:
+        # Handle interaction if needed
+        if self.interaction_config_file:
             assistant_message = await self.loop.run_in_executor(
                 None, lambda: self.tokenizer.decode(agent_data.response_ids, skip_special_tokens=True)
             )
             add_messages.append({"role": "assistant", "content": assistant_message})
             agent_data.messages.extend(add_messages)
 
+        # Determine next state
         if agent_data.tool_calls:
             return AgentState.PROCESSING_TOOLS
         elif self.interaction_config_file:
@@ -242,7 +245,7 @@ class AsyncPartialToolAgentLoop(ToolAgentLoop):
     def _build_completed_output(self, agent_data: AgentData, param_version: int) -> AgentLoopOutput:
         """build completed output"""
         response_ids = agent_data.prompt_ids[-len(agent_data.response_mask) :]
-        prompt_ids = agent_data.prompt_ids[: -len(agent_data.response_mask)]
+        prompt_ids = agent_data.prompt_ids[: len(agent_data.prompt_ids) - len(agent_data.response_mask)]
         multi_modal_data = {"image": agent_data.image_data} if agent_data.image_data is not None else {}
         output = AgentLoopOutput(
             prompt_ids=prompt_ids,
