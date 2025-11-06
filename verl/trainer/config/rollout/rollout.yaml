@@ -26,7 +26,7 @@ response_length: ${oc.select:data.max_response_length,512}
 
 # for vllm rollout
 # Rollout model parameters type. Align with actor model's FSDP/Megatron type.
-dtype: bfloat16
+dtype: float16
 
 # Fraction of GPU memory used by vLLM/SGLang for KV cache.
 gpu_memory_utilization: 0.5

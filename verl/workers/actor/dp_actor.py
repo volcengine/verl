@@ -82,6 +82,13 @@ class DataParallelPPOActor(BasePPOActor):
             else entropy_from_logits
         )
         self.device_name = get_device_name()
+        assert self.config.dtype in ["float16", "float32", "bfloat16"]
+        if self.config.dtype == "float16":
+            from torch.distributed.fsdp.sharded_grad_scaler import ShardedGradScaler
+
+            self.scaler = ShardedGradScaler(growth_interval=400)
+        else:
+            self.scaler = None
 
     def _forward_micro_batch(
         self, micro_batch, temperature, calculate_entropy=False
@@ -274,7 +281,8 @@ class DataParallelPPOActor(BasePPOActor):
 
     def _optimizer_step(self):
         assert self.config.grad_clip is not None
-
+        if self.scaler is not None:
+            self.scaler.unscale_(self.actor_optimizer)
         if isinstance(self.actor_module, FSDP):
             grad_norm = self.actor_module.clip_grad_norm_(max_norm=self.config.grad_clip)
         elif isinstance(self.actor_module, FSDPModule):
@@ -286,11 +294,15 @@ class DataParallelPPOActor(BasePPOActor):
             grad_norm = grad_norm.full_tensor()
 
         # if grad_norm is not finite, skip the update
-        if not torch.isfinite(grad_norm):
-            print(f"WARN: rank {torch.distributed.get_rank()} grad_norm is not finite: {grad_norm}")
-            self.actor_optimizer.zero_grad()
+        if self.scaler is not None:
+            self.scaler.step(self.actor_optimizer)
+            self.scaler.update()
         else:
-            self.actor_optimizer.step()
+            if not torch.isfinite(grad_norm):
+                print(f"WARN: rank {torch.distributed.get_rank()} grad_norm is not finite: {grad_norm}")
+                self.actor_optimizer.zero_grad()
+            else:
+                self.actor_optimizer.step()
         return grad_norm
 
     @GPUMemoryLogger(role="dp actor", logger=logger)
