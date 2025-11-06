@@ -50,7 +50,6 @@ from verl.trainer.ppo.metric_utils import (
     process_validation_metrics,
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
-from verl.trainer.ppo.rollout_corr_helper import compute_rollout_correction_and_rejection_mask
 from verl.trainer.ppo.utils import Role, WorkerType, need_critic, need_reference_policy, need_reward_model
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
 from verl.utils.config import omega_conf_to_dataclass
@@ -954,67 +953,6 @@ class RayPPOTrainer:
         )
         metrics.update(global_balance_stats)
 
-    def compute_rollout_correction_and_add_to_batch(self, batch: DataProto) -> tuple[DataProto, dict]:
-        """Compute rollout correction weights and apply rejection sampling.
-
-        Computes importance sampling weights to correct for off-policy issues between
-        rollout and training policies. Applies rejection sampling by modifying response_mask.
-        Always updates response_mask; conditionally adds IS weights.
-
-        Key behavior:
-        - response_mask: ALWAYS updated with rejection (veto + optional RS excluded from training)
-        - rollout_is_weights: Added to batch ONLY if rollout_is parameter is set
-
-        This separation ensures:
-        - Rejection works independently of IS weight application
-        - Metrics can be monitored before enabling IS weight correction
-
-        Args:
-            batch: DataProto with old_log_probs, rollout_log_probs, response_mask
-
-        Returns:
-            Tuple of (updated_batch, metrics):
-                updated_batch: Batch with modified response_mask (always) and rollout_is_weights (if enabled)
-                metrics: Dict of IS and off-policy metrics, all with "rollout_corr/" prefix
-        """
-        # Compute rollout correction if enabled and data is available
-        rollout_corr_config = self.config.algorithm.get("rollout_correction", None)
-        if rollout_corr_config is not None and "rollout_log_probs" in batch.batch:
-            # Get new API parameters directly from config
-            rollout_is = rollout_corr_config.get("rollout_is", None)
-            rollout_is_threshold = rollout_corr_config.get("rollout_is_threshold", 2.0)
-            rollout_rs = rollout_corr_config.get("rollout_rs", None)
-            rollout_rs_threshold = rollout_corr_config.get("rollout_rs_threshold", None)
-            rollout_rs_threshold_lower = rollout_corr_config.get("rollout_rs_threshold_lower", None)
-            rollout_token_veto_threshold = rollout_corr_config.get("rollout_token_veto_threshold", None)
-
-            # Compute IS weights and get modified response_mask
-            rollout_is_weights, modified_response_mask, rollout_corr_metrics = (
-                compute_rollout_correction_and_rejection_mask(
-                    old_log_prob=batch.batch["old_log_probs"],
-                    rollout_log_prob=batch.batch["rollout_log_probs"],
-                    response_mask=batch.batch["response_mask"],
-                    rollout_is=rollout_is,
-                    rollout_is_threshold=rollout_is_threshold,
-                    rollout_rs=rollout_rs,
-                    rollout_rs_threshold=rollout_rs_threshold,
-                    rollout_rs_threshold_lower=rollout_rs_threshold_lower,
-                    rollout_token_veto_threshold=rollout_token_veto_threshold,
-                )
-            )
-
-            # ALWAYS update response_mask with rejection applied
-            batch.batch["response_mask"] = modified_response_mask
-
-            # Add IS weights to batch if computed
-            if rollout_is_weights is not None:
-                batch = batch.union(rollout_is_weights)
-
-            return batch, rollout_corr_metrics
-
-        # Return unchanged batch and empty metrics if disabled
-        return batch, {}
-
     def fit(self):
         """
         The training loop of PPO.
@@ -1163,53 +1101,18 @@ class RayPPOTrainer:
                         else:
                             reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
 
-                    # Rollout correction mode selection
-                    rollout_corr_config = self.config.algorithm.get("rollout_correction", None)
-                    bypass_mode = (
-                        rollout_corr_config.get("bypass_old_logprob_for_rollout", False)
-                        if rollout_corr_config
-                        else False
+                    from verl.trainer.ppo.rollout_corr_helper import (
+                        compute_rollout_correction_and_add_to_batch,
+                        maybe_apply_rollout_correction,
                     )
 
-                    if bypass_mode:
-                        # BYPASS MODE: Use rollout_log_probs as old_log_probs
-                        # Skips expensive actor forward pass for old_log_prob computation
-                        #
-                        # Two sub-modes (controlled by use_pure_rollout_correction in actor):
-                        # 1. PPO_IS mode (use_pure_rollout_correction=False, default):
-                        #    - Actor uses standard PPO with old_log_prob=rollout_log_prob
-                        #    - PPO clips ratio = π_current / π_rollout (not π_current / π_old)
-                        #
-                        # 2. Pure rollout correction mode (use_pure_rollout_correction=True):
-                        #    - Actor uses compute_policy_loss_with_rollout_correction()
-                        #    - Pure policy gradient with IS correction (no PPO clipping)
-                        if "rollout_log_probs" not in batch.batch:
-                            raise ValueError(
-                                "bypass_old_logprob_for_rollout=True requires rollout_log_probs in batch. "
-                                "Ensure rollout worker is configured to calculate_log_probs=true."
-                            )
-
-                        # Use rollout log probs as old log probs (zero-cost substitution)
-                        batch.batch["old_log_probs"] = batch.batch["rollout_log_probs"]
-
-                        # Check if pure rollout correction mode is enabled
-                        use_pure_rollout_correction = rollout_corr_config.get("use_pure_rollout_correction", False)
-
-                        if use_pure_rollout_correction:
-                            # Pure IS mode: Configure actor to use rollout_correction loss function
-                            # This will use compute_policy_loss_with_rollout_correction (no PPO clipping)
-                            self.config.actor_rollout_ref.actor.policy_loss["loss_mode"] = "rollout_correction"
-                            self.config.actor_rollout_ref.actor.policy_loss["rollout_correction"] = rollout_corr_config
-
-                            metrics["rollout_correction/pure_is_mode"] = 1.0
-                        else:
-                            # PPO_IS mode: Use standard PPO loss (default)
-                            metrics["rollout_correction/pure_is_mode"] = 0.0
-
-                        # Log bypass mode metrics
-                        metrics["rollout_correction/bypass_mode"] = 1.0
-                        metrics["rollout_correction/old_logprob_computation_skipped"] = 1.0
-                    else:
+                    rollout_corr_config = self.config.algorithm.get("rollout_correction", None)
+                    need_recomputation = maybe_apply_rollout_correction(
+                        batch=batch,
+                        rollout_corr_config=rollout_corr_config,
+                        policy_loss_config=self.config.actor_rollout_ref.actor.policy_loss,
+                    )
+                    if need_recomputation:
                         # LEGACY MODE: Compute old_log_probs from actor
                         with marked_timer("old_log_prob", timing_raw, color="blue"):
                             old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
@@ -1223,12 +1126,13 @@ class RayPPOTrainer:
                             metrics.update(old_log_prob_metrics)
                             old_log_prob.batch.pop("entropys")
                             batch = batch.union(old_log_prob)
-
                             if "rollout_log_probs" in batch.batch.keys():
                                 # TODO: we may want to add diff of probs too.
                                 from verl.utils.debug.metrics import calculate_debug_metrics
 
                                 metrics.update(calculate_debug_metrics(batch))
+
+                    assert "old_log_probs" in batch.batch, f'"old_log_prob" not in {batch.batch.keys()=}'
 
                     if self.use_reference_policy:
                         # compute reference log_prob
@@ -1267,9 +1171,10 @@ class RayPPOTrainer:
                         # Compute rollout correction weights centrally (once per batch)
                         # This corrects for off-policy issues (policy mismatch, model staleness, etc.)
                         # Also computes off-policy diagnostic metrics (KL, PPL, etc.)
-                        batch, is_metrics = self.compute_rollout_correction_and_add_to_batch(batch)
-                        # IS and off-policy metrics already have rollout_corr/ prefix
-                        metrics.update(is_metrics)
+                        if rollout_corr_config is not None and "rollout_log_probs" in batch.batch:
+                            batch, is_metrics = compute_rollout_correction_and_add_to_batch(batch)
+                            # IS and off-policy metrics already have rollout_corr/ prefix
+                            metrics.update(is_metrics)
 
                         # compute advantages, executed on the driver process
                         norm_adv_by_std_in_grpo = self.config.algorithm.get(

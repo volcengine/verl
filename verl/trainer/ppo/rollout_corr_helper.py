@@ -71,6 +71,8 @@ import torch
 
 import verl.utils.torch_functional as verl_F
 from verl.protocol import DataProto
+from verl.trainer.config.algorithm import RolloutCorrectionConfig
+from verl.workers.config.actor import PolicyLossConfig
 
 # Safety bound to prevent numerical overflow/underflow when exponentiating
 # exp(20) ≈ 485 million (upper limit for stable weights), exp(-20) ≈ 2e-9 (lower limit)
@@ -775,3 +777,112 @@ def compute_offpolicy_metrics(
         metrics["chi2_seq"] = chi2_seq.detach().item()
 
     return metrics
+
+
+def compute_rollout_correction_and_add_to_batch(
+    batch: DataProto, rollout_corr_config: RolloutCorrectionConfig
+) -> tuple[DataProto, dict]:
+    """Compute rollout correction weights and apply rejection sampling.
+
+    Computes importance sampling weights to correct for off-policy issues between
+    rollout and training policies. Applies rejection sampling by modifying response_mask.
+    Always updates response_mask; conditionally adds IS weights.
+
+    Key behavior:
+    - response_mask: ALWAYS updated with rejection (veto + optional RS excluded from training)
+    - rollout_is_weights: Added to batch ONLY if rollout_is parameter is set
+
+    This separation ensures:
+    - Rejection works independently of IS weight application
+    - Metrics can be monitored before enabling IS weight correction
+
+    Args:
+        batch: DataProto with old_log_probs, rollout_log_probs, response_mask
+
+    Returns:
+        Tuple of (updated_batch, metrics):
+            updated_batch: Batch with modified response_mask (always) and rollout_is_weights (if enabled)
+            metrics: Dict of IS and off-policy metrics, all with "rollout_corr/" prefix
+
+    Note:
+        The implementation is copied from szrlee <szrlee@gmail.com>.
+    """
+    # Get new API parameters directly from config
+    rollout_is = rollout_corr_config.get("rollout_is", None)
+    rollout_is_threshold = rollout_corr_config.get("rollout_is_threshold", 2.0)
+    rollout_rs = rollout_corr_config.get("rollout_rs", None)
+    rollout_rs_threshold = rollout_corr_config.get("rollout_rs_threshold", None)
+    rollout_rs_threshold_lower = rollout_corr_config.get("rollout_rs_threshold_lower", None)
+    rollout_token_veto_threshold = rollout_corr_config.get("rollout_token_veto_threshold", None)
+
+    # Compute IS weights and get modified response_mask
+    rollout_is_weights, modified_response_mask, rollout_corr_metrics = compute_rollout_correction_and_rejection_mask(
+        old_log_prob=batch.batch["old_log_probs"],
+        rollout_log_prob=batch.batch["rollout_log_probs"],
+        response_mask=batch.batch["response_mask"],
+        rollout_is=rollout_is,
+        rollout_is_threshold=rollout_is_threshold,
+        rollout_rs=rollout_rs,
+        rollout_rs_threshold=rollout_rs_threshold,
+        rollout_rs_threshold_lower=rollout_rs_threshold_lower,
+        rollout_token_veto_threshold=rollout_token_veto_threshold,
+    )
+
+    # ALWAYS update response_mask with rejection applied
+    batch.batch["response_mask"] = modified_response_mask
+
+    # Add IS weights to batch if computed
+    if rollout_is_weights is not None:
+        batch = batch.union(rollout_is_weights)
+
+    return batch, rollout_corr_metrics
+
+
+def maybe_apply_rollout_correction(
+    batch: DataProto,
+    rollout_corr_config: Optional[RolloutCorrectionConfig] = None,
+    policy_loss_config: PolicyLossConfig = None,
+) -> bool:
+    """
+    BYPASS MODE: Use rollout_log_probs as old_log_probs
+    Skips expensive actor forward pass for old_log_prob computation
+
+    Two sub-modes (controlled by use_pure_rollout_correction in actor):
+    1. PPO_IS mode (use_pure_rollout_correction=False, default):
+       - Actor uses standard PPO with old_log_prob=rollout_log_prob
+       - PPO clips ratio = π_current / π_rollout (not π_current / π_old)
+
+    2. Pure rollout correction mode (use_pure_rollout_correction=True):
+       - Actor uses compute_policy_loss_with_rollout_correction()
+       - Pure policy gradient with IS correction (no PPO clipping)
+
+    Returns:
+        need_recomputation (bool): Whether recomputing logprobs is needed.
+
+    Note:
+        The implementation is copied from szrlee <szrlee@gmail.com>.
+    """
+    # Rollout correction mode selection
+    bypass_mode = rollout_corr_config.get("bypass_old_logprob_for_rollout", False) if rollout_corr_config else False
+
+    if bypass_mode:
+        if "rollout_log_probs" not in batch.batch:
+            raise ValueError(
+                "bypass_old_logprob_for_rollout=True requires rollout_log_probs in batch. "
+                "Ensure rollout worker is configured to calculate_log_probs=true."
+            )
+
+        # Use rollout log probs as old log probs (zero-cost substitution)
+        batch.batch["old_log_probs"] = batch.batch["rollout_log_probs"]
+        # Check if pure rollout correction mode is enabled
+        use_pure_rollout_correction = rollout_corr_config.get("use_pure_rollout_correction", False)
+
+        if use_pure_rollout_correction:
+            # Pure IS mode: Configure actor to use rollout_correction loss function
+            # This will use compute_policy_loss_with_rollout_correction (no PPO clipping)
+            policy_loss_config["loss_mode"] = "rollout_correction"
+            policy_loss_config["rollout_correction"] = rollout_corr_config
+
+        return False
+
+    return True
