@@ -15,6 +15,8 @@ defaults:
   - critic@critic: megatron_critic
   # Reward model config.
   - reward_model@reward_model: megatron_reward_model
+  # Rollout correction config.
+  - algorithm@algorithm: rollout_correction
   - _self_
 
 actor_rollout_ref:
@@ -23,7 +25,6 @@ actor_rollout_ref:
   nccl_timeout: 600 # seconds, default is 10 minutes for torch, you can set it to a larger value if you have long-running operations like 32B or 72B model using megatron
 
   model:
-
     path: ~/models/deepseek-llm-7b-chat
 
     custom_chat_template: null
@@ -72,18 +73,6 @@ algorithm:
   pf_ppo:
     reweight_method: pow # ["pow", "max_min", "max_random"]
     weight_pow: 2.0
-
-  # Rollout Correction: corrects distribution mismatch between rollout and training policies
-  # Override via CLI: algorithm.rollout_correction.rollout_is="token_is"
-  rollout_correction:
-    rollout_is: null
-    rollout_is_threshold: 2.0
-    rollout_rs: null
-    rollout_rs_threshold: null
-    rollout_rs_threshold_lower: null
-    rollout_token_veto_threshold: null
-    bypass_old_logprob_for_rollout: false
-    use_pure_rollout_correction: false
 
 trainer:
   balance_batch: True
@@ -181,7 +170,6 @@ global_profiler:
 
 # configs for TransferQueue
 transfer_queue:
-
   # Whether to enable transfer queue
   enable: False
 
