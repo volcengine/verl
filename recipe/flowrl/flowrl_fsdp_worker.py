@@ -264,7 +264,7 @@ class FlowRLActorRolloutRefWorker(ActorRolloutRefWorker):
             reduce_dtype = PrecisionType.to_dtype(mixed_precision_config.get("reduce_dtype", "fp32"))
             buffer_dtype = PrecisionType.to_dtype(mixed_precision_config.get("buffer_dtype", "fp32"))
         else:
-            param_dtype = PrecisionType.to_dtype(self.config.actor.get("dtype", "float16"))
+            param_dtype = PrecisionType.to_dtype(self.config.actor.get("dtype", "bfloat16"))
             reduce_dtype = torch.float32
             buffer_dtype = torch.float32
 

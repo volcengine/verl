@@ -12,7 +12,7 @@ _target_: verl.workers.config.ActorConfig
 strategy: ???
 
 # Data type for model parameters: float16, bfloat16, or float32
-dtype: float16
+dtype: bfloat16
 
 # Split each sample into sub-batches of this size for PPO
 ppo_mini_batch_size: 256

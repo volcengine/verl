@@ -2,7 +2,7 @@
 strategy: ${actor_rollout_ref.actor.strategy}
 
 # Data type for model parameters: float16, bfloat16, or float32
-dtype: float16
+dtype: bfloat16
 
 # whether to enable torch.compile
 # same as actor_rollout_ref.actor.use_torch_compile if it exists, otherwise 1
