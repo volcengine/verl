@@ -11,6 +11,7 @@ _target_: verl.workers.config.ActorConfig
 # fsdp, fsdp2 or megatron. must be set.
 strategy: ???
 
+# Data type for model parameters: float16, bfloat16, or float32
 dtype: float16
 
 # Split each sample into sub-batches of this size for PPO
