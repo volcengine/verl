@@ -6,7 +6,8 @@ libero_test_path=$HOME/data/libero_rl/test.parquet
 train_files=$libero_train_path
 test_files=$libero_test_path
 
-OUTPUT_DIR="$HOME/models/vla_libero_grpo"
+OUTPUT_DIR=${MLP_MODEL_OUTPUT:-"$HOME/models/vla_libero_grpo"}
+VIDEO_OUTPUT=${MLP_MODEL_OUTPUT:-"$HOME"}/video
 SFT_MODEL_PATH=${SFT_MODEL_PATH:-"$HOME/data/Openvla-oft-SFT-libero10-trajall"}
 
 NUM_NODES=1
@@ -43,7 +44,7 @@ $PYTHON -m recipe.vla.main_ppo \
     env.train.only_eval=False \
     env.train.max_episode_steps=512 \
     env.train.video_cfg.save_video=True \
-    env.train.video_cfg.video_base_dir=$HOME/videos \
+    env.train.video_cfg.video_base_dir=${VIDEO_OUTPUT} \
     env.train.seed=42 \
     actor_rollout_ref.actor.fsdp_config.model_dtype=bfloat16 \
     actor_rollout_ref.model.path=$SFT_MODEL_PATH \
@@ -78,11 +79,11 @@ $PYTHON -m recipe.vla.main_ppo \
     trainer.n_gpus_per_node=$NUM_GPUS \
     +trainer.n_env_gpus_per_node=$NUM_ENV_GPUS \
     trainer.nnodes=$NUM_NODES \
-    trainer.save_freq=50 \
-    trainer.test_freq=10 \
-    trainer.total_epochs=20 \
+    trainer.save_freq=30 \
+    trainer.test_freq=-1 \
+    trainer.total_epochs=10 \
     trainer.val_only=False \
     algorithm.adv_estimator=reinforce_plus_plus \
-    trainer.val_before_train=False 2>&1
+    trainer.val_before_train=False
 
 
