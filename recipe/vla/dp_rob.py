@@ -240,7 +240,7 @@ class RobDataParallelPPOActor(BasePPOActor):
                 entropys = restore_dynamic_batch(entropys, batch_idx_list)
 
         return log_probs, entropys
-
+    
     def update_policy(self, data: DataProto):
         self.actor_module.train()
 
@@ -305,7 +305,6 @@ class RobDataParallelPPOActor(BasePPOActor):
                     "actor/pg_clipfrac_lower": 0,
                 }
 
-                
                 entropy, log_prob = self._forward_micro_batch_update(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
@@ -324,19 +323,17 @@ class RobDataParallelPPOActor(BasePPOActor):
                     cliprange_low=clip_ratio_low,
                 )
 
-                response_mask_tmp_sum = response_mask.sum(axis=None)
-                pg_loss = pg_loss * response_mask_tmp_sum
-                pg_clipfrac = pg_clipfrac * response_mask_tmp_sum / response_mask_sum
-                ppo_kl = ppo_kl * response_mask_tmp_sum / response_mask_sum
-                pg_clipfrac_lower = pg_clipfrac_lower * response_mask_tmp_sum / response_mask_sum
-
-                policy_loss = pg_loss / response_mask_sum
-
-                loss = policy_loss / self.gradient_accumulation
+                if response_mask_sum == 0:
+                    pg_loss = 0
+                    pg_clipfrac = 0
+                    ppo_kl = 0
+                    pg_clipfrac_lower = 0
+                    breakpoint()
+                loss = pg_loss / self.gradient_accumulation
 
                 loss.backward()
 
-                loss_info["actor/pg_loss"] = loss_info["actor/pg_loss"] + policy_loss.detach().item()
+                loss_info["actor/pg_loss"] = loss_info["actor/pg_loss"] + pg_loss.detach().item()
                 loss_info["actor/pg_clipfrac"] = loss_info["actor/pg_clipfrac"] + pg_clipfrac.detach().item()
                 loss_info["actor/ppo_kl"] = loss_info["actor/ppo_kl"] + ppo_kl.detach().item()
                 loss_info["actor/pg_clipfrac_lower"] = loss_info["actor/pg_clipfrac_lower"] + pg_clipfrac_lower.detach().item()
@@ -346,8 +343,9 @@ class RobDataParallelPPOActor(BasePPOActor):
             data = {"actor/grad_norm": grad_norm.detach().item()}
             append_to_dict(metrics, data)
             torch.cuda.empty_cache()
-        self.actor_optimizer.zero_grad()
-        torch.cuda.synchronize()
-        torch.distributed.barrier()
-        torch.cuda.empty_cache()
-        return metrics
+
+            self.actor_optimizer.zero_grad()
+            torch.cuda.synchronize()
+            torch.distributed.barrier()
+            torch.cuda.empty_cache()
+            return metrics

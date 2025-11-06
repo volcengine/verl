@@ -96,7 +96,7 @@ def main_task(config):
     }
 
     global_pool_id = "global_pool"
-    env_gpu_num = int(config.trainer.n_gpus_per_node / 2)
+    env_gpu_num = config.trainer.n_env_gpus_per_node
     rollout_gpu_num = config.trainer.n_gpus_per_node - env_gpu_num
     resource_pool_spec = {
         global_pool_id: [env_gpu_num] * config.trainer.nnodes,

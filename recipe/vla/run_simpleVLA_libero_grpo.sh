@@ -11,6 +11,7 @@ SFT_MODEL_PATH=${SFT_MODEL_PATH:-"$HOME/data/Openvla-oft-SFT-libero10-trajall"}
 
 NUM_NODES=1
 NUM_GPUS=8
+NUM_ENV_GPUS=4
 # rollout.n should equal to num_envs for isaac env
 ROLLOUT_N=8
 # isaac or libero
@@ -75,6 +76,7 @@ $PYTHON -m recipe.vla.main_ppo \
     trainer.experiment_name=$EXPERIMENT_NAME \
     trainer.default_local_dir=$OUTPUT_DIR \
     trainer.n_gpus_per_node=$NUM_GPUS \
+    +trainer.n_env_gpus_per_node=$NUM_ENV_GPUS \
     trainer.nnodes=$NUM_NODES \
     trainer.save_freq=50 \
     trainer.test_freq=10 \
