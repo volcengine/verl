@@ -617,12 +617,11 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
             ray.get(dependency_ref)
         print("[FullyAsyncRollouter][Public][Resume]")
         async with self.lock:
+            if self.config.async_training.partial_rollout:
+                await self.async_rollout_manager.resume()
             self.paused = False
             self.monitor_loop_trigger = True
             self.condition.notify_all()
-
-            if self.config.async_training.partial_rollout:
-                await self.async_rollout_manager.resume()
 
     async def get_statistics(self) -> dict:
         queue_stats = self.message_queue_client.get_statistics_sync()
