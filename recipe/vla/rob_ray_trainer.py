@@ -19,7 +19,6 @@ This trainer supports model-agonistic model initialization with huggingface
 """
 
 import uuid
-from enum import Enum
 from collections import defaultdict
 from pprint import pprint
 
@@ -41,8 +40,8 @@ from verl.trainer.ppo.metric_utils import (
     process_validation_metrics,
 )
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer, apply_kl_penalty, compute_advantage
-from verl.trainer.ppo.utils import Role
 from verl.trainer.ppo.reward import compute_reward
+from verl.trainer.ppo.utils import Role
 from verl.utils.checkpoint.checkpoint_manager import should_save_ckpt_esi
 from verl.utils.debug import marked_timer
 from verl.utils.metric import reduce_metrics
@@ -281,7 +280,7 @@ class RobRayPPOTrainer(RayPPOTrainer):
                         # batch.batch["response_mask"] = batch.batch["response_mask"].repeat_interleave(7, dim=-1)
                         # debug only
 
-                    # real rollout
+                        # real rollout
                         if not self.async_rollout_mode:
                             gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
                         else:  # vla loop
@@ -356,12 +355,14 @@ class RobRayPPOTrainer(RayPPOTrainer):
                         token_level_scores = torch.zeros_like(response_masks, dtype=torch.float32)
                         flipped_mask = response_masks.flip(dims=[1])
                         indices_in_flipped = torch.argmax(flipped_mask.long(), dim=1)
-                        
+
                         last_true_indices = response_masks.shape[-1] - 1 - indices_in_flipped
                         rows_with_response = response_masks.any(dim=1)
-                        effective_rewards = batch.batch["reward_tensor"] * rows_with_response.to(batch.batch["reward_tensor"].dtype)
+                        effective_rewards = batch.batch["reward_tensor"] * rows_with_response.to(
+                            batch.batch["reward_tensor"].dtype
+                        )
                         row_indices = torch.arange(response_masks.shape[0], device=token_level_scores.device)
-                        
+
                         token_level_scores[row_indices, last_true_indices] = effective_rewards
                         batch.batch["token_level_scores"] = token_level_scores
                         if reward_extra_infos_dict:
@@ -391,8 +392,7 @@ class RobRayPPOTrainer(RayPPOTrainer):
                             norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
                             config=self.config.algorithm,
                         )
-                    
-                    breakpoint()
+
                     # update critic
                     if self.use_critic:
                         with marked_timer("update_critic", timing_raw, color="pink"):
