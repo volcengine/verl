@@ -30,6 +30,9 @@ defaults:
   # Reward model config.
   - reward_model@reward_model: dp_reward_model
 
+  # Rollout correction config.
+  - algorithm@@algorithm.rollout_correction: rollout_correction
+
   # load the reference default config, then apply the fields in the current yaml
   # self config override anything above
   - _self_
@@ -112,28 +115,6 @@ algorithm:
 
     # Power used for weight scaling in "pow" method
     weight_pow: 2.0
-
-  # Rollout Importance Sampling: corrects distribution mismatch between rollout and training policies
-  # Main control: Upper threshold for IS weights (null = disabled, float = enabled)
-  # When enabled, computes IS weights and mismatch metrics (KL, PPL, etc.)
-  rollout_is_threshold: null
-
-  # Lower threshold for IS weights (null = auto-reciprocal of upper)
-  rollout_is_threshold_lower: null
-
-  # Aggregation level: "token" (biased), "sequence" (unbiased), "geometric" (experimental)
-  rollout_is_level: token
-
-  # Bounding mode: "truncate" (cap upper only), "mask" (zero outside bounds)
-  rollout_is_mode: truncate
-
-  # Per-token veto threshold for catastrophic outliers (null to disable)
-  rollout_is_veto_threshold: null
-
-  # Whether to apply IS weights to policy loss
-  # true = apply weights to loss, false = compute metrics only (no weight application)
-  # Useful for monitoring mismatch before enabling correction
-  rollout_is: false
 
 # config for the trainer
 trainer:
