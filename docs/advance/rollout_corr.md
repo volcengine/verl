@@ -27,8 +27,8 @@ Rollout Correction provides a unified framework to handle **general off-policy p
 **Common off-policy scenarios:**
 
 1. **Policy Mismatch** (Implementation Differences)
-   - Different precision: BFloat16 rollout vs FP32 training
-   - Different backends: vLLM rollout vs PyTorch/FSDP training
+   - Different precision: FP8 vs FP16 vs BF16 vs FP32
+   - Different backends: vLLM vs SGLang vs FSDP vs Megatron
    - Different implementations even with identical weights
 
 2. **Temporal Lag** (Model Staleness)
@@ -58,6 +58,8 @@ These off-policy gaps can cause training instability and policy collapse. Rollou
 Many LLM-RL implementations incorrectly apply PPO by **ignoring the actual rollout policy** π_rollout and assuming the training reference policy π_old is the behavior policy. This is mathematically incorrect when π_rollout ≠ π_old (which is typical in LLM-RL due to precision/backend differences between rollout and training).
 
 **This is not PPO's fault** - PPO itself is mathematically correct. The issue is the incorrect assumption that π_old = π_rollout in naive implementations.
+
+This critical implementation mistake that leads to RL training collapse was identified in the blog post ["When Speed Kills Stability: Demystifying RL Collapse from the Training-Inference Mismatch"](https://yingru.notion.site/When-Speed-Kills-Stability-Demystifying-RL-Collapse-from-the-Training-Inference-Mismatch-271211a558b7808d8b12d403fd15edda) and motivated the development of this rollout correction framework.
 
 **Mathematically correct approaches:**
 - **Decoupled mode**: Three policies (π_rollout, π_old, π_θ) with IS correction from π_rollout to π_old

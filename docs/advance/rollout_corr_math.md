@@ -9,7 +9,7 @@
 
 This document provides the definitive mathematical formulations for rollout correction methods in `verl`, following the natural progression from **REINFORCE** to **PPO** to **Decoupled PPO**.
 
-The `verl` library implements **decoupled PPO** ([Hilton et al., 2021](https://arxiv.org/abs/2110.00641)) via a three-policy framework that decouples the proximal policy (for controlling policy update size) from the behavior policy (for off-policy correction). This decoupling achieves **batch size invariance** and enables efficient use of stale data, supporting scenarios where data collection differs from the training distribution.
+Rollout correction provides a unified framework to handle **general off-policy problems** in RL training - any scenario where the data collection distribution differs from the training distribution.
 
 **Applicable scenarios include:**
 - **Policy mismatch**: Different precision (FP8 vs FP16 vs BF16 vs FP32), different backends (vLLM vs SGLang vs FSDP vs Megatron)
@@ -253,6 +253,8 @@ These methods use two policies without importance sampling between behavior and 
 #### 3.2.1 Incorrect LLM-RL Implementation (PPO Without Rollout Correction)
 
 **Theory:** Naive LLM-RL implementation that incorrectly applies PPO by ignoring the actual rollout policy and assuming $\mu = \pi_{\text{old}}$.
+
+**Note:** This incorrect implementation pattern was identified in [Liu, Li, et al. (2025)](https://yingru.notion.site/When-Speed-Kills-Stability-Demystifying-RL-Collapse-from-the-Training-Inference-Mismatch-271211a558b7808d8b12d403fd15edda) as a key cause of training instability in LLM-RL systems, motivating the development of this rollout correction framework.
 
 **Loss Function:**
 
@@ -579,5 +581,5 @@ $$
 - **Schulman, J., Wolski, F., Dhariwal, P., Radford, A., & Klimov, O. (2017).** "Proximal policy optimization algorithms." *arXiv preprint arXiv:1707.06347.* https://arxiv.org/abs/1707.06347
 - **Hilton, J., Cobbe, K., & Schulman, J. (2021).** "Batch size-invariance for policy optimization." *arXiv preprint arXiv:2110.00641.* https://arxiv.org/abs/2110.00641
   - Introduced decoupled PPO: separating proximal policy (for controlling policy update size) from behavior policy (for off-policy correction) to achieve batch size invariance
-- **"When Speed Kills Stability: Demystifying RL Collapse from the Training-Inference Mismatch"**
+- **Liu, J., Li, Y., et al. (2025).** "When Speed Kills Stability: Demystifying RL Collapse from the Training-Inference Mismatch"
   - Blog post: https://yingru.notion.site/When-Speed-Kills-Stability-Demystifying-RL-Collapse-from-the-Training-Inference-Mismatch-271211a558b7808d8b12d403fd15edda
