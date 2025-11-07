@@ -263,16 +263,16 @@ class RobDataParallelPPOActor(BasePPOActor):
 
         # Split to make minibatch iterator for updating the actor
         # See PPO paper for details. https://arxiv.org/abs/1707.06347
-        dataloader = batch.split(self.config.ppo_micro_batch_size_per_gpu)
+        mini_batches = batch.split(self.config.ppo_mini_batch_size)
         metrics = {}
-        for batch_idx, data in enumerate(dataloader):
-            # split batch into micro_batches
-            mini_batch = data
+        for batch_idx, mini_batch in enumerate(mini_batches):
             if self.config.use_dynamic_bsz:
                 max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
-                micro_batches, _ = rearrange_micro_batches(batch=mini_batch, max_token_len=max_token_len)
+                micro_batches, _ = prepare_dynamic_batch(mini_batch, max_token_len=max_token_len)
             else:
-                # split batch into micro_batches
+                self.gradient_accumulation = (
+                    self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
+                )
                 micro_batches = mini_batch.split(self.config.ppo_micro_batch_size_per_gpu)
 
             self.actor_optimizer.zero_grad()
@@ -328,7 +328,7 @@ class RobDataParallelPPOActor(BasePPOActor):
                     pg_clipfrac = 0
                     ppo_kl = 0
                     pg_clipfrac_lower = 0
-                    breakpoint()
+
                 loss = pg_loss / self.gradient_accumulation
 
                 loss.backward()
@@ -342,10 +342,5 @@ class RobDataParallelPPOActor(BasePPOActor):
             grad_norm = self._optimizer_step()
             data = {"actor/grad_norm": grad_norm.detach().item()}
             append_to_dict(metrics, data)
-            torch.cuda.empty_cache()
-
-            self.actor_optimizer.zero_grad()
-            torch.cuda.synchronize()
-            torch.distributed.barrier()
-            torch.cuda.empty_cache()
-            return metrics
+        self.actor_optimizer.zero_grad()
+        return metrics
