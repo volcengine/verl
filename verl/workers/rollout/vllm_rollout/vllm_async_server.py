@@ -296,7 +296,7 @@ class vLLMHttpServerBase:
             if isinstance(v, bool):
                 if v:
                     server_args.append(f"--{k}")
-            else:
+            elif v is not None:
                 server_args.append(f"--{k}")
                 # Use json.dumps for dict to ensure valid JSON format
                 server_args.append(json.dumps(v) if isinstance(v, dict) else str(v))
