@@ -116,8 +116,8 @@ def compute_rollout_rejection_mask(
             metrics: Dictionary of rejection sampling metrics (all scalars), including:
                 - rollout_rs_mean/max/min: Statistic of IS weights
                 - rollout_rs_ratio_fraction_high/low: Fraction of weights exceeding thresholds
-                - rollout_rs_masked_fraction: Overall rejection rate
-                - rollout_rs_seq_masked_fraction: Sequence-level rejection rate
+                - rollout_rs_masked_fraction: Fraction of tokens rejected (unified for all modes)
+                - rollout_rs_seq_masked_fraction: Fraction of sequences rejected (mode-dependent)
     """
     # Validate input parameters
     valid_rs_levels = {"token", "sequence", "geometric"}
@@ -174,8 +174,11 @@ def compute_rollout_rejection_mask(
         rollout_rs_threshold_lower=lower_threshold,
     )
 
-    # Track overall and sequence-level rejection rates
+    # Track token-level and sequence-level rejection rates
+    # rollout_rs_masked_fraction: fraction of tokens rejected (unified for all modes)
     metrics["rollout_rs_masked_fraction"] = verl_F.masked_mean(1 - mask, response_mask).item()
+
+    # rollout_rs_seq_masked_fraction: fraction of sequences rejected (mode-dependent)
     if rollout_rs == "token":
         # Token-level aggregation: sequence is rejected if any token is rejected
         seq_has_masked: torch.Tensor = verl_F.masked_sum(1 - mask, response_mask, axis=-1) > 0
@@ -241,23 +244,11 @@ def compute_rs_metrics(
         metrics["rollout_rs_mean"] = verl_F.masked_mean(rollout_is_weights, response_mask).item()
 
         # Fraction of weights exceeding thresholds (log-space for accuracy)
+        # Both sequence and geometric modes operate at sequence level (batch_size, 1)
         exceeds_upper: torch.Tensor = log_ratio_for_metrics > log_threshold_upper
         below_lower: torch.Tensor = log_ratio_for_metrics < log_threshold_lower
-
-        if rollout_rs == "sequence":
-            # Sequence-level: all tokens in a sequence have the same weight
-            metrics["rollout_rs_ratio_fraction_high"] = exceeds_upper.float().mean().item()
-            metrics["rollout_rs_ratio_fraction_low"] = below_lower.float().mean().item()
-        else:  # geometric
-            # Broadcast threshold checks to match token dimensions
-            exceeds_upper_expanded: torch.Tensor = exceeds_upper.expand_as(response_mask)
-            below_lower_expanded: torch.Tensor = below_lower.expand_as(response_mask)
-            metrics["rollout_rs_ratio_fraction_high"] = verl_F.masked_mean(
-                exceeds_upper_expanded.float(), response_mask
-            ).item()
-            metrics["rollout_rs_ratio_fraction_low"] = verl_F.masked_mean(
-                below_lower_expanded.float(), response_mask
-            ).item()
+        metrics["rollout_rs_ratio_fraction_high"] = exceeds_upper.float().mean().item()
+        metrics["rollout_rs_ratio_fraction_low"] = below_lower.float().mean().item()
 
     else:  # token-level
         # Token-level aggregation: compute directly from clamped weights
