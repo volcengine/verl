@@ -21,7 +21,7 @@
 
 |  迭代  | 学习率 |  gbs  |  采样数 | 温度 |  kl-coef | 输入长度 | 输出长度 | 规则奖励 | 奖励模型 |
 |:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|
-| 80 | 1e-6 (constant) |  512  |  16  |  1.0  |  0.001  |  1024  |  2048  |  format + acc  | - |
+| 70 | 1e-6 (constant) |  512  |  16  |  1.0  |  0.001  |  1024  |  2048  |  format + acc  | - |
 
 ### 训练资源与性能
 本样例在昇腾Atlas 800T A3超节点服务器上进行训练，使用了128张A3 NPU，等效于256张加速卡。具体的部署方式如下：
@@ -35,6 +35,12 @@
 |:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|
 | 2 | 175.1 |  1385.0  |  1044.8  | 95.5 |  482.2  |  20.4  |  105.5  |  92.7  | 342.9 |
 
+### 训练过程记录
+<div align="center">
+  <img src="./figures/rewards.png" width="33%" />
+  <img src="./figures/response_len.png" width="33%" />
+  <img src="./figures/val_score.png" width="33%" />
+</div>
 
 ## 快速开始
 
@@ -95,6 +101,16 @@ DeepSeek-V3-Base模型权重准备步骤如下：
 本样例使用了预先切分的分布式权重，因此还要执行以下的切分权重操作：
 - 分布式权重需存储至`ckpts/DeepseekV3-dist-ckpts`。
 - 使用`verl/scripts/converter_hf_to_mcore.py`对原始的BF16权重切分得到分布式权重。实践中我们发现2T的CPU内存不足以完成671B模型的权重切分处理，为此我们对该脚本进行了专家并行的适配，并在64块NPU上用EP8 PP8分布式策略对权重进行了切分。
+
+### 其他代码修改
+实践中为了得到以上on-policy训练的结果，我们将 `verl/workers/actor/megatron_actor.py` 中的代码段 `old_log_prob = data["old_log_probs"]` 替换为如下代码：
+```python
+on_policy = self.config.ppo_epochs == 1
+if on_policy:
+    old_log_prob = log_prob.detach()    # 确保二者数值完全相等
+else:
+    old_log_prob = data["old_log_probs"]
+```
 
 ### 执行RL后训练
 ```bash

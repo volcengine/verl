@@ -20,7 +20,7 @@ This example fine-tunes the DeepSeek-671B Base model on the deepscaler dataset u
 
 |  iteration  | learning rate |  global batchsize  |  n_samples | temperature |  kl-coef | prompt_max_len | response_max_len | rule reward | reward model |
 |:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|
-| 80 | 1e-6 (constant) |  512  |  16  |  1.0  |  0.001  |  1024  |  2048  |  format + acc  | - |
+| 70 | 1e-6 (constant) |  512  |  16  |  1.0  |  0.001  |  1024  |  2048  |  format + acc  | - |
 
 ### Resource Allocation and Performance
 This recipe was trained on an Ascend Atlas 800T A3 hyper-node server, utilizing 128 A3 NPUs, which is equivalent to 256 accelerator ranks. The specific deployment strategy is as follows:
@@ -34,6 +34,13 @@ The performance metrics for one training step are shown below (throughput varies
 |  step  | prompt_len_mean |  response_len_mean  |  timing_step (s) | throughput (tps/A3) | timing_gen (s) | timing_reward (s) | timing_old_prob (s) | timing_ref_prob (s) | timing_update (s) |
 |:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|
 | 2 | 175.1 |  1385.0  |  1044.8  | 95.5 |  482.2  |  20.4  |  105.5  |  92.7  | 342.9 |
+
+### Training Metrics
+<div align="center">
+  <img src="./figures/rewards.png" width="33%" />
+  <img src="./figures/response_len.png" width="33%" />
+  <img src="./figures/val_score.png" width="33%" />
+</div>
 
 ## Quick Start
 
@@ -93,6 +100,17 @@ Prepare the DeepSeek-V3-Base model weights as follows:
 This example uses pre-sharded distributed weights. Therefore, the following weight sharding step is also required:
 - The distributed weights will be stored in `ckpts/DeepseekV3-dist-ckpts`.
 - Use the script `verl/scripts/converter_hf_to_mcore.py` to shard the original BF16 weights into distributed weights. In practice, we found that 2TB of CPU RAM was insufficient for sharding the 671B model. Therefore, we adapted this script for expert parallelism and performed the weight sharding using a distributed strategy of EP8 PP8 across 64 NPUs.
+
+### Other Code Modifications
+In practice, to achieve the above results for on-policy RL training, we need to replace the `old_log_prob = data["old_log_probs"]` code in `verl/workers/actor/megatron_actor.py` with:
+
+```python
+on_policy = self.config.ppo_epochs == 1
+if on_policy:
+    old_log_prob = log_prob.detach()    # guarantee exact numerical equality
+else:
+    old_log_prob = data["old_log_probs"]
+```
 
 ### Execute RL Fine-tuning
 ```bash
