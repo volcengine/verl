@@ -64,7 +64,6 @@ class RobActorRolloutRefWorker(ActorRolloutRefWorker):
     or a hybrid engine based on the config.rollout
     """
 
-    original_generate_sequences = inspect.unwrap(ActorRolloutRefWorker.generate_sequences)
     fsdp_unshard_exit_stack = contextlib.ExitStack()
 
     def _build_rollout(self, trust_remote_code=False):
@@ -98,8 +97,8 @@ class RobActorRolloutRefWorker(ActorRolloutRefWorker):
             )
 
         self._register_dispatch_collect_info("rollout", dp_rank=self.rank, is_collect=True)
-        # self.rollout = NaiveRolloutRob(module=self.actor_module_fsdp, model_config=self.config.model)
-        self.rollout = NaiveRolloutRob(module=None, model_config=self.config.model)
+        self.rollout = NaiveRolloutRob(module=self.actor_module_fsdp, model_config=self.config.model)
+        # self.rollout = NaiveRolloutRob(module=None, model_config=self.config.model)
         model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model, dataclass_type=HFModelConfig)
         self.model_config = model_config
 
@@ -142,6 +141,7 @@ class RobActorRolloutRefWorker(ActorRolloutRefWorker):
             )
 
         self.fsdp_unshard_exit_stack = fsdp_unshard_exit_stack
+        print("rollout mode")
 
     async def trainer_mode(self):
         """Context switch hybridengine to trainer mode."""
@@ -159,8 +159,9 @@ class RobActorRolloutRefWorker(ActorRolloutRefWorker):
         if self.fsdp_unshard_exit_stack is not None:
             self.fsdp_unshard_exit_stack.close()
             self.fsdp_unshard_exit_stack = None
+        print("trainer mode")
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="rollout"))
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="rollout"), blocking=False)
     @DistProfiler.annotate(color="red", role="rollout_generate")
     def generate_sequences(self, prompts: DataProto):
         # Support all hardwares
@@ -275,11 +276,6 @@ class RobActorRolloutRefWorker(ActorRolloutRefWorker):
         torch.cuda.synchronize()
         torch.distributed.barrier()
         torch.cuda.empty_cache()
-
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="rollout"), blocking=False)
-    @DistProfiler.annotate(color="red", role="rollout_generate")
-    def generate_sequences(self, prompts: DataProto):
-        return self.original_generate_sequences(prompts)
 
     # @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     # def compute_ref_log_prob(self, data: DataProto):

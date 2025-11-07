@@ -246,32 +246,33 @@ class NaiveRolloutRob(BaseRollout):
         return batch
 
     async def update_weights(self, weights_iterator, **kwargs):
-        prefix = "_fsdp_wrapped_module."
+        pass
+        # prefix = "_fsdp_wrapped_module."
         
-        # cleaned_state_dict = {
-        #     name.replace(prefix, ""): param.cpu() 
-        #     for name, param in weights_iterator
-        # }
+        # # cleaned_state_dict = {
+        # #     name.replace(prefix, ""): param.cpu() 
+        # #     for name, param in weights_iterator
+        # # }
         
-        # self.module.load_state_dict(cleaned_state_dict, strict=False)
-        target_state_dict = self.module.state_dict()
+        # # self.module.load_state_dict(cleaned_state_dict, strict=False)
+        # target_state_dict = self.module.state_dict()
     
-        loaded_tensors_count = 0
-        for name, param in weights_iterator:
-            cleaned_name = name.replace(prefix, "")
+        # loaded_tensors_count = 0
+        # for name, param in weights_iterator:
+        #     cleaned_name = name.replace(prefix, "")
             
-            if cleaned_name in target_state_dict:
-                target_tensor = target_state_dict[cleaned_name]
+        #     if cleaned_name in target_state_dict:
+        #         target_tensor = target_state_dict[cleaned_name]
                 
-                try:
-                    target_tensor.copy_(param, non_blocking=True)
-                    loaded_tensors_count += 1
-                except Exception as e:
-                    print(f"Warning: Failed to copy tensor '{cleaned_name}'. Error: {e}")
-            else:
-                print(f"Warning: Failed to copy tensor '{cleaned_name}'. Model has no such key.")
-                pass
-        print(f"Rollout model weights updated. Loaded {loaded_tensors_count} tensors one by one.")
+        #         try:
+        #             target_tensor.copy_(param, non_blocking=True)
+        #             loaded_tensors_count += 1
+        #         except Exception as e:
+        #             print(f"Warning: Failed to copy tensor '{cleaned_name}'. Error: {e}")
+        #     else:
+        #         print(f"Warning: Failed to copy tensor '{cleaned_name}'. Model has no such key.")
+        #         pass
+        # print(f"Rollout model weights updated. Loaded {loaded_tensors_count} tensors one by one.")
     
     async def release(self):
         if self.module.device.type == 'cuda':
