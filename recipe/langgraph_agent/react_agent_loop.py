@@ -154,7 +154,7 @@ class ReactAgentLoop(AgentLoopBase):
             # Create a minimal response to prevent training crash
             # The agent failed to complete, but we return an empty response
             # This allows training to continue and collect whatever partial data was generated
-            empty_response = AIMessage(content="[Agent execution failed - recursion limit exceeded]")
+            empty_response = AIMessage(content="[Agent execution failed]")
             state = {"messages": messages + [empty_response]}
 
         output = convert_to_agent_output(state["messages"], rollout.response_length)
