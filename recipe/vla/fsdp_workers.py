@@ -103,6 +103,7 @@ class RobActorRolloutRefWorker(ActorRolloutRefWorker):
         model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model, dataclass_type=HFModelConfig)
         self.model_config = model_config
 
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     async def rollout_mode(self):
         """Context switch hybridengine to rollout mode."""
         aggressive_empty_cache(force_sync=True)
@@ -141,6 +142,7 @@ class RobActorRolloutRefWorker(ActorRolloutRefWorker):
         self.torch_random_states = get_torch_device().get_rng_state()
         get_torch_device().set_rng_state(self.gen_random_states)
 
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     async def trainer_mode(self):
         """Context switch hybridengine to trainer mode."""
         log_gpu_memory_usage("Before rollout offload", logger=logger)
