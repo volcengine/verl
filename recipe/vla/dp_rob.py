@@ -258,6 +258,7 @@ class RobDataParallelPPOActor(BasePPOActor):
             "advantages",
         ]
         batch = data.select(batch_keys=select_keys).batch
+        self.pad_token_id = data.meta_info["pad_token_id"]
         # TODO(caiyunke.astra): check here
         # assert self.config.ppo_micro_batch_size_per_gpu == 1
 
@@ -277,25 +278,25 @@ class RobDataParallelPPOActor(BasePPOActor):
 
             self.actor_optimizer.zero_grad()
 
-            for test_idx, data in enumerate(micro_batches):
-                data = data.cuda()  # actor device is cpu when using offload
-                responses = data["responses"]
+            for test_idx, micro_batch in enumerate(micro_batches):
+                micro_batch = micro_batch.cuda()  # actor device is cpu when using offload
+                responses = micro_batch["responses"]
 
-                response_mask = data["response_mask"]  # (batch_size, traj_len)
+                response_mask = micro_batch["response_mask"]  # (batch_size, traj_len)
 
                 response_mask_sum = response_mask.sum(axis=None)
 
-                old_log_prob = data["old_log_probs"]
-                advantages = data["advantages"]
+                old_log_prob = micro_batch["old_log_probs"]
+                advantages = micro_batch["advantages"]
 
                 # clip_ratio = self.config.clip_ratio
                 clip_ratio_high = self.config.clip_ratio_high
                 clip_ratio_low = self.config.clip_ratio_low
 
-                input_ids = data["input_ids"]
-                attention_mask = data["attention_mask"]
-                pixel_values = data["pixel_values"]
-                responses = data["responses"]
+                input_ids = micro_batch["input_ids"]
+                attention_mask = micro_batch["attention_mask"]
+                pixel_values = micro_batch["pixel_values"]
+                responses = micro_batch["responses"]
 
                 loss_info = {
                     #'actor/entropy_loss': entropy_loss.detach().item(),
@@ -322,13 +323,6 @@ class RobDataParallelPPOActor(BasePPOActor):
                     cliprange_high=clip_ratio_high,
                     cliprange_low=clip_ratio_low,
                 )
-
-                if response_mask_sum == 0:
-                    pg_loss = 0
-                    pg_clipfrac = 0
-                    ppo_kl = 0
-                    pg_clipfrac_lower = 0
-
                 loss = pg_loss / self.gradient_accumulation
 
                 loss.backward()
@@ -340,7 +334,7 @@ class RobDataParallelPPOActor(BasePPOActor):
                 append_to_dict(metrics, loss_info)
 
             grad_norm = self._optimizer_step()
-            data = {"actor/grad_norm": grad_norm.detach().item()}
-            append_to_dict(metrics, data)
+            mini_batch_metrics = {"actor/grad_norm": grad_norm.detach().item()}
+            append_to_dict(metrics, mini_batch_metrics)
         self.actor_optimizer.zero_grad()
         return metrics
