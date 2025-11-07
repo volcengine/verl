@@ -59,6 +59,7 @@ class ActorConfig(BaseConfig):
 
     Args:
         strategy (str): Training strategy. Must be specified.
+        dtype (str): Model data type. Options: 'float32', 'float16', 'bfloat16'.
         ppo_mini_batch_size (int): Mini-batch size for PPO training.
         ppo_micro_batch_size (Optional[int]): Micro-batch size for PPO training.
             If None, uses ppo_micro_batch_size_per_gpu.
@@ -115,6 +116,7 @@ class ActorConfig(BaseConfig):
     checkpoint: CheckpointConfig = field(default_factory=CheckpointConfig)
     optim: OptimizerConfig = field(default_factory=OptimizerConfig)
     use_fused_kernels: bool = False
+    dtype: str = "bfloat16"
     profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
     engine: BaseConfig = field(default_factory=BaseConfig)
     data_loader_seed = 1
