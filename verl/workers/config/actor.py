@@ -217,6 +217,7 @@ class FSDPActorConfig(ActorConfig):
 
     Args:
         strategy (str): Training strategy set to 'fsdp' for Fully Sharded Data Parallel.
+        dtype (str): Model data type inherited from ActorConfig. Options: 'float32', 'float16', 'bfloat16'.
         grad_clip (float): Gradient clipping threshold.
         ulysses_sequence_parallel_size (int): Ulysses sequence parallel size for long sequences.
         entropy_from_logits_with_chunking (bool): Whether to compute entropy from logits
