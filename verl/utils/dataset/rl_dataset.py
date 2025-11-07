@@ -210,7 +210,7 @@ class RLHFDataset(Dataset):
             self.dataframe = self.dataframe.select(indices.tolist())
             print(f"selected {self.max_samples} random samples out of {total}")
         self.dataframe = self.maybe_filter_out_long_prompts(self.dataframe)
-        self.dataframe = self.dataframe.shuffle(seed=42)
+        self.dataframe = self.dataframe.shuffle()
         print("Done shuffle")
 
     def maybe_filter_out_long_prompts(self, dataframe: datasets.Dataset = None):
