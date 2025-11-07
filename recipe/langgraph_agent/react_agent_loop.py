@@ -70,7 +70,7 @@ def should_continue(state: MessagesState, config: RunnableConfig) -> Literal["to
 
     # max assistant turns exceeded
     # Use a reasonable default limit (25) if max_assistant_turns is not set
-    # This prevents infinite loops when tool_choice="any" forces tool calling
+    # This prevents infinite loops
     effective_max_turns = max_assistant_turns if max_assistant_turns is not None else 25
     if num_assistant_turns >= effective_max_turns:
         return END
@@ -129,10 +129,7 @@ class ReactAgentLoop(AgentLoopBase):
             tool_parser=rollout.multi_turn.format,
         )
 
-        # Use "auto" instead of "any" to allow the model to decide when to stop calling tools
-        # "any" forces tool calling on every turn, which can lead to infinite loops
-        # if max_assistant_turns is not properly configured
-        model = model.bind_tools(self.tools, tool_choice="auto")
+        model = model.bind_tools(self.tools, tool_choice="any")
 
         config = {
             "configurable": {
