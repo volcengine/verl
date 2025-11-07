@@ -78,6 +78,7 @@ $PYTHON -m recipe.vla.main_ppo \
     trainer.default_local_dir=$OUTPUT_DIR \
     trainer.n_gpus_per_node=$NUM_GPUS \
     +trainer.n_env_gpus_per_node=$NUM_ENV_GPUS \
+    +trainer.n_rollout_gpus_per_node=$((NUM_GPUS - NUM_ENV_GPUS)) \
     trainer.nnodes=$NUM_NODES \
     trainer.save_freq=30 \
     trainer.test_freq=-1 \
