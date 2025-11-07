@@ -134,23 +134,13 @@ class ReactAgentLoop(AgentLoopBase):
         # if max_assistant_turns is not properly configured
         model = model.bind_tools(self.tools, tool_choice="auto")
 
-        # Calculate recursion_limit for LangGraph
-        # LangGraph counts graph node executions, not assistant turns
-        # Our graph: agent -> tools -> agent -> tools -> ...
-        # Each assistant turn = 2 nodes, so recursion_limit = max_turns * 2
-        max_assistant_turns = rollout.multi_turn.max_assistant_turns
-        effective_max_turns = max_assistant_turns if max_assistant_turns is not None else 25
-        # Add buffer for initial prompt and final response
-        recursion_limit = effective_max_turns * 2
-
         config = {
             "configurable": {
                 "model": model,
                 "sampling_params": sampling_params,
                 "max_user_turns": rollout.multi_turn.max_user_turns,
                 "max_assistant_turns": rollout.multi_turn.max_assistant_turns,
-            },
-            "recursion_limit": recursion_limit
+            }
         }
 
         # TODO: how to handle multiple trajectories in an graph invocation?
@@ -162,7 +152,6 @@ class ReactAgentLoop(AgentLoopBase):
             # Handle GraphRecursionError and other errors gracefully
             # This prevents training from crashing when agent hits recursion limit
             logger.error(f"Agent loop execution failed: {type(e).__name__}: {e}")
-            logger.error(f"recursion_limit was set to: {recursion_limit}, effective_max_turns: {effective_max_turns}")
             logger.error("Returning empty response to continue training.")
 
             # Create a minimal response to prevent training crash
