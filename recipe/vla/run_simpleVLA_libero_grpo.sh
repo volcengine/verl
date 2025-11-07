@@ -51,8 +51,8 @@ $PYTHON -m recipe.vla.main_ppo \
     actor_rollout_ref.rollout.mode=async_envloop \
     actor_rollout_ref.actor.optim.lr=5e-6 \
     actor_rollout_ref.actor.optim.warmup_style=constant \
-    actor_rollout_ref.actor.ppo_mini_batch_size=32 \
-    actor_rollout_ref.actor.ppo_micro_batch_size=$NUM_GPUS \
+    actor_rollout_ref.actor.ppo_mini_batch_size=128 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.actor.use_dynamic_bsz=False \
     actor_rollout_ref.actor.grad_clip=1 \
     actor_rollout_ref.actor.clip_ratio_high=0.28 \
