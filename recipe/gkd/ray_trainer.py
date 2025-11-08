@@ -309,6 +309,7 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
         # Initialize both groups
         self.rollout_wg.init_model()
         self.actor_wg.init_model()
+        self.actor_rollout_wg = self.actor_wg  # to be compatible with the functions that not be modified
         weights_info = self.actor_wg.get_actor_weights_info()[0]
         self.rollout_wg.set_actor_weights_info(weights_info)
         from ray.util.collective import collective
@@ -388,19 +389,6 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
             get_teacher_knowledge(gen_batch_output, self.teacher_client, self.n_server_workers, is_async=True)
         )
         return future
-
-    def _maybe_reload_rollout_from_ckpt(self, last_ckpt_path: Optional[str]):
-        """
-        Optionally reload rollout weights from the latest actor checkpoint.
-        """
-        if not last_ckpt_path:
-            return
-        try:
-            ok = self.rollout_wg.reload_from_checkpoint(last_ckpt_path)
-            if not ok:
-                print(f"[WARN] Rollout reload_from_checkpoint failed for {last_ckpt_path}")
-        except Exception as e:
-            print(f"[WARN] Exception reloading rollout from checkpoint: {e}")
 
     def one_step_off_scheduler(self, continuous_iterator):
         """One-step-off scheduler implementation (version 1) for GKD training with improved pipeline.
@@ -573,8 +561,6 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
         self.global_steps += 1
         max_steps_duration = 0
 
-        last_saved_ckpt_path = None
-
         # Pre-warm: submit the first rollout
         continuous_iterator = self._create_continuous_iterator()
 
@@ -605,6 +591,11 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
             with marked_timer("step", timing_raw):
                 _, batch, gen_batch_output, teacher_batch_output, schedule_timing = next(scheduler)
                 if teacher_batch_output is None:
+                    # save model
+                    if self.config.trainer.save_freq > 0 and (
+                        is_last_step or self.global_steps % self.config.trainer.save_freq == 0
+                    ):
+                        self._save_checkpoint()
                     print("Error in getting teacher knowledge. Skip this batch.")
                     progress_bar.update(1)
                     self.global_steps += 1
@@ -673,11 +664,7 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
                     is_last_step or self.global_steps % self.config.trainer.save_freq == 0
                 ):
                     with marked_timer("save_checkpoint", timing_raw, color="green"):
-                        try:
-                            last_saved_ckpt_path = self.actor_wg.save_checkpoint()
-                            self._maybe_reload_rollout_from_ckpt(last_saved_ckpt_path)
-                        except Exception as e:
-                            print(f"[WARN] Failed to save or reload checkpoint: {e}")
+                        self._save_checkpoint()
 
             # Metrics and bookkeeping
             steps_duration = timing_raw["step"]

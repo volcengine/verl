@@ -509,14 +509,6 @@ class MegatronOnPolicyDistillActorWorker(ActorRolloutRefWorker):
         get_torch_device().empty_cache()
         return output
 
-    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    def save_checkpoint(self):
-        """
-        Save a training checkpoint and return the saved path (for rollout workers to reload).
-        """
-        ckpt_path = self.checkpoint_mananager.save_checkpoint()
-        return ckpt_path
-
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
     def sync_rollout_weights(self):
         assert self._is_actor and not self.config.hybrid_engine
@@ -718,35 +710,3 @@ class MegatronOnPolicyDistillRolloutWorker(ActorRolloutRefWorker):
     def set_actor_weights_info(self, weights_info):
         assert self._is_rollout
         self._weights_info = weights_info
-
-    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    def reload_from_checkpoint(self, ckpt_path: str) -> bool:
-        """
-        Reload actor weights for rollout from a saved checkpoint.
-        """
-        try:
-            self.checkpoint_mananager = MegatronCheckpointManager(
-                config=self.config,
-                checkpoint_config=self.config.actor.checkpoint,
-                model_config=self.actor_model_config,
-                transformer_config=self.tf_config,
-                role="actor",  # reuse actor role ckpt layout
-                model=self.actor_module,
-                arch=self.architectures[0],
-                hf_config=self.hf_config,
-                param_dtype=self.param_dtype if hasattr(self, "param_dtype") else torch.bfloat16,
-                share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
-                processing_class=self.processor if self.processor is not None else self.tokenizer,
-                optimizer=None,
-                optimizer_scheduler=None,
-                use_distributed_optimizer=False,
-                use_checkpoint_opt_param_scheduler=False,
-                bridge=self.bridge,
-                use_dist_checkpointing=self.config.actor.megatron.use_dist_checkpointing,
-            )
-            self.checkpoint_mananager.load_checkpoint(ckpt_path, load_optimizer=False)
-            log_gpu_memory_usage(f"Reloaded rollout model from {ckpt_path}", logger=logger)
-            return True
-        except Exception as e:
-            logger.warning(f"Failed to reload from checkpoint {ckpt_path}: {e}")
-            return False
