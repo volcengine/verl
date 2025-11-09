@@ -119,7 +119,18 @@ def compute_score(data_source, solution_str, ground_truth, extra_info, **kwargs)
             "acc": False,
             "pred": ""
         }
-    
+
+    # Check if there are <code> or <interpreter> blocks after </think>
+    think_end_pos = solution_str.find("</think>")
+    if think_end_pos != -1:
+        after_think = solution_str[think_end_pos + len("</think>"):]
+        if "<code>" in after_think or "<interpreter>" in after_think:
+            return {
+                "score": 0,
+                "acc": False,
+                "pred": ""
+            }
+
     # use \\boxed{...} answer
     result = math_dapo.compute_score(solution_str, ground_truth, strict_box_verify=True)
 

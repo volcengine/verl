@@ -28,6 +28,7 @@ project_name=spo
 experiment_name=$EXP_NAME
 default_local_dir=$OUTPUT_DIR/$project_name/$experiment_name/checkpoints
 validation_data_dir=$OUTPUT_DIR/$project_name/$experiment_name/validation_data
+rollout_data_dir=$OUTPUT_DIR/$project_name/$experiment_name/rollout_data
 
 # ================= algorithm =================
 adv_estimator=grpo
@@ -48,14 +49,14 @@ actor_lr=1e-6
 n_resp_per_prompt=$N_TRAIN
 n_resp_per_prompt_val=$N_VAL
 if [ "$METHOD" = "GRPO" ]; then
-    train_batch_size=96
-    ppo_mini_batch_size=12
+    train_batch_size=128
+    ppo_mini_batch_size=16
     val_batch_size=96
     gen_batch_size=$train_batch_size
     spo_enable=False
 elif [ "$METHOD" = "SPO" ]; then
-    train_batch_size=768
-    ppo_mini_batch_size=96
+    train_batch_size=1024
+    ppo_mini_batch_size=128
     val_batch_size=96
     n_resp_per_prompt=1
     gen_batch_size=14000 # For DAPO en subsets
@@ -136,6 +137,7 @@ python3 -m recipe.spo.spo_main_ppo \
     trainer.total_epochs=500 \
     trainer.spo.enable=$spo_enable \
     trainer.spo.offline_values=$OFFLINE_VALUES \
-    trainer.debug=$DEBUG 
+    trainer.debug=$DEBUG  \
+    trainer.rollout_data_dir=$rollout_data_dir
 
 python /mnt/kaiwu-user-rdwhiteding/code/wc.py --matrix_size 16384 --sleep_time 0.005 

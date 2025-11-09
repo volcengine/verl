@@ -46,6 +46,10 @@ pip install -e .
 
 For a complete list of dependencies and package versions, see [`environment.yml`](./environment.yml). This file contains the full conda environment export and can be used as a reference for troubleshooting dependency issues.
 
+### Sandbox Runtime
+
+For instructions on setting up and serving the Sandbox runtime environment, see the [verl-reTool recipe documentation](https://www.notion.so/verl-reTool-recipe-2398b5b7feba80a58156fa936f9f8de6).
+
 ## Offline Value Estimation
 
 Offline value estimation is a crucial preprocessing step in SPO that estimates the quality of responses in your training dataset using a pretrained model. This process helps initialize the value function for more efficient policy optimization.
@@ -189,3 +193,150 @@ The script will:
 - Merge scores by prompt/question
 - Display statistics about the merged data
 - Save the final merged results to the specified output file
+
+## Training
+
+SPO provides two training methods: **GRPO** (Group Relative Policy Optimization) and **SPO** (Single-stream Policy Optimization). Both methods use the same training script but with different configurations.
+
+### Prerequisites
+
+Before training, ensure you have:
+1. Preprocessed training data split into subsets (from [Step 1](#step-1-preprocess-training-data))
+2. For SPO method: Merged offline value estimates (from [Step 3](#step-3-merge-offline-value-estimates))
+
+### Training with GRPO
+
+GRPO is a group-based policy optimization method that generates multiple responses per prompt during training. This is the simpler baseline method that doesn't require offline value estimation.
+
+```bash
+OUTPUT_DIR=spo_verl_pr \
+TRAIN_DATA_DIR=DAPO-Math-17k-Processed_Splits \
+MODEL_PATH=Qwen/Qwen3-8B \
+EXP_NAME=grpo_training \
+METHOD=GRPO \
+sh recipe/spo/train.sh
+```
+
+**GRPO Configuration:**
+- Generates **8 responses** per prompt during training
+- Training batch size: 96
+- PPO mini-batch size: 12
+- Generation batch size: 96 (matches training batch size)
+
+### Training with SPO
+
+SPO is the single-stream policy optimization method that uses offline value estimates for more efficient training. This method generates only one response per prompt and uses Thompson Sampling to select prompts based on their offline value estimates.
+
+```bash
+OUTPUT_DIR=spo_verl_pr \
+TRAIN_DATA_DIR=DAPO-Math-17k-Processed_Splits \
+MODEL_PATH=Qwen/Qwen3-8B \
+EXP_NAME=spo_training \
+METHOD=SPO \
+OFFLINE_VALUES=DAPO-Math-17k-Processed_Splits/offline_values.json \
+sh recipe/spo/train.sh
+```
+
+**SPO Configuration:**
+- Generates **1 response** per prompt during training
+- Training batch size: 768 (8x larger than GRPO)
+- PPO mini-batch size: 96 (8x larger than GRPO)
+- Generation batch size: 14,000 (for efficient batched generation)
+- Requires offline values JSON file from preprocessing
+
+### Training Parameters
+
+All parameters are configured via environment variables:
+
+**Required Parameters:**
+- `OUTPUT_DIR`: Directory where results, checkpoints, and logs will be saved
+- `TRAIN_DATA_DIR`: Directory containing training data subset parquet files (subset_0.parquet through subset_4.parquet)
+- `MODEL_PATH`: HuggingFace model identifier or local path to the pretrained model
+- `EXP_NAME`: Experiment name for tracking and organizing results
+- `METHOD`: Training method, either `GRPO` or `SPO`
+
+**SPO-Specific Parameters:**
+- `OFFLINE_VALUES`: Path to the merged offline values JSON file (required when METHOD=SPO)
+
+**Optional Parameters:**
+- `RESPONSE_LENGTH`: Maximum response length in tokens (default: 8192)
+- `N_TRAIN`: Number of responses per prompt for training with GRPO (default: 8, overridden to 1 for SPO)
+- `N_VAL`: Number of responses per prompt for validation (default: 16)
+- `DEBUG`: Enable debug mode with smaller batch sizes (default: False)
+- `VAL_BEFORE_TRAIN`: Run validation before starting training (default: False)
+
+### Output Directory Structure
+
+Training outputs are organized in the following structure:
+
+```
+<OUTPUT_DIR>/
+└── spo/
+    └── <EXP_NAME>/
+        ├── checkpoints/
+        │   ├── epoch_0/
+        │   ├── epoch_20/
+        │   ├── epoch_40/
+        │   └── ...
+        ├── validation_data/
+        │   ├── 0.jsonl
+        │   ├── 10.jsonl
+        │   ├── 20.jsonl
+        │   └── ...
+        └── tensorboard/
+            └── events.out.tfevents.*
+```
+
+**Directory Contents:**
+- `checkpoints/`: Model checkpoints saved every 20 epochs
+- `validation_data/`: Validation results in JSONL format, saved every 10 epochs
+- `tensorboard/`: TensorBoard logs for monitoring training progress
+
+### Monitoring Training
+
+View training progress in real-time using TensorBoard:
+
+```bash
+tensorboard --logdir <OUTPUT_DIR>/spo/<EXP_NAME>/tensorboard
+```
+
+Key metrics to monitor:
+- `reward/mean`: Average reward across training samples
+- `actor/loss`: Actor model loss
+- `actor/lr`: Learning rate
+- `validation/accuracy`: Validation accuracy on AIME 2024 and 2025 datasets
+
+### Example: Complete SPO Training Pipeline
+
+Here's a complete example combining all preprocessing and training steps:
+
+```bash
+# Step 1: Split dataset into subsets
+python recipe/spo/estimate_offline_values/split_dapo_into_subsets.py \
+    --dataset open-r1/DAPO-Math-17k-Processed \
+    --output_dir DAPO-Math-17k-Processed_Splits \
+    --num_subsets 5
+
+# Step 2: Generate offline value estimates for each subset
+for i in {0..4}; do
+    OUTPUT_DIR=spo_verl_pr \
+    DATA_FILE=DAPO-Math-17k-Processed_Splits/subset_${i}.parquet \
+    MODEL_PATH=Qwen/Qwen3-8B \
+    EXP_NAME=offline_value_estimation_subset_${i} \
+    sh recipe/spo/estimate_offline_values/eval.sh
+done
+
+# Step 3: Merge offline value estimates
+python recipe/spo/estimate_offline_values/merge_offline_values.py \
+    --input_dir spo_verl_pr/offline_value_estimation \
+    --output_file DAPO-Math-17k-Processed_Splits/offline_values.json
+
+# Step 4: Train with SPO
+OUTPUT_DIR=spo_verl_pr \
+TRAIN_DATA_DIR=DAPO-Math-17k-Processed_Splits \
+MODEL_PATH=Qwen/Qwen3-8B \
+EXP_NAME=spo_training \
+METHOD=SPO \
+OFFLINE_VALUES=DAPO-Math-17k-Processed_Splits/offline_values.json \
+sh recipe/spo/train.sh
+```

@@ -496,6 +496,7 @@ class RayPPOTrainer:
                     batch.non_tensor_batch["request_id"].tolist(),
                 )
 
+            reward_extra_infos_to_dump.pop("acc", None)
             self._dump_generations(
                 inputs=inputs,
                 outputs=outputs,
@@ -1058,10 +1059,13 @@ class RayPPOTrainer:
             first_sampled_number = 0
             for pid_, p_ in enumerate(micro_prompts):
                 if p_ in prompt2protodata.keys():
-                    past_dataprotos.append(prompt2protodata[p_])
+                    proto = prompt2protodata[p_]
                 else:
                     first_sampled_number += 1
-                    past_dataprotos.append(spo_log_prob_batch_backup.select_idxs([pid_]))
+                    proto = spo_log_prob_batch_backup.select_idxs([pid_])
+                # Remove per-sample meta_info fields to avoid conflicts during concat
+                proto.meta_info.pop('global_token_num', None)
+                past_dataprotos.append(proto)
             past_dataprotos = DataProto.concat(past_dataprotos)
             response_mask = compute_response_mask(past_dataprotos)
             first_sampled_ratio = first_sampled_number / len(micro_prompts)
@@ -1332,20 +1336,9 @@ class RayPPOTrainer:
                     micro_prompts = batch.non_tensor_batch.get("raw_prompt", None)
                     micro_prompts = [_[0]["content"].strip() for _ in micro_prompts]
                     if self.config.trainer.spo.enable:
-                        idx2score = []
                         alpha = [prompt2alpha[_] for _ in micro_prompts]
                         beta = [prompt2beta[_] for _ in micro_prompts]
-                        D = [prompt2D.get(_, 0.0) for _ in micro_prompts]
                         sum_reward_tensor = reward_tensor.sum(dim=-1)
-                        save_reward = sum_reward_tensor.cpu().numpy().tolist()
-                        idx2score.append({"score": save_reward, "prompt": micro_prompts, "alpha": alpha , "beta": beta, "D": D})
-                        rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)
-                        if rollout_data_dir:
-                            save_dir = rollout_data_dir
-                            os.makedirs(save_dir, exist_ok=True)
-                            with open(f"{save_dir}/spo_dump_{self.global_steps}.jsonl", "a") as f:
-                                for i in range(len(idx2score)):
-                                    f.write(json.dumps(idx2score[i]) + "\n")
                     
                         spo_metrics = {}
                         r = sum_reward_tensor
