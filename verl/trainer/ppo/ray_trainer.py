@@ -49,7 +49,6 @@ from verl.trainer.ppo.metric_utils import (
     compute_timing_metrics,
     process_validation_metrics,
 )
-from verl.trainer.ppo.mismatch_helper import compute_rollout_importance_weights
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.trainer.ppo.utils import Role, WorkerType, need_critic, need_reference_policy, need_reward_model
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
@@ -57,7 +56,7 @@ from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.debug import marked_timer
 from verl.utils.metric import reduce_metrics
 from verl.utils.rollout_skip import RolloutSkip
-from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
+from verl.utils.seqlen_balancing import calculate_workload, get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
 
@@ -332,7 +331,10 @@ class RayPPOTrainer:
         )
 
         # if ref_in_actor is True, the reference policy will be actor without lora applied
-        self.ref_in_actor = config.actor_rollout_ref.model.get("lora_rank", 0) > 0
+        self.ref_in_actor = (
+            config.actor_rollout_ref.model.get("lora_rank", 0) > 0
+            or config.actor_rollout_ref.model.get("lora_adapter_path") is not None
+        )
 
         # define in-reward KL control
         # kl loss control currently not suppoorted
@@ -914,15 +916,35 @@ class RayPPOTrainer:
             if self.use_rm:
                 self.rm_wg.stop_profile()
 
-    def _balance_batch(self, batch: DataProto, metrics, logging_prefix="global_seqlen"):
+    def _balance_batch(self, batch: DataProto, metrics, logging_prefix="global_seqlen", keep_minibatch=False):
         """Reorder the data on single controller such that each dp rank gets similar total tokens"""
         attention_mask = batch.batch["attention_mask"]
         batch_size = attention_mask.shape[0]
-        global_seqlen_lst = batch.batch["attention_mask"].view(batch_size, -1).sum(-1).tolist()  # (train_batch_size,)
+        global_seqlen_lst = batch.batch["attention_mask"].view(batch_size, -1).sum(-1)  # (train_batch_size,)
+        global_seqlen_lst = calculate_workload(global_seqlen_lst)
         world_size = self.actor_rollout_wg.world_size
-        global_partition_lst = get_seqlen_balanced_partitions(
-            global_seqlen_lst, k_partitions=world_size, equal_size=True
-        )
+        if keep_minibatch:
+            # Decouple the DP balancing and mini-batching.
+            minibatch_size = self.config.actor_rollout_ref.actor.get("ppo_mini_batch_size")
+            minibatch_num = len(global_seqlen_lst) // minibatch_size
+            global_partition_lst = [[] for _ in range(world_size)]
+            for i in range(minibatch_num):
+                rearrange_minibatch_lst = get_seqlen_balanced_partitions(
+                    global_seqlen_lst[i * minibatch_size : (i + 1) * minibatch_size],
+                    k_partitions=world_size,
+                    equal_size=True,
+                )
+                for j, part in enumerate(rearrange_minibatch_lst):
+                    global_partition_lst[j].extend([x + minibatch_size * i for x in part])
+        else:
+            global_partition_lst = get_seqlen_balanced_partitions(
+                global_seqlen_lst, k_partitions=world_size, equal_size=True
+            )
+        # Place smaller micro-batches at both ends to reduce the bubbles in pipeline parallel.
+        for idx, partition in enumerate(global_partition_lst):
+            partition.sort(key=lambda x: (global_seqlen_lst[x], x))
+            ordered_partition = partition[::2] + partition[1::2][::-1]
+            global_partition_lst[idx] = ordered_partition
         # reorder based on index. The data will be automatically equally partitioned by dispatch function
         global_idx = torch.tensor([j for partition in global_partition_lst for j in partition])
         batch.reorder(global_idx)
@@ -930,49 +952,6 @@ class RayPPOTrainer:
             seqlen_list=global_seqlen_lst, partitions=global_partition_lst, prefix=logging_prefix
         )
         metrics.update(global_balance_stats)
-
-    def compute_rollout_importance_weights_and_add_to_batch(self, batch: DataProto) -> tuple[DataProto, dict]:
-        """Compute rollout importance sampling weights and mismatch metrics, conditionally add weights to batch.
-
-        This method computes IS weights to correct for distribution mismatch between
-        rollout policy and training policy. It always computes metrics when enabled, but
-        only adds weights to batch if algorithm.rollout_is is True.
-
-        Args:
-            batch: DataProto containing old_log_probs, rollout_log_probs, response_mask
-
-        Returns:
-            Tuple of (updated_batch, metrics) where:
-                - updated_batch: Batch with rollout_is_weights added (if rollout_is=True)
-                - metrics: Dictionary of IS and mismatch metrics (all with mismatch/ prefix)
-        """
-        # Compute rollout IS weights if enabled and data is available
-        # rollout_is_threshold is the main on/off switch
-        if self.config.algorithm.rollout_is_threshold is not None and "rollout_log_probs" in batch.batch:
-            rollout_is_weights, rollout_is_metrics = compute_rollout_importance_weights(
-                old_log_prob=batch.batch["old_log_probs"],
-                rollout_log_prob=batch.batch["rollout_log_probs"],
-                response_mask=batch.batch["response_mask"],
-                rollout_is_level=self.config.algorithm.rollout_is_level,
-                rollout_is_mode=self.config.algorithm.rollout_is_mode,
-                rollout_is_threshold=self.config.algorithm.rollout_is_threshold,
-                rollout_is_threshold_lower=self.config.algorithm.rollout_is_threshold_lower,
-                rollout_is_veto_threshold=self.config.algorithm.rollout_is_veto_threshold,
-            )
-
-            # Control: Should we apply weights to policy loss?
-            # True = add weights to batch (actor will apply them)
-            # False = don't add weights (metrics only, no loss modification)
-            apply_weights = self.config.algorithm.get("rollout_is", False)
-
-            if apply_weights:
-                # Add IS weights to batch for distribution to workers
-                batch = batch.union(rollout_is_weights)
-
-            return batch, rollout_is_metrics
-
-        # Return unchanged batch and empty metrics if IS is disabled
-        return batch, {}
 
     def fit(self):
         """
@@ -1103,7 +1082,6 @@ class RayPPOTrainer:
                     # NOTE: This usually changes the order of data in the `batch`,
                     # which won't affect the advantage calculation (since it's based on uid),
                     # but might affect the loss calculation (due to the change of mini-batching).
-                    # TODO: Decouple the DP balancing and mini-batching.
                     if self.config.trainer.balance_batch:
                         self._balance_batch(batch, metrics=metrics)
 
@@ -1123,23 +1101,38 @@ class RayPPOTrainer:
                         else:
                             reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
 
-                    # recompute old_log_probs
-                    with marked_timer("old_log_prob", timing_raw, color="blue"):
-                        old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
-                        entropys = old_log_prob.batch["entropys"]
-                        response_masks = batch.batch["response_mask"]
-                        loss_agg_mode = self.config.actor_rollout_ref.actor.loss_agg_mode
-                        entropy_agg = agg_loss(loss_mat=entropys, loss_mask=response_masks, loss_agg_mode=loss_agg_mode)
-                        old_log_prob_metrics = {"actor/entropy": entropy_agg.detach().item()}
-                        metrics.update(old_log_prob_metrics)
-                        old_log_prob.batch.pop("entropys")
-                        batch = batch.union(old_log_prob)
+                    from verl.trainer.ppo.rollout_corr_helper import (
+                        compute_rollout_correction_and_add_to_batch,
+                        maybe_apply_rollout_correction,
+                    )
 
-                        if "rollout_log_probs" in batch.batch.keys():
-                            # TODO: we may want to add diff of probs too.
-                            from verl.utils.debug.metrics import calculate_debug_metrics
+                    rollout_corr_config = self.config.algorithm.get("rollout_correction", None)
+                    need_recomputation = maybe_apply_rollout_correction(
+                        batch=batch,
+                        rollout_corr_config=rollout_corr_config,
+                        policy_loss_config=self.config.actor_rollout_ref.actor.policy_loss,
+                    )
+                    if need_recomputation:
+                        # LEGACY MODE: Compute old_log_probs from actor
+                        with marked_timer("old_log_prob", timing_raw, color="blue"):
+                            old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
+                            entropys = old_log_prob.batch["entropys"]
+                            response_masks = batch.batch["response_mask"]
+                            loss_agg_mode = self.config.actor_rollout_ref.actor.loss_agg_mode
+                            entropy_agg = agg_loss(
+                                loss_mat=entropys, loss_mask=response_masks, loss_agg_mode=loss_agg_mode
+                            )
+                            old_log_prob_metrics = {"actor/entropy": entropy_agg.detach().item()}
+                            metrics.update(old_log_prob_metrics)
+                            old_log_prob.batch.pop("entropys")
+                            batch = batch.union(old_log_prob)
+                            if "rollout_log_probs" in batch.batch.keys():
+                                # TODO: we may want to add diff of probs too.
+                                from verl.utils.debug.metrics import calculate_debug_metrics
 
-                            metrics.update(calculate_debug_metrics(batch))
+                                metrics.update(calculate_debug_metrics(batch))
+
+                    assert "old_log_probs" in batch.batch, f'"old_log_prob" not in {batch.batch.keys()=}'
 
                     if self.use_reference_policy:
                         # compute reference log_prob
@@ -1175,12 +1168,13 @@ class RayPPOTrainer:
                         else:
                             batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
 
-                        # Compute rollout importance sampling weights centrally (once per batch)
-                        # This corrects for mismatch between rollout policy and training policy
-                        # Also computes mismatch metrics (KL, PPL, etc.)
-                        batch, is_metrics = self.compute_rollout_importance_weights_and_add_to_batch(batch)
-                        # IS and mismatch metrics already have mismatch/ prefix
-                        metrics.update(is_metrics)
+                        # Compute rollout correction weights centrally (once per batch)
+                        # This corrects for off-policy issues (policy mismatch, model staleness, etc.)
+                        # Also computes off-policy diagnostic metrics (KL, PPL, etc.)
+                        if rollout_corr_config is not None and "rollout_log_probs" in batch.batch:
+                            batch, is_metrics = compute_rollout_correction_and_add_to_batch(batch)
+                            # IS and off-policy metrics already have rollout_corr/ prefix
+                            metrics.update(is_metrics)
 
                         # compute advantages, executed on the driver process
                         norm_adv_by_std_in_grpo = self.config.algorithm.get(

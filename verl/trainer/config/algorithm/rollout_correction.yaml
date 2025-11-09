@@ -1,0 +1,10 @@
+# Rollout Correction: corrects distribution mismatch between rollout and training policies
+# Override via CLI: algorithm.rollout_correction.rollout_is="token_is"
+rollout_is: null
+rollout_is_threshold: 2.0
+rollout_rs: null
+rollout_rs_threshold: null
+rollout_rs_threshold_lower: null
+rollout_token_veto_threshold: null
+bypass_old_logprob_for_rollout: false
+use_pure_rollout_correction: false

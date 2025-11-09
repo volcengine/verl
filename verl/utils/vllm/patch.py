@@ -46,6 +46,13 @@ except ImportError:
     pass
 
 try:
+    from vllm.model_executor.models.qwen3_vl_moe import Qwen3MoeLLMForCausalLM
+
+    SUPPORTED_MOE_MODELS.append(Qwen3MoeLLMForCausalLM)
+except ImportError:
+    pass
+
+try:
     from vllm.model_executor.models.kimi_vl import KimiVLForConditionalGeneration
 
     SUPPORTED_MOE_MODELS.append(KimiVLForConditionalGeneration)
@@ -75,9 +82,6 @@ def patch_vllm_moe_model_weight_loader(model):
     if not SUPPORTED_MOE_MODELS:
         return
 
-    if not isinstance(model, tuple(SUPPORTED_MOE_MODELS)):
-        return
-
     original_model_type = type(model)
 
     # Define MLP attribute mapping for different model types
@@ -95,6 +99,14 @@ def patch_vllm_moe_model_weight_loader(model):
     inner_model = getattr(model, "model", None) or getattr(model, "language_model", None)
     if inner_model is None:
         raise ValueError("The provided model does not have a valid 'model' or 'language_model' attribute.")
+
+    if not isinstance(model, tuple(SUPPORTED_MOE_MODELS)) and not isinstance(inner_model, tuple(SUPPORTED_MOE_MODELS)):
+        return
+
+    # TODO(@leisuzz): class Qwen3MoeLLMForCausalLM is not available if VLLM version < 0.11.0,
+    # will update the 'if statement' with 'isinstance' when verl commonly use VLLM version >= 0.11.0
+    if type(inner_model).__name__ == "Qwen3MoeLLMForCausalLM":
+        inner_model = inner_model.model  # Reassign inner_model in Qwen3-vl
 
     for layer_idx, layer in enumerate(inner_model.layers):
         mlp_attr = MLP_ATTR_MAPPING.get(original_model_type, DEFAULT_MLP_ATTR)
