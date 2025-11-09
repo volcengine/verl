@@ -125,6 +125,7 @@ class RolloutSample:
 
     # Processing metadata
     processing_times: list[float]
+    tool_calls: list[float]
     param_version: int
     param_version_start: list[int]
     param_version_end: list[int]
@@ -226,8 +227,10 @@ def merge_rollout_sample(config, tokenizer, rs: RolloutSample):
     # Step 3, set full_batch
     rs.full_batch = gen_batch_output
     rs.processing_times = []
+    rs.tool_calls =[]
     for agent_loop in rs.agent_loop_output_list:
         rs.processing_times.append(agent_loop.metrics.generate_sequences)
+        rs.tool_calls.append(agent_loop.metrics.tool_calls)
     rs.param_version_start = [
         agent_loop.extra_fields.get("param_version_start", 0) for agent_loop in rs.agent_loop_output_list
     ]
@@ -267,6 +270,7 @@ def assemble_batch_from_rollout_samples(
 
     rollout_samples_batch = []
     processing_times = []
+    tool_calls =[]
     rollout_status = rollout_samples[0].rollout_status
     # Add a prefix to all rollout_status keys
     rollout_status = {f"fully_async/{key}": value for key, value in rollout_status.items()}
@@ -274,6 +278,7 @@ def assemble_batch_from_rollout_samples(
     for rs in rollout_samples:
         rollout_samples_batch.append(rs.full_batch)
         processing_times.extend(rs.processing_times)
+        tool_calls.extend(rs.tool_calls)
     final_batch = DataProto.concat(rollout_samples_batch)
 
     # Calculate response_mask (if not present)
@@ -299,6 +304,11 @@ def assemble_batch_from_rollout_samples(
         "processing_time/tp99": np.percentile(processing_times, 99),
         "processing_time/tp95": np.percentile(processing_times, 95),
     }
+    tool_calls_stats= {
+        "timing_s/agent_loop/tool_calls/max": np.max(tool_calls),
+        "timing_s/agent_loop/tool_calls/min": np.min(tool_calls),
+        "timing_s/agent_loop/tool_calls/mean": np.mean(tool_calls),
+    }
     processing_time_stats = {f"fully_async/{key}": value for key, value in processing_time_stats.items()}
 
     param_version_diff = [abs(a - b) for a, b in zip(rs.param_version_end, rs.param_version_start, strict=False)]
@@ -317,6 +327,7 @@ def assemble_batch_from_rollout_samples(
             **processing_time_stats,
             **rollout_status,
             **partial_stats,
+            **tool_calls_stats,
         }
     )
 
@@ -381,8 +392,6 @@ class MetricsAggregator:
                 return agg_type
 
         metric_lower = metric_name.lower()
-        if any(keyword in metric_lower for keyword in ["timing_s/"]):
-            return "time_sum"
         if any(keyword in metric_lower for keyword in ["mean", "avg", "average"]):
             return "avg"
         if any(keyword in metric_lower for keyword in ["max", "maximum"]):
@@ -393,6 +402,8 @@ class MetricsAggregator:
             return "sum"
         if any(keyword in metric_lower for keyword in ["weighted_avg"]):
             return "weighted_avg"
+        if any(keyword in metric_lower for keyword in ["timing_s/"]):
+            return "time_sum"
 
         return "avg"
 

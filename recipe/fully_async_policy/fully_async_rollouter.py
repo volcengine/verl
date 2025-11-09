@@ -316,6 +316,7 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
                 param_version_start=[],
                 param_version_end=[],
                 processing_times=[],
+                tool_calls=[],
                 rollout_status={},
             )
 

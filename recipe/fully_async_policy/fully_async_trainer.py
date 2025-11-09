@@ -331,7 +331,7 @@ class FullyAsyncTrainer(FullyAsyncRayPPOTrainer):
                 }
             )
             for key, value in batch.meta_info.items():
-                if key.startswith("fully_async"):
+                if key.startswith("fully_async") or key.startswith("timing_s"):
                     metrics[key] = value
 
     def _trigger_parameter_sync_after_step(self, validate: bool = False, global_steps: int = None):
