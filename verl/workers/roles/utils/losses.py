@@ -82,7 +82,7 @@ def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
         config=config,
     )
     metrics.update(pg_metrics)
-    metrics["pg_loss"] = pg_loss.detach().item()
+    metrics["actor/pg_loss"] = pg_loss.detach().item()
     policy_loss = pg_loss
 
     # add entropy loss
