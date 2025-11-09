@@ -185,6 +185,9 @@ actor_rollout_ref:
     temperature: 1.0
     top_k: -1 # 0 for hf rollout, -1 for vllm rollout
     top_p: 1
+    data_parallel_size: 1
+    expert_parallel_size: 1
+    pipeline_model_parallel_size: 1
     # max_batch_size: 8
     prompt_length: ${data.max_prompt_length}  # for xperf_gpt
     response_length: ${data.max_response_length}

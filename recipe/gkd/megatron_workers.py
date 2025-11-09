@@ -291,6 +291,13 @@ class OnPolicyDistillActor:
             else:
                 logits_processor_args = None
 
+            multi_modal_inputs = {}
+            if "multi_modal_inputs" in batch:
+                from verl.utils.model import extract_multi_modal_inputs
+
+                indices = batch.get("multi_modal_inputs_idx", None)
+                multi_modal_inputs = extract_multi_modal_inputs(batch["multi_modal_inputs"], indices)
+
             from verl.models.mcore import get_mcore_forward_fn
 
             forward_fn = get_mcore_forward_fn(self.hf_config)
@@ -300,7 +307,7 @@ class OnPolicyDistillActor:
                 input_ids,
                 attention_mask,
                 position_ids,
-                sequence_parallel=self.tf_config.sequence_parallel,
+                multi_modal_inputs,
                 logits_processor=logits_processor,
                 logits_processor_args=logits_processor_args,
             )
