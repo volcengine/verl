@@ -225,6 +225,15 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         self._lora_rank = self.config.model.get("lora_rank", 0)
         self._is_lora = self._lora_rank > 0
 
+        # Ulysses sequence parallel size (align with FSDP semantics)
+        # Used for dynamic batch sizing and kernel patching
+        if self._is_actor and hasattr(self.config.actor, "deepspeed_config"):
+            self.ulysses_sequence_parallel_size = int(
+                self.config.actor.deepspeed_config.get("ulysses_sequence_parallel_size", 1)
+            )
+        else:
+            self.ulysses_sequence_parallel_size = 1
+
     def _build_model_optimizer(
         self,
         model_path: str,
@@ -322,7 +331,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             apply_monkey_patch(
                 model=actor_module,
                 use_remove_padding=use_remove_padding,
-                ulysses_sp_size=1,  # DeepSpeed doesn't support Ulysses yet
+                ulysses_sp_size=int(getattr(self, "ulysses_sequence_parallel_size", 1)),
                 use_fused_kernels=use_fused_kernels,
                 fused_kernels_backend=fused_kernels_backend,
             )
@@ -666,6 +675,64 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             if self.engine is not None:
                 self.checkpoint_manager = DeepSpeedCheckpointManager(engine=self)
 
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def save_checkpoint(self, local_path, hdfs_path=None, global_step: int = 0, max_ckpt_to_keep: int | None = None):
+        """Save actor (DeepSpeed) checkpoint using native DeepSpeed format.
+
+        Directory layout mirrors FSDP manager style: <root>/step_<global_step>/
+        """
+        import torch
+
+        if not self._is_actor or self.actor_engine is None:
+            return
+
+        # Expose engine handle for checkpoint manager
+        self.engine = self.actor_engine
+
+        if self._is_offload_param:
+            load_deepspeed_model_to_gpu(self.actor_engine)
+
+        self.checkpoint_manager.save(
+            root=local_path, global_step=global_step, hdfs_path=hdfs_path, max_ckpt_to_keep=max_ckpt_to_keep
+        )
+
+        if torch.distributed.is_initialized():
+            torch.distributed.barrier()
+
+        if self._is_offload_param:
+            offload_deepspeed_model_to_cpu(self.actor_engine)
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def load_checkpoint(self, local_path, step: int | None = None, del_local_after_load: bool = True):
+        """Load actor (DeepSpeed) checkpoint saved by `save_checkpoint`."""
+        import torch
+
+        if not self._is_actor or self.actor_engine is None:
+            return {}
+
+        # Compatibility with trainer resume logic: when caller passes None, treat as no-op.
+        # This mirrors FSDP manager behavior and avoids TypeError inside the DS checkpoint manager.
+        if local_path is None or (isinstance(local_path, str) and local_path.strip() == ""):
+            return {}
+
+        # Expose engine handle for checkpoint manager
+        self.engine = self.actor_engine
+
+        if self._is_offload_param:
+            load_deepspeed_model_to_gpu(self.actor_engine)
+
+        state = self.checkpoint_manager.load(
+            root=local_path, step=step, hdfs_path=None, del_local_after_load=del_local_after_load
+        )
+
+        if torch.distributed.is_initialized():
+            torch.distributed.barrier()
+
+        if self._is_offload_param:
+            offload_deepspeed_model_to_cpu(self.actor_engine)
+
+        return state
+
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @DistProfiler.annotate(color="red", role="actor_update")
     def update_actor(self, data: DataProto):
@@ -956,13 +1023,14 @@ class DeepSpeedPPOActor(DataParallelPPOActor):
         ]
         if self.config.use_kl_loss:
             select_keys.append("ref_log_prob")
-        if self.config.tis_imp_ratio_cap > 0:
+        tis_cap = getattr(self.config, "tis_imp_ratio_cap", 0)
+        if tis_cap > 0:
             select_keys.append("rollout_log_probs")
 
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
         non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
 
-        if self.config.tis_imp_ratio_cap > 0:
+        if tis_cap > 0:
             assert "rollout_log_probs" in data.batch.keys(), (
                 "Truncated Importance Sampling (TIS) requires `actor_rollout_ref.rollout.calculate_log_probs=True` "
                 "and is not currently supported in Server mode (agent loop)."
@@ -1006,6 +1074,9 @@ class DeepSpeedPPOActor(DataParallelPPOActor):
 
                     loss_mode = self.config.policy_loss.get("loss_mode", "vanilla")
                     policy_loss_fn = get_policy_loss_fn(loss_mode)
+
+                    # Vanilla/GSP0/GPG interfaces expect optional `rollout_is_weights`.
+                    # We do not compute off-policy weights here; pass None by default.
                     pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = policy_loss_fn(
                         old_log_prob=old_log_prob,
                         log_prob=log_prob,
@@ -1013,7 +1084,7 @@ class DeepSpeedPPOActor(DataParallelPPOActor):
                         response_mask=response_mask,
                         loss_agg_mode=loss_agg_mode,
                         config=self.config,
-                        rollout_log_probs=rollout_log_probs,
+                        rollout_is_weights=None,
                     )
 
                     if entropy_coeff != 0:
@@ -1223,6 +1294,8 @@ class CriticWorker(Worker, DistProfilerExtension):
         self._register_dispatch_collect_info("critic", dp_rank=self.rank, is_collect=True)
 
         self._is_offload_param = self.config.deepspeed_config.get("param_offload", False)
+        # Ulysses SP for critic dynamic batching
+        self.ulysses_sequence_parallel_size = int(self.config.deepspeed_config.get("ulysses_sequence_parallel_size", 1))
         self._lora_rank = getattr(self.config.model, "lora_rank", 0)
         self._is_lora = self._lora_rank > 0
 
