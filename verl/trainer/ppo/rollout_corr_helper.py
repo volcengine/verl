@@ -829,6 +829,71 @@ def compute_rollout_correction_and_add_to_batch(
     return batch, rollout_corr_metrics
 
 
+def compute_rollout_corr_metrics_from_logprobs(
+    log_prob: torch.Tensor,
+    rollout_log_prob: torch.Tensor,
+    response_mask: torch.Tensor,
+    rollout_corr_config: Optional[RolloutCorrectionConfig | dict] = None,
+) -> dict[str, float]:
+    """Compute rollout correction metrics from log probabilities during training.
+
+    This function is used in the actor to compute metrics using the CURRENT policy
+    log probabilities versus rollout log probabilities, allowing tracking of the
+    off-policy gap as training progresses.
+
+    It computes two categories of metrics:
+    1. Off-policy diagnostics (KL, PPL, χ²) from log probabilities
+    2. IS weight statistics (mean, std, ESS, etc.) computed fresh from log_probs
+
+    Args:
+        log_prob: Current policy log probabilities, shape (batch_size, seq_length)
+        rollout_log_prob: Rollout policy log probabilities, shape (batch_size, seq_length)
+        response_mask: Valid token mask, shape (batch_size, seq_length)
+        rollout_corr_config: Rollout correction config containing rollout_is mode and threshold
+
+    Returns:
+        Dictionary of metrics with "rollout_corr/" prefix
+    """
+    # Compute off-policy diagnostic metrics
+    offpolicy_metrics = compute_offpolicy_metrics(
+        old_log_prob=log_prob,
+        rollout_log_prob=rollout_log_prob,
+        response_mask=response_mask,
+    )
+
+    # Determine rollout_is mode and threshold from config
+    if rollout_corr_config is not None:
+        if isinstance(rollout_corr_config, dict):
+            rollout_is_mode = rollout_corr_config.get("rollout_is", "token")
+            rollout_is_threshold = rollout_corr_config.get("rollout_is_threshold", 2.0)
+        else:
+            rollout_is_mode = getattr(rollout_corr_config, "rollout_is", "token")
+            rollout_is_threshold = getattr(rollout_corr_config, "rollout_is_threshold", 2.0)
+    else:
+        rollout_is_mode = "token"
+        rollout_is_threshold = 2.0
+
+    # Compute IS weights fresh from log probabilities
+    log_ratio = log_prob - rollout_log_prob
+    _, is_metrics = compute_rollout_correction_weights(
+        log_ratio=log_ratio,
+        response_mask=response_mask,
+        rollout_is=rollout_is_mode,
+        rollout_is_threshold=rollout_is_threshold,
+    )
+
+    # Merge all metrics with rollout_corr/ prefix
+    all_metrics = {**offpolicy_metrics, **is_metrics}
+    metrics_with_prefix = {}
+    for key, value in all_metrics.items():
+        if isinstance(value, torch.Tensor):
+            metrics_with_prefix[f"rollout_corr/{key}"] = value.item()
+        else:
+            metrics_with_prefix[f"rollout_corr/{key}"] = value
+
+    return metrics_with_prefix
+
+
 def maybe_apply_rollout_correction(
     batch: DataProto,
     rollout_corr_config: Optional[RolloutCorrectionConfig] = None,
@@ -865,6 +930,10 @@ def maybe_apply_rollout_correction(
 
         # Use rollout log probs as old log probs (zero-cost substitution)
         batch.batch["old_log_probs"] = batch.batch["rollout_log_probs"]
+
+        # Always pass rollout_correction config to actor for metrics computation
+        policy_loss_config["rollout_correction"] = rollout_corr_config
+
         # Check if pure rollout correction mode is enabled
         use_pure_rollout_correction = rollout_corr_config.get("use_pure_rollout_correction", False)
 
@@ -872,7 +941,6 @@ def maybe_apply_rollout_correction(
             # Pure IS mode: Configure actor to use rollout_correction loss function
             # This will use compute_policy_loss_with_rollout_correction (no PPO clipping)
             policy_loss_config["loss_mode"] = "rollout_correction"
-            policy_loss_config["rollout_correction"] = rollout_corr_config
 
         return False
 

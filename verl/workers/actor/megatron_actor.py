@@ -320,6 +320,9 @@ class MegatronPPOActor(BasePPOActor):
         # Weights are computed centrally in trainer and added to batch when algorithm.rollout_is=True
         if "rollout_is_weights" in data.batch.keys():
             select_keys.append("rollout_is_weights")
+        # Include rollout_log_probs for computing rollout_corr metrics in bypass mode
+        if "rollout_log_probs" in data.batch.keys():
+            select_keys.append("rollout_log_probs")
         self.has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
         if self.has_multi_modal_inputs:
             data = data.select(select_keys, ["multi_modal_inputs"])
@@ -461,6 +464,31 @@ class MegatronPPOActor(BasePPOActor):
                     rollout_is_weights=rollout_is_weights,
                 )
                 stats.update(pg_metrics)
+
+                # Compute rollout_corr metrics during training (for monitoring drift)
+                # This computes metrics using CURRENT policy log_prob vs rollout_log_prob
+                # to track off-policy gap as training progresses (different from trainer metrics
+                # which use old_log_prob and only show gap at start of training)
+                # Skip if using pure rollout correction mode (metrics already in pg_metrics)
+                # Only computed in bypass mode where config is passed to actor
+                if loss_mode != "rollout_correction":
+                    rollout_log_prob = data.get("rollout_log_probs", None)
+                    rollout_corr_config = (
+                        self.config.policy_loss.get("rollout_correction", None)
+                        if hasattr(self.config, "policy_loss")
+                        else None
+                    )
+                    if rollout_log_prob is not None and rollout_corr_config is not None:
+                        from verl.trainer.ppo.rollout_corr_helper import compute_rollout_corr_metrics_from_logprobs
+
+                        rollout_corr_metrics = compute_rollout_corr_metrics_from_logprobs(
+                            log_prob=log_prob,
+                            rollout_log_prob=rollout_log_prob,
+                            response_mask=response_mask,
+                            rollout_corr_config=rollout_corr_config,
+                        )
+                        stats.update(rollout_corr_metrics)
+
                 stats["actor/pg_loss"] = pg_loss.detach().item()
                 policy_loss = pg_loss
 

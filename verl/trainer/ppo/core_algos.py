@@ -1630,10 +1630,6 @@ def compute_policy_loss_with_rollout_correction(
             rollout_rs_threshold: 2.0
             rollout_rs_threshold_lower: 0.5
 
-    Performance:
-        - Memory: Saves ~1MB per batch (no old_log_prob storage)
-        - Speed: ~15-20% faster (skips actor.compute_log_prob())
-        - Variance: Higher than PPO (no clipping safety net)
     """
     # Import rollout correction helper
     from verl.trainer.ppo.rollout_corr_helper import compute_rollout_correction_and_rejection_mask

@@ -1171,10 +1171,16 @@ class RayPPOTrainer:
                         # Compute rollout correction weights centrally (once per batch)
                         # This corrects for off-policy issues (policy mismatch, model staleness, etc.)
                         # Also computes off-policy diagnostic metrics (KL, PPL, etc.)
+                        # Skip in bypass mode since old=rollout (IS weights=1.0, KL=0, rejection does nothing)
                         if rollout_corr_config is not None and "rollout_log_probs" in batch.batch:
-                            batch, is_metrics = compute_rollout_correction_and_add_to_batch(batch)
-                            # IS and off-policy metrics already have rollout_corr/ prefix
-                            metrics.update(is_metrics)
+                            bypass_mode = rollout_corr_config.get("bypass_old_logprob_for_rollout", False)
+                            if not bypass_mode:
+                                # Compute IS weights, apply rejection sampling, compute metrics
+                                batch, is_metrics = compute_rollout_correction_and_add_to_batch(
+                                    batch, rollout_corr_config
+                                )
+                                # IS and off-policy metrics already have rollout_corr/ prefix
+                                metrics.update(is_metrics)
 
                         # compute advantages, executed on the driver process
                         norm_adv_by_std_in_grpo = self.config.algorithm.get(
