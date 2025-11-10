@@ -326,11 +326,13 @@ rollout_rs = "token"  # Optional: rejection sampling
 - Typical threshold: 1.5 - 5.0
 - Optional batch normalization: $\tilde{w}_t = w_t / \mathbb{E}[w_t]$ ensures $\mathbb{E}[\tilde{w}_t] = 1$ (reduces variance)
 
-**Loss function (PPO + Token IS):**
+**Loss function (REINFORCE + Token IS):**
 
 $$
-L_{\text{PPO+TIS}}(\theta) = -\mathbb{E}_t \left[ w_t \cdot \min\left( r_t(\theta) A_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t \right) \right]
+L_{\text{REINFORCE+TIS}}(\theta) = -\mathbb{E}_t \left[ w_t \cdot \nabla_\theta \log \pi_\theta(a_t|s_t) \cdot A_t \right]
 $$
+
+where $w_t$ are the truncated token-level IS weights. This formulation can also be combined with PPO clipping by replacing the REINFORCE gradient with the clipped surrogate objective.
 
 **Implementation:**
 - IS weights: `compute_rollout_correction_weights()` in [rollout_corr_helper.py](../../verl/trainer/ppo/rollout_corr_helper.py#L325-L402)
@@ -352,11 +354,13 @@ rollout_rs = "sequence"  # Optional: rejection sampling
 - Typical threshold: 2.0 - 10.0
 - Optional batch normalization: $\tilde{w}_{\text{seq}} = w_{\text{seq}} / \mathbb{E}[w_{\text{seq}}]$ ensures $\mathbb{E}[\tilde{w}_{\text{seq}}] = 1$ (reduces variance)
 
-**Loss function (PPO + Sequence IS):**
+**Loss function (REINFORCE + Sequence IS):**
 
 $$
-L_{\text{PPO+SeqIS}}(\theta) = -\mathbb{E}_t \left[ w_{\text{seq}} \cdot \min\left( r_t(\theta) A_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t \right) \right]
+L_{\text{REINFORCE+SeqIS}}(\theta) = -\mathbb{E}_t \left[ w_{\text{seq}} \cdot \nabla_\theta \log \pi_\theta(a_t|s_t) \cdot A_t \right]
 $$
+
+where $w_{\text{seq}}$ is broadcast to all tokens in the sequence. This formulation can also be combined with PPO clipping.
 
 #### 3.3.3 Geometric Aggregation
 
@@ -381,13 +385,13 @@ For 100 tokens with $\rho_t = 1.01$ each:
 
 A threshold of 1.001 means rejecting sequences with average per-token deviation > 0.1%.
 
-**Loss function (PPO + Geometric RS):**
+**Loss function (REINFORCE + Geometric RS):**
 
 $$
-L_{\text{GeoRS}}(\theta) = -\mathbb{E}_{t \mid \text{seq} \in \mathcal{A}_{\text{geo}}} \left[ \min\left( r_t(\theta) A_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t \right) \right]
+L_{\text{GeoRS}}(\theta) = -\mathbb{E}_{(s,a) \mid \text{seq} \in \mathcal{A}_{\text{geo}}} \left[ \sum_{t \in T} \nabla_\theta \log \pi_\theta(a_t|s_t) \cdot A_t \right]
 $$
 
-where $\mathcal{A}_{\text{geo}} = \{ \text{seq} : C_{\text{RS-lower}} \leq \rho_{\text{geo}} \leq C_{\text{RS-upper}} \}$
+where $\mathcal{A}_{\text{geo}} = \{ \text{seq} : C_{\text{RS-lower}} \leq \rho_{\text{geo}} \leq C_{\text{RS-upper}} \}$ is the acceptance set. This formulation can also be combined with PPO clipping.
 
 ---
 
