@@ -1434,6 +1434,15 @@ class CriticWorker(Worker, DistProfilerExtension):
             config=self.config, critic_module=self.critic_module, engine=self.critic_engine
         )
 
+        # Setup checkpoint manager for critic (mirror actor behavior)
+        # Expose engine handle for DeepSpeedCheckpointManager via self.engine
+        self.engine = self.critic_engine
+        try:
+            self.checkpoint_manager = DeepSpeedCheckpointManager(engine=self)
+        except Exception:
+            # Defer creation if environment lacks DS helpers; save/load will fallback to engine API
+            self.checkpoint_manager = DeepSpeedCheckpointManager(engine=self)
+
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="critic"))
     @DistProfiler.annotate(color="cyan", role="critic_compute_values")
     def compute_values(self, data: DataProto):
@@ -1483,6 +1492,64 @@ class CriticWorker(Worker, DistProfilerExtension):
             offload_deepspeed_model_to_cpu(self.critic_engine)
 
         return output
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def save_checkpoint(self, local_path, hdfs_path=None, global_step: int = 0, max_ckpt_to_keep: int | None = None):
+        """Save critic (DeepSpeed) checkpoint using native DeepSpeed format."""
+        import torch
+
+        # Ensure engine handle is set for checkpoint manager
+        self.engine = getattr(self, "critic_engine", None)
+        if self.engine is None:
+            return
+
+        if self._is_offload_param:
+            load_deepspeed_model_to_gpu(self.critic_engine)
+
+        self.checkpoint_manager.save(
+            root=local_path, global_step=global_step, hdfs_path=hdfs_path, max_ckpt_to_keep=max_ckpt_to_keep
+        )
+
+        if torch.distributed.is_initialized():
+            try:
+                torch.distributed.barrier()
+            except Exception:
+                pass
+
+        if self._is_offload_param:
+            offload_deepspeed_model_to_cpu(self.critic_engine)
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def load_checkpoint(self, local_path, step: int | None = None, del_local_after_load: bool = True):
+        """Load critic (DeepSpeed) checkpoint saved by `save_checkpoint`."""
+        import torch
+
+        # Treat None or empty path as no-op for compatibility
+        if local_path is None or (isinstance(local_path, str) and local_path.strip() == ""):
+            return {}
+
+        # Ensure engine handle is set for checkpoint manager
+        self.engine = getattr(self, "critic_engine", None)
+        if self.engine is None:
+            return {}
+
+        if self._is_offload_param:
+            load_deepspeed_model_to_gpu(self.critic_engine)
+
+        state = self.checkpoint_manager.load(
+            root=local_path, step=step, hdfs_path=None, del_local_after_load=del_local_after_load
+        )
+
+        if torch.distributed.is_initialized():
+            try:
+                torch.distributed.barrier()
+            except Exception:
+                pass
+
+        if self._is_offload_param:
+            offload_deepspeed_model_to_cpu(self.critic_engine)
+
+        return state
 
 
 class RolloutWorker(Worker):

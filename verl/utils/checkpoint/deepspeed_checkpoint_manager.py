@@ -45,19 +45,79 @@ from verl.utils.device import get_device_name
 
 try:  # DeepSpeed imports are optional
     from deepspeed import DeepSpeedEngine as _DSEngine  # noqa: F401
-    from deepspeed.ops.adam import FusedAdam  # noqa: F401
-    from deepspeed.runtime.checkpoint_engine.torch import (  # noqa: F401
-        load_deepspeed_checkpoint,
-        save_deepspeed_checkpoint,
-    )
 except Exception:  # pragma: no cover - env without deepspeed
     _DSEngine = object  # type: ignore
 
-    def save_deepspeed_checkpoint(*args, **kwargs):  # type: ignore
-        raise RuntimeError("DeepSpeed not available: save_deepspeed_checkpoint")
+# Try multiple import locations for DS checkpoint helpers.
+# Fall back to VERL's wrappers (engine.save_checkpoint / load_checkpoint) if unavailable.
+_SAVE_FN = None
+_LOAD_FN = None
 
-    def load_deepspeed_checkpoint(*args, **kwargs):  # type: ignore
-        raise RuntimeError("DeepSpeed not available: load_deepspeed_checkpoint")
+try:
+    from deepspeed.runtime.checkpoint_engine.torch_checkpoint_engine import (  # DS >= 0.13
+        load_deepspeed_checkpoint as _LOAD_FN,  # type: ignore
+        save_deepspeed_checkpoint as _SAVE_FN,  # type: ignore
+    )
+except Exception:  # pragma: no cover - compatibility path
+    try:
+        from deepspeed.runtime.checkpoint_engine.torch import (  # older DS
+            load_deepspeed_checkpoint as _LOAD_FN,  # type: ignore
+            save_deepspeed_checkpoint as _SAVE_FN,  # type: ignore
+        )
+    except Exception:  # pragma: no cover - last resort to internal wrappers
+        try:
+            # Use VERL's deepspeed_utils wrappers as a stable fallback
+            from verl.utils.deepspeed_utils import (  # type: ignore
+                load_deepspeed_checkpoint as _LOAD_FN,
+                save_deepspeed_checkpoint as _SAVE_FN,
+            )
+        except Exception:
+            _SAVE_FN = None
+            _LOAD_FN = None
+
+
+def save_deepspeed_checkpoint(*, engine, save_dir, client_state=None, tag=None, **kwargs):  # type: ignore
+    if _SAVE_FN is not None:
+        return _SAVE_FN(engine=engine, save_dir=save_dir, client_state=client_state, tag=tag)
+    # Fallback to engine API directly
+    if hasattr(engine, "save_checkpoint"):
+        return engine.save_checkpoint(save_dir, client_state=client_state, tag=tag)
+    raise RuntimeError("DeepSpeed checkpoint save helper not available and engine.save_checkpoint missing")
+
+
+def load_deepspeed_checkpoint(
+    *,
+    engine,
+    load_dir,
+    tag=None,
+    load_module_strict: bool = True,
+    load_optimizer_states: bool = True,
+    load_lr_scheduler_states: bool = True,
+    **kwargs,
+):  # type: ignore
+    if _LOAD_FN is not None:
+        return _LOAD_FN(
+            engine=engine,
+            load_dir=load_dir,
+            tag=tag,
+            load_module_strict=load_module_strict,
+            load_optimizer_states=load_optimizer_states,
+            load_lr_scheduler_states=load_lr_scheduler_states,
+        )
+    # Fallback to engine API directly
+    if hasattr(engine, "load_checkpoint"):
+        ret = engine.load_checkpoint(
+            load_dir,
+            tag=tag,
+            load_module_strict=load_module_strict,
+            load_optimizer_states=load_optimizer_states,
+            load_lr_scheduler_states=load_lr_scheduler_states,
+        )
+        # DeepSpeed returns (load_path, client_state) in many versions
+        if isinstance(ret, tuple) and len(ret) >= 2:
+            return ret[1]
+        return {}
+    raise RuntimeError("DeepSpeed checkpoint load helper not available and engine.load_checkpoint missing")
 
 
 logger = logging.getLogger(__file__)
