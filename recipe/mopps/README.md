@@ -54,11 +54,8 @@ bash recipe/ours/scripts/countdown/cd_verl_3b_topk_noinit.sh
 **Model Predictive Prompt Selection (MoPPS)** is a Bayesian risk-predictive framework that online estimates prompt difficulty without requiring costly LLM interactions.
 Technically, MoPPS models each prompt's success rate as a latent variable, performs streaming Bayesian inference, and employs posterior sampling in a constructed multi-armed bandit machine, enabling sample efficient and adaptive prompt selection. 
 
-### 🔧 Core Implementation
 
 The main implementation is in [`mopps.py`](mopps.py), featuring two key operations:
-
----
 
 ### 1️⃣ `train`: Bayesian Inference towards Prompt Success Rate
 
@@ -97,8 +94,6 @@ def train(self, batch_candidates_dict, y):
     return None, None, None
 ```
 
----
-
 ### 2️⃣ `sample_batch`: Active Prompt Selection
 
 The posterior distribution's estimate of a prompt's success rate correlates strongly with ground truth. We adopt **Thompson Sampling** for its natural exploration-exploitation trade-off:
@@ -116,7 +111,7 @@ sampled_r = np.random.beta(local_alpha, local_beta)
 **Top-$\mathcal{B}$ Selection Strategy:**
 
 $$
-\mathcal{T}_t^\mathcal{B} = \operatorname{Top-}\mathcal{B}\left( \left\{ \tau \in \mathcal{T}_{t}^{\hat{\mathcal{B}}} \;\middle|\; -\left|| \hat{\gamma}^t_\tau - \gamma^* \right||_2^2 \right\} \right)
+\mathcal{T}_t^\mathcal{B} = \text{Top-}\mathcal{B}\left( \left\{ \tau \in \mathcal{T}_{t}^{\hat{\mathcal{B}}} \;\middle|\; -\left|| \hat{\gamma}^t_\tau - \gamma^* \right||_2^2 \right\} \right)
 $$
 
 ```python

@@ -4,6 +4,7 @@ The help the community reproduce experiments, verl team provides a snapshot of t
 
 # Awesome work using verl
 
+- [MoPPS](https://github.com/thu-rllab/MoPPS): A Bayesian framework for online predicting prompt difficulty to accelerate RL finetuning of Large Reasoning Models ![GitHub Repo stars](https://img.shields.io/github/stars/thu-rllab/MoPPS)
 - [FlowRL](https://github.com/Xuekai-Zhu/FlowRL): Matching reward distributions via **flow balance** for diverse exploration and generalizable reasoning ![GitHub Repo stars](https://img.shields.io/github/stars/Xuekai-Zhu/FlowRL)
 - [Logic-RL](https://github.com/Unakar/Logic-RL): a reproduction of DeepSeek R1 Zero on 2K Tiny Logic Puzzle Dataset. ![GitHub Repo stars](https://img.shields.io/github/stars/Unakar/Logic-RL)
 - [Seed-Coder](https://github.com/ByteDance-Seed/Seed-Coder): RL training of Seed-Coder boosts performance on competitive programming ![GitHub Repo stars](https://img.shields.io/github/stars/ByteDance-Seed/Seed-Coder)

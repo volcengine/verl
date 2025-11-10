@@ -56,7 +56,7 @@ infer_micro_batch_size=null
 train_micro_batch_size=null
 offload=False
 
-python3 -m recipe.ours.main_our \
+python3 -m recipe.mopps.main_our \
     data.train_files="${TRAIN_FILE}" \
     data.val_files="${TEST_FILE}" \
     data.prompt_key=prompt \
