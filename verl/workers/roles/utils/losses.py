@@ -94,7 +94,12 @@ def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
 
     # add entropy loss
     if entropy is not None:
-        entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+        entropy_loss = agg_loss(
+            loss_mat=entropy,
+            loss_mask=response_mask,
+            loss_agg_mode=loss_agg_mode,
+            mini_batch_full_token_count=getattr(config, "mini_batch_full_token_count", None),
+        )
         entropy_coeff = config.entropy_coeff
         policy_loss -= entropy_coeff * entropy_loss
 
@@ -103,7 +108,12 @@ def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
         ref_log_prob = data["ref_log_prob"]
         # compute kl loss
         kld = kl_penalty(logprob=log_prob, ref_logprob=ref_log_prob, kl_penalty=config.kl_loss_type)
-        kl_loss = agg_loss(loss_mat=kld, loss_mask=response_mask, loss_agg_mode=config.loss_agg_mode)
+        kl_loss = agg_loss(
+            loss_mat=kld,
+            loss_mask=response_mask,
+            loss_agg_mode=config.loss_agg_mode,
+            mini_batch_full_token_count=getattr(config, "mini_batch_full_token_count", None),
+        )
 
         policy_loss += kl_loss * config.kl_loss_coef
         metrics["kl_loss"] = kl_loss.detach().item()
@@ -127,6 +137,7 @@ def value_loss(config: CriticConfig, model_output, data: TensorDict, dp_group=No
         response_mask=response_mask,
         cliprange_value=config.cliprange_value,
         loss_agg_mode=config.loss_agg_mode,
+        mini_batch_full_token_count=getattr(config, "mini_batch_full_token_count", None),
     )
 
     metrics = {}
