@@ -11,18 +11,21 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Integration tests for Rollout Importance Sampling."""
+"""Integration tests for Rollout Correction."""
 
 import pytest
 import torch
 
 from verl.trainer.ppo.core_algos import compute_policy_loss_vanilla
-from verl.trainer.ppo.mismatch_helper import compute_mismatch_metrics, compute_rollout_importance_weights
+from verl.trainer.ppo.rollout_corr_helper import (
+    compute_offpolicy_metrics,
+    compute_rollout_correction_and_rejection_mask,
+)
 from verl.workers.config.actor import ActorConfig
 
 
 class TestRolloutISIntegration:
-    """Integration tests for Rollout IS with PPO."""
+    """Integration tests for Rollout Correction with PPO."""
 
     @pytest.fixture
     def sample_data(self):
@@ -54,21 +57,21 @@ class TestRolloutISIntegration:
         return config
 
     def test_policy_loss_with_rollout_is(self, sample_data, config_with_rollout_is):
-        """Test that policy loss computation works with rollout IS weights.
+        """Test that policy loss computation works with rollout correction weights.
 
         Note: In production, IS weights are computed centrally in the trainer
         (before advantage computation) and passed to policy loss.
         This test simulates that workflow.
         """
         # First compute IS weights (as trainer would do centrally)
-        rollout_is_weights_proto, _, _ = compute_rollout_importance_weights(
+        rollout_is_weights_proto, _, _ = compute_rollout_correction_and_rejection_mask(
             old_log_prob=sample_data["old_log_prob"],
             rollout_log_prob=sample_data["rollout_log_prob"],
             response_mask=sample_data["response_mask"],
-            rollout_is_level="token",
-            rollout_is_mode="truncate",
+            rollout_is="token",
+            rollout_rs=None,
             rollout_is_threshold=2.0,
-            rollout_is_veto_threshold=1e-4,
+            rollout_token_veto_threshold=1e-4,
         )
 
         rollout_is_weights = rollout_is_weights_proto.batch["rollout_is_weights"]
@@ -91,15 +94,15 @@ class TestRolloutISIntegration:
         assert not torch.isinf(pg_loss)
 
     def test_rollout_is_weights_computation(self, sample_data):
-        """Test rollout IS weights and metrics computation."""
-        weights_proto, _, metrics = compute_rollout_importance_weights(
+        """Test rollout correction weights and metrics computation."""
+        weights_proto, _, metrics = compute_rollout_correction_and_rejection_mask(
             old_log_prob=sample_data["old_log_prob"],
             rollout_log_prob=sample_data["rollout_log_prob"],
             response_mask=sample_data["response_mask"],
-            rollout_is_level="token",
-            rollout_is_mode="truncate",
+            rollout_is="token",
+            rollout_rs=None,
             rollout_is_threshold=2.0,
-            rollout_is_veto_threshold=1e-4,
+            rollout_token_veto_threshold=1e-4,
         )
 
         # Check weights
@@ -113,54 +116,74 @@ class TestRolloutISIntegration:
         # Check metrics are returned
         assert isinstance(metrics, dict)
         assert len(metrics) > 0
-        assert "mismatch/rollout_is_mean" in metrics
+        assert "rollout_corr/rollout_is_mean" in metrics
 
     def test_all_aggregation_levels(self, sample_data):
-        """Test all three aggregation levels."""
-        levels = ["token", "sequence", "geometric"]
-
-        for level in levels:
-            _, _, metrics = compute_rollout_importance_weights(
+        """Test all aggregation levels (token, sequence for IS; geometric for RS)."""
+        # Test IS weight levels
+        is_levels = ["token", "sequence"]
+        for level in is_levels:
+            _, _, metrics = compute_rollout_correction_and_rejection_mask(
                 old_log_prob=sample_data["old_log_prob"],
                 rollout_log_prob=sample_data["rollout_log_prob"],
                 response_mask=sample_data["response_mask"],
-                rollout_is_level=level,
-                rollout_is_mode="truncate",
+                rollout_is=level,
                 rollout_is_threshold=2.0,
+                rollout_rs=None,
             )
+            assert "rollout_corr/rollout_is_mean" in metrics
 
-            assert "mismatch/rollout_is_mean" in metrics
+        # Test rejection sampling with geometric level
+        _, _, metrics_geo = compute_rollout_correction_and_rejection_mask(
+            old_log_prob=sample_data["old_log_prob"],
+            rollout_log_prob=sample_data["rollout_log_prob"],
+            response_mask=sample_data["response_mask"],
+            rollout_is=None,
+            rollout_rs="geometric",
+            rollout_rs_threshold=2.0,
+        )
+        assert "rollout_corr/rollout_rs_mean" in metrics_geo
 
     def test_both_bounding_modes(self, sample_data):
         """Test both truncate and mask modes."""
-        modes = ["truncate", "mask"]
+        # Test truncate mode (IS weights only)
+        _, _, metrics_truncate = compute_rollout_correction_and_rejection_mask(
+            old_log_prob=sample_data["old_log_prob"],
+            rollout_log_prob=sample_data["rollout_log_prob"],
+            response_mask=sample_data["response_mask"],
+            rollout_is="token",
+            rollout_is_threshold=2.0,
+            rollout_rs=None,
+        )
+        assert "rollout_corr/rollout_is_mean" in metrics_truncate
 
-        for mode in modes:
-            _, _, metrics = compute_rollout_importance_weights(
-                old_log_prob=sample_data["old_log_prob"],
-                rollout_log_prob=sample_data["rollout_log_prob"],
-                response_mask=sample_data["response_mask"],
-                rollout_is_level="token",
-                rollout_is_mode=mode,
-                rollout_is_threshold=2.0,
-                rollout_is_threshold_lower=0.5,
-            )
+        # Test mask mode (rejection sampling)
+        _, _, metrics_mask = compute_rollout_correction_and_rejection_mask(
+            old_log_prob=sample_data["old_log_prob"],
+            rollout_log_prob=sample_data["rollout_log_prob"],
+            response_mask=sample_data["response_mask"],
+            rollout_is="token",  # Can also compute IS weights in mask mode
+            rollout_is_threshold=2.0,
+            rollout_rs="token",  # Enable rejection sampling
+            rollout_rs_threshold=2.0,
+            rollout_rs_threshold_lower=0.5,
+        )
+        assert "rollout_corr/rollout_is_mean" in metrics_mask
+        assert "rollout_corr/rollout_rs_mean" in metrics_mask
 
-            assert "mismatch/rollout_is_mean" in metrics
-
-    def test_mismatch_metrics(self, sample_data):
-        """Test mismatch diagnostic metrics computation."""
-        metrics = compute_mismatch_metrics(
+    def test_offpolicy_metrics(self, sample_data):
+        """Test off-policy diagnostic metrics computation."""
+        metrics = compute_offpolicy_metrics(
             old_log_prob=sample_data["old_log_prob"],
             rollout_log_prob=sample_data["rollout_log_prob"],
             response_mask=sample_data["response_mask"],
         )
 
         # Check key metrics are present
-        assert "mismatch_training_ppl" in metrics
-        assert "mismatch_rollout_ppl" in metrics
-        assert "mismatch_kl" in metrics
-        assert isinstance(metrics["mismatch_kl"], float)
+        assert "training_ppl" in metrics
+        assert "rollout_ppl" in metrics
+        assert "kl" in metrics
+        assert isinstance(metrics["kl"], float)
 
     def test_veto_mechanism(self):
         """Test veto mechanism with catastrophic outliers."""
@@ -175,19 +198,19 @@ class TestRolloutISIntegration:
 
         response_mask = torch.ones(batch_size, seq_length, device=device)
 
-        _, _, metrics = compute_rollout_importance_weights(
+        _, _, metrics = compute_rollout_correction_and_rejection_mask(
             old_log_prob=old_log_prob,
             rollout_log_prob=rollout_log_prob,
             response_mask=response_mask,
-            rollout_is_level="token",
-            rollout_is_mode="truncate",
+            rollout_is="token",
             rollout_is_threshold=2.0,
-            rollout_is_veto_threshold=1e-4,
+            rollout_rs=None,
+            rollout_token_veto_threshold=1e-4,
         )
 
         # Should have vetoed one sequence
-        assert metrics["mismatch/rollout_is_veto_fraction"] > 0
-        assert metrics["mismatch/rollout_is_veto_fraction"] <= 1.0
+        assert metrics["rollout_corr/rollout_is_veto_fraction"] > 0
+        assert metrics["rollout_corr/rollout_is_veto_fraction"] <= 1.0
 
     def test_metrics_only_mode(self, sample_data, config_with_rollout_is):
         """Test metrics-only mode: compute IS weights/metrics but don't apply to loss.
@@ -196,18 +219,18 @@ class TestRolloutISIntegration:
         but rollout_is=False (disables weight application to policy loss).
         """
         # Compute IS weights (as trainer would do)
-        rollout_is_weights_proto, _, is_metrics = compute_rollout_importance_weights(
+        rollout_is_weights_proto, _, is_metrics = compute_rollout_correction_and_rejection_mask(
             old_log_prob=sample_data["old_log_prob"],
             rollout_log_prob=sample_data["rollout_log_prob"],
             response_mask=sample_data["response_mask"],
-            rollout_is_level="token",
-            rollout_is_mode="truncate",
+            rollout_is="token",
             rollout_is_threshold=2.0,
+            rollout_rs=None,
         )
 
         # Metrics should be computed
         assert len(is_metrics) > 0
-        assert "mismatch/rollout_is_mean" in is_metrics
+        assert "rollout_corr/rollout_is_mean" in is_metrics
 
         # In metrics-only mode, we compute loss WITHOUT applying weights
         # (simulating rollout_is=False)
