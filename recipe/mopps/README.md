@@ -108,10 +108,10 @@ $$
 sampled_r = np.random.beta(local_alpha, local_beta)
 ```
 
-**Top-$\mathcal{B}$ Selection Strategy:**
+**Top-B Selection Strategy:**
 
 $$
-\mathcal{T}_t^\mathcal{B} = \text{Top-}\mathcal{B}\left( \left\{ \tau \in \mathcal{T}_{t}^{\hat{\mathcal{B}}} \;\middle|\; -\left|| \hat{\gamma}^t_\tau - \gamma^* \right||_2^2 \right\} \right)
+\mathcal{T}_t^\mathcal{B} = \text{Top-}\mathcal{B}( \{ \tau \in \mathcal{T}_{t}^{\hat{\mathcal{B}}} | -\lVert \hat{\gamma}^t_\tau - \gamma^* \rVert_2^2 \} )
 $$
 
 ```python
