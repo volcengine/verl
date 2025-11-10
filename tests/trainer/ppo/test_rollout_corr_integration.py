@@ -77,7 +77,7 @@ class TestRolloutISIntegration:
         rollout_is_weights = rollout_is_weights_proto.batch["rollout_is_weights"]
 
         # Policy loss function receives pre-computed IS weights
-        pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss_vanilla(
+        pg_loss, _ = compute_policy_loss_vanilla(
             old_log_prob=sample_data["old_log_prob"],
             log_prob=sample_data["log_prob"],
             advantages=sample_data["advantages"],
@@ -234,7 +234,7 @@ class TestRolloutISIntegration:
 
         # In metrics-only mode, we compute loss WITHOUT applying weights
         # (simulating rollout_is=False)
-        pg_loss_no_weights, _, _, _ = compute_policy_loss_vanilla(
+        pg_loss_no_weights, _ = compute_policy_loss_vanilla(
             old_log_prob=sample_data["old_log_prob"],
             log_prob=sample_data["log_prob"],
             advantages=sample_data["advantages"],
@@ -246,7 +246,7 @@ class TestRolloutISIntegration:
 
         # Compare to loss WITH weights (rollout_is=True)
         rollout_is_weights = rollout_is_weights_proto.batch["rollout_is_weights"]
-        pg_loss_with_weights, _, _, _ = compute_policy_loss_vanilla(
+        pg_loss_with_weights, _ = compute_policy_loss_vanilla(
             old_log_prob=sample_data["old_log_prob"],
             log_prob=sample_data["log_prob"],
             advantages=sample_data["advantages"],
