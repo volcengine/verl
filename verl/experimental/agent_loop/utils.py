@@ -57,15 +57,16 @@ def resolve_config_path(config_path: str) -> str:
 
         # Strategy 2: For standard package installations.
         install_path = os.path.abspath(os.path.join(verl_package_dir, config_path))
-        if (install_path == verl_package_dir or install_path.startswith(verl_package_dir + os.sep)) and os.path.exists(install_path):
+        if (install_path == verl_package_dir or install_path.startswith(verl_package_dir + os.sep)) and os.path.exists(
+            install_path
+        ):
             return install_path
     except (ImportError, AttributeError):
         pass  # verl not installed or __file__ not available
 
     # File not found - raise clear error
     raise FileNotFoundError(
-        f"Agent loop configuration file not found: {config_path}. "
-        f"Tried current directory and verl project root."
+        f"Agent loop configuration file not found: {config_path}. Tried current directory and verl project root."
     )
 
 
