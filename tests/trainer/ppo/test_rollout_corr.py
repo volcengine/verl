@@ -13,30 +13,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Quick Sanity Test for Rollout Importance Sampling
+Quick Sanity Test for Rollout Correction
 
 This is a standalone test script that can be run without pytest to quickly verify
-the rollout IS implementation is working correctly. For comprehensive integration
-tests, see: tests/trainer/ppo/test_rollout_is_integration.py
+the rollout correction implementation is working correctly. For comprehensive integration
+tests, see: tests/trainer/ppo/test_rollout_corr_integration.py
 
 Usage:
-    python test_rollout_is.py
+    python test_rollout_corr.py
 
 This tests:
-- Basic rollout IS functionality (3 levels, 2 modes)
-- Metrics completeness (32 total: 21 IS + 11 mismatch metrics)
+- Basic rollout correction functionality (IS weights + rejection sampling)
+- Metrics completeness (IS metrics + rejection metrics + off-policy metrics)
 - Veto mechanism
 - Edge cases
 """
 
 import torch
 
-from verl.trainer.ppo.mismatch_helper import compute_mismatch_metrics, compute_rollout_importance_weights
+from verl.trainer.ppo.rollout_corr_helper import (
+    compute_offpolicy_metrics,
+    compute_rollout_correction_and_rejection_mask,
+)
 
 
-def test_basic_rollout_is():
-    """Test basic rollout IS functionality."""
-    print("Testing basic rollout IS functionality...")
+def test_basic_rollout_correction():
+    """Test basic rollout correction functionality."""
+    print("Testing basic rollout correction functionality...")
 
     # Create test data
     batch_size, seq_length = 4, 10
@@ -49,63 +52,63 @@ def test_basic_rollout_is():
 
     # Test token-level truncate mode
     print("\n1. Testing token-level truncate mode...")
-    weights_proto, modified_response_mask, metrics = compute_rollout_importance_weights(
+    weights_proto, modified_response_mask, metrics = compute_rollout_correction_and_rejection_mask(
         old_log_prob=old_log_prob,
         rollout_log_prob=rollout_log_prob,
         response_mask=eos_mask,
-        rollout_is_level="token",
-        rollout_is_mode="truncate",
+        rollout_is="token",  # Compute IS weights at token level
         rollout_is_threshold=2.0,
-        rollout_is_veto_threshold=1e-4,
+        rollout_rs=None,  # No rejection sampling (truncate mode)
+        rollout_token_veto_threshold=1e-4,
     )
 
     weights = weights_proto.batch["rollout_is_weights"]
     print(f"   Weights shape: {weights.shape}")
-    print(f"   Mean weight: {metrics['mismatch/rollout_is_mean']:.4f}")
-    print(f"   Max weight: {metrics['mismatch/rollout_is_max']:.4f}")
-    print(f"   Min weight: {metrics['mismatch/rollout_is_min']:.4f}")
-    print(f"   Veto fraction: {metrics['mismatch/rollout_is_veto_fraction']:.4f}")
+    print(f"   Mean weight: {metrics['rollout_corr/rollout_is_mean']:.4f}")
+    print(f"   Max weight: {metrics['rollout_corr/rollout_is_max']:.4f}")
+    print(f"   Min weight: {metrics['rollout_corr/rollout_is_min']:.4f}")
+    print(f"   Veto fraction: {metrics['rollout_corr/rollout_is_veto_fraction']:.4f}")
     assert weights.shape == old_log_prob.shape
     assert weights.max() <= 2.0, "Weights should be capped at threshold"
     print("   ✓ Token-level truncate mode passed")
 
     # Test sequence-level mode
     print("\n2. Testing sequence-level mode...")
-    weights_seq_proto, _, metrics_seq = compute_rollout_importance_weights(
+    weights_seq_proto, _, metrics_seq = compute_rollout_correction_and_rejection_mask(
         old_log_prob=old_log_prob,
         rollout_log_prob=rollout_log_prob,
         response_mask=eos_mask,
-        rollout_is_level="sequence",
-        rollout_is_mode="truncate",
+        rollout_is="sequence",  # Compute IS weights at sequence level
         rollout_is_threshold=5.0,
-        rollout_is_veto_threshold=1e-4,
+        rollout_rs=None,  # No rejection sampling (truncate mode)
+        rollout_token_veto_threshold=1e-4,
     )
 
     weights_seq = weights_seq_proto.batch["rollout_is_weights"]
-    print(f"   Mean weight: {metrics_seq['mismatch/rollout_is_mean']:.4f}")
-    print(f"   Effective sample size: {metrics_seq['mismatch/rollout_is_eff_sample_size']:.4f}")
+    print(f"   Mean weight: {metrics_seq['rollout_corr/rollout_is_mean']:.4f}")
+    print(f"   Effective sample size: {metrics_seq['rollout_corr/rollout_is_eff_sample_size']:.4f}")
     # Check that all tokens in a sequence have the same weight
     for i in range(batch_size):
         seq_weights = weights_seq[i, eos_mask[i].bool()]
         assert torch.allclose(seq_weights, seq_weights[0]), "All tokens in sequence should have same weight"
     print("   ✓ Sequence-level mode passed")
 
-    # Test geometric mean mode
-    print("\n3. Testing geometric mean mode...")
-    weights_geo_proto, _, metrics_geo = compute_rollout_importance_weights(
+    # Test geometric mean rejection sampling (mask mode)
+    print("\n3. Testing geometric mean rejection sampling...")
+    weights_geo_proto, modified_mask_geo, metrics_geo = compute_rollout_correction_and_rejection_mask(
         old_log_prob=old_log_prob,
         rollout_log_prob=rollout_log_prob,
         response_mask=eos_mask,
-        rollout_is_level="geometric",
-        rollout_is_mode="mask",
-        rollout_is_threshold=1.5,
-        rollout_is_threshold_lower=0.5,
-        rollout_is_veto_threshold=1e-4,
+        rollout_is=None,  # No IS weights (pure mask mode)
+        rollout_rs="geometric",  # Rejection sampling with geometric mean
+        rollout_rs_threshold=1.5,
+        rollout_rs_threshold_lower=0.5,
+        rollout_token_veto_threshold=1e-4,
     )
 
-    print(f"   Mean weight: {metrics_geo['mismatch/rollout_is_mean']:.4f}")
-    print(f"   Masked fraction: {metrics_geo['mismatch/rollout_is_masked_fraction']:.4f}")
-    print("   ✓ Geometric mean mode passed")
+    print(f"   Masked fraction: {metrics_geo['rollout_corr/rollout_rs_masked_fraction']:.4f}")
+    print(f"   Veto fraction: {metrics_geo['rollout_corr/rollout_is_veto_fraction']:.4f}")
+    print("   ✓ Geometric mean rejection sampling passed")
 
     # Test veto mechanism
     print("\n4. Testing veto mechanism...")
@@ -116,18 +119,18 @@ def test_basic_rollout_is():
     rollout_log_prob_veto[0, 2] = old_log_prob_veto[0, 2] + 15.0  # ratio ~= 3e-7
     eos_mask_veto = torch.ones(2, 5, device=device)
 
-    weights_veto_proto, modified_response_mask_veto, metrics_veto = compute_rollout_importance_weights(
+    weights_veto_proto, modified_response_mask_veto, metrics_veto = compute_rollout_correction_and_rejection_mask(
         old_log_prob=old_log_prob_veto,
         rollout_log_prob=rollout_log_prob_veto,
         response_mask=eos_mask_veto,
-        rollout_is_level="token",
-        rollout_is_mode="truncate",
+        rollout_is="token",
         rollout_is_threshold=2.0,
-        rollout_is_veto_threshold=1e-4,
+        rollout_rs=None,
+        rollout_token_veto_threshold=1e-4,
     )
 
     weights_veto = weights_veto_proto.batch["rollout_is_weights"]
-    print(f"   Veto fraction: {metrics_veto['mismatch/rollout_is_veto_fraction']:.4f}")
+    print(f"   Veto fraction: {metrics_veto['rollout_corr/rollout_is_veto_fraction']:.4f}")
     # KEY FIX: Veto is applied via response_mask, not by zeroing weights
     # Check that weights are NON-ZERO (safety-bounded ratios preserved, not zeroed)
     assert weights_veto[0].sum() > 0, "Weights should be non-zero (not zeroed by veto)"
@@ -136,18 +139,21 @@ def test_basic_rollout_is():
     assert modified_response_mask_veto[1].sum() > 0, "Normal sequence should have response_mask unchanged"
     print("   ✓ Veto mechanism passed")
 
-    # Test disabled IS (threshold=None)
+    # Test disabled IS (rollout_is=None, rollout_rs=None)
     print("\n5. Testing disabled IS...")
-    weights_disabled, modified_response_mask_disabled, metrics_disabled = compute_rollout_importance_weights(
+    weights_disabled, modified_response_mask_disabled, metrics_disabled = compute_rollout_correction_and_rejection_mask(
         old_log_prob=old_log_prob,
         rollout_log_prob=rollout_log_prob,
         response_mask=eos_mask,
-        rollout_is_threshold=None,
+        rollout_is=None,
+        rollout_rs=None,
+        rollout_token_veto_threshold=None,
     )
 
-    assert weights_disabled is None, "Should return None when threshold is None"
+    assert weights_disabled is None, "Should return None when IS is disabled"
     assert torch.equal(modified_response_mask_disabled, eos_mask), "Should return original mask unchanged"
-    assert len(metrics_disabled) == 0, "Should return empty metrics when disabled"
+    # Note: off-policy metrics are still computed even when IS/RS are disabled
+    assert "rollout_corr/kl" in metrics_disabled, "Should still compute off-policy metrics"
     print("   ✓ Disabled IS passed")
 
     print("\n✓ All tests passed!")
@@ -164,44 +170,46 @@ def test_metrics_completeness():
     rollout_log_prob = old_log_prob + torch.randn(batch_size, seq_length, device=device) * 0.2
     eos_mask = torch.ones(batch_size, seq_length, device=device)
 
-    _, _, metrics = compute_rollout_importance_weights(
+    _, _, metrics = compute_rollout_correction_and_rejection_mask(
         old_log_prob=old_log_prob,
         rollout_log_prob=rollout_log_prob,
         response_mask=eos_mask,
-        rollout_is_level="token",
-        rollout_is_mode="truncate",
+        rollout_is="token",
         rollout_is_threshold=2.5,
+        rollout_rs=None,
     )
 
     # Expected IS metrics
     expected_is_metrics = [
-        "mismatch/rollout_is_mean",
-        "mismatch/rollout_is_max",
-        "mismatch/rollout_is_min",
-        "mismatch/rollout_is_std",
-        "mismatch/rollout_is_eff_sample_size",
-        "mismatch/rollout_is_veto_fraction",
-        "mismatch/rollout_is_catastrophic_token_fraction",
-        "mismatch/rollout_is_ratio_fraction_high",
-        "mismatch/rollout_is_ratio_fraction_low",
+        "rollout_corr/rollout_is_mean",
+        "rollout_corr/rollout_is_max",
+        "rollout_corr/rollout_is_min",
+        "rollout_corr/rollout_is_std",
+        "rollout_corr/rollout_is_eff_sample_size",
+        "rollout_corr/rollout_is_veto_fraction",
+        "rollout_corr/rollout_is_catastrophic_token_fraction",
+        "rollout_corr/rollout_is_ratio_fraction_high",
+        "rollout_corr/rollout_is_ratio_fraction_low",
     ]
 
-    # Expected mismatch/diagnostic metrics (also included now)
-    expected_mismatch_metrics = [
-        "mismatch/mismatch_training_ppl",
-        "mismatch/mismatch_training_log_ppl",
-        "mismatch/mismatch_kl",
-        "mismatch/mismatch_k3_kl",
-        "mismatch/mismatch_rollout_ppl",
-        "mismatch/mismatch_rollout_log_ppl",
-        "mismatch/mismatch_log_ppl_diff",
-        "mismatch/mismatch_log_ppl_abs_diff",
-        "mismatch/mismatch_log_ppl_diff_max",
-        "mismatch/mismatch_log_ppl_diff_min",
-        "mismatch/mismatch_ppl_ratio",
+    # Expected off-policy diagnostic metrics (also included now)
+    expected_offpolicy_metrics = [
+        "rollout_corr/training_ppl",
+        "rollout_corr/training_log_ppl",
+        "rollout_corr/kl",
+        "rollout_corr/k3_kl",
+        "rollout_corr/rollout_ppl",
+        "rollout_corr/rollout_log_ppl",
+        "rollout_corr/log_ppl_diff",
+        "rollout_corr/log_ppl_abs_diff",
+        "rollout_corr/log_ppl_diff_max",
+        "rollout_corr/log_ppl_diff_min",
+        "rollout_corr/ppl_ratio",
+        "rollout_corr/chi2_token",
+        "rollout_corr/chi2_seq",
     ]
 
-    expected_metrics = expected_is_metrics + expected_mismatch_metrics
+    expected_metrics = expected_is_metrics + expected_offpolicy_metrics
 
     missing_metrics = [m for m in expected_metrics if m not in metrics]
     if missing_metrics:
@@ -213,9 +221,9 @@ def test_metrics_completeness():
     return True
 
 
-def test_mismatch_metrics():
-    """Test mismatch metrics computation."""
-    print("\nTesting mismatch metrics computation...")
+def test_offpolicy_metrics():
+    """Test off-policy metrics computation."""
+    print("\nTesting off-policy metrics computation...")
 
     batch_size, seq_length = 4, 12
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -226,46 +234,48 @@ def test_mismatch_metrics():
     response_mask = torch.ones(batch_size, seq_length, device=device)
 
     # Test with rollout log probs
-    metrics = compute_mismatch_metrics(
+    metrics = compute_offpolicy_metrics(
         old_log_prob=old_log_prob,
         rollout_log_prob=rollout_log_prob,
         response_mask=response_mask,
     )
 
     expected_metrics = [
-        "mismatch_training_ppl",
-        "mismatch_training_log_ppl",
-        "mismatch_kl",
-        "mismatch_k3_kl",
-        "mismatch_rollout_ppl",
-        "mismatch_rollout_log_ppl",
-        "mismatch_log_ppl_diff",
-        "mismatch_log_ppl_abs_diff",
-        "mismatch_log_ppl_diff_max",
-        "mismatch_log_ppl_diff_min",
-        "mismatch_ppl_ratio",
+        "training_ppl",
+        "training_log_ppl",
+        "kl",
+        "k3_kl",
+        "rollout_ppl",
+        "rollout_log_ppl",
+        "log_ppl_diff",
+        "log_ppl_abs_diff",
+        "log_ppl_diff_max",
+        "log_ppl_diff_min",
+        "ppl_ratio",
+        "chi2_token",
+        "chi2_seq",
     ]
 
     for metric in expected_metrics:
         assert metric in metrics, f"Missing metric: {metric}"
 
-    print(f"   Training PPL: {metrics['mismatch_training_ppl']:.4f}")
-    print(f"   Rollout PPL: {metrics['mismatch_rollout_ppl']:.4f}")
-    print(f"   KL divergence: {metrics['mismatch_kl']:.6f}")
-    print(f"   K3 KL: {metrics['mismatch_k3_kl']:.6f}")
-    print(f"   PPL ratio: {metrics['mismatch_ppl_ratio']:.4f}")
-    print(f"   ✓ All {len(expected_metrics)} mismatch metrics present")
+    print(f"   Training PPL: {metrics['training_ppl']:.4f}")
+    print(f"   Rollout PPL: {metrics['rollout_ppl']:.4f}")
+    print(f"   KL divergence: {metrics['kl']:.6f}")
+    print(f"   K3 KL: {metrics['k3_kl']:.6f}")
+    print(f"   PPL ratio: {metrics['ppl_ratio']:.4f}")
+    print(f"   ✓ All {len(expected_metrics)} off-policy metrics present")
 
     # Test without rollout log probs
-    metrics_no_rollout = compute_mismatch_metrics(
+    metrics_no_rollout = compute_offpolicy_metrics(
         old_log_prob=old_log_prob,
         rollout_log_prob=None,
         response_mask=response_mask,
     )
 
-    assert "mismatch_training_ppl" in metrics_no_rollout
-    assert "mismatch_rollout_ppl" not in metrics_no_rollout
-    print("   ✓ Mismatch metrics work without rollout log probs")
+    assert "training_ppl" in metrics_no_rollout
+    assert "rollout_ppl" not in metrics_no_rollout
+    print("   ✓ Off-policy metrics work without rollout log probs")
 
 
 def test_mask_mode():
@@ -288,15 +298,16 @@ def test_mask_mode():
     )
     response_mask = torch.ones(batch_size, seq_length, device=device)
 
-    weights_proto, modified_response_mask, metrics = compute_rollout_importance_weights(
+    weights_proto, modified_response_mask, metrics = compute_rollout_correction_and_rejection_mask(
         old_log_prob=old_log_prob,
         rollout_log_prob=rollout_log_prob,
         response_mask=response_mask,
-        rollout_is_level="token",
-        rollout_is_mode="mask",
+        rollout_is="token",  # Compute IS weights
         rollout_is_threshold=2.0,
-        rollout_is_threshold_lower=0.5,
-        rollout_is_veto_threshold=None,
+        rollout_rs="token",  # Also apply rejection sampling (mask mode)
+        rollout_rs_threshold=2.0,
+        rollout_rs_threshold_lower=0.5,
+        rollout_token_veto_threshold=None,
     )
 
     weights = weights_proto.batch["rollout_is_weights"]
@@ -314,27 +325,27 @@ def test_mask_mode():
     assert torch.all(modified_response_mask[0, :] == 0), "First sequence should be rejected via mask"
     assert torch.all(modified_response_mask[1, :] == 1), "Second sequence should be accepted"
 
-    # Verify mask metrics exist
-    assert "mismatch/rollout_is_masked_fraction" in metrics
-    assert abs(metrics["mismatch/rollout_is_masked_fraction"] - 0.5) < 0.01, "Should reject 50% of tokens"
+    # Verify rejection sampling metrics exist
+    assert "rollout_corr/rollout_rs_masked_fraction" in metrics, "Should have rollout_rs_masked_fraction metric"
+    assert abs(metrics["rollout_corr/rollout_rs_masked_fraction"] - 0.5) < 0.01, "Should reject 50% of tokens"
 
     print(f"   First seq IS weight: {weights[0, 0]:.4f} (expected ≈0.37)")
     print(f"   Second seq IS weight: {weights[1, 0]:.4f} (expected ≈1.65)")
     print(f"   First seq mask: {modified_response_mask[0, 0]:.0f} (expected 0 - rejected)")
     print(f"   Second seq mask: {modified_response_mask[1, 0]:.0f} (expected 1 - accepted)")
-    print(f"   Masked fraction: {metrics['mismatch/rollout_is_masked_fraction']:.2f}")
+    print(f"   Masked fraction: {metrics['rollout_corr/rollout_rs_masked_fraction']:.2f}")
     print("   ✓ Mask mode correctly separates IS weights from rejection")
 
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("Rollout Importance Sampling Test Suite")
+    print("Rollout Correction Test Suite")
     print("=" * 60)
 
     try:
-        test_basic_rollout_is()
+        test_basic_rollout_correction()
         test_metrics_completeness()
-        test_mismatch_metrics()
+        test_offpolicy_metrics()
         test_mask_mode()
         print("\n" + "=" * 60)
         print("ALL TESTS PASSED ✓")

@@ -468,10 +468,15 @@ reward_model:
     override_transformer_config: ${oc.select:actor_rollout_ref.actor.megatron.override_transformer_config,{}}
     use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
   load_weight: true
-custom_reward_function:
-  path: null
-  name: compute_score
 algorithm:
+  rollout_is: null
+  rollout_is_threshold: 2.0
+  rollout_rs: null
+  rollout_rs_threshold: null
+  rollout_rs_threshold_lower: null
+  rollout_token_veto_threshold: null
+  bypass_old_logprob_for_rollout: false
+  use_pure_rollout_correction: false
   _target_: verl.trainer.config.AlgoConfig
   gamma: 1.0
   lam: 1.0
@@ -489,12 +494,9 @@ algorithm:
   pf_ppo:
     reweight_method: pow
     weight_pow: 2.0
-  rollout_is_threshold: null
-  rollout_is_threshold_lower: null
-  rollout_is_level: token
-  rollout_is_mode: truncate
-  rollout_is_veto_threshold: null
-  rollout_is: false
+custom_reward_function:
+  path: null
+  name: compute_score
 trainer:
   balance_batch: true
   total_epochs: 30
