@@ -29,6 +29,7 @@ from pydantic import BaseModel, ConfigDict
 from tensordict import TensorDict
 from transformers import AutoProcessor, AutoTokenizer
 
+from verl.experimental.agent_loop.utils import resolve_config_path
 from verl.experimental.reward import RewardManagerWorker
 from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayWorkerGroup
@@ -281,7 +282,8 @@ class AgentLoopWorkerBase:
 
         agent_loop_config_path = config.actor_rollout_ref.rollout.agent.agent_loop_config_path
         if agent_loop_config_path:
-            agent_loop_configs = OmegaConf.load(agent_loop_config_path)
+            resolved_path = resolve_config_path(agent_loop_config_path)
+            agent_loop_configs = OmegaConf.load(resolved_path)
             for agent_loop_config in agent_loop_configs:
                 _agent_loop_registry[agent_loop_config.name] = agent_loop_config
         if self.config.actor_rollout_ref.model.get("custom_chat_template", None) is not None:
