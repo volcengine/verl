@@ -76,7 +76,7 @@ def should_continue(state: MessagesState, config: RunnableConfig) -> Literal["to
         return END
 
     # no tool calls
-    if not getattr(last_message, 'tool_calls', None):
+    if not getattr(last_message, "tool_calls", None):
         return END
 
     return "tools"
