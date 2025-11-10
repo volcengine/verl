@@ -45,7 +45,6 @@ on:
     paths:
       - ".github/workflows/e2e_ascend.yml"
       - "**/*.py"
-      - "docs/ascend_tutorial/**"
       - "examples/**"
       - "recipe/**"
       - "tests/special_npu/**"
