@@ -815,6 +815,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 # Log a warning if memory snapshot fails. This might be expected if the profiler doesn't support it.
                 logger.warning(f"Failed to dump memory snapshot: {e}")
 
+
 class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     async def wake_up(self):
