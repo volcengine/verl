@@ -165,7 +165,7 @@ class FullyAsyncAgentLoopWorker(AgentLoopWorkerBase):
                 )
                 return await agent_loop.run(sampling_params, cancellation_event=self.cancellation_event, **kwargs)
         except Exception as e:
-            print(f"Agent_loop run failed: {e}")
+            logger.exception(f"Agent_loop run failed: {e}")
             raise e
 
     async def cancel_agent_loops(self):

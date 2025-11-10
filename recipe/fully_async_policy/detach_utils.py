@@ -368,7 +368,9 @@ def assemble_batch_from_rollout_samples(
         }
     processing_time_stats = {f"fully_async/{key}": value for key, value in processing_time_stats.items()}
 
-    param_version_diff = [abs(a - b) for a, b in zip(rs.param_version_end, rs.param_version_start, strict=False)]
+    param_version_start = [v for rs in rollout_samples for v in rs.param_version_start]
+    param_version_end = [v for rs in rollout_samples for v in rs.param_version_end]
+    param_version_diff = [abs(a - b) for a, b in zip(param_version_end, param_version_start, strict=False)]
     num_diff0 = param_version_diff.count(0)
     partial_stats = {
         "fully_async/partial/total_partial_num": len(param_version_diff) - num_diff0,
