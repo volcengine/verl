@@ -19,9 +19,9 @@ import os
 from typing import Any, Optional
 from uuid import uuid4
 
-from verl.experimental.agent_loop.tool_agent_loop import ToolAgentLoop, AgentState
+from verl.experimental.agent_loop.agent_loop import AgentLoopOutput, register
 from verl.experimental.agent_loop.tool_agent_loop import AgentData as AD
-from verl.experimental.agent_loop.agent_loop import register, AgentLoopOutput
+from verl.experimental.agent_loop.tool_agent_loop import AgentState, ToolAgentLoop
 from verl.utils.profiler import simple_timer
 
 logger = logging.getLogger(__file__)
@@ -42,6 +42,7 @@ class AsyncPartialToolAgentLoop(ToolAgentLoop):
     Support for partial rollout with multiple tool invocations in Agent Loop
 
     """
+
     def __init__(self, trainer_config, **kwargs):
         super().__init__(trainer_config, **kwargs)
         self.enable_partial_rollout = trainer_config.config.async_training.get("partial_rollout", False)
@@ -78,7 +79,7 @@ class AsyncPartialToolAgentLoop(ToolAgentLoop):
 
             agent_data = await self._init_agent_data(kwargs, param_version)
             state = AgentState.PENDING
-            logger.info(f"[PartialToolAgent] Start from scratch")
+            logger.info("[PartialToolAgent] Start from scratch")
         # 2. run state machine
         state = await self._run_state_machine(agent_data, state, sampling_params, cancellation_event)
 
@@ -146,7 +147,8 @@ class AsyncPartialToolAgentLoop(ToolAgentLoop):
         cancellation_event: asyncio.Event = None,
     ) -> AgentState:
         """
-        State machine, currently, interruptions are only supported to occur in the GENERATING state or other states have ended.
+        State machine.
+        Currently, interruptions are only supported to occur in the GENERATING state or other states have ended.
         """
         # State machine loop
         while state != AgentState.TERMINATED:

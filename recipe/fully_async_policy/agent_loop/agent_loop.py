@@ -15,7 +15,6 @@ import asyncio
 import logging
 import os
 from typing import Any, Optional, Sequence
-from uuid import uuid4
 
 import hydra
 import numpy as np

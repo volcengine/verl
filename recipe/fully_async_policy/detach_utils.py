@@ -149,7 +149,7 @@ def postprocess_agent_loop_outputs(rs: "RolloutSample", tokenizer, config, proce
         },
         batch_size=len(input_ids),
     )
-    
+
     if inputs[0].response_logprobs is not None:
         response_logprobs_list = []
         for input in inputs:
@@ -282,7 +282,7 @@ def merge_rollout_sample(config, tokenizer, rs: RolloutSample, processor):
     # Step 3, set full_batch
     rs.full_batch = gen_batch_output
     rs.processing_times = []
-    rs.tool_calls =[]
+    rs.tool_calls = []
     for agent_loop in rs.agent_loop_output_list:
         rs.processing_times.append(agent_loop.metrics.generate_sequences)
         rs.tool_calls.append(agent_loop.metrics.tool_calls)
@@ -325,7 +325,7 @@ def assemble_batch_from_rollout_samples(
 
     rollout_samples_batch = []
     processing_times = []
-    tool_calls =[]
+    tool_calls = []
     rollout_status = rollout_samples[0].rollout_status
     # Add a prefix to all rollout_status keys
     rollout_status = {f"fully_async/{key}": value for key, value in rollout_status.items()}
@@ -359,7 +359,7 @@ def assemble_batch_from_rollout_samples(
         "processing_time/tp99": np.percentile(processing_times, 99),
         "processing_time/tp95": np.percentile(processing_times, 95),
     }
-    tool_calls_stats= {
+    tool_calls_stats = {
         "timing_s/agent_loop/tool_calls/max": np.max(tool_calls),
         "timing_s/agent_loop/tool_calls/min": np.min(tool_calls),
         "timing_s/agent_loop/tool_calls/mean": np.mean(tool_calls),

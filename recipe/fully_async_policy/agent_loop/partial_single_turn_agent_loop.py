@@ -17,7 +17,7 @@ from typing import Any, Optional
 from uuid import uuid4
 
 from verl.experimental.agent_loop import AgentLoopBase
-from verl.experimental.agent_loop.agent_loop import register, AgentLoopOutput
+from verl.experimental.agent_loop.agent_loop import AgentLoopOutput, register
 from verl.utils.profiler import simple_timer
 
 logger = logging.getLogger(__file__)
