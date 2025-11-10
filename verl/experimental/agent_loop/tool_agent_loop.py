@@ -299,7 +299,6 @@ class ToolAgentLoop(AgentLoopBase):
 
             # Handle image data
             if tool_response.image:
-
                 # Add new image data
                 if isinstance(tool_response.image, list):
                     # Ensure all elements in the list are valid image objects
@@ -369,7 +368,7 @@ class ToolAgentLoop(AgentLoopBase):
                 agent_data.image_data = [agent_data.image_data]
             for img in new_images_this_turn:
                 agent_data.image_data.append(img)
-                
+
         agent_data.prompt_ids += response_ids
         agent_data.response_mask += [0] * len(response_ids)
         if agent_data.response_logprobs:
