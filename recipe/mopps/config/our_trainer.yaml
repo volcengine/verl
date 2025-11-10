@@ -1,0 +1,46 @@
+hydra:
+  searchpath:
+    - file://verl/trainer/config
+
+defaults:
+  - ppo_trainer
+  - _self_
+
+data:
+  gen_batch_size: ${data.train_batch_size}
+
+
+reward_model:
+  reward_manager: naive
+  overlong_buffer: 
+    enable: False # We try to avoid forgetting to set enable
+    len: 0
+    penalty_factor: 0.0
+    log: False
+
+algorithm:
+  filter_groups:
+    enable: False # We try to avoid forgetting to set enable
+    metric: null # acc / score / seq_reward / seq_final_reward / ...
+    max_num_gen_batches: 0 # Non-positive values mean no upper limit
+    filter_min: 0.0
+    filter_max: 1.0
+
+trainer:
+  project_name: verl-our
+
+
+tasksampler:
+  framework: 0 #0: uniform; 1: mopps
+  ts_ratio: 1.0
+  bandit_sample_strategy: "topk" #threshold/topk
+  bandit_metric: "acc" #acc/score
+  bandit_target_mean: 0.5
+  bandit_lower_bound: 0.3
+  bandit_upper_bound: 0.7
+  bandit_decay_ratio: 1.0
+  bandit_init: False
+  bandit_init_dir: ""
+  bandit_load_dir: ""
+  bandit_no_update: False
+

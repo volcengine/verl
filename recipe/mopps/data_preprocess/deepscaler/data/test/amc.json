@@ -1,0 +1,500 @@
+[
+  {
+    "problem": "$\\frac{m}{n}$ is the Irreducible fraction value of \\[3+\\frac{1}{3+\\frac{1}{3+\\frac13}}\\], what is the value of $m+n$?",
+    "answer": 142.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12A_Problems/Problem_1",
+    "difficulty": 2.0
+  },
+  {
+    "problem": "How many ways are there to split the integers $1$ through $14$ into $7$ pairs such that in each pair, the greater number is at least $2$ times the lesser number?",
+    "answer": 144.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12A_Problems/Problem_10",
+    "difficulty": 4.625
+  },
+  {
+    "problem": "What is the product of all real numbers $x$ such that the distance on the number line between $\\log_6x$ and $\\log_69$ is twice the distance on the number line between $\\log_610$ and $1$?",
+    "answer": 81.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12A_Problems/Problem_11",
+    "difficulty": 2.0
+  },
+  {
+    "problem": "Let $M$ be the midpoint of $\\overline{AB}$ in regular tetrahedron $ABCD$.  $\\frac{p}{q}=\\cos(\\angle CMD)$ is irreducible fraction, what is the value of $p+q$?",
+    "answer": 4.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12A_Problems/Problem_12",
+    "difficulty": 3.5
+  },
+  {
+    "problem": "Let $\\mathcal{R}$ be the region in the complex plane consisting of all complex numbers $z$ that can be written as the sum of complex numbers $z_1$ and $z_2$, where $z_1$ lies on the segment with endpoints $3$ and $4i$, and $z_2$ has magnitude at most $1$. What integer is closest to the area of $\\mathcal{R}$?  ",
+    "answer": 13.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12A_Problems/Problem_13",
+    "difficulty": 4.0
+  },
+  {
+    "problem": "What is the value of \\[(\\log 5)^{3}+(\\log 20)^{3}+(\\log 8)(\\log 0.25)\\] where $\\log$ denotes the base-ten logarithm?",
+    "answer": 2.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12A_Problems/Problem_14",
+    "difficulty": 2.0
+  },
+  {
+    "problem": "The roots of the polynomial $10x^3 - 39x^2 + 29x - 6$ are the height, length, and width of a rectangular box (right rectangular prism). A new rectangular box is formed by lengthening each edge of the original box by $2$\nunits. What is the volume of the new box?",
+    "answer": 30.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12A_Problems/Problem_15",
+    "difficulty": 2.0
+  },
+  {
+    "problem": "A $\\emph{triangular number}$ is a positive integer that can be expressed in the form $t_n = 1+2+3+\\cdots+n$, for some positive integer $n$. The three smallest triangular numbers that are also perfect squares are\n$t_1 = 1 = 1^2$, $t_8 = 36 = 6^2$, and $t_{49} = 1225 = 35^2$. What is the sum of the digits of the fourth smallest triangular number that is also a perfect square?",
+    "answer": 18.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12A_Problems/Problem_16",
+    "difficulty": 4.625
+  },
+  {
+    "problem": "Suppose $a$ is a real number such that the equation \\[a\\cdot(\\sin{x}+\\sin{(2x)}) = \\sin{(3x)}\\]\nhas more than one solution in the interval $(0, \\pi)$. The set of all such $a$ that can be written\nin the form \\[(p,q) \\cup (q,r),\\]\nwhere $p, q,$ and $r$ are real numbers with $p < q< r$. What is $p+q+r$?",
+    "answer": -4.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12A_Problems/Problem_17",
+    "difficulty": 4.0
+  },
+  {
+    "problem": "Let $T_k$ be the transformation of the coordinate plane that first rotates the plane $k$ degrees counterclockwise around the origin and then reflects the plane across the $y$-axis. What is the least positive\ninteger $n$ such that performing the sequence of transformations $T_1, T_2, T_3, \\cdots, T_n$ returns the point $(1,0)$ back to itself?",
+    "answer": 359.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12A_Problems/Problem_18",
+    "difficulty": 4.0
+  },
+  {
+    "problem": "Suppose that $13$ cards numbered $1, 2, 3, \\ldots, 13$ are arranged in a row. The task is to pick them up in numerically increasing order, working repeatedly from left to right. In the example below, cards $1, 2, 3$ are picked up on the first pass, $4$ and $5$ on the second pass, $6$ on the third pass, $7, 8, 9, 10$ on the fourth pass, and $11, 12, 13$ on the fifth pass. For how many of the $13!$ possible orderings of the cards will the $13$ cards be picked up in exactly two passes?",
+    "answer": 8178.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12A_Problems/Problem_19",
+    "difficulty": 2.5625
+  },
+  {
+    "problem": "The sum of three numbers is $96.$ The first number is $6$ times the third number, and the third number is $40$ less than the second number. What is the absolute value of the difference between the first and second numbers?",
+    "answer": 5.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12A_Problems/Problem_2",
+    "difficulty": 1.0
+  },
+  {
+    "problem": "Isosceles trapezoid $ABCD$ has parallel sides $\\overline{AD}$ and $\\overline{BC},$ with $BC < AD$ and $AB = CD.$ There is a point $P$ in the plane such that $PA=1, PB=2, PC=3,$ and $PD=4.$ Let $\\frac{r}{s}=frac{BC}{AD}$ is irreducible fraction, what is the value of $r+s$?",
+    "answer": 4.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12A_Problems/Problem_20",
+    "difficulty": 4.25
+  },
+  {
+    "problem": "Let $c$ be a real number, and let $z_1$ and $z_2$ be the two complex numbers satisfying the equation\n$z^2 - cz + 10 = 0$. Points $z_1$, $z_2$, $\\frac{1}{z_1}$, and $\\frac{1}{z_2}$ are the vertices of (convex) quadrilateral $\\mathcal{Q}$ in the complex plane. When the area of $\\mathcal{Q}$ obtains its maximum possible value, let $c=\\sqrt{m}$. what is the value of m",
+    "answer": 20.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12A_Problems/Problem_22",
+    "difficulty": 4.0
+  },
+  {
+    "problem": "Let $h_n$ and $k_n$ be the unique relatively prime positive integers such that \\[\\frac{1}{1}+\\frac{1}{2}+\\frac{1}{3}+\\cdots+\\frac{1}{n}=\\frac{h_n}{k_n}.\\] Let $L_n$ denote the least common multiple of the numbers $1, 2, 3, \\ldots, n$. For how many integers with $1\\le{n}\\le{22}$ is $k_n<L_n$?",
+    "answer": 8.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12A_Problems/Problem_23",
+    "difficulty": 4.0625
+  },
+  {
+    "problem": "How many strings of length $5$ formed from the digits $0$, $1$, $2$, $3$, $4$ are there such that for each $j \\in \\{1,2,3,4\\}$, at least $j$ of the digits are less than $j$? (For example, $02214$ satisfies this condition\nbecause it contains at least $1$ digit less than $1$, at least $2$ digits less than $2$, at least $3$ digits less\nthan $3$, and at least $4$ digits less than $4$. The string $23404$ does not satisfy the condition because it\ndoes not contain at least $2$ digits less than $2$.)",
+    "answer": 1296.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12A_Problems/Problem_24",
+    "difficulty": 3.1875
+  },
+  {
+    "problem": "A circle with integer radius $r$ is centered at $(r, r)$. Distinct line segments of length $c_i$ connect points $(0, a_i)$ to $(b_i, 0)$ for $1 \\le i \\le 14$ and are tangent to the circle, where $a_i$, $b_i$, and $c_i$ are all positive integers and $c_1 \\le c_2 \\le \\cdots \\le c_{14}$. What is the ratio $\\frac{c_{14}}{c_1}$ for the least possible value of $r$?",
+    "answer": 17.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12A_Problems/Problem_25",
+    "difficulty": 4.75
+  },
+  {
+    "problem": "The least common multiple of a positive integer $n$ and $18$ is $180$, and the greatest common divisor of $n$ and $45$ is $15$. What is the sum of the digits of $n$?",
+    "answer": 6.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12A_Problems/Problem_4",
+    "difficulty": 2.0
+  },
+  {
+    "problem": "The $\\textit{taxicab distance}$ between points $(x_1, y_1)$ and $(x_2, y_2)$ in the coordinate plane is given by \\[|x_1 - x_2| + |y_1 - y_2|.\\]\nFor how many points $P$ with integer coordinates is the taxicab distance between $P$ and the origin less than or equal to $20$?",
+    "answer": 841.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12A_Problems/Problem_5",
+    "difficulty": 2.0
+  },
+  {
+    "problem": "A data set consists of $6$ (not distinct) positive integers: $1$, $7$, $5$, $2$, $5$, and $X$. The average (arithmetic mean) of the $6$ numbers equals a value in the data set. What is the sum of all possible values of $X$?",
+    "answer": 36.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12A_Problems/Problem_6",
+    "difficulty": 1.5
+  },
+  {
+    "problem": "The infinite product\n\\[\\sqrt[3]{10} \\cdot \\sqrt[3]{\\sqrt[3]{10}} \\cdot \\sqrt[3]{\\sqrt[3]{\\sqrt[3]{10}}} \\cdots\\]\nevaluates to a real number $\\sqrt{m}$. What is the value of m?",
+    "answer": 10.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12A_Problems/Problem_8",
+    "difficulty": 2.0
+  },
+  {
+    "problem": "On Halloween $31$ children walked into the principal's office asking for candy. They can be classified into three types: Some always lie; some always tell the truth; and some alternately lie and tell the truth. The alternaters arbitrarily choose their first response, either a lie or the truth, but each subsequent statement has the opposite truth value from its predecessor. The principal asked everyone the same three questions in this order. \"Are you a truth-teller?\" The principal gave a piece of candy to each of the $22$ children who answered yes. \"Are you an alternater?\" The principal gave a piece of candy to each of the $15$ children who answered yes. \"Are you a liar?\" The principal gave a piece of candy to each of the $9$ children who answered yes. How many pieces of candy in all did the principal give to the children who always tell the truth?",
+    "answer": 7.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12A_Problems/Problem_9",
+    "difficulty": 3.0
+  },
+  {
+    "problem": "Define $x\\diamond y$ to be $|x-y|$ for all real numbers $x$ and $y.$ What is the value of \\[((1\\diamond2)\\diamond3)-(1\\diamond(2\\diamond3))?\\]",
+    "answer": 2.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12B_Problems/Problem_1",
+    "difficulty": 1.0
+  },
+  {
+    "problem": "Let $f(n) = \\left( \\frac{-1+i\\sqrt{3}}{2} \\right)^n + \\left( \\frac{-1-i\\sqrt{3}}{2} \\right)^n$, where $i = \\sqrt{-1}$. What is $f(2022)$?",
+    "answer": 2.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12B_Problems/Problem_11",
+    "difficulty": 2.5
+  },
+  {
+    "problem": "Kayla rolls four fair $6$-sided dice. What is the denominator minus the numerator of the probability that at least one of the numbers Kayla rolls is greater than 4 and at least two of the numbers she rolls are greater than 2?",
+    "answer": 20.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12B_Problems/Problem_12",
+    "difficulty": 2.0
+  },
+  {
+    "problem": "The diagram below shows a rectangle with side lengths $4$ and $8$ and a square with side length $5$. Three vertices of the square lie on three different sides of the rectangle, as shown. What is the numerator of the simplest fraction that represents the area of the region inside both the square and the rectangle?",
+    "answer": 5.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12B_Problems/Problem_13",
+    "difficulty": 2.0
+  },
+  {
+    "problem": "The graph of $y=x^2+2x-15$ intersects the $x$-axis at points $A$ and $C$ and the $y$-axis at point $B$. What is the numerator of the simplest fraction that represents $\\tan(\\angle ABC)$?",
+    "answer": 4.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12B_Problems/Problem_14",
+    "difficulty": 2.0
+  },
+  {
+    "problem": "How many $4 \\times 4$ arrays whose entries are $0$s and $1$s are there such that the row sums (the sum of the entries in each row) are $1, 2, 3,$ and $4,$ in some order, and the column sums (the sum of the entries in each column) are also $1, 2, 3,$ and $4,$ in some order? Output the remainder when the answer is divided by 100.\n\nFor example, the array\n\\[\\left[   \\begin{array}{cccc}     1 & 1 & 1 & 0 \\\\     0 & 1 & 1 & 0 \\\\     1 & 1 & 1 & 1 \\\\     0 & 1 & 0 & 0 \\\\   \\end{array} \\right]\\]\nsatisfies the condition.",
+    "answer": 76.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12B_Problems/Problem_17",
+    "difficulty": 3.0
+  },
+  {
+    "problem": "Each square in a $5 \\times 5$ grid is either filled or empty, and has up to eight adjacent neighboring squares, where neighboring squares share either a side or a corner. The grid is transformed by the following rules:\n\nAny filled square with two or three filled neighbors remains filled.\nAny empty square with exactly three filled neighbors becomes a filled square.\nAll other squares remain empty or become empty.\nA sample transformation is shown in the figure below.\n\nSuppose the $5 \\times 5$ grid has a border of empty squares surrounding a $3 \\times 3$ subgrid. How many initial configurations will lead to a transformed grid consisting of a single filled square in the center after a single transformation? (Rotations and reflections of the same configuration are considered different.)",
+    "answer": 22.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12B_Problems/Problem_18",
+    "difficulty": 3.0
+  },
+  {
+    "problem": "In $\\triangle{ABC}$ medians $\\overline{AD}$ and $\\overline{BE}$ intersect at $G$ and $\\triangle{AGE}$ is equilateral. Then $\\cos(C)$ can be written as $\\frac{m\\sqrt p}n$, where $m$ and $n$ are relatively prime positive integers and $p$ is a positive integer not divisible by the square of any prime. What is $m+n+p?$",
+    "answer": 44.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12B_Problems/Problem_19",
+    "difficulty": 4.0
+  },
+  {
+    "problem": "In rhombus $ABCD$, point $P$ lies on segment $\\overline{AD}$ so that $\\overline{BP}$ $\\perp$ $\\overline{AD}$, $AP = 3$, and $PD = 2$. What is the area of $ABCD$? (Note: The figure is not drawn to scale.)\n",
+    "answer": 20.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12B_Problems/Problem_2",
+    "difficulty": 1.4375
+  },
+  {
+    "problem": "Let $P(x)$ be a polynomial with rational coefficients such that when $P(x)$ is divided by the polynomial\n$x^2 + x + 1$, the remainder is $x+2$, and when $P(x)$ is divided by the polynomial $x^2+1$, the remainder\nis $2x+1$. There is a unique polynomial of least degree with these two properties. What is the sum of\nthe squares of the coefficients of that polynomial?",
+    "answer": 23.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12B_Problems/Problem_20",
+    "difficulty": 4.0
+  },
+  {
+    "problem": "Let $S$ be the set of circles in the coordinate plane that are tangent to each of the three circles with equations $x^{2}+y^{2}=4$, $x^{2}+y^{2}=64$, and $(x-5)^{2}+y^{2}=3$. What is the sum of the areas of all circles in $S$?Output the remainder when the answer is divided by 100.\n\n\n",
+    "answer": 36.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12B_Problems/Problem_21",
+    "difficulty": 4.0
+  },
+  {
+    "problem": "Ant Amelia starts on the number line at $0$ and crawls in the following manner. For $n=1,2,3,$ Amelia chooses a time duration $t_n$ and an increment $x_n$ independently and uniformly at random from the interval $(0,1).$ During the $n$th step of the process, Amelia moves $x_n$ units in the positive direction, using up $t_n$ minutes. If the total elapsed time has exceeded $1$ minute during the $n$th step, she stops at the end of that step; otherwise, she continues with the next step, taking at most $3$ steps in all. What is the denominator plus the numerator of thethe probability that Amelia’s position when she stops will be greater than $1$?",
+    "answer": 5.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12B_Problems/Problem_22",
+    "difficulty": 4.0
+  },
+  {
+    "problem": "Let $x_0,x_1,x_2,\\dotsc$ be a sequence of numbers, where each $x_k$ is either $0$ or $1$. For each positive integer $n$, define \n\\[S_n = \\sum_{k=0}^{n-1} x_k 2^k\\]\nSuppose $7S_n \\equiv 1 \\pmod{2^n}$ for all $n \\geq 1$. What is the value of the sum  \n\\[x_{2019} + 2x_{2020} + 4x_{2021} + 8x_{2022}?\\]",
+    "answer": 6.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12B_Problems/Problem_23",
+    "difficulty": 6.0
+  },
+  {
+    "problem": "The figure below depicts a regular $7$-gon inscribed in a unit circle.\n[asy]         import geometry; unitsize(3cm); draw(circle((0,0),1),linewidth(1.5)); for (int i = 0; i < 7; ++i) {   for (int j = 0; j < i; ++j) {     draw(dir(i * 360/7) -- dir(j * 360/7),linewidth(1.5));   } } for(int i = 0; i < 7; ++i) {    dot(dir(i * 360/7),5+black); } [/asy]\nWhat is the sum of the $4$th powers of the lengths of all $21$ of its edges and diagonals?Output the remainder when the answer is divided by 100.\n\n",
+    "answer": 47.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12B_Problems/Problem_24",
+    "difficulty": 4.0
+  },
+  {
+    "problem": "Four regular hexagons surround a square with side length 1, each one sharing an edge with the square,\nas shown in the figure below. The area of the resulting 12-sided outer nonconvex polygon can be\nwritten as $m \\sqrt{n} + p$, where $m$, $n$, and $p$ are integers and $n$ is not divisible by the square of any prime.\nWhat is the absolute value of $m+n+p$?\n[asy]         import geometry;         unitsize(3cm);         draw((0,0) -- (1,0) -- (1,1) -- (0,1) -- cycle);         draw(shift((1/2,1-sqrt(3)/2))*polygon(6));         draw(shift((1/2,sqrt(3)/2))*polygon(6));         draw(shift((sqrt(3)/2,1/2))*rotate(90)*polygon(6));         draw(shift((1-sqrt(3)/2,1/2))*rotate(90)*polygon(6));                 draw((0,1-sqrt(3))--(1,1-sqrt(3))--(3-sqrt(3),sqrt(3)-2)--(sqrt(3),0)--(sqrt(3),1)--(3-sqrt(3),3-sqrt(3))--(1,sqrt(3))--(0,sqrt(3))--(sqrt(3)-2,3-sqrt(3))--(1-sqrt(3),1)--(1-sqrt(3),0)--(sqrt(3)-2,sqrt(3)-2)--cycle,linewidth(2)); [/asy]",
+    "answer": 4.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12B_Problems/Problem_25",
+    "difficulty": 2.0
+  },
+  {
+    "problem": "How many of the first ten numbers of the sequence $121, 11211, 1112111, \\ldots$ are prime numbers?",
+    "answer": 0.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12B_Problems/Problem_3",
+    "difficulty": 2.0
+  },
+  {
+    "problem": "For how many values of the constant $k$ will the polynomial $x^{2}+kx+36$ have two distinct integer roots?",
+    "answer": 8.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12B_Problems/Problem_4",
+    "difficulty": 2.0
+  },
+  {
+    "problem": "What is the sum of the x and y coordinates of the new position of the point $(-1, -2)$ after rotating $270^{\\circ}$ counterclockwise about the point $(3, 1)$?",
+    "answer": 5.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12B_Problems/Problem_5",
+    "difficulty": 2.0
+  },
+  {
+    "problem": "Consider the following $100$ sets of $10$ elements each:\n\\begin{align*} &\\{1,2,3,\\ldots,10\\}, \\\\ &\\{11,12,13,\\ldots,20\\},\\\\ &\\{21,22,23,\\ldots,30\\},\\\\ &\\vdots\\\\ &\\{991,992,993,\\ldots,1000\\}. \\end{align*}\nHow many of these sets contain exactly two multiples of $7$?",
+    "answer": 42.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12B_Problems/Problem_6",
+    "difficulty": 2.0
+  },
+  {
+    "problem": "Camila writes down five positive integers. The unique mode of these integers is $2$ greater than their median, and the median is $2$ greater than their arithmetic mean. What is the least possible value for the mode?",
+    "answer": 11.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12B_Problems/Problem_7",
+    "difficulty": 2.0
+  },
+  {
+    "problem": "The sequence $a_0,a_1,a_2,\\cdots$ is a strictly increasing arithmetic sequence of positive integers such that \\[2^{a_7}=2^{27} \\cdot a_7.\\] What is the minimum possible value of $a_2$?",
+    "answer": 12.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2022_AMC_12B_Problems/Problem_9",
+    "difficulty": 4.0
+  },
+  {
+    "problem": "Cities $A$ and $B$ are $45$ miles apart. Alicia lives in $A$ and Beth lives in $B$. Alicia bikes towards $B$ at 18 miles per hour. Leaving at the same time, Beth bikes toward $A$ at 12 miles per hour. How many miles from City $A$ will they be when they meet?",
+    "answer": 27.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12A_Problems/Problem_1",
+    "difficulty": 1.0625
+  },
+  {
+    "problem": "Positive real numbers $x$ and $y$ satisfy $y^3=x^2$ and $(y-x)^2=4y^2$. What is $x+y$?",
+    "answer": 36.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12A_Problems/Problem_10",
+    "difficulty": 2.0
+  },
+  {
+    "problem": "What is the degree measure of the acute angle formed by lines with slopes $2$ and $\\frac{1}{3}$?",
+    "answer": 45.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12A_Problems/Problem_11",
+    "difficulty": 2.0
+  },
+  {
+    "problem": "What is the value of\n\\[2^3 - 1^3 + 4^3 - 3^3 + 6^3 - 5^3 + \\dots + 18^3 - 17^3?\\]",
+    "answer": 3159.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12A_Problems/Problem_12",
+    "difficulty": 1.25
+  },
+  {
+    "problem": "In a table tennis tournament every participant played every other participant exactly once. Although there were twice as many right-handed players as left-handed players, the number of games won by left-handed players was $40\\%$ more than the number of games won by right-handed players. (There were no ties and no ambidextrous players.) What is the total number of games played?",
+    "answer": 36.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12A_Problems/Problem_13",
+    "difficulty": 2.0
+  },
+  {
+    "problem": "How many complex numbers satisfy the equation $z^5=\\overline{z}$, where $\\overline{z}$ is the conjugate of the complex number $z$?",
+    "answer": 7.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12A_Problems/Problem_14",
+    "difficulty": 4.25
+  },
+  {
+    "problem": "Consider the set of complex numbers $z$ satisfying $|1+z+z^{2}|=4$. The maximum value of the imaginary part of $z$ can be written in the form $\\tfrac{\\sqrt{m}}{n}$, where $m$ and $n$ are relatively prime positive integers. What is $m+n$?",
+    "answer": 21.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12A_Problems/Problem_16",
+    "difficulty": 4.0
+  },
+  {
+    "problem": "Flora the frog starts at 0 on the number line and makes a sequence of jumps to the right. In any one jump, independent of previous jumps, Flora leaps a positive integer distance $m$ with probability $\\frac{1}{2^m}$.\nWhat is the probability that Flora will eventually land at 10? Write the answer as a simplified fraction $\\frac{m}{n}$, find $m+n$",
+    "answer": 3.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12A_Problems/Problem_17",
+    "difficulty": 4.0
+  },
+  {
+    "problem": "What is the product of all solutions to the equation\n\\[\\log_{7x}2023\\cdot \\log_{289x}2023=\\log_{2023x}2023\\]",
+    "answer": 1.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12A_Problems/Problem_19",
+    "difficulty": 3.8125
+  },
+  {
+    "problem": "The weight of $\\frac{1}{3}$ of a large pizza together with $3 \\frac{1}{2}$ cups of orange slices is the same as the weight of $\\frac{3}{4}$ of a large pizza together with $\\frac{1}{2}$ cup of orange slices. A cup of orange slices weighs $\\frac{1}{4}$ of a pound. What is the weight, in pounds, of a large pizza? The answer can be written in the form $\\frac{m}{n}$, where $m$ and $n$ are relatively prime positive integers. What is $m-n$?",
+    "answer": 4.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12A_Problems/Problem_2",
+    "difficulty": 1.5
+  },
+  {
+    "problem": "Rows 1, 2, 3, 4, and 5 of a triangular array of integers are shown below.\n1\n1 1\n1 3 1\n1 5 5 1\n1 7 11 7 1\nEach row after the first row is formed by placing a 1 at each end of the row, and each interior entry is 1 greater than the sum of the two numbers diagonally above it in the previous row. What is the units digits of the sum of the 2023 numbers in the 2023rd row?",
+    "answer": 5.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12A_Problems/Problem_20",
+    "difficulty": 2.0
+  },
+  {
+    "problem": "If $A$ and $B$ are vertices of a polyhedron, define the distance $d(A,B)$ to be the minimum number of edges of the polyhedron one must traverse in order to connect $A$ and $B$. For example, if $\\overline{AB}$ is an edge of the polyhedron, then $d(A, B) = 1$, but if $\\overline{AC}$ and $\\overline{CB}$ are edges and $\\overline{AB}$ is not an edge, then $d(A, B) = 2$. Let $Q$, $R$, and $S$ be randomly chosen distinct vertices of a regular icosahedron (regular polyhedron made up of 20 equilateral triangles). Find the probability that $d(Q, R) > d(R, S)$. The final answer can be written in the form $\\frac{m}{n}$, where $m$ and $n$ are relatively prime positive integers. What is $m+n$?",
+    "answer": 29.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12A_Problems/Problem_21",
+    "difficulty": 3.0
+  },
+  {
+    "problem": "Let $f$ be the unique function defined on the positive integers such that \\[\\sum_{d\\mid n}d\\cdot f\\left(\\frac{n}{d}\\right)=1\\] for all positive integers $n$. What is $f(2023)$?",
+    "answer": 96.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12A_Problems/Problem_22",
+    "difficulty": 6.625
+  },
+  {
+    "problem": "How many ordered pairs of positive real numbers $(a,b)$ satisfy the equation\n\\[(1+2a)(2+2b)(2a+b) = 32ab?\\]",
+    "answer": 1.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12A_Problems/Problem_23",
+    "difficulty": 3.625
+  },
+  {
+    "problem": "Let $K$ be the number of sequences $A_1$, $A_2$, $\\dots$, $A_n$ such that $n$ is a positive integer less than or equal to $10$, each $A_i$ is a subset of $\\{1, 2, 3, \\dots, 10\\}$, and $A_{i-1}$ is a subset of $A_i$ for each $i$ between $2$ and $n$, inclusive. For example, $\\{\\}$, $\\{5, 7\\}$, $\\{2, 5, 7\\}$, $\\{2, 5, 7\\}$, $\\{2, 5, 6, 7, 9\\}$ is one such sequence, with $n = 5$.What is the remainder when $K$ is divided by $10$?",
+    "answer": 5.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12A_Problems/Problem_24",
+    "difficulty": 5.0625
+  },
+  {
+    "problem": "There is a unique sequence of integers $a_1, a_2, \\cdots a_{2023}$ such that\n\\[\\tan2023x = \\frac{a_1 \\tan x + a_3 \\tan^3 x + a_5 \\tan^5 x + \\cdots + a_{2023} \\tan^{2023} x}{1 + a_2 \\tan^2 x + a_4 \\tan^4 x \\cdots + a_{2022} \\tan^{2022} x}\\]whenever $\\tan 2023x$ is defined. What is $a_{2023}?$",
+    "answer": -1.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12A_Problems/Problem_25",
+    "difficulty": 7.0
+  },
+  {
+    "problem": "How many positive perfect squares less than $2023$ are divisible by $5$?",
+    "answer": 8.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12A_Problems/Problem_3",
+    "difficulty": 1.5
+  },
+  {
+    "problem": "How many digits are in the base-ten representation of $8^5 \\cdot 5^{10} \\cdot 15^5$?",
+    "answer": 18.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12A_Problems/Problem_4",
+    "difficulty": 2.0
+  },
+  {
+    "problem": "Janet rolls a standard $6$-sided die $4$ times and keeps a running total of the numbers she rolls. What is the probability that at some point, her running total will equal $3$? The final answer can be written in the form $\\frac{m}{n}$, where $m$ and $n$ are relatively prime positive integers. What is $m+n$?",
+    "answer": 265.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12A_Problems/Problem_5",
+    "difficulty": 2.0
+  },
+  {
+    "problem": "Points $A$ and $B$ lie on the graph of $y=\\log_{2}x$. The midpoint of $\\overline{AB}$ is $(6, 2)$. What is the positive difference between the $x$-coordinates of $A$ and $B$? The final answer can be written in the form $m \\sqrt{n}$, where $m$ and $n$ are relatively prime positive integers. What is $m+n$?",
+    "answer": 9.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12A_Problems/Problem_6",
+    "difficulty": 2.0
+  },
+  {
+    "problem": "A digital display shows the current date as an $8$-digit integer consisting of a $4$-digit year, followed by a $2$-digit month, followed by a $2$-digit date within the month. For example, Arbor Day this year is displayed as 20230428. For how many dates in $2023$ will each digit appear an even number of times in the 8-digital display for that date?",
+    "answer": 9.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12A_Problems/Problem_7",
+    "difficulty": 2.0
+  },
+  {
+    "problem": "Maureen is keeping track of the mean of her quiz scores this semester. If Maureen scores an $11$ on the next quiz, her mean will increase by $1$. If she scores an $11$ on each of the next three quizzes, her mean will increase by $2$. What is the mean of her quiz scores currently?",
+    "answer": 7.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12A_Problems/Problem_8",
+    "difficulty": 2.0
+  },
+  {
+    "problem": "Mrs. Jones is pouring orange juice into four identical glasses for her four sons. She fills the first three glasses completely but runs out of juice when the fourth glass is only $\\frac{1}{3}$ full. What fraction of a glass must Mrs. Jones pour from each of the first three glasses into the fourth glass so that all four glasses will have the same amount of juice? The final answer can be written in the form $\\frac{m}{n}$, where $m$ and $n$ are relatively prime positive integers. What is $m+n$?",
+    "answer": 7.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12B_Problems/Problem_1",
+    "difficulty": 1.0
+  },
+  {
+    "problem": "In the $xy$-plane, a circle of radius $4$ with center on the positive $x$-axis is tangent to the $y$-axis at the origin, and a circle with radius $10$ with center on the positive $y$-axis is tangent to the $x$-axis at the origin. What is the slope of the line passing through the two points at which these circles intersect? The final answer can be written in the form $\\frac{m}{n}$, where $m$ and $n$ are relatively prime positive integers. What is $m+n$?",
+    "answer": 7.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12B_Problems/Problem_10",
+    "difficulty": 2.0
+  },
+  {
+    "problem": "Calculate the maximum area of an isosceles trapezoid that has legs of length $1$ and one base twice as long as the other. The final answer can be written in the form $\\frac{m}{n}$, where $m$ and $n$ are relatively prime positive integers. What is $m^2+n^2$?",
+    "answer": 13.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12B_Problems/Problem_11",
+    "difficulty": 2.0
+  },
+  {
+    "problem": "For complex number $u = a+bi$ and $v = c+di$ (where $i=\\sqrt{-1}$), define the binary operation\n$u \\otimes v = ac + bdi$\nSuppose $z$ is a complex number such that $z\\otimes z = z^{2}+40$. What is $|z|^2$?",
+    "answer": 50.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12B_Problems/Problem_12",
+    "difficulty": 4.0
+  },
+  {
+    "problem": "A rectangular box $P$ has distinct edge lengths $a$, $b$, and $c$. The sum of the lengths of all $12$ edges of $P$ is $13$, the areas of all $6$ faces of $P$ is $\\frac{11}{2}$, and the volume of $P$ is $\\frac{1}{2}$. Find the length of the longest interior diagonal connecting two vertices of $P$. The final answer can be written in the form $\\frac{m}{n}$, where $m$ and $n$ are relatively prime positive integers. What is $m+n$?",
+    "answer": 13.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12B_Problems/Problem_13",
+    "difficulty": 2.0
+  },
+  {
+    "problem": "For how many ordered pairs $(a,b)$ of integers does the polynomial $x^3+ax^2+bx+6$ have $3$ distinct integer roots?",
+    "answer": 5.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12B_Problems/Problem_14",
+    "difficulty": 3.875
+  },
+  {
+    "problem": "In the state of Coinland, coins have values $6,10,$ and $15$ cents. Suppose $x$ is the value in cents of the most expensive item in Coinland that cannot be purchased using these coins with exact change. What is the sum of the digits of $x?$",
+    "answer": 11.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12B_Problems/Problem_16",
+    "difficulty": 2.0
+  },
+  {
+    "problem": "Triangle $ABC$ has side lengths in arithmetic progression, and the smallest side has length $6.$ If the triangle has an angle of $120^\\circ,$ Find the area of $ABC$. The final answer can be simplified in the form $m \\sqrt{n}$, where $m$ and $n$ are positive integers and $n$ without square factore. What is $m+n$?",
+    "answer": 18.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12B_Problems/Problem_17",
+    "difficulty": 2.5
+  },
+  {
+    "problem": "Carlos went to a sports store to buy running shoes. Running shoes were on sale, with prices reduced by $20\\%$ on every pair of shoes. Carlos also knew that he had to pay a $7.5\\%$ sales tax on the discounted price. He had $$43$ dollars. What is the original (before discount) price of the most expensive shoes he could afford to buy? ",
+    "answer": 50.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12B_Problems/Problem_2",
+    "difficulty": 1.5
+  },
+  {
+    "problem": "When $n$ standard six-sided dice are rolled, the product of the numbers rolled can be any of $936$ possible values. What is $n$?",
+    "answer": 11.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12B_Problems/Problem_23",
+    "difficulty": 2.0
+  },
+  {
+    "problem": "Suppose that $a$, $b$, $c$ and $d$ are positive integers satisfying all of the following relations.\n\\[abcd=2^6\\cdot 3^9\\cdot 5^7\\]\n\\[\\text{lcm}(a,b)=2^3\\cdot 3^2\\cdot 5^3\\]\n\\[\\text{lcm}(a,c)=2^3\\cdot 3^3\\cdot 5^3\\]\n\\[\\text{lcm}(a,d)=2^3\\cdot 3^3\\cdot 5^3\\]\n\\[\\text{lcm}(b,c)=2^1\\cdot 3^3\\cdot 5^2\\]\n\\[\\text{lcm}(b,d)=2^2\\cdot 3^3\\cdot 5^2\\]\n\\[\\text{lcm}(c,d)=2^2\\cdot 3^3\\cdot 5^2\\]\nWhat is $\\text{gcd}(a,b,c,d)$?",
+    "answer": 3.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12B_Problems/Problem_24",
+    "difficulty": 2.9375
+  },
+  {
+    "problem": "A $3-4-5$ right triangle is inscribed in circle $A$, and a $5-12-13$ right triangle is inscribed in circle $B$. Find the ratio of the area of circle $A$ to the area of circle $B$. The final answer can be written in the form $\\frac{m}{n}$, where $m$ and $n$ are relatively prime positive integers. What is $m+n$?",
+    "answer": 194.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12B_Problems/Problem_3",
+    "difficulty": 1.6875
+  },
+  {
+    "problem": "Jackson's paintbrush makes a narrow strip with a width of $6.5$ millimeters. Jackson has enough paint to make a strip $25$ meters long. How many square centimeters of paper could Jackson cover with paint?",
+    "answer": 1625.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12B_Problems/Problem_4",
+    "difficulty": 1.0
+  },
+  {
+    "problem": "You are playing a game. A $2 \\times 1$ rectangle covers two adjacent squares (oriented either horizontally or vertically) of a $3 \\times 3$ grid of squares, but you are not told which two squares are covered. Your goal is to find at least one square that is covered by the rectangle. A \"turn\" consists of you guessing a square, after which you are told whether that square is covered by the hidden rectangle. What is the minimum number of turns you need to ensure that at least one of your guessed squares is covered by the rectangle?",
+    "answer": 4.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12B_Problems/Problem_5",
+    "difficulty": 2.0
+  },
+  {
+    "problem": "When the roots of the polynomial \n\\[P(x)  = (x-1)^1 (x-2)^2 (x-3)^3 \\cdot \\cdot \\cdot (x-10)^{10}\\]\nare removed from the number line, what remains is the union of $11$ disjoint open intervals. On how many of these intervals is $P(x)$ positive?",
+    "answer": 6.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12B_Problems/Problem_6",
+    "difficulty": 4.0
+  },
+  {
+    "problem": "For how many integers $n$ does the expression\\[\\sqrt{\\frac{\\log (n^2) - (\\log n)^2}{\\log n - 3}}\\]represent a real number, where log denotes the base $10$ logarithm?",
+    "answer": 901.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12B_Problems/Problem_7",
+    "difficulty": 3.75
+  },
+  {
+    "problem": "How many nonempty subsets $B$ of ${0, 1, 2, 3, \\cdots, 12}$ have the property that the number of elements in $B$ is equal to the least element of $B$? For example, $B = {4, 6, 8, 11}$ satisfies the condition.",
+    "answer": 144.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12B_Problems/Problem_8",
+    "difficulty": 2.625
+  },
+  {
+    "problem": "What is the area of the region in the coordinate plane defined by\n$| | x | - 1 | + | | y | - 1 | \\le 1$?",
+    "answer": 8.0,
+    "url": "https://artofproblemsolving.com/wiki/index.php/2023_AMC_12B_Problems/Problem_9",
+    "difficulty": 2.0
+  }
+]
