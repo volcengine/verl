@@ -360,7 +360,7 @@ rollout_rs = "sequence"  # Optional: rejection sampling
 - Multiplicative aggregation across sequence
 - More sensitive to outliers than token-level
 - Typical threshold: 2.0 - 10.0
-- Optional batch normalization: $\tilde{w}_{\text{seq}} = w_{\text{seq}} / \mathbb{E}[w_{\text{seq}}]$ ensures $\mathbb{E}[\tilde{w}_{\text{seq}}] = 1$ (reduces variance)
+- Optional batch normalization available (see §3.6)
 
 **Loss function (REINFORCE + Sequence IS):**
 
@@ -453,7 +453,38 @@ $$
 
 ---
 
-### 3.6 Combination Matrix
+### 3.6 Batch Normalization
+
+An optional variance reduction technique that normalizes IS weights to have mean 1.0 within each batch.
+
+**Configuration:**
+```python
+rollout_is_batch_normalize = True  # Default: False
+```
+
+**Normalization formula:**
+
+$$
+\tilde{w}_i = \frac{w_i}{\frac{1}{N}\sum_{j=1}^N w_j}
+$$
+
+where $w_i$ are the truncated IS weights and $N$ is the batch size.
+
+**Properties:**
+- Applied **after** truncation to preserve truncation semantics
+- Ensures $\mathbb{E}[\tilde{w}] = 1$ within each batch
+- Works with all IS aggregation levels (token, sequence)
+- Uses `masked_mean` to respect padding tokens
+- Reduces gradient magnitude variance by removing random batch-level scale fluctuations
+
+**Metrics:**
+- `rollout_is_batch_norm_factor`: The normalization factor applied (batch mean before normalization)
+
+**Implementation:** [rollout_corr_helper.py](../../verl/trainer/ppo/rollout_corr_helper.py#L395-L405)
+
+---
+
+### 3.7 Combination Matrix
 
 #### Available Preset Methods
 
@@ -514,7 +545,7 @@ config = RolloutCorrectionConfig(
 
 ---
 
-### 3.7 Common Implementation Mistake
+### 3.8 Common Implementation Mistake
 
 #### Incorrect LLM-RL Implementation (PPO Without Rollout Correction)
 
