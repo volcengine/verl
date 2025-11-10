@@ -320,6 +320,7 @@ def compute_rollout_correction_weights(
     response_mask: torch.Tensor,
     rollout_is: str = "token",
     rollout_is_threshold: float = 2.0,
+    rollout_is_batch_normalize: bool = False,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """Compute importance sampling weights to correct for off-policy distribution shifts.
 
@@ -329,6 +330,7 @@ def compute_rollout_correction_weights(
     Key design:
     - Log-space computations to avoid overflow
     - Truncation of extreme weights (TIS: Truncated Importance Sampling)
+    - Optional batch normalization (normalize to mean=1.0)
     - Metrics tracking for weight distribution analysis
 
     Args:
@@ -341,15 +343,18 @@ def compute_rollout_correction_weights(
             - "sequence": Per-sequence weight (product of tokens; unbiased, high variance)
         rollout_is_threshold: Upper threshold for truncating extreme weights (e.g., 2.0),
             default 2.0.
+        rollout_is_batch_normalize: Whether to normalize IS weights to have mean=1.0 per batch,
+            default False.
 
     Returns:
         Tuple containing:
             rollout_is_weights: Truncated IS weights (masked to zero for padding tokens),
-                shape (batch_size, seq_length).
+                shape (batch_size, seq_length). If batch_normalize=True, normalized to mean=1.0.
             metrics: Dictionary of IS weight metrics (all scalars), including:
-                - rollout_is_mean/max/min: Statistic of truncated weights
+                - rollout_is_mean/max/min: Statistic of weights (before batch normalization)
                 - rollout_is_eff_sample_size: Effective sample size (ESS)
                 - rollout_is_seq_*: Sequence-level weight statistics
+                - rollout_is_batch_norm_factor: Normalization factor (only if batch_normalize=True)
     """
     # Validate input parameters
     valid_is_levels = {"token", "sequence"}
@@ -392,6 +397,17 @@ def compute_rollout_correction_weights(
 
     # Truncate extreme weights (TIS: Truncated Importance Sampling)
     rollout_is_weights = rollout_is_weights.clamp(max=rollout_is_threshold)
+
+    # Apply batch normalization if requested
+    if rollout_is_batch_normalize:
+        # Compute mean of non-padding weights
+        weights_mean = verl_F.masked_mean(rollout_is_weights, response_mask)
+        # Normalize to mean=1.0 (avoid division by zero)
+        if weights_mean > 1e-8:
+            rollout_is_weights = rollout_is_weights / weights_mean
+            metrics["rollout_is_batch_norm_factor"] = weights_mean.item()
+        else:
+            metrics["rollout_is_batch_norm_factor"] = 1.0
 
     return rollout_is_weights, metrics
 
@@ -521,6 +537,7 @@ def compute_rollout_correction_and_rejection_mask(
     rollout_rs_threshold: Optional[float] = 2.0,
     rollout_rs_threshold_lower: Optional[float] = None,
     rollout_token_veto_threshold: Optional[float] = None,
+    rollout_is_batch_normalize: bool = False,
 ) -> tuple[Optional[DataProto], torch.Tensor, dict[str, float]]:
     """Unified interface for computing IS weights and rejection masks.
 
@@ -552,6 +569,8 @@ def compute_rollout_correction_and_rejection_mask(
             Defaults to 1/rollout_rs_threshold if None.
         rollout_token_veto_threshold: Minimum allowed token-level IS weight. Sequences containing
             any token below this threshold are fully rejected. Set to None to disable veto.
+        rollout_is_batch_normalize: Whether to normalize IS weights to have mean=1.0 per batch.
+            Default: False.
 
     Returns:
         Tuple containing:
@@ -590,6 +609,7 @@ def compute_rollout_correction_and_rejection_mask(
             response_mask=response_mask,
             rollout_is=rollout_is,
             rollout_is_threshold=rollout_is_threshold,
+            rollout_is_batch_normalize=rollout_is_batch_normalize,
         )
         metrics.update(is_metrics)
 
@@ -805,6 +825,7 @@ def compute_rollout_correction_and_add_to_batch(
     rollout_rs_threshold = rollout_corr_config.get("rollout_rs_threshold", None)
     rollout_rs_threshold_lower = rollout_corr_config.get("rollout_rs_threshold_lower", None)
     rollout_token_veto_threshold = rollout_corr_config.get("rollout_token_veto_threshold", None)
+    rollout_is_batch_normalize = rollout_corr_config.get("rollout_is_batch_normalize", False)
 
     # Compute IS weights and get modified response_mask
     rollout_is_weights, modified_response_mask, rollout_corr_metrics = compute_rollout_correction_and_rejection_mask(
@@ -817,6 +838,7 @@ def compute_rollout_correction_and_add_to_batch(
         rollout_rs_threshold=rollout_rs_threshold,
         rollout_rs_threshold_lower=rollout_rs_threshold_lower,
         rollout_token_veto_threshold=rollout_token_veto_threshold,
+        rollout_is_batch_normalize=rollout_is_batch_normalize,
     )
 
     # ALWAYS update response_mask with rejection applied
@@ -866,12 +888,15 @@ def compute_rollout_corr_metrics_from_logprobs(
         if isinstance(rollout_corr_config, dict):
             rollout_is_mode = rollout_corr_config.get("rollout_is", "token")
             rollout_is_threshold = rollout_corr_config.get("rollout_is_threshold", 2.0)
+            rollout_is_batch_normalize = rollout_corr_config.get("rollout_is_batch_normalize", False)
         else:
             rollout_is_mode = getattr(rollout_corr_config, "rollout_is", "token")
             rollout_is_threshold = getattr(rollout_corr_config, "rollout_is_threshold", 2.0)
+            rollout_is_batch_normalize = getattr(rollout_corr_config, "rollout_is_batch_normalize", False)
     else:
         rollout_is_mode = "token"
         rollout_is_threshold = 2.0
+        rollout_is_batch_normalize = False
 
     # Compute IS weights fresh from log probabilities
     log_ratio = log_prob - rollout_log_prob
@@ -880,6 +905,7 @@ def compute_rollout_corr_metrics_from_logprobs(
         response_mask=response_mask,
         rollout_is=rollout_is_mode,
         rollout_is_threshold=rollout_is_threshold,
+        rollout_is_batch_normalize=rollout_is_batch_normalize,
     )
 
     # Merge all metrics with rollout_corr/ prefix

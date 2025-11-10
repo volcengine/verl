@@ -133,6 +133,7 @@ algorithm:
   rollout_correction:
     rollout_is: token                      # IS weights: "token", "sequence", or null
     rollout_is_threshold: 2.0              # Upper threshold for IS weights
+    rollout_is_batch_normalize: false      # Batch normalize IS weights to mean=1.0
     rollout_rs: null                       # Rejection sampling: "token", "sequence", "geometric", or null
     rollout_rs_threshold: null             # RS upper threshold (required if rollout_rs is enabled)
     rollout_rs_threshold_lower: null       # RS lower threshold (auto-reciprocal if null)
@@ -225,6 +226,14 @@ Per-token veto for catastrophic outliers. Default: `null`
 - Independent of `rollout_is` and `rollout_rs` settings
 - Typical values: `1e-4` to `1e-6` when enabled
 - Example: `1e-4` catches tokens 10,000x less likely
+
+### `rollout_is_batch_normalize` (bool)
+Apply batch normalization to IS weights. Default: `False`
+- `True`: Normalize IS weights to have mean=1.0 within each batch
+- `False`: Use raw (truncated) IS weights
+- Reduces variance by ensuring average weight is 1.0 per batch
+- Applied AFTER truncation to preserve truncation semantics
+- Only affects IS weight values, not rejection sampling
 
 ## Understanding the Framework: Components and Combinations
 

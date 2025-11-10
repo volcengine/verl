@@ -1565,6 +1565,7 @@ def compute_policy_loss_with_rollout_correction(
     rollout_rs_threshold: Optional[float] = None,
     rollout_rs_threshold_lower: Optional[float] = None,
     rollout_token_veto_threshold: Optional[float] = None,
+    rollout_is_batch_normalize: bool = False,
 ):
     """Compute policy loss with pure rollout correction (no PPO clipping).
 
@@ -1598,6 +1599,7 @@ def compute_policy_loss_with_rollout_correction(
         rollout_rs_threshold: Upper threshold for rejection sampling.
         rollout_rs_threshold_lower: Lower threshold for rejection sampling.
         rollout_token_veto_threshold: Per-token veto threshold for catastrophic outliers.
+        rollout_is_batch_normalize: Whether to normalize IS weights to have mean=1.0 per batch.
 
     Returns:
         Tuple of (loss, clip_fraction, kl_divergence, clip_fraction_lower):
@@ -1645,6 +1647,7 @@ def compute_policy_loss_with_rollout_correction(
         rollout_rs_threshold=rollout_rs_threshold,
         rollout_rs_threshold_lower=rollout_rs_threshold_lower,
         rollout_token_veto_threshold=rollout_token_veto_threshold,
+        rollout_is_batch_normalize=rollout_is_batch_normalize,
     )
 
     # Extract weights tensor from DataProto (or None if disabled)
@@ -1743,6 +1746,7 @@ def compute_policy_loss_rollout_correction_wrapper(
     rollout_rs_threshold = rollout_corr_config.get("rollout_rs_threshold", None)
     rollout_rs_threshold_lower = rollout_corr_config.get("rollout_rs_threshold_lower", None)
     rollout_token_veto_threshold = rollout_corr_config.get("rollout_token_veto_threshold", None)
+    rollout_is_batch_normalize = rollout_corr_config.get("rollout_is_batch_normalize", False)
 
     # Call the actual implementation
     # In bypass mode, old_log_prob IS rollout_log_prob
@@ -1759,4 +1763,5 @@ def compute_policy_loss_rollout_correction_wrapper(
         rollout_rs_threshold=rollout_rs_threshold,
         rollout_rs_threshold_lower=rollout_rs_threshold_lower,
         rollout_token_veto_threshold=rollout_token_veto_threshold,
+        rollout_is_batch_normalize=rollout_is_batch_normalize,
     )

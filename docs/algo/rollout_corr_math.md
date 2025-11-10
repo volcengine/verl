@@ -324,6 +324,7 @@ rollout_rs = "token"  # Optional: rejection sampling
 - Independent truncation per token
 - Stable for moderate distribution shifts
 - Typical threshold: 1.5 - 5.0
+- Optional batch normalization: $\tilde{w}_t = w_t / \mathbb{E}[w_t]$ ensures $\mathbb{E}[\tilde{w}_t] = 1$ (reduces variance)
 
 **Loss function (PPO + Token IS):**
 
@@ -349,6 +350,7 @@ rollout_rs = "sequence"  # Optional: rejection sampling
 - Multiplicative aggregation across sequence
 - More sensitive to outliers than token-level
 - Typical threshold: 2.0 - 10.0
+- Optional batch normalization: $\tilde{w}_{\text{seq}} = w_{\text{seq}} / \mathbb{E}[w_{\text{seq}}]$ ensures $\mathbb{E}[\tilde{w}_{\text{seq}}] = 1$ (reduces variance)
 
 **Loss function (PPO + Sequence IS):**
 

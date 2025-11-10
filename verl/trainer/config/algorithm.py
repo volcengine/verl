@@ -123,6 +123,13 @@ class RolloutCorrectionConfig(BaseConfig):
             - False: PPO loss with IS correction (standard)
             Default: False (PPO mode)
 
+        rollout_is_batch_normalize (bool): Apply batch normalization to IS weights.
+            - True: Normalize IS weights to have mean=1.0 within each batch
+            - False: Use raw (truncated) IS weights (standard)
+            - Reduces variance by ensuring average weight is 1.0 per batch
+            - Only affects IS weight values, not rejection sampling
+            Default: False (no batch normalization)
+
     Example:
         # Create with defaults
         config = RolloutCorrectionConfig()
@@ -146,6 +153,7 @@ class RolloutCorrectionConfig(BaseConfig):
     rollout_token_veto_threshold: Optional[float] = None
     bypass_old_logprob_for_rollout: bool = False
     use_pure_rollout_correction: bool = False
+    rollout_is_batch_normalize: bool = False
 
     @classmethod
     def token_is(cls, threshold: float = 2.0) -> "RolloutCorrectionConfig":
