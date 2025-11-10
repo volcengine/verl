@@ -94,6 +94,7 @@ verl is fast with:
    :caption: Performance Tuning Guide
 
    perf/dpsk.md
+   perf/best_practices
    perf/perf_tuning
    README_vllm0.8.md
    perf/device_tuning
@@ -113,6 +114,7 @@ verl is fast with:
 
    advance/checkpoint
    advance/rope
+   advance/attention_implementation
    advance/ppo_lora.rst
    sglang_multiturn/multiturn.rst
    sglang_multiturn/interaction_system.rst
@@ -121,7 +123,8 @@ verl is fast with:
    examples/sandbox_fusion_example
    advance/rollout_trace.rst
    advance/rollout_skip.rst
-   advance/rollout_is.md
+   advance/rollout_corr.md
+   advance/rollout_corr_math.md
    advance/one_step_off
    advance/agent_loop
    advance/reward_loop

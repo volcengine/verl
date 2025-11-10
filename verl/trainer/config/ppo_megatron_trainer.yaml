@@ -15,6 +15,8 @@ defaults:
   - critic@critic: megatron_critic
   # Reward model config.
   - reward_model@reward_model: megatron_reward_model
+  # Rollout correction config.
+  - algorithm@algorithm: rollout_correction
   - _self_
 
 actor_rollout_ref:
@@ -23,7 +25,6 @@ actor_rollout_ref:
   nccl_timeout: 600 # seconds, default is 10 minutes for torch, you can set it to a larger value if you have long-running operations like 32B or 72B model using megatron
 
   model:
-
     path: ~/models/deepseek-llm-7b-chat
 
     custom_chat_template: null
@@ -72,28 +73,6 @@ algorithm:
   pf_ppo:
     reweight_method: pow # ["pow", "max_min", "max_random"]
     weight_pow: 2.0
-
-  # Rollout Importance Sampling: corrects distribution mismatch between rollout and training policies
-  # Main control: Upper threshold for IS weights (null = disabled, float = enabled)
-  # When enabled, computes IS weights and mismatch metrics (KL, PPL, etc.)
-  rollout_is_threshold: null
-
-  # Lower threshold for IS weights (null = auto-reciprocal of upper)
-  rollout_is_threshold_lower: null
-
-  # Aggregation level: "token" (biased), "sequence" (unbiased), "geometric" (experimental)
-  rollout_is_level: token
-
-  # Bounding mode: "truncate" (cap upper only), "mask" (zero outside bounds)
-  rollout_is_mode: truncate
-
-  # Per-token veto threshold for catastrophic outliers (null to disable)
-  rollout_is_veto_threshold: null
-
-  # Whether to apply IS weights to policy loss
-  # true = apply weights to loss, false = compute metrics only (no weight application)
-  # Useful for monitoring mismatch before enabling correction
-  rollout_is: false
 
 trainer:
   balance_batch: True
@@ -191,7 +170,6 @@ global_profiler:
 
 # configs for TransferQueue
 transfer_queue:
-
   # Whether to enable transfer queue
   enable: False
 

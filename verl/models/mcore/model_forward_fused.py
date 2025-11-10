@@ -74,8 +74,8 @@ def fused_forward_model_gen(vision_model: bool = False):
         multi_modal_inputs: dict,
     ):
         pre_process: bool = (
-            unwrap_model(model).pre_process if not vision_model else True
-        )  # vision model always needs pre_process
+            unwrap_model(model).pre_process if not vision_model else False
+        )  # vision model does not need pre_process, because we pack the input_ids to thd in the forward function
         post_process: bool = unwrap_model(model).post_process
 
         model_kwargs = {}
@@ -83,6 +83,10 @@ def fused_forward_model_gen(vision_model: bool = False):
             model_kwargs["pixel_values"] = multi_modal_inputs["pixel_values"].to(input_ids.device)
         if "image_grid_thw" in multi_modal_inputs:
             model_kwargs["image_grid_thw"] = multi_modal_inputs["image_grid_thw"].to(input_ids.device)
+        if "pixel_values_videos" in multi_modal_inputs:
+            model_kwargs["pixel_values_videos"] = multi_modal_inputs["pixel_values_videos"].to(input_ids.device)
+        if "video_grid_thw" in multi_modal_inputs:
+            model_kwargs["video_grid_thw"] = multi_modal_inputs["video_grid_thw"].to(input_ids.device)
 
         batch_size, seq_len = attention_mask.shape[:2]
         input_ids_rmpad, packed_seq_params = preprocess_packed_seqs(input_ids, attention_mask, pre_process=pre_process)
@@ -92,15 +96,25 @@ def fused_forward_model_gen(vision_model: bool = False):
         labels_rmpad = labels_rmpad.contiguous()
         labels_mask_rmpad = labels_mask_rmpad.contiguous()
 
-        output_orig: CausalLMOutputForPPO = model(
+        input_args = dict(
             input_ids=input_ids_rmpad,
             attention_mask=None,
             position_ids=position_ids if not vision_model else None,  # vision models will calculate position_ids
-            labels=labels_rmpad,
             packed_seq_params=packed_seq_params,
+            labels=labels_rmpad,
             temperature=temperature,
             **model_kwargs,
         )
+
+        if vision_model:
+            # workaround for supporting sequence packing with context parallelism
+            # cp split with sequence packing will make model lose vision token information, so we need to keep
+            # the original input_ids and pack them after vision embedding is calculated,
+            # cooporate with mbridge
+            input_args["input_ids"] = input_ids
+            input_args["attention_mask"] = attention_mask
+
+        output_orig: CausalLMOutputForPPO = model(**input_args)
 
         if post_process:
             # output_orig is in type of CausalLMOutputForPPO

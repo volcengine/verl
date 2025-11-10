@@ -68,8 +68,10 @@ except ModuleNotFoundError:
     # https://github.com/vllm-project/vllm/commit/6a113d9aed8221a9c234535958e70e34ab6cac5b
     from vllm.v1.worker.worker_base import WorkerWrapperBase
 
+from packaging import version as vs
+
 from verl import DataProto
-from verl.third_party.vllm import VLLM_SLEEP_LEVEL
+from verl.third_party.vllm import VLLM_SLEEP_LEVEL, get_version
 from verl.utils.device import is_npu_available
 from verl.utils.distributed import initialize_global_process_group_ray
 from verl.utils.model import get_lora_rank_from_adapter
@@ -108,6 +110,16 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> list[in
 
 if is_version_ge(pkg="vllm", minver="0.7.3"):
     VLLMHijack.hijack()
+
+
+def _check_vllm_version_for_sleep_level():
+    # https://github.com/vllm-project/vllm/issues/25171
+    minver = "0.11.0"
+    current_version = get_version("vllm")
+    if not current_version:
+        logger.warning("Could not determine vLLM version, assuming an older version for sleep_level configuration.")
+        return False
+    return vs.parse(current_version) >= vs.parse(minver)
 
 
 class vLLMRollout(BaseRollout):
@@ -519,8 +531,8 @@ class vLLMAsyncRollout(BaseRollout):
             else {}
         )
 
-        # https://github.com/vllm-project/vllm/issues/25171
-        if config.layered_summon or config.expert_parallel_size > 1:
+        if config.layered_summon or (config.expert_parallel_size > 1 and not _check_vllm_version_for_sleep_level()):
+            logger.warning("Setting the sleep level to 1 may cause a memory overflow.")
             self.sleep_level = 1
         else:
             self.sleep_level = VLLM_SLEEP_LEVEL
