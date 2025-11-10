@@ -811,9 +811,9 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 if hasattr(self.profiler._impl, "sampler"):
                     out_dir = OmegaConf.select(self.config, "actor.profiler.save_path") or "."
                     self.profiler._impl.sampler.dump_memory_snapshot(out_dir=out_dir, tag=tag, sub_dir=sub_dir)
-            except Exception:
-                # silently ignore if profiler doesn't support memory snapshots
-                pass
+            except Exception as e:
+                # Log a warning if memory snapshot fails. This might be expected if the profiler doesn't support it.
+                logger.warning(f"Failed to dump memory snapshot: {e}")
 
 class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
