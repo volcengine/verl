@@ -855,7 +855,6 @@ def compute_rollout_corr_metrics_from_logprobs(
     log_prob: torch.Tensor,
     rollout_log_prob: torch.Tensor,
     response_mask: torch.Tensor,
-    rollout_corr_config: Optional[RolloutCorrectionConfig | dict] = None,
 ) -> dict[str, float]:
     """Compute rollout correction metrics from log probabilities during training.
 
@@ -863,15 +862,12 @@ def compute_rollout_corr_metrics_from_logprobs(
     log probabilities versus rollout log probabilities, allowing tracking of the
     off-policy gap as training progresses.
 
-    It computes two categories of metrics:
-    1. Off-policy diagnostics (KL, PPL, χ²) from log probabilities
-    2. IS weight statistics (mean, std, ESS, etc.) computed fresh from log_probs
+    It computes off-policy diagnostic metrics (KL, PPL, χ²) from log probabilities.
 
     Args:
         log_prob: Current policy log probabilities, shape (batch_size, seq_length)
         rollout_log_prob: Rollout policy log probabilities, shape (batch_size, seq_length)
         response_mask: Valid token mask, shape (batch_size, seq_length)
-        rollout_corr_config: Rollout correction config containing rollout_is mode and threshold
 
     Returns:
         Dictionary of metrics with "rollout_corr/" prefix
@@ -883,35 +879,9 @@ def compute_rollout_corr_metrics_from_logprobs(
         response_mask=response_mask,
     )
 
-    # Determine rollout_is mode and threshold from config
-    if rollout_corr_config is not None:
-        if isinstance(rollout_corr_config, dict):
-            rollout_is_mode = rollout_corr_config.get("rollout_is", "token")
-            rollout_is_threshold = rollout_corr_config.get("rollout_is_threshold", 2.0)
-            rollout_is_batch_normalize = rollout_corr_config.get("rollout_is_batch_normalize", False)
-        else:
-            rollout_is_mode = getattr(rollout_corr_config, "rollout_is", "token")
-            rollout_is_threshold = getattr(rollout_corr_config, "rollout_is_threshold", 2.0)
-            rollout_is_batch_normalize = getattr(rollout_corr_config, "rollout_is_batch_normalize", False)
-    else:
-        rollout_is_mode = "token"
-        rollout_is_threshold = 2.0
-        rollout_is_batch_normalize = False
-
-    # Compute IS weights fresh from log probabilities
-    log_ratio = log_prob - rollout_log_prob
-    _, is_metrics = compute_rollout_correction_weights(
-        log_ratio=log_ratio,
-        response_mask=response_mask,
-        rollout_is=rollout_is_mode,
-        rollout_is_threshold=rollout_is_threshold,
-        rollout_is_batch_normalize=rollout_is_batch_normalize,
-    )
-
-    # Merge all metrics with rollout_corr/ prefix
-    all_metrics = {**offpolicy_metrics, **is_metrics}
+    # Add rollout_corr/ prefix to all metrics
     metrics_with_prefix = {}
-    for key, value in all_metrics.items():
+    for key, value in offpolicy_metrics.items():
         if isinstance(value, torch.Tensor):
             metrics_with_prefix[f"rollout_corr/{key}"] = value.item()
         else:
