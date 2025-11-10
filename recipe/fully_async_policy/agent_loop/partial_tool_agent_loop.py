@@ -136,7 +136,7 @@ class AsyncPartialToolAgentLoop(ToolAgentLoop):
         agent_data = output.extra_fields.get("agent_data", None)
         agent_state = output.extra_fields.get("agent_state", None)
         if agent_data is None or agent_state is None:
-            raise ValueError(f"Unexpected situation: agent_data is {None}, agent_state is {agent_state}")
+            raise ValueError(f"Unexpected situation: agent_data is {agent_data}, agent_state is {agent_state}")
         return agent_data, agent_state
 
     async def _run_state_machine(
