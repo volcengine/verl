@@ -4,6 +4,16 @@
 
 Last updated: 10/30/2025.
 
+---
+
+> **📖 Documentation Structure**
+> - **This document** - Practical usage guide: configurations, presets, troubleshooting
+> - **[Mathematical Formulations](rollout_corr_math.md)** - Theoretical foundations, derivations, and algorithmic details
+>
+> Start here for implementation, refer to the math doc for theory and design rationale.
+
+---
+
 This document provides a comprehensive overview of the Rollout Correction implementation in verl.
 
 **Note on Naming**: This feature is called "Rollout Correction" to reflect the complete functionality: importance sampling (IS) weights, rejection sampling (RS), and veto mechanism. The internal variable `rollout_is_weights` retains its name as it specifically refers to the IS weights component.

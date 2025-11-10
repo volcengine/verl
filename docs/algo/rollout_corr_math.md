@@ -5,6 +5,14 @@
 
 ---
 
+> **📖 Documentation Structure**
+> - **This document** - Mathematical theory: formulations, derivations, and algorithmic foundations
+> - **[Rollout Correction Usage Guide](rollout_corr.md)** - Practical implementation: configurations, presets, troubleshooting
+>
+> Start here for theory and design rationale, refer to the usage guide for implementation.
+
+---
+
 ## Abstract
 
 This document provides the definitive mathematical formulations for rollout correction methods in `verl`, following the natural progression from **REINFORCE** to **PPO** to **Decoupled PPO**.
