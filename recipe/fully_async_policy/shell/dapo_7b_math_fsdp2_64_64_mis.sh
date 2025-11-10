@@ -76,13 +76,13 @@ trigger_parameter_sync_step=4
 require_batches=4
 partial_rollout=True
 
-# Rollout Importance Sampling
+# Rollout Correction
+rollout_is=geometric
 rollout_is_threshold=1.001
-rollout_is=True
-rollout_is_threshold_lower=0.99
-rollout_is_level=geometric
-rollout_is_mode=mask
-rollout_is_veto_threshold=1e-4
+rollout_rs=geometric
+rollout_rs_threshold=1.001
+rollout_rs_threshold_lower=0.99
+rollout_token_veto_threshold=1e-4
 
 python -m recipe.fully_async_policy.fully_async_main \
     data.train_files="${TRAIN_FILE}" \
@@ -169,10 +169,10 @@ python -m recipe.fully_async_policy.fully_async_main \
     async_training.partial_rollout="${partial_rollout}" \
     async_training.use_rollout_log_probs=True \
     async_training.compute_prox_log_prob=True \
-    algorithm.rollout_is=${rollout_is} \
-    algorithm.rollout_is_threshold=${rollout_is_threshold} \
-    algorithm.rollout_is_threshold_lower=${rollout_is_threshold_lower} \
-    algorithm.rollout_is_level=${rollout_is_level} \
-    algorithm.rollout_is_mode=${rollout_is_mode} \
-    algorithm.rollout_is_veto_threshold=${rollout_is_veto_threshold}
+    algorithm.rollout_correction.rollout_is=${rollout_is} \
+    algorithm.rollout_correction.rollout_is_threshold=${rollout_is_threshold} \
+    algorithm.rollout_correction.rollout_rs=${rollout_rs} \
+    algorithm.rollout_correction.rollout_rs_threshold=${rollout_rs_threshold} \
+    algorithm.rollout_correction.rollout_rs_threshold_lower=${rollout_rs_threshold_lower} \
+    algorithm.rollout_correction.rollout_token_veto_threshold=${rollout_token_veto_threshold}
 
