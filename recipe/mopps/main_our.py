@@ -69,7 +69,9 @@ def run_ppo(config) -> None:
     if not ray.is_initialized():
         # this is for local ray cluster
         ray.init(
-            runtime_env={"env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN", "VLLM_LOGGING_LEVEL": "WARN"}},
+            runtime_env={
+                "env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN", "VLLM_LOGGING_LEVEL": "WARN"}
+            },
             num_cpus=config.ray_init.num_cpus,
         )
 
@@ -104,19 +106,19 @@ class TaskRunner:
         if config.actor_rollout_ref.actor.strategy in ["fsdp", "fsdp2"]:
             assert config.critic.strategy in ["fsdp", "fsdp2"]
             from verl.single_controller.ray import RayWorkerGroup
-            from verl.workers.fsdp_workers import (ActorRolloutRefWorker,
-                                                   AsyncActorRolloutRefWorker,
-                                                   CriticWorker)
+            from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
 
-            actor_rollout_cls = AsyncActorRolloutRefWorker if config.actor_rollout_ref.rollout.mode == "async" else ActorRolloutRefWorker
+            actor_rollout_cls = (
+                AsyncActorRolloutRefWorker
+                if config.actor_rollout_ref.rollout.mode == "async"
+                else ActorRolloutRefWorker
+            )
             ray_worker_group_cls = RayWorkerGroup
 
         elif config.actor_rollout_ref.actor.strategy == "megatron":
             assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
-            from verl.single_controller.ray.megatron import \
-                NVMegatronRayWorkerGroup
-            from verl.workers.megatron_workers import (ActorRolloutRefWorker,
-                                                       CriticWorker)
+            from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
+            from verl.workers.megatron_workers import ActorRolloutRefWorker, CriticWorker
 
             actor_rollout_cls = ActorRolloutRefWorker
             ray_worker_group_cls = NVMegatronRayWorkerGroup
@@ -162,32 +164,36 @@ class TaskRunner:
             role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
             mapping[Role.RefPolicy] = global_pool_id
 
-        if 'deepscaler' in config.data.train_files:
-            config.custom_reward_function['path'] = './recipe/mopps/reward_func/deepscaler_reward.py'
-            config.custom_reward_function['name'] = 'deepscaler_reward_fn'
-        elif 'countdown' in config.data.train_files:
-            config.custom_reward_function['path'] = './recipe/mopps/reward_func/countdown_reward.py'
-            config.custom_reward_function['name'] = 'compute_score'
-        elif 'math' in config.data.train_files:
-            config.custom_reward_function['path'] = './recipe/mopps/reward_func/math_reward.py'
-            config.custom_reward_function['name'] = 'compute_score'
-        elif 'geo3k' in config.data.train_files:
-            config.custom_reward_function['path'] = './recipe/mopps/reward_func/geo3k_reward.py'
-            config.custom_reward_function['name'] = 'compute_score'
-        reward_fn = load_reward_manager(config, tokenizer, num_examine=0, **config.reward_model.get("reward_kwargs", {}))
-        if 'deepscaler' in config.data.val_files:
-            config.custom_reward_function['path'] = './recipe/mopps/reward_func/deepscaler_reward.py'
-            config.custom_reward_function['name'] = 'deepscaler_reward_fn'
-        elif 'countdown' in config.data.val_files:
-            config.custom_reward_function['path'] = './recipe/mopps/reward_func/countdown_reward.py'
-            config.custom_reward_function['name'] = 'compute_score'
-        elif 'math' in config.data.val_files:
-            config.custom_reward_function['path'] = './recipe/mopps/reward_func/math_reward.py'
-            config.custom_reward_function['name'] = 'compute_score'
-        elif 'geo3k' in config.data.val_files:
-            config.custom_reward_function['path'] = './recipe/mopps/reward_func/geo3k_reward.py'
-            config.custom_reward_function['name'] = 'compute_score'
-        val_reward_fn = load_reward_manager(config, tokenizer, num_examine=1, **config.reward_model.get("reward_kwargs", {}))
+        if "deepscaler" in config.data.train_files:
+            config.custom_reward_function["path"] = "./recipe/mopps/reward_func/deepscaler_reward.py"
+            config.custom_reward_function["name"] = "deepscaler_reward_fn"
+        elif "countdown" in config.data.train_files:
+            config.custom_reward_function["path"] = "./recipe/mopps/reward_func/countdown_reward.py"
+            config.custom_reward_function["name"] = "compute_score"
+        elif "math" in config.data.train_files:
+            config.custom_reward_function["path"] = "./recipe/mopps/reward_func/math_reward.py"
+            config.custom_reward_function["name"] = "compute_score"
+        elif "geo3k" in config.data.train_files:
+            config.custom_reward_function["path"] = "./recipe/mopps/reward_func/geo3k_reward.py"
+            config.custom_reward_function["name"] = "compute_score"
+        reward_fn = load_reward_manager(
+            config, tokenizer, num_examine=0, **config.reward_model.get("reward_kwargs", {})
+        )
+        if "deepscaler" in config.data.val_files:
+            config.custom_reward_function["path"] = "./recipe/mopps/reward_func/deepscaler_reward.py"
+            config.custom_reward_function["name"] = "deepscaler_reward_fn"
+        elif "countdown" in config.data.val_files:
+            config.custom_reward_function["path"] = "./recipe/mopps/reward_func/countdown_reward.py"
+            config.custom_reward_function["name"] = "compute_score"
+        elif "math" in config.data.val_files:
+            config.custom_reward_function["path"] = "./recipe/mopps/reward_func/math_reward.py"
+            config.custom_reward_function["name"] = "compute_score"
+        elif "geo3k" in config.data.val_files:
+            config.custom_reward_function["path"] = "./recipe/mopps/reward_func/geo3k_reward.py"
+            config.custom_reward_function["name"] = "compute_score"
+        val_reward_fn = load_reward_manager(
+            config, tokenizer, num_examine=1, **config.reward_model.get("reward_kwargs", {})
+        )
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
         from verl.utils.dataset.rl_dataset import collate_fn
@@ -233,7 +239,9 @@ def create_rl_dataset(data_paths, data_config, tokenizer, processor):
 
         dataset_cls = load_extern_type(data_config.custom_cls.path, data_config.custom_cls.name)
         if not issubclass(dataset_cls, Dataset):
-            raise TypeError(f"The custom dataset class '{data_config.custom_cls.name}' from '{data_config.custom_cls.path}' must inherit from torch.utils.data.Dataset")
+            raise TypeError(
+                f"The custom dataset class '{data_config.custom_cls.name}' from '{data_config.custom_cls.path}' must inherit from torch.utils.data.Dataset"
+            )
     else:
         dataset_cls = RLHFDataset
     print(f"Using dataset class: {dataset_cls.__name__}")

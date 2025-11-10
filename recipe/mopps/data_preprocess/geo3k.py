@@ -36,12 +36,17 @@ if __name__ == "__main__":
     except:
         local_data_source = f"{args.local_dir}/raw/data"
         if not os.path.exists(local_data_source):
-            os.system('pip install -U huggingface_hub; export HF_ENDPOINT=https://hf-mirror.com; huggingface-cli download --repo-type dataset --resume-download hiyouga/geometry3k --local-dir data/geo3k/raw')
+            os.system(
+                "pip install -U huggingface_hub; export HF_ENDPOINT=https://hf-mirror.com; huggingface-cli download --repo-type dataset --resume-download hiyouga/geometry3k --local-dir data/geo3k/raw"
+            )
         if os.path.exists(local_data_source):
-            dataset = datasets.load_dataset('parquet', data_files={
-                "train": os.path.join(local_data_source, "train-00000-of-00001.parquet"),
-                "test": os.path.join(local_data_source, "test-00000-of-00001.parquet")
-            })
+            dataset = datasets.load_dataset(
+                "parquet",
+                data_files={
+                    "train": os.path.join(local_data_source, "train-00000-of-00001.parquet"),
+                    "test": os.path.join(local_data_source, "test-00000-of-00001.parquet"),
+                },
+            )
         else:
             dataset = datasets.load_dataset(data_source)
 

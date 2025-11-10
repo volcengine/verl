@@ -42,13 +42,18 @@ if __name__ == "__main__":
         print(f"Loading the {data_source} dataset from huggingface...", flush=True)
         dataset = datasets.load_dataset(data_source, trust_remote_code=True)
     except:
-        os.system('pip install -U huggingface_hub; export HF_ENDPOINT=https://hf-mirror.com; huggingface-cli download --repo-type dataset --resume-download DigitalLearningGmbH/MATH-lighteval --local-dir data/math/raw')
+        os.system(
+            "pip install -U huggingface_hub; export HF_ENDPOINT=https://hf-mirror.com; huggingface-cli download --repo-type dataset --resume-download DigitalLearningGmbH/MATH-lighteval --local-dir data/math/raw"
+        )
         local_data_source = f"{args.local_dir}/raw/data"
         if os.path.exists(local_data_source):
-            dataset = datasets.load_dataset('parquet', data_files={
-                "train": os.path.join(local_data_source, "train-00000-of-00001.parquet"),
-                "test": os.path.join(local_data_source, "test-00000-of-00001.parquet")
-            })
+            dataset = datasets.load_dataset(
+                "parquet",
+                data_files={
+                    "train": os.path.join(local_data_source, "train-00000-of-00001.parquet"),
+                    "test": os.path.join(local_data_source, "test-00000-of-00001.parquet"),
+                },
+            )
         else:
             dataset = datasets.load_dataset(data_source, trust_remote_code=True)
 

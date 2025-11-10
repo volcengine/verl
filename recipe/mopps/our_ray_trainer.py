@@ -24,12 +24,11 @@ import uuid
 from collections import defaultdict
 from copy import deepcopy
 from pprint import pprint
-from typing import Dict, Optional, Type
 
 import numpy as np
 import torch
 from omegaconf import OmegaConf, open_dict
-from scipy.stats import spearmanr, wilcoxon
+from scipy.stats import spearmanr
 from torch.utils.data import Dataset, Sampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
@@ -38,18 +37,26 @@ from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
 from verl.single_controller.base import Worker
 from verl.single_controller.ray import RayWorkerGroup
 from verl.trainer.ppo.core_algos import agg_loss
-from verl.trainer.ppo.metric_utils import (compute_data_metrics,
-                                           compute_throughout_metrics,
-                                           compute_timing_metrics,
-                                           process_validation_metrics,
-                                           reduce_metrics)
+from verl.trainer.ppo.metric_utils import (
+    compute_data_metrics,
+    compute_throughout_metrics,
+    compute_timing_metrics,
+    process_validation_metrics,
+    reduce_metrics,
+)
 
-WorkerType = Type[Worker]
+WorkerType = type[Worker]
 
 from verl import DataProto
-from verl.trainer.ppo.ray_trainer import (AdvantageEstimator, RayPPOTrainer,
-                                          ResourcePoolManager, Role, _timer,
-                                          apply_kl_penalty, compute_advantage)
+from verl.trainer.ppo.ray_trainer import (
+    AdvantageEstimator,
+    RayPPOTrainer,
+    ResourcePoolManager,
+    Role,
+    _timer,
+    apply_kl_penalty,
+    compute_advantage,
+)
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 
 
@@ -58,10 +65,12 @@ def compute_response_mask(data: DataProto):
     response_length = responses.size(1)
     attention_mask = data.batch["attention_mask"]
     return attention_mask[:, -response_length:]
+
+
 def our_group_reward(batch, acc, task_sampler, batch_dict, metrics, sampled_acquisition_score=None):
     # Rejection sampling based on rewards
     # Group rewards by uid
-    uids = batch.non_tensor_batch['uid']#bs*nrollout,
+    uids = batch.non_tensor_batch["uid"]  # bs*nrollout,
     # unique_uids = np.unique(uids)#bs,
     unique_uids = uids[np.sort(np.unique(uids, return_index=True)[1])]
     valid_mask = torch.ones(len(uids), dtype=torch.bool)
@@ -72,14 +81,14 @@ def our_group_reward(batch, acc, task_sampler, batch_dict, metrics, sampled_acqu
         uid_mask = uids == uid
         # uid_rewards = reward_tensor[uid_mask].sum(-1)  # Sum rewards for each sequence (n_rollouts,)
         uid_rewards = torch.tensor(acc)[uid_mask]
-        uid_reward_list.append(uid_rewards.sum()/len(uid_rewards)) # avg accuracy for a query
+        uid_reward_list.append(uid_rewards.sum() / len(uid_rewards))  # avg accuracy for a query
         uid_rewards = (uid_rewards >= 1).int()
-        
+
         # Check if all rewards are 0 or all are 1 for this uid, i.e., for the question, no/all responses are correct
-        if (uid_rewards.sum()/len(uid_rewards) == 0):
+        if uid_rewards.sum() / len(uid_rewards) == 0:
             valid_mask[uid_mask] = False
             solve_none += 1
-        elif (uid_rewards.sum()/len(uid_rewards) == 1):
+        elif uid_rewards.sum() / len(uid_rewards) == 1:
             valid_mask[uid_mask] = False
             solve_all += 1
     success_rate = torch.tensor(uid_reward_list)
@@ -90,25 +99,26 @@ def our_group_reward(batch, acc, task_sampler, batch_dict, metrics, sampled_acqu
             y = (-success_rate).squeeze().detach().cpu().numpy()
 
             # Pearson
-            metrics['tasksample/train_corr'] = np.corrcoef(x, y)[0, 1]
+            metrics["tasksample/train_corr"] = np.corrcoef(x, y)[0, 1]
             spearman_corr, spearman_p = spearmanr(x, y)
-            metrics['tasksample/train_spearman_corr'] = spearman_corr
-            metrics['tasksample/train_spearman_p'] = spearman_p
-            metrics['tasksample/sampler_loss'] = ts_loss
-            metrics['tasksample/recon_loss'] = ts_recon_loss
-            metrics['tasksample/kl_loss'] = ts_kl_loss
-            metrics['tasksample/train_success_rate'] = success_rate.mean().item()
-            metrics['tasksample/train_success_rate_min'] = success_rate.min().item()
-            metrics['tasksample/train_success_rate_max'] = success_rate.max().item()
-            metrics['tasksample/train_success_rate_std'] = success_rate.std().item()
-            metrics['tasksample/sampled_acquisition_score'] = sampled_acquisition_score.mean().item()
-            metrics['tasksample/sampled_acquisition_score_min'] = sampled_acquisition_score.min().item()
-            metrics['tasksample/sampled_acquisition_score_max'] = sampled_acquisition_score.max().item()
-            metrics['tasksample/sampled_acquisition_score_std'] = sampled_acquisition_score.std().item()
+            metrics["tasksample/train_spearman_corr"] = spearman_corr
+            metrics["tasksample/train_spearman_p"] = spearman_p
+            metrics["tasksample/sampler_loss"] = ts_loss
+            metrics["tasksample/recon_loss"] = ts_recon_loss
+            metrics["tasksample/kl_loss"] = ts_kl_loss
+            metrics["tasksample/train_success_rate"] = success_rate.mean().item()
+            metrics["tasksample/train_success_rate_min"] = success_rate.min().item()
+            metrics["tasksample/train_success_rate_max"] = success_rate.max().item()
+            metrics["tasksample/train_success_rate_std"] = success_rate.std().item()
+            metrics["tasksample/sampled_acquisition_score"] = sampled_acquisition_score.mean().item()
+            metrics["tasksample/sampled_acquisition_score_min"] = sampled_acquisition_score.min().item()
+            metrics["tasksample/sampled_acquisition_score_max"] = sampled_acquisition_score.max().item()
+            metrics["tasksample/sampled_acquisition_score_std"] = sampled_acquisition_score.std().item()
 
-    metrics['batch/solve_none'] = solve_none
-    metrics['batch/solve_all'] = solve_all
+    metrics["batch/solve_none"] = solve_none
+    metrics["batch/solve_all"] = solve_all
     return metrics
+
 
 class OurRayPPOTrainer(RayPPOTrainer):
     """
@@ -127,23 +137,41 @@ class OurRayPPOTrainer(RayPPOTrainer):
         processor=None,
         reward_fn=None,
         val_reward_fn=None,
-        train_dataset: Optional[Dataset] = None,
-        val_dataset: Optional[Dataset] = None,
+        train_dataset: Dataset | None = None,
+        val_dataset: Dataset | None = None,
         collate_fn=None,
-        train_sampler: Optional[Sampler] = None,
+        train_sampler: Sampler | None = None,
     ):
         self.task_sampler = None
         self.train_dataset = None
-        super().__init__(config, tokenizer, role_worker_mapping, resource_pool_manager, ray_worker_group_cls, processor, reward_fn, val_reward_fn, train_dataset, val_dataset, collate_fn, train_sampler)
+        super().__init__(
+            config,
+            tokenizer,
+            role_worker_mapping,
+            resource_pool_manager,
+            ray_worker_group_cls,
+            processor,
+            reward_fn,
+            val_reward_fn,
+            train_dataset,
+            val_dataset,
+            collate_fn,
+            train_sampler,
+        )
         #####task sampler###########
         self.task_sampler = None
         if self.config.tasksampler.framework != 0:
             from recipe.mopps.mopps import PosteriorSampler
 
-            self.task_sampler = PosteriorSampler(args=self.config, total_num_samples=40315, init=self.config.tasksampler.bandit_init, init_dir=self.config.tasksampler.bandit_init_dir)
-            self.config.trainer.total_epochs = int(self.config.tasksampler.ts_ratio*self.config.trainer.total_epochs)
+            self.task_sampler = PosteriorSampler(
+                args=self.config,
+                total_num_samples=40315,
+                init=self.config.tasksampler.bandit_init,
+                init_dir=self.config.tasksampler.bandit_init_dir,
+            )
+            self.config.trainer.total_epochs = int(self.config.tasksampler.ts_ratio * self.config.trainer.total_epochs)
             self.task_sampler.load(self.config.trainer.default_local_dir)
-            if self.config.tasksampler.bandit_load_dir != '':
+            if self.config.tasksampler.bandit_load_dir != "":
                 self.task_sampler.load(self.config.tasksampler.bandit_load_dir)
         ############################
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
@@ -156,24 +184,33 @@ class OurRayPPOTrainer(RayPPOTrainer):
         from verl.trainer.main_ppo import create_rl_dataset, create_rl_sampler
 
         if train_dataset is None and self.train_dataset is None:
-            train_dataset = create_rl_dataset(self.config.data.train_files, self.config.data, self.tokenizer, self.processor)
+            train_dataset = create_rl_dataset(
+                self.config.data.train_files, self.config.data, self.tokenizer, self.processor
+            )
         elif self.train_dataset is not None:
             train_dataset = self.train_dataset
         if val_dataset is None:
-            val_dataset = create_rl_dataset(self.config.data.val_files, self.config.data, self.tokenizer, self.processor)
+            val_dataset = create_rl_dataset(
+                self.config.data.val_files, self.config.data, self.tokenizer, self.processor
+            )
         self.train_dataset, self.val_dataset = train_dataset, val_dataset
 
         if train_sampler is None:
             train_sampler = create_rl_sampler(self.config.data, self.train_dataset)
         self.train_sampler = train_sampler
         if collate_fn is None:
-            from verl.utils.dataset.rl_dataset import \
-                collate_fn as default_collate_fn
+            from verl.utils.dataset.rl_dataset import collate_fn as default_collate_fn
 
             collate_fn = default_collate_fn
         self.collate_fn = collate_fn
         if self.task_sampler is not None:
-            train_batch_size = min(int(self.config.tasksampler.ts_ratio * self.config.data.get("gen_batch_size", self.config.data.train_batch_size)), int(len(train_dataset)))
+            train_batch_size = min(
+                int(
+                    self.config.tasksampler.ts_ratio
+                    * self.config.data.get("gen_batch_size", self.config.data.train_batch_size)
+                ),
+                int(len(train_dataset)),
+            )
         else:
             train_batch_size = self.config.data.get("gen_batch_size", self.config.data.train_batch_size)
         self.train_batch_size = train_batch_size
@@ -203,7 +240,9 @@ class OurRayPPOTrainer(RayPPOTrainer):
         assert len(self.train_dataloader) >= 1, "Train dataloader is empty!"
         assert len(self.val_dataloader) >= 1, "Validation dataloader is empty!"
 
-        print(f"Size of train dataloader: {len(self.train_dataloader)}, Size of val dataloader: {len(self.val_dataloader)}")
+        print(
+            f"Size of train dataloader: {len(self.train_dataloader)}, Size of val dataloader: {len(self.val_dataloader)}"
+        )
 
         total_training_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
 
@@ -225,25 +264,46 @@ class OurRayPPOTrainer(RayPPOTrainer):
 
     def _save_checkpoint(self):
         # path: given_path + `/global_step_{global_steps}` + `/actor`
-        local_global_step_folder = os.path.join(self.config.trainer.default_local_dir, f"global_step_{self.global_steps}")
+        local_global_step_folder = os.path.join(
+            self.config.trainer.default_local_dir, f"global_step_{self.global_steps}"
+        )
 
         print(f"local_global_step_folder: {local_global_step_folder}")
         actor_local_path = os.path.join(local_global_step_folder, "actor")
 
-        actor_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(self.config.trainer.default_hdfs_dir, f"global_step_{self.global_steps}", "actor")
+        actor_remote_path = (
+            None
+            if self.config.trainer.default_hdfs_dir is None
+            else os.path.join(self.config.trainer.default_hdfs_dir, f"global_step_{self.global_steps}", "actor")
+        )
 
         remove_previous_ckpt_in_save = self.config.trainer.get("remove_previous_ckpt_in_save", False)
         if remove_previous_ckpt_in_save:
-            print("Warning: remove_previous_ckpt_in_save is deprecated," + " set max_actor_ckpt_to_keep=1 and max_critic_ckpt_to_keep=1 instead")
-        max_actor_ckpt_to_keep = self.config.trainer.get("max_actor_ckpt_to_keep", None) if not remove_previous_ckpt_in_save else 1
-        max_critic_ckpt_to_keep = self.config.trainer.get("max_critic_ckpt_to_keep", None) if not remove_previous_ckpt_in_save else 1
+            print(
+                "Warning: remove_previous_ckpt_in_save is deprecated,"
+                + " set max_actor_ckpt_to_keep=1 and max_critic_ckpt_to_keep=1 instead"
+            )
+        max_actor_ckpt_to_keep = (
+            self.config.trainer.get("max_actor_ckpt_to_keep", None) if not remove_previous_ckpt_in_save else 1
+        )
+        max_critic_ckpt_to_keep = (
+            self.config.trainer.get("max_critic_ckpt_to_keep", None) if not remove_previous_ckpt_in_save else 1
+        )
 
-        self.actor_rollout_wg.save_checkpoint(actor_local_path, actor_remote_path, self.global_steps, max_ckpt_to_keep=max_actor_ckpt_to_keep)
+        self.actor_rollout_wg.save_checkpoint(
+            actor_local_path, actor_remote_path, self.global_steps, max_ckpt_to_keep=max_actor_ckpt_to_keep
+        )
 
         if self.use_critic:
             critic_local_path = os.path.join(local_global_step_folder, "critic")
-            critic_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(self.config.trainer.default_hdfs_dir, f"global_step_{self.global_steps}", "critic")
-            self.critic_wg.save_checkpoint(critic_local_path, critic_remote_path, self.global_steps, max_ckpt_to_keep=max_critic_ckpt_to_keep)
+            critic_remote_path = (
+                None
+                if self.config.trainer.default_hdfs_dir is None
+                else os.path.join(self.config.trainer.default_hdfs_dir, f"global_step_{self.global_steps}", "critic")
+            )
+            self.critic_wg.save_checkpoint(
+                critic_local_path, critic_remote_path, self.global_steps, max_ckpt_to_keep=max_critic_ckpt_to_keep
+            )
 
         # save dataloader
         dataloader_local_path = os.path.join(local_global_step_folder, "data.pt")
@@ -251,13 +311,15 @@ class OurRayPPOTrainer(RayPPOTrainer):
         torch.save(dataloader_state_dict, dataloader_local_path)
 
         # latest checkpointed iteration tracker (for atomic usage)
-        local_latest_checkpointed_iteration = os.path.join(self.config.trainer.default_local_dir, "latest_checkpointed_iteration.txt")
+        local_latest_checkpointed_iteration = os.path.join(
+            self.config.trainer.default_local_dir, "latest_checkpointed_iteration.txt"
+        )
         with open(local_latest_checkpointed_iteration, "w") as f:
             f.write(str(self.global_steps))
 
         if self.task_sampler is not None:
             self.task_sampler.save(actor_local_path)
-    
+
     def _load_checkpoint(self):
         if self.config.trainer.resume_mode == "disable":
             return 0
@@ -280,7 +342,9 @@ class OurRayPPOTrainer(RayPPOTrainer):
         else:
             if self.config.trainer.resume_mode == "resume_path":
                 assert isinstance(self.config.trainer.resume_from_path, str), "resume ckpt must be str type"
-                assert "global_step_" in self.config.trainer.resume_from_path, "resume ckpt must specify the global_steps"
+                assert "global_step_" in self.config.trainer.resume_from_path, (
+                    "resume ckpt must specify the global_steps"
+                )
                 global_step_folder = self.config.trainer.resume_from_path
                 if not os.path.isabs(global_step_folder):
                     working_dir = os.getcwd()
@@ -295,10 +359,14 @@ class OurRayPPOTrainer(RayPPOTrainer):
         actor_path = os.path.join(global_step_folder, "actor")
         critic_path = os.path.join(global_step_folder, "critic")
         # load actor
-        self.actor_rollout_wg.load_checkpoint(actor_path, del_local_after_load=self.config.trainer.del_local_ckpt_after_load)
+        self.actor_rollout_wg.load_checkpoint(
+            actor_path, del_local_after_load=self.config.trainer.del_local_ckpt_after_load
+        )
         # load critic
         if self.use_critic:
-            self.critic_wg.load_checkpoint(critic_path, del_local_after_load=self.config.trainer.del_local_ckpt_after_load)
+            self.critic_wg.load_checkpoint(
+                critic_path, del_local_after_load=self.config.trainer.del_local_ckpt_after_load
+            )
 
         # load dataloader,
         # TODO: from remote not implemented yet
@@ -345,11 +413,11 @@ class OurRayPPOTrainer(RayPPOTrainer):
             val_metrics = self._validate()
             test_score = None
             for key in val_metrics.keys():
-                if test_score is None and 'reward/mean@' in key:
+                if test_score is None and "reward/mean@" in key:
                     test_score = val_metrics[key]
-                if 'acc/mean@' in key:
+                if "acc/mean@" in key:
                     test_score = val_metrics[key]
-            val_metrics['val/test_score/'] = test_score
+            val_metrics["val/test_score/"] = test_score
             assert val_metrics, f"{val_metrics=}"
             pprint(f"Initial validation metrics: {val_metrics}")
             logger.log(data=val_metrics, step=self.global_steps)
@@ -368,7 +436,6 @@ class OurRayPPOTrainer(RayPPOTrainer):
         num_prompt_in_batch = 0
         num_gen_batches = 0
         for epoch in range(self.config.trainer.total_epochs):
-                
             for batch_dict in self.train_dataloader:
                 if self.task_sampler is not None:
                     batch_dict, sampled_acquisition_score = self.task_sampler.sample_batch(batch_dict)
@@ -414,7 +481,9 @@ class OurRayPPOTrainer(RayPPOTrainer):
 
                             del gen_baseline_batch, gen_baseline_output
 
-                    new_batch.non_tensor_batch["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(new_batch.batch))], dtype=object)
+                    new_batch.non_tensor_batch["uid"] = np.array(
+                        [str(uuid.uuid4()) for _ in range(len(new_batch.batch))], dtype=object
+                    )
                     # repeat to align with repeated responses in rollout
                     new_batch = new_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     new_batch = new_batch.union(gen_batch_output)
@@ -443,11 +512,17 @@ class OurRayPPOTrainer(RayPPOTrainer):
 
                         print(f"{list(reward_extra_infos_dict.keys())=}")
                         if reward_extra_infos_dict:
-                            new_batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
-                        
+                            new_batch.non_tensor_batch.update(
+                                {k: np.array(v) for k, v in reward_extra_infos_dict.items()}
+                            )
+
                         ##############
-                        if self.config.tasksampler.bandit_metric == 'acc':
-                            acc = torch.tensor(reward_extra_infos_dict['acc'] if 'acc' in reward_extra_infos_dict.keys() else reward_tensor)
+                        if self.config.tasksampler.bandit_metric == "acc":
+                            acc = torch.tensor(
+                                reward_extra_infos_dict["acc"]
+                                if "acc" in reward_extra_infos_dict.keys()
+                                else reward_tensor
+                            )
                             acc = (acc >= 1).int()  # convert to binary accuracy
                         else:
                             acc = torch.tensor(reward_tensor)
@@ -457,14 +532,20 @@ class OurRayPPOTrainer(RayPPOTrainer):
                             task_sampler=self.task_sampler,
                             batch_dict=batch_dict,
                             metrics=metrics,
-                            sampled_acquisition_score=sampled_acquisition_score if self.task_sampler is not None else None,
+                            sampled_acquisition_score=sampled_acquisition_score
+                            if self.task_sampler is not None
+                            else None,
                         )
                         #############
 
                         # compute rewards. apply_kl_penalty if available
                         if self.config.algorithm.use_kl_in_reward:
-                            new_batch, kl_metrics = apply_kl_penalty(new_batch, kl_ctrl=self.kl_ctrl_in_reward, kl_penalty=self.config.algorithm.kl_penalty)
-                            metrics.update(kl_metrics)  # TODO: This will be cleared if we use multiple genenration batches
+                            new_batch, kl_metrics = apply_kl_penalty(
+                                new_batch, kl_ctrl=self.kl_ctrl_in_reward, kl_penalty=self.config.algorithm.kl_penalty
+                            )
+                            metrics.update(
+                                kl_metrics
+                            )  # TODO: This will be cleared if we use multiple genenration batches
                         else:
                             new_batch.batch["token_level_rewards"] = new_batch.batch["token_level_scores"]
 
@@ -475,23 +556,42 @@ class OurRayPPOTrainer(RayPPOTrainer):
                         metric_name = self.config.algorithm.filter_groups.metric
                         if metric_name == "seq_final_reward":
                             # Turn to numpy for easier filtering
-                            new_batch.non_tensor_batch["seq_final_reward"] = new_batch.batch["token_level_rewards"].sum(dim=-1).numpy()
+                            new_batch.non_tensor_batch["seq_final_reward"] = (
+                                new_batch.batch["token_level_rewards"].sum(dim=-1).numpy()
+                            )
                         elif metric_name == "seq_reward":
-                            new_batch.non_tensor_batch["seq_reward"] = new_batch.batch["token_level_scores"].sum(dim=-1).numpy()
+                            new_batch.non_tensor_batch["seq_reward"] = (
+                                new_batch.batch["token_level_scores"].sum(dim=-1).numpy()
+                            )
 
                         # Collect the sequence reward for each trajectory
                         prompt_uid2metric_vals = defaultdict(list)
-                        for uid, metric_val in zip(new_batch.non_tensor_batch["uid"], new_batch.non_tensor_batch[metric_name]):
+                        for uid, metric_val in zip(
+                            new_batch.non_tensor_batch["uid"], new_batch.non_tensor_batch[metric_name], strict=False
+                        ):
                             prompt_uid2metric_vals[uid].append(metric_val)
 
                         prompt_uid2metric_std = {}
                         for prompt_uid, metric_vals in prompt_uid2metric_vals.items():
                             prompt_uid2metric_std[prompt_uid] = np.std(metric_vals)
 
-                        if self.config.algorithm.filter_groups.filter_min == 0 and self.config.algorithm.filter_groups.filter_max == 1:
-                            kept_prompt_uids = [uid for uid, std in prompt_uid2metric_std.items() if std > 0 or len(prompt_uid2metric_vals[uid]) == 1]
+                        if (
+                            self.config.algorithm.filter_groups.filter_min == 0
+                            and self.config.algorithm.filter_groups.filter_max == 1
+                        ):
+                            kept_prompt_uids = [
+                                uid
+                                for uid, std in prompt_uid2metric_std.items()
+                                if std > 0 or len(prompt_uid2metric_vals[uid]) == 1
+                            ]
                         else:
-                            kept_prompt_uids = [uid for uid, val in prompt_uid2metric_vals.items() if self.config.algorithm.filter_groups.filter_min <= np.mean(val) <= self.config.algorithm.filter_groups.filter_max]
+                            kept_prompt_uids = [
+                                uid
+                                for uid, val in prompt_uid2metric_vals.items()
+                                if self.config.algorithm.filter_groups.filter_min
+                                <= np.mean(val)
+                                <= self.config.algorithm.filter_groups.filter_max
+                            ]
                         num_prompt_in_batch += len(kept_prompt_uids)
 
                         kept_traj_idxs = []
@@ -525,7 +625,6 @@ class OurRayPPOTrainer(RayPPOTrainer):
                     batch.batch["response_mask"] = compute_response_mask(batch)
                     if self.config.trainer.balance_batch:
                         self._balance_batch(batch, metrics=metrics)
-                        
 
                     # compute global_valid tokens
                     batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
@@ -536,7 +635,9 @@ class OurRayPPOTrainer(RayPPOTrainer):
                         entropys = old_log_prob.batch["entropys"]
                         response_masks = batch.batch["response_mask"]
                         loss_agg_mode = self.config.actor_rollout_ref.actor.loss_agg_mode
-                        entropy_loss = agg_loss(loss_mat=entropys, loss_mask=response_masks, loss_agg_mode=loss_agg_mode)
+                        entropy_loss = agg_loss(
+                            loss_mat=entropys, loss_mask=response_masks, loss_agg_mode=loss_agg_mode
+                        )
                         old_log_prob_metrics = {"actor/entropy_loss": entropy_loss.detach().item()}
                         metrics.update(old_log_prob_metrics)
                         old_log_prob.batch.pop("entropys")
@@ -582,21 +683,27 @@ class OurRayPPOTrainer(RayPPOTrainer):
                         metrics.update(actor_output_metrics)
 
                     # validate
-                    if self.val_reward_fn is not None and self.config.trainer.test_freq > 0 and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0):
+                    if (
+                        self.val_reward_fn is not None
+                        and self.config.trainer.test_freq > 0
+                        and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
+                    ):
                         with _timer("testing", timing_raw):
                             val_metrics: dict = self._validate()
                             test_score = None
                             for key in val_metrics.keys():
-                                if test_score is None and 'reward/mean@' in key:
+                                if test_score is None and "reward/mean@" in key:
                                     test_score = val_metrics[key]
-                                if 'acc/mean@' in key:
+                                if "acc/mean@" in key:
                                     test_score = val_metrics[key]
-                            val_metrics['val/test_score/'] = test_score
+                            val_metrics["val/test_score/"] = test_score
                             if is_last_step:
                                 last_val_metrics = val_metrics
                         metrics.update(val_metrics)
 
-                    if self.config.trainer.save_freq > 0 and (is_last_step or self.global_steps % self.config.trainer.save_freq == 0):
+                    if self.config.trainer.save_freq > 0 and (
+                        is_last_step or self.global_steps % self.config.trainer.save_freq == 0
+                    ):
                         with _timer("save_checkpoint", timing_raw):
                             self._save_checkpoint()
 
@@ -644,7 +751,9 @@ class OurRayPPOTrainer(RayPPOTrainer):
             test_batch = DataProto.from_single_dict(test_data)
 
             # repeat test batch
-            test_batch = test_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.val_kwargs.n, interleave=True)
+            test_batch = test_batch.repeat(
+                repeat_times=self.config.actor_rollout_ref.rollout.val_kwargs.n, interleave=True
+            )
 
             # we only do validation on rule-based rm
             if self.config.reward_model.enable and test_batch[0].non_tensor_batch["reward_model"]["style"] == "model":
@@ -659,8 +768,8 @@ class OurRayPPOTrainer(RayPPOTrainer):
             non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
             if "multi_modal_inputs" in test_batch.non_tensor_batch:
                 input_texts_img = []
-                for id,text in enumerate(input_texts):
-                    input_texts_img.append(text + str(test_batch.non_tensor_batch["multi_modal_data"][id]['image'][0]))
+                for id, text in enumerate(input_texts):
+                    input_texts_img.append(text + str(test_batch.non_tensor_batch["multi_modal_data"][id]["image"][0]))
                 input_texts = input_texts_img
                 non_tensor_batch_keys_to_pop.extend(["multi_modal_data", "multi_modal_inputs"])
             if "raw_prompt" in test_batch.non_tensor_batch:
@@ -740,7 +849,11 @@ class OurRayPPOTrainer(RayPPOTrainer):
             for var_name, metric2val in var2metric2val.items():
                 n_max = max([int(name.split("@")[-1].split("/")[0]) for name in metric2val.keys()])
                 for metric_name, metric_val in metric2val.items():
-                    if (var_name == core_var) and any(metric_name.startswith(pfx) for pfx in ["mean", "maj", "best"]) and (f"@{n_max}" in metric_name):
+                    if (
+                        (var_name == core_var)
+                        and any(metric_name.startswith(pfx) for pfx in ["mean", "maj", "best"])
+                        and (f"@{n_max}" in metric_name)
+                    ):
                         metric_sec = "val-core"
                     else:
                         metric_sec = "val-aux"

@@ -14,7 +14,7 @@
 # Adapted from https://github.com/EleutherAI/lm-evaluation-harness/blob/main/lm_eval/tasks/hendrycks_math/utils.py
 
 
-def compute_score(solution_str, ground_truth, data_source='', extra_info=None) -> float:
+def compute_score(solution_str, ground_truth, data_source="", extra_info=None) -> float:
     retval = 0.0
     try:
         string_in_last_boxed = last_boxed_only_string(solution_str)
@@ -25,7 +25,7 @@ def compute_score(solution_str, ground_truth, data_source='', extra_info=None) -
     except Exception as e:
         print(e)
 
-    return {'acc': retval, 'score': retval}
+    return {"acc": retval, "score": retval}
 
     # return retval
 
@@ -190,8 +190,8 @@ def strip_string(string):
     string = remove_right_units(string)
 
     # remove percentage
-    string = string.replace("\\%", "")
-    string = string.replace("\%", "")  # noqa: W605
+    string = string.replace("\\\\%", "")
+    string = string.replace("\\%", "")  # noqa: W605
 
     # " 0." equivalent to " ." and "{0." equivalent to "{." Alternatively, add "0" if "." is the start of the string
     string = string.replace(" .", " 0.")

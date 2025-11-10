@@ -1,16 +1,28 @@
+# Copyright 2024 Bytedance Ltd. and/or its affiliates
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """
 This module contains the RewardMathFn class, which evaluates mathematical answers
-and assigns rewards based on their correctness. It utilizes a language model to 
+and assigns rewards based on their correctness. It utilizes a language model to
 validate answers when necessary.
 """
-from typing import List, Union
 
 """
 Global variables for Deepscaler repo.
 """
 # Gemini Vertex AI Config (for dataset preprocessing and LLM as ORM).
-GCP_PROJECT_ID = None # Fill this in!
-GCP_LOCATION = None # Fill this in!
+GCP_PROJECT_ID = None  # Fill this in!
+GCP_LOCATION = None  # Fill this in!
 GEMINI_MODEL = "gemini-1.5-pro-002"
 OAI_RM_MODEL = "gpt-4o-mini"
 
@@ -30,12 +42,11 @@ from enum import Enum
 # from utils import call_gemini_llm, call_oai_rm_llm
 
 
-
 @dataclass
 class RewardConfig:
     # Use LLM as ORM to evaluate correctness.
     use_math_orm: bool = False
-    
+
     # General reward constants.
     correct_reward: float = 1.0
     incorrect_reward: float = -1.0
@@ -52,9 +63,10 @@ class RewardType(Enum):
         CODE (str): Represents a coding-related problem type.
         UNK (str): Represents an unknown or unclassified problem type.
     """
-    MATH = 'MATH'
-    CODE = 'CODE'
-    UNK = 'UNK'
+
+    MATH = "MATH"
+    CODE = "CODE"
+    UNK = "UNK"
 
 
 @dataclass
@@ -69,6 +81,7 @@ class RewardInput:
             - For math problems: This may include the ground truth answer.
             - For coding problems: This may include unit tests to validate the solution.
     """
+
     problem: str
     model_response: str
     problem_type: RewardType = RewardType.UNK
@@ -83,6 +96,7 @@ class RewardOutput:
         reward (float): The computed reward value based on the evaluation of the model's response.
         is_correct (bool): A boolean flag indicating whether the model's response is deemed correct.
     """
+
     reward: float
     is_correct: bool
 
@@ -94,17 +108,20 @@ class RewardFn:
     The __call__ method must be overridden to provide the functionality for evaluating
     the input and returning the corresponding reward output.
     """
+
     def __init__(self, config: RewardConfig):
         self.config = config
 
     def __call__(self, input: RewardInput) -> RewardOutput:
         raise NotImplementedError("Subclasses must implement this method.")
 
+
 ORM_USER_TEMPLATE = """
 Problem: {problem}
 Answer 1: {answer_1}
 Answer 2: {answer_2}
 """
+
 
 class RewardMathFn(RewardFn):
     """
@@ -115,18 +132,19 @@ class RewardMathFn(RewardFn):
     """
 
     def __call__(self, input: RewardInput) -> RewardOutput:
-        assert input.problem_type == RewardType.MATH, \
-            "Invalid problem type: expected 'MATH', but got '{}'".format(input.problem_type)
-        
+        assert input.problem_type == RewardType.MATH, "Invalid problem type: expected 'MATH', but got '{}'".format(
+            input.problem_type
+        )
+
         problem = input.problem
         model_response = input.model_response
-        
+
         # Extract solution.
         if THOUGHT_DELIMITER_END in model_response:
             model_solution = model_response.split(THOUGHT_DELIMITER_END)[1]
         else:
             return RewardOutput(reward=self.config.format_error_reward, is_correct=False)
-        
+
         model_answer = extract_answer(model_solution)
         if model_answer is None:
             return RewardOutput(reward=self.config.format_error_reward, is_correct=False)
@@ -135,11 +153,11 @@ class RewardMathFn(RewardFn):
         ground_truths = input.ground_truth.get("answer", None)
         if ground_truths is None:
             return RewardOutput(reward=self.config.unk_error_reward, is_correct=False)
-        
+
         # Convert single answer to list for uniform processing
         if isinstance(ground_truths, (str, float, int)):
             ground_truths = [ground_truths]
-            
+
         # Process each ground truth
         processed_ground_truths = []
         for truth in ground_truths:
@@ -150,13 +168,15 @@ class RewardMathFn(RewardFn):
                     processed_ground_truths.append(processed_truth)
             else:
                 processed_ground_truths.append(truth)
-        
+
         if not processed_ground_truths:
             return RewardOutput(reward=self.config.unk_error_reward, is_correct=False)
 
         # Check against all possible correct answers
         for ground_truth in processed_ground_truths:
-            is_correct = grade_answer_mathd(model_answer, ground_truth) or grade_answer_sympy(model_answer, ground_truth)
+            is_correct = grade_answer_mathd(model_answer, ground_truth) or grade_answer_sympy(
+                model_answer, ground_truth
+            )
             if is_correct:
                 return RewardOutput(reward=self.config.correct_reward, is_correct=True)
 
@@ -180,24 +200,32 @@ class RewardMathFn(RewardFn):
         #                 temperature=0.0,
         #                 model_id=OAI_RM_MODEL,
         #             )
-                    
+
         #             if "[[YES]]" in orm_response:
         #                 return RewardOutput(reward=self.config.correct_reward, is_correct=True)
         #             continue
-                
+
         return RewardOutput(reward=self.config.incorrect_reward, is_correct=False)
 
-def deepscaler_reward_fn(solution_str: str, ground_truth: Union[str, List[str]], enable_llm = False, data_source='', extra_info=None):
+
+def deepscaler_reward_fn(
+    solution_str: str, ground_truth: str | list[str], enable_llm=False, data_source="", extra_info=None
+):
     reward_config = RewardConfig()
     reward_config.use_math_orm = enable_llm
     reward_fn = RewardMathFn(reward_config)
-    reward_response = reward_fn(RewardInput(problem=solution_str, problem_type=RewardType.MATH, model_response=solution_str, ground_truth={"answer": ground_truth}))
+    reward_response = reward_fn(
+        RewardInput(
+            problem=solution_str,
+            problem_type=RewardType.MATH,
+            model_response=solution_str,
+            ground_truth={"answer": ground_truth},
+        )
+    )
     return reward_response.is_correct
 
 
-
 import re
-from typing import Optional
 
 import sympy
 from pylatexenc import latex2text
@@ -205,18 +233,19 @@ from sympy.parsing import sympy_parser
 
 
 # Dan Hendrycks' code
-def mathd_normalize_answer(answer: Optional[str]) -> Optional[str]:
+def mathd_normalize_answer(answer: str | None) -> str | None:
     if answer is None:
         return None
     answer = answer.strip()
     try:
         # Remove enclosing `\text{}`.
-        m = re.search("^\\\\text\{(?P<text>.+?)\}$", answer)
+        m = re.search(r"^\\text\{(?P<text>.+?)\}$", answer)
         if m is not None:
             answer = m.group("text").strip()
         return _strip_string(answer)
     except:
         return answer
+
 
 def _strip_string(string):
     def _fix_fracs(string):
@@ -250,7 +279,6 @@ def _strip_string(string):
         string = new_str
         return string
 
-
     def _fix_a_slash_b(string):
         if len(string.split("/")) != 2:
             return string
@@ -265,7 +293,6 @@ def _strip_string(string):
         except:
             return string
 
-
     def _remove_right_units(string):
         # "\\text{ " only ever occurs (at least in the val set) when describing units
         if "\\text{ " in string:
@@ -274,7 +301,6 @@ def _strip_string(string):
             return splits[0]
         else:
             return string
-
 
     def _fix_sqrt(string):
         if "\\sqrt" not in string:
@@ -289,6 +315,7 @@ def _strip_string(string):
                 new_substr = "\\sqrt" + split
             new_string += new_substr
         return new_string
+
     # linebreaks
     string = string.replace("\n", "")
     # print(string)
@@ -322,8 +349,8 @@ def _strip_string(string):
     string = _remove_right_units(string)
 
     # remove percentage
+    string = string.replace("\\\\%", "")
     string = string.replace("\\%", "")
-    string = string.replace("\%", "")
 
     # " 0." equivalent to " ." and "{0." equivalent to "{." Alternatively, add "0" if "." is the start of the string
     string = string.replace(" .", " 0.")
@@ -360,7 +387,7 @@ def _strip_string(string):
 
 # sympy might hang -- we don't care about trying to be lenient in these cases
 BAD_SUBSTRINGS = ["^{", "^("]
-BAD_REGEXES = ["\^[0-9]+\^", "\^[0-9][0-9]+"]
+BAD_REGEXES = [r"\^[0-9]+\^", r"\^[0-9][0-9]+"]
 TUPLE_CHARS = "()[]"
 
 
@@ -369,10 +396,7 @@ def _sympy_parse(expr: str):
     py_expr = expr.replace("^", "**")
     return sympy_parser.parse_expr(
         py_expr,
-        transformations=(
-            sympy_parser.standard_transformations
-            + (sympy_parser.implicit_multiplication_application,)
-        ),
+        transformations=(sympy_parser.standard_transformations + (sympy_parser.implicit_multiplication_application,)),
     )
 
 
@@ -440,7 +464,7 @@ def _inject_implicit_mixed_number(step: str):
 
 def _strip_properly_formatted_commas(expr: str):
     # We want to be careful because we don't want to strip tuple commas
-    p1 = re.compile("(\d)(,)(\d\d\d)($|\D)")
+    p1 = re.compile(r"(\d)(,)(\d\d\d)($|\D)")
     while True:
         next_expr = p1.sub("\\1\\3\\4", expr)
         if next_expr == expr:
@@ -455,7 +479,7 @@ def _normalize(expr: str) -> str:
         return None
 
     # Remove enclosing `\text{}`.
-    m = re.search("^\\\\text\{(?P<text>.+?)\}$", expr)
+    m = re.search(r"^\\text\{(?P<text>.+?)\}$", expr)  # 已修复
     if m is not None:
         expr = m.group("text")
 
@@ -488,8 +512,8 @@ def _normalize(expr: str) -> str:
         "inch",
         "yard",
     ]:
-        expr = re.sub(f"{unit}(es)?(s)? *(\^[0-9]+)?", "", expr)
-    expr = re.sub(f"\^ *\\\\circ", "", expr)
+        expr = re.sub(rf"{unit}(es)?(s)? *(\^[0-9]+)?", "", expr)
+    expr = re.sub(r"\^ *\\circ", "", expr)
 
     if len(expr) > 0 and expr[0] == "{" and expr[-1] == "}":
         expr = expr[1:-1]
@@ -504,7 +528,7 @@ def _normalize(expr: str) -> str:
             pass
 
     # edge case with mixed numbers and negative signs
-    expr = re.sub("- *", "-", expr)
+    expr = re.sub(r"- *", "-", expr)
 
     expr = _inject_implicit_mixed_number(expr)
     expr = expr.replace(" ", "")
@@ -597,20 +621,21 @@ def last_boxed_only_string(string):
                 right_brace_idx = i
                 break
         i += 1
-    
+
     if right_brace_idx == None:
         retval = None
     else:
-        retval = string[idx:right_brace_idx + 1]
-    
+        retval = string[idx : right_brace_idx + 1]
+
     return retval
+
 
 def remove_boxed(s):
     left = "\\boxed{"
     try:
-        assert s[:len(left)] == left
+        assert s[: len(left)] == left
         assert s[-1] == "}"
-        return s[len(left):-1]
+        return s[len(left) : -1]
     except:
         return None
 
@@ -620,6 +645,7 @@ def extract_boxed_answer(solution: str) -> str:
     solution = last_boxed_only_string(solution)
     solution = remove_boxed(solution)
     return solution
+
 
 def grade_answer_sympy(given_answer: str, ground_truth: str) -> bool:
     ground_truth_normalized = _normalize(ground_truth)
@@ -638,14 +664,13 @@ def grade_answer_sympy(given_answer: str, ground_truth: str) -> bool:
     given_elems = split_tuple(given_normalized)
 
     if len(ground_truth_elems) > 1 and (
-        ground_truth_normalized[0] != given_normalized[0]
-        or ground_truth_normalized[-1] != given_normalized[-1]
+        ground_truth_normalized[0] != given_normalized[0] or ground_truth_normalized[-1] != given_normalized[-1]
     ):
         is_correct = False
     elif len(ground_truth_elems) != len(given_elems):
         is_correct = False
     else:
-        for ground_truth_elem, given_elem in zip(ground_truth_elems, given_elems):
+        for ground_truth_elem, given_elem in zip(ground_truth_elems, given_elems, strict=False):
             if _is_frac(ground_truth_elem) and _is_frac(given_elem):
                 # if fractions aren't reduced, then shouldn't be marked as correct
                 # so, we don't want to allow sympy.simplify in this case
@@ -660,6 +685,7 @@ def grade_answer_sympy(given_answer: str, ground_truth: str) -> bool:
 
     return is_correct
 
+
 def grade_answer_mathd(given_answer: str, ground_truth: str) -> bool:
     ground_truth_normalized_mathd = mathd_normalize_answer(ground_truth)
     given_answer_normalized_mathd = mathd_normalize_answer(given_answer)
@@ -669,24 +695,31 @@ def grade_answer_mathd(given_answer: str, ground_truth: str) -> bool:
         return True
     return False
 
+
 def extract_answer(passage: str) -> str:
     if "\\boxed" in passage:
         return extract_boxed_answer(passage)
     return None
 
+
 def grade_answer_verl(solution_str, ground_truth):
     if not ground_truth:
         return False
-    if '\\boxed' in ground_truth:
+    if "\\boxed" in ground_truth:
         ground_truth = extract_answer(ground_truth)
     given_answer = extract_answer(solution_str)
     if given_answer is None:
         return False
-    return grade_answer_mathd(given_answer, ground_truth) \
-        or grade_answer_sympy(given_answer, ground_truth)
+    return grade_answer_mathd(given_answer, ground_truth) or grade_answer_sympy(given_answer, ground_truth)
+
 
 if __name__ == "__main__":
     reward = RewardMathFn(RewardConfig)
-    input = RewardInput(problem="Let $P(x)=x^{4}+2 x^{3}-13 x^{2}-14 x+24$ be a polynomial with roots $r_{1}, r_{2}, r_{3}, r_{4}$. Let $Q$ be the quartic polynomial with roots $r_{1}^{2}, r_{2}^{2}, r_{3}^{2}, r_{4}^{2}$, such that the coefficient of the $x^{4}$ term of $Q$ is 1. Simplify the quotient $Q\\left(x^{2}\\right) / P(x)$, leaving your answer in terms of $x$. (You may assume that $x$ is not equal to any of $\\left.r_{1}, r_{2}, r_{3}, r_{4}\\right)$.", problem_type=RewardType.MATH, model_response="<think> I am omniscient. </think> The answer is \\boxed{24 + 14*x + (-13)*x^2 - 2*x^3 + x^4}.", ground_truth={"answer": ["10", "$x^{4}-2 x^{3}-13 x^{2}+14 x+24$"]})
+    input = RewardInput(
+        problem="Let $P(x)=x^{4}+2 x^{3}-13 x^{2}-14 x+24$ be a polynomial with roots $r_{1}, r_{2}, r_{3}, r_{4}$. Let $Q$ be the quartic polynomial with roots $r_{1}^{2}, r_{2}^{2}, r_{3}^{2}, r_{4}^{2}$, such that the coefficient of the $x^{4}$ term of $Q$ is 1. Simplify the quotient $Q\\left(x^{2}\\right) / P(x)$, leaving your answer in terms of $x$. (You may assume that $x$ is not equal to any of $\\left.r_{1}, r_{2}, r_{3}, r_{4}\\right)$.",
+        problem_type=RewardType.MATH,
+        model_response="<think> I am omniscient. </think> The answer is \\boxed{24 + 14*x + (-13)*x^2 - 2*x^3 + x^4}.",
+        ground_truth={"answer": ["10", "$x^{4}-2 x^{3}-13 x^{2}+14 x+24$"]},
+    )
     output = reward(input)
     print(output)

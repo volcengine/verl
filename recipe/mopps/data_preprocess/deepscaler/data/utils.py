@@ -1,3 +1,16 @@
+# Copyright 2024 Bytedance Ltd. and/or its affiliates
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Utility functions for loading and processing datasets.
 
 This module provides functions for loading datasets from JSON files and handling
@@ -6,12 +19,12 @@ dataset-related operations in the DeepScaler project.
 
 import json
 import os
-from typing import Any, Dict, List
+from typing import Any
 
 from . import Dataset, TrainDataset
 
 
-def load_dataset(dataset: Dataset) -> List[Dict[str, Any]]:
+def load_dataset(dataset: Dataset) -> list[dict[str, Any]]:
     """Load a dataset from a JSON file.
 
     Loads and parses a JSON dataset file based on the provided dataset enum.
@@ -43,7 +56,7 @@ def load_dataset(dataset: Dataset) -> List[Dict[str, Any]]:
         raise ValueError(f"Dataset file not found: {file_path}")
 
     try:
-        with open(file_path, "r", encoding="utf-8") as file:
+        with open(file_path, encoding="utf-8") as file:
             data = json.load(file)
         return data
     except json.JSONDecodeError:
@@ -52,5 +65,5 @@ def load_dataset(dataset: Dataset) -> List[Dict[str, Any]]:
         raise ValueError(f"Error loading dataset: {exc}") from exc
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     load_dataset(TrainDataset.NUMINA_OLYMPIAD)
