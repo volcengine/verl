@@ -121,6 +121,31 @@ sampled_index = np.argsort(distances)[:self.real_batch_size]
 
 > 💡 **Note:** MoPPS can easily integrate with alternative selection strategies, e.g., threshold filtering.
 
+### 🔌 Easy Integration
+
+MoPPS can be seamlessly integrated into your RL training pipeline.
+
+**Key Integration Points:**
+- 📊 **Before rollout**: Call `sample_batch()` to select prompts
+- 🔄 **After reward**: Call `train()` to update Bayesian posteriors
+
+```python
+for epoch in range(self.config.trainer.total_epochs):
+    for batch_dict in self.train_dataloader:
+        # Step 1: Active pre-rollout prompt selection
+        if self.task_sampler is not None:
+            batch_dict, acquisition_score = self.task_sampler.sample_batch(batch_dict)
+        
+        # ... (rollout generation & evaluation)
+
+        # Step 2: Update posterior with observed success rates
+        ts_loss, ts_recon_loss, ts_kl_loss = self.task_sampler.train(
+            batch_dict, 
+            success_rate
+        )
+        # ... (RL training)
+```
+
 ---
 
 
