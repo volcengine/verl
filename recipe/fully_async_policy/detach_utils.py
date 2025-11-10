@@ -359,11 +359,13 @@ def assemble_batch_from_rollout_samples(
         "processing_time/tp99": np.percentile(processing_times, 99),
         "processing_time/tp95": np.percentile(processing_times, 95),
     }
-    tool_calls_stats = {
-        "timing_s/agent_loop/tool_calls/max": np.max(tool_calls),
-        "timing_s/agent_loop/tool_calls/min": np.min(tool_calls),
-        "timing_s/agent_loop/tool_calls/mean": np.mean(tool_calls),
-    }
+    tool_calls_stats = {}
+    if tool_calls:
+        tool_calls_stats = {
+            "timing_s/agent_loop/tool_calls/max": np.max(tool_calls),
+            "timing_s/agent_loop/tool_calls/min": np.min(tool_calls),
+            "timing_s/agent_loop/tool_calls/mean": np.mean(tool_calls),
+        }
     processing_time_stats = {f"fully_async/{key}": value for key, value in processing_time_stats.items()}
 
     param_version_diff = [abs(a - b) for a, b in zip(rs.param_version_end, rs.param_version_start, strict=False)]
