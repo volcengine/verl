@@ -134,5 +134,5 @@ python3 -m recipe.mopps.main_our \
     tasksampler.bandit_lower_bound=0.3\
     tasksampler.bandit_upper_bound=0.7\
     tasksampler.bandit_init=True\
-    tasksampler.bandit_init_dir="${RAY_DATA_HOME}/recipe/ours/scripts/math/index_score.json"\
+    tasksampler.bandit_init_dir="${RAY_DATA_HOME}/recipe/mopps/scripts/math/index_score.json"\
     "${@:1}"

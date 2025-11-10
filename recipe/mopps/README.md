@@ -44,7 +44,7 @@ huggingface-cli download --resume-download Qwen/Qwen2.5-3B --local-dir models/Qw
 ### Step 3: Training
 ```bash
 # Countdown task with Qwen2.5-3B
-bash recipe/ours/scripts/countdown/cd_verl_3b_topk_noinit.sh
+bash recipe/mopps/scripts/countdown/cd_verl_3b_topk_noinit.sh
 ```
 
 ---
