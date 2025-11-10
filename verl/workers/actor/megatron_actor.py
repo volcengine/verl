@@ -448,7 +448,7 @@ class MegatronPPOActor(BasePPOActor):
 
                 policy_loss_fn = get_policy_loss_fn(loss_mode)
 
-                # Extract pre-computed rollout importance sampling weights if present
+                # Extract pre-computed rollout correction weights if present
                 # Weights are computed centrally in trainer and added when algorithm.rollout_is=True
                 rollout_is_weights = data.get("rollout_is_weights", None)
 

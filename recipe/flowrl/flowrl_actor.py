@@ -1,6 +1,4 @@
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
-# Copyright 2023-2024 SGLang Team
-# Copyright 2025 ModelBest Inc. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,78 +11,61 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""
-Single Process Actor
-"""
 
 import logging
 import os
 
 import torch
-from torch import nn
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.tensor import DTensor
 
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
-from verl.trainer.ppo.core_algos import agg_loss, get_policy_loss_fn, kl_penalty
 from verl.utils.attention_utils import index_first_axis, pad_input, rearrange, unpad_input
-from verl.utils.device import get_device_id, get_device_name
-from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
+from verl.utils.device import get_device_id
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.py_functional import append_to_dict
-from verl.utils.seqlen_balancing import prepare_dynamic_batch, restore_dynamic_batch
+from verl.utils.seqlen_balancing import prepare_dynamic_batch
 from verl.utils.torch_functional import logprobs_from_logits
 from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad, ulysses_pad_and_slice_inputs
-from verl.workers.actor import BasePPOActor
-from verl.workers.config import ActorConfig
-
-__all__ = ["DataParallelPPOActor"]
+from verl.workers.actor.dp_actor import DataParallelPPOActor
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-class DataParallelPPOActor(BasePPOActor):
-    """FSDP DataParallel PPO Actor or Ref worker
+class ProjZModule(torch.nn.Module):
+    """Projection network for estimating log partition function Z in FlowRL."""
 
-    Args:
-        config (ActorConfig): Actor config
-        actor_module (nn.Module): Actor or ref module
-        actor_optimizer (torch.optim.Optimizer, optional): Actor optimizer. Defaults to None.
-    """
+    def __init__(self, hidden_size: int, num_layers: int = 3, dropout: float = 0.1):
+        super().__init__()
+        layers = []
 
-    def __init__(self, config: ActorConfig, actor_module: nn.Module, actor_optimizer: torch.optim.Optimizer = None):
-        """When optimizer is None, it is Reference Policy"""
-        super().__init__(config)
-        self.actor_module = actor_module
-        self.actor_optimizer = actor_optimizer
-        role = "Ref" if actor_optimizer is None else "Actor"
+        for i in range(num_layers - 1):
+            layers.extend(
+                [
+                    torch.nn.Linear(hidden_size, hidden_size),
+                    torch.nn.GELU(),
+                    torch.nn.LayerNorm(hidden_size),
+                    torch.nn.Dropout(dropout),
+                ]
+            )
 
-        self.use_remove_padding = self.config.get("use_remove_padding", False)
-        if torch.distributed.get_rank() == 0:
-            print(f"{role} use_remove_padding={self.use_remove_padding}")
-        self.use_fused_kernels = self.config.get("use_fused_kernels", False)
-        if torch.distributed.get_rank() == 0:
-            print(f"{role} use_fused_kernels={self.use_fused_kernels}")
+        layers.append(torch.nn.Linear(hidden_size, 1))
+        self.net = torch.nn.Sequential(*layers)
 
-        self.ulysses_sequence_parallel_size = self.config.ulysses_sequence_parallel_size
-        self.use_ulysses_sp = self.ulysses_sequence_parallel_size > 1
+    def forward(self, x):
+        return self.net(x)
 
-        if self.config.entropy_from_logits_with_chunking:
-            entropy_from_logits = verl_F.entropy_from_logits_with_chunking
-        else:
-            entropy_from_logits = verl_F.entropy_from_logits
 
-        self.compute_entropy_from_logits = (
-            torch.compile(entropy_from_logits, dynamic=True)
-            if self.config.get("use_torch_compile", True)  # use torch compile by default
-            else entropy_from_logits
-        )
-        self.device_name = get_device_name()
+class FlowRLActor(DataParallelPPOActor):
+    """FlowRL Actor that extends DataParallelPPOActor with partition function estimation."""
+
+    def __init__(self, config, *args, **kwargs):
+        super().__init__(config, *args, **kwargs)
+        # FlowRL hyperparameters (hardcoded as per paper)
+        self.flowrl_beta_coef = 15.0  # β coefficient for reward scaling in flowrl loss
 
     def _forward_micro_batch(
-        self, micro_batch, temperature, calculate_entropy=False
+        self, micro_batch, temperature, calculate_entropy=False, return_log_z=False
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Returns:
@@ -171,6 +152,7 @@ class DataParallelPPOActor(BasePPOActor):
                     input_ids=input_ids_rmpad,
                     attention_mask=None,
                     position_ids=position_ids_rmpad,
+                    output_hidden_states=True if return_log_z else False,  # FlowRL: for log_z estimation
                     **multi_modal_inputs,
                     use_cache=False,
                     **extra_args,
@@ -249,6 +231,7 @@ class DataParallelPPOActor(BasePPOActor):
                     input_ids=input_ids,
                     attention_mask=attention_mask,
                     position_ids=position_ids,
+                    output_hidden_states=True if return_log_z else False,  # FlowRL: for log_z estimation
                     **multi_modal_inputs,
                     use_cache=False,
                     **extra_args,
@@ -270,90 +253,29 @@ class DataParallelPPOActor(BasePPOActor):
                         else:
                             entropy = torch.utils.checkpoint.checkpoint(verl_F.entropy_from_logits, logits)
 
-            return entropy, log_probs
-
-    def _optimizer_step(self):
-        assert self.config.grad_clip is not None
-
-        if isinstance(self.actor_module, FSDP):
-            grad_norm = self.actor_module.clip_grad_norm_(max_norm=self.config.grad_clip)
-        elif isinstance(self.actor_module, FSDPModule):
-            grad_norm = fsdp2_clip_grad_norm_(self.actor_module.parameters(), max_norm=self.config.grad_clip)
-        else:
-            grad_norm = torch.nn.utils.clip_grad_norm_(self.actor_module.parameters(), max_norm=self.config.grad_clip)
-
-        if isinstance(grad_norm, DTensor):
-            grad_norm = grad_norm.full_tensor()
-
-        # if grad_norm is not finite, skip the update
-        if not torch.isfinite(grad_norm):
-            print(f"WARN: rank {torch.distributed.get_rank()} grad_norm is not finite: {grad_norm}")
-            self.actor_optimizer.zero_grad()
-        else:
-            self.actor_optimizer.step()
-        return grad_norm
-
-    @GPUMemoryLogger(role="dp actor", logger=logger)
-    def compute_log_prob(self, data: DataProto, calculate_entropy=False) -> torch.Tensor:
-        """Compute the log probability of the responses given input_ids, attention_mask and position_ids
-
-        Args:
-            data (DataProto): a DataProto containing keys
-
-                ``input_ids``: tensor of shape [batch_size, sequence_length]. torch.int64. Note that input_ids is the
-                concatenation of prompt and response. Note that ``sequence_length = prompt_length + response_length``.
-
-                ``attention_mask``: tensor of shape [batch_size, sequence_length]. torch.int64.
-
-                ``position_ids``: tensor of shape [batch_size, sequence_length]. torch.int64.
-
-                ``responses``:  tensor of shape [batch_size, response_length]. torch.int64.
-
-        Returns:
-            torch.Tensor: the log_prob tensor
-        """
-        # set to eval
-        self.actor_module.eval()
-
-        micro_batch_size = data.meta_info["micro_batch_size"]
-        temperature = data.meta_info["temperature"]  # temperature must be in the data.meta_info to avoid silent error
-        use_dynamic_bsz = data.meta_info["use_dynamic_bsz"]
-        has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
-        select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
-        non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
-
-        data = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
-
-        if use_dynamic_bsz:
-            max_token_len = data.meta_info["max_token_len"] * self.ulysses_sequence_parallel_size
-            micro_batches, batch_idx_list = prepare_dynamic_batch(data, max_token_len=max_token_len)
-        else:
-            micro_batches = data.split(micro_batch_size)
-
-        log_probs_lst = []
-        entropy_lst = []
-        for micro_batch in micro_batches:
-            micro_batch = micro_batch.to(get_device_id())
-            model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch}
-            with torch.no_grad():
-                entropy, log_probs = self._forward_micro_batch(
-                    model_inputs, temperature=temperature, calculate_entropy=calculate_entropy
+            # ==== FlowRL: use proj_z to estimate log Z ====
+            if return_log_z:
+                last_hidden = output.hidden_states[-1].squeeze(0)  # (total_nnz, hidden size)
+                if self.use_ulysses_sp:
+                    last_hidden = gather_outputs_and_unpad(
+                        last_hidden,
+                        gather_dim=0,
+                        unpad_dim=0,
+                        padding_size=pad_size,
+                    )
+                full_last_hidden = pad_input(
+                    hidden_states=last_hidden, indices=indices, batch=batch_size, seqlen=seqlen
                 )
-            log_probs_lst.append(log_probs)
-            if calculate_entropy:
-                entropy_lst.append(entropy)
+                # extract pormpt hiddenstate for log z
+                prompts_last_hidden = full_last_hidden[:, : -response_length - 1]
+                prompt_attention_mask = attention_mask[:, : -response_length - 1]
+                avg_hidden = verl_F.masked_mean(prompts_last_hidden, prompt_attention_mask.unsqueeze(-1), axis=1)
 
-        log_probs = torch.concat(log_probs_lst, dim=0)
-        entropys = None
-        if calculate_entropy:
-            entropys = torch.concat(entropy_lst, dim=0)
+                log_z = self.actor_module.proj_z(avg_hidden)
 
-        if use_dynamic_bsz:
-            log_probs = restore_dynamic_batch(log_probs, batch_idx_list)
-            if calculate_entropy:
-                entropys = restore_dynamic_batch(entropys, batch_idx_list)
-
-        return log_probs, entropys
+                return entropy, log_probs, log_z
+            else:
+                return entropy, log_probs
 
     @GPUMemoryLogger(role="dp actor", logger=logger)
     def update_policy(self, data: DataProto):
@@ -373,10 +295,13 @@ class DataParallelPPOActor(BasePPOActor):
         ]
         if self.config.use_kl_loss:
             select_keys.append("ref_log_prob")
-        # Include pre-computed IS weights if present in batch
-        # Weights are computed centrally in trainer and added to batch when algorithm.rollout_is=True
-        if "rollout_is_weights" in data.batch.keys():
-            select_keys.append("rollout_is_weights")
+        # if self.config.tis_imp_ratio_cap > 0:
+        #     assert "rollout_log_probs" in data.batch.keys(), (
+        #         "Truncated Importance Sampling (TIS) requires to configure "
+        #         "`actor_rollout_ref.rollout.calculate_log_probs=True` "
+        #         "and is not currently supported in Server mode (agent loop)."
+        #     )
+        #     select_keys.append("rollout_log_probs")
 
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
         non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
@@ -410,78 +335,70 @@ class DataParallelPPOActor(BasePPOActor):
                     response_mask = model_inputs["response_mask"]
                     old_log_prob = model_inputs["old_log_probs"]
                     advantages = model_inputs["advantages"]
-
-                    entropy_coeff = self.config.entropy_coeff
-                    loss_agg_mode = self.config.loss_agg_mode
+                    ref_log_prob = model_inputs["ref_log_prob"]
 
                     if self.config.use_dynamic_bsz:
                         loss_scale_factor = response_mask.shape[0] / self.config.ppo_mini_batch_size
                     else:
                         loss_scale_factor = 1 / self.gradient_accumulation
 
-                    # all return: (bsz, response_length)
-                    calculate_entropy = False
-                    if entropy_coeff != 0:
-                        calculate_entropy = True
-                    entropy, log_prob = self._forward_micro_batch(
-                        model_inputs, temperature=temperature, calculate_entropy=calculate_entropy
+                    # FlowRL: always compute log_z, no entropy needed
+                    _, log_prob, log_z = self._forward_micro_batch(
+                        model_inputs, temperature=temperature, calculate_entropy=False, return_log_z=True
                     )
 
-                    # for fully_async_policy recipe
-                    if hasattr(self.config, "use_rollout_log_probs") and self.config.use_rollout_log_probs:
-                        old_log_prob = model_inputs["old_log_probs"]
+                    if on_policy:
+                        old_log_prob = log_prob.detach()
                     else:
-                        if on_policy:
-                            old_log_prob = log_prob.detach()
-                        else:
-                            old_log_prob = model_inputs["old_log_probs"]
+                        old_log_prob = model_inputs["old_log_probs"]
 
-                    loss_mode = self.config.policy_loss.get("loss_mode", "vanilla")
+                    # loss_mode = self.config.policy_loss.get("loss_mode", "vanilla")
                     # vanilla -> verl.trainer.ppo.core_algos.compute_policy_loss_vanilla
-
-                    # Extract pre-computed rollout correction weights if present
-                    # Weights are computed centrally in trainer and added when algorithm.rollout_is=True
-                    rollout_is_weights = model_inputs.get("rollout_is_weights", None)
-
-                    # NOTE: Both mismatch diagnostic metrics (PPL, KL, etc.) and IS weight metrics
-                    # are computed centrally in ray_trainer.py for consistency and efficiency.
-                    # This ensures metrics are computed uniformly across all batches at the trainer level
-                    # and avoids redundant computation across workers and micro-batches.
-
                     # gpg -> verl.trainer.ppo.core_algos.compute_policy_loss_gpg
                     # clip_cov -> verl.trainer.ppo.core_algos.compute_policy_loss_clip_cov
-                    policy_loss_fn = get_policy_loss_fn(loss_mode)
-
-                    # Compute policy loss (all functions return 4 values)
-                    pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = policy_loss_fn(
-                        old_log_prob=old_log_prob,
+                    # policy_loss_fn = get_policy_loss_fn(loss_mode)
+                    # pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = policy_loss_fn(
+                    #     old_log_prob=old_log_prob,
+                    #     log_prob=log_prob,
+                    #     advantages=advantages,
+                    #     response_mask=response_mask,
+                    #     loss_agg_mode=loss_agg_mode,
+                    #     config=self.config,
+                    #     rollout_log_probs=rollout_log_probs,
+                    # )
+                    # Compute FlowRL trajectory balance loss
+                    policy_loss, flowrl_metrics = self.compute_flowrl_objective(
                         log_prob=log_prob,
-                        advantages=advantages,
+                        ref_log_prob=ref_log_prob,
+                        old_log_prob=old_log_prob,
+                        log_z=log_z,
+                        reward=advantages,
                         response_mask=response_mask,
-                        loss_agg_mode=loss_agg_mode,
-                        config=self.config,
-                        rollout_is_weights=rollout_is_weights,
+                        clip_ratio=self.config.clip_ratio,
+                        # rollout_log_probs=rollout_log_probs,
                     )
 
-                    if entropy_coeff != 0:
-                        entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+                    # if entropy_coeff != 0:
+                    #     entropy_loss = agg_loss(
+                    #         loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode
+                    #     )
 
-                        # compute policy loss
-                        policy_loss = pg_loss - entropy_loss * entropy_coeff
-                    else:
-                        policy_loss = pg_loss
+                    #     # compute policy loss
+                    #     policy_loss = pg_loss - entropy_loss * entropy_coeff
+                    # else:
+                    #     policy_loss = pg_loss
 
-                    if self.config.use_kl_loss:
-                        ref_log_prob = model_inputs["ref_log_prob"]
-                        # compute kl loss
-                        kld = kl_penalty(
-                            logprob=log_prob, ref_logprob=ref_log_prob, kl_penalty=self.config.kl_loss_type
-                        )
-                        kl_loss = agg_loss(loss_mat=kld, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+                    # if self.config.use_kl_loss:
+                    #     ref_log_prob = model_inputs["ref_log_prob"]
+                    #     # compute kl loss
+                    #     kld = kl_penalty(
+                    #         logprob=log_prob, ref_logprob=ref_log_prob, kl_penalty=self.config.kl_loss_type
+                    #     )
+                    #     kl_loss = agg_loss(loss_mat=kld, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
 
-                        policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
-                        micro_batch_metrics["actor/kl_loss"] = kl_loss.detach().item() * loss_scale_factor
-                        micro_batch_metrics["actor/kl_coef"] = self.config.kl_loss_coef
+                    #     policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
+                    #     micro_batch_metrics["actor/kl_loss"] = kl_loss.detach().item() * loss_scale_factor
+                    #     micro_batch_metrics["actor/kl_coef"] = self.config.kl_loss_coef
 
                     if self.config.use_dynamic_bsz:
                         # relative to the dynamic bsz
@@ -490,14 +407,15 @@ class DataParallelPPOActor(BasePPOActor):
                         loss = policy_loss * loss_scale_factor
                     loss.backward()
 
-                    micro_batch_metrics.update(
-                        {
-                            "actor/pg_loss": pg_loss.detach().item() * loss_scale_factor,
-                            "actor/pg_clipfrac": pg_clipfrac.detach().item(),
-                            "actor/ppo_kl": ppo_kl.detach().item(),
-                            "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
-                        }
-                    )
+                    micro_batch_metrics.update(flowrl_metrics)
+                    # micro_batch_metrics.update(
+                    #     {
+                    #         "actor/pg_loss": pg_loss.detach().item() * loss_scale_factor,
+                    #         "actor/pg_clipfrac": pg_clipfrac.detach().item(),
+                    #         "actor/ppo_kl": ppo_kl.detach().item(),
+                    #         "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
+                    #     }
+                    # )
                     append_to_dict(metrics, micro_batch_metrics)
 
                 grad_norm = self._optimizer_step()
@@ -505,3 +423,81 @@ class DataParallelPPOActor(BasePPOActor):
                 append_to_dict(metrics, mini_batch_metrics)
         self.actor_optimizer.zero_grad()
         return metrics
+
+    def compute_flowrl_objective(
+        self,
+        log_prob=None,
+        ref_log_prob=None,
+        old_log_prob=None,
+        log_z=None,
+        reward=None,
+        response_mask=None,
+        clip_ratio=None,
+        rollout_log_probs=None,
+    ):
+        log_ratio = log_prob - old_log_prob  # (B, T)
+        ratio = torch.exp(log_ratio)  # (B, T)
+
+        condition_1 = (reward > 0) & (ratio > 1.0 + self.config.clip_ratio_high)  # (B, T)
+        condition_2 = (reward < 0) & (ratio < 1.0 - self.config.clip_ratio_low)  # (B, T)
+
+        # CISPO mask
+        cispo_mask = ~(condition_1 | condition_2)
+        cispo_mask = cispo_mask.float()
+        combined_mask = response_mask * cispo_mask
+
+        # squeeze log_z to (B,)
+        log_z = log_z.squeeze(-1)
+
+        # Average token log-probs & rewards over valid positions
+        avg_log_prob = verl_F.masked_mean(log_prob, combined_mask, axis=1)
+        avg_ref_log_prob = verl_F.masked_mean(ref_log_prob, combined_mask, axis=1)
+        seq_log_reward = verl_F.masked_mean(reward, combined_mask, axis=1)
+
+        # FlowRL residual: logZ + logpf - β*R - logpref
+        delta = log_z + avg_log_prob - self.flowrl_beta_coef * seq_log_reward - avg_ref_log_prob
+
+        # Importance ratio from current vs old policy (product of token ratios)
+        log_w = verl_F.masked_sum(log_prob - old_log_prob, combined_mask, axis=1)
+        imp_w_raw = torch.exp(log_w).detach()
+
+        # Clamp importance weight for numerical stability (prevent extreme values)
+        # imp_w = torch.clamp(imp_w_raw, max=10.0)
+        imp_w = torch.clamp(imp_w_raw, 1 - self.config.clip_ratio_low, 1 + self.config.clip_ratio_high)
+
+        # Loss: weighted squared residual with clipped importance weights
+        weighted_losses = imp_w * (delta**2)
+        avg_loss = torch.mean(weighted_losses)
+
+        # PPO KL: negative_approx_kl = log_prob - old_log_prob
+        negative_approx_kl = log_prob - old_log_prob
+        ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
+
+        # Reference KL: approx_kl_ref = log_prob - ref_log_prob
+        approx_kl_ref = log_prob - ref_log_prob
+        ref_kl = verl_F.masked_mean(-approx_kl_ref, response_mask)
+
+        # cispo
+        total_tokens = response_mask.sum()
+        cispo_dropped = (response_mask * (1 - cispo_mask)).sum()
+        cispo_mask_ratio = cispo_dropped / (total_tokens + 1e-8)
+
+        # Metrics
+        loss_term_dict = {
+            "actor/log_prob": verl_F.masked_mean(log_prob, response_mask).detach().item(),
+            "actor/old_log_prob": verl_F.masked_mean(old_log_prob, response_mask).detach().item(),
+            "actor/ref_log_prob": verl_F.masked_mean(ref_log_prob, response_mask).detach().item(),
+            "actor/log_z": log_z.mean().detach().item(),
+            "actor/log_reward": verl_F.masked_mean(reward, response_mask).detach().item(),
+            "actor/final_loss": avg_loss.detach().item(),
+            "actor/importance_weight_raw": imp_w_raw.mean().detach().item(),
+            "actor/importance_weight": imp_w.mean().detach().item(),
+            "actor/ppo_kl": ppo_kl.detach().item(),  # PPO-style KL (current vs old policy)
+            "actor/ref_kl": ref_kl.detach().item(),  # KL with reference policy
+            "actor/cispo_mask_ratio": cispo_mask_ratio.detach().item(),  # cispo
+            "actor/cispo_dropped_tokens": cispo_dropped.detach().item(),  # cispo
+            "actor/condition_1_count": (condition_1 * response_mask).sum().detach().item(),  # cispo
+            "actor/condition_2_count": (condition_2 * response_mask).sum().detach().item(),  # cispo
+        }
+
+        return avg_loss, loss_term_dict

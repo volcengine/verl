@@ -1,31 +1,24 @@
 #!/usr/bin/env bash
-# Example: Basic PPO training with Rollout Importance Sampling
+# Example: Basic PPO training with Rollout Correction
 # This demonstrates the standard setup for correcting distribution mismatch
 
 set -xeuo pipefail
 
 # ==============================================================================
-# Rollout Importance Sampling Configuration
+# Rollout Correction Configuration
 # ==============================================================================
 
-# Main control: Upper threshold for IS weights (null = disabled, float = enabled)
-rollout_is_threshold=2.0
+# Importance Sampling (IS) weights configuration
+rollout_is="token"                        # "token", "sequence", or null to disable
+rollout_is_threshold=2.0                  # Upper threshold for IS weights
 
-# Whether to apply IS weights to policy loss
-# true = apply weights to loss, false = compute metrics only
-rollout_is=true
+# Rejection Sampling (RS) configuration
+rollout_rs="null"                         # "token", "sequence", "geometric", or null to disable
+rollout_rs_threshold="null"               # RS upper threshold
+rollout_rs_threshold_lower="null"         # RS lower threshold
 
-# Lower threshold (null = auto-reciprocal, i.e., 1/upper = 0.5)
-rollout_is_threshold_lower=null
-
-# Aggregation level: token | sequence | geometric (experimental)
-rollout_is_level=token
-
-# Bounding mode: truncate (cap upper) | mask (zero outside bounds)
-rollout_is_mode=truncate
-
-# Catastrophic outlier veto threshold (set to null to disable, or e.g., 1e-4 to enable)
-rollout_is_veto_threshold=null
+# Veto mechanism (optional, independent of IS/RS)
+rollout_token_veto_threshold="null"       # Per-token veto threshold (null to disable)
 
 # ==============================================================================
 # Model and Data Configuration
@@ -68,12 +61,12 @@ python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=${adv_estimator} \
     algorithm.gamma=${gamma} \
     algorithm.lam=${lam} \
-    algorithm.rollout_is=${rollout_is} \
-    algorithm.rollout_is_threshold=${rollout_is_threshold} \
-    algorithm.rollout_is_threshold_lower=${rollout_is_threshold_lower} \
-    algorithm.rollout_is_level=${rollout_is_level} \
-    algorithm.rollout_is_mode=${rollout_is_mode} \
-    algorithm.rollout_is_veto_threshold=${rollout_is_veto_threshold} \
+    algorithm.rollout_correction.rollout_is=${rollout_is} \
+    algorithm.rollout_correction.rollout_is_threshold=${rollout_is_threshold} \
+    algorithm.rollout_correction.rollout_rs=${rollout_rs} \
+    algorithm.rollout_correction.rollout_rs_threshold=${rollout_rs_threshold} \
+    algorithm.rollout_correction.rollout_rs_threshold_lower=${rollout_rs_threshold_lower} \
+    algorithm.rollout_correction.rollout_token_veto_threshold=${rollout_token_veto_threshold} \
     actor_rollout_ref.model.path="${MODEL_PATH}" \
     actor_rollout_ref.actor.optim.lr=${learning_rate} \
     actor_rollout_ref.actor.ppo_mini_batch_size=${ppo_mini_batch_size} \
@@ -81,19 +74,19 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.calculate_log_probs=True \
     actor_rollout_ref.rollout.name=vllm \
     trainer.logger='["console","wandb"]' \
-    trainer.project_name="rollout_is_example" \
+    trainer.project_name="rollout_corr_example" \
     trainer.experiment_name="basic_token_truncate" \
     trainer.total_epochs=10
 
 echo "Training completed!"
 echo ""
-echo "Rollout IS Configuration:"
-echo "  - Threshold: ${rollout_is_threshold}"
-echo "  - Apply to loss: ${rollout_is}"
-echo "  - Level: ${rollout_is_level}"
-echo "  - Mode: ${rollout_is_mode}"
+echo "Rollout Correction Configuration:"
+echo "  - IS weights: ${rollout_is}"
+echo "  - IS threshold: ${rollout_is_threshold}"
+echo "  - RS mode: ${rollout_rs}"
+echo "  - Veto threshold: ${rollout_token_veto_threshold}"
 echo ""
 echo "Monitor these key metrics in wandb:"
-echo "  - mismatch/rollout_is_mean (should be ~1.0)"
-echo "  - mismatch/rollout_is_eff_sample_size (should be >0.5)"
-echo "  - mismatch/rollout_is_veto_fraction (should be <0.1)"
+echo "  - rollout_corr/rollout_is_mean (should be ~1.0)"
+echo "  - rollout_corr/rollout_is_eff_sample_size (should be >0.5)"
+echo "  - rollout_corr/rollout_is_veto_fraction (should be <0.1)"
