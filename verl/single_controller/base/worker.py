@@ -131,13 +131,13 @@ class Worker(WorkerHelper):
         return self.__collect_dp_rank[mesh_name]
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=True)
-    def create_transferqueue_client(self, controller_infos, storage_infos, role="train"):
+    def create_transferqueue_client(self, controller_info, config):
         from verl.utils.transferqueue_utils import create_transferqueue_client
 
         create_transferqueue_client(
-            client_id=f"{role}_worker_{self.rank}",
-            controller_infos=controller_infos,
-            storage_infos=storage_infos,
+            client_id=f"worker_{self.rank}",
+            controller_info=controller_info,
+            config=config,
         )
 
     @classmethod
