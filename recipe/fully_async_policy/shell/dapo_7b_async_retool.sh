@@ -43,7 +43,7 @@ actor_lr=1e-6
 infer_tp=4 # vllm
 train_sp=4 # train
 fsdp_size=4 # train
-offload=True
+offload=False
 
 actor_max_token_len_per_gpu=$(( (max_prompt_length + max_response_length) * 1 ))
 log_prob_max_token_len_per_gpu=$(( actor_max_token_len_per_gpu * 4 ))
