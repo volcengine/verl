@@ -303,6 +303,37 @@ class RolloutCorrectionConfig(BaseConfig):
         )
 
     @classmethod
+    def pure_rs(
+        cls,
+        rs_threshold: float = 1.001,
+        rs_threshold_lower: Optional[float] = None,
+        veto_threshold: float = 1e-4,
+    ) -> "RolloutCorrectionConfig":
+        """Pure Rejection Sampling.
+
+        Pure rejection sampling (no IS weights) using geometric mean in bypass mode.
+        Skips old_log_prob computation for faster execution.
+
+        Args:
+            rs_threshold (float): Geometric RS threshold (upper). Default: 1.001 (±0.1%)
+            rs_threshold_lower (Optional[float]): Geometric RS threshold (lower).
+                If None, auto-computed as reciprocal of rs_threshold. Default: None
+            veto_threshold (float): Per-token veto threshold. Default: 1e-4
+
+        Returns:
+            RolloutCorrectionConfig configured for pure RS
+        """
+        return cls(
+            rollout_is=None,
+            rollout_rs="geometric",
+            rollout_rs_threshold=rs_threshold,
+            rollout_rs_threshold_lower=rs_threshold_lower,
+            rollout_token_veto_threshold=veto_threshold,
+            bypass_old_logprob_for_rollout=True,
+            use_pure_rollout_correction=True,
+        )
+
+    @classmethod
     def disabled(cls) -> "RolloutCorrectionConfig":
         """Disabled - Metrics Only Mode.
 

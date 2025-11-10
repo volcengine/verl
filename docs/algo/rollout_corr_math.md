@@ -24,11 +24,10 @@ Rollout correction provides a unified framework to handle **general off-policy p
 
 1. [Theoretical Foundation: From REINFORCE to Decoupled PPO](#1-theoretical-foundation-from-reinforce-to-decoupled-ppo)
 2. [Implementation in verl: The Three-Policy Framework](#2-implementation-in-verl-the-three-policy-framework)
-3. [Method Variants: Different Algorithmic Choices](#3-method-variants-different-algorithmic-choices)
-4. [Safety Mechanisms and Rejection Sampling](#4-safety-mechanisms-and-rejection-sampling)
-5. [Off-Policy Diagnostic Metrics](#5-off-policy-diagnostic-metrics)
-6. [Summary and Decision Guide](#6-summary-and-decision-guide)
-7. [Implementation References](#7-implementation-references)
+3. [Algorithmic Components and Combinations](#3-algorithmic-components-and-combinations)
+4. [Off-Policy Diagnostic Metrics](#4-off-policy-diagnostic-metrics)
+5. [Summary and Decision Guide](#5-summary-and-decision-guide)
+6. [Implementation References](#6-implementation-references)
 
 ---
 
@@ -201,33 +200,95 @@ This is the drift from policy parameter updates during training.
 
 ---
 
-## 3. Method Variants: Different Algorithmic Choices
+## 3. Algorithmic Components and Combinations
 
-This section describes the different algorithmic variants available in `verl`, organized by their theoretical foundation.
+The rollout correction framework in `verl` is built from **orthogonal components** that can be combined flexibly:
 
-### 3.1 Off-Policy REINFORCE Methods
+1. **Operating Mode**: How $\pi_{\text{old}}$ is computed (Decoupled vs Bypass)
+2. **Loss Function**: PPO (with clipping) vs Pure IS (policy gradient only)
+3. **IS/RS Aggregation Level**: Token, Sequence, or Geometric
+4. **Safety Mechanisms**: Veto for catastrophic outliers
 
-These methods implement REINFORCE with importance sampling, without PPO clipping.
+This section explains each component and their valid combinations.
 
-#### 3.1.1 Pure IS (pure_is)
+### 3.1 Operating Modes: Decoupled vs Bypass
 
-**Theory:** Off-policy REINFORCE with sequence-level truncated importance sampling.
+The operating mode determines how the proximal policy $\pi_{\text{old}}$ is computed.
 
-**Configuration:**
-```python
-RolloutCorrectionConfig.pure_is(threshold=2.0)
-```
+#### 3.1.1 Decoupled Mode (Three Policies)
 
-**Loss Function:**
+**Configuration:** `bypass_old_logprob_for_rollout = false`
+
+**Policy setup:**
+- $\pi_{\text{rollout}}$: Behavior policy (data collection)
+- $\pi_{\text{old}}$: Proximal policy (computed via `actor.compute_log_prob()` at start of training epoch)
+- $\pi_{\theta}$: Current policy (being updated)
+
+**IS ratio:** $\rho_t = \frac{\pi_{\text{old}}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}$ (corrects Drift 1: rollout→old)
+
+**PPO ratio:** $r_t(\theta) = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{old}}(a_t|s_t)}$ (corrects Drift 2: old→current)
+
+**Properties:**
+- ✅ Achieves batch size invariance
+- ✅ Separately corrects two distribution drifts
+- ✅ Efficient stale data utilization
+- ❌ Extra forward pass needed (`actor.compute_log_prob()`)
+
+#### 3.1.2 Bypass Mode (Two Policies)
+
+**Configuration:** `bypass_old_logprob_for_rollout = true`
+
+**Policy setup:**
+- $\pi_{\text{rollout}}$: Behavior policy (data collection)
+- $\pi_{\text{old}} = \pi_{\text{rollout}}$: Proximal policy equals behavior policy
+- $\pi_{\theta}$: Current policy (being updated)
+
+**IS ratio:** $\rho_t = \frac{\pi_{\text{rollout}}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)} = 1$ when using PPO, or $\rho_t = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}$ when using Pure IS
+
+**PPO ratio:** $r_t(\theta) = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}$ (clips against rollout policy)
+
+**Properties:**
+- ✅ Faster: Skips `actor.compute_log_prob()` call
+- ✅ Mathematically correct: Uses actual behavior policy as proximal policy
+- ❌ Does not achieve batch size invariance
+
+---
+
+### 3.2 Loss Functions: PPO vs Pure IS
+
+#### 3.2.1 PPO Loss (with Clipping)
+
+**Configuration:** `use_pure_rollout_correction = false`
+
+**Loss function:**
+
+$$
+L_{\text{PPO}}(\theta) = -\mathbb{E}_t \left[ w_t \cdot \min\left( r_t(\theta) A_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t \right) \right]
+$$
+
+where:
+- $w_t$: IS weight (depends on aggregation level, see Section 3.3)
+- $r_t(\theta) = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{old}}(a_t|s_t)}$: PPO ratio
+- $\epsilon$: Clip range (typically 0.2)
+
+**Properties:**
+- Trust region control via clipping
+- Limits policy update magnitude
+- Standard in RL training
+
+#### 3.2.2 Pure IS Loss (Policy Gradient)
+
+**Configuration:** `use_pure_rollout_correction = true` (requires `bypass_old_logprob_for_rollout = true`)
+
+**Loss function:**
 
 $$
 L_{\text{PureIS}}(\theta) = -\mathbb{E}_{(s,a) \sim \pi_{\text{rollout}}} \left[ w_{\text{seq}}(\theta) \cdot \sum_{t \in T} \log \pi_{\theta}(a_t|s_t) \cdot A_t \right]
 $$
 
 where:
-- Sequence-level IS weight: $w_{\text{seq}}(\theta) = \min\left( \prod_{t \in T} \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}, C_{\text{IS}} \right)$
+- $w_{\text{seq}}(\theta) = \min\left( \prod_{t \in T} \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}, C_{\text{IS}} \right)$: Sequence-level IS weight
 - IS weight is **detached from gradient** (treated as constant)
-- Direct comparison: $\pi_\theta$ to $\pi_{\text{rollout}}$
 
 **Effective gradient:**
 
@@ -237,22 +298,213 @@ $$
 
 **Properties:**
 - **Algorithm**: Off-policy REINFORCE + IS
-- **Policies**: Two ($\pi_{\text{rollout}}$, $\pi_\theta$)
 - **No PPO clipping**: Pure policy gradient
-- **Always uses bypass mode**: No $\pi_{\text{old}}$ computation
-- **Fast**: Single forward pass for IS weights
+- **Always uses bypass mode**: Direct $\pi_\theta$ to $\pi_{\text{rollout}}$ comparison
+- **Fast**: Single forward pass
 
 **Implementation:** `compute_policy_loss_with_rollout_correction()` in [core_algos.py](../../verl/trainer/ppo/core_algos.py#L1537-L1681)
 
 ---
 
-### 3.2 Two-Policy PPO Methods
+### 3.3 IS/RS Aggregation Levels
 
-These methods use two policies without importance sampling between behavior and proximal policies.
+The aggregation level determines how per-token probability ratios are combined into IS weights and/or rejection masks. This choice is **orthogonal to the operating mode** - you can use any aggregation level in either decoupled or bypass mode.
 
-#### 3.2.1 Incorrect LLM-RL Implementation (PPO Without Rollout Correction)
+#### 3.3.1 Token-Level Aggregation
 
-**Theory:** Naive LLM-RL implementation that incorrectly applies PPO by ignoring the actual rollout policy and assuming $\mu = \pi_{\text{old}}$.
+**IS weights:** $w_t = \min(\rho_t, C_{\text{IS}})$ where $\rho_t = \frac{\pi_{\text{old}}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}$ (decoupled) or $\rho_t = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}$ (bypass/pure IS)
+
+**Configuration:**
+```python
+rollout_is = "token"  # IS weights
+rollout_rs = "token"  # Optional: rejection sampling
+```
+
+**Properties:**
+- Independent truncation per token
+- Stable for moderate distribution shifts
+- Typical threshold: 1.5 - 5.0
+
+**Loss function (PPO + Token IS):**
+
+$$
+L_{\text{PPO+TIS}}(\theta) = -\mathbb{E}_t \left[ w_t \cdot \min\left( r_t(\theta) A_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t \right) \right]
+$$
+
+**Implementation:**
+- IS weights: `compute_rollout_correction_weights()` in [rollout_corr_helper.py](../../verl/trainer/ppo/rollout_corr_helper.py#L325-L402)
+- Loss: `compute_policy_loss()` in [core_algos.py](../../verl/trainer/ppo/core_algos.py#L812-L884)
+
+#### 3.3.2 Sequence-Level Aggregation
+
+**IS weights:** $w_{\text{seq}} = \min\left( \prod_{t \in T} \rho_t, C_{\text{IS}} \right) = \min\left( \exp\left(\sum_{t \in T} \log \rho_t\right), C_{\text{IS}} \right)$ (broadcast to all tokens)
+
+**Configuration:**
+```python
+rollout_is = "sequence"  # IS weights
+rollout_rs = "sequence"  # Optional: rejection sampling
+```
+
+**Properties:**
+- Multiplicative aggregation across sequence
+- More sensitive to outliers than token-level
+- Typical threshold: 2.0 - 10.0
+
+**Loss function (PPO + Sequence IS):**
+
+$$
+L_{\text{PPO+SeqIS}}(\theta) = -\mathbb{E}_t \left[ w_{\text{seq}} \cdot \min\left( r_t(\theta) A_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t \right) \right]
+$$
+
+#### 3.3.3 Geometric Aggregation
+
+**IS weights (for rejection only):** $\rho_{\text{geo}} = \exp\left( \frac{1}{|T|} \sum_{t \in T} \log \rho_t \right) = \left(\prod_{t \in T} \rho_t\right)^{1/|T|}$ (broadcast to all tokens)
+
+**Configuration:**
+```python
+rollout_is = null  # No IS weights, pure rejection
+rollout_rs = "geometric"  # Rejection sampling only
+```
+
+**Properties:**
+- Geometric mean of per-token ratios
+- Extremely sensitive to outliers
+- Typical threshold: 1.0001 - 1.001 (very tight!)
+- **Used for rejection sampling only, not IS weighting**
+
+**Why tight thresholds?**
+For 100 tokens with $\rho_t = 1.01$ each:
+- Arithmetic product: $\prod_{t=1}^{100} \rho_t = 1.01^{100} \approx 2.7$
+- Geometric mean: $(1.01)^{1} = 1.01$
+
+A threshold of 1.001 means rejecting sequences with average per-token deviation > 0.1%.
+
+**Loss function (PPO + Geometric RS):**
+
+$$
+L_{\text{GeoRS}}(\theta) = -\mathbb{E}_{t \mid \text{seq} \in \mathcal{A}_{\text{geo}}} \left[ \min\left( r_t(\theta) A_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t \right) \right]
+$$
+
+where $\mathcal{A}_{\text{geo}} = \{ \text{seq} : C_{\text{RS-lower}} \leq \rho_{\text{geo}} \leq C_{\text{RS-upper}} \}$
+
+---
+
+### 3.4 Rejection Sampling (RS)
+
+Rejection sampling can be added to **any combination** of operating mode and aggregation level. It modifies the `response_mask` to exclude outlier tokens/sequences.
+
+**Configuration:**
+```python
+rollout_rs = "token"  # or "sequence" or "geometric"
+rollout_rs_threshold = 2.0  # Upper threshold
+rollout_rs_threshold_lower = 0.5  # Lower threshold (auto-reciprocal if null)
+```
+
+**Acceptance set:**
+- **Token-level**: $\mathcal{A}_{\text{token}} = \{ t : C_{\text{RS-lower}} \leq \rho_t \leq C_{\text{RS-upper}} \}$
+- **Sequence-level**: $\mathcal{A}_{\text{seq}} = \{ \text{seq} : C_{\text{RS-lower}} \leq \prod_{t \in T} \rho_t \leq C_{\text{RS-upper}} \}$
+- **Geometric**: $\mathcal{A}_{\text{geo}} = \{ \text{seq} : C_{\text{RS-lower}} \leq \rho_{\text{geo}} \leq C_{\text{RS-upper}} \}$
+
+**Properties:**
+- Separate from IS weighting (can use RS without IS)
+- Reduces effective sample size
+- Filters extreme outliers
+
+**Implementation:** `compute_rollout_rejection_mask()` in [rollout_corr_helper.py](../../verl/trainer/ppo/rollout_corr_helper.py#L80-L188)
+
+---
+
+### 3.5 Veto Mechanism
+
+An **independent** safety layer that rejects sequences with catastrophically low token probabilities.
+
+**Configuration:**
+```python
+rollout_token_veto_threshold = 1e-4  # null = disabled
+```
+
+**Veto condition:**
+
+$$
+\text{Reject entire sequence if } \exists t \in T \text{ such that } \rho_t < C_{\text{veto}}
+$$
+
+**Properties:**
+- Prevents catastrophic updates from tokens with near-zero probability
+- **Independent** of IS/RS settings (always applied if enabled)
+- Checks **unclamped per-token ratios** before safety bounds
+- Typical values: $10^{-4}$ to $10^{-6}$
+
+**Implementation:** [rollout_corr_helper.py](../../verl/trainer/ppo/rollout_corr_helper.py#L620-L640)
+
+---
+
+### 3.6 Combination Matrix
+
+#### Available Preset Methods
+
+| Preset Method | Mode | IS Level | RS Level | Properties |
+|---------------|------|----------|----------|------------|
+| `token_is()` | Decoupled | token | - | Per-token IS weights |
+| `seq_is()` | Decoupled | sequence | - | Sequence-level IS weights |
+| `seq_is_rs()` | Decoupled | sequence | sequence | Sequence IS + sequence RS |
+| `geo_rs()` | Decoupled | - | geometric + veto | Geometric RS + veto, no IS weights |
+| `ppo_is_bypass()` | Bypass | - | - | Bypass mode, skips old_log_prob |
+| `pure_rs()` | Bypass | - | geometric + veto | Pure RS (bypass + geometric), no IS weights |
+| `pure_is()` | Bypass | sequence | - | Policy gradient loss (no PPO clip) |
+
+**Note:** All presets use PPO loss except `pure_is()` which uses pure policy gradient. The `pure_rs()` preset requires `use_pure_rollout_correction=True`.
+
+#### Additional Supported Combinations (Manual Configuration)
+
+These combinations are **fully supported** but require manual configuration:
+
+**1. Token IS + Token RS**
+```python
+config = RolloutCorrectionConfig(
+    rollout_is="token",
+    rollout_is_threshold=2.0,
+    rollout_rs="token",
+    rollout_rs_threshold=2.0,
+)
+```
+**Properties:** Token-level IS weights + token-level RS mask.
+
+**2. Pure Token RS**
+```python
+config = RolloutCorrectionConfig(
+    rollout_is=None,
+    rollout_rs="token",
+    rollout_rs_threshold=2.0,
+)
+```
+**Properties:** Token-level RS mask only, no IS weights.
+
+**3. Pure Sequence RS**
+```python
+config = RolloutCorrectionConfig(
+    rollout_is=None,
+    rollout_rs="sequence",
+    rollout_rs_threshold=2.0,
+)
+```
+**Properties:** Sequence-level RS mask only, no IS weights.
+
+**Key properties:**
+- Any IS aggregation level (token/sequence) can be used in either decoupled or bypass mode
+- Rejection sampling can be added to any combination
+- Veto is independent and can be added to any combination
+- Geometric aggregation is typically used for RS only (not IS weighting)
+- Pure RS (`pure_rs`) uses bypass + geometric RS with `use_pure_rollout_correction=True` (no IS weights)
+- All combinations in the table above are valid and supported by the implementation
+
+---
+
+### 3.7 Common Implementation Mistake
+
+#### Incorrect LLM-RL Implementation (PPO Without Rollout Correction)
+
+**Theory:** Naive LLM-RL implementation that incorrectly applies PPO by **ignoring the actual rollout policy** and assuming $\pi_{\text{old}} = \pi_{\text{rollout}}$.
 
 **Note:** This incorrect implementation pattern was identified in [Liu, Li, et al. (2025)](https://yingru.notion.site/When-Speed-Kills-Stability-Demystifying-RL-Collapse-from-the-Training-Inference-Mismatch-271211a558b7808d8b12d403fd15edda) as a key cause of training instability in LLM-RL systems, motivating the development of this rollout correction framework.
 
@@ -262,207 +514,29 @@ $$
 L_{\text{PPO}}(\theta) = -\mathbb{E}_t \left[ \min\left( r_t(\theta) A_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t \right) \right]
 $$
 
-where $r_t(\theta) = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{old}}(a_t|s_t)}$.
+where $r_t(\theta) = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{old}}(a_t|s_t)}$ (ignores $\pi_{\text{rollout}}$).
 
-**Properties:**
-- **Algorithm**: Common but incorrect LLM-RL implementation (mathematically wrong when $\pi_{\text{rollout}} \neq \pi_{\text{old}}$)
-- **Policies**: Two ($\pi_{\text{old}}$, $\pi_\theta$)
+**Why it's wrong:**
 - **Ignores $\pi_{\text{rollout}}$**: Uses $\pi_{\text{old}}$ as behavior policy instead of actual $\pi_{\text{rollout}}$
-- **Policy mismatch**: This is the typical case in LLM-RL - rollout uses different precision/backend/checkpoint than training, causing $\pi_{\text{rollout}} \neq \pi_{\text{old}}$ even with same model weights
-- **Not PPO's fault**: PPO itself is correct; the issue is the incorrect assumption that $\pi_{\text{old}} = \pi_{\text{rollout}}$ in LLM-RL implementations
+- **Policy mismatch**: In LLM-RL, rollout typically uses different precision/backend/checkpoint than training, causing $\pi_{\text{rollout}} \neq \pi_{\text{old}}$ even with same model weights
+- **Not PPO's fault**: PPO itself is correct; the issue is the incorrect assumption
+
+**Correct alternatives:**
+1. **Decoupled mode**: Three policies with IS correction from $\pi_{\text{rollout}}$ to $\pi_{\text{old}}$
+2. **Bypass mode**: Two policies using $\pi_{\text{rollout}}$ as both behavior policy and proximal policy
+3. **Pure IS mode**: Two policies with IS correction and no PPO clipping
 
 **Implementation:** `compute_policy_loss()` in [core_algos.py](../../verl/trainer/ppo/core_algos.py#L812-L884)
 
-#### 3.2.2 PPO Bypass (ppo_is_bypass)
-
-**Theory:** Original PPO applied to off-policy data by using $\pi_{\text{rollout}}$ as the PPO anchor.
-
-**Configuration:**
-```python
-RolloutCorrectionConfig.ppo_is_bypass(threshold=2.0)
-```
-
-**Implementation:** When `bypass_old_logprob_for_rollout=True`, we set $\pi_{\text{old}} = \pi_{\text{rollout}}$:
-- IS weight: $w_t = \frac{\pi_{\text{old}}}{\pi_{\text{rollout}}} = 1$
-- PPO ratio: $r_t(\theta) = \frac{\pi_{\theta}}{\pi_{\text{old}}} = \frac{\pi_{\theta}}{\pi_{\text{rollout}}}$
-
-**Loss Function:**
-
-$$
-L_{\text{PPO-Bypass}}(\theta) = -\mathbb{E}_t \left[ \min\left( r_t(\theta) A_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t \right) \right]
-$$
-
-where $r_t(\theta) = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}$ (clips against rollout policy).
-
-**Properties:**
-- **Algorithm**: PPO with $\pi_{\text{rollout}}$ as proximal policy (two policies)
-- **Policies**: Two ($\pi_{\text{rollout}}$, $\pi_\theta$)
-- **No IS correction needed**: Uses actual behavior policy $\pi_{\text{rollout}}$ as proximal policy (mathematically correct)
-- **PPO clips against rollout**: Trust region relative to data collection policy
-- **Fast**: Skips `actor.compute_log_prob()` call
-
 ---
 
-### 3.3 Decoupled PPO Methods
-
-These methods implement full decoupled PPO with three policies, combining importance sampling (for Drift 1) with PPO clipping (for Drift 2).
-
-#### 3.3.1 Token-Level IS (token_is)
-
-**Theory:** Decoupled PPO with per-token truncated importance sampling.
-
-**Configuration:**
-```python
-RolloutCorrectionConfig.token_is(threshold=2.0)
-```
-
-**Loss Function:**
-
-$$
-L_{\text{PPO+TIS}}(\theta) = -\mathbb{E}_t \left[ w_t \cdot \min\left( r_t(\theta) A_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t \right) \right]
-$$
-
-where:
-- Per-token IS weight: $w_t = \min(\rho_t, C_{\text{IS}}) = \min\left(\frac{\pi_{\text{old}}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}, C_{\text{IS}} \right)$
-- PPO ratio: $r_t(\theta) = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{old}}(a_t|s_t)}$
-- $\pi_{\text{old}}$ is computed at **start of training epoch**
-
-**Properties:**
-- **Algorithm**: Decoupled PPO
-- **Policies**: Three ($\pi_{\text{rollout}}$, $\pi_{\text{old}}$, $\pi_\theta$) in decoupled mode
-- **Double correction**: IS weights correct Drift 1, PPO clips correct Drift 2
-- **Per-token truncation**: Stable IS weight computation
-
-**Implementation:**
-- IS weights: `compute_rollout_correction_weights()` in [rollout_corr_helper.py](../../verl/trainer/ppo/rollout_corr_helper.py#L325-L402)
-- Loss: `compute_policy_loss()` in [core_algos.py](../../verl/trainer/ppo/core_algos.py#L812-L884)
-
-#### 3.3.2 Sequence-Level IS (seq_is)
-
-**Theory:** Decoupled PPO with sequence-level importance sampling.
-
-**Configuration:**
-```python
-RolloutCorrectionConfig.seq_is(threshold=2.0)
-```
-
-**Loss Function:**
-
-$$
-L_{\text{PPO+SeqIS}}(\theta) = -\mathbb{E}_t \left[ w_{\text{seq}} \cdot \min\left( r_t(\theta) A_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t \right) \right]
-$$
-
-where:
-- Sequence-level IS weight (broadcast to all tokens):
-$$w_{\text{seq}} = \min\left( \prod_{t \in T} \rho_t, C_{\text{IS}} \right) = \min\left( \exp\left(\sum_{t \in T} \log \rho_t\right), C_{\text{IS}} \right)$$
-- PPO ratio: $r_t(\theta) = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{old}}(a_t|s_t)}$
-
-**Properties:**
-- **Algorithm**: Decoupled PPO
-- **Policies**: Three ($\pi_{\text{rollout}}$, $\pi_{\text{old}}$, $\pi_\theta$) in decoupled mode
-- **Sequence-level IS**: Uses product of all token ratios
-
-#### 3.3.3 Mixed IS + Rejection Sampling (seq_is_rs / seq_mis)
-
-**Theory:** Decoupled PPO combining sequence-level IS weighting with rejection sampling.
-
-**Configuration:**
-```python
-RolloutCorrectionConfig.seq_is_rs(
-    is_threshold=2.0,
-    rs_threshold=2.0,
-    rs_threshold_lower=None,  # defaults to 1/rs_threshold
-)
-```
-
-**Loss Function:**
-
-$$
-L_{\text{PPO+MIS}}(\theta) = -\mathbb{E}_{t \mid \text{seq} \in \mathcal{A}} \left[ w_{\text{seq}} \cdot \min\left( r_t(\theta) A_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t \right) \right]
-$$
-
-where:
-- IS weight: $w_{\text{seq}} = \min\left( \prod_{t \in T} \rho_t, C_{\text{IS}} \right)$
-- Acceptance set: $\mathcal{A} = \{ \text{seq} : C_{\text{RS-lower}} \leq \prod_{t \in T} \rho_t \leq C_{\text{RS-upper}} \}$
-
-**Properties:**
-- **Algorithm**: Decoupled PPO + rejection sampling
-- **Double mechanism**: IS reweighting + rejection filtering
-- **Lower effective sample size**: Rejects outlier sequences
-
-**Implementation:** `compute_rollout_rejection_mask()` in [rollout_corr_helper.py](../../verl/trainer/ppo/rollout_corr_helper.py#L80-L188)
-
----
-
-## 4. Safety Mechanisms and Rejection Sampling
-
-### 4.1 Geometric Rejection Sampling (geo_rs)
-
-**Theory:** Pure rejection sampling based on geometric mean of IS ratios.
-
-**Configuration:**
-```python
-RolloutCorrectionConfig.geo_rs(
-    rs_threshold=1.001,  # Very tight threshold
-    rs_threshold_lower=None,
-    veto_threshold=1e-4,
-)
-```
-
-**Loss Function:**
-
-$$
-L_{\text{GeoRS}}(\theta) = -\mathbb{E}_{t \mid \text{seq} \in \mathcal{A}_{\text{geo}} \cap \mathcal{A}_{\text{veto}}} \left[ \min\left( r_t(\theta) A_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t \right) \right]
-$$
-
-where:
-- Geometric mean: $\rho_{\text{geo}} = \exp\left( \frac{1}{|T|} \sum_{t \in T} \log \rho_t \right) = \left(\prod_{t \in T} \rho_t\right)^{1/|T|}$
-- Geometric acceptance: $\mathcal{A}_{\text{geo}} = \{ \text{seq} : C_{\text{RS-lower}} \leq \rho_{\text{geo}} \leq C_{\text{RS-upper}} \}$
-- Veto acceptance: $\mathcal{A}_{\text{veto}} = \{ \text{seq} : \rho_t \geq C_{\text{veto}} \text{ for all } t \in T \}$
-
-**Why tight thresholds?**
-Geometric mean is extremely sensitive. For 100 tokens with $\rho_t = 1.01$ each:
-- Arithmetic product: $\prod_{t=1}^{100} \rho_t = 1.01^{100} \approx 2.7$
-- Geometric mean: $(1.01)^{1} = 1.01$
-
-A threshold of 1.001 means rejecting sequences with average per-token deviation > 0.1%.
-
-**Properties:**
-- **No IS weights**: Pure rejection
-- **Extremely selective**: Requires near-perfect policy match
-- **High rejection rate**: Only suitable for very slight distribution shifts
-
-### 4.2 Veto Mechanism
-
-An independent safety layer that rejects sequences with catastrophically low token probabilities.
-
-**Configuration:**
-```python
-RolloutCorrectionConfig(..., rollout_token_veto_threshold=1e-4)
-```
-
-**Veto condition:**
-
-$$
-\text{Reject entire sequence if } \exists t \in T \text{ such that } \rho_t < C_{\text{veto}}
-$$
-
-**Purpose:**
-- Prevents catastrophic updates from tokens with near-zero probability under $\pi_{\text{old}}$
-- Independent of IS/RS settings
-- Typical values: $10^{-4}$ to $10^{-6}$
-
-**Implementation:** [rollout_corr_helper.py](../../verl/trainer/ppo/rollout_corr_helper.py#L620-L640)
-
----
-
-## 5. Off-Policy Diagnostic Metrics
+## 4. Off-Policy Diagnostic Metrics
 
 These metrics quantify the severity of off-policy drift.
 
 **Note on notation:** Metrics use $\rho_t = \frac{\pi_{\text{old}}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}$. In bypass mode, $\pi_{\text{old}} = \pi_{\text{rollout}}$, so metrics measure rollout→current drift using $\rho_t = \frac{\pi_{\theta}}{\pi_{\text{rollout}}}$ instead.
 
-### 5.1 KL Divergence
+### 4.1 KL Divergence
 
 **Direct KL estimator:**
 
@@ -478,7 +552,7 @@ $$
 
 where $\rho_t = \frac{\pi_{\text{old}}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}$.
 
-### 5.2 Perplexity
+### 4.2 Perplexity
 
 **Old policy perplexity:**
 
@@ -500,7 +574,7 @@ $$
 
 **Interpretation:** Values > 1 mean $\pi_{\text{old}}$ assigns lower probability than $\pi_{\text{rollout}}$ to the observed actions (distribution shift).
 
-### 5.3 Chi-squared Divergence
+### 4.3 Chi-squared Divergence
 
 Measures the second moment of the IS weight distribution.
 
@@ -524,9 +598,9 @@ $$
 
 ---
 
-## 6. Summary and Decision Guide
+## 5. Summary and Decision Guide
 
-### 6.1 Method Summary Table
+### 5.1 Method Summary Table
 
 | Method | Theory | Policies | PPO Clip | IS Correction | Correctness | Speed |
 |--------|--------|----------|----------|---------------|-------------|-------|
@@ -538,7 +612,7 @@ $$
 | `seq_is_rs` | Decoupled PPO + RS | 3 (rollout, old, θ) | ✅ | ✅ + Rejection | ✅ Correct | Standard |
 | `geo_rs` | Decoupled PPO + Geo RS | 3 (rollout, old, θ) | ✅ | Rejection only | ✅ Correct | Standard |
 
-### 6.2 Method Characteristics by Scenario
+### 5.2 Method Characteristics by Scenario
 
 **Off-policy severity:**
 - **Negligible** (same checkpoint, minor differences): `ppo_is_bypass` uses $\pi_{\text{rollout}}$ as proximal policy (mathematically correct); naive LLM-RL implementations use $\pi_{\text{old}}$ instead of $\pi_{\text{rollout}}$ (mathematically incorrect when $\pi_{\text{rollout}} \neq \pi_{\text{old}}$)
@@ -550,7 +624,7 @@ $$
 - **Computational efficiency**: Bypass mode (`ppo_is_bypass`) skips `old_log_prob` computation
 - **Pure policy gradient**: `pure_is` implements off-policy REINFORCE without PPO clipping
 
-### 6.3 Decoupled Mode vs Bypass Mode
+### 5.3 Decoupled Mode vs Bypass Mode
 
 **Decoupled mode** (computes `old_log_prob` separately):
 - Implements full decoupled PPO with three policies (mathematically correct)
@@ -565,7 +639,7 @@ $$
 
 ---
 
-## 7. Implementation References
+## 6. Implementation References
 
 - **[Rollout Correction Usage Guide](rollout_corr.md)** - Practical configuration and troubleshooting
 - **Config:** [verl/trainer/config/algorithm.py](../../verl/trainer/config/algorithm.py)
