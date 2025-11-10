@@ -110,11 +110,13 @@ class PrimeRewardManager(AbstractRewardManager):
         num_examine: int,
         compute_score: Optional[Callable] = None,
         reward_fn_key: str = "data_source",
+        num_processes: int = 64,
     ) -> None:
         self.tokenizer = tokenizer
         self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
         self.compute_score = compute_score or default_compute_score
         self.reward_fn_key = reward_fn_key
+        self.num_processes = num_processes
 
     def verify(self, data):
         """
@@ -137,7 +139,7 @@ class PrimeRewardManager(AbstractRewardManager):
                 references=ground_truth,
                 tasks=data_sources,
                 extra_info=extra_info,
-                num_processes=64,
+                num_processes=self.num_processes,
             )
         except asyncio.TimeoutError:
             print("[Timeout] Global reward scoring timed out. Setting all as 0.")

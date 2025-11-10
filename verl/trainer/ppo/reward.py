@@ -157,6 +157,11 @@ def load_reward_manager(
             final_compute_score = default_compute_score
 
     # Instantiate and return the reward manager with the specified parameters
+    # For prime reward manager, pass num_processes from config if available
+    if reward_manager_name == "prime":
+        max_concurrent = config.reward_model.get("max_concurrent", 64)
+        reward_kwargs = {**reward_kwargs, "num_processes": max_concurrent}
+
     return reward_manager_cls(
         tokenizer=tokenizer,
         num_examine=num_examine,
