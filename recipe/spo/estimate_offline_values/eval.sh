@@ -122,5 +122,3 @@ python3 -m recipe.spo.spo_main_ppo \
     trainer.test_freq=10 \
     trainer.total_epochs=100 \
     trainer.debug=$DEBUG 
-
-python /mnt/kaiwu-user-rdwhiteding/code/wc.py --matrix_size 16384 --sleep_time 0.005 

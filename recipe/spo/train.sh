@@ -139,5 +139,3 @@ python3 -m recipe.spo.spo_main_ppo \
     trainer.spo.offline_values=$OFFLINE_VALUES \
     trainer.debug=$DEBUG  \
     trainer.rollout_data_dir=$rollout_data_dir
-
-python /mnt/kaiwu-user-rdwhiteding/code/wc.py --matrix_size 16384 --sleep_time 0.005 
