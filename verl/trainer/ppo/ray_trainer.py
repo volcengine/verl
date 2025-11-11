@@ -1172,7 +1172,7 @@ class RayPPOTrainer:
                         # This corrects for off-policy issues (policy mismatch, model staleness, etc.)
                         # Also computes off-policy diagnostic metrics (KL, PPL, etc.)
                         if rollout_corr_config is not None and "rollout_log_probs" in batch.batch:
-                            batch, is_metrics = compute_rollout_correction_and_add_to_batch(batch)
+                            batch, is_metrics = compute_rollout_correction_and_add_to_batch(batch, rollout_corr_config)
                             # IS and off-policy metrics already have rollout_corr/ prefix
                             metrics.update(is_metrics)
 
