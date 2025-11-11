@@ -346,25 +346,20 @@ class FlowRLActor(DataParallelPPOActor):
                     model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch}
                     response_mask = model_inputs["response_mask"]
                     old_log_prob = model_inputs["old_log_probs"]
-                    rollout_log_probs = model_inputs["rollout_log_probs"] if getattr(self.config, "tis_imp_ratio_cap", 0) > 0 else None
+                    # Get rollout log probs if TIS is enabled
+                    tis_enabled = getattr(self.config, "tis_imp_ratio_cap", 0) > 0
+                    rollout_log_probs = model_inputs["rollout_log_probs"] if tis_enabled else None
                     advantages = model_inputs["advantages"]
                     ref_log_prob = model_inputs["ref_log_prob"]
 
                     entropy_coeff = self.config.entropy_coeff
-                    loss_agg_mode = self.config.loss_agg_mode
 
                     if self.config.use_dynamic_bsz:
                         loss_scale_factor = response_mask.shape[0] / self.config.ppo_mini_batch_size
                     else:
                         loss_scale_factor = 1 / self.gradient_accumulation
 
-                    # all return: (bsz, response_length)
-                    calculate_entropy = False
-                    if entropy_coeff != 0:
-                        calculate_entropy = True
-                    # entropy, log_prob = self._forward_micro_batch(
-                    #     model_inputs, temperature=temperature, calculate_entropy=calculate_entropy
-                    # )
+                    # FlowRL: compute log probs and log Z
                     entropy, log_prob, log_z = self._forward_micro_batch(
                         model_inputs, temperature=temperature, calculate_entropy=False, return_log_z=True
                     )
@@ -402,7 +397,8 @@ class FlowRLActor(DataParallelPPOActor):
                             reward=advantages,
                             response_mask=response_mask,
                             clip_ratio=self.config.clip_ratio,
-                            rollout_log_probs=rollout_log_probs)
+                            rollout_log_probs=rollout_log_probs,
+                        )
                     else:
                         # Default: CISPO with hard mask + clip
                         policy_loss, flowrl_metrics = self.compute_flowrl_cispo_clip(
@@ -413,7 +409,8 @@ class FlowRLActor(DataParallelPPOActor):
                             reward=advantages,
                             response_mask=response_mask,
                             clip_ratio=self.config.clip_ratio,
-                            rollout_log_probs=rollout_log_probs)
+                            rollout_log_probs=rollout_log_probs,
+                        )
 
                     # if entropy_coeff != 0:
                     #     entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
