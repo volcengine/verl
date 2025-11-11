@@ -77,7 +77,7 @@ The transition dynamics $p(s_{t+1}|s_t, a_t)$ and initial state $p(s_0)$ cancel 
 - **Off-policy capable**: Can learn from any behavior policy via importance sampling
 - **No trust region**: Policy updates not constrained
 
-**Implementation in verl:** The `pure_is` method implements off-policy REINFORCE with truncated importance sampling.
+**Implementation in verl:** The `pg_is` method implements off-policy REINFORCE with truncated importance sampling.
 
 ### 1.2 PPO: Adding Trust Region Control
 
@@ -501,10 +501,11 @@ where $\bar{w}_j = \frac{1}{T_j}\sum_{t=1}^{T_j} w_{j,t} \cdot m_{j,t}$ is the p
 | `decoupled_seq_is_rs()` | Decoupled | sequence | sequence | Sequence IS + sequence RS |
 | `decoupled_geo_rs()` | Decoupled | - | geometric + veto | Geometric RS + veto, no IS weights |
 | `ppo_is_bypass()` | Bypass | - | - | Bypass mode, skips old_log_prob |
-| `pure_rs()` | Bypass | - | geometric + veto | Pure policy gradient with RS (no IS weights) |
-| `pure_is()` | Bypass | sequence | - | Pure policy gradient with IS |
+| `pg_rs()` | Bypass | - | geometric + veto | Policy gradient with RS (no IS weights) |
+| `pg_is()` | Bypass | sequence | - | Policy gradient with IS |
+| `disabled()` | - | - | - | Metrics only, no correction |
 
-**Note:** All presets use PPO loss except `pure_is()` and `pure_rs()` which use pure policy gradient (both require `use_pure_rollout_correction=True`).
+**Note:** All presets use PPO loss except `pg_is()` and `pg_rs()` which use policy gradient (both require `use_pure_rollout_correction=True`).
 
 #### Additional Supported Combinations (Manual Configuration)
 
@@ -546,7 +547,7 @@ config = RolloutCorrectionConfig(
 - Rejection sampling can be added to any combination
 - Veto is independent and can be added to any combination
 - Geometric aggregation is typically used for RS only (not IS weighting)
-- Pure RS (`pure_rs`) uses bypass + geometric RS with `use_pure_rollout_correction=True` for pure policy gradient (no IS weights)
+- Pure RS (`pg_rs`) uses bypass + geometric RS with `use_pure_rollout_correction=True` for pure policy gradient (no IS weights)
 - All combinations in the table above are valid and supported by the implementation
 
 ---
@@ -655,8 +656,8 @@ $$
 
 | Method | Theory | Policies | PPO Clip | IS Correction | Correctness | Speed |
 |--------|--------|----------|----------|---------------|-------------|-------|
-| `pure_is` | Off-policy REINFORCE | 2 (rollout, θ) | ❌ | ✅ Seq-level | ✅ Correct | **Fast** |
-| `pure_rs` | Pure PG + Geo RS | 2 (rollout, θ) | ❌ | Rejection only | ✅ Correct | **Fast** |
+| `pg_is` | Off-policy REINFORCE | 2 (rollout, θ) | ❌ | ✅ Seq-level | ✅ Correct | **Fast** |
+| `pg_rs` | Pure PG + Geo RS | 2 (rollout, θ) | ❌ | Rejection only | ✅ Correct | **Fast** |
 | Naive LLM-RL | Incorrect PPO usage | 2 (old, θ) | ✅ | ❌ | ⚠️ Incorrect | Standard |
 | `ppo_is_bypass` | PPO (rollout as prox) | 2 (rollout, θ) | ✅ | ❌ | ✅ Correct | **Fast** |
 | `decoupled_token_is` | Decoupled PPO | 3 (rollout, old, θ) | ✅ | ✅ Token-level | ✅ Correct | Standard |
@@ -674,7 +675,7 @@ $$
 **Algorithm properties:**
 - **Batch size invariance**: Decoupled mode with three policies (`decoupled_token_is`, `decoupled_seq_is`) achieves batch size invariance
 - **Computational efficiency**: Bypass mode (`ppo_is_bypass`) skips `old_log_prob` computation
-- **Pure policy gradient**: `pure_is` implements off-policy REINFORCE without PPO clipping
+- **Pure policy gradient**: `pg_is` implements off-policy REINFORCE without PPO clipping
 
 ### 5.3 Decoupled Mode vs Bypass Mode
 

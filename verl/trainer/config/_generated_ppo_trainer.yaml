@@ -465,6 +465,7 @@ reward_model:
     rollout_token_veto_threshold: null
     bypass_old_logprob_for_rollout: false
     use_pure_rollout_correction: false
+    rollout_is_batch_normalize: false
 custom_reward_function:
   path: null
   name: compute_score

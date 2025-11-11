@@ -128,10 +128,10 @@ config = RolloutCorrectionConfig.decoupled_geo_rs()
 config = RolloutCorrectionConfig.ppo_is_bypass()
 
 # Advanced: Pure policy gradient with IS
-config = RolloutCorrectionConfig.pure_is()
+config = RolloutCorrectionConfig.pg_is()
 
 # Advanced: Pure policy gradient with rejection sampling (bypass + pure + geometric RS)
-config = RolloutCorrectionConfig.pure_rs()
+config = RolloutCorrectionConfig.pg_rs()
 
 # Metrics only (no correction)
 config = RolloutCorrectionConfig.disabled()
@@ -290,10 +290,11 @@ This section provides detailed guidance on choosing and using the verified prese
 | `decoupled_seq_is_rs()` | Decoupled | sequence | sequence | Sequence IS + sequence RS |
 | `decoupled_geo_rs()` | Decoupled | - | geometric + veto | Geometric RS + veto, no IS weights |
 | `ppo_is_bypass()` | Bypass | - | - | Bypass mode, skips old_log_prob |
-| `pure_rs()` | Bypass | - | geometric + veto | Pure policy gradient with RS (no IS weights) |
-| `pure_is()` | Bypass | sequence | - | Pure policy gradient with IS |
+| `pg_rs()` | Bypass | - | geometric + veto | Policy gradient with RS (no IS weights) |
+| `pg_is()` | Bypass | sequence | - | Policy gradient with IS |
+| `disabled()` | - | - | - | Metrics only, no correction |
 
-**Note:** All presets use PPO loss except `pure_is()` and `pure_rs()` which use pure policy gradient (both require `use_pure_rollout_correction=True`).
+**Note:** All presets use PPO loss except `pg_is()` and `pg_rs()` which use policy gradient (both require `use_pure_rollout_correction=True`).
 
 #### Other Supported Combinations (Manual Configuration Required)
 
@@ -308,7 +309,7 @@ See [detailed configuration examples below](#additional-useful-configurations-no
 - Any aggregation level (token/sequence/geometric) works in either decoupled or bypass mode
 - All combinations are fully supported by the implementation
 - Rejection sampling is independent of IS weighting
-- Pure RS (`pure_rs`) uses bypass + geometric RS with `use_pure_rollout_correction=True` (no IS weights)
+- Pure RS (`pg_rs`) uses bypass + geometric RS with `use_pure_rollout_correction=True` (no IS weights)
 
 ---
 
@@ -490,11 +491,11 @@ algorithm:
 
 ---
 
-### 6. Pure IS (Off-Policy REINFORCE) (`pure_is`)
+### 6. Policy Gradient with IS (`pg_is`)
 
 **Configuration:**
 ```python
-config = RolloutCorrectionConfig.pure_is(threshold=2.0)
+config = RolloutCorrectionConfig.pg_is(threshold=2.0)
 ```
 
 **Components:**
@@ -523,11 +524,11 @@ algorithm:
 
 ---
 
-### 7. Pure Policy Gradient with Rejection Sampling (`pure_rs`)
+### 7. Policy Gradient with Rejection Sampling (`pg_rs`)
 
 **Configuration:**
 ```python
-config = RolloutCorrectionConfig.pure_rs(
+config = RolloutCorrectionConfig.pg_rs(
     rs_threshold=1.001,
     veto_threshold=1e-4
 )
@@ -1309,7 +1310,7 @@ Rollout Correction provides a unified framework for handling general off-policy 
 - ✅ Supports diverse scenarios: policy mismatch, staleness, replay buffers, off-policy algorithms
 - ✅ Numerical stability with safety bounds and rejection mechanisms
 - ✅ Comprehensive diagnostics: KL, perplexity, χ² divergence
-- ✅ Flexible methods from token-level (token_is) to sequence-level (seq_is_rs)
+- ✅ Flexible methods from token-level to sequence-level aggregation
 - ✅ Memory-efficient implementation
 
 ## References
