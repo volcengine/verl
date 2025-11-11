@@ -13,10 +13,12 @@
 # limitations under the License.
 import argparse
 import asyncio
+import copy
 import json
 import logging
 import os
 import pickle
+import warnings
 from pprint import pprint
 from typing import Any, Callable, Optional
 
@@ -102,6 +104,21 @@ class ExternalZeroMQDistributedExecutor(Executor):
         else:
             sent_method = pickle.dumps(method)
         del method
+
+        if sent_method == "init_worker":
+            vllm_config = args[0][0]["vllm_config"]
+
+            if vllm_config.model_config.trust_remote_code:
+                vllm_config = copy.deepcopy(vllm_config)
+                vllm_config.model_config.hf_config = None
+                vllm_config.model_config.hf_text_config = None
+                args[0][0]["vllm_config"] = vllm_config
+                warnings.warn(
+                    "Temporary set hf_config and hf_text_config to None to avoid dynamic loaded transformers_modules "
+                    "pickle error, we will restore them back after rpc call in worker. If this is unexpected, please "
+                    "set trust_remote_code=False.",
+                    stacklevel=1,
+                )
 
         message = pickle.dumps((sent_method, args, kwargs or {}))
         for socket in self.sockets:
@@ -220,7 +237,7 @@ class vLLMHttpServerBase:
             "dtype": self.config.dtype,
             "load_format": self.config.load_format,
             "skip_tokenizer_init": False,
-            # "trust_remote_code": True,
+            "trust_remote_code": self.model_config.trust_remote_code,
             "max_model_len": self.config.max_model_len,
             "max_num_seqs": self.config.max_num_seqs,
             "enable_chunked_prefill": self.config.enable_chunked_prefill,
