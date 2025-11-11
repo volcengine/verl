@@ -154,6 +154,17 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         load_format = rollout_cfg.get("load_format", "")
         self._dummy_rollout = isinstance(load_format, str) and load_format.startswith("dummy")
 
+        # Ensure CUDA device is bound to LOCAL_RANK before init_process_group
+        try:
+            if torch.cuda.is_available():
+                local_rank_env = os.environ.get("LOCAL_RANK")
+                if local_rank_env is not None:
+                    lr = int(local_rank_env)
+                    if torch.cuda.current_device() != lr:
+                        torch.cuda.set_device(lr)
+        except Exception:
+            pass
+
         # Initialize distributed environment
         if not torch.distributed.is_initialized():
             rank = int(os.environ.get("RANK", 0))
