@@ -218,7 +218,8 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
         # Update Prometheus configuration with server addresses
 
         if os.getenv("PROMETHEUS_FILE") is not None and os.getenv("PROMETHEUS_PORT") is not None:
-            assert not rollout_config.disable_log_stats, "PROMETHEUS need disable_log_stats==False"
+            if rollout_config.disable_log_stats:
+                raise ValueError("PROMETHEUS needs disable_log_stats==False, but it is currently True.")
             await self._update_prometheus_config()
 
     async def _update_prometheus_config(self):
