@@ -1609,14 +1609,14 @@ def compute_policy_loss_with_rollout_correction(
 
     Usage:
         This function is called by the actor when:
-        - bypass_old_logprob_for_rollout=True (trainer uses rollout_log_prob as old_log_prob)
-        - use_pure_rollout_correction=True (actor uses this function instead of compute_policy_loss)
+        - bypass_mode=True (trainer uses rollout_log_prob as old_log_prob)
+        - use_policy_gradient=True (actor uses this function instead of compute_policy_loss)
 
     Example config:
         algorithm:
           rollout_correction:
-            bypass_old_logprob_for_rollout: true
-            use_pure_rollout_correction: true
+            bypass_mode: true
+            use_policy_gradient: true
             rollout_is: "token"
             rollout_is_threshold: 2.0
             rollout_rs: "token"
@@ -1702,7 +1702,7 @@ def compute_policy_loss_rollout_correction_wrapper(
 ) -> tuple[torch.Tensor, dict[str, Any]]:
     """Wrapper for compute_policy_loss_with_rollout_correction to match PolicyLossFn interface.
 
-    This function is used when algorithm.rollout_correction.use_pure_rollout_correction=True.
+    This function is used when algorithm.rollout_correction.use_policy_gradient=True.
     In this mode, the trainer has already set old_log_prob=rollout_log_prob (bypass mode).
 
     Args:
@@ -1717,7 +1717,7 @@ def compute_policy_loss_rollout_correction_wrapper(
     assert config is not None, "config is required for rollout_correction loss mode"
 
     # Extract rollout_correction config
-    # In ray_trainer, when use_pure_rollout_correction=True, the rollout_correction config
+    # In ray_trainer, when use_policy_gradient=True, the rollout_correction config
     # is embedded in actor config's policy_loss field
     rollout_corr_config = config.policy_loss.get("rollout_correction", None) if hasattr(config, "policy_loss") else None
 

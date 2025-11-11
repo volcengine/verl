@@ -25,9 +25,9 @@ rollout_rs_threshold_lower="null"         # RS lower threshold
 # Veto mechanism (optional, independent of IS/RS)
 rollout_token_veto_threshold="null"       # Per-token veto threshold (null to disable)
 
-# Pure IS mode (pure policy gradient, no PPO clipping)
-bypass_old_logprob_for_rollout="true"     # Required for pure_is mode
-use_pure_rollout_correction="true"        # Use pure policy gradient with IS
+# Policy Gradient loss mode (bypass mode with policy gradient loss, no PPO clipping)
+bypass_mode="true"     # Required for policy gradient mode
+use_policy_gradient="true"        # Use policy gradient loss (works with IS/RS/both)
 
 # ==============================================================================
 # Model and Data Configuration
@@ -75,8 +75,8 @@ python3 -m verl.trainer.main_ppo \
     algorithm.rollout_correction.rollout_rs_threshold=${rollout_rs_threshold} \
     algorithm.rollout_correction.rollout_rs_threshold_lower=${rollout_rs_threshold_lower} \
     algorithm.rollout_correction.rollout_token_veto_threshold=${rollout_token_veto_threshold} \
-    algorithm.rollout_correction.bypass_old_logprob_for_rollout=${bypass_old_logprob_for_rollout} \
-    algorithm.rollout_correction.use_pure_rollout_correction=${use_pure_rollout_correction} \
+    algorithm.rollout_correction.bypass_mode=${bypass_mode} \
+    algorithm.rollout_correction.use_policy_gradient=${use_policy_gradient} \
     actor_rollout_ref.model.path="${MODEL_PATH}" \
     actor_rollout_ref.actor.optim.lr=${learning_rate} \
     actor_rollout_ref.actor.ppo_mini_batch_size=${ppo_mini_batch_size} \
@@ -95,7 +95,7 @@ echo "  - Algorithm: RLOO (REINFORCE Leave-One-Out)"
 echo "  - Advantage estimator: ${adv_estimator}"
 echo "  - IS mode: ${rollout_is} (self-normalized: ${rollout_is_batch_normalize})"
 echo "  - IS threshold: ${rollout_is_threshold}"
-echo "  - Pure IS mode: ${use_pure_rollout_correction} (bypass: ${bypass_old_logprob_for_rollout})"
+echo "  - Policy gradient mode: ${use_policy_gradient} (bypass: ${bypass_mode})"
 echo ""
 echo "Monitor these key metrics in wandb:"
 echo "  - rollout_corr/rollout_is_mean (should be ~1.0 before batch norm)"

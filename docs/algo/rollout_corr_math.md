@@ -262,7 +262,7 @@ The operating mode determines how the proximal policy $\pi_{\text{old}}$ is comp
 
 ---
 
-### 3.2 Loss Functions: PPO vs Pure IS
+### 3.2 Loss Functions: PPO vs Policy Gradient
 
 #### 3.2.1 PPO Loss (with Clipping)
 
@@ -284,28 +284,30 @@ where:
 - Limits policy update magnitude
 - Standard in RL training
 
-#### 3.2.2 Pure IS Loss (Policy Gradient)
+#### 3.2.2 Policy Gradient Loss (with IS/RS Correction)
 
 **Configuration:** `use_policy_gradient = true` (requires `bypass_mode = true`)
 
-**Loss function:**
+**Loss function** (example with sequence-level IS):
 
 $$
-L_{\text{PureIS}}(\theta) = -\mathbb{E}_{(s,a) \sim \pi_{\text{rollout}}} \left[ w_{\text{seq}}(\theta) \cdot \sum_{t \in T} \log \pi_{\theta}(a_t|s_t) \cdot A_t \right]
+L_{\text{PG}}(\theta) = -\mathbb{E}_{(s,a) \sim \pi_{\text{rollout}}} \left[ w_{\text{seq}}(\theta) \cdot \sum_{t \in T} \log \pi_{\theta}(a_t|s_t) \cdot A_t \right]
 $$
 
 where:
-- $w_{\text{seq}}(\theta) = \min\left( \prod_{t \in T} \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}, C_{\text{IS}} \right)$: Sequence-level IS weight
-- IS weight is **detached from gradient** (treated as constant)
+- $w_{\text{seq}}(\theta)$: Sample weight (IS or RS, see §3.3-3.4 for details)
+- For IS: $w_{\text{seq}}(\theta) = \min\left( \prod_{t \in T} \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}, C_{\text{IS}} \right)$
+- For RS: $w_{\text{seq}}(\theta) \in \{0, 1\}$ (binary rejection mask)
+- Weight is **detached from gradient** (treated as constant)
 
 **Effective gradient:**
 
 $$
-\nabla_\theta L_{\text{PureIS}} = -\mathbb{E}_{(s,a) \sim \pi_{\text{rollout}}} \left[ \text{stopgrad}(w_{\text{seq}}(\theta)) \cdot \sum_{t \in T} \nabla_\theta \log \pi_{\theta}(a_t|s_t) \cdot A_t \right]
+\nabla_\theta L_{\text{PG}} = -\mathbb{E}_{(s,a) \sim \pi_{\text{rollout}}} \left[ \text{stopgrad}(w_{\text{seq}}(\theta)) \cdot \sum_{t \in T} \nabla_\theta \log \pi_{\theta}(a_t|s_t) \cdot A_t \right]
 $$
 
 **Properties:**
-- **Algorithm**: Off-policy REINFORCE + IS
+- **Algorithm**: Off-policy REINFORCE + IS/RS correction
 - **No PPO clipping**: Pure policy gradient
 - **Always uses bypass mode**: Direct $\pi_\theta$ to $\pi_{\text{rollout}}$ comparison
 - **Fast**: Single forward pass
@@ -576,7 +578,7 @@ where $r_t(\theta) = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{old}}(a_t|s_t)}$ (i
 **Correct alternatives:**
 1. **Decoupled mode**: Three policies with IS correction from $\pi_{\text{rollout}}$ to $\pi_{\text{old}}$
 2. **Bypass mode**: Two policies using $\pi_{\text{rollout}}$ as both behavior policy and proximal policy
-3. **Pure IS mode**: Two policies with IS correction and no PPO clipping
+3. **Bypass + Policy Gradient mode**: Two policies with IS/RS correction and no PPO clipping
 
 **Implementation:** `compute_policy_loss()` in [core_algos.py](../../verl/trainer/ppo/core_algos.py#L812-L884)
 

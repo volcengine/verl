@@ -74,7 +74,7 @@ This critical implementation mistake that leads to RL training collapse was iden
 **Mathematically correct approaches:**
 - **Decoupled mode**: Three policies (π_rollout, π_old, π_θ) with IS correction from π_rollout to π_old
 - **Bypass mode**: Two policies (π_rollout = π_old, π_θ) using actual rollout policy as PPO anchor
-- **Pure IS mode**: Two policies (π_rollout, π_θ) with IS correction and no PPO clipping
+- **Bypass + Policy Gradient mode**: Two policies (π_rollout, π_θ) with IS/RS correction and no PPO clipping
 
 See [Mathematical Formulations](rollout_corr_math.md#38-common-implementation-mistake) for detailed explanation.
 
@@ -152,7 +152,7 @@ algorithm:
     rollout_rs_threshold_lower: null       # RS lower threshold (auto-reciprocal if null)
     rollout_token_veto_threshold: null     # Per-token veto threshold (null = disabled)
     bypass_mode: false  # Skip old_log_prob computation
-    use_policy_gradient: false     # Pure policy gradient with IS
+    use_policy_gradient: false     # Use policy gradient loss (vs PPO loss)
 
 # REQUIRED: Enable log prob calculation
 actor_rollout_ref:
@@ -512,7 +512,7 @@ algorithm:
     rollout_is_threshold: 2.0
     rollout_rs: null
     bypass_mode: true  # Required
-    use_policy_gradient: true  # Pure IS loss
+    use_policy_gradient: true  # Use policy gradient loss (no PPO clipping)
 ```
 
 **Properties:**
@@ -646,7 +646,7 @@ The framework provides **two operating modes** for computing π_old, which can b
 |---------------|----------------------------------|------------------------------|----------------|---------------|-------------|
 | **Decoupled** | `false` | `false` | Decoupled | PPO | Computes `old_log_prob` separately via `actor.compute_log_prob()` |
 | **Bypass** | `true` | `false` | Bypass | PPO | Sets `old_log_prob = rollout_log_prob`, PPO clips against rollout policy |
-| **Pure IS** | `true` | `true` | Bypass | Pure Policy Gradient | Bypass mode with pure IS loss (no PPO clipping) |
+| **Bypass + PG** | `true` | `true` | Bypass | Policy Gradient | Bypass mode with policy gradient loss (no PPO clipping) |
 
 ### Operating Mode Details
 
@@ -752,7 +752,7 @@ The aggregation level can be chosen **independently** of the operating mode. Any
 
    **Trade-off**: PPO clips against rollout policy instead of true old policy
 
-   **Alternative**: Set `use_policy_gradient: true` for pure policy gradient with IS (no clipping)
+   **Alternative**: Set `use_policy_gradient: true` for policy gradient loss with IS/RS (no clipping)
 
 ## Usage
 
@@ -1144,8 +1144,8 @@ algorithm:
     rollout_is: token                      # Explicit IS correction in loss
     rollout_is_threshold: 2.0
     rollout_rs: null                       # Optional: can add rejection sampling
-    bypass_mode: true   # Required for pure mode
-    use_policy_gradient: true      # Use pure policy gradient with IS
+    bypass_mode: true   # Required for policy gradient mode
+    use_policy_gradient: true      # Use policy gradient loss (no PPO clipping)
 ```
 **No PPO clipping, pure policy gradient with IS correction**
 

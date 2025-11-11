@@ -910,21 +910,22 @@ def apply_rollout_correction(
     BYPASS MODE: Use rollout_log_probs as old_log_probs
     Skips expensive actor forward pass for old_log_prob computation
 
-    Two sub-modes (controlled by use_pure_rollout_correction in actor):
-    1. PPO_IS mode (use_pure_rollout_correction=False, default):
-       - Actor uses standard PPO with old_log_prob=rollout_log_prob
-       - PPO clips ratio = π_current / π_rollout (not π_current / π_old)
+    Two sub-modes (controlled by use_policy_gradient):
+    1. Bypass + PPO loss (use_policy_gradient=False, default):
+       - Uses standard PPO loss function with old_log_prob=rollout_log_prob
+       - PPO clips ratio π_θ/π_rollout instead of π_θ/π_old
 
-    2. Pure rollout correction mode (use_pure_rollout_correction=True):
-       - Actor uses compute_policy_loss_with_rollout_correction()
-       - Pure policy gradient with IS correction (no PPO clipping)
+    2. Bypass + Policy Gradient loss (use_policy_gradient=True):
+       - Uses compute_policy_loss_with_rollout_correction()
+       - Policy gradient (REINFORCE-style) with IS/RS correction applied
+       - No PPO clipping
 
     Note:
         The implementation is copied from szrlee <szrlee@gmail.com>.
     """
     if "rollout_log_probs" not in batch.batch:
         raise ValueError(
-            "bypass_old_logprob_for_rollout=True requires rollout_log_probs in batch. "
+            "bypass_mode=True requires rollout_log_probs in batch. "
             "Ensure rollout worker is configured to calculate_log_probs=true."
         )
 
@@ -934,10 +935,10 @@ def apply_rollout_correction(
     # Always pass rollout_correction config to actor for metrics computation
     policy_loss_config["rollout_correction"] = rollout_corr_config
 
-    # Check if pure rollout correction mode is enabled
-    use_pure_rollout_correction = rollout_corr_config.get("use_pure_rollout_correction", False)
+    # Check if policy gradient loss mode is enabled
+    use_policy_gradient = rollout_corr_config.get("use_policy_gradient", False)
 
-    if use_pure_rollout_correction:
-        # Pure IS mode: Configure actor to use rollout_correction loss function
+    if use_policy_gradient:
+        # Policy gradient mode: Configure actor to use rollout_correction loss function
         # This will use compute_policy_loss_with_rollout_correction (no PPO clipping)
         policy_loss_config["loss_mode"] = "rollout_correction"
