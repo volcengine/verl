@@ -1171,7 +1171,7 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
     def _build_rm_model(self, model_path, tokenizer, override_model_config, override_transformer_config):
         from verl.utils.megatron_utils import McoreModuleWrapperConfig, make_megatron_module
 
-        self.(
+        self._init_hf_config_and_tf_config(
             model_path,
             tokenizer,
             self.dtype,
