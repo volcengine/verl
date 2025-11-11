@@ -200,6 +200,17 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config)
         )
 
+        # Ensure the CUDA device matches LOCAL_RANK to avoid NCCL hangs in new groups
+        try:
+            if torch.cuda.is_available():
+                local_rank_env = os.environ.get("LOCAL_RANK")
+                if local_rank_env is not None:
+                    lr = int(local_rank_env)
+                    if torch.cuda.current_device() != lr:
+                        torch.cuda.set_device(lr)
+        except Exception:
+            pass
+
         # Setup offload flags
         self._is_offload_param = False
         if self._is_actor:
@@ -342,6 +353,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 ranks = list(range(group_id * sp_size, (group_id + 1) * sp_size))
                 sp_group = torch.distributed.new_group(ranks=ranks, backend=get_nccl_backend())
                 set_ulysses_sequence_parallel_group(sp_group)
+                # synchronize all ranks inside the SP group before patching
+                torch.distributed.barrier(group=sp_group)
 
             apply_monkey_patch(
                 model=actor_module,
@@ -1442,6 +1455,7 @@ class CriticWorker(Worker, DistProfilerExtension):
             ranks = list(range(group_id * sp_size, (group_id + 1) * sp_size))
             sp_group = torch.distributed.new_group(ranks=ranks, backend=get_nccl_backend())
             set_ulysses_sequence_parallel_group(sp_group)
+            torch.distributed.barrier(group=sp_group)
 
         apply_monkey_patch(
             model=critic_module,
