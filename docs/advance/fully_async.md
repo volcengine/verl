@@ -427,6 +427,65 @@ TODO: The 30B experiment is still in progress.
 | fully_async_policy | 64:64               | async stream pipeline with stale samples   |      |                    |              |              |            |                  |
 | fully_async_policy | 64:64               | async stream pipeline with partial rollout |      |                    |              |              |            |                  |
 
+## Multi-Turn Tool Calling
+Referencing **recipe/retool** and **ToolAgentLoop**, we implemented **AsyncPartialToolAgentLoop**, a multi-turn tool-calling loop that supports partial_rollout for **fully_async_policy**.
+
+### Core Design
+`AsyncPartialToolAgentLoop` inherits from `ToolAgentLoop` and is adapted for the asynchronous training mode of `fully_async_policy`. When `partial_rollout=True`, the Rollouter interrupts ongoing generation tasks before synchronizing parameters with the Trainer. `AsyncPartialToolAgentLoop` is capable of:
+1.  **Interrupting Tasks**: Responding to an interrupt signal to save the current state. Currently, interruptions occur during the `GENERATING` process or after other states have completed.
+2.  **Resuming Tasks**: Resuming execution from the saved state after parameter synchronization is complete, rather than starting over.
+
+### How to Use
+RL training with multi-turn tool calling in `fully_async_policy` is similar to `recipe/retool`. It is enabled by specifying `multi_turn` configurations in the config file.
+1.  **SFT Stage**: First, the model should undergo SFT to learn how to follow tool-calling format instructions.
+2.  **Multi-turn Configuration**: In the `fully_async_policy` training configuration, set the following parameters:
+    ```yaml
+    actor_rollout_ref:
+      rollout:
+        multi_turn:
+          enable: True # AsyncPartialToolAgentLoop will be used by default in fully_async_policy mode
+          # Other multi_turn related configurations
+    ```
+3.  **Async Parameters**: To improve efficiency, enable `partial_rollout` and `staleness_threshold` when using multi-turn tool calling:
+    ```yaml
+    async_training:
+      partial_rollout: True
+      staleness_threshold: 0.5
+      # Other async parameters
+    ```
+4.  **Example**: See `recipe/fully_async_policy/shell/dapo_7b_async_retool.sh`.
+
+### Experimental Results
+To validate the performance of `fully_async_policy` on multi-turn tool-calling tasks, we compared it with the standard `colocate` synchronous mode. Key parameter settings are as follows.
+*   **SFT Model**: Based on `Qwen2.5-7B-Instruct`, trained for 6 epochs on the `ReTool-SFT` dataset
+*   **RL Algorithm**: DAPO
+*   **Dataset**:
+    *   Train: `DAPO-Math-17k`
+    *   Test: `aime_2025`
+*   **Resource and Mode Comparison**:
+    *   `colocate sync`: 32 H20 gpus
+    *   `fully_async_policy`: 16 gpus for Trainer + 16 gpus for Rollouter
+*   **Key Configurations**:
+    1.  **Tool Calling Configuration**:
+        *   `multi_turn.enable: True`
+        *   `multi_turn.max_user_turns: 16`
+        *   `multi_turn.max_assistant_turns: 16`
+        *   `multi_turn.tool_config_path: recipe/retool/sandbox_fusion_tool_config.yaml`
+    2.  **`colocate sync` Configuration**:
+        *   `ppo_mini_batch_size: 16`
+        *   `train_batch_size: 64`
+    3.  **`fully_async_policy` Configuration**:
+        *   `ppo_mini_batch_size: 16`
+        *   `trigger_parameter_sync_step: 4`
+        *   `require_batches: 1`
+        *   `staleness_threshold: 1`
+        *   `partial_rollout: True`
+
+| Training Mode        | Total Time (200 steps) | Speedup |
+| :------------------- | :--------------------- | :------ |
+| `colocate sync`      | 22h 28m                | 1.0x    |
+| `fully_async_policy` | 13h 38m                | 1.65x   |
+
 ## Future Plans
 
 * GRPO experiments
