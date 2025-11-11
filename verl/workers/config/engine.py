@@ -71,6 +71,7 @@ class McoreEngineConfig(BaseConfig):
     use_mbridge: bool = False
     forward_only: bool = False
     strategy: str = "megatron"
+    fp16: bool = False
 
     def __post_init__(self) -> None:
         """config validation logics go here"""

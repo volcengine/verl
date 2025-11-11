@@ -20,6 +20,7 @@ from typing import Any, Callable, Iterator, Optional
 import torch
 import torch.distributed
 from megatron.core import parallel_state as mpu
+from megatron.core.distributed import finalize_model_grads
 from megatron.core.pipeline_parallel import get_forward_backward_func
 from omegaconf import OmegaConf
 from tensordict import TensorDict
@@ -98,6 +99,9 @@ class MegatronEngine(BaseEngine):
         from verl.utils.torch_dtypes import PrecisionType
 
         self.param_dtype = torch.bfloat16
+        if self.engine_config.fp16:
+            self.param_dtype = torch.float16
+            assert self.engine_config.use_mbridge, "fp16 mode requires use_mbridge to be True"
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
         tf_config = hf_to_mcore_config(
             self.model_config.hf_config, self.dtype, **self.engine_config.override_transformer_config
@@ -107,9 +111,11 @@ class MegatronEngine(BaseEngine):
         if use_mbridge:
             from verl.models.mcore.mbridge import AutoBridge
 
-            bridge = AutoBridge.from_config(self.model_config.hf_config)
+            bridge = AutoBridge.from_config(self.model_config.hf_config, dtype=self.param_dtype)
             bridge.set_extra_args(**self.engine_config.override_transformer_config)
             tf_config = bridge.config
+            tf_config.fp16 = self.engine_config.fp16
+            tf_config.bf16 = not self.engine_config.fp16
             self.bridge = bridge
         else:
             self.bridge = None
@@ -181,8 +187,14 @@ class MegatronEngine(BaseEngine):
     def _build_optimizer(self):
         from verl.utils.megatron.optimizer import get_megatron_optimizer, init_megatron_optim_config
 
-        optim_config_megatron = init_megatron_optim_config(self.optimizer_config)
+        optim_config_megatron = init_megatron_optim_config(self.optimizer_config, self.engine_config.fp16)
         optimizer = get_megatron_optimizer(model=self.module, config=optim_config_megatron)
+        from megatron.core.utils import get_model_config
+
+        for model in self.module:
+            get_model_config(model).grad_scale_func = optimizer.scale_loss
+            get_model_config(model).finalize_model_grads_func = finalize_model_grads
+            # TODO: config.no_sync_func config.grad_sync_func config.param_sync_func
         return optimizer
 
     def _build_lr_scheduler(self):

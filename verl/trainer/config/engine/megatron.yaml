@@ -76,3 +76,6 @@ use_mbridge: False
 
 # whether to use forward only
 forward_only: False
+
+# whether to use fp16
+fp16: False

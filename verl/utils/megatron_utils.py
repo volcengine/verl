@@ -192,6 +192,8 @@ def make_megatron_module(
         return bridge.get_model(
             post_model_creation_callbacks=post_model_creation_callbacks,
             wrap_with_ddp=wrap_config.wrap_with_ddp,
+            fp16=tf_config.fp16,
+            bf16=tf_config.bf16,
         )
     else:
 
