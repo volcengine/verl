@@ -890,11 +890,11 @@ def compute_rollout_corr_metrics_from_logprobs(
     return metrics_with_prefix
 
 
-def maybe_apply_rollout_correction(
+def apply_rollout_correction(
     batch: DataProto,
     rollout_corr_config: Optional[RolloutCorrectionConfig] = None,
     policy_loss_config: PolicyLossConfig = None,
-) -> bool:
+) -> None:
     """
     BYPASS MODE: Use rollout_log_probs as old_log_probs
     Skips expensive actor forward pass for old_log_prob computation
@@ -908,36 +908,25 @@ def maybe_apply_rollout_correction(
        - Actor uses compute_policy_loss_with_rollout_correction()
        - Pure policy gradient with IS correction (no PPO clipping)
 
-    Returns:
-        need_recomputation (bool): Whether recomputing logprobs is needed.
-
     Note:
         The implementation is copied from szrlee <szrlee@gmail.com>.
     """
-    # Rollout correction mode selection
-    bypass_mode = rollout_corr_config.get("bypass_old_logprob_for_rollout", False) if rollout_corr_config else False
+    if "rollout_log_probs" not in batch.batch:
+        raise ValueError(
+            "bypass_old_logprob_for_rollout=True requires rollout_log_probs in batch. "
+            "Ensure rollout worker is configured to calculate_log_probs=true."
+        )
 
-    if bypass_mode:
-        if "rollout_log_probs" not in batch.batch:
-            raise ValueError(
-                "bypass_old_logprob_for_rollout=True requires rollout_log_probs in batch. "
-                "Ensure rollout worker is configured to calculate_log_probs=true."
-            )
+    # Use rollout log probs as old log probs (zero-cost substitution)
+    batch.batch["old_log_probs"] = batch.batch["rollout_log_probs"]
 
-        # Use rollout log probs as old log probs (zero-cost substitution)
-        batch.batch["old_log_probs"] = batch.batch["rollout_log_probs"]
+    # Always pass rollout_correction config to actor for metrics computation
+    policy_loss_config["rollout_correction"] = rollout_corr_config
 
-        # Always pass rollout_correction config to actor for metrics computation
-        policy_loss_config["rollout_correction"] = rollout_corr_config
+    # Check if pure rollout correction mode is enabled
+    use_pure_rollout_correction = rollout_corr_config.get("use_pure_rollout_correction", False)
 
-        # Check if pure rollout correction mode is enabled
-        use_pure_rollout_correction = rollout_corr_config.get("use_pure_rollout_correction", False)
-
-        if use_pure_rollout_correction:
-            # Pure IS mode: Configure actor to use rollout_correction loss function
-            # This will use compute_policy_loss_with_rollout_correction (no PPO clipping)
-            policy_loss_config["loss_mode"] = "rollout_correction"
-
-        return False
-
-    return True
+    if use_pure_rollout_correction:
+        # Pure IS mode: Configure actor to use rollout_correction loss function
+        # This will use compute_policy_loss_with_rollout_correction (no PPO clipping)
+        policy_loss_config["loss_mode"] = "rollout_correction"

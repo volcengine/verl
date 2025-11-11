@@ -1101,19 +1101,20 @@ class RayPPOTrainer:
                         else:
                             reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
 
-                    from verl.trainer.ppo.rollout_corr_helper import (
-                        compute_rollout_correction_and_add_to_batch,
-                        maybe_apply_rollout_correction,
-                    )
-
+                    # 1) Importance Sampling and 2) PPO Clip
                     rollout_corr_config = self.config.algorithm.get("rollout_correction", None)
-                    need_recomputation = maybe_apply_rollout_correction(
-                        batch=batch,
-                        rollout_corr_config=rollout_corr_config,
-                        policy_loss_config=self.config.actor_rollout_ref.actor.policy_loss,
+                    bypass_recomputing_logprobs = rollout_corr_config and rollout_corr_config.get(
+                        "bypass_old_logprob_for_rollout", False
                     )
-                    if need_recomputation:
-                        # LEGACY MODE: Compute old_log_probs from actor
+                    if bypass_recomputing_logprobs:  # Use `rollout_log_probs`
+                        from verl.trainer.ppo.rollout_corr_helper import apply_rollout_correction
+
+                        apply_rollout_correction(
+                            batch=batch,
+                            rollout_corr_config=rollout_corr_config,
+                            policy_loss_config=self.config.actor_rollout_ref.actor.policy_loss,
+                        )
+                    else:  # Recompute old_log_probs
                         with marked_timer("old_log_prob", timing_raw, color="blue"):
                             old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
                             entropys = old_log_prob.batch["entropys"]
@@ -1175,8 +1176,10 @@ class RayPPOTrainer:
                             rollout_corr_config is not None
                             and "rollout_log_probs" in batch.batch
                             # Skip in bypass mode since old=rollout (IS weights=1.0, KL=0, rejection does nothing)
-                            and not need_recomputation
+                            and bypass_recomputing_logprobs
                         ):
+                            from verl.trainer.ppo.rollout_corr_helper import compute_rollout_correction_and_add_to_batch
+
                             # Compute IS weights, apply rejection sampling, compute metrics
                             batch, is_metrics = compute_rollout_correction_and_add_to_batch(batch, rollout_corr_config)
                             # IS and off-policy metrics already have rollout_corr/ prefix
