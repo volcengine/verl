@@ -180,6 +180,8 @@ class SGLangHttpServer:
             )
         )
         app.is_single_tokenizer_mode = True
+        app.server_args = server_args
+        app.warmup_thread_args = (server_args, None, None)
         self._server_port, self._server_task = await run_unvicorn(app, server_args, self._server_address)
         self.tokenizer_manager.server_status = ServerStatus.Up
 
