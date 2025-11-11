@@ -419,6 +419,60 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         rollout_config = omega_conf_to_dataclass(self.config.rollout, dataclass_type=RolloutConfig)
         model_config = omega_conf_to_dataclass(self.config.model, dataclass_type=HFModelConfig)
 
+        # Auto-fix: ensure vLLM TP divides model attention heads
+        try:
+            from transformers import AutoConfig as HF_AutoConfig
+            from verl.utils.fs import copy_to_local
+
+            local_path = copy_to_local(model_config.path, use_shm=model_config.get("use_shm", False))
+            hf_cfg = HF_AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
+
+            def _extract_num_heads(cfg):
+                for name in ("num_attention_heads", "num_heads", "n_head"):
+                    if hasattr(cfg, name) and isinstance(getattr(cfg, name), (int,)):  # type: ignore
+                        return int(getattr(cfg, name))
+                # nested text_config (e.g., some multimodal models)
+                tc = getattr(cfg, "text_config", None)
+                if tc is not None:
+                    for name in ("num_attention_heads", "num_heads", "n_head"):
+                        if hasattr(tc, name) and isinstance(getattr(tc, name), (int,)):
+                            return int(getattr(tc, name))
+                return None
+
+            def _extract_num_kv_heads(cfg):
+                for name in ("num_key_value_heads", "num_kv_heads"):
+                    if hasattr(cfg, name) and isinstance(getattr(cfg, name), (int,)):
+                        return int(getattr(cfg, name))
+                tc = getattr(cfg, "text_config", None)
+                if tc is not None:
+                    for name in ("num_key_value_heads", "num_kv_heads"):
+                        if hasattr(tc, name) and isinstance(getattr(tc, name), (int,)):
+                            return int(getattr(tc, name))
+                return None
+
+            num_heads = _extract_num_heads(hf_cfg)
+            num_kv_heads = _extract_num_kv_heads(hf_cfg)
+            world_size = torch.distributed.get_world_size() if torch.distributed.is_initialized() else 1
+            req_tp = int(getattr(rollout_config, "tensor_model_parallel_size", 1) or 1)
+            def _divides_all(tp):
+                cond1 = (num_heads is None) or (num_heads % tp == 0)
+                cond2 = (num_kv_heads is None) or (num_kv_heads % tp == 0)
+                return cond1 and cond2
+
+            if (num_heads is not None or num_kv_heads is not None) and (not _divides_all(req_tp) or req_tp > world_size):
+                # pick the largest divisor of num_heads that does not exceed world_size
+                divisors = [d for d in range(world_size, 0, -1) if _divides_all(d)]
+                new_tp = divisors[0] if divisors else 1
+                if self.rank == 0:
+                    print(
+                        f"[AutoFix] Adjust vLLM TP from {req_tp} to {new_tp} so that heads kv_heads divisible "
+                        f"(world_size={world_size})."
+                    )
+                rollout_config.tensor_model_parallel_size = new_tp
+        except Exception as e:  # best-effort; don't block rollout build
+            if self.rank == 0:
+                print(f"[AutoFix] Skip TP auto-adjust due to: {e}")
+
         log_gpu_memory_usage(f"Before building {self.config.rollout.name} rollout", logger=logger)
 
         self.rollout = get_rollout_class(rollout_config.name, rollout_config.mode)(

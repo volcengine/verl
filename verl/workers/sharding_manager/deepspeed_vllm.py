@@ -23,17 +23,20 @@ ops required by vLLM.
 
 import logging
 import os
-from typing import Optional
+from typing import Optional, Any
 
 from torch.distributed.device_mesh import DeviceMesh
 
 from verl import DataProto
-from verl.protocol import all_gather_data_proto
 from verl.third_party.vllm import parallel_state as vllm_ps
 from verl.utils.debug import GPUMemoryLogger
-from verl.utils.device import get_torch_device
+from verl.utils.device import get_torch_device, get_device_id
 from verl.utils.torch_functional import check_device_is_available
 from verl.workers.sharding_manager.base import BaseShardingManager
+import numpy as np
+import torch
+from tensordict import TensorDict
+from verl.utils.torch_functional import allgather_dict_tensors
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -140,11 +143,55 @@ class DeepSpeedVLLMShardingManager(BaseShardingManager):
             # No TP, no need to gather
             return data
 
-        # Get vLLM tensor parallel process group
-        group = vllm_ps.get_tensor_model_parallel_group().device_group
+        tp = vllm_ps.get_tensor_model_parallel_group()
+        dev_group = tp.device_group
+        cpu_group = tp.cpu_group
 
-        # All-gather data across TP group
-        all_gather_data_proto(data=data, process_group=group)
+        # Keys must be aligned across ranks to avoid NCCL deadlocks
+        local_keys = sorted(list(data.batch.keys())) if data.batch is not None else []
+        world_size = torch.distributed.get_world_size(group=dev_group)
+        keys_lists = [None for _ in range(world_size)]
+        torch.distributed.all_gather_object(keys_lists, local_keys, group=cpu_group)
+        union_keys = sorted({k for ks in keys_lists for k in (ks or [])})
+        if set(local_keys) != set(union_keys):
+            raise RuntimeError(
+                f"Inconsistent DataProto.batch keys across TP ranks. local={local_keys}, union={union_keys}"
+            )
+
+        # Batch size alignment across ranks
+        local_bsz = data.batch.batch_size[0] if data.batch is not None else 0
+        bsz_list: list[int] = [0 for _ in range(world_size)]
+        torch.distributed.all_gather_object(bsz_list, int(local_bsz), group=cpu_group)
+        total_bsz = int(sum(bsz_list))
+        max_bsz = int(max(bsz_list))
+
+        if data.batch is not None and local_bsz < max_bsz:
+            padded = {}
+            for k, t in data.batch.items():
+                if t.dim() == 0:
+                    pad = torch.zeros((max_bsz,), dtype=t.dtype, device=t.device)
+                    pad[:local_bsz] = t.expand(local_bsz)
+                else:
+                    pad = torch.zeros((max_bsz,) + tuple(t.shape[1:]), dtype=t.dtype, device=t.device)
+                    pad[:local_bsz] = t
+                padded[k] = pad
+            data.batch = TensorDict(padded, batch_size=[max_bsz])
+
+        # Tensor all_gather over device group
+        prev_device = data.batch.device if data.batch is not None else None
+        data = data.to(get_device_id())
+        data.batch = allgather_dict_tensors(data.batch.contiguous(), size=world_size, group=dev_group, dim=0)
+        if total_bsz < data.batch.batch_size[0]:
+            data.batch = data.batch[:total_bsz]
+        if prev_device is not None:
+            data = data.to(prev_device)
+
+        # Non tensor gather over CPU group
+        all_non_tensor: list[dict[str, Any]] = [None for _ in range(world_size)]  # type: ignore
+        torch.distributed.all_gather_object(all_non_tensor, data.non_tensor_batch, group=cpu_group)
+        if data.non_tensor_batch is not None and len(data.non_tensor_batch) > 0:
+            data.non_tensor_batch = {k: np.concatenate([d[k] for d in all_non_tensor]) for k in data.non_tensor_batch}
+
         return data
 
     @GPUMemoryLogger(role="deepspeed vllm sharding_manager", logger=logger)
