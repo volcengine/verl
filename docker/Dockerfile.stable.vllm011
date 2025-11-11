@@ -71,8 +71,7 @@ RUN ln -s /usr/bin/python3 /usr/bin/python
 # Build deepep
 WORKDIR /home/dpsk_a2a/DeepEP
 ENV NVSHMEM_DIR=/home/dpsk_a2a/deepep-nvshmem/install
-RUN NVSHMEM_DIR=/home/dpsk_a2a/deepep-nvshmem/install python setup.py develop && \
-    NVSHMEM_DIR=/home/dpsk_a2a/deepep-nvshmem/install python setup.py install
+RUN NVSHMEM_DIR=/home/dpsk_a2a/deepep-nvshmem/install python setup.py install
 
 
 RUN pip3 install --no-cache-dir --no-deps trl
