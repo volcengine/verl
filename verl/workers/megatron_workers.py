@@ -51,6 +51,7 @@ from verl.utils.device import (
 from verl.utils.distributed import set_numa_affinity
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local
+from verl.utils.megatron.router_replay_patch import RouterReplay, RoutingMode
 from verl.utils.megatron_utils import (
     load_megatron_model_to_gpu,
     load_megatron_optimizer,
@@ -236,6 +237,8 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
     def __init__(self, config: DictConfig, role: str, **kwargs):
         Worker.__init__(self)
         self.config = config
+        self.router_replay = self.config.actor.router_replay
+        self.enable_routing_replay = self.router_replay.mode != "disabled"
         if repatch is not None:
             # NPU MindSpeed patch, will be refactored with MindSpeedEngine.
             repatch(self.config.actor.megatron.get("override_transformer_config", {}))
@@ -540,6 +543,8 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             override_transformer_config = OmegaConf.to_container(
                 OmegaConf.create(self.config.actor.megatron.get("override_transformer_config", {}))
             )
+            # if self.enable_routing_replay:
+            #     override_transformer_config["enable_routing_replay"] = True
             override_ddp_config = OmegaConf.to_container(
                 OmegaConf.create(self.config.actor.megatron.get("override_ddp_config", {}))
             )
@@ -585,6 +590,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 actor_module=self.actor_module,
                 actor_optimizer=self.actor_optimizer,
             )
+            print(f"routing replay layers: {len(RouterReplay.router_instances)}")
             log_gpu_memory_usage("After MegatronPPOActor init", logger=logger)
 
         if self._is_rollout:
@@ -834,11 +840,20 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         data.meta_info["max_token_len"] = self.config.rollout.log_prob_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = self.config.rollout.log_prob_use_dynamic_bsz
         data.meta_info["temperature"] = self.config.rollout.temperature
-        output, entropys = self.actor.compute_log_prob(data=data, calculate_entropy=True)
+
+        if self.enable_routing_replay and self.config.actor.router_replay.mode == "R2":
+            RouterReplay.set_global_routing_mode(RoutingMode.RECORD)
+
+        output, entropys, layers_topk_idx = self.actor.compute_log_prob(data=data, calculate_entropy=True)
         output = DataProto.from_dict(
-            tensors={"old_log_probs": output, "entropys": entropys},
+            tensors={"old_log_probs": output, "entropys": entropys, "layers_topk_idx": layers_topk_idx},
             meta_info={"temperature": self.config.rollout.temperature},
         )
+        if self.config.actor.router_replay.mode == "R2":
+            output.batch["layers_topk_idx"] = layers_topk_idx
+            RouterReplay.clear_global_indices()
+            RouterReplay.clear_global_routing_mode()
+
         output = output.to("cpu")
         # clear kv cache
         if self._is_offload_param:
