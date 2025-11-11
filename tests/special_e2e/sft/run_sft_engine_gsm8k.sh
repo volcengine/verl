@@ -17,7 +17,7 @@ RESUME_MODE=disable
 ckpts_home="checkpoints/simple-vla-all-sft"
 
 MODEL_ID=${MODEL_ID:-Qwen/Qwen3-0.6B}
-MODEL_PATH="/file_system/common-models/Haozhan72-kangsheng/openvla-oft"
+MODEL_PATH="Haozhan72/openvla-oft"
 #huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
 
 SP_SIZE=${SP_SIZE:-1}

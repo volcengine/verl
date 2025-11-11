@@ -21,8 +21,6 @@ from typing import Optional
 import gymnasium as gym
 import numpy as np
 import torch
-import sys
-sys.path.append("/file_system/cyk/vla_mix/LIBERO/")
 from libero.libero import get_libero_path
 from libero.libero.benchmark import Benchmark, get_benchmark
 from libero.libero.envs import OffScreenRenderEnv

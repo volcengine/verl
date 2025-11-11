@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import itertools
-import sys
 
 import torch
 from omegaconf import DictConfig
@@ -30,8 +29,6 @@ from verl.utils.distributed import initialize_global_process_group_ray
 
 from .action_utils import prepare_actions
 from .env_manager import EnvManager
-
-sys.path.append("/file_system/cyk/vla_mix/LIBERO/")
 
 
 def put_tensor_cpu(data_dict):

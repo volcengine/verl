@@ -20,13 +20,24 @@ ROLLOUT_N=8
 # isaac means libero benchmark using isaac sim
 SIM_TYPE=${SIM_TYPE:-"isaac"}
 PROJECT_NAME="vla_libero_RL"
-experiment_name="${SIM_TYPE}_reinforce_plus_plus"
+EXPERIMENT_NAME="${SIM_TYPE}_reinforce_plus_plus"
 
 ISSC_PYTHON="/workspace/isaaclab/_isaac_sim/python.sh"
 PYTHON=python
 if [ -f "$ISSC_PYTHON" ]; then
     PYTHON=$ISSC_PYTHON
 fi
+
+# avoiding warnings
+mkdir /root/LIBERO/libero/libero/../datasets
+gpu_name=$(nvidia-smi --query-gpu=name --format=csv,noheader,nounits | head -n 1)
+
+# force osmesa in Hopper
+if echo "$gpu_name" | grep "NVIDIA H"; then
+    echo "enable MUJOCO_GL=osmesa in Hopper"
+    export MUJOCO_GL=osmesa
+fi
+
 
 $PYTHON -m recipe.vla.main_ppo \
     data.train_files="$train_files" \

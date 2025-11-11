@@ -146,7 +146,7 @@ async def run():
 
     RayNaiveRolloutRob = ray.remote(num_gpus=1)(NaiveRolloutRob)
 
-    model_config = {"path": "Haozhan72-kangsheng/Openvla-oft-SFT-libero10-trajall"}
+    model_config = {"path": "Haozhan72/Openvla-oft-SFT-libero10-trajall"}
     rollout_workers = RayNaiveRolloutRob.remote(model_config)
 
     env_obs_refs = {}
