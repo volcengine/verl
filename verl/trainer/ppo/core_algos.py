@@ -1601,15 +1601,6 @@ def compute_policy_loss_with_rollout_correction(
         rollout_token_veto_threshold: Per-token veto threshold for catastrophic outliers.
         rollout_is_batch_normalize: Whether to normalize IS weights to have mean=1.0 per batch.
 
-    Returns:
-        Tuple of (loss, clip_fraction, kl_divergence, clip_fraction_lower):
-            - loss: Policy gradient loss with IS correction
-            - clip_fraction: Always 0.0 (no clipping in this mode)
-            - kl_divergence: KL between current and rollout policy
-            - clip_fraction_lower: Always 0.0 (no clipping in this mode)
-        Note: Rollout correction metrics are computed internally but not returned.
-              Caller should compute them separately if needed.
-
     Note:
         Unlike compute_policy_loss (PPO), this function:
         - Does NOT use PPO clipping (no old_log_prob needed)
@@ -1722,9 +1713,6 @@ def compute_policy_loss_rollout_correction_wrapper(
         loss_agg_mode: Loss aggregation mode
         config: Actor config containing rollout_correction settings
         rollout_is_weights: Pre-computed IS weights (ignored, computed internally)
-
-    Returns:
-        Tuple of (loss, clip_fraction, kl, clip_fraction_lower)
     """
     assert config is not None, "config is required for rollout_correction loss mode"
 
