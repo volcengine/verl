@@ -16,7 +16,7 @@ defaults:
   # Reward model config.
   - reward_model@reward_model: megatron_reward_model
   # Rollout correction config.
-  - algorithm@algorithm: rollout_correction
+  - algorithm@algorithm.rollout_correction: rollout_correction
   - _self_
 
 actor_rollout_ref:

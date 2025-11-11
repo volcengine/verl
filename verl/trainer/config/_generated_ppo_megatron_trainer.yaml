@@ -469,14 +469,15 @@ reward_model:
     use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
   load_weight: true
 algorithm:
-  rollout_is: null
-  rollout_is_threshold: 2.0
-  rollout_rs: null
-  rollout_rs_threshold: null
-  rollout_rs_threshold_lower: null
-  rollout_token_veto_threshold: null
-  bypass_old_logprob_for_rollout: false
-  use_pure_rollout_correction: false
+  rollout_correction:
+    rollout_is: null
+    rollout_is_threshold: 2.0
+    rollout_rs: null
+    rollout_rs_threshold: null
+    rollout_rs_threshold_lower: null
+    rollout_token_veto_threshold: null
+    bypass_old_logprob_for_rollout: false
+    use_pure_rollout_correction: false
   _target_: verl.trainer.config.AlgoConfig
   gamma: 1.0
   lam: 1.0
