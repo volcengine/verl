@@ -299,7 +299,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         self._init_hf_config_and_tf_config(
             model_path,
-            model_path,
+            self.config.model.tokenizer_path or model_path,
             self.dtype,
             override_model_config,
             override_transformer_config,
@@ -908,7 +908,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
 
         self._init_hf_config_and_tf_config(
             model_path,
-            self.config.model.tokenizer_path,
+            self.config.model.tokenizer_path or model_path,
             self.dtype,
             override_model_config,
             override_transformer_config,
@@ -1171,7 +1171,7 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
     def _build_rm_model(self, model_path, tokenizer, override_model_config, override_transformer_config):
         from verl.utils.megatron_utils import McoreModuleWrapperConfig, make_megatron_module
 
-        self._init_hf_config_and_tf_config(
+        self.(
             model_path,
             tokenizer,
             self.dtype,
