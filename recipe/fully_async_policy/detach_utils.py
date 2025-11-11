@@ -418,6 +418,9 @@ class MetricsAggregator:
         return {
             # Time-Based metrics, can add metrics here
             "time_sum": ["perf/time_per_step"],
+            "min": ["timing_s/agent_loop/tool_calls/min"],
+            "avg": ["timing_s/agent_loop/tool_calls/mean"],
+            "max": ["timing_s/agent_loop/tool_calls/max"],
             "last": [
                 "fully_async/count/total_generated_samples",
                 "fully_async/count/stale_samples_processed",
@@ -451,6 +454,8 @@ class MetricsAggregator:
                 return agg_type
 
         metric_lower = metric_name.lower()
+        if any(keyword in metric_lower for keyword in ["timing_s/"]):
+            return "time_sum"
         if any(keyword in metric_lower for keyword in ["mean", "avg", "average"]):
             return "avg"
         if any(keyword in metric_lower for keyword in ["max", "maximum"]):
@@ -461,8 +466,6 @@ class MetricsAggregator:
             return "sum"
         if any(keyword in metric_lower for keyword in ["weighted_avg"]):
             return "weighted_avg"
-        if any(keyword in metric_lower for keyword in ["timing_s/"]):
-            return "time_sum"
 
         return "avg"
 
