@@ -1,0 +1,2709 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "datasource",
+          "uid": "grafana"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": 65,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "uid": "${datasource}"
+      },
+      "description": "Number of tokens processed per second",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "tokens/s"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "MAX"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#1F60C4",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "MAX + PENDING"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#777777",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byValue",
+              "options": {
+                "op": "gte",
+                "reducer": "allIsZero",
+                "value": 0
+              }
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": true,
+                  "tooltip": true,
+                  "viz": false
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "alertThreshold": true,
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "sum by (model_name, WorkerId) (rate(vllm:request_prompt_tokens_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }[$interval]))",
+          "interval": "",
+          "legendFormat": "Prompt Tokens/Sec - {{model_name}} - {{WorkerId}}",
+          "queryType": "randomWalk",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "sum by (model_name, WorkerId) (rate(vllm:generation_tokens_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }[$interval]))",
+          "interval": "",
+          "legendFormat": "Generation Tokens/Sec - {{model_name}} - {{WorkerId}}",
+          "queryType": "randomWalk",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "vLLM: Token Throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "uid": "${datasource}"
+      },
+      "description": "Time per output token latency.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "MAX"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#1F60C4",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "MAX + PENDING"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#777777",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byValue",
+              "options": {
+                "op": "gte",
+                "reducer": "allIsZero",
+                "value": 0
+              }
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": true,
+                  "tooltip": true,
+                  "viz": false
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "alertThreshold": true,
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "histogram_quantile(0.99, sum by(le, model_name, WorkerId) (rate(vllm:time_per_output_token_seconds_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }[$interval])))",
+          "interval": "",
+          "legendFormat": "P99 - {{model_name}} - {{WorkerId}}",
+          "queryType": "randomWalk",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "histogram_quantile(0.95, sum by(le, model_name, WorkerId) (rate(vllm:time_per_output_token_seconds_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }[$interval])))",
+          "interval": "",
+          "legendFormat": "P95 - {{model_name}} - {{WorkerId}}",
+          "queryType": "randomWalk",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "histogram_quantile(0.9, sum by(le, model_name, WorkerId) (rate(vllm:time_per_output_token_seconds_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }[$interval])))",
+          "interval": "",
+          "legendFormat": "P90 - {{model_name}} - {{WorkerId}}",
+          "queryType": "randomWalk",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "histogram_quantile(0.5, sum by(le, model_name, WorkerId) (rate(vllm:time_per_output_token_seconds_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }[$interval])))",
+          "interval": "",
+          "legendFormat": "P50 - {{model_name}} - {{WorkerId}}",
+          "queryType": "randomWalk",
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "(sum by(model_name, WorkerId) (rate(vllm:time_per_output_token_seconds_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }[$interval]))\n/\nsum by(model_name, WorkerId) (rate(vllm:time_per_output_token_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }[$interval])))",
+          "interval": "",
+          "legendFormat": "Mean - {{model_name}} - {{WorkerId}}",
+          "queryType": "randomWalk",
+          "refId": "E"
+        }
+      ],
+      "title": "vLLM: Time Per Output Token Latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "uid": "${datasource}"
+      },
+      "description": "Percentage of used cache blocks by vLLM.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "MAX"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#1F60C4",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "MAX + PENDING"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#777777",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byValue",
+              "options": {
+                "op": "gte",
+                "reducer": "allIsZero",
+                "value": 0
+              }
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": true,
+                  "tooltip": true,
+                  "viz": false
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "id": 3,
+      "options": {
+        "alertThreshold": true,
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "vllm:gpu_cache_usage_perc{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }",
+          "interval": "",
+          "legendFormat": "GPU Cache Usage - {{model_name}} - {{WorkerId}}",
+          "queryType": "randomWalk",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "vllm:cpu_cache_usage_perc{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }",
+          "interval": "",
+          "legendFormat": "CPU Cache Usage - {{model_name}} - {{WorkerId}}",
+          "queryType": "randomWalk",
+          "refId": "B"
+        }
+      ],
+      "title": "vLLM: Cache Utilization",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "uid": "${datasource}"
+      },
+      "description": "P50, P90, P95, and P99 TTFT latency.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "MAX"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#1F60C4",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "MAX + PENDING"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#777777",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byValue",
+              "options": {
+                "op": "gte",
+                "reducer": "allIsZero",
+                "value": 0
+              }
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": true,
+                  "tooltip": true,
+                  "viz": false
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 5,
+      "options": {
+        "alertThreshold": true,
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "(sum by(model_name, WorkerId) (rate(vllm:time_to_first_token_seconds_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }[$interval]))\n/\nsum by(model_name, WorkerId) (rate(vllm:time_to_first_token_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }[$interval])))",
+          "interval": "",
+          "legendFormat": "Average - {{model_name}} - {{WorkerId}}",
+          "queryType": "randomWalk",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "histogram_quantile(0.5, sum by(le, model_name, WorkerId)(rate(vllm:time_to_first_token_seconds_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }[$interval])))",
+          "interval": "",
+          "legendFormat": "P50 - {{model_name}} - {{WorkerId}}",
+          "queryType": "randomWalk",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "histogram_quantile(0.9, sum by(le, model_name, WorkerId)(rate(vllm:time_to_first_token_seconds_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }[$interval])))",
+          "interval": "",
+          "legendFormat": "P90 - {{model_name}} - {{WorkerId}}",
+          "queryType": "randomWalk",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "histogram_quantile(0.95, sum by(le, model_name, WorkerId) (rate(vllm:time_to_first_token_seconds_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }[$interval])))",
+          "interval": "",
+          "legendFormat": "P95 - {{model_name}} - {{WorkerId}}",
+          "queryType": "randomWalk",
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "histogram_quantile(0.99, sum by(le, model_name, WorkerId)(rate(vllm:time_to_first_token_seconds_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }[$interval])))",
+          "interval": "",
+          "legendFormat": "P99 - {{model_name}} - {{WorkerId}}",
+          "queryType": "randomWalk",
+          "refId": "E"
+        }
+      ],
+      "title": "vLLM: Time To First Token Latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "uid": "${datasource}"
+      },
+      "description": "Latency from request start to first token returned (in seconds).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "MAX"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#1F60C4",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "MAX + PENDING"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#777777",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byValue",
+              "options": {
+                "op": "gte",
+                "reducer": "allIsZero",
+                "value": 0
+              }
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": true,
+                  "tooltip": true,
+                  "viz": false
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "id": 6,
+      "options": {
+        "alertThreshold": true,
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "sum by(model_name, WorkerId) (rate(vllm:e2e_request_latency_seconds_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }[$interval]))\n/\nsum by(model_name, WorkerId) (rate(vllm:e2e_request_latency_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }[$interval]))",
+          "interval": "",
+          "legendFormat": "Average - {{model_name}} - {{WorkerId}}",
+          "queryType": "randomWalk",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "histogram_quantile(0.5, sum by(le, model_name, WorkerId) (rate(vllm:e2e_request_latency_seconds_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }[$interval])))",
+          "interval": "",
+          "legendFormat": "P50 - {{model_name}} - {{WorkerId}}",
+          "queryType": "randomWalk",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "histogram_quantile(0.9, sum by(le, model_name, WorkerId) (rate(vllm:e2e_request_latency_seconds_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }[$interval])))",
+          "interval": "",
+          "legendFormat": "P90 - {{model_name}} - {{WorkerId}}",
+          "queryType": "randomWalk",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "histogram_quantile(0.95, sum by(le, model_name, WorkerId) (rate(vllm:e2e_request_latency_seconds_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }[$interval])))",
+          "interval": "",
+          "legendFormat": "P95 - {{model_name}} - {{WorkerId}}",
+          "queryType": "randomWalk",
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "histogram_quantile(0.99, sum by(le, model_name, WorkerId) (rate(vllm:e2e_request_latency_seconds_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }[$interval])))",
+          "interval": "",
+          "legendFormat": "P99 - {{model_name}} - {{WorkerId}}",
+          "queryType": "randomWalk",
+          "refId": "E"
+        }
+      ],
+      "title": "vLLM: E2E Request Latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "uid": "${datasource}"
+      },
+      "description": "Number of requests in RUNNING, WAITING, and SWAPPED state",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "Requests"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "MAX"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#1F60C4",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "MAX + PENDING"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#777777",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byValue",
+              "options": {
+                "op": "gte",
+                "reducer": "allIsZero",
+                "value": 0
+              }
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": true,
+                  "tooltip": true,
+                  "viz": false
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "id": 7,
+      "options": {
+        "alertThreshold": true,
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "vllm:num_requests_running{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }",
+          "interval": "",
+          "legendFormat": "Num Running - {{model_name}} - {{WorkerId}}",
+          "queryType": "randomWalk",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "vllm:num_requests_swapped{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }",
+          "interval": "",
+          "legendFormat": "Num Swapped - {{model_name}} - {{WorkerId}}",
+          "queryType": "randomWalk",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "vllm:num_requests_waiting{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }",
+          "interval": "",
+          "legendFormat": "Num Waiting - {{model_name}} - {{WorkerId}}",
+          "queryType": "randomWalk",
+          "refId": "C"
+        }
+      ],
+      "title": "vLLM: Scheduler State",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "uid": "${datasource}"
+      },
+      "description": "Heatmap of request prompt length",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "scaleDistribution": {
+              "type": "linear"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "id": 8,
+      "options": {
+        "calculate": false,
+        "cellGap": 1,
+        "cellValues": {
+          "unit": "none"
+        },
+        "color": {
+          "exponent": 0.5,
+          "fill": "dark-orange",
+          "min": 0,
+          "mode": "scheme",
+          "reverse": false,
+          "scale": "exponential",
+          "scheme": "Spectral",
+          "steps": 64
+        },
+        "exemplars": {
+          "color": "rgba(255,0,255,0.7)"
+        },
+        "filterValues": {
+          "le": 1e-9
+        },
+        "legend": {
+          "show": true,
+          "showLegend": true
+        },
+        "rowsFrame": {
+          "layout": "auto",
+          "value": "Request count"
+        },
+        "tooltip": {
+          "mode": "single",
+          "showColorScale": false,
+          "yHistogram": true
+        },
+        "yAxis": {
+          "axisPlacement": "left",
+          "reverse": false,
+          "unit": "none"
+        }
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "expr": "sum by(le, model_name, WorkerId) (increase(vllm:request_prompt_tokens_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }[$interval]))",
+          "format": "heatmap",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": false,
+          "legendFormat": "{{le}}",
+          "range": true,
+          "refId": "A",
+          "useBackend": false
+        }
+      ],
+      "title": "vLLM: Request Prompt Length",
+      "type": "heatmap"
+    },
+    {
+      "datasource": {
+        "uid": "${datasource}"
+      },
+      "description": "Heatmap of request generation length",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "scaleDistribution": {
+              "type": "linear"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "id": 9,
+      "options": {
+        "calculate": false,
+        "cellGap": 1,
+        "cellValues": {
+          "unit": "none"
+        },
+        "color": {
+          "exponent": 0.5,
+          "fill": "dark-orange",
+          "min": 0,
+          "mode": "scheme",
+          "reverse": false,
+          "scale": "exponential",
+          "scheme": "Spectral",
+          "steps": 64
+        },
+        "exemplars": {
+          "color": "rgba(255,0,255,0.7)"
+        },
+        "filterValues": {
+          "le": 1e-9
+        },
+        "legend": {
+          "show": true,
+          "showLegend": true
+        },
+        "rowsFrame": {
+          "layout": "auto",
+          "value": "Request count"
+        },
+        "tooltip": {
+          "mode": "single",
+          "showColorScale": false,
+          "yHistogram": true
+        },
+        "yAxis": {
+          "axisPlacement": "left",
+          "reverse": false,
+          "unit": "none"
+        }
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "expr": "sum by(le, model_name, WorkerId) (increase(vllm:request_generation_tokens_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }[$interval]))",
+          "format": "heatmap",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": false,
+          "legendFormat": "{{le}}",
+          "range": true,
+          "refId": "A",
+          "useBackend": false
+        }
+      ],
+      "title": "vLLM: Request Generation Length",
+      "type": "heatmap"
+    },
+    {
+      "datasource": {
+        "uid": "${datasource}"
+      },
+      "description": "Number of finished requests by their finish reason: either an EOS token was generated or the max sequence length was reached.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
+      "id": 10,
+      "options": {
+        "alertThreshold": true,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "sum by(finished_reason, model_name, WorkerId) (increase(vllm:request_success_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }[$interval]))",
+          "interval": "",
+          "legendFormat": "{{finished_reason}} - {{model_name}} - {{WorkerId}}",
+          "queryType": "randomWalk",
+          "refId": "A"
+        }
+      ],
+      "title": "vLLM: Finish Reason",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "uid": "${datasource}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
+      "id": 11,
+      "options": {
+        "alertThreshold": true,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "sum by(model_name, WorkerId) (rate(vllm:request_queue_time_seconds_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }[$interval]))",
+          "interval": "",
+          "legendFormat": "{{model_name}} - {{WorkerId}}",
+          "queryType": "randomWalk",
+          "refId": "A"
+        }
+      ],
+      "title": "vLLM: Queue Time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "uid": "${datasource}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 40
+      },
+      "id": 12,
+      "options": {
+        "alertThreshold": true
+      },
+      "pluginVersion": "7.5.17",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "sum by(model_name, WorkerId) (rate(vllm:request_decode_time_seconds_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }[$interval]))",
+          "interval": "",
+          "legendFormat": "Decode - {{model_name}} - {{WorkerId}}",
+          "queryType": "randomWalk",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "sum by(model_name, WorkerId) (rate(vllm:request_prefill_time_seconds_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }[$interval]))",
+          "interval": "",
+          "legendFormat": "Prefill - {{model_name}} - {{WorkerId}}",
+          "queryType": "randomWalk",
+          "refId": "B"
+        }
+      ],
+      "title": "vLLM: Requests Prefill and Decode Time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "uid": "${datasource}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 40
+      },
+      "id": 13,
+      "options": {
+        "alertThreshold": true
+      },
+      "pluginVersion": "7.5.17",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "sum by(model_name, WorkerId) (rate(vllm:request_max_num_generation_tokens_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }[$interval]))",
+          "interval": "",
+          "legendFormat": "{{model_name}} - {{WorkerId}}",
+          "queryType": "randomWalk",
+          "refId": "A"
+        }
+      ],
+      "title": "vLLM: Max Generation Token in Sequence Group",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "uid": "${datasource}"
+      },
+      "description": "Percentage of prefix cache queries that resulted in a cache hit (GPU).",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 48
+      },
+      "id": 28,
+      "options": {
+        "alertThreshold": true
+      },
+      "pluginVersion": "7.5.17",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "increase(vllm:gpu_prefix_cache_hits_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }[$interval]) / increase(vllm:gpu_prefix_cache_queries_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", }[$interval])",
+          "interval": "",
+          "legendFormat": "GPU: {{model_name}} - {{WorkerId}}",
+          "queryType": "randomWalk",
+          "refId": "A"
+        }
+      ],
+      "title": "vLLM: Prefix Cache Hit Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "uid": "${datasource}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "continuous-YlBl"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              {
+                "color": "rgb(230, 230, 230)"
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 48
+      },
+      "id": 27,
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": false,
+        "text": {
+          "titleSize": 12
+        }
+      },
+      "pluginVersion": "7.5.17",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "sum by (model_name) (delta(vllm:prompt_tokens_total{WorkerId=~\"$workerid\", }[1w])) / sum by (model_name) (delta(vllm:request_success_total{WorkerId=~\"$workerid\", }[1w]))",
+          "interval": "",
+          "legendFormat": "In: {{ model_name}}",
+          "queryType": "randomWalk",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "sum by (model_name) (delta(vllm:generation_tokens_total{WorkerId=~\"$workerid\", }[1w])) / sum by (model_name) (delta(vllm:request_success_total{WorkerId=~\"$workerid\", }[1w]))",
+          "interval": "",
+          "legendFormat": "Out: {{ model_name}}",
+          "queryType": "randomWalk",
+          "refId": "B"
+        }
+      ],
+      "title": "Tokens Per Request Per Model Last 7 Days",
+      "type": "gauge"
+    },
+    {
+      "datasource": {
+        "uid": "${datasource}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              {
+                "color": "super-light-yellow"
+              },
+              {
+                "color": "super-light-green",
+                "value": 50
+              },
+              {
+                "color": "green",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 56
+      },
+      "id": 14,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "text": {},
+        "textMode": "auto"
+      },
+      "pluginVersion": "7.5.17",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "(sum by (model_name) (delta(vllm:prompt_tokens_total{WorkerId=~\"$workerid\", }[1d])))",
+          "interval": "",
+          "legendFormat": "Input: {{model_name}}",
+          "queryType": "randomWalk",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "(sum by (model_name) (delta(vllm:generation_tokens_total{WorkerId=~\"$workerid\", }[1d])))",
+          "interval": "",
+          "legendFormat": "Generated: {{model_name}}",
+          "queryType": "randomWalk",
+          "refId": "B"
+        }
+      ],
+      "title": "Tokens Last 24 Hours",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "uid": "${datasource}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              {
+                "color": "super-light-yellow"
+              },
+              {
+                "color": "super-light-green",
+                "value": 50
+              },
+              {
+                "color": "green",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 56
+      },
+      "id": 15,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "text": {},
+        "textMode": "auto"
+      },
+      "pluginVersion": "7.5.17",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "delta(vllm:prompt_tokens_total{WorkerId=~\"$workerid\", }[1h])",
+          "interval": "",
+          "legendFormat": "Input: {{model_name}}",
+          "queryType": "randomWalk",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "delta(vllm:generation_tokens_total{WorkerId=~\"$workerid\", }[1h])",
+          "interval": "",
+          "legendFormat": "Generated: {{model_name}}",
+          "queryType": "randomWalk",
+          "refId": "B"
+        }
+      ],
+      "title": "Tokens Last Hour",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "uid": "${datasource}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 64
+      },
+      "id": 16,
+      "options": {
+        "displayLabels": [],
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "values": [
+            "percent",
+            "value"
+          ]
+        },
+        "pieType": "pie",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "text": {}
+      },
+      "pluginVersion": "7.5.17",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "sum by (model_name) (delta(vllm:request_success_total{WorkerId=~\"$workerid\", }[1d]))",
+          "interval": "",
+          "legendFormat": "{{model_name}}",
+          "queryType": "randomWalk",
+          "refId": "A"
+        }
+      ],
+      "title": "Distribution of Requests Per Model Last 24 Hours",
+      "type": "piechart"
+    },
+    {
+      "datasource": {
+        "uid": "${datasource}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              {
+                "color": "super-light-yellow"
+              },
+              {
+                "color": "super-light-green",
+                "value": 50
+              },
+              {
+                "color": "green",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 64
+      },
+      "id": 18,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "text": {},
+        "textMode": "auto"
+      },
+      "pluginVersion": "7.5.17",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "sum by (model_name) (delta(vllm:prompt_tokens_total{WorkerId=~\"$workerid\", }[1d])) / sum by (model_name) (delta(vllm:generation_tokens_total{WorkerId=~\"$workerid\", }[1d]))",
+          "interval": "",
+          "legendFormat": "{{model_name}}",
+          "queryType": "randomWalk",
+          "refId": "A"
+        }
+      ],
+      "title": "Ratio Input:Generated Tokens Last 24 Hours",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "uid": "${datasource}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              {
+                "color": "super-light-yellow"
+              },
+              {
+                "color": "super-light-green",
+                "value": 50
+              },
+              {
+                "color": "green",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 72
+      },
+      "id": 19,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "text": {},
+        "textMode": "auto"
+      },
+      "pluginVersion": "7.5.17",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "sum by (model_name) (delta(vllm:prompt_tokens_total{WorkerId=~\"$workerid\", }[1d])) + sum by (model_name) (delta(vllm:generation_tokens_total{WorkerId=~\"$workerid\", }[1d]))",
+          "interval": "",
+          "legendFormat": "{{model_name}}",
+          "queryType": "randomWalk",
+          "refId": "A"
+        }
+      ],
+      "title": "Tokens Per Model Last 24 Hours",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "uid": "${datasource}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              {
+                "color": "super-light-yellow"
+              },
+              {
+                "color": "super-light-green",
+                "value": 50
+              },
+              {
+                "color": "green",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 72
+      },
+      "id": 21,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "text": {},
+        "textMode": "auto"
+      },
+      "pluginVersion": "7.5.17",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "max_over_time(sum by (model_name) (rate(vllm:generation_tokens_total{WorkerId=~\"$workerid\", }[2m]))[24h:])",
+          "interval": "",
+          "legendFormat": "{{model_name}}",
+          "queryType": "randomWalk",
+          "refId": "A"
+        }
+      ],
+      "title": "Peak Tokens Per Second Per Model Last 24 Hours",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "uid": "${datasource}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "continuous-YlBl"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              {
+                "color": "rgb(230, 230, 230)"
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 80
+      },
+      "id": 23,
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": false,
+        "text": {
+          "titleSize": 12
+        }
+      },
+      "pluginVersion": "7.5.17",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "sum by (model_name) (delta(vllm:request_success_total{WorkerId=~\"$workerid\", }[1w]))",
+          "interval": "",
+          "legendFormat": "{{ model_name}}",
+          "queryType": "randomWalk",
+          "refId": "A"
+        }
+      ],
+      "title": "Requests Per Model Last Week",
+      "type": "gauge"
+    },
+    {
+      "datasource": {
+        "uid": "${datasource}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "continuous-YlBl"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              {
+                "color": "rgb(230, 230, 230)"
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 80
+      },
+      "id": 24,
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": false,
+        "text": {
+          "titleSize": 12
+        }
+      },
+      "pluginVersion": "7.5.17",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "(sum by (model_name) (delta(vllm:prompt_tokens_total{WorkerId=~\"$workerid\", }[1w])) +\nsum by (model_name) (delta(vllm:generation_tokens_total{WorkerId=~\"$workerid\", }[1w]))) / sum by (model_name) (delta(vllm:request_success_total{WorkerId=~\"$workerid\", }[1w]))",
+          "interval": "",
+          "legendFormat": "{{ model_name}}",
+          "queryType": "randomWalk",
+          "refId": "A"
+        }
+      ],
+      "title": "Avg Total Tokens Per Request Last 7 Days",
+      "type": "gauge"
+    },
+    {
+      "datasource": {
+        "uid": "${datasource}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "continuous-YlBl"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              {
+                "color": "rgb(230, 230, 230)"
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 88
+      },
+      "id": 25,
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": false,
+        "text": {
+          "titleSize": 12
+        }
+      },
+      "pluginVersion": "7.5.17",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "(sum by (model_name) (delta(vllm:prompt_tokens_total{WorkerId=~\"$workerid\", }[1w])) + sum by (model_name) (delta(vllm:generation_tokens_total{WorkerId=~\"$workerid\", }[1w])))/ sum by (model_name) (delta(vllm:request_success_total{WorkerId=~\"$workerid\", }[1w]))",
+          "interval": "",
+          "legendFormat": "{{ model_name}}",
+          "queryType": "randomWalk",
+          "refId": "A"
+        }
+      ],
+      "title": "Avg Total Tokens Per Request Per Model Last 7 Days",
+      "type": "gauge"
+    },
+    {
+      "datasource": {
+        "uid": "${datasource}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "continuous-YlBl"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              {
+                "color": "rgb(230, 230, 230)"
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 88
+      },
+      "id": 26,
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": false,
+        "text": {
+          "titleSize": 12
+        }
+      },
+      "pluginVersion": "7.5.17",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "sum by (model_name) (delta(vllm:prompt_tokens_total{WorkerId=~\"$workerid\", }[1w]))",
+          "interval": "",
+          "legendFormat": "In: {{ model_name}}",
+          "queryType": "randomWalk",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "sum by (model_name) (delta(vllm:generation_tokens_total{WorkerId=~\"$workerid\", }[1w]))",
+          "interval": "",
+          "legendFormat": "Out: {{ model_name }}",
+          "queryType": "randomWalk",
+          "refId": "B"
+        }
+      ],
+      "title": "Tokens Per Model Last 7 Days",
+      "type": "gauge"
+    }
+  ],
+  "preload": false,
+  "refresh": false,
+  "schemaVersion": 41,
+  "tags": [
+    "rayVersion:2.50.0"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "Prometheus",
+          "value": "PBFA97CFB590B2093"
+        },
+        "description": "Filter queries of a specific Prometheus type.",
+        "hide": 2,
+        "includeAll": false,
+        "name": "datasource",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "regex": "",
+        "type": "datasource"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": "${datasource}",
+        "definition": "label_values(vllm:request_prompt_tokens_sum{}, model_name)",
+        "includeAll": true,
+        "label": "vLLM Model Name",
+        "name": "vllm_model_name",
+        "options": [],
+        "query": {
+          "query": "label_values(vllm:request_prompt_tokens_sum{}, model_name)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": "${datasource}",
+        "definition": "label_values(vllm:request_prompt_tokens_sum{}, WorkerId)",
+        "includeAll": true,
+        "label": "Worker ID",
+        "name": "workerid",
+        "options": [],
+        "query": {
+          "query": "label_values(vllm:request_prompt_tokens_sum{}, WorkerId)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "5m",
+          "value": "5m"
+        },
+        "includeAll": false,
+        "label": "Interval",
+        "name": "interval",
+        "options": [],
+        "type": "custom"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "LLM Dashboard",
+  "uid": "verlvLlmDashboard",
+  "version": 1
+}

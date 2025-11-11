@@ -29,6 +29,7 @@ from pydantic import BaseModel, ConfigDict
 from tensordict import TensorDict
 from transformers import AutoProcessor, AutoTokenizer
 
+from verl.experimental.agent_loop.prometheus_utils import update_prometheus_config
 from verl.experimental.reward import RewardManagerWorker
 from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayWorkerGroup
@@ -724,7 +725,7 @@ class AgentLoopManager:
         if os.getenv("PROMETHEUS_FILE") is not None and os.getenv("PROMETHEUS_PORT") is not None:
             if rollout_config.disable_log_stats:
                 raise ValueError("PROMETHEUS needs disable_log_stats==False, but it is currently True.")
-            self._update_prometheus_config()
+            update_prometheus_config(self.server_addresses)
 
     def _init_agent_loop_workers(self):
         self.agent_loop_workers = []
@@ -813,88 +814,3 @@ class AgentLoopManager:
             await asyncio.gather(*tasks)
 
         asyncio.run(run_all())
-
-    def _update_prometheus_config(self):
-        """Update Prometheus configuration file with server addresses and reload on first node."""
-
-        if not self.server_addresses:
-            logger.warning("No server addresses available to update Prometheus config")
-            return
-
-        try:
-            # Read existing Prometheus config or create default one
-            prometheus_config_path = str(os.getenv("PROMETHEUS_FILE", "/workdir/tmp/prometheus.yml"))
-            prometheus_config = {
-                "global": {"scrape_interval": "10s", "evaluation_interval": "10s"},
-                "scrape_configs": [
-                    {
-                        "job_name": "ray",
-                        "file_sd_configs": [{"files": ["/tmp/ray/prom_metrics_service_discovery.json"]}],
-                    },
-                    {"job_name": "vllm", "static_configs": [{"targets": self.server_addresses}]},
-                ],
-            }
-
-            # Write the configuration to file on all nodes
-            @ray.remote(num_cpus=0)
-            def write_config_file(config_data, config_path):
-                import yaml
-                import os
-
-                os.makedirs(os.path.dirname(config_path), exist_ok=True)
-                with open(config_path, "w") as f:
-                    yaml.dump(config_data, f, default_flow_style=False, indent=2)
-                return True
-
-            # Call prometheus on all nodes，just master node should success, we skip other node error.
-            @ray.remote(num_cpus=0)
-            def reload_prometheus():
-                import os
-                import socket
-                import subprocess
-
-                hostname = socket.gethostname()
-                ip_address = socket.gethostbyname(hostname)
-                port = int(os.getenv("PROMETHEUS_PORT", "44398"))
-
-                reload_url = f"http://{ip_address}:{port}/-/reload"
-
-                try:
-                    subprocess.run(["curl", "-X", "POST", reload_url], capture_output=True, text=True, timeout=10)
-                    print(f"Reloading Prometheus on node: {reload_url}")
-                except Exception as e:
-                    pass
-
-            # Schedule task on each specific node
-
-            # Get all available nodes and schedule task on each node
-            nodes = ray.nodes()
-            alive_nodes = [node for node in nodes if node["Alive"]]
-
-            write_tasks = []
-            for node in alive_nodes:
-                node_ip = node["NodeManagerAddress"]
-                task = write_config_file.options(
-                    resources={"node:" + node_ip: 0.001}  # Schedule to specific node
-                ).remote(prometheus_config, prometheus_config_path)
-                write_tasks.append(task)
-
-            ray.get(write_tasks)
-
-            print(
-                f"Updated Prometheus configuration at {prometheus_config_path} "
-                f"with {len(self.server_addresses)} VLLM servers"
-            )
-
-            reload_tasks = []
-            for node in alive_nodes:
-                node_ip = node["NodeManagerAddress"]
-                task = reload_prometheus.options(
-                    resources={"node:" + node_ip: 0.001}  # Schedule to specific node
-                ).remote()
-                reload_tasks.append(task)
-
-            ray.get(reload_tasks)
-
-        except Exception as e:
-            logger.error(f"Failed to update Prometheus configuration: {e}")

@@ -129,6 +129,7 @@ verl is fast with:
    advance/reward_loop
    advance/fully_async
    data/transfer_queue.md
+   advance/grafana_prometheus.md
 
 .. toctree::
    :maxdepth: 1
