@@ -31,13 +31,13 @@ import getpass
 import inspect
 import logging
 import os
-import pickle
 import time
 from contextlib import contextmanager
 from dataclasses import asdict
 from types import MethodType
 from typing import Any, Generator
 
+import cloudpickle as pickle
 import numpy as np
 import ray
 import torch
@@ -51,7 +51,6 @@ from torch.distributed.device_mesh import DeviceMesh
 from vllm import LLM, SamplingParams
 from vllm.config import CompilationConfig, LoRAConfig
 from vllm.lora.request import LoRARequest
-from vllm.transformers_utils.config import get_config
 
 try:
     # https://github.com/vllm-project/vllm/commit/96b9aa5aa076e64c68765232aec343e4d0006e2a
@@ -591,10 +590,6 @@ class vLLMAsyncRollout(BaseRollout):
             else int(ray.get_runtime_context().get_accelerator_ids()[device_name][0])
         )
         self.vllm_config = all_kwargs[0]["vllm_config"]
-        if self.vllm_config.model_config.trust_remote_code:
-            hf_config = get_config(self.vllm_config.model_config.model, trust_remote_code=True)
-            self.vllm_config.model_config.hf_config = hf_config
-            self.vllm_config.model_config.hf_text_config = hf_config.get_text_config()
         if self.lora_config:
             lora_dtype = getattr(torch, self.config.dtype)
             self.vllm_config.lora_config = LoRAConfig(lora_dtype=lora_dtype, **self.lora_config)
