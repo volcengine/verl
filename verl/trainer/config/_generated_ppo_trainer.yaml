@@ -455,7 +455,7 @@ reward_model:
     save_path: ${oc.select:global_profiler.save_path,null}
     tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}
   ulysses_sequence_parallel_size: 1
-'@algorithm':
+algorithm:
   rollout_correction:
     rollout_is: null
     rollout_is_threshold: 2.0
@@ -466,10 +466,6 @@ reward_model:
     bypass_mode: false
     use_policy_gradient: false
     rollout_is_batch_normalize: false
-custom_reward_function:
-  path: null
-  name: compute_score
-algorithm:
   _target_: verl.trainer.config.AlgoConfig
   gamma: 1.0
   lam: 1.0
@@ -487,6 +483,9 @@ algorithm:
   pf_ppo:
     reweight_method: pow
     weight_pow: 2.0
+custom_reward_function:
+  path: null
+  name: compute_score
 trainer:
   balance_batch: true
   total_epochs: 30
