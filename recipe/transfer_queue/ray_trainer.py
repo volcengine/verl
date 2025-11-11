@@ -690,7 +690,6 @@ class RayPPOTrainer:
                     data_fields=["input_ids", "uid", "reward_model"],
                     batch_size=self.val_batch_size * self.config.actor_rollout_ref.rollout.val_kwargs.n,
                     partition_id=f"val_{self.global_steps - 1}",
-                    get_n_samples=False,
                     task_name="get_data",
                 )
             )
@@ -709,7 +708,6 @@ class RayPPOTrainer:
                     data_fields=list(test_batch.keys()),  # TODO: (TQ) Get metadata by specified fields
                     batch_size=self.val_batch_size * self.config.actor_rollout_ref.rollout.val_kwargs.n,
                     partition_id=f"val_{self.global_steps - 1}",  # self.global_steps start from 1
-                    get_n_samples=False,
                     task_name="generate_sequences",
                 )
             )
@@ -739,7 +737,6 @@ class RayPPOTrainer:
                     data_fields=["responses"],
                     batch_size=self.val_batch_size * self.config.actor_rollout_ref.rollout.val_kwargs.n,
                     partition_id=f"val_{self.global_steps - 1}",  # self.global_steps start from 1
-                    get_n_samples=False,
                     task_name="get_response",
                 )
             )
@@ -768,7 +765,6 @@ class RayPPOTrainer:
                     data_fields=compute_reward_fields,
                     batch_size=self.val_batch_size * self.config.actor_rollout_ref.rollout.val_kwargs.n,
                     partition_id=f"val_{self.global_steps - 1}",
-                    get_n_samples=False,
                     task_name="compute_reward",
                 )
             )
@@ -792,7 +788,6 @@ class RayPPOTrainer:
                         data_fields=["__num_turns__"],
                         batch_size=self.val_batch_size * self.config.actor_rollout_ref.rollout.val_kwargs.n,
                         partition_id=f"val_{self.global_steps - 1}",  # self.global_steps start from 1
-                        get_n_samples=False,
                         task_name="get_num_turns",
                     )
                 )
@@ -806,7 +801,6 @@ class RayPPOTrainer:
                         data_fields=["data_source"],
                         batch_size=self.val_batch_size * self.config.actor_rollout_ref.rollout.val_kwargs.n,
                         partition_id=f"val_{self.global_steps - 1}",  # self.global_steps start from 1
-                        get_n_samples=False,
                         task_name="get_data_source",
                     )
                 )
@@ -1260,7 +1254,6 @@ class RayPPOTrainer:
                 base_get_meta_kwargs = dict(
                     batch_size=self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n,
                     partition_id=f"train_{self.global_steps - 1}",  # self.global_steps starts from 1
-                    get_n_samples=False,
                 )
 
                 with marked_timer("start_profile", timing_raw):
@@ -1658,7 +1651,6 @@ class RayPPOTrainer:
                                     batch_size=self.config.data.train_batch_size
                                     * self.config.actor_rollout_ref.rollout.n,
                                     partition_id=f"train_{self.global_steps - 1}",
-                                    get_n_samples=False,
                                     task_name="update_actor",
                                 )
                             )
@@ -1684,7 +1676,6 @@ class RayPPOTrainer:
                                 data_fields=data_fields,
                                 batch_size=self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n,
                                 partition_id=f"train_{self.global_steps - 1}",
-                                get_n_samples=False,
                                 task_name="log_rollout",
                             )
                         )
