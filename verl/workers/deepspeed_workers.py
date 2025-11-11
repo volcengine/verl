@@ -109,6 +109,7 @@ from verl.workers.config import DeepSpeedCriticConfig, DeepSpeedEngineConfig, HF
 from verl.workers.actor import DataParallelPPOActor
 from verl.workers.critic import DataParallelPPOCritic
 from verl.workers.rollout import get_rollout_class
+from verl.utils.ulysses import set_ulysses_sequence_parallel_group
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -328,10 +329,24 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 fused_kernel_options.get("impl_backend", None) if fused_kernel_options is not None else None
             )
 
+            # Initialize Ulysses SP group for DeepSpeed-HF if requested
+            try:
+                sp_size = int(getattr(self, "ulysses_sequence_parallel_size", 1))
+            except Exception:
+                sp_size = 1
+            if sp_size > 1 and torch.distributed.is_initialized():
+                world = torch.distributed.get_world_size()
+                assert world % sp_size == 0, f"world_size {world} must be divisible by ulysses sp_size {sp_size}"
+                rank = torch.distributed.get_rank()
+                group_id = rank // sp_size
+                ranks = list(range(group_id * sp_size, (group_id + 1) * sp_size))
+                sp_group = torch.distributed.new_group(ranks=ranks, backend=get_nccl_backend())
+                set_ulysses_sequence_parallel_group(sp_group)
+
             apply_monkey_patch(
                 model=actor_module,
                 use_remove_padding=use_remove_padding,
-                ulysses_sp_size=int(getattr(self, "ulysses_sequence_parallel_size", 1)),
+                ulysses_sp_size=sp_size,
                 use_fused_kernels=use_fused_kernels,
                 fused_kernels_backend=fused_kernels_backend,
             )
@@ -1413,10 +1428,25 @@ class CriticWorker(Worker, DistProfilerExtension):
             )
 
         use_remove_padding = getattr(self.config.model, "use_remove_padding", False)
+
+        # Initialize Ulysses SP group for Critic if requested
+        try:
+            sp_size = int(getattr(self, "ulysses_sequence_parallel_size", 1))
+        except Exception:
+            sp_size = 1
+        if sp_size > 1 and torch.distributed.is_initialized():
+            world = torch.distributed.get_world_size()
+            assert world % sp_size == 0, f"world_size {world} must be divisible by ulysses sp_size {sp_size}"
+            rank = torch.distributed.get_rank()
+            group_id = rank // sp_size
+            ranks = list(range(group_id * sp_size, (group_id + 1) * sp_size))
+            sp_group = torch.distributed.new_group(ranks=ranks, backend=get_nccl_backend())
+            set_ulysses_sequence_parallel_group(sp_group)
+
         apply_monkey_patch(
             model=critic_module,
             use_remove_padding=use_remove_padding,
-            ulysses_sp_size=1,
+            ulysses_sp_size=sp_size,
         )
 
         critic_module.to(torch_dtype)
