@@ -332,7 +332,7 @@ rollout_rs = "token"  # Optional: rejection sampling
 - Independent truncation per token
 - Stable for moderate distribution shifts
 - Typical threshold: 1.5 - 5.0
-- Optional batch normalization: $\tilde{w}_t = w_t / \mathbb{E}[w_t]$ ensures $\mathbb{E}[\tilde{w}_t] = 1$ (reduces variance)
+- Optional batch normalization (§3.6): Normalizes over all token weights to ensure $\mathbb{E}[\tilde{w}_t] = 1$ (reduces variance)
 
 **Loss function (REINFORCE + Token IS):**
 
@@ -360,7 +360,7 @@ rollout_rs = "sequence"  # Optional: rejection sampling
 - Multiplicative aggregation across sequence
 - More sensitive to outliers than token-level
 - Typical threshold: 2.0 - 10.0
-- Optional batch normalization available (see §3.6)
+- Optional batch normalization (§3.6): Normalizes over sequence means (one weight per sequence)
 
 **Loss function (REINFORCE + Sequence IS):**
 
@@ -462,25 +462,31 @@ An optional variance reduction technique that normalizes IS weights to have mean
 rollout_is_batch_normalize = True  # Default: False
 ```
 
-**Normalization formula:**
+**Normalization formula (aggregation-aware):**
 
+For **token-level IS** (§3.3.1):
 $$
-\tilde{w}_i = \frac{w_i}{\frac{1}{N}\sum_{j=1}^N w_j}
+\tilde{w}_t = \frac{w_t}{\frac{1}{\sum_{i,t} m_{i,t}} \sum_{i,t} w_{i,t} \cdot m_{i,t}}
 $$
+where $w_{i,t}$ are truncated token IS weights, $m_{i,t}$ is the response mask, and normalization is over **all tokens**.
 
-where $w_i$ are the truncated IS weights and $N$ is the batch size.
+For **sequence-level IS** (§3.3.2):
+$$
+\tilde{w}_i = \frac{w_i}{\frac{1}{B}\sum_{j=1}^B \bar{w}_j}
+$$
+where $\bar{w}_j = \frac{1}{T_j}\sum_{t=1}^{T_j} w_{j,t} \cdot m_{j,t}$ is the per-sequence mean (all tokens in a sequence have the same weight), and normalization is over **sequences**.
 
 **Properties:**
 - Applied **after** truncation to preserve truncation semantics
 - Ensures $\mathbb{E}[\tilde{w}] = 1$ within each batch
-- Works with all IS aggregation levels (token, sequence)
+- **Aggregation-aware**: Token-level normalizes over tokens; sequence-level normalizes over sequences
 - Uses `masked_mean` to respect padding tokens
 - Reduces gradient magnitude variance by removing random batch-level scale fluctuations
 
 **Metrics:**
 - `rollout_is_batch_norm_factor`: The normalization factor applied (batch mean before normalization)
 
-**Implementation:** [rollout_corr_helper.py](../../verl/trainer/ppo/rollout_corr_helper.py#L395-L405)
+**Implementation:** [rollout_corr_helper.py](../../verl/trainer/ppo/rollout_corr_helper.py#L401-L421)
 
 ---
 

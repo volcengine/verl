@@ -240,6 +240,8 @@ Per-token veto for catastrophic outliers. Default: `null`
 ### `rollout_is_batch_normalize` (bool)
 Apply batch normalization to IS weights. Default: `False`
 - `True`: Normalize IS weights to have mean=1.0 within each batch
+  - **Token-level IS**: Normalizes over all token weights
+  - **Sequence-level IS**: Normalizes over sequence means (one weight per sequence)
 - `False`: Use raw (truncated) IS weights
 - Reduces variance by ensuring average weight is 1.0 per batch
 - Applied AFTER truncation to preserve truncation semantics

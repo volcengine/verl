@@ -400,8 +400,19 @@ def compute_rollout_correction_weights(
 
     # Apply batch normalization if requested
     if rollout_is_batch_normalize:
-        # Compute mean of non-padding weights
-        weights_mean = verl_F.masked_mean(rollout_is_weights, response_mask)
+        # Compute mean based on aggregation level
+        if rollout_is == "token":
+            # Token-level: normalize over all token weights
+            weights_mean = verl_F.masked_mean(rollout_is_weights, response_mask)
+        elif rollout_is == "sequence":
+            # Sequence-level: normalize over sequence weights (one weight per sequence)
+            # For each sequence, compute mean over valid tokens (they all have the same weight)
+            # then average across sequences
+            seq_weights_mean = verl_F.masked_mean(rollout_is_weights, response_mask, axis=-1)  # (batch_size,)
+            weights_mean = seq_weights_mean.mean()
+        else:
+            raise ValueError(f"Unsupported rollout_is: {rollout_is}")
+
         # Normalize to mean=1.0 (avoid division by zero)
         if weights_mean > 1e-8:
             rollout_is_weights = rollout_is_weights / weights_mean
