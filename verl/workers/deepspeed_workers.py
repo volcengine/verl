@@ -175,6 +175,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 world_size=world_size,
                 timeout=datetime.timedelta(seconds=self.config.get("nccl_timeout", 600)),
                 init_method=os.environ.get("DIST_INIT_METHOD", None),
+                device_id=get_device_id() if torch.cuda.is_available() else None,
             )
 
         # Parse role
@@ -1375,6 +1376,7 @@ class CriticWorker(Worker, DistProfilerExtension):
                 backend=get_nccl_backend(),
                 timeout=datetime.timedelta(seconds=self.config.get("nccl_timeout", 600)),
                 init_method=os.environ.get("DIST_INIT_METHOD", None),
+                device_id=get_device_id() if torch.cuda.is_available() else None,
             )
 
         # Setup profiler
@@ -1721,6 +1723,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
                 backend=get_nccl_backend(),
                 timeout=datetime.timedelta(seconds=self.config.get("nccl_timeout", 600)),
                 init_method=os.environ.get("DIST_INIT_METHOD", None),
+                device_id=get_device_id() if torch.cuda.is_available() else None,
             )
 
         # Note: DeepSpeed doesn't support Ulysses SP, so ulysses_sequence_parallel_size is always 1
