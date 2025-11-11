@@ -21,10 +21,10 @@ rollout_rs_threshold_lower: null
 rollout_token_veto_threshold: null
 
 # Operating mode: false = Decoupled (3 policies), true = Bypass (2 policies)
-bypass_old_logprob_for_rollout: false
+bypass_mode: false
 
 # Loss function: false = PPO with clipping, true = Policy gradient (no clipping)
-use_pure_rollout_correction: false
+use_policy_gradient: false
 
 # Batch normalize IS weights: false = raw weights, true = normalize to mean=1.0
 rollout_is_batch_normalize: false

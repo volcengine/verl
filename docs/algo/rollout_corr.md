@@ -151,8 +151,8 @@ algorithm:
     rollout_rs_threshold: null             # RS upper threshold (required if rollout_rs is enabled)
     rollout_rs_threshold_lower: null       # RS lower threshold (auto-reciprocal if null)
     rollout_token_veto_threshold: null     # Per-token veto threshold (null = disabled)
-    bypass_old_logprob_for_rollout: false  # Skip old_log_prob computation
-    use_pure_rollout_correction: false     # Pure policy gradient with IS
+    bypass_mode: false  # Skip old_log_prob computation
+    use_policy_gradient: false     # Pure policy gradient with IS
 
 # REQUIRED: Enable log prob calculation
 actor_rollout_ref:
@@ -294,7 +294,7 @@ This section provides detailed guidance on choosing and using the verified prese
 | `pg_is()` | Bypass | sequence | - | Policy gradient with IS |
 | `disabled()` | - | - | - | Metrics only, no correction |
 
-**Note:** All presets use PPO loss except `pg_is()` and `pg_rs()` which use policy gradient (both require `use_pure_rollout_correction=True`).
+**Note:** All presets use PPO loss except `pg_is()` and `pg_rs()` which use policy gradient (both require `use_policy_gradient=True`).
 
 #### Other Supported Combinations (Manual Configuration Required)
 
@@ -309,7 +309,7 @@ See [detailed configuration examples below](#additional-useful-configurations-no
 - Any aggregation level (token/sequence/geometric) works in either decoupled or bypass mode
 - All combinations are fully supported by the implementation
 - Rejection sampling is independent of IS weighting
-- Pure RS (`pg_rs`) uses bypass + geometric RS with `use_pure_rollout_correction=True` (no IS weights)
+- Pure RS (`pg_rs`) uses bypass + geometric RS with `use_policy_gradient=True` (no IS weights)
 
 ---
 
@@ -333,7 +333,7 @@ algorithm:
     rollout_is: token
     rollout_is_threshold: 2.0
     rollout_rs: null
-    bypass_old_logprob_for_rollout: false  # Decoupled mode
+    bypass_mode: false  # Decoupled mode
 ```
 
 **Properties:**
@@ -365,7 +365,7 @@ algorithm:
     rollout_is: sequence
     rollout_is_threshold: 2.0
     rollout_rs: null
-    bypass_old_logprob_for_rollout: false  # Decoupled mode
+    bypass_mode: false  # Decoupled mode
 ```
 
 **Properties:**
@@ -399,7 +399,7 @@ algorithm:
     rollout_rs: sequence
     rollout_rs_threshold: 2.0
     rollout_rs_threshold_lower: 0.5  # Reciprocal of threshold
-    bypass_old_logprob_for_rollout: false  # Decoupled mode
+    bypass_mode: false  # Decoupled mode
 ```
 
 **Properties:**
@@ -434,7 +434,7 @@ algorithm:
     rollout_rs_threshold: 1.001
     rollout_rs_threshold_lower: 0.999
     rollout_token_veto_threshold: 1e-4
-    bypass_old_logprob_for_rollout: false  # Decoupled mode
+    bypass_mode: false  # Decoupled mode
 ```
 
 **Properties:**
@@ -474,8 +474,8 @@ algorithm:
     rollout_is: token  # Placeholder for metrics
     rollout_is_threshold: 2.0
     rollout_rs: null
-    bypass_old_logprob_for_rollout: true  # Bypass mode
-    use_pure_rollout_correction: false
+    bypass_mode: true  # Bypass mode
+    use_policy_gradient: false
 ```
 
 **Properties:**
@@ -511,8 +511,8 @@ algorithm:
     rollout_is: sequence
     rollout_is_threshold: 2.0
     rollout_rs: null
-    bypass_old_logprob_for_rollout: true  # Required
-    use_pure_rollout_correction: true  # Pure IS loss
+    bypass_mode: true  # Required
+    use_policy_gradient: true  # Pure IS loss
 ```
 
 **Properties:**
@@ -536,7 +536,7 @@ config = RolloutCorrectionConfig.pg_rs(
 
 **Components:**
 - **Operating Mode**: Bypass (2 policies: π_rollout, π_θ)
-- **Loss**: Pure policy gradient (no PPO clipping, via `use_pure_rollout_correction=True`)
+- **Loss**: Pure policy gradient (no PPO clipping, via `use_policy_gradient=True`)
 - **IS Aggregation**: None
 - **RS**: Geometric-level rejection
 - **Veto**: Enabled
@@ -550,8 +550,8 @@ algorithm:
     rollout_rs_threshold: 1.001
     rollout_rs_threshold_lower: 0.999
     rollout_token_veto_threshold: 1e-4
-    bypass_old_logprob_for_rollout: true
-    use_pure_rollout_correction: true
+    bypass_mode: true
+    use_policy_gradient: true
 ```
 
 **Properties:**
@@ -642,7 +642,7 @@ The framework provides **two operating modes** for computing π_old, which can b
 
 ### Operating Modes and Configuration
 
-| Configuration | `bypass_old_logprob_for_rollout` | `use_pure_rollout_correction` | Operating Mode | Loss Function | Description |
+| Configuration | `bypass_mode` | `use_policy_gradient` | Operating Mode | Loss Function | Description |
 |---------------|----------------------------------|------------------------------|----------------|---------------|-------------|
 | **Decoupled** | `false` | `false` | Decoupled | PPO | Computes `old_log_prob` separately via `actor.compute_log_prob()` |
 | **Bypass** | `true` | `false` | Bypass | PPO | Sets `old_log_prob = rollout_log_prob`, PPO clips against rollout policy |
@@ -657,7 +657,7 @@ The framework provides **two operating modes** for computing π_old, which can b
 - π_old: Proximal policy (computed via `actor.compute_log_prob()` at start of training epoch)
 - π_θ: Current policy (being updated)
 
-**Configuration:** `bypass_old_logprob_for_rollout = false`
+**Configuration:** `bypass_mode = false`
 
 **Properties:**
 - ✅ Achieves batch size invariance
@@ -674,7 +674,7 @@ The framework provides **two operating modes** for computing π_old, which can b
 - π_old = π_rollout: Proximal policy equals behavior policy
 - π_θ: Current policy (being updated)
 
-**Configuration:** `bypass_old_logprob_for_rollout = true`
+**Configuration:** `bypass_mode = true`
 
 **Properties:**
 - ✅ Faster: Skips `actor.compute_log_prob()` call
@@ -745,14 +745,14 @@ The aggregation level can be chosen **independently** of the operating mode. Any
      rollout_correction:
        rollout_is: token
        rollout_is_threshold: 2.0
-       bypass_old_logprob_for_rollout: true    # Skip old_log_prob computation
-       use_pure_rollout_correction: false      # Use Bypass mode
+       bypass_mode: true    # Skip old_log_prob computation
+       use_policy_gradient: false      # Use Bypass mode
    ```
    **Benefits**: Skips expensive forward pass for `old_log_prob` computation
 
    **Trade-off**: PPO clips against rollout policy instead of true old policy
 
-   **Alternative**: Set `use_pure_rollout_correction: true` for pure policy gradient with IS (no clipping)
+   **Alternative**: Set `use_policy_gradient: true` for pure policy gradient with IS (no clipping)
 
 ## Usage
 
@@ -1132,8 +1132,8 @@ algorithm:
     rollout_is_threshold: 2.0
     rollout_rs: token
     rollout_rs_threshold: 2.0
-    bypass_old_logprob_for_rollout: true   # Skip old_log_prob computation
-    use_pure_rollout_correction: false     # Use bypass mode: PPO with rollout_log_prob as old_log_prob
+    bypass_mode: true   # Skip old_log_prob computation
+    use_policy_gradient: false     # Use bypass mode: PPO with rollout_log_prob as old_log_prob
 ```
 **Skips expensive `actor.compute_log_prob()` forward pass**
 
@@ -1144,8 +1144,8 @@ algorithm:
     rollout_is: token                      # Explicit IS correction in loss
     rollout_is_threshold: 2.0
     rollout_rs: null                       # Optional: can add rejection sampling
-    bypass_old_logprob_for_rollout: true   # Required for pure mode
-    use_pure_rollout_correction: true      # Use pure policy gradient with IS
+    bypass_mode: true   # Required for pure mode
+    use_policy_gradient: true      # Use pure policy gradient with IS
 ```
 **No PPO clipping, pure policy gradient with IS correction**
 

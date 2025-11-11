@@ -225,7 +225,7 @@ The operating mode determines how the proximal policy $\pi_{\text{old}}$ is comp
 
 #### 3.1.1 Decoupled Mode (Three Policies)
 
-**Configuration:** `bypass_old_logprob_for_rollout = false`
+**Configuration:** `bypass_mode = false`
 
 **Policy setup:**
 - $\pi_{\text{rollout}}$: Behavior policy (data collection)
@@ -244,7 +244,7 @@ The operating mode determines how the proximal policy $\pi_{\text{old}}$ is comp
 
 #### 3.1.2 Bypass Mode (Two Policies)
 
-**Configuration:** `bypass_old_logprob_for_rollout = true`
+**Configuration:** `bypass_mode = true`
 
 **Policy setup:**
 - $\pi_{\text{rollout}}$: Behavior policy (data collection)
@@ -266,7 +266,7 @@ The operating mode determines how the proximal policy $\pi_{\text{old}}$ is comp
 
 #### 3.2.1 PPO Loss (with Clipping)
 
-**Configuration:** `use_pure_rollout_correction = false`
+**Configuration:** `use_policy_gradient = false`
 
 **Loss function:**
 
@@ -286,7 +286,7 @@ where:
 
 #### 3.2.2 Pure IS Loss (Policy Gradient)
 
-**Configuration:** `use_pure_rollout_correction = true` (requires `bypass_old_logprob_for_rollout = true`)
+**Configuration:** `use_policy_gradient = true` (requires `bypass_mode = true`)
 
 **Loss function:**
 
@@ -505,7 +505,7 @@ where $\bar{w}_j = \frac{1}{T_j}\sum_{t=1}^{T_j} w_{j,t} \cdot m_{j,t}$ is the p
 | `pg_is()` | Bypass | sequence | - | Policy gradient with IS |
 | `disabled()` | - | - | - | Metrics only, no correction |
 
-**Note:** All presets use PPO loss except `pg_is()` and `pg_rs()` which use policy gradient (both require `use_pure_rollout_correction=True`).
+**Note:** All presets use PPO loss except `pg_is()` and `pg_rs()` which use policy gradient (both require `use_policy_gradient=True`).
 
 #### Additional Supported Combinations (Manual Configuration)
 
@@ -547,7 +547,7 @@ config = RolloutCorrectionConfig(
 - Rejection sampling can be added to any combination
 - Veto is independent and can be added to any combination
 - Geometric aggregation is typically used for RS only (not IS weighting)
-- Pure RS (`pg_rs`) uses bypass + geometric RS with `use_pure_rollout_correction=True` for pure policy gradient (no IS weights)
+- Pure RS (`pg_rs`) uses bypass + geometric RS with `use_policy_gradient=True` for pure policy gradient (no IS weights)
 - All combinations in the table above are valid and supported by the implementation
 
 ---

@@ -112,16 +112,16 @@ class RolloutCorrectionConfig(BaseConfig):
             - Typical values: 1e-4 to 1e-6 when enabled
             Default: None (disabled)
 
-        bypass_old_logprob_for_rollout (bool): Skip old_log_prob computation.
-            - True: Reuse rollout_log_prob as old_log_prob (15-20% speedup)
-            - False: Compute old_log_prob via actor.compute_log_prob() (standard)
-            Default: False (standard mode)
+        bypass_mode (bool): Operating mode - bypass or decoupled.
+            - True: Bypass mode - reuse rollout_log_prob as old_log_prob (2 policies)
+            - False: Decoupled mode - compute old_log_prob separately (3 policies)
+            Default: False (decoupled mode)
 
-        use_pure_rollout_correction (bool): Use pure policy gradient with IS (no PPO clipping).
-            - Requires bypass_old_logprob_for_rollout=True
-            - True: Pure IS loss without clipping (higher variance, unbiased)
-            - False: PPO loss with IS correction (standard)
-            Default: False (PPO mode)
+        use_policy_gradient (bool): Loss function type.
+            - Requires bypass_mode=True
+            - True: Policy gradient loss (no PPO clipping)
+            - False: PPO loss (with clipping)
+            Default: False (PPO loss)
 
         rollout_is_batch_normalize (bool): Apply batch normalization to IS weights.
             - True: Normalize IS weights to have mean=1.0 within each batch
@@ -154,8 +154,8 @@ class RolloutCorrectionConfig(BaseConfig):
     rollout_rs_threshold: Optional[float] = None
     rollout_rs_threshold_lower: Optional[float] = None
     rollout_token_veto_threshold: Optional[float] = None
-    bypass_old_logprob_for_rollout: bool = False
-    use_pure_rollout_correction: bool = False
+    bypass_mode: bool = False
+    use_policy_gradient: bool = False
     rollout_is_batch_normalize: bool = False
 
     @classmethod
@@ -262,8 +262,8 @@ class RolloutCorrectionConfig(BaseConfig):
             rollout_is="token",
             rollout_is_threshold=threshold,
             rollout_rs=None,
-            bypass_old_logprob_for_rollout=True,
-            use_pure_rollout_correction=False,
+            bypass_mode=True,
+            use_policy_gradient=False,
         )
 
     @classmethod
@@ -283,8 +283,8 @@ class RolloutCorrectionConfig(BaseConfig):
             rollout_is="sequence",
             rollout_is_threshold=threshold,
             rollout_rs=None,
-            bypass_old_logprob_for_rollout=True,
-            use_pure_rollout_correction=True,
+            bypass_mode=True,
+            use_policy_gradient=True,
         )
 
     @classmethod
@@ -314,8 +314,8 @@ class RolloutCorrectionConfig(BaseConfig):
             rollout_rs_threshold=rs_threshold,
             rollout_rs_threshold_lower=rs_threshold_lower,
             rollout_token_veto_threshold=veto_threshold,
-            bypass_old_logprob_for_rollout=True,
-            use_pure_rollout_correction=True,
+            bypass_mode=True,
+            use_policy_gradient=True,
         )
 
     @classmethod
