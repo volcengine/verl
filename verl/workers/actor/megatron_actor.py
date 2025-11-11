@@ -146,7 +146,6 @@ class MegatronPPOActor(BasePPOActor):
                 "sequence_parallel": self.tf_config.sequence_parallel,
                 "DDP_impl": "local",
                 "layernorm_allreduce_bucket_threshold": 0,
-                "pipeline_model_parallel_split_rank": None,
                 "reduce_grads_use_alltoall": False,
             }
         )
@@ -449,15 +448,10 @@ class MegatronPPOActor(BasePPOActor):
 
                 policy_loss_fn = get_policy_loss_fn(loss_mode)
 
-                # Extract pre-computed rollout importance sampling weights if present
+                # Extract pre-computed rollout correction weights if present
                 # Weights are computed centrally in trainer and added when algorithm.rollout_is=True
                 rollout_is_weights = data.get("rollout_is_weights", None)
-
-                # NOTE: Both mismatch diagnostic metrics (PPL, KL, etc.) and IS weight metrics
-                # are computed centrally in ray_trainer.py for consistency and efficiency.
-                # This ensures metrics are computed uniformly across all batches at the trainer level
-                # and avoids redundant computation across workers and micro-batches.
-                pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = policy_loss_fn(
+                pg_loss, pg_metrics = policy_loss_fn(
                     old_log_prob=old_log_prob,
                     log_prob=log_prob,
                     advantages=advantages,
@@ -466,15 +460,8 @@ class MegatronPPOActor(BasePPOActor):
                     config=self.config,
                     rollout_is_weights=rollout_is_weights,
                 )
-
-                stats.update(
-                    {
-                        "actor/pg_loss": pg_loss.detach().item(),
-                        "actor/pg_clipfrac": pg_clipfrac.detach().item(),
-                        "actor/ppo_kl": ppo_kl.detach().item(),
-                        "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
-                    }
-                )
+                stats.update(pg_metrics)
+                stats["actor/pg_loss"] = pg_loss.detach().item()
                 policy_loss = pg_loss
 
             if calculate_entropy:

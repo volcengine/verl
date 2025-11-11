@@ -16,7 +16,7 @@ RUN ARCH=$(uname -m) && \
     echo "[LOG INFO] Detected architecture: $ARCH" && \
     if [ "$ARCH" = "x86_64" ]; then \
         echo "[LOG INFO] Entering x86_64 branch: Setting pip extra index url"; \
-        pip config set global.extra-index-url "https://download.pytorch.org/whl/cpu/ https://mirrors.huaweicloud.com/ascend/repos/pypi"; \
+        pip config set global.extra-index-url "https://download.pytorch.org/whl/cpu/"; \
     else \
         echo "[LOG INFO] Entering aarch64 branch: No extra pip index url set"; \
     fi && \
