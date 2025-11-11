@@ -496,15 +496,15 @@ where $\bar{w}_j = \frac{1}{T_j}\sum_{t=1}^{T_j} w_{j,t} \cdot m_{j,t}$ is the p
 
 | Preset Method | Mode | IS Level | RS Level | Properties |
 |---------------|------|----------|----------|------------|
-| `token_is()` | Decoupled | token | - | Per-token IS weights |
-| `seq_is()` | Decoupled | sequence | - | Sequence-level IS weights |
-| `seq_is_rs()` | Decoupled | sequence | sequence | Sequence IS + sequence RS |
-| `geo_rs()` | Decoupled | - | geometric + veto | Geometric RS + veto, no IS weights |
+| `decoupled_token_is()` | Decoupled | token | - | Per-token IS weights |
+| `decoupled_seq_is()` | Decoupled | sequence | - | Sequence-level IS weights |
+| `decoupled_seq_is_rs()` | Decoupled | sequence | sequence | Sequence IS + sequence RS |
+| `decoupled_geo_rs()` | Decoupled | - | geometric + veto | Geometric RS + veto, no IS weights |
 | `ppo_is_bypass()` | Bypass | - | - | Bypass mode, skips old_log_prob |
-| `pure_rs()` | Bypass | - | geometric + veto | Pure RS (bypass + geometric), no IS weights |
-| `pure_is()` | Bypass | sequence | - | Policy gradient loss (no PPO clip) |
+| `pure_rs()` | Bypass | - | geometric + veto | Pure policy gradient with RS (no IS weights) |
+| `pure_is()` | Bypass | sequence | - | Pure policy gradient with IS |
 
-**Note:** All presets use PPO loss except `pure_is()` which uses pure policy gradient. The `pure_rs()` preset requires `use_pure_rollout_correction=True`.
+**Note:** All presets use PPO loss except `pure_is()` and `pure_rs()` which use pure policy gradient (both require `use_pure_rollout_correction=True`).
 
 #### Additional Supported Combinations (Manual Configuration)
 
@@ -546,7 +546,7 @@ config = RolloutCorrectionConfig(
 - Rejection sampling can be added to any combination
 - Veto is independent and can be added to any combination
 - Geometric aggregation is typically used for RS only (not IS weighting)
-- Pure RS (`pure_rs`) uses bypass + geometric RS with `use_pure_rollout_correction=True` (no IS weights)
+- Pure RS (`pure_rs`) uses bypass + geometric RS with `use_pure_rollout_correction=True` for pure policy gradient (no IS weights)
 - All combinations in the table above are valid and supported by the implementation
 
 ---
@@ -656,22 +656,23 @@ $$
 | Method | Theory | Policies | PPO Clip | IS Correction | Correctness | Speed |
 |--------|--------|----------|----------|---------------|-------------|-------|
 | `pure_is` | Off-policy REINFORCE | 2 (rollout, θ) | ❌ | ✅ Seq-level | ✅ Correct | **Fast** |
+| `pure_rs` | Pure PG + Geo RS | 2 (rollout, θ) | ❌ | Rejection only | ✅ Correct | **Fast** |
 | Naive LLM-RL | Incorrect PPO usage | 2 (old, θ) | ✅ | ❌ | ⚠️ Incorrect | Standard |
 | `ppo_is_bypass` | PPO (rollout as prox) | 2 (rollout, θ) | ✅ | ❌ | ✅ Correct | **Fast** |
-| `token_is` | Decoupled PPO | 3 (rollout, old, θ) | ✅ | ✅ Token-level | ✅ Correct | Standard |
-| `seq_is` | Decoupled PPO | 3 (rollout, old, θ) | ✅ | ✅ Seq-level | ✅ Correct | Standard |
-| `seq_is_rs` | Decoupled PPO + RS | 3 (rollout, old, θ) | ✅ | ✅ + Rejection | ✅ Correct | Standard |
-| `geo_rs` | Decoupled PPO + Geo RS | 3 (rollout, old, θ) | ✅ | Rejection only | ✅ Correct | Standard |
+| `decoupled_token_is` | Decoupled PPO | 3 (rollout, old, θ) | ✅ | ✅ Token-level | ✅ Correct | Standard |
+| `decoupled_seq_is` | Decoupled PPO | 3 (rollout, old, θ) | ✅ | ✅ Seq-level | ✅ Correct | Standard |
+| `decoupled_seq_is_rs` | Decoupled PPO + RS | 3 (rollout, old, θ) | ✅ | ✅ + Rejection | ✅ Correct | Standard |
+| `decoupled_geo_rs` | Decoupled PPO + Geo RS | 3 (rollout, old, θ) | ✅ | Rejection only | ✅ Correct | Standard |
 
 ### 5.2 Method Characteristics by Scenario
 
 **Off-policy severity:**
 - **Negligible** (same checkpoint, minor differences): `ppo_is_bypass` uses $\pi_{\text{rollout}}$ as proximal policy (mathematically correct); naive LLM-RL implementations use $\pi_{\text{old}}$ instead of $\pi_{\text{rollout}}$ (mathematically incorrect when $\pi_{\text{rollout}} \neq \pi_{\text{old}}$)
-- **Moderate** (async workers, slight staleness): `token_is` provides per-token IS correction with separate proximal policy
-- **Severe** (replay buffers, old data): `seq_is` and `seq_is_rs` provide sequence-level IS correction with optional rejection sampling
+- **Moderate** (async workers, slight staleness): `decoupled_token_is` provides per-token IS correction with separate proximal policy
+- **Severe** (replay buffers, old data): `decoupled_seq_is` and `decoupled_seq_is_rs` provide sequence-level IS correction with optional rejection sampling
 
 **Algorithm properties:**
-- **Batch size invariance**: Decoupled mode with three policies (`token_is`, `seq_is`) achieves batch size invariance
+- **Batch size invariance**: Decoupled mode with three policies (`decoupled_token_is`, `decoupled_seq_is`) achieves batch size invariance
 - **Computational efficiency**: Bypass mode (`ppo_is_bypass`) skips `old_log_prob` computation
 - **Pure policy gradient**: `pure_is` implements off-policy REINFORCE without PPO clipping
 

@@ -76,7 +76,7 @@ This critical implementation mistake that leads to RL training collapse was iden
 - **Bypass mode**: Two policies (π_rollout = π_old, π_θ) using actual rollout policy as PPO anchor
 - **Pure IS mode**: Two policies (π_rollout, π_θ) with IS correction and no PPO clipping
 
-See [Mathematical Formulations](rollout_corr_math.md#37-common-implementation-mistake) for detailed explanation.
+See [Mathematical Formulations](rollout_corr_math.md#38-common-implementation-mistake) for detailed explanation.
 
 ### Key Design Principle: Separation of IS Weights and Rejection Sampling
 
@@ -112,23 +112,26 @@ This separation ensures:
 ```python
 from verl.trainer.config.algorithm import RolloutCorrectionConfig
 
-# Token-level IS
-config = RolloutCorrectionConfig.token_is()
+# Decoupled mode with token-level IS
+config = RolloutCorrectionConfig.decoupled_token_is()
 
-# Sequence-level IS
-config = RolloutCorrectionConfig.seq_is()
+# Decoupled mode with sequence-level IS
+config = RolloutCorrectionConfig.decoupled_seq_is()
 
-# Sequence IS + rejection sampling - alias: seq_mis()
-config = RolloutCorrectionConfig.seq_is_rs()
+# Decoupled mode with sequence IS + rejection sampling
+config = RolloutCorrectionConfig.decoupled_seq_is_rs()
 
-# Geometric IS + RS + Veto (maximum outlier sensitivity)
-config = RolloutCorrectionConfig.geo_rs()
+# Decoupled mode with geometric RS + veto (maximum outlier sensitivity)
+config = RolloutCorrectionConfig.decoupled_geo_rs()
 
 # Performance mode: PPO with bypass
 config = RolloutCorrectionConfig.ppo_is_bypass()
 
 # Advanced: Pure policy gradient with IS
 config = RolloutCorrectionConfig.pure_is()
+
+# Advanced: Pure policy gradient with rejection sampling (bypass + pure + geometric RS)
+config = RolloutCorrectionConfig.pure_rs()
 
 # Metrics only (no correction)
 config = RolloutCorrectionConfig.disabled()
@@ -180,7 +183,6 @@ actor_rollout_ref:
 ### **Example Scripts**
 
 - `recipe/dapo/run_dapo_qwen2.5_32b_rollout_corr.sh` - DAPO example with Rollout Correction
-- `examples/rollout_correction/README.md` - Comprehensive usage guide
 - `examples/rollout_correction/run_with_rollout_corr.sh` - Basic example
 
 ### **Tests**
@@ -283,15 +285,15 @@ This section provides detailed guidance on choosing and using the verified prese
 
 | Preset Method | Mode | IS Level | RS Level | Properties |
 |---------------|------|----------|----------|------------|
-| `token_is()` | Decoupled | token | - | Per-token IS weights |
-| `seq_is()` | Decoupled | sequence | - | Sequence-level IS weights |
-| `seq_is_rs()` | Decoupled | sequence | sequence | Sequence IS + sequence RS |
-| `geo_rs()` | Decoupled | - | geometric + veto | Geometric RS + veto, no IS weights |
+| `decoupled_token_is()` | Decoupled | token | - | Per-token IS weights |
+| `decoupled_seq_is()` | Decoupled | sequence | - | Sequence-level IS weights |
+| `decoupled_seq_is_rs()` | Decoupled | sequence | sequence | Sequence IS + sequence RS |
+| `decoupled_geo_rs()` | Decoupled | - | geometric + veto | Geometric RS + veto, no IS weights |
 | `ppo_is_bypass()` | Bypass | - | - | Bypass mode, skips old_log_prob |
-| `pure_rs()` | Bypass | - | geometric + veto | Pure RS (bypass + geometric), no IS weights |
-| `pure_is()` | Bypass | sequence | - | Policy gradient loss (no PPO clip) |
+| `pure_rs()` | Bypass | - | geometric + veto | Pure policy gradient with RS (no IS weights) |
+| `pure_is()` | Bypass | sequence | - | Pure policy gradient with IS |
 
-**Note:** All presets use PPO loss except `pure_is()` which uses pure policy gradient. The `pure_rs()` preset requires `use_pure_rollout_correction=True`.
+**Note:** All presets use PPO loss except `pure_is()` and `pure_rs()` which use pure policy gradient (both require `use_pure_rollout_correction=True`).
 
 #### Other Supported Combinations (Manual Configuration Required)
 
@@ -310,11 +312,11 @@ See [detailed configuration examples below](#additional-useful-configurations-no
 
 ---
 
-### 1. Token-level Importance Sampling (`token_is`)
+### 1. Decoupled Mode with Token-level Importance Sampling (`decoupled_token_is`)
 
 **Configuration:**
 ```python
-config = RolloutCorrectionConfig.token_is(threshold=2.0)
+config = RolloutCorrectionConfig.decoupled_token_is(threshold=2.0)
 ```
 
 **Components:**
@@ -342,11 +344,11 @@ algorithm:
 
 ---
 
-### 2. Sequence-level Importance Sampling (`seq_is`)
+### 2. Decoupled Mode with Sequence-level Importance Sampling (`decoupled_seq_is`)
 
 **Configuration:**
 ```python
-config = RolloutCorrectionConfig.seq_is(threshold=2.0)
+config = RolloutCorrectionConfig.decoupled_seq_is(threshold=2.0)
 ```
 
 **Components:**
@@ -374,13 +376,11 @@ algorithm:
 
 ---
 
-### 3. Sequence-level IS + Rejection Sampling (`seq_is_rs` / `seq_mis`)
+### 3. Decoupled Mode with Sequence-level IS + Rejection Sampling (`decoupled_seq_is_rs`)
 
 **Configuration:**
 ```python
-config = RolloutCorrectionConfig.seq_is_rs(is_threshold=2.0, rs_threshold=2.0)
-# OR use alias with single threshold (sets rs_threshold_lower=0)
-config = RolloutCorrectionConfig.seq_mis(threshold=2.0)
+config = RolloutCorrectionConfig.decoupled_seq_is_rs(is_threshold=2.0, rs_threshold=2.0)
 ```
 
 **Components:**
@@ -410,11 +410,11 @@ algorithm:
 
 ---
 
-### 4. Geometric Rejection Sampling (`geo_rs`)
+### 4. Decoupled Mode with Geometric Rejection Sampling (`decoupled_geo_rs`)
 
 **Configuration:**
 ```python
-config = RolloutCorrectionConfig.geo_rs(rs_threshold=1.001, veto_threshold=1e-4)
+config = RolloutCorrectionConfig.decoupled_geo_rs(rs_threshold=1.001, veto_threshold=1e-4)
 ```
 
 **Components:**
@@ -523,7 +523,7 @@ algorithm:
 
 ---
 
-### 7. Pure Rejection Sampling (`pure_rs`)
+### 7. Pure Policy Gradient with Rejection Sampling (`pure_rs`)
 
 **Configuration:**
 ```python
@@ -534,8 +534,8 @@ config = RolloutCorrectionConfig.pure_rs(
 ```
 
 **Components:**
-- **Operating Mode**: Bypass (2 policies: π_rollout = π_old, π_θ)
-- **Loss**: PPO with clipping (via `use_pure_rollout_correction=True`)
+- **Operating Mode**: Bypass (2 policies: π_rollout, π_θ)
+- **Loss**: Pure policy gradient (no PPO clipping, via `use_pure_rollout_correction=True`)
 - **IS Aggregation**: None
 - **RS**: Geometric-level rejection
 - **Veto**: Enabled
