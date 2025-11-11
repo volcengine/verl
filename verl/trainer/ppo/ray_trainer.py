@@ -1101,7 +1101,10 @@ class RayPPOTrainer:
                         else:
                             reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
 
-                    # 1) Importance Sampling and 2) PPO Clip
+                    # Operating Mode Selection:
+                    # - Bypass mode: Sets old_log_probs = rollout_log_probs (2 policies: π_rollout, π_θ)
+                    # - Decoupled mode: Recomputes old_log_probs as proximal anchor (3 policies: π_rollout, π_old, π_θ)
+                    #   Note: π_old computed once per data batch, serves as stable reference during mini-batch updates
                     rollout_corr_config = self.config.algorithm.get("rollout_correction", None)
                     bypass_recomputing_logprobs = rollout_corr_config and rollout_corr_config.get(
                         "bypass_old_logprob_for_rollout", False
@@ -1169,14 +1172,13 @@ class RayPPOTrainer:
                         else:
                             batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
 
-                        # Compute rollout correction weights centrally (once per batch)
-                        # This corrects for off-policy issues (policy mismatch, model staleness, etc.)
-                        # Also computes off-policy diagnostic metrics (KL, PPL, etc.)
+                        # Compute rollout correction: IS weights, rejection sampling, and metrics
+                        # Only runs in decoupled mode (computes once per batch using stable π_old)
+                        # In bypass mode, this is skipped - actor computes metrics from evolving π_θ vs π_rollout
                         if (
                             rollout_corr_config is not None
                             and "rollout_log_probs" in batch.batch
-                            # Skip in bypass mode since old=rollout (IS weights=1.0, KL=0, rejection does nothing)
-                            and bypass_recomputing_logprobs
+                            and not bypass_recomputing_logprobs  # Only in decoupled mode
                         ):
                             from verl.trainer.ppo.rollout_corr_helper import compute_rollout_correction_and_add_to_batch
 
