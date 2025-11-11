@@ -266,7 +266,10 @@ class ToolAgentLoop(AgentLoopBase):
         with simple_timer("tool_calls", agent_data.metrics):
             responses = await asyncio.gather(*tasks)
 
-        response_ids = self.tokenizer.encode(responses[0].text or "")
+        response_ids = await self.loop.run_in_executor(
+            None, lambda: self.tokenizer.encode(responses[0].text or "", add_special_tokens=False)
+        )
+
 
         if len(agent_data.response_mask) + len(response_ids) >= self.response_length:
             return AgentState.TERMINATED
@@ -276,6 +279,8 @@ class ToolAgentLoop(AgentLoopBase):
         if agent_data.response_logprobs:
             agent_data.response_logprobs += [0.0] * len(response_ids)
         agent_data.user_turns += 1
+        # Change agent_data.request_id to avoid caching issues
+        agent_data.request_id = uuid4().hex
         return AgentState.GENERATING
 
     async def _handle_interacting_state(self, agent_data: AgentData) -> AgentState:
