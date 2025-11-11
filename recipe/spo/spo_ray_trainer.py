@@ -27,7 +27,7 @@ from collections import defaultdict
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pprint import pprint
-from typing import Dict, List, Optional
+from typing import Optional
 
 import numpy as np
 import ray
@@ -531,7 +531,9 @@ class RayPPOTrainer:
         self.validation_generations_logger.log(self.config.trainer.logger, samples, self.global_steps)
 
     def _get_gen_batch(self, batch: DataProto) -> DataProto:
-        reward_model_keys = set({"data_source", "reward_model", "extra_info", "uid", "raw_prompt"}) & batch.non_tensor_batch.keys()
+        reward_model_keys = (
+            set({"data_source", "reward_model", "extra_info", "uid", "raw_prompt"}) & batch.non_tensor_batch.keys()
+        )
 
         # pop those keys for generation
         batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
@@ -1036,12 +1038,12 @@ class RayPPOTrainer:
         return batch, {}
 
     def _get_spo_rho(
-        self, 
-        prompt2protodata: Dict[str, DataProto], 
-        prompt2log_probs: Dict[str, torch.Tensor],
-        prompt2D: Dict[str, torch.Tensor],
-        micro_prompts: List[str], 
-        spo_log_prob_batch_backup: DataProto
+        self,
+        prompt2protodata: dict[str, DataProto],
+        prompt2log_probs: dict[str, torch.Tensor],
+        prompt2D: dict[str, torch.Tensor],
+        micro_prompts: list[str],
+        spo_log_prob_batch_backup: DataProto,
     ) -> torch.Tensor:
         """Calculate rho for alpha and beta updating."""
         rho_metrics = {}
@@ -1064,7 +1066,7 @@ class RayPPOTrainer:
                     first_sampled_number += 1
                     proto = spo_log_prob_batch_backup.select_idxs([pid_])
                 # Remove per-sample meta_info fields to avoid conflicts during concat
-                proto.meta_info.pop('global_token_num', None)
+                proto.meta_info.pop("global_token_num", None)
                 past_dataprotos.append(proto)
             past_dataprotos = DataProto.concat(past_dataprotos)
             response_mask = compute_response_mask(past_dataprotos)
@@ -1072,7 +1074,7 @@ class RayPPOTrainer:
             rho_metrics["spo/first_sampled_ratio"] = first_sampled_ratio
 
             cur_log_probs = self.actor_rollout_wg.compute_log_prob(past_dataprotos)
-            cur_log_probs = cur_log_probs.batch['old_log_probs']
+            cur_log_probs = cur_log_probs.batch["old_log_probs"]
             old_log_probs = []
             for pid_, p_ in enumerate(micro_prompts):
                 if p_ in prompt2log_probs.keys():
@@ -1095,13 +1097,12 @@ class RayPPOTrainer:
             new_log_probs = self.actor_rollout_wg.compute_log_prob(spo_log_prob_batch_backup)
             for pid_, p_ in enumerate(micro_prompts):
                 prompt2protodata[p_] = spo_log_prob_batch_backup.select_idxs([pid_])
-                prompt2log_probs[p_] = new_log_probs.batch['old_log_probs'][pid_].unsqueeze(0)
+                prompt2log_probs[p_] = new_log_probs.batch["old_log_probs"][pid_].unsqueeze(0)
                 prompt2D[p_] = D[pid_].item()
-            
+
             return rho_clipped, prompt2protodata, prompt2log_probs, prompt2D, rho_metrics
         else:
             raise ValueError(f"Unknown rho type: {self.config.trainer.spo.rho.type}")
-
 
     def fit(self):
         """
@@ -1183,8 +1184,13 @@ class RayPPOTrainer:
                 if self.config.trainer.spo.enable:
                     EXPLORATION_EPSILON = 0.05
 
-                    prompt2phat = {k: float(prompt2alpha[k]) / float(prompt2alpha[k] + prompt2beta[k]) for k in full_prompts}
-                    prompt2weight = {k: ((prompt2phat[k] * (1.0 - prompt2phat[k])) ** 0.5) + EXPLORATION_EPSILON for k in full_prompts}
+                    prompt2phat = {
+                        k: float(prompt2alpha[k]) / float(prompt2alpha[k] + prompt2beta[k]) for k in full_prompts
+                    }
+                    prompt2weight = {
+                        k: ((prompt2phat[k] * (1.0 - prompt2phat[k])) ** 0.5) + EXPLORATION_EPSILON
+                        for k in full_prompts
+                    }
 
                     items = []
                     weights = []
@@ -1216,8 +1222,12 @@ class RayPPOTrainer:
                         keep_probs = probs[selected_pos]
 
                         print(f"[DEBUG] Weighted sampling: M={M}, target_bs={target_bs}, replace={replace}")
-                        print(f"[DEBUG] Sampled probs: min={keep_probs.min():.6f}, max={keep_probs.max():.6f}, mean={keep_probs.mean():.6f}")
-                        print(f"[DEBUG] Sampled weights: min={keep_weights.min():.6f}, max={keep_weights.max():.6f}, mean={keep_weights.mean():.6f}")
+                        print(
+                            f"[DEBUG] Sampled probs: min={keep_probs.min():.6f}, max={keep_probs.max():.6f}, mean={keep_probs.mean():.6f}"
+                        )
+                        print(
+                            f"[DEBUG] Sampled weights: min={keep_weights.min():.6f}, max={keep_weights.max():.6f}, mean={keep_weights.mean():.6f}"
+                        )
 
                         if keep_idx:
                             sampled_batch_dict = {}
@@ -1236,7 +1246,6 @@ class RayPPOTrainer:
 
                             batch_dict = sampled_batch_dict
                             print(f"[DEBUG] Final size of keep_idx: {len(keep_idx)}")
-                
 
                 metrics = {}
                 timing_raw = {}
@@ -1331,15 +1340,13 @@ class RayPPOTrainer:
                         else:
                             reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
 
-
-
                     micro_prompts = batch.non_tensor_batch.get("raw_prompt", None)
                     micro_prompts = [_[0]["content"].strip() for _ in micro_prompts]
                     if self.config.trainer.spo.enable:
                         alpha = [prompt2alpha[_] for _ in micro_prompts]
                         beta = [prompt2beta[_] for _ in micro_prompts]
                         sum_reward_tensor = reward_tensor.sum(dim=-1)
-                    
+
                         spo_metrics = {}
                         r = sum_reward_tensor
                         alpha = torch.tensor(alpha, dtype=torch.float).to(r)
@@ -1351,7 +1358,7 @@ class RayPPOTrainer:
                         spo_metrics["spo/Neff"] = Neff.mean().detach().item()
                         p_hats = alpha / Neff
                         spo_metrics["spo/p_hats"] = p_hats.mean().detach().item()
-                        
+
                         # Recalculate advantages
                         advantages = r - p_hats
                         spo_metrics["spo/adv_before_norm"] = advantages.mean().detach().item()
@@ -1366,8 +1373,8 @@ class RayPPOTrainer:
                         spo_metrics["spo/adv_after_norm/p70"] = q_vals[3].item()
                         spo_metrics["spo/adv_after_norm/p90"] = q_vals[4].item()
                         advantages = advantages.unsqueeze(-1) * response_mask
-                        batch.batch['advantages'] = advantages
-                        batch.batch['returns'] = advantages
+                        batch.batch["advantages"] = advantages
+                        batch.batch["returns"] = advantages
 
                     # recompute old_log_probs
                     with marked_timer("old_log_prob", timing_raw, color="blue"):
@@ -1465,17 +1472,13 @@ class RayPPOTrainer:
 
                     if self.config.trainer.spo.enable:
                         rho, prompt2protodata, prompt2log_probs, prompt2D, rho_metrics = self._get_spo_rho(
-                            prompt2protodata, 
-                            prompt2log_probs, 
-                            prompt2D,
-                            micro_prompts, 
-                            spo_log_prob_batch_backup
+                            prompt2protodata, prompt2log_probs, prompt2D, micro_prompts, spo_log_prob_batch_backup
                         )
                         spo_metrics.update(rho_metrics)
 
                         # if you want exact Beta intervals, maintain alpha/beta as well:
                         alpha = rho * alpha + r
-                        beta  = rho * beta  + (1 - r)
+                        beta = rho * beta + (1 - r)
 
                         cur_sampled_numbers = []
                         for i in range(len(alpha)):

@@ -64,7 +64,7 @@ class CustomRLHFDataset(RLHFDataset):
             if ".parquet" in parquet_file:
                 dataframe = datasets.load_dataset("parquet", data_files=parquet_file)["train"]
             elif "open-r1/DAPO-Math-17k-Processed" in parquet_file:
-                dataframe = datasets.load_dataset(parquet_file, 'all')["train"]
+                dataframe = datasets.load_dataset(parquet_file, "all")["train"]
             elif "ByteDance-Seed/BeyondAIME" in parquet_file:
                 dataframe = datasets.load_dataset(parquet_file)["test"]
             elif "Polaris-Dataset-Hard" in parquet_file:
@@ -72,13 +72,21 @@ class CustomRLHFDataset(RLHFDataset):
             else:
                 dataframe = datasets.load_dataset(parquet_file)["train"]
             data_source = "/".join(parquet_file.split("/")[-2:])
-            if data_source in ["Maxwell-Jia/AIME_2024", "yentinglin/aime_2025", "ByteDance-Seed/BeyondAIME", "MathArena/brumo_2025", "MathArena/hmmt_feb_2025"]:
+            if data_source in [
+                "Maxwell-Jia/AIME_2024",
+                "yentinglin/aime_2025",
+                "ByteDance-Seed/BeyondAIME",
+                "MathArena/brumo_2025",
+                "MathArena/hmmt_feb_2025",
+            ]:
                 dataframe = dataframe.map(
                     self.map_fn, fn_kwargs={"data_source": data_source}, remove_columns=dataframe.column_names
                 )
             elif "Polaris-Dataset-Hard" in data_source:
                 dataframe = dataframe.map(
-                    self.map_fn, fn_kwargs={"data_source": "dataset/Polaris-Dataset-Hard"}, remove_columns=dataframe.column_names
+                    self.map_fn,
+                    fn_kwargs={"data_source": "dataset/Polaris-Dataset-Hard"},
+                    remove_columns=dataframe.column_names,
                 )
             else:
                 dataframe = dataframe.map(self.map_fn2, num_proc=16)
@@ -90,7 +98,12 @@ class CustomRLHFDataset(RLHFDataset):
     def map_fn(self, row: dict, *, data_source: str = None):
         if data_source == "Maxwell-Jia/AIME_2024":
             problem, answer = row["Problem"], row["Answer"]
-        elif data_source in ["yentinglin/aime_2025","ByteDance-Seed/BeyondAIME", "MathArena/brumo_2025", "MathArena/hmmt_feb_2025"]:
+        elif data_source in [
+            "yentinglin/aime_2025",
+            "ByteDance-Seed/BeyondAIME",
+            "MathArena/brumo_2025",
+            "MathArena/hmmt_feb_2025",
+        ]:
             problem, answer = row["problem"], row["answer"]
         elif data_source == "dataset/Polaris-Dataset-Hard":
             problem, answer = row["problem"], row["answer"]
@@ -107,36 +120,29 @@ class CustomRLHFDataset(RLHFDataset):
 
     def map_fn2(self, row: dict):
         content = row["prompt"]
-        row['prompt'] = [{"role": "user", "content": content + answer_format}]
+        row["prompt"] = [{"role": "user", "content": content + answer_format}]
         row["agent_name"] = "tool_agent"
         return row
+
 
 def compute_score(data_source, solution_str, ground_truth, extra_info, **kwargs):
     # Check format: if more than one "</think>" tag, score should be zero
     if solution_str.count("</think>") != 1:
-        return {
-            "score": 0,
-            "acc": False,
-            "pred": ""
-        }
+        return {"score": 0, "acc": False, "pred": ""}
 
     # Check if there are <code> or <interpreter> blocks after </think>
     think_end_pos = solution_str.find("</think>")
     if think_end_pos != -1:
-        after_think = solution_str[think_end_pos + len("</think>"):]
+        after_think = solution_str[think_end_pos + len("</think>") :]
         if "<code>" in after_think or "<interpreter>" in after_think:
-            return {
-                "score": 0,
-                "acc": False,
-                "pred": ""
-            }
+            return {"score": 0, "acc": False, "pred": ""}
 
     # use \\boxed{...} answer
     result = math_dapo.compute_score(solution_str, ground_truth, strict_box_verify=True)
 
     # Modify to 0, +1 reward
     if result["score"] < 0:
-        result['score'] = 0
+        result["score"] = 0
 
     if result["pred"] is None:
         result["pred"] = ""

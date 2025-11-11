@@ -61,7 +61,7 @@ def run_ppo(config, task_runner_class=None) -> None:
         # `num_cpus` specifies the number of CPU cores Ray can use, obtained from the configuration
         default_runtime_env = get_ppo_ray_runtime_env()
         if config.trainer.debug:
-            default_runtime_env['env_vars']['RAY_DEBUG'] = 'legacy'
+            default_runtime_env["env_vars"]["RAY_DEBUG"] = "legacy"
         ray_init_kwargs = config.ray_kwargs.get("ray_init", {})
         runtime_env_kwargs = ray_init_kwargs.get("runtime_env", {})
 

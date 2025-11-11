@@ -162,9 +162,9 @@ class GptOssToolParser(ToolParser):
 
         return content, function_calls
 
+
 @ToolParser.register("spo")
 class SPOToolParser(ToolParser):
-
     def __init__(self, tokenizer) -> None:
         super().__init__(tokenizer)
 
@@ -198,21 +198,21 @@ class SPOToolParser(ToolParser):
         """Remove markdown code fences from the code text."""
         # Remove leading and trailing whitespace
         code_text = code_text.strip()
-        
+
         # Remove opening code fence (```python, ```bash, ``` etc.)
-        if code_text.startswith('```'):
-            lines = code_text.split('\n')
+        if code_text.startswith("```"):
+            lines = code_text.split("\n")
             # Remove first line if it starts with ```
-            if lines[0].startswith('```'):
+            if lines[0].startswith("```"):
                 lines = lines[1:]
-            code_text = '\n'.join(lines)
-        
+            code_text = "\n".join(lines)
+
         # Remove closing code fence
-        if code_text.endswith('```'):
-            lines = code_text.split('\n')
+        if code_text.endswith("```"):
+            lines = code_text.split("\n")
             # Remove last line if it's just ```
-            if lines[-1].strip() == '```':
+            if lines[-1].strip() == "```":
                 lines = lines[:-1]
-            code_text = '\n'.join(lines)
-        
+            code_text = "\n".join(lines)
+
         return code_text.strip()

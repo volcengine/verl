@@ -14,7 +14,6 @@
 # limitations under the License.
 import asyncio
 import copy
-import json
 import logging
 import os
 from enum import Enum
@@ -27,10 +26,6 @@ from recipe.spo.agent_loop.spo_agent_loop import (
     register,
 )
 from recipe.spo.agent_loop.spo_tool_parser import FunctionCall, ToolParser
-from verl.experimental.agent_loop.utils import (
-    add_generation_prompt_for_gpt_oss,
-    format_gpt_oss_tool_response_manually,
-)
 from verl.interactions.base import BaseInteraction
 from verl.interactions.utils.interaction_registry import (
     initialize_interactions_from_config,
@@ -193,9 +188,9 @@ class ToolAgentLoop(AgentLoopBase):
 
     async def _handle_pending_state(self, agent_data: AgentData, sampling_params: dict[str, Any]) -> AgentState:
         """Handle the pending state: prepare the prompt and start generation."""
-        problem = agent_data.messages[0]['content']
+        problem = agent_data.messages[0]["content"]
         user_prompt = "Solve the following problem step by step. You now have the ability to selectively write executable Python code to enhance your reasoning process. The Python code will be executed by an external sandbox, and the output (wrapped in `<interpreter>output_str</interpreter>`) can be returned to aid your reasoning and help you arrive at the final answer. The Python code should be complete scripts, including necessary imports. Important: The sandbox is stateless and non-interactive; thus, prior imports, definitions, and state do not persist between executions and cannot be referenced.\nEach code snippet is wrapped with `<code>\n```python\ncode snippet\n```\n</code>`.\n"
-        user_prompt += f"*user question:*\n"
+        user_prompt += "*user question:*\n"
         user_prompt += problem
         messages = [{"role": "user", "content": user_prompt}]
         agent_data.prompt_ids = await self.loop.run_in_executor(
@@ -270,7 +265,6 @@ class ToolAgentLoop(AgentLoopBase):
             None, lambda: self.tokenizer.encode(responses[0].text or "", add_special_tokens=False)
         )
 
-
         if len(agent_data.response_mask) + len(response_ids) >= self.response_length:
             return AgentState.TERMINATED
         # Update prompt_ids and response_mask
@@ -334,13 +328,11 @@ class ToolAgentLoop(AgentLoopBase):
         else:
             return AgentState.GENERATING
 
-    async def _call_tool(
-        self, tool_call: str, tools_kwargs: dict[str, Any]
-    ) -> tuple[ToolResponse, float, dict]:
+    async def _call_tool(self, tool_call: str, tools_kwargs: dict[str, Any]) -> tuple[ToolResponse, float, dict]:
         """Call tool and return tool response."""
         tool, instance_id = None, None
         try:
-            tool = self.tools['code_interpreter']
+            tool = self.tools["code_interpreter"]
             instance_id, _ = await tool.create(create_kwargs={})
             tool_execution_response, _, _ = await tool.execute(instance_id, tool_call)
         except Exception as e:

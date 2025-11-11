@@ -1,3 +1,4 @@
+# Copyright 2025 Bytedance Ltd. and/or its affiliates
 # Copyright 2025 SPO authors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -31,7 +32,7 @@ def load_and_parse(file_path):
         List of parsed JSON objects
     """
     try:
-        with open(file_path, 'r') as file:
+        with open(file_path) as file:
             data = [json.loads(line) for line in file]
         print(f"Successfully loaded {len(data)} items from {file_path}")
         return data
@@ -40,7 +41,9 @@ def load_and_parse(file_path):
         return []
 
 
-def merge_offline_values(input_dir, output_file, pattern="offline_value_estimation_subset_*/validation_data/0.jsonl", max_scores_per_prompt=8):
+def merge_offline_values(
+    input_dir, output_file, pattern="offline_value_estimation_subset_*/validation_data/0.jsonl", max_scores_per_prompt=8
+):
     """
     Merge offline value estimates from multiple subset directories.
 
@@ -73,7 +76,7 @@ def merge_offline_values(input_dir, output_file, pattern="offline_value_estimati
                 result = future.result()
                 all_subset_data.extend(result)
             except Exception as exc:
-                print(f'{file_name} generated an exception: {exc}')
+                print(f"{file_name} generated an exception: {exc}")
 
     print(f"\nTotal items loaded: {len(all_subset_data)}")
 
@@ -83,8 +86,8 @@ def merge_offline_values(input_dir, output_file, pattern="offline_value_estimati
         # Extract the prompt/question from the input field
         # This assumes the format: "...user\n<prompt>\nassistant..."
         try:
-            key = item['input'].split("user\n")[-1].split("\nassistant")[0].strip()
-            merged_prompt_to_scores[key].append(item['score'])
+            key = item["input"].split("user\n")[-1].split("\nassistant")[0].strip()
+            merged_prompt_to_scores[key].append(item["score"])
         except (KeyError, IndexError) as e:
             print(f"Warning: Failed to parse item: {e}")
             continue
@@ -101,10 +104,12 @@ def merge_offline_values(input_dir, output_file, pattern="offline_value_estimati
             merged_prompt_to_scores[prompt] = random.sample(scores, max_scores_per_prompt)
 
     if num_prompts_exceeding_max > 0:
-        print(f"\nSubsampling: {num_prompts_exceeding_max} prompts had more than {max_scores_per_prompt} scores and were randomly subsampled to {max_scores_per_prompt}")
+        print(
+            f"\nSubsampling: {num_prompts_exceeding_max} prompts had more than {max_scores_per_prompt} scores and were randomly subsampled to {max_scores_per_prompt}"
+        )
 
     # Save merged results
-    os.makedirs(os.path.dirname(output_file) if os.path.dirname(output_file) else '.', exist_ok=True)
+    os.makedirs(os.path.dirname(output_file) if os.path.dirname(output_file) else ".", exist_ok=True)
     with open(output_file, "w") as f:
         json.dump(merged_prompt_to_scores, f, indent=2)
 
@@ -115,14 +120,14 @@ def merge_offline_values(input_dir, output_file, pattern="offline_value_estimati
     score_sums = [sum(scores) for scores in merged_prompt_to_scores.values()]
 
     if score_counts:
-        print(f"\nStatistics (Score Counts per Prompt):")
+        print("\nStatistics (Score Counts per Prompt):")
         print(f"  - Min scores per prompt: {min(score_counts)}")
         print(f"  - Max scores per prompt: {max(score_counts)}")
         print(f"  - Avg scores per prompt: {sum(score_counts) / len(score_counts):.2f}")
         print(f"  - Prompts with >{max_scores_per_prompt} scores (before subsampling): {num_prompts_exceeding_max}")
 
     if score_sums:
-        print(f"\nStatistics (Sum of Scores per Prompt):")
+        print("\nStatistics (Sum of Scores per Prompt):")
         print(f"  - Min sum of scores: {min(score_sums):.4f}")
         print(f"  - Max sum of scores: {max(score_sums):.4f}")
         print(f"  - Avg sum of scores: {sum(score_sums) / len(score_sums):.4f}")
@@ -130,43 +135,40 @@ def merge_offline_values(input_dir, output_file, pattern="offline_value_estimati
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Merge offline value estimates from multiple subsets into a single file'
+        description="Merge offline value estimates from multiple subsets into a single file"
     )
     parser.add_argument(
-        '--input_dir',
+        "--input_dir",
         type=str,
         required=True,
-        help='Directory containing all subset outputs (e.g., the trainer.validation_data_dir)'
+        help="Directory containing all subset outputs (e.g., the trainer.validation_data_dir)",
     )
     parser.add_argument(
-        '--output_file',
+        "--output_file", type=str, required=True, help="Path to save the merged offline values JSON file"
+    )
+    parser.add_argument(
+        "--pattern",
         type=str,
-        required=True,
-        help='Path to save the merged offline values JSON file'
+        default="offline_value_estimation_subset_*/validation_data/0.jsonl",
+        help="Glob pattern to match subset result files (default: offline_value_estimation_subset_*/validation_data/0.jsonl)",
     )
     parser.add_argument(
-        '--pattern',
-        type=str,
-        default='offline_value_estimation_subset_*/validation_data/0.jsonl',
-        help='Glob pattern to match subset result files (default: offline_value_estimation_subset_*/validation_data/0.jsonl)'
-    )
-    parser.add_argument(
-        '--max_scores_per_prompt',
+        "--max_scores_per_prompt",
         type=int,
         default=8,
-        help='Maximum number of scores to keep per prompt. If a prompt has more scores, randomly subsample to this number (default: 8)'
+        help="Maximum number of scores to keep per prompt. If a prompt has more scores, randomly subsample to this number (default: 8)",
     )
 
     args = parser.parse_args()
 
-    print("="*80)
+    print("=" * 80)
     print("Merging Offline Value Estimates")
-    print("="*80)
+    print("=" * 80)
     print(f"Input directory: {args.input_dir}")
     print(f"Output file: {args.output_file}")
     print(f"File pattern: {args.pattern}")
     print(f"Max scores per prompt: {args.max_scores_per_prompt}")
-    print("="*80 + "\n")
+    print("=" * 80 + "\n")
 
     merge_offline_values(args.input_dir, args.output_file, args.pattern, args.max_scores_per_prompt)
 
