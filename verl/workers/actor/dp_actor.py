@@ -462,23 +462,20 @@ class DataParallelPPOActor(BasePPOActor):
                     )
                     micro_batch_metrics.update(pg_metrics)
 
-                    # Compute rollout_corr metrics during training (for monitoring drift)
-                    # This computes metrics using CURRENT policy log_prob vs rollout_log_prob
-                    # to track off-policy gap as training progresses (different from trainer metrics
-                    # which use old_log_prob and only show gap at start of training)
                     # Skip if using pure rollout correction mode (metrics already in pg_metrics)
-                    # Only computed in bypass mode where rollout_log_probs are available
-                    if loss_mode != "rollout_correction":
-                        rollout_log_prob = model_inputs.get("rollout_log_probs", None)
-                        if rollout_log_prob is not None:
-                            from verl.trainer.ppo.rollout_corr_helper import compute_rollout_corr_metrics_from_logprobs
+                    rollout_log_prob = model_inputs.get("rollout_log_probs", None)
+                    if loss_mode != "rollout_correction" and rollout_log_prob is not None:
+                        # This computes metrics using CURRENT policy log_prob vs rollout_log_prob
+                        # to track off-policy gap as training progresses (different from trainer metrics
+                        # which use old_log_prob and only show gap at start of training)
+                        from verl.trainer.ppo.rollout_corr_helper import compute_rollout_corr_metrics_from_logprobs
 
-                            rollout_corr_metrics = compute_rollout_corr_metrics_from_logprobs(
-                                log_prob=log_prob,
-                                rollout_log_prob=rollout_log_prob,
-                                response_mask=response_mask,
-                            )
-                            micro_batch_metrics.update(rollout_corr_metrics)
+                        rollout_corr_metrics = compute_rollout_corr_metrics_from_logprobs(
+                            log_prob=log_prob,
+                            rollout_log_prob=rollout_log_prob,
+                            response_mask=response_mask,
+                        )
+                        micro_batch_metrics.update(rollout_corr_metrics)
 
                     if entropy_coeff != 0:
                         entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
