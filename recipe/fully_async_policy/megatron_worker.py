@@ -21,6 +21,7 @@ import torch
 import torch.distributed
 from omegaconf import DictConfig
 
+from recipe.fully_async_policy.megatron_utils import copy_megatron_model_to_cpu, restore_megatron_model_from_cpu
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils.device import (
     get_device_name,
@@ -88,6 +89,22 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
             collective.broadcast(tensor, src_rank=0, group_name="actor_rollout")
             if self._is_rollout:
                 inference_model.load_weights([(key, tensor)])
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def save_model_to_cpu(self, n):
+        if not hasattr(self, "cpu_saved_models"):
+            self.cpu_saved_models = {}
+        self.cpu_saved_models[n] = copy_megatron_model_to_cpu(self.actor.actor_module)
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def restore_model_from_cpu(self, n):
+        if n in self.cpu_saved_models:
+            restore_megatron_model_from_cpu(self.actor.actor_module, self.cpu_saved_models[n])
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def clear_cpu_model(self, n):
+        if n in self.cpu_saved_models:
+            del self.cpu_saved_models[n]
 
 
 class DetachActorWorker(DetachNcclSync):

@@ -31,13 +31,13 @@ import getpass
 import inspect
 import logging
 import os
-import pickle
 import time
 from contextlib import contextmanager
 from dataclasses import asdict
 from types import MethodType
 from typing import Any, Generator
 
+import cloudpickle as pickle
 import numpy as np
 import ray
 import torch
@@ -522,12 +522,12 @@ class vLLMAsyncRollout(BaseRollout):
         device_mesh: DeviceMesh,
     ):
         super().__init__(config, model_config, device_mesh)
-        self.tokenizer = model_config.tokenizer
+        self.tokenizer = self.model_config.tokenizer
         self.inference_engine: WorkerWrapperBase = None
         self.address = self._init_zeromq()
         self.lora_config = (
-            {"max_loras": 1, "max_lora_rank": get_vllm_max_lora_rank(model_config.lora_rank)}
-            if model_config.lora_rank > 0
+            {"max_loras": 1, "max_lora_rank": get_vllm_max_lora_rank(self.model_config.lora_rank)}
+            if self.model_config.lora_rank > 0
             else {}
         )
 
