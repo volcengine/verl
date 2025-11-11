@@ -86,12 +86,12 @@ class AsyncLLMServerManager:
 
     @rollout_trace_op
     async def generate(
-        self,
-        request_id,
-        *,
-        prompt_ids: list[int],
-        sampling_params: dict[str, Any],
-        image_data: Optional[list[Any]] = None,
+            self,
+            request_id,
+            *,
+            prompt_ids: list[int],
+            sampling_params: dict[str, Any],
+            image_data: Optional[list[Any]] = None,
     ) -> TokenOutput:
         """Generate tokens from prompt ids.
 
@@ -181,12 +181,12 @@ class AgentLoopBase(ABC):
     _class_initialized = False
 
     def __init__(
-        self,
-        trainer_config: _DummyConfig,
-        server_manager: AsyncLLMServerManager,
-        tokenizer: AutoTokenizer,
-        processor: AutoProcessor,
-        **kwargs,
+            self,
+            trainer_config: _DummyConfig,
+            server_manager: AsyncLLMServerManager,
+            tokenizer: AutoTokenizer,
+            processor: AutoProcessor,
+            **kwargs,
     ):
         """Initialize agent loop, each sample will have its own loop instance.
 
@@ -254,10 +254,10 @@ class AgentLoopWorkerBase:
     """Agent loop worker takes a batch of messages and run each message in an agent loop."""
 
     def __init__(
-        self,
-        config: DictConfig,
-        server_handles: list[ray.actor.ActorHandle],
-        reward_router_address: str = None,
+            self,
+            config: DictConfig,
+            server_handles: list[ray.actor.ActorHandle],
+            reward_router_address: str = None,
     ):
         """Initialize agent loop manager.
 
@@ -363,19 +363,19 @@ class AgentLoopWorkerBase:
         return output
 
     async def _run_agent_loop(
-        self,
-        sampling_params: dict[str, Any],
-        trajectory: dict[str, Any],
-        *,
-        agent_name: str,
-        **kwargs,
+            self,
+            sampling_params: dict[str, Any],
+            trajectory: dict[str, Any],
+            *,
+            agent_name: str,
+            **kwargs,
     ) -> _InternalAgentLoopOutput:
         with rollout_trace_attr(
-            step=trajectory["step"],
-            sample_index=trajectory["sample_index"],
-            rollout_n=trajectory["rollout_n"],
-            validate=trajectory["validate"],
-            name="agent_loop",
+                step=trajectory["step"],
+                sample_index=trajectory["sample_index"],
+                rollout_n=trajectory["rollout_n"],
+                validate=trajectory["validate"],
+                name="agent_loop",
         ):
             assert agent_name in _agent_loop_registry, (
                 f"Agent loop {agent_name} not registered, registered agent loops: {_agent_loop_registry.keys()}"
@@ -458,8 +458,8 @@ class AgentLoopWorkerBase:
             # TODO: support other multi-modal inputs
             multi_modal_inputs = None
             if (
-                self.processor is not None
-                and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__
+                    self.processor is not None
+                    and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__
             ):
                 from verl.models.transformers.qwen2_vl import get_rope_index
 
@@ -494,8 +494,8 @@ class AgentLoopWorkerBase:
             else:
                 position_ids = compute_position_id_with_mask(attention_mask)  # (1, seq_len)
             enable_async_reward = (
-                self.reward_router_address is not None and self.config.reward_model.enable_resource_pool
-            ) or not self.config.reward_model.enable
+                                          self.reward_router_address is not None and self.config.reward_model.enable_resource_pool
+                                  ) or not self.config.reward_model.enable
             if output.reward_score is None and enable_async_reward:
                 batch = TensorDict(
                     {
@@ -621,7 +621,7 @@ class AgentLoopWorker(AgentLoopWorkerBase):
     """Agent loop worker takes a batch of messages and run each message in an agent loop."""
 
     def __init__(
-        self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], reward_router_address: str = None
+            self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], reward_router_address: str = None
     ):
         """Initialize agent loop manager.
         Args:
@@ -689,9 +689,9 @@ class AgentLoopManager:
 
     def _initialize_llm_servers(self):
         rollout_world_size = (
-            self.config.actor_rollout_ref.rollout.tensor_model_parallel_size
-            * self.config.actor_rollout_ref.rollout.data_parallel_size
-            * self.config.actor_rollout_ref.rollout.pipeline_model_parallel_size
+                self.config.actor_rollout_ref.rollout.tensor_model_parallel_size
+                * self.config.actor_rollout_ref.rollout.data_parallel_size
+                * self.config.actor_rollout_ref.rollout.pipeline_model_parallel_size
         )
         world_size = (
             self.worker_group.world_size
@@ -717,6 +717,14 @@ class AgentLoopManager:
             self._run_all([server.init_standalone() for server in self.rollout_replicas])
         self.server_handles = [server._server_handle for server in self.rollout_replicas]
         self.server_addresses = [server._server_address for server in self.rollout_replicas]
+
+        print(f"AgentLoopManager: {self.server_addresses}")
+
+        # Update Prometheus configuration with server addresses
+        if os.getenv("PROMETHEUS_FILE") is not None and os.getenv("PROMETHEUS_PORT") is not None:
+            if rollout_config.disable_log_stats:
+                raise ValueError("PROMETHEUS needs disable_log_stats==False, but it is currently True.")
+            self._update_prometheus_config()
 
     def _init_agent_loop_workers(self):
         self.agent_loop_workers = []
@@ -805,3 +813,88 @@ class AgentLoopManager:
             await asyncio.gather(*tasks)
 
         asyncio.run(run_all())
+
+    def _update_prometheus_config(self):
+        """Update Prometheus configuration file with server addresses and reload on first node."""
+
+        if not self.server_addresses:
+            logger.warning("No server addresses available to update Prometheus config")
+            return
+
+        try:
+            # Read existing Prometheus config or create default one
+            prometheus_config_path = str(os.getenv("PROMETHEUS_FILE", "/workdir/tmp/prometheus.yml"))
+            prometheus_config = {
+                "global": {"scrape_interval": "10s", "evaluation_interval": "10s"},
+                "scrape_configs": [
+                    {
+                        "job_name": "ray",
+                        "file_sd_configs": [{"files": ["/tmp/ray/prom_metrics_service_discovery.json"]}],
+                    },
+                    {"job_name": "vllm", "static_configs": [{"targets": self.server_addresses}]},
+                ],
+            }
+
+            # Write the configuration to file on all nodes
+            @ray.remote(num_cpus=0)
+            def write_config_file(config_data, config_path):
+                import yaml
+                import os
+
+                os.makedirs(os.path.dirname(config_path), exist_ok=True)
+                with open(config_path, "w") as f:
+                    yaml.dump(config_data, f, default_flow_style=False, indent=2)
+                return True
+
+            # Call prometheus on all nodes，just master node should success, we skip other node error.
+            @ray.remote(num_cpus=0)
+            def reload_prometheus():
+                import os
+                import socket
+                import subprocess
+
+                hostname = socket.gethostname()
+                ip_address = socket.gethostbyname(hostname)
+                port = int(os.getenv("PROMETHEUS_PORT", "44398"))
+
+                reload_url = f"http://{ip_address}:{port}/-/reload"
+
+                try:
+                    subprocess.run(["curl", "-X", "POST", reload_url], capture_output=True, text=True, timeout=10)
+                    print(f"Reloading Prometheus on node: {reload_url}")
+                except Exception as e:
+                    pass
+
+            # Schedule task on each specific node
+
+            # Get all available nodes and schedule task on each node
+            nodes = ray.nodes()
+            alive_nodes = [node for node in nodes if node["Alive"]]
+
+            write_tasks = []
+            for node in alive_nodes:
+                node_ip = node["NodeManagerAddress"]
+                task = write_config_file.options(
+                    resources={"node:" + node_ip: 0.001}  # Schedule to specific node
+                ).remote(prometheus_config, prometheus_config_path)
+                write_tasks.append(task)
+
+            ray.get(write_tasks)
+
+            print(
+                f"Updated Prometheus configuration at {prometheus_config_path} "
+                f"with {len(self.server_addresses)} VLLM servers"
+            )
+
+            reload_tasks = []
+            for node in alive_nodes:
+                node_ip = node["NodeManagerAddress"]
+                task = reload_prometheus.options(
+                    resources={"node:" + node_ip: 0.001}  # Schedule to specific node
+                ).remote()
+                reload_tasks.append(task)
+
+            ray.get(reload_tasks)
+
+        except Exception as e:
+            logger.error(f"Failed to update Prometheus configuration: {e}")
