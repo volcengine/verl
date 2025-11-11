@@ -21,6 +21,7 @@ import torch
 import torch.distributed
 from omegaconf import DictConfig
 
+from recipe.fully_async_policy.megatron_utils import copy_megatron_model_to_cpu, restore_megatron_model_from_cpu
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils.device import (
     get_device_name,
@@ -28,7 +29,6 @@ from verl.utils.device import (
 )
 from verl.utils.megatron_utils import per_tensor_generator
 from verl.workers.megatron_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
-from recipe.fully_async_policy.megatron_utils import copy_megatron_model_to_cpu, restore_megatron_model_from_cpu
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -105,7 +105,8 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
     def clear_cpu_model(self, n):
         if n in self.cpu_saved_models:
             del self.cpu_saved_models[n]
-            
+
+
 class DetachActorWorker(DetachNcclSync):
     def _get_actor_params_generator(self):
         assert self._is_actor
