@@ -13,24 +13,36 @@
 # limitations under the License.
 
 import logging
+import math
 import os
+from typing import Any, Dict, Tuple
 
 import torch
+from torch import nn
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.tensor import DTensor
 
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
-from verl.utils.attention_utils import index_first_axis, pad_input, rearrange, unpad_input
-from verl.utils.device import get_device_id
+from verl.trainer.ppo.core_algos import (agg_loss, get_policy_loss_fn,
+                                         kl_penalty)
+from verl.utils.attention_utils import (index_first_axis, pad_input, rearrange,
+                                        unpad_input)
+from verl.utils.device import get_device_id, get_device_name
+from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.py_functional import append_to_dict
-from verl.utils.seqlen_balancing import prepare_dynamic_batch
+from verl.utils.seqlen_balancing import (prepare_dynamic_batch,
+                                         restore_dynamic_batch)
 from verl.utils.torch_functional import logprobs_from_logits
-from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad, ulysses_pad_and_slice_inputs
+from verl.utils.ulysses import (gather_outputs_and_unpad, ulysses_pad,
+                                ulysses_pad_and_slice_inputs)
+from verl.workers.actor import BasePPOActor
 from verl.workers.actor.dp_actor import DataParallelPPOActor
+from verl.workers.config import ActorConfig
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
-
 
 class ProjZModule(torch.nn.Module):
     """Projection network for estimating log partition function Z in FlowRL."""
@@ -40,21 +52,18 @@ class ProjZModule(torch.nn.Module):
         layers = []
 
         for i in range(num_layers - 1):
-            layers.extend(
-                [
-                    torch.nn.Linear(hidden_size, hidden_size),
-                    torch.nn.GELU(),
-                    torch.nn.LayerNorm(hidden_size),
-                    torch.nn.Dropout(dropout),
-                ]
-            )
+            layers.extend([
+                torch.nn.Linear(hidden_size, hidden_size),
+                torch.nn.GELU(),
+                torch.nn.LayerNorm(hidden_size),
+                torch.nn.Dropout(dropout)
+            ])
 
         layers.append(torch.nn.Linear(hidden_size, 1))
         self.net = torch.nn.Sequential(*layers)
 
     def forward(self, x):
         return self.net(x)
-
 
 class FlowRLActor(DataParallelPPOActor):
     """FlowRL Actor that extends DataParallelPPOActor with partition function estimation."""
@@ -79,10 +88,7 @@ class FlowRLActor(DataParallelPPOActor):
 
             multi_modal_inputs = extract_multi_modal_inputs(micro_batch["multi_modal_inputs"])
 
-        from verl.utils.torch_dtypes import PrecisionType
-
-        torch_dtype = PrecisionType.to_dtype(self.config.dtype)
-        with torch.autocast(device_type=self.device_name, dtype=torch_dtype):
+        with torch.autocast(device_type=self.device_name, dtype=torch.bfloat16):
             input_ids = micro_batch["input_ids"]
             batch_size, seqlen = input_ids.shape
             attention_mask = micro_batch["attention_mask"]
@@ -110,7 +116,8 @@ class FlowRLActor(DataParallelPPOActor):
                     ).transpose(0, 1)
 
                 if "image_bound" in multi_modal_inputs:
-                    from verl.utils.dataset.vision_utils import process_multi_modal_inputs_for_minicpmo
+                    from verl.utils.dataset.vision_utils import \
+                        process_multi_modal_inputs_for_minicpmo
 
                     multi_modal_inputs = process_multi_modal_inputs_for_minicpmo(
                         input_ids, attention_mask, position_ids, cu_seqlens, multi_modal_inputs
@@ -255,30 +262,32 @@ class FlowRLActor(DataParallelPPOActor):
                             entropy = verl_F.entropy_from_logits(logits)  # (bsz, response_length)
                         else:
                             entropy = torch.utils.checkpoint.checkpoint(verl_F.entropy_from_logits, logits)
-
+            
             # ==== FlowRL: use proj_z to estimate log Z ====
             if return_log_z:
-                last_hidden = output.hidden_states[-1].squeeze(0)  # (total_nnz, hidden size)
+                last_hidden = output.hidden_states[-1].squeeze(0) # (total_nnz, hidden size)
                 if self.use_ulysses_sp:
-                    last_hidden = gather_outputs_and_unpad(
-                        last_hidden,
-                        gather_dim=0,
-                        unpad_dim=0,
-                        padding_size=pad_size,
-                    )
-                full_last_hidden = pad_input(
-                    hidden_states=last_hidden, indices=indices, batch=batch_size, seqlen=seqlen
-                )
+                        last_hidden = gather_outputs_and_unpad(
+                            last_hidden,
+                            gather_dim=0,
+                            unpad_dim=0,
+                            padding_size=pad_size, 
+                        )
+                full_last_hidden = pad_input(hidden_states=last_hidden,
+                                        indices=indices,
+                                        batch=batch_size,
+                                        seqlen=seqlen)
                 # extract pormpt hiddenstate for log z
                 prompts_last_hidden = full_last_hidden[:, : -response_length - 1]
                 prompt_attention_mask = attention_mask[:, : -response_length - 1]
                 avg_hidden = verl_F.masked_mean(prompts_last_hidden, prompt_attention_mask.unsqueeze(-1), axis=1)
 
-                log_z = self.actor_module.proj_z(avg_hidden)
-
+                log_z = self.actor_module.proj_z(avg_hidden) 
+                
                 return entropy, log_probs, log_z
             else:
                 return entropy, log_probs
+
 
     @GPUMemoryLogger(role="dp actor", logger=logger)
     def update_policy(self, data: DataProto):
@@ -298,13 +307,13 @@ class FlowRLActor(DataParallelPPOActor):
         ]
         if self.config.use_kl_loss:
             select_keys.append("ref_log_prob")
-        # if self.config.tis_imp_ratio_cap > 0:
-        #     assert "rollout_log_probs" in data.batch.keys(), (
-        #         "Truncated Importance Sampling (TIS) requires to configure "
-        #         "`actor_rollout_ref.rollout.calculate_log_probs=True` "
-        #         "and is not currently supported in Server mode (agent loop)."
-        #     )
-        #     select_keys.append("rollout_log_probs")
+        if getattr(self.config, "tis_imp_ratio_cap", 0) > 0:
+            assert "rollout_log_probs" in data.batch.keys(), (
+                "Truncated Importance Sampling (TIS) requires to configure "
+                "`actor_rollout_ref.rollout.calculate_log_probs=True` "
+                "and is not currently supported in Server mode (agent loop)."
+            )
+            select_keys.append("rollout_log_probs")
 
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
         non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
@@ -337,16 +346,26 @@ class FlowRLActor(DataParallelPPOActor):
                     model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch}
                     response_mask = model_inputs["response_mask"]
                     old_log_prob = model_inputs["old_log_probs"]
+                    rollout_log_probs = model_inputs["rollout_log_probs"] if getattr(self.config, "tis_imp_ratio_cap", 0) > 0 else None
                     advantages = model_inputs["advantages"]
                     ref_log_prob = model_inputs["ref_log_prob"]
+
+                    entropy_coeff = self.config.entropy_coeff
+                    loss_agg_mode = self.config.loss_agg_mode
 
                     if self.config.use_dynamic_bsz:
                         loss_scale_factor = response_mask.shape[0] / self.config.ppo_mini_batch_size
                     else:
                         loss_scale_factor = 1 / self.gradient_accumulation
 
-                    # FlowRL: always compute log_z, no entropy needed
-                    _, log_prob, log_z = self._forward_micro_batch(
+                    # all return: (bsz, response_length)
+                    calculate_entropy = False
+                    if entropy_coeff != 0:
+                        calculate_entropy = True
+                    # entropy, log_prob = self._forward_micro_batch(
+                    #     model_inputs, temperature=temperature, calculate_entropy=calculate_entropy
+                    # )
+                    entropy, log_prob, log_z = self._forward_micro_batch(
                         model_inputs, temperature=temperature, calculate_entropy=False, return_log_z=True
                     )
 
@@ -370,21 +389,34 @@ class FlowRLActor(DataParallelPPOActor):
                     #     rollout_log_probs=rollout_log_probs,
                     # )
                     # Compute FlowRL trajectory balance loss
-                    policy_loss, flowrl_metrics = self.compute_flowrl_objective(
-                        log_prob=log_prob,
-                        ref_log_prob=ref_log_prob,
-                        old_log_prob=old_log_prob,
-                        log_z=log_z,
-                        reward=advantages,
-                        response_mask=response_mask,
-                        clip_ratio=self.config.clip_ratio,
-                        # rollout_log_probs=rollout_log_probs,
-                    )
+                    # Use environment variable to switch between versions
+                    use_ablation = os.getenv('FLOWRL_CLIP_ABLATION', 'false').lower() == 'true'
+
+                    if use_ablation:
+                        # Ablation: only clip, no hard mask
+                        policy_loss, flowrl_metrics = self.compute_flowrl_cispo_clip_ablation(
+                            log_prob=log_prob,
+                            ref_log_prob=ref_log_prob,
+                            old_log_prob=old_log_prob,
+                            log_z=log_z,
+                            reward=advantages,
+                            response_mask=response_mask,
+                            clip_ratio=self.config.clip_ratio,
+                            rollout_log_probs=rollout_log_probs)
+                    else:
+                        # Default: CISPO with hard mask + clip
+                        policy_loss, flowrl_metrics = self.compute_flowrl_cispo_clip(
+                            log_prob=log_prob,
+                            ref_log_prob=ref_log_prob,
+                            old_log_prob=old_log_prob,
+                            log_z=log_z,
+                            reward=advantages,
+                            response_mask=response_mask,
+                            clip_ratio=self.config.clip_ratio,
+                            rollout_log_probs=rollout_log_probs)
 
                     # if entropy_coeff != 0:
-                    #     entropy_loss = agg_loss(
-                    #         loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode
-                    #     )
+                    #     entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
 
                     #     # compute policy loss
                     #     policy_loss = pg_loss - entropy_loss * entropy_coeff
@@ -408,11 +440,7 @@ class FlowRLActor(DataParallelPPOActor):
                         loss = policy_loss * loss_scale_factor
                     else:
                         loss = policy_loss * loss_scale_factor
-
-                    if self.scaler is not None:
-                        self.scaler.scale(loss).backward()
-                    else:
-                        loss.backward()
+                    loss.backward()
 
                     micro_batch_metrics.update(flowrl_metrics)
                     # micro_batch_metrics.update(
@@ -430,27 +458,27 @@ class FlowRLActor(DataParallelPPOActor):
                 append_to_dict(metrics, mini_batch_metrics)
         self.actor_optimizer.zero_grad()
         return metrics
+    
+    
+    def compute_flowrl_cispo_clip(self,
+                                log_prob=None,
+                                ref_log_prob=None,
+                                old_log_prob=None,
+                                log_z=None,
+                                reward=None,
+                                response_mask=None,
+                                clip_ratio=None,
+                                rollout_log_probs=None):
 
-    def compute_flowrl_objective(
-        self,
-        log_prob=None,
-        ref_log_prob=None,
-        old_log_prob=None,
-        log_z=None,
-        reward=None,
-        response_mask=None,
-        clip_ratio=None,
-        rollout_log_probs=None,
-    ):
         log_ratio = log_prob - old_log_prob  # (B, T)
         ratio = torch.exp(log_ratio)  # (B, T)
 
-        condition_1 = (reward > 0) & (ratio > 1.0 + self.config.clip_ratio_high)  # (B, T)
-        condition_2 = (reward < 0) & (ratio < 1.0 - self.config.clip_ratio_low)  # (B, T)
+        condition_1 = (reward > 0) & (ratio > 1.0 + 0.28)  # (B, T)
+        condition_2 = (reward < 0) & (ratio < 1.0 - 0.2)   # (B, T)
 
         # CISPO mask
-        cispo_mask = ~(condition_1 | condition_2)
-        cispo_mask = cispo_mask.float()
+        cispo_mask = ~(condition_1 | condition_2) 
+        cispo_mask = cispo_mask.float()  
         combined_mask = response_mask * cispo_mask
 
         # squeeze log_z to (B,)
@@ -470,10 +498,10 @@ class FlowRLActor(DataParallelPPOActor):
 
         # Clamp importance weight for numerical stability (prevent extreme values)
         # imp_w = torch.clamp(imp_w_raw, max=10.0)
-        imp_w = torch.clamp(imp_w_raw, 1 - self.config.clip_ratio_low, 1 + self.config.clip_ratio_high)
+        imp_w = torch.clamp(imp_w_raw, 1 - 0.2, 1 + 0.28)
 
         # Loss: weighted squared residual with clipped importance weights
-        weighted_losses = imp_w * (delta**2)
+        weighted_losses = imp_w * (delta ** 2)
         avg_loss = torch.mean(weighted_losses)
 
         # PPO KL: negative_approx_kl = log_prob - old_log_prob
@@ -501,10 +529,99 @@ class FlowRLActor(DataParallelPPOActor):
             "actor/importance_weight": imp_w.mean().detach().item(),
             "actor/ppo_kl": ppo_kl.detach().item(),  # PPO-style KL (current vs old policy)
             "actor/ref_kl": ref_kl.detach().item(),  # KL with reference policy
-            "actor/cispo_mask_ratio": cispo_mask_ratio.detach().item(),  # cispo
+            "actor/cispo_mask_ratio": cispo_mask_ratio.detach().item(),   # cispo
             "actor/cispo_dropped_tokens": cispo_dropped.detach().item(),  # cispo
             "actor/condition_1_count": (condition_1 * response_mask).sum().detach().item(),  # cispo
             "actor/condition_2_count": (condition_2 * response_mask).sum().detach().item(),  # cispo
+        }
+
+        return avg_loss, loss_term_dict
+
+
+    def compute_flowrl_cispo_clip_ablation(self,
+                                log_prob=None,
+                                ref_log_prob=None,
+                                old_log_prob=None,
+                                log_z=None,
+                                reward=None,
+                                response_mask=None,
+                                clip_ratio=None,
+                                rollout_log_probs=None):
+        """
+        Ablation study: Remove hard CISPO mask, only use importance weight clipping.
+        This version uses response_mask only (no condition-based masking).
+        """
+
+        # log_ratio = log_prob - old_log_prob  # (B, T)
+        # ratio = torch.exp(log_ratio)  # (B, T)
+
+        # === Main change: Remove hard mask, only use clip ===
+        # Original version had:
+        # condition_1 = (reward > 0) & (ratio > 1.0 + 0.28)
+        # condition_2 = (reward < 0) & (ratio < 1.0 - 0.2)
+        # cispo_mask = ~(condition_1 | condition_2)
+        # combined_mask = response_mask * cispo_mask
+
+        # New version: Only use response_mask, no hard masking
+        combined_mask = response_mask  # Only keep response_mask
+        # ====================================================
+
+        # squeeze log_z to (B,)
+        log_z = log_z.squeeze(-1)
+
+        # Average token log-probs & rewards over valid positions
+        avg_log_prob = verl_F.masked_mean(log_prob, combined_mask, axis=1)
+        avg_ref_log_prob = verl_F.masked_mean(ref_log_prob, combined_mask, axis=1)
+        seq_log_reward = verl_F.masked_mean(reward, combined_mask, axis=1)
+
+        # FlowRL residual: logZ + logpf - β*R - logpref
+        delta = log_z + avg_log_prob - self.flowrl_beta_coef * seq_log_reward - avg_ref_log_prob
+
+        # Importance ratio from current vs old policy (product of token ratios)
+        log_w = verl_F.masked_sum(log_prob - old_log_prob, combined_mask, axis=1)
+        imp_w_raw = torch.exp(log_w).detach()
+
+        # === Main change: Clipping is the core of CISPO ===
+        # This clipping is what distinguishes this from vanilla FlowRL
+        imp_w = torch.clamp(imp_w_raw, 1 - 0.2, 1 + 0.28)  # Keep this unchanged
+        # ==================================================
+
+        # Loss: weighted squared residual with clipped importance weights
+        weighted_losses = imp_w * (delta ** 2)
+        avg_loss = torch.mean(weighted_losses)
+
+        # PPO KL: negative_approx_kl = log_prob - old_log_prob
+        negative_approx_kl = log_prob - old_log_prob
+        ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
+
+        # Reference KL: approx_kl_ref = log_prob - ref_log_prob
+        approx_kl_ref = log_prob - ref_log_prob
+        ref_kl = verl_F.masked_mean(-approx_kl_ref, response_mask)
+
+        # === Updated statistics ===
+        # Since we're using clipping instead of masking, count clipped samples
+        total_tokens = response_mask.sum()
+        clipped_low = ((imp_w_raw < 1.0 - 0.2) & (imp_w_raw > 0)).sum()
+        clipped_high = (imp_w_raw > 1.0 + 0.28).sum()
+        cispo_clipped_count = clipped_low + clipped_high
+        cispo_clip_ratio = cispo_clipped_count / (total_tokens + 1e-8)
+
+        # Metrics
+        loss_term_dict = {
+            "actor/log_prob": verl_F.masked_mean(log_prob, response_mask).detach().item(),
+            "actor/old_log_prob": verl_F.masked_mean(old_log_prob, response_mask).detach().item(),
+            "actor/ref_log_prob": verl_F.masked_mean(ref_log_prob, response_mask).detach().item(),
+            "actor/log_z": log_z.mean().detach().item(),
+            "actor/log_reward": verl_F.masked_mean(reward, response_mask).detach().item(),
+            "actor/final_loss": avg_loss.detach().item(),
+            "actor/importance_weight_raw": imp_w_raw.mean().detach().item(),
+            "actor/importance_weight": imp_w.mean().detach().item(),
+            "actor/ppo_kl": ppo_kl.detach().item(),
+            "actor/ref_kl": ref_kl.detach().item(),
+            "actor/cispo_clip_ratio": cispo_clip_ratio.detach().item(),  # Renamed from mask_ratio
+            "actor/cispo_clipped_count": cispo_clipped_count.detach().item(),  # Renamed from dropped_tokens
+            "actor/clipped_low_count": clipped_low.detach().item(),
+            "actor/clipped_high_count": clipped_high.detach().item(),
         }
 
         return avg_loss, loss_term_dict
