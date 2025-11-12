@@ -18,12 +18,19 @@ from .dapo import DAPORewardManager
 from .naive import NaiveRewardManager
 from .prime import PrimeRewardManager
 
+# Import experimental reward managers to ensure they are registered
+try:
+    from verl.experimental.reward.reward_loop.limited import RateLimitedRewardLoopManager
+except ImportError:
+    pass  # Optional dependency, may not be available
+
 # Note(haibin.lin): no need to include all reward managers here in case of complicated dependencies
 __all__ = [
     "BatchRewardManager",
     "DAPORewardManager",
     "NaiveRewardManager",
     "PrimeRewardManager",
+    "RateLimitedRewardLoopManager",
     "register",
     "get_reward_manager_cls",
 ]

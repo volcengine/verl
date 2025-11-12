@@ -20,9 +20,10 @@ from omegaconf import DictConfig
 from transformers import AutoTokenizer
 
 from verl import DataProto
-from verl.experimental.reward.reward_loop import register
+from verl.experimental.reward.reward_loop import register as register_loop
 from verl.experimental.reward.reward_loop.base import RewardLoopManagerBase
 from verl.utils.reward_score import default_compute_score
+from verl.workers.reward_manager import register as register_manager
 
 logger = logging.getLogger(__file__)
 
@@ -167,7 +168,8 @@ class AsyncTokenBucket:
                 await asyncio.sleep(wait_time)
 
 
-@register("rate_limited")
+@register_loop("rate_limited")
+@register_manager("rate_limited")
 class RateLimitedRewardLoopManager(RewardLoopManagerBase):
     """Reward loop manager with rate limiting for API-based reward functions.
 
