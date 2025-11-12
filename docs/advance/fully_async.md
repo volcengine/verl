@@ -166,11 +166,11 @@ https://github.com/ArronHZG/verl-community/blob/recipe/async_policy/docs/fully_a
 
   During the training process, we observed that metrics and response lengths may become unstable in the later
   stages of training. To mitigate this issue, we can use
-  the [Rollout Correction](https://verl.readthedocs.io/en/latest/advance/rollout_corr.html)
+  the [Rollout Correction](https://verl.readthedocs.io/en/latest/algo/rollout_corr.html)
   technique for importance sampling and rejection sampling. To utilize Rollout Correction, we need to compute log_prob using
   the training engine, which requires enabling this switch.
   Additionally, when compute_prox_log_prob and Rollout Correction are enabled under mode d
-  (async stream pipeline with partial rollout), our implementation approximates `Areal's Decoupled PPO`.
+  (async stream pipeline with partial rollout), our implementation follows `Decoupled PPO` that is described in [Mathmatics of Rollout Correction](https://verl.readthedocs.io/en/latest/algo/rollout_corr_math.html).
 
 ### Supported Modes
 
