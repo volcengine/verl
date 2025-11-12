@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import torch
-from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
 from transformers import (
     ApertusConfig,
     AutoModelForCausalLM,
@@ -24,6 +23,7 @@ from transformers import (
     Qwen2Config,
 )
 
+from verl.utils.attention_utils import index_first_axis, pad_input, rearrange, unpad_input
 from verl.utils.model import compute_position_id_with_mask, create_random_mask
 from verl.utils.torch_functional import log_probs_from_logits_all_rmpad, masked_mean
 

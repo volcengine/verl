@@ -19,13 +19,13 @@ import pytest
 import torch
 import torch.distributed
 import transformers
-from flash_attn.bert_padding import index_first_axis, rearrange, unpad_input
 from packaging import version
 from torch.distributed import init_device_mesh
 from transformers import AutoModelForCausalLM, LlamaConfig, PretrainedConfig, Qwen2Config
 
 from verl.models.transformers.monkey_patch import apply_monkey_patch
 from verl.protocol import DataProto
+from verl.utils.attention_utils import index_first_axis, rearrange, unpad_input
 from verl.utils.distributed import initialize_global_process_group
 from verl.utils.model import compute_position_id_with_mask, create_random_mask
 from verl.utils.ulysses import (
