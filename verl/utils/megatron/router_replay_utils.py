@@ -78,7 +78,7 @@ def set_router_replay_data(layers_topk_idx, attention_mask):
             layers_topk_idx_rmpad.cuda().squeeze(dim=0)
         ).unsqueeze(dim=0)
 
-        mask = layers_topk_idx_rmpad_split.sum(dim=1) == 0
+        # mask = layers_topk_idx_rmpad_split.sum(dim=1) == 0
 
         # dynamic_bs_split, layer_num, topk -> layer_num, dynamic_bs_split, topk
         layers_topk_idx_reshape = layers_topk_idx_rmpad_split.permute(0, 2, 1, 3).squeeze(
@@ -94,17 +94,27 @@ class RouterReplayHelper:
     @staticmethod
     def is_r2_record_mode(router_replay) -> bool:
         """Check if current mode is R2 RECORD."""
-        return router_replay.mode == "R2" and RouterReplay.router_instances[0].routing_mode == RoutingMode.RECORD
+        return (
+            router_replay.mode == "R2"
+            and RouterReplay.router_instances
+            and RouterReplay.router_instances[0].routing_mode == RoutingMode.RECORD
+        )
 
     @staticmethod
     def is_replay_forward_mode() -> bool:
         """Check if current mode is REPLAY_FORWARD."""
-        return RouterReplay.router_instances[0].routing_mode == RoutingMode.REPLAY_FORWARD
+        return (
+            RouterReplay.router_instances
+            and RouterReplay.router_instances[0].routing_mode == RoutingMode.REPLAY_FORWARD
+        )
 
     @staticmethod
     def is_replay_backward_mode() -> bool:
         """Check if current mode is REPLAY_BACKWARD."""
-        return RouterReplay.router_instances[0].routing_mode == RoutingMode.REPLAY_BACKWARD
+        return (
+            RouterReplay.router_instances
+            and RouterReplay.router_instances[0].routing_mode == RoutingMode.REPLAY_BACKWARD
+        )
 
     @staticmethod
     def is_r2_or_r3_mode(router_replay) -> bool:

@@ -41,7 +41,11 @@ from verl.trainer.ppo.core_algos import agg_loss, get_policy_loss_fn, kl_penalty
 from verl.utils.device import get_device_id, get_torch_device
 from verl.utils.megatron.pipeline_parallel import make_batch_generator
 from verl.utils.megatron.router_replay_patch import RouterReplay, RoutingMode
-from verl.utils.megatron.router_replay_utils import RouterReplayHelper
+from verl.utils.megatron.router_replay_utils import (
+    RouterReplayHelper,
+    merge_router_topk_indices,
+    set_router_replay_data,
+)
 from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy, vocab_parallel_log_probs_from_logits
 from verl.utils.megatron_utils import get_model_config
 from verl.utils.profiler import GPUMemoryLogger
@@ -574,15 +578,11 @@ class MegatronPPOActor(BasePPOActor):
             label_mask[:, : -response_length - 1] = False
             label_mask[:, -1] = False
 
-            from verl.models.mcore import get_mcore_forward_fn, get_mcore_forward_fused_fn
-            from verl.utils.megatron.router_replay_utils import RouterReplayHelper
-
             if RouterReplayHelper.is_replay_forward_mode():
-                ####set
                 layers_topk_idx = batch["layers_topk_idx"]
-                from verl.utils.megatron.router_replay_utils import set_router_replay_data
-
                 set_router_replay_data(layers_topk_idx, attention_mask)
+
+            from verl.models.mcore import get_mcore_forward_fn, get_mcore_forward_fused_fn
 
             if self.use_fused_kernels:
                 forward_fn = get_mcore_forward_fused_fn(self.hf_config)
@@ -644,11 +644,7 @@ class MegatronPPOActor(BasePPOActor):
                     "clip_ratio_c": clip_ratio_c,
                 }
 
-            from verl.utils.megatron.router_replay_utils import RouterReplayHelper
-
             if RouterReplayHelper.is_r2_record_mode(self.router_replay):
-                from verl.utils.megatron.router_replay_utils import merge_router_topk_indices
-
                 merge_router_topk_indices(attention_mask, input_ids, self.mini_layer_topk_idx_list)
 
             if RouterReplayHelper.is_replay_forward_mode():

@@ -300,6 +300,8 @@ def apply_router_replay_patch():
     and modifies the TopKRouter to support recording and replaying of routing decisions.
     """
     print("Applying Router Replay Patch...")
+    # Clear router instances to avoid state leakage between model initializations.
+    RouterReplay.router_instances.clear()
     # Step 1: Patch TransformerConfig to include the feature flag
     if not hasattr(TransformerConfig, "enable_routing_replay"):
         # Add class attribute with default value
@@ -322,15 +324,18 @@ def apply_router_replay_patch():
         # Apply the patch
         TransformerConfig.__init__ = patched_tf_config_init
 
-    # Step 2: Store original methods of TopKRouter
+    # Step 2: Patch TopKRouter only once to ensure idempotency.
+    if hasattr(TopKRouter, "_router_replay_patched"):
+        return
+
     original_init = TopKRouter.__init__
 
     # Step 3: Define the new __init__ method
     def patched_init(self, *args, **kwargs):
         original_init(self, *args, **kwargs)
-        self.router_replay = None
         self.router_replay = RouterReplay()
 
     # Step 4: Apply the patches
     TopKRouter.__init__ = patched_init
     TopKRouter.routing = patched_routing
+    TopKRouter._router_replay_patched = True
