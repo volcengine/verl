@@ -1655,15 +1655,11 @@ def compute_policy_loss_with_rollout_correction(
     # So we apply it to the standard log-prob trick formula
 
     if rollout_is_weights is not None:
-        # With IS correction: weight the log-prob trick by IS weight
-        # w = exp(log_prob - rollout_log_prob).clamp(max=threshold)
-        # L = -E[w * log π * A]
-        # Gradient: ∇L = -E[w * ∇log π * A] = -E[w * A]
+        # IS-corrected policy gradient: L = -E[stopgrad(w) · log π · A]
+        # Weights w = π_θ/π_rollout are already detached in compute_rollout_correction_weights()
         pg_losses = -advantages * log_prob * rollout_is_weights
     else:
-        # No IS correction: standard REINFORCE with log-prob trick
-        # L = -E[log π(a|s) * A]
-        # Gradient: ∇L = -E[∇log π * A] = -E[A]
+        # Standard REINFORCE: L = -E[log π · A]
         pg_losses = -advantages * log_prob
 
     # Aggregate loss (apply scale factor manually)

@@ -108,7 +108,7 @@ L_{\text{DecoupledPPO}}(\theta) = -\mathbb{E}_{(s,a) \sim \mu} \left[ w_t \cdot 
 $$
 
 where:
-- $w_t = \frac{\pi_{\text{prox}}(a_t|s_t)}{\mu(a_t|s_t)}$: Importance sampling weight (corrects for behavior policy $\mu$)
+- $w_t = \frac{\pi_{\text{prox}}(a_t|s_t)}{\mu(a_t|s_t)}$: Importance sampling weight (corrects for behavior policy $\mu$). Here $\pi_{\text{prox}}$ is frozen during training, so $w_t$ is constant (no stopgrad operator needed).
 - $r_t(\theta) = \frac{\pi_\theta(a_t|s_t)}{\pi_{\text{prox}}(a_t|s_t)}$: PPO ratio (controls policy update size against proximal policy $\pi_{\text{prox}}$)
 
 **Key properties**: By decoupling:
@@ -276,7 +276,7 @@ L_{\text{PPO}}(\theta) = -\mathbb{E}_t \left[ w_t \cdot \min\left( r_t(\theta) A
 $$
 
 where:
-- $w_t$: IS weight (depends on aggregation level, see Section 3.3)
+- $w_t$: IS weight (depends on aggregation level, see Section 3.3). In decoupled mode, $w_t = \frac{\pi_{\text{old}}}{\pi_{\text{rollout}}}$ where $\pi_{\text{old}}$ is frozen, so $w_t$ is constant (no stopgrad needed). In bypass mode with PPO loss, no separate IS weights are typically computed.
 - $r_t(\theta) = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{old}}(a_t|s_t)}$: PPO ratio
 - $\epsilon$: Clip range (typically 0.2)
 
@@ -292,20 +292,61 @@ where:
 **Loss function** (example with sequence-level IS):
 
 $$
-L_{\text{PG}}(\theta) = -\mathbb{E}_{(s,a) \sim \pi_{\text{rollout}}} \left[ w_{\text{seq}}(\theta) \cdot \sum_{t \in T} \log \pi_{\theta}(a_t|s_t) \cdot A_t \right]
+L_{\text{PG}}(\theta) = -\mathbb{E}_{(s,a) \sim \pi_{\text{rollout}}} \left[ \text{stopgrad}(w_{\text{seq}}(\theta)) \cdot \sum_{t \in T} \log \pi_{\theta}(a_t|s_t) \cdot A_t \right]
 $$
 
 where:
 - $w_{\text{seq}}(\theta)$: Sample weight (IS or RS, see §3.3-3.4 for details)
 - For IS: $w_{\text{seq}}(\theta) = \min\left( \prod_{t \in T} \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}, C_{\text{IS}} \right)$
 - For RS: $w_{\text{seq}}(\theta) \in \{0, 1\}$ (binary rejection mask)
-- Weight is **detached from gradient** (treated as constant)
+- **stopgrad operator**: The weight $w_{\text{seq}}(\theta)$ is computed using $\pi_\theta$ but treated as a **constant coefficient** when computing $\nabla_\theta L$. This is essential for importance sampling correctness (see theoretical justification below).
 
 **Effective gradient:**
 
 $$
 \nabla_\theta L_{\text{PG}} = -\mathbb{E}_{(s,a) \sim \pi_{\text{rollout}}} \left[ \text{stopgrad}(w_{\text{seq}}(\theta)) \cdot \sum_{t \in T} \nabla_\theta \log \pi_{\theta}(a_t|s_t) \cdot A_t \right]
 $$
+
+**Theoretical Justification for stopgrad:**
+
+The stopgrad operator is **mathematically required** by importance sampling theory, not an implementation detail. Here's why:
+
+**The fundamental principle**: Importance sampling is a technique to **change the measure** (reweight samples from one distribution to estimate expectations under another), not to optimize the reweighting function itself.
+
+**Formal derivation**:
+
+1. **Original objective**: We want to optimize $J(\theta) = \mathbb{E}_{\tau \sim \pi_\theta}[\sum_t A_t]$.
+
+2. **Off-policy setting**: We only have samples from $\pi_{\text{rollout}}$, so we use importance sampling:
+   $$
+   J(\theta) = \mathbb{E}_{\tau \sim \pi_{\text{rollout}}} \left[ \underbrace{\frac{P_{\pi_\theta}(\tau)}{P_{\pi_{\text{rollout}}}(\tau)}}_{w(\tau;\theta)} \sum_t A_t \right]
+   $$
+
+3. **Computing the policy gradient**: The correct gradient uses the **policy gradient theorem BEFORE importance sampling**:
+   $$
+   \begin{aligned}
+   \nabla_\theta J(\theta) &= \nabla_\theta \mathbb{E}_{\tau \sim \pi_\theta}\left[\sum_t A_t\right] \\
+   &= \mathbb{E}_{\tau \sim \pi_\theta} \left[\sum_t A_t \nabla_\theta \log \pi_\theta(a_t|s_t) \right] \quad \text{(policy gradient theorem)} \\
+   &= \mathbb{E}_{\tau \sim \pi_{\text{rollout}}} \left[ w(\tau;\theta) \sum_t A_t \nabla_\theta \log \pi_\theta(a_t|s_t) \right] \quad \text{(change of measure)}
+   \end{aligned}
+   $$
+
+   In the final line, $w(\tau;\theta)$ appears as a **multiplicative coefficient** from the change of measure, not as something we differentiate.
+
+4. **What goes wrong without stopgrad**: If we naively compute $\nabla_\theta \left[w(\theta) \log \pi_\theta \right]$ in the loss, we get:
+   $$
+   \nabla_\theta \left[w(\theta) \log \pi_\theta \right] = \underbrace{\log \pi_\theta \cdot \nabla_\theta w(\theta)}_{\text{WRONG: bias term}} + \underbrace{w(\theta) \cdot \nabla_\theta \log \pi_\theta}_{\text{CORRECT: IS-weighted gradient}}
+   $$
+
+   The first term $\log \pi_\theta \cdot \nabla_\theta w(\theta)$ is an artifact of the computational trick (using loss times log-prob), not part of the true policy gradient. It biases the gradient estimator and optimizes a different objective than $J(\theta)$.
+
+5. **Implementation requirement**: In PyTorch, to compute only the second term, we must use:
+   ```python
+   loss = -advantages * log_prob * rollout_is_weights.detach()  # stopgrad on weights
+   ```
+   Without `.detach()`, autograd computes both terms, giving an incorrect gradient.
+
+**Intuition**: The IS weight $w(\theta)$ tells us "how much to trust this sample" for estimating the gradient under $\pi_\theta$. We update $\theta$ to maximize the reweighted objective, but we don't update $\theta$ to maximize the weight itself—that would be circular reasoning (optimizing the correction factor instead of the actual objective).
 
 **Properties:**
 - **Algorithm**: Off-policy REINFORCE + IS/RS correction
@@ -340,10 +381,10 @@ rollout_rs = "token"  # Optional: rejection sampling
 **Loss function (REINFORCE + Token IS):**
 
 $$
-L_{\text{REINFORCE+TIS}}(\theta) = -\mathbb{E}_t \left[ w_t \cdot \nabla_\theta \log \pi_\theta(a_t|s_t) \cdot A_t \right]
+L_{\text{REINFORCE+TIS}}(\theta) = -\mathbb{E}_t \left[ \text{stopgrad}(w_t) \cdot \log \pi_\theta(a_t|s_t) \cdot A_t \right]
 $$
 
-where $w_t$ are the truncated token-level IS weights. This formulation can also be combined with PPO clipping by replacing the REINFORCE gradient with the clipped surrogate objective.
+where $w_t = \min(\rho_t, C_{\text{IS}})$ are the truncated token-level IS weights. The stopgrad operator ensures that when computing $\nabla_\theta L$, the weights are treated as constants (see §3.2.2 for theoretical justification). This formulation can also be combined with PPO clipping by replacing the REINFORCE gradient with the clipped surrogate objective.
 
 **Implementation:**
 - IS weights: `compute_rollout_correction_weights()` in [rollout_corr_helper.py](../../verl/trainer/ppo/rollout_corr_helper.py#L325-L402)
@@ -368,10 +409,10 @@ rollout_rs = "sequence"  # Optional: rejection sampling
 **Loss function (REINFORCE + Sequence IS):**
 
 $$
-L_{\text{REINFORCE+SeqIS}}(\theta) = -\mathbb{E}_t \left[ w_{\text{seq}} \cdot \nabla_\theta \log \pi_\theta(a_t|s_t) \cdot A_t \right]
+L_{\text{REINFORCE+SeqIS}}(\theta) = -\mathbb{E}_t \left[ \text{stopgrad}(w_{\text{seq}}) \cdot \log \pi_\theta(a_t|s_t) \cdot A_t \right]
 $$
 
-where $w_{\text{seq}}$ is broadcast to all tokens in the sequence. This formulation can also be combined with PPO clipping.
+where $w_{\text{seq}}$ is broadcast to all tokens in the sequence. The stopgrad operator ensures correct IS gradient computation (see §3.2.2). This formulation can also be combined with PPO clipping.
 
 #### 3.3.3 Geometric Aggregation
 
@@ -399,10 +440,10 @@ A threshold of 1.001 means rejecting sequences with average per-token deviation 
 **Loss function (REINFORCE + Geometric RS):**
 
 $$
-L_{\text{GeoRS}}(\theta) = -\mathbb{E}_{(s,a) \mid \text{seq} \in \mathcal{A}_{\text{geo}}} \left[ \sum_{t \in T} \nabla_\theta \log \pi_\theta(a_t|s_t) \cdot A_t \right]
+L_{\text{GeoRS}}(\theta) = -\mathbb{E}_{(s,a) \mid \text{seq} \in \mathcal{A}_{\text{geo}}} \left[ \sum_{t \in T} \log \pi_\theta(a_t|s_t) \cdot A_t \right]
 $$
 
-where $\mathcal{A}_{\text{geo}} = \{ \text{seq} : C_{\text{RS-lower}} \leq \rho_{\text{geo}} \leq C_{\text{RS-upper}} \}$ is the acceptance set. This formulation can also be combined with PPO clipping.
+where $\mathcal{A}_{\text{geo}} = \{ \text{seq} : C_{\text{RS-lower}} \leq \rho_{\text{geo}} \leq C_{\text{RS-upper}} \}$ is the acceptance set (rejection mask). No IS weights are used, so no stopgrad needed. This formulation can also be combined with PPO clipping.
 
 ---
 
