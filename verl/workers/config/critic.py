@@ -86,6 +86,7 @@ class CriticConfig(BaseConfig):
     model_config: HFModelConfig = None
     checkpoint: CheckpointConfig = field(default_factory=CheckpointConfig)
     profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
+    attn_implementation: str = "auto"
 
     def __post_init__(self):
         """Validate critic configuration parameters."""

@@ -29,6 +29,14 @@ __all__ = ["HFModelConfig"]
 
 @dataclass
 class HFModelConfig(BaseConfig):
+    """HF model loading config
+
+    Attention backend is controlled per-role via `<role>.attn_implementation`.
+    Legal values (case-insensitive): 'flash_attention_3', 'flash_attention_2',
+    'flex_attention', 'sdpa', 'eager', or 'auto'. If omitted, falls back to the
+    `VERL_ATTN_IMPLEMENTATION` env var or auto-detection
+    """
+
     # note that we separate model_path, model_config_path and tokenizer_path in case they are different
     _mutable_fields = {
         "hf_config_path",
@@ -91,6 +99,8 @@ class HFModelConfig(BaseConfig):
     architectures: Optional[list[str]] = None
 
     def __post_init__(self):
+        from verl.utils.attention_utils import configure_attention
+
         import_external_libs(self.external_lib)
 
         if self.hf_config_path is None:
@@ -117,10 +127,13 @@ class HFModelConfig(BaseConfig):
             self.local_hf_config_path, trust_remote_code=self.trust_remote_code
         )
 
-        # constuct hf_config
-        attn_implementation = self.override_config.get("attn_implementation", "flash_attention_2")
+        # construct hf_config
+        requested_attn = self.override_config.get("attn_implementation", None)
+        attn_impl = configure_attention(requested_attn)["hf"]
         self.hf_config = AutoConfig.from_pretrained(
-            self.local_hf_config_path, trust_remote_code=self.trust_remote_code, attn_implementation=attn_implementation
+            self.local_hf_config_path,
+            trust_remote_code=self.trust_remote_code,
+            attn_implementation=attn_impl,
         )
 
         override_config_kwargs = {}

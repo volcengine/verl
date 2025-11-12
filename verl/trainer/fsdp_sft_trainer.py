@@ -44,7 +44,7 @@ from tqdm import tqdm
 from transformers import AutoConfig, AutoModelForCausalLM, PreTrainedModel
 
 import verl.utils.hdfs_io as hdfs_io
-from verl.utils.attention_utils import index_first_axis, pad_input, rearrange, unpad_input
+from verl.utils.attention_utils import index_first_axis, pad_input, unpad_input
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, get_checkpoint_tracker_filename
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.utils.dataset import SFTDataset
@@ -201,6 +201,8 @@ class FSDPSFTTrainer:
         # TODO (zhangchi.usc1992):
         # 1. support pretrain from random weights
         # 2. support init directly from sharded weights
+        from verl.utils.attention_utils import configure_attention
+
         local_model_path = copy_to_local(src=self.config.model.partial_pretrain, verbose=True)
 
         if self.config.model.get("external_lib", None) is not None:
@@ -230,11 +232,15 @@ class FSDPSFTTrainer:
         )
 
         with init_context():
+            preferred_attn = None
+            if hasattr(self.config, "actor") and getattr(self.config.actor, "attn_implementation", None) is not None:
+                preferred_attn = self.config.actor.attn_implementation
+            attn_impl = configure_attention(preferred_attn)["hf"]
             self.model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(
                 local_model_path,
                 config=config,
                 torch_dtype=torch_dtype,
-                attn_implementation="flash_attention_2",
+                attn_implementation=attn_impl,
                 trust_remote_code=trust_remote_code,
             )
 
@@ -408,9 +414,7 @@ class FSDPSFTTrainer:
                 input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
 
                 # Unpad position_ids to align rotary
-                position_ids_rmpad = index_first_axis(
-                    rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices
-                ).transpose(0, 1)
+                position_ids_rmpad = index_first_axis(position_ids.unsqueeze(-1), indices).transpose(0, 1)
 
                 # Pad and slice inputs for sequence parallelism
                 input_ids_rmpad_sliced, position_ids_rmpad_padded, pad_size = ulysses_pad_and_slice_inputs(

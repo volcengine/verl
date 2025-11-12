@@ -108,6 +108,7 @@ class ActorConfig(BaseConfig):
     entropy_coeff: float = 0
     use_kl_loss: bool = False
     use_torch_compile: bool = True
+    attn_implementation: str = "auto"
     kl_loss_coef: float = 0.001
     kl_loss_type: str = "low_var_kl"
     ppo_epochs: int = 1

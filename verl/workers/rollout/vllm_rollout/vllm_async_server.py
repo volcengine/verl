@@ -192,6 +192,8 @@ class vLLMHttpServerBase:
         return self._server_address, self._server_port
 
     async def launch_server(self, master_address: str = None, master_port: int = None):
+        from verl.utils.attention_utils import configure_attention
+
         if self.node_rank != 0:
             assert master_address and master_port, "non-master node should provide master address and port"
             self._master_address = master_address
@@ -278,6 +280,9 @@ class vLLMHttpServerBase:
 
         if self.replica_rank == 0:
             pprint(server_args)
+
+        preferred_attn = self.config.get("attn_implementation", None)
+        configure_attention(preferred=preferred_attn, set_vllm_env=True)
 
         CMD_MODULES = [vllm.entrypoints.cli.serve]
         parser = FlexibleArgumentParser(description="vLLM CLI")

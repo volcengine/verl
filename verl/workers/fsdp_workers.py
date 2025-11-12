@@ -49,6 +49,7 @@ from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
 from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.activation_offload import enable_activation_offloading
+from verl.utils.attention_utils import configure_attention
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.device import (
@@ -315,9 +316,14 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             torch_dtype = PrecisionType.to_dtype(torch_dtype)
 
         # override model kwargs
-        attn_implementation = override_model_config.get("attn_implementation", "flash_attention_2")
+        preferred_attn = None
+        if role == "actor":
+            preferred_attn = self.config.actor.get("attn_implementation", None)
+        elif role == "ref":
+            preferred_attn = self.config.ref.get("attn_implementation", None)
+        attn_impl = configure_attention(preferred_attn)["hf"]
         actor_model_config = AutoConfig.from_pretrained(
-            local_path, trust_remote_code=trust_remote_code, attn_implementation=attn_implementation
+            local_path, trust_remote_code=trust_remote_code, attn_implementation=attn_impl
         )
         # TODO: VL models use VisionAttention, which directly uses flash_attention in transformers>=4.53
         # which will be patched by _ulysses_flash_attention_forward, but errorly misses position_ids
@@ -379,7 +385,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 torch_dtype=torch_dtype,
                 config=actor_model_config,
                 trust_remote_code=trust_remote_code,
-                attn_implementation=attn_implementation,
+                attn_implementation=attn_impl,
             )
 
             # Apply Liger kernel to the model if use_liger is set to True
@@ -1252,10 +1258,11 @@ class CriticWorker(Worker, DistProfilerExtension):
         from transformers import AutoConfig
 
         # override model kwargs
-        attn_implementation = override_config.get("attn_implementation", "flash_attention_2")
+        preferred_attn = self.config.get("attn_implementation", None)
+        attn_impl = configure_attention(preferred_attn)["hf"]
         critic_model_config = AutoConfig.from_pretrained(
             local_path,
-            attn_implementation=attn_implementation,
+            attn_implementation=attn_impl,
             trust_remote_code=config.model.get("trust_remote_code", False),
         )
         # TODO: VL models use VisionAttention, which directly uses flash_attention in transformers>=4.53
@@ -1665,11 +1672,14 @@ class RewardModelWorker(Worker, DistProfilerExtension):
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
             model_config.classifier_dropout = 0.0
+
+            preferred_attn = self.config.get("attn_implementation", None)
+            attn_impl = configure_attention(preferred_attn)["hf"]
             reward_module = AutoModelForTokenClassification.from_pretrained(
                 pretrained_model_name_or_path=local_path,
                 config=model_config,
                 torch_dtype=torch.bfloat16,
-                attn_implementation="flash_attention_2",
+                attn_implementation=attn_impl,
                 trust_remote_code=trust_remote_code,
             )
 
@@ -1742,14 +1752,12 @@ class RewardModelWorker(Worker, DistProfilerExtension):
                 # unpad the position_ids to align the rotary
                 if position_ids.dim() == 3:
                     position_ids_rmpad = (
-                        index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices)
+                        index_first_axis(rearrange(position_ids, "c b s ... -> b s c ..."), indices)
                         .transpose(0, 1)
                         .unsqueeze(1)
                     )  # (3, bsz, seqlen) -> (3, 1, bsz * seqlen)
                 else:
-                    position_ids_rmpad = index_first_axis(
-                        rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices
-                    ).transpose(0, 1)
+                    position_ids_rmpad = index_first_axis(position_ids.unsqueeze(-1), indices).transpose(0, 1)
 
                 # pad and slice the inputs if sp > 1
                 if self.ulysses_sequence_parallel_size > 1:

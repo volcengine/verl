@@ -75,14 +75,12 @@ class DataParallelPPOCritic(BasePPOCritic):
                 # unpad the position_ids to align the rotary
                 if position_ids.dim() == 3:
                     position_ids_rmpad = (
-                        index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices)
+                        index_first_axis(rearrange(position_ids, "c b s ... -> b s c ..."), indices)
                         .transpose(0, 1)
                         .unsqueeze(1)
                     )  # (4, bsz, seqlen) -> (4, 1, bsz * seqlen)
                 else:
-                    position_ids_rmpad = index_first_axis(
-                        rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices
-                    ).transpose(0, 1)
+                    position_ids_rmpad = index_first_axis(position_ids.unsqueeze(-1), indices).transpose(0, 1)
 
                 # pad and slice the inputs if sp > 1
                 if self.ulysses_sequence_parallel_size > 1:

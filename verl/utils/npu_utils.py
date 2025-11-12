@@ -121,7 +121,7 @@ def unpad_input(hidden_states, attention_mask, unused_mask=None):
     # index with integer indices. Moreover, torch's index is a bit slower than it needs to be,
     # so we write custom forward and backward to make it a bit faster.
     return (
-        index_first_axis(rearrange(hidden_states, "b s ... -> (b s) ..."), indices),
+        index_first_axis(hidden_states, indices),
         indices,
         cu_seqlens,
         max_seqlen_in_batch,
