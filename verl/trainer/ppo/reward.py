@@ -159,8 +159,8 @@ def load_reward_manager(
     # Instantiate and return the reward manager with the specified parameters
     # For prime reward manager, pass num_processes from config if available
     if reward_manager_name == "prime":
-        max_concurrent = config.reward_model.get("max_concurrent", 64)
-        reward_kwargs = {**reward_kwargs, "num_processes": max_concurrent}
+        if "num_processes" not in reward_kwargs:
+            reward_kwargs["num_processes"] = config.reward_model.get("max_concurrent", 64)
 
     return reward_manager_cls(
         tokenizer=tokenizer,
