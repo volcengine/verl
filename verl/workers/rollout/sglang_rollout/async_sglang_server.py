@@ -152,6 +152,7 @@ class SGLangHttpServer:
             "mm_attention_backend": "fa3",
             "attention_backend": attention_backend if attention_backend is not None else "fa3",
             "skip_tokenizer_init": self.config.skip_tokenizer_init,
+            "skip_server_warmup": True,
             **engine_kwargs,
         }
         # enable_weights_cpu_backup is supported in sglang>=0.5.3
