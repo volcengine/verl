@@ -77,5 +77,5 @@ use_mbridge: False
 # whether to use forward only
 forward_only: False
 
-# whether to use fp16
-fp16: False
+# model data type used to initialize the transformers model
+dtype: bfloat16 # ["bfloat16", "float16"]
