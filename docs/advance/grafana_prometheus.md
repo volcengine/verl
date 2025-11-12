@@ -14,11 +14,13 @@ The system automatically configures Prometheus to scrape metrics from rollout se
 
 The figures below show the performance of Qwen235B on the AIME2024 dataset with a response length of 20k, where the emergence of a long-tail problem is clearly observable.
 
-<img alt="image" src="https://github.com/ArronHZG/verl-community/blob/recipe/async_policy/docs/grafana_validate.png" />
+![fully_async_policy_structure](
+https://github.com/ArronHZG/verl-community/blob/main/docs/grafana_validate.png?raw=true)
 
 The following figure presents the fully asynchronous training of the Qwen235B model. Here, resource idleness is distinctly noticeable, indicating that rollout resources can be reduced.
 
-<img alt="image" src="https://github.com/ArronHZG/verl-community/blob/recipe/async_policy/docs/grafana_fully_async_train.png" />
+![fully_async_policy_structure](
+https://github.com/ArronHZG/verl-community/blob/main/docs/grafana_fully_async_train.png?raw=true)
 
 Through the above two examples, we also illustrate the necessity of system observability.
 
@@ -174,8 +176,9 @@ After task execution, log in to Grafana to view and customize monitoring dashboa
 2. Upload a pre-built dashboard JSON file
 
 **Available Dashboards:**
-* vllm verl/examples/grafana/vllm_grafana.json
-* [vLLM Grafana Dashboard](https://github.com/vllm-project/vllm/blob/main/examples/online_serving/dashboards/grafana/performance_statistics.json)
+* [vLLM Grafana Dashboard style 1](https://github.com/ArronHZG/verl-community/blob/main/docs/grafana/vllm_grafana.json)
+* [vLLM Grafana Dashboard style 2](https://github.com/vllm-project/vllm/blob/main/examples/online_serving/dashboards/grafana/performance_statistics.json)
+* [vLLM Grafana Dashboard style 2](https://github.com/vllm-project/vllm/blob/main/examples/online_serving/dashboards/grafana/query_statistics.json)
 * [SGLang Grafana Dashboard](https://github.com/sgl-project/sglang/blob/main/examples/monitoring/grafana/dashboards/json/sglang-dashboard.json)
 
 
