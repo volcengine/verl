@@ -22,11 +22,18 @@ import torch
 import torch.nn.functional as F
 import torch_npu
 from torch_npu import npu_rotary_mul as apply_rotary_emb
-from transformers.modeling_utils import PretrainedConfig, PreTrainedModel
 from transformers.models.qwen2_5_vl import modeling_qwen2_5_vl
 from transformers.models.qwen3 import modeling_qwen3
 from transformers.models.qwen3_moe import modeling_qwen3_moe
+from transformers.models.qwen3_vl import modeling_qwen3_vl
+from transformers.models.qwen3_vl_moe import modeling_qwen3_vl_moe
 from transformers.utils import logging
+
+if get_version("transformers") > "4.57.1":
+    from transformers.configuration_utils import PretrainedConfig
+    from transformers.modeling_utils import PreTrainedModel
+else:
+    from transformers.modeling_utils import PretrainedConfig, PreTrainedModel
 
 logger = logging.get_logger(__name__)
 
@@ -202,6 +209,10 @@ modeling_qwen3_moe.Qwen3MoeSparseMoeBlock.forward = moe_block_forward
 modeling_qwen3_moe.apply_rotary_pos_emb = apply_rotary_pos_emb_qwen3_npu
 modeling_qwen3.Qwen3RMSNorm.forward = rms_norm_forward
 modeling_qwen3.Qwen3MLP.forward = silu_forward
+modeling_qwen3_vl_moe.Qwen3VLMoeTextRMSNorm.forward = rms_norm_forward
+modeling_qwen3_vl_moe.apply_rotary_pos_emb = apply_rotary_pos_emb_qwen3_npu
+modeling_qwen3_vl.Qwen3VLTextRMSNorm.forward = rms_norm_forward
+modeling_qwen3_vl.Qwen3VLTextMLP.forward = silu_forward
 
 if get_version("transformers") == "4.52.4":
     PreTrainedModel._check_and_enable_flash_attn_2 = _check_and_enable_flash_attn_2
