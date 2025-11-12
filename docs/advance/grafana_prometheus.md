@@ -10,6 +10,13 @@ We provide an additional training monitoring capability, leveraging Prometheus a
 
 The system automatically configures Prometheus to scrape metrics from rollout servers, eliminating manual configuration steps.
 
+    
+> Note: SGLang integration is currently under development and debugging. Some features may not
+> work as expected and the implementation is subject to change. Please use with caution
+> in production environments.
+
+
+
 ## Overview
 
 The figures below show the performance of Qwen235B on the AIME2024 dataset with a response length of 20k, where the emergence of a long-tail problem is clearly observable.
@@ -109,7 +116,6 @@ If use default port, this parameter can be omitted.
 
 If use default path, this parameter can be omitted.
 * `actor_rollout_ref.rollout.prometheus.file="/tmp/ray/session_latest/metrics/prometheus/prometheus.yml"`
-
 
 served_model_name uses `model_path.split("/")[-1]` for data statistics by default. 
 Users can also customize other aliases:
