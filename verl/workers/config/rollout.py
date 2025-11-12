@@ -27,6 +27,7 @@ __all__ = [
     "AgentLoopConfig",
     "TraceConfig",
     "ServerConfig",
+    "PrometheusConfig",
     "RolloutConfig",
 ]
 
