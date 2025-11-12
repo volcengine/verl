@@ -83,6 +83,12 @@ def should_continue(state: MessagesState, config: RunnableConfig) -> Literal["to
 
 
 class ReactAgentLoop(AgentLoopBase):
+    # Recursion limit calculation constants
+    DEFAULT_MAX_ASSISTANT_TURNS = 25
+    MIN_RECURSION_LIMIT = 50
+    NODES_PER_TURN = 2  # Each AI turn involves agent + tools nodes
+    RECURSION_LIMIT_SAFETY_FACTOR = 1.5  # 50% buffer for edge cases
+
     @classmethod
     def init_class(cls, config, tokenizer, **kwargs):
         if cls._class_initialized:
@@ -132,16 +138,17 @@ class ReactAgentLoop(AgentLoopBase):
         model = model.bind_tools(self.tools, tool_choice="any")
 
         # Calculate recursion_limit dynamically based on max_assistant_turns
-        # In ReAct agent loop, each AI turn involves 2 node executions:
-        #   1. agent node (generates AI message)
-        #   2. tools node (executes tool calls)
-        # Therefore, we need: max_assistant_turns * 2 nodes
-        # Add 50% buffer for safety (e.g., for edge cases, retries, etc.)
-        # Set minimum to 50 to handle cases where max_assistant_turns is very small or not set
-        max_assistant_turns = rollout.multi_turn.max_assistant_turns if rollout.multi_turn.max_assistant_turns else 25
+        max_assistant_turns = (
+            rollout.multi_turn.max_assistant_turns
+            if rollout.multi_turn.max_assistant_turns
+            else self.DEFAULT_MAX_ASSISTANT_TURNS
+        )
 
         # Formula: nodes_per_turn * max_turns * safety_buffer, with minimum threshold
-        recursion_limit = max(50, int(max_assistant_turns * 2 * 1.5))
+        recursion_limit = max(
+            self.MIN_RECURSION_LIMIT,
+            int(max_assistant_turns * self.NODES_PER_TURN * self.RECURSION_LIMIT_SAFETY_FACTOR),
+        )
         logger.info(f"Configured recursion_limit={recursion_limit} (max_assistant_turns={max_assistant_turns})")
 
         config = {
@@ -160,6 +167,8 @@ class ReactAgentLoop(AgentLoopBase):
         try:
             state = await self.graph.ainvoke(input={"messages": messages}, config=config)
         except Exception as e:
+            # Gracefully handle any graph execution errors (e.g., GraphRecursionError)
+            # This ensures training can continue even when individual agent loops fail
             logger.error(f"Agent loop execution failed: {type(e).__name__}: {e}")
             logger.error("Attempting to recover by extracting last valid trajectory.")
 
@@ -177,9 +186,12 @@ class ReactAgentLoop(AgentLoopBase):
                     break
 
             if last_valid_ai_message:
+                # Best case: We have a valid trajectory from existing messages
                 logger.info("Recovered valid trajectory from existing messages.")
                 state = {"messages": messages}
             else:
+                # Worst case: No valid trajectory, create minimal valid fallback
+                # This ensures convert_to_agent_output() doesn't fail
                 logger.warning("No valid trajectory found. Creating minimal fallback.")
                 fallback_message = AIMessage(
                     content="[Agent execution failed - no valid trajectory]",
