@@ -28,7 +28,55 @@ logger = logging.getLogger(__file__)
 
 
 class AsyncTokenBucket:
-    """Async token bucket for rate limiting with variable token consumption."""
+    """Async token bucket for rate limiting with variable token consumption.
+
+    The token bucket algorithm is a classic rate limiting technique that allows
+    for burst traffic while maintaining an average rate limit. This implementation
+    is async-first and thread-safe, designed for use in concurrent environments.
+
+    The bucket starts full and refills at a constant rate (rate_limit tokens/second).
+    When tokens are acquired, they are consumed from the bucket. If insufficient
+    tokens are available, the acquire() method will sleep until enough tokens
+    have been refilled.
+
+    This implementation supports variable token consumption, making it suitable
+    for rate limiting based on request size (e.g., API token usage).
+
+    Args:
+        rate_limit (float): The rate at which tokens are added to the bucket,
+            in tokens per second. For example, rate_limit=10.0 means 10 tokens
+            are added per second (or 600 per minute).
+        max_tokens (float, optional): The maximum capacity of the token bucket.
+            Defaults to rate_limit if not specified. This value determines the
+            maximum burst size allowed.
+
+    Attributes:
+        rate_limit (float): Tokens added per second.
+        max_tokens (float): Maximum bucket capacity.
+        tokens (float): Current number of available tokens.
+        last_update (float | None): Timestamp of last token update (from event loop).
+        lock (asyncio.Lock): Async lock for thread-safe token operations.
+
+    Example:
+        >>> # Limit to 60 requests per minute (1 request per second)
+        >>> rpm_limiter = AsyncTokenBucket(rate_limit=1.0, max_tokens=1.0)
+        >>> await rpm_limiter.acquire(1.0)  # Consumes 1 token
+        >>>
+        >>> # Limit to 10000 tokens per minute (~166.67 tokens per second)
+        >>> tpm_limiter = AsyncTokenBucket(rate_limit=166.67, max_tokens=166.67)
+        >>> await tpm_limiter.acquire(100.0)  # Consumes 100 tokens
+
+    Thread Safety:
+        All operations are protected by an asyncio.Lock, making this class safe
+        for concurrent use across multiple coroutines.
+
+    Algorithm Details:
+        1. On each acquire(), calculate elapsed time since last update
+        2. Refill tokens: tokens += elapsed * rate_limit (capped at max_tokens)
+        3. If tokens >= num_tokens: consume tokens and return
+        4. Otherwise: calculate wait_time = tokens_needed / rate_limit, then sleep
+        5. Retry after sleep (loop back to step 1)
+    """
 
     def __init__(self, rate_limit: float, max_tokens: float = None):
         self.rate_limit = rate_limit
@@ -38,7 +86,33 @@ class AsyncTokenBucket:
         self.lock = asyncio.Lock()
 
     async def acquire(self, num_tokens: float = 1.0) -> None:
-        """Acquire tokens, waiting if necessary."""
+        """Acquire tokens from the bucket, waiting if necessary.
+
+        This method will block (using asyncio.sleep) until sufficient tokens
+        are available. It automatically refills tokens based on elapsed time
+        and the configured rate_limit.
+
+        Args:
+            num_tokens (float): Number of tokens to consume. Defaults to 1.0.
+                Can be fractional for fine-grained rate limiting.
+
+        Returns:
+            None: Returns when tokens have been successfully acquired.
+
+        Raises:
+            No exceptions are raised. This method will wait indefinitely until
+            tokens become available.
+
+        Example:
+            >>> bucket = AsyncTokenBucket(rate_limit=10.0)
+            >>> await bucket.acquire(5.0)  # Acquire 5 tokens
+            >>> await bucket.acquire(1.0)  # Acquire 1 more token
+
+        Implementation Notes:
+            - Uses event loop's time() for high-precision timestamps
+            - Lock is released during sleep to allow other coroutines to proceed
+            - Tokens are refilled continuously based on elapsed time
+        """
         while True:
             async with self.lock:
                 loop = asyncio.get_running_loop()
@@ -67,10 +141,81 @@ class AsyncTokenBucket:
 class RateLimitedRewardLoopManager(RewardLoopManagerBase):
     """Reward loop manager with rate limiting for API-based reward functions.
 
-    Supports three-layer rate limiting for LLM-as-judge scenarios:
-    - Concurrency limiting (max_concurrent)
-    - Request rate limiting (max_rpm)
-    - Token rate limiting (max_tpm)
+    This manager implements a sophisticated three-layer rate limiting system
+    designed for LLM-as-judge scenarios where reward computation involves
+    external API calls (e.g., OpenAI, Anthropic, Claude) that have rate limits.
+
+    The three layers of rate limiting are:
+        1. **Concurrency limiting** (max_concurrent): Limits the number of
+           simultaneous API requests using asyncio.Semaphore. This prevents
+           overwhelming the API with too many parallel connections.
+
+        2. **Request rate limiting** (max_rpm): Limits requests per minute
+           using AsyncTokenBucket. Each request consumes 1 token. Useful for
+           APIs with per-minute request quotas.
+
+        3. **Token rate limiting** (max_tpm): Limits tokens per minute using
+           AsyncTokenBucket. Each request consumes estimated_tokens_per_request
+           tokens. Essential for APIs that bill or limit based on token usage
+           (e.g., GPT-4 API).
+
+    All rate limiters are **global class-level resources**, meaning they are
+    shared across all instances of this manager. This ensures that rate limits
+    are enforced consistently across multiple workers in distributed training.
+
+    Rate Limiting Flow:
+        When processing a reward request, the manager:
+        1. Acquires RPM token (if rpm_limiter enabled)
+        2. Acquires TPM tokens (if tpm_limiter enabled)
+        3. Acquires concurrency semaphore
+        4. Executes reward computation with timeout
+        5. Releases concurrency semaphore
+        6. Tokens are automatically refilled by the token buckets
+
+    Args:
+        config (DictConfig): Configuration object containing reward_model settings:
+            - max_concurrent (int): Max parallel requests. Default: 1
+            - max_rpm (int | None): Max requests per minute. Default: None (unlimited)
+            - max_tpm (int | None): Max tokens per minute. Default: None (unlimited)
+            - estimated_tokens_per_request (int): Estimated tokens per request for
+              TPM limiting. Default: 2000
+            - timeout (float): Timeout for reward computation in seconds. Default: 300
+        tokenizer (AutoTokenizer): HuggingFace tokenizer for decoding responses.
+        compute_score (callable, optional): Custom reward scoring function. Can be
+            sync or async. Defaults to default_compute_score.
+        reward_router_address (str | None): Address for reward router service.
+        reward_model_tokenizer (AutoTokenizer | None): Optional tokenizer for reward model.
+
+    Class Attributes (Global State):
+        _semaphore (asyncio.Semaphore): Global concurrency limiter
+        _max_concurrent (int): Max concurrent requests
+        _rpm_limiter (AsyncTokenBucket | None): Request rate limiter
+        _max_rpm (int | None): Max requests per minute
+        _tpm_limiter (AsyncTokenBucket | None): Token rate limiter
+        _max_tpm (int | None): Max tokens per minute
+        _estimated_tokens_per_request (int): Estimated tokens per request
+        _class_initialized (bool): Whether class has been initialized
+
+    Example Configuration:
+        >>> config = DictConfig({
+        ...     "reward_model": {
+        ...         "max_concurrent": 10,      # 10 parallel requests
+        ...         "max_rpm": 500,            # 500 requests/minute
+        ...         "max_tpm": 100000,         # 100k tokens/minute
+        ...         "estimated_tokens_per_request": 2000,
+        ...         "timeout": 60.0,
+        ...     }
+        ... })
+        >>> manager = RateLimitedRewardLoopManager(config, tokenizer)
+
+    Thread Safety:
+        This class is designed for concurrent use. All rate limiting resources
+        are protected by asyncio primitives (Lock, Semaphore).
+
+    See Also:
+        - AsyncTokenBucket: Token bucket implementation for rate limiting
+        - RewardLoopManagerBase: Base class for reward loop managers
+        - verl.utils.reward_score.default_compute_score: Default scoring function
     """
 
     # Class-level state for global rate limiting
