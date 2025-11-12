@@ -167,8 +167,6 @@ class ReactAgentLoop(AgentLoopBase):
         try:
             state = await self.graph.ainvoke(input={"messages": messages}, config=config)
         except Exception as e:
-            # Gracefully handle any graph execution errors (e.g., GraphRecursionError)
-            # This ensures training can continue even when individual agent loops fail
             logger.error(f"Agent loop execution failed: {type(e).__name__}: {e}")
             logger.error("Attempting to recover by extracting last valid trajectory.")
 
@@ -186,12 +184,9 @@ class ReactAgentLoop(AgentLoopBase):
                     break
 
             if last_valid_ai_message:
-                # Best case: We have a valid trajectory from existing messages
                 logger.info("Recovered valid trajectory from existing messages.")
                 state = {"messages": messages}
             else:
-                # Worst case: No valid trajectory, create minimal valid fallback
-                # This ensures convert_to_agent_output() doesn't fail
                 logger.warning("No valid trajectory found. Creating minimal fallback.")
                 fallback_message = AIMessage(
                     content="[Agent execution failed - no valid trajectory]",
