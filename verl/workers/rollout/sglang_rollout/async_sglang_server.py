@@ -164,6 +164,9 @@ class SGLangHttpServer:
                     served_model_name = served_model_name.split("/")[-1]
                 args["served_model_name"] = served_model_name
 
+            # start sglang metrics
+            args["enable_metrics"] = True
+
         # enable_weights_cpu_backup is supported in sglang>=0.5.3
         if "enable_weights_cpu_backup" in [f.name for f in dataclasses.fields(ServerArgs)]:
             enable_weights_cpu_backup = True if self.rollout_mode == RolloutMode.COLOCATED else False

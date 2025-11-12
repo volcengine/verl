@@ -85,15 +85,12 @@ def update_prometheus_config(config: PrometheusConfig, server_addresses: list[st
             node_ip = node["NodeManagerAddress"]
             task = write_config_file.options(
                 resources={"node:" + node_ip: 0.001}  # Schedule to specific node
-            ).remote(prometheus_config_json, config.prometheus_config_file)
+            ).remote(prometheus_config_json, config.file)
             write_tasks.append(task)
 
         ray.get(write_tasks)
 
-        print(
-            f"Updated Prometheus configuration at {config.prometheus_config_file} "
-            f"with {len(server_addresses)} VLLM servers"
-        )
+        print(f"Updated Prometheus configuration at {config.file} with {len(server_addresses)} VLLM servers")
 
         # Reload Prometheus on all nodes
         reload_tasks = []
@@ -101,7 +98,7 @@ def update_prometheus_config(config: PrometheusConfig, server_addresses: list[st
             node_ip = node["NodeManagerAddress"]
             task = reload_prometheus.options(
                 resources={"node:" + node_ip: 0.001}  # Schedule to specific node
-            ).remote(config.prometheus_port)
+            ).remote(config.port)
             reload_tasks.append(task)
 
         ray.get(reload_tasks)

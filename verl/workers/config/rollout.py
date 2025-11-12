@@ -101,9 +101,9 @@ class PrometheusConfig(BaseConfig):
     # whether enable prometheus on server mode rollout
     enable: bool = False
     # Port number that Prometheus listens on, default is 9090
-    prometheus_port: int = 9090
+    port: int = 9090
     # Path to Prometheus configuration file
-    prometheus_config_file: str = "/tmp/ray/session_latest/metrics/prometheus/prometheus.yml"
+    file: str = "/tmp/ray/session_latest/metrics/prometheus/prometheus.yml"
     # Specify served_model_name to avoid displaying overly long model paths in Grafana
     served_model_name: Optional[str] = None
 

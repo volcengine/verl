@@ -105,10 +105,10 @@ Start verl training with the following parameters configured:
 * `actor_rollout_ref.rollout.prometheus.enable=True`
 
 If use default port, this parameter can be omitted.
-* `actor_rollout_ref.rollout.prometheus.prometheus_port=9090`
+* `actor_rollout_ref.rollout.prometheus.port=9090`
 
 If use default path, this parameter can be omitted.
-* `actor_rollout_ref.rollout.prometheus.prometheus_config_file="/tmp/ray/session_latest/metrics/prometheus/prometheus.yml"`
+* `actor_rollout_ref.rollout.prometheus.file="/tmp/ray/session_latest/metrics/prometheus/prometheus.yml"`
 
 
 served_model_name uses `model_path.split("/")[-1]` for data statistics by default. 
