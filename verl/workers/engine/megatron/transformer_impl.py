@@ -186,6 +186,7 @@ class MegatronEngine(BaseEngine):
         from megatron.core.distributed import finalize_model_grads
         from megatron.core.utils import get_model_config
 
+        # register some callbacks for megatron training, following https://github.com/NVIDIA/Megatron-LM/blob/core_v0.15.0rc7/megatron/training/training.py#L2039-L2057
         for model in self.module:
             get_model_config(model).finalize_model_grads_func = finalize_model_grads
         return optimizer
