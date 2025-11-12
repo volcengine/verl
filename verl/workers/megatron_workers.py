@@ -33,8 +33,6 @@ except ImportError:
     repatch = None
 
 from megatron.core import parallel_state as mpu
-from megatron.core.distributed import finalize_model_grads
-from megatron.core.utils import get_model_config
 
 from verl import DataProto
 from verl.models.mcore import get_mcore_weight_converter
@@ -59,6 +57,7 @@ from verl.utils.megatron_utils import (
     offload_megatron_model_to_cpu,
     offload_megatron_optimizer,
     per_tensor_generator,
+    register_megatron_training_hooks,
 )
 from verl.utils.memory_utils import aggressive_empty_cache
 from verl.utils.model import get_hf_model_path, load_mcore_dist_weights, load_megatron_gptmodel_weights
@@ -394,10 +393,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         log_gpu_memory_usage("After actor optimizer init", logger=logger)
 
-        for model in actor_module:
-            get_model_config(model).grad_scale_func = actor_optimizer.scale_loss
-            get_model_config(model).finalize_model_grads_func = finalize_model_grads
-            # TODO: config.no_sync_func config.grad_sync_func config.param_sync_func
+        register_megatron_training_hooks(actor_module, actor_optimizer)
 
         return actor_module, actor_optimizer, actor_optimizer_scheduler, self.hf_config, optim_config
 
@@ -974,10 +970,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
         )
         get_torch_device().empty_cache()
 
-        for model in critic_module:
-            get_model_config(model).grad_scale_func = critic_optimizer.scale_loss
-            get_model_config(model).finalize_model_grads_func = finalize_model_grads
-            # TODO: config.no_sync_func config.grad_sync_func config.param_sync_func
+        register_megatron_training_hooks(critic_module, critic_optimizer)
 
         return critic_module, critic_optimizer, critic_optimizer_scheduler, self.hf_config, optim_config
 

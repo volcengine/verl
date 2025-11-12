@@ -20,7 +20,6 @@ from typing import Any, Callable, Iterator, Optional
 import torch
 import torch.distributed
 from megatron.core import parallel_state as mpu
-from megatron.core.distributed import finalize_model_grads
 from megatron.core.pipeline_parallel import get_forward_backward_func
 from omegaconf import OmegaConf
 from tensordict import TensorDict
@@ -39,6 +38,7 @@ from verl.utils.megatron_utils import (
     offload_megatron_model_to_cpu,
     offload_megatron_optimizer,
     per_tensor_generator,
+    register_megatron_training_hooks,
 )
 from verl.utils.model import load_mcore_dist_weights, load_megatron_gptmodel_weights
 from verl.workers.config import HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
@@ -188,12 +188,8 @@ class MegatronEngine(BaseEngine):
 
         optim_config_megatron = init_megatron_optim_config(self.optimizer_config, self.param_dtype == torch.float16)
         optimizer = get_megatron_optimizer(model=self.module, config=optim_config_megatron)
-        from megatron.core.utils import get_model_config
+        register_megatron_training_hooks(self.module, optimizer)
 
-        for model in self.module:
-            get_model_config(model).grad_scale_func = optimizer.scale_loss
-            get_model_config(model).finalize_model_grads_func = finalize_model_grads
-            # TODO: config.no_sync_func config.grad_sync_func config.param_sync_func
         return optimizer
 
     def _build_lr_scheduler(self):
