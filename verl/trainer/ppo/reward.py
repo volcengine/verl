@@ -31,6 +31,11 @@ from verl.utils.transferqueue_utils import tqbridge
 from verl.workers.reward_manager import get_reward_manager_cls
 from verl.workers.reward_manager.abstract import AbstractRewardManager, RawRewardFn
 
+try:
+    from verl.experimental.reward.reward_loop.base import RewardLoopManagerBase
+except ImportError:
+    RewardLoopManagerBase = None
+
 
 def _call_with_kwargs(raw_fn, extra_kwargs, *args, **kwargs):
     """Calls `raw_fn` by merging `extra_kwargs` into call-time `kwargs`, with `extra_kwargs` taking precedence.
@@ -157,13 +162,25 @@ def load_reward_manager(
             final_compute_score = default_compute_score
 
     # Instantiate and return the reward manager with the specified parameters
-    return reward_manager_cls(
-        tokenizer=tokenizer,
-        num_examine=num_examine,
-        compute_score=final_compute_score,
-        reward_fn_key=config.data.reward_fn_key,
-        **reward_kwargs,
-    )
+    # RewardLoopManagerBase subclasses (like RateLimitedRewardLoopManager) don't accept num_examine
+    # while AbstractRewardManager subclasses (like NaiveRewardManager) do
+    if RewardLoopManagerBase is not None and issubclass(reward_manager_cls, RewardLoopManagerBase):
+        # RewardLoopManagerBase-based managers use a different signature
+        return reward_manager_cls(
+            config=config,
+            tokenizer=tokenizer,
+            compute_score=final_compute_score,
+            **reward_kwargs,
+        )
+    else:
+        # Traditional AbstractRewardManager-based managers
+        return reward_manager_cls(
+            tokenizer=tokenizer,
+            num_examine=num_examine,
+            compute_score=final_compute_score,
+            reward_fn_key=config.data.reward_fn_key,
+            **reward_kwargs,
+        )
 
 
 @tqbridge(put_data=False)
