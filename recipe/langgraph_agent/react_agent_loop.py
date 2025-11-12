@@ -131,13 +131,27 @@ class ReactAgentLoop(AgentLoopBase):
 
         model = model.bind_tools(self.tools, tool_choice="any")
 
+        # Calculate recursion_limit dynamically based on max_assistant_turns
+        # In ReAct agent loop, each AI turn involves 2 node executions:
+        #   1. agent node (generates AI message)
+        #   2. tools node (executes tool calls)
+        # Therefore, we need: max_assistant_turns * 2 nodes
+        # Add 50% buffer for safety (e.g., for edge cases, retries, etc.)
+        # Set minimum to 50 to handle cases where max_assistant_turns is very small or not set
+        max_assistant_turns = rollout.multi_turn.max_assistant_turns if rollout.multi_turn.max_assistant_turns else 25
+
+        # Formula: nodes_per_turn * max_turns * safety_buffer, with minimum threshold
+        recursion_limit = max(50, int(max_assistant_turns * 2 * 1.5))
+        logger.info(f"Configured recursion_limit={recursion_limit} (max_assistant_turns={max_assistant_turns})")
+
         config = {
             "configurable": {
                 "model": model,
                 "sampling_params": sampling_params,
                 "max_user_turns": rollout.multi_turn.max_user_turns,
                 "max_assistant_turns": rollout.multi_turn.max_assistant_turns,
-            }
+            },
+            "recursion_limit": recursion_limit,
         }
 
         # TODO: how to handle multiple trajectories in an graph invocation?
@@ -146,16 +160,36 @@ class ReactAgentLoop(AgentLoopBase):
         try:
             state = await self.graph.ainvoke(input={"messages": messages}, config=config)
         except Exception as e:
-            # Handle GraphRecursionError and other errors gracefully
-            # This prevents training from crashing when agent hits recursion limit
             logger.error(f"Agent loop execution failed: {type(e).__name__}: {e}")
-            logger.error("Returning empty response to continue training.")
+            logger.error("Attempting to recover by extracting last valid trajectory.")
 
-            # Create a minimal response to prevent training crash
-            # The agent failed to complete, but we return an empty response
-            # This allows training to continue and collect whatever partial data was generated
-            empty_response = AIMessage(content="[Agent execution failed]")
-            state = {"messages": messages + [empty_response]}
+            # Strategy: Find the last valid AI message with complete metadata
+            # This preserves any partial progress made before the error
+            last_valid_ai_message = None
+            for msg in reversed(messages):
+                if (
+                    msg.type == "ai"
+                    and hasattr(msg, "response_metadata")
+                    and "prompt_ids" in msg.response_metadata
+                    and "response_mask" in msg.response_metadata
+                ):
+                    last_valid_ai_message = msg
+                    break
+
+            if last_valid_ai_message:
+                logger.info("Recovered valid trajectory from existing messages.")
+                state = {"messages": messages}
+            else:
+                logger.warning("No valid trajectory found. Creating minimal fallback.")
+                fallback_message = AIMessage(
+                    content="[Agent execution failed - no valid trajectory]",
+                    response_metadata={
+                        "request_id": "fallback",
+                        "prompt_ids": [],
+                        "response_mask": [],
+                    },
+                )
+                state = {"messages": messages + [fallback_message]}
 
         output = convert_to_agent_output(state["messages"], rollout.response_length)
         return output
