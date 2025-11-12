@@ -142,5 +142,7 @@ class PosteriorSampler:
                 self.alpha[idx] = results[0]
                 self.beta[idx] = results[1]
             print(f"Posterior Sampler load from {load_path}")
-        except:
-            pass
+        except FileNotFoundError:
+            print(f"Posterior sampler file not found at {load_path}. A new sampler will be used.")
+        except (json.JSONDecodeError, TypeError) as e:
+            print(f"Error processing posterior sampler file at {load_path}: {e}. A new sampler will be used.")
