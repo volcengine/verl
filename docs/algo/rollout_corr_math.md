@@ -251,14 +251,15 @@ The operating mode determines how the proximal policy $\pi_{\text{old}}$ is comp
 - $\pi_{\text{old}} = \pi_{\text{rollout}}$: Proximal policy equals behavior policy
 - $\pi_{\theta}$: Current policy (being updated)
 
-**IS ratio:** $\rho_t = \frac{\pi_{\text{rollout}}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)} = 1$ when using PPO, or $\rho_t = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}$ when using Pure IS
-
-**PPO ratio:** $r_t(\theta) = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}$ (clips against rollout policy)
+**Ratios:**
+- **With PPO loss** (`use_policy_gradient = false`): No separate IS computation; PPO ratio $r_t(\theta) = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}$ clips against rollout policy
+- **With policy gradient loss** (`use_policy_gradient = true`): IS ratio $\rho_t = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}$ computed on-the-fly in loss function
 
 **Properties:**
-- ✅ Faster: Skips `actor.compute_log_prob()` call
-- ✅ Mathematically correct: Uses actual behavior policy as proximal policy
-- ❌ Does not achieve batch size invariance
+- ✅ Skips `actor.compute_log_prob()` call (faster)
+- ✅ Handles off-policy correction via IS/RS (when using policy gradient with IS/RS)
+- ✅ Uses two policies instead of three (π_rollout = π_old)
+- ⚠️ Does not separate proximal policy from behavior policy (unlike decoupled mode)
 
 ---
 
@@ -332,7 +333,7 @@ rollout_rs = "token"  # Optional: rejection sampling
 
 **Properties:**
 - Independent truncation per token
-- Stable for moderate distribution shifts
+- Lower variance than sequence-level (product of ratios bounded individually)
 - Typical threshold: 1.5 - 5.0
 - Optional batch normalization (§3.6): Normalizes over all token weights to ensure $\mathbb{E}[\tilde{w}_t] = 1$ (reduces variance)
 
@@ -384,8 +385,8 @@ rollout_rs = "geometric"  # Rejection sampling only
 
 **Properties:**
 - Geometric mean of per-token ratios
-- Extremely sensitive to outliers
-- Typical threshold: 1.0001 - 1.001 (very tight!)
+- More sensitive than arithmetic product (sequence-level)
+- Typical threshold: 1.0001 - 1.001 (tighter than sequence/token level)
 - **Used for rejection sampling only, not IS weighting**
 
 **Why tight thresholds?**

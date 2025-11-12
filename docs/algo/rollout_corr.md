@@ -80,28 +80,30 @@ See [Mathematical Formulations](rollout_corr_math.md#38-common-implementation-mi
 
 ### Key Design Principle: Separation of IS Weights and Rejection Sampling
 
-The implementation separates two mechanisms:
+The implementation cleanly separates two orthogonal mechanisms:
 
-1. **IS Weights** (`rollout_is_weights`): Policy ratios with processing (π_old/π_rollout in decoupled mode, π_θ/π_rollout in bypass/pure IS mode):
-   - **Safety-bounded** to [exp(-20), exp(20)] ≈ [2e-9, 5e8] to prevent overflow:
+1. **IS Weights** (`rollout_is_weights`): Continuous reweighting for gradient correction
+   - Policy ratio: π_old/π_rollout (decoupled) or π_θ/π_rollout (bypass)
+   - **Safety-bounded**: Clamped to [exp(-20), exp(20)] ≈ [2e-9, 5e8] to prevent overflow
      * Token level: Bounds per-token ratios
-     * Sequence level: Bounds product of ratios (broadcast to all tokens in sequence)
-     * Geometric level: Bounds geometric mean of ratios (broadcast to all tokens)
-   - **Truncate mode**: Upper clamped via .clamp(max=upper_threshold)
-   - **Mask mode**: Safety-bounded ratios preserved (no threshold clamping)
-   - **All modes**: Zeroed at padding positions (response_mask == 0)
-   - Used for policy gradient calculations
+     * Sequence level: Bounds product of ratios (broadcast to all tokens)
+   - **Truncated**: Upper clamped via `.clamp(max=rollout_is_threshold)` (TIS: Truncated Importance Sampling)
+   - **Zeroed at padding**: Multiplied by response_mask to zero out padding positions
+   - Used to weight policy gradients (variance reduction)
 
-2. **Rejection Sampling** (`modified_response_mask`): Applied via response_mask
-   - Mask mode: Excludes tokens/sequences with outlier IS ratios
-   - Veto: Excludes sequences with catastrophic tokens
-   - Used for loss aggregation (denominator calculation)
+2. **Rejection Sampling** (`modified_response_mask`): Binary filtering for outlier exclusion
+   - Creates binary mask: 1 = keep, 0 = reject
+   - Rejects tokens/sequences with IS ratios outside [lower_threshold, upper_threshold]
+   - **Veto mechanism**: Independently rejects sequences containing catastrophic tokens
+   - Modifies response_mask to exclude rejected samples from training
+   - Used for loss aggregation (rejected samples don't contribute to gradients or denominators)
 
 This separation ensures:
-- ✅ Correct loss normalization (rejected samples excluded from denominator)
-- ✅ Mode-specific weight processing (truncate: upper clamped, mask: safety-bounded only)
-- ✅ Padding positions zeroed in weights (for correct aggregation)
-- ✅ Safety bounds always applied (prevent overflow in all modes)
+- ✅ IS weights provide continuous reweighting (reduce variance)
+- ✅ Rejection sampling provides hard filtering (remove extreme outliers)
+- ✅ Both mechanisms can be enabled independently or together
+- ✅ Correct loss normalization (rejected samples excluded from all calculations)
+- ✅ Safety bounds prevent numerical overflow in all cases
 
 ## Quick Start: Using Verified Presets
 
@@ -209,9 +211,10 @@ Importance sampling weights aggregation level:
 All IS weights are safety-bounded to [exp(-20), exp(20)] ≈ [2e-9, 5e8]
 
 ### `rollout_is_threshold` (float)
-Upper threshold for IS weights. Default: `2.0`
-- Used to clamp IS weights (not for rejection)
-- Rejection is controlled by `rollout_rs` parameters
+Upper threshold for IS weight truncation. Default: `2.0`
+- Truncates IS weights via `.clamp(max=rollout_is_threshold)` (TIS: Truncated Importance Sampling)
+- Applied to IS weights for variance reduction
+- Separate from rejection sampling (controlled by `rollout_rs` parameters)
 
 ### `rollout_rs` (str or null)
 Rejection sampling aggregation level:
@@ -223,7 +226,7 @@ Rejection sampling aggregation level:
 
 ### `rollout_rs_threshold` (float or null)
 Upper threshold for rejection sampling. Default: `null`
-- If `null`, uses `rollout_is_threshold`
+- **Required** when `rollout_rs` is enabled (must be explicitly set)
 - Tokens/sequences with ratios > threshold are masked out
 
 ### `rollout_rs_threshold_lower` (float or null)
@@ -338,7 +341,7 @@ algorithm:
 
 **Properties:**
 - Independent truncation per token
-- Stable for moderate distribution shifts
+- Lower variance than sequence-level (product of ratios bounded individually)
 - Typical threshold: 1.5 - 5.0
 
 **Theory:** See [rollout_corr_math.md §3.3.1](rollout_corr_math.md#331-token-level-aggregation)
@@ -439,10 +442,9 @@ algorithm:
 
 **Properties:**
 - No IS weights (pure rejection)
-- Extremely sensitive to outliers
-- Typical threshold: 1.0001 - 1.001 (very tight!)
-- High rejection rate
-- Only suitable for minimal distribution shifts
+- Geometric mean aggregation (more sensitive than arithmetic product)
+- Typical threshold: 1.0001 - 1.001 (tighter than sequence/token level)
+- Rejects sequences based on average per-token ratio deviation
 
 **Why tight thresholds?** Geometric mean is very sensitive. For 100 tokens with ratio 1.01 each:
 - Product: 1.01^100 ≈ 2.7
@@ -479,10 +481,10 @@ algorithm:
 ```
 
 **Properties:**
-- Faster: Skips `actor.compute_log_prob()` forward pass
-- PPO clips against π_rollout (actual behavior policy)
-- Mathematically correct (avoids common mistake of ignoring π_rollout)
-- Does not achieve batch size invariance
+- Skips `actor.compute_log_prob()` forward pass
+- PPO clips against π_rollout (behavior policy)
+- Sets π_old = π_rollout (two-policy setup)
+- Does not separate proximal from behavior policy
 
 **Configuration requirement:**
 - Set `actor_rollout_ref.rollout.calculate_log_probs: true`
@@ -516,9 +518,9 @@ algorithm:
 ```
 
 **Properties:**
-- No PPO clipping (pure policy gradient)
-- Single forward pass (fast)
-- For research or when PPO clipping not desired
+- Policy gradient loss (no PPO clipping)
+- Single forward pass (skips old_log_prob computation)
+- IS weights computed on-the-fly in loss function
 
 **Theory:** See [rollout_corr_math.md §3.2.2](rollout_corr_math.md#322-pure-is-loss-policy-gradient)
 
@@ -558,7 +560,7 @@ algorithm:
 - Pure geometric RS (no IS weights, only rejection)
 - Skips `actor.compute_log_prob()` forward pass (bypass mode)
 - Veto mechanism enabled
-- Typical threshold: 1.0001 - 1.001 (very tight!)
+- Typical threshold: 1.0001 - 1.001 (tighter than sequence/token level)
 
 **Theory:** [§3.1.2 (Bypass)](rollout_corr_math.md#312-bypass-mode-two-policies) + [§3.3.3 (Geometric)](rollout_corr_math.md#333-geometric-aggregation)
 
@@ -618,23 +620,30 @@ config = RolloutCorrectionConfig(
 
 ### Summary: How IS Weights are Processed
 
-The final IS weights go through multiple stages of processing:
+IS weights (`rollout_is_weights`) go through a fixed processing pipeline:
 
-**Stage 1: Safety Bound (All Modes)**
+**Stage 1: Safety Bound (Prevent Overflow)**
 - Token level: `exp(clamp(log_ratio, -20, 20))` per token → bounds each token to [2e-9, 5e8]
 - Sequence level: `exp(clamp(sum(log_ratio), -20, 20))` → bounds product to [2e-9, 5e8], broadcast to all tokens
-- Geometric level: `exp(clamp(mean(log_ratio), -20, 20))` → bounds geometric mean to [2e-9, 5e8], broadcast to all tokens
 
-**Stage 2: Threshold Processing (Mode-Dependent)**
-- Truncate mode: `.clamp(max=upper_threshold)` → upper clamps weights to threshold
-- Mask mode: No modification → weights remain as safety-bounded ratios
+**Stage 2: Truncation (Reduce Variance)**
+- `.clamp(max=rollout_is_threshold)` → caps weights at upper threshold (TIS: Truncated Importance Sampling)
+- No lower truncation (preserves unbiasedness for small weights)
 
-**Stage 3: Padding (All Modes)**
+**Stage 3: Padding Zeroing (Correct Aggregation)**
 - `weights * response_mask` → zeros out padding positions
 
-**Rejection Mechanisms (Modify response_mask, NOT weights)**
-- Veto: Checks **unclamped per-token ratios** (before safety bound), rejects sequences via mask
-- Outlier (mask mode only): Checks safety-bounded weights against [lower, upper], rejects via mask
+**Stage 4: Optional Batch Normalization**
+- If `rollout_is_batch_normalize=True`: Normalize weights to mean=1.0 within batch
+- Applied after truncation to preserve truncation semantics
+
+**Rejection Sampling (Separate Mechanism)**
+
+Rejection sampling modifies `response_mask` (NOT weights) through `compute_rollout_rejection_mask()`:
+- Computes safety-bounded ratios independently
+- Creates binary mask: tokens/sequences outside [lower_threshold, upper_threshold] → 0 (rejected)
+- Veto: Checks **unclamped per-token ratios** (before safety bound), rejects entire sequences containing catastrophic tokens
+- Modified mask used for loss aggregation (rejected samples excluded from training)
 
 ## Operation Modes
 
@@ -677,9 +686,10 @@ The framework provides **two operating modes** for computing π_old, which can b
 **Configuration:** `bypass_mode = true`
 
 **Properties:**
-- ✅ Faster: Skips `actor.compute_log_prob()` call
-- ✅ Mathematically correct: Uses actual behavior policy as proximal policy
-- ❌ Does not achieve batch size invariance
+- ✅ Skips `actor.compute_log_prob()` call (faster)
+- ✅ Handles off-policy correction via IS/RS (when using policy gradient with IS/RS)
+- ✅ Uses two policies instead of three (π_rollout = π_old)
+- ⚠️ Does not separate proximal policy from behavior policy (unlike decoupled mode)
 
 **Theory:** See [rollout_corr_math.md §3.1.2](rollout_corr_math.md#312-bypass-mode-two-policies)
 
@@ -710,22 +720,30 @@ The aggregation level can be chosen **independently** of the operating mode. Any
 
 ### Example Workflow
 
+**Recommended: Bypass + Policy Gradient Mode**
+
+This workflow uses bypass mode with pure policy gradient loss for efficiency.
+
 1. **Start with metrics only** to understand the off-policy gap:
    ```yaml
    algorithm:
      rollout_correction:
        rollout_is: null
        rollout_rs: null
+       bypass_mode: true  # Bypass mode (recommended)
+       use_policy_gradient: true  # Pure policy gradient (recommended)
    ```
-   Monitor `rollout_corr/rollout_is_mean`, `rollout_corr/kl` to assess off-policy gap.
+   Monitor `rollout_corr/kl`, `rollout_corr/log_ppl_abs_diff`, `rollout_corr/chi2_token` to assess off-policy gap.
 
 2. **Enable rejection sampling** if you see high outlier fractions:
    ```yaml
    algorithm:
      rollout_correction:
        rollout_is: null
-       rollout_rs: token
+       rollout_rs: sequence  # or "geometric" for higher sensitivity
        rollout_rs_threshold: 2.0
+       bypass_mode: true  # Bypass mode
+       use_policy_gradient: true  # Pure policy gradient
    ```
    This excludes outliers from training without modifying gradients.
 
@@ -733,26 +751,19 @@ The aggregation level can be chosen **independently** of the operating mode. Any
    ```yaml
    algorithm:
      rollout_correction:
-       rollout_is: token
+       rollout_is: sequence  # Recommended: unbiased, suitable for most cases
        rollout_is_threshold: 2.0
-       rollout_rs: token
+       rollout_rs: sequence  # or "geometric" for more aggressive filtering
        rollout_rs_threshold: 2.0
+       bypass_mode: true  # Bypass mode
+       use_policy_gradient: true  # Pure policy gradient
    ```
 
-4. **Optional: Enable bypass mode** to save compute:
-   ```yaml
-   algorithm:
-     rollout_correction:
-       rollout_is: token
-       rollout_is_threshold: 2.0
-       bypass_mode: true    # Skip old_log_prob computation
-       use_policy_gradient: false      # Use Bypass mode
-   ```
-   **Benefits**: Skips expensive forward pass for `old_log_prob` computation
-
-   **Trade-off**: PPO clips against rollout policy instead of true old policy
-
-   **Alternative**: Set `use_policy_gradient: true` for policy gradient loss with IS/RS (no clipping)
+**Benefits of bypass + policy gradient mode:**
+- ✅ Skips expensive `actor.compute_log_prob()` forward pass (faster)
+- ✅ IS weights computed on-the-fly in loss function (π_θ / π_rollout)
+- ✅ Simpler than PPO (no clipping, pure policy gradient with IS/RS)
+- ✅ Works for all IS/RS combinations
 
 ## Usage
 
@@ -809,7 +820,7 @@ These metrics cover both:
 
 - **`rollout_is_veto_fraction`**: Fraction of sequences rejected by veto mechanism
   - **Important**: Sequences are rejected via `response_mask=0`, NOT by modifying IS weights
-  - **IS weights unchanged by veto**: Already processed by mode (truncate: clamped, mask: safety-bounded)
+  - **IS weights unchanged by veto**: Already safety-bounded and truncated
   - Veto checks **unclamped per-token ratios** (true ratios before safety bound)
     - Decoupled mode: π_old(t)/π_rollout(t)
     - Bypass/Pure IS mode: π_θ(t)/π_rollout(t)
@@ -827,12 +838,12 @@ These metrics cover both:
   - For sequence/geometric: computed from unclamped log-space ratios (true exceedance)
   - For token: computed from safety-bounded weights (before threshold clamping)
 
-- **`rollout_is_ratio_fraction_low`**: Fraction of weights below lower threshold
-  - Shows how often masking occurs on low end (mask mode only)
+- **`rollout_is_ratio_fraction_low`**: Fraction of weights below lower threshold (1/upper_threshold)
+  - Diagnostic metric showing how many weights are below the reciprocal threshold
   - For sequence/geometric: computed from unclamped log-space ratios (true exceedance)
-  - For token: computed from safety-bounded weights
+  - For token: computed from safety-bounded weights (before truncation)
 
-#### **Sequence-Level Metrics** (for sequence/geometric modes)
+#### **Sequence-Level Metrics** (for sequence aggregation)
 
 - **`rollout_is_seq_mean`**: Mean IS weight at sequence level
   - Should match `rollout_is_mean` for sequence-level aggregation
@@ -850,16 +861,18 @@ These metrics cover both:
 
 - **`rollout_is_seq_fraction_low`**: Fraction of sequences below lower threshold
 
-#### **Masking Metrics** (mask mode only)
+#### **Rejection Sampling Metrics** (when `rollout_rs` is enabled)
 
-- **`rollout_is_masked_fraction`**: Fraction of tokens rejected via response_mask (mask mode only)
-  - **Important**: Tokens are rejected by setting `response_mask=0`, NOT by modifying IS weights
-  - **IS weights in mask mode**: Safety-bounded ratios preserved (no threshold clamping)
+- **`rollout_rs_masked_fraction`**: Fraction of tokens rejected via rejection sampling
+  - **Important**: Rejection sampling modifies `response_mask` (sets rejected tokens to 0)
+  - **Separate from IS weights**: IS weights are still truncated; rejection is an independent filtering step
+  - Only present when `rollout_rs` is enabled (token/sequence/geometric)
 
-- **`rollout_is_seq_masked_fraction`**: Fraction of sequences with at least one rejected token
+- **`rollout_rs_seq_masked_fraction`**: Fraction of sequences with at least one rejected token
   - Shows sequence-level impact of rejection sampling
-  - For token-level: sequence rejected if ANY token is outside [lower, upper]
-  - For sequence-level: all tokens have same weight, so entire sequence rejected or accepted
+  - Token-level RS: sequence rejected if ANY token is outside [lower, upper]
+  - Sequence-level RS: entire sequence rejected or accepted based on sequence-level ratio
+  - Geometric RS: entire sequence rejected or accepted based on geometric mean
 
 #### **Off-Policy Diagnostic Metrics** (Training vs Rollout Policy)
 
@@ -939,19 +952,21 @@ is_weights = weights_proto.batch["rollout_is_weights"]
 
 # IS weights processing (with IS enabled at token level):
 # 1. Safety-bounded: exp(clamp(log_ratio, -20, 20)) per token
-# 2. Zeroed at padding positions
-# Note: Not threshold-clamped since we're using rejection sampling (rollout_rs)
+# 2. Truncated: .clamp(max=2.0) to cap extreme weights
+# 3. Zeroed at padding positions
+# Note: Truncation is ALWAYS applied to IS weights (TIS: Truncated Importance Sampling)
 
 # modified_response_mask has rejection applied (since rollout_rs="token"):
-# 1. Outlier rejection: tokens outside [0.5, 2.0] masked to 0
+# 1. RS rejection: tokens outside [0.5, 2.0] masked to 0 via response_mask
 # 2. Veto rejection: sequences with catastrophic tokens (ratio < 1e-4) masked to 0
-# Note: Veto checks unclamped per-token ratios, not the safety-bounded weights
+# Note: Veto checks unclamped per-token ratios (before safety bounds)
+# Note: RS and IS are separate mechanisms - both can be enabled independently
 
 # All metrics have 'rollout_corr/' prefix
 print(f"Mean IS weight: {metrics['rollout_corr/rollout_is_mean']:.3f}")
 print(f"Effective sample size: {metrics['rollout_corr/rollout_is_eff_sample_size']:.3f}")
 print(f"Veto fraction: {metrics['rollout_corr/rollout_is_veto_fraction']:.3f}")
-print(f"Masked fraction: {metrics['rollout_corr/rollout_is_masked_fraction']:.3f}")
+print(f"RS masked fraction: {metrics['rollout_corr/rollout_rs_masked_fraction']:.3f}")
 print(f"KL divergence: {metrics['rollout_corr/kl']:.3f}")
 
 # Check IS weights for valid tokens (non-padding)
@@ -959,12 +974,13 @@ valid_weights = is_weights[response_mask.bool()]
 print(f"\n✓ IS weights min (valid tokens): {valid_weights.min():.4f}")
 print(f"✓ IS weights max (valid tokens): {valid_weights.max():.4f}")
 print(f"✓ All valid IS weights > 0: {(valid_weights > 0).all()}")
+print(f"✓ IS weights are capped at threshold: {(valid_weights <= 2.0).all()}")
 
 # Check rejection via response_mask
 rejected_tokens = (response_mask == 1) & (modified_response_mask == 0)
 print(f"\n✓ Rejected {rejected_tokens.sum()} tokens via response_mask")
-print(f"✓ With rejection sampling (rollout_rs): tokens outside thresholds are masked")
-print(f"✓ IS weights are always safety-bounded to [exp(-20), exp(20)] ≈ [2e-9, 5e8]")
+print(f"✓ Rejection sampling modifies response_mask (separate from IS weight truncation)")
+print(f"✓ IS weights are always truncated to [0, threshold] after safety bounding")
 
 # Check for warning conditions
 if metrics['rollout_corr/rollout_is_mean'] < 0.5 or metrics['rollout_corr/rollout_is_mean'] > 2.0:
