@@ -63,8 +63,8 @@ class AsyncTokenBucket:
             await asyncio.sleep(wait_time)
 
 
-@register("prime")
-class PrimeRewardLoopManager(RewardLoopManagerBase):
+@register("rate_limited")
+class RateLimitedRewardLoopManager(RewardLoopManagerBase):
     """Reward loop manager with rate limiting for API-based reward functions.
 
     Supports three-layer rate limiting for LLM-as-judge scenarios:
@@ -81,14 +81,14 @@ class PrimeRewardLoopManager(RewardLoopManagerBase):
     _tpm_limiter = None
     _max_tpm = None
     _estimated_tokens_per_request = None
-    _prime_class_initialized = False
+    _class_initialized = False
 
     @classmethod
     def init_class(cls, config: DictConfig, tokenizer: AutoTokenizer):
         """Initialize class state shared across all instances."""
         super().init_class(config, tokenizer)
 
-        if cls._prime_class_initialized:
+        if cls._class_initialized:
             return
 
         # Concurrency limiter
@@ -126,7 +126,7 @@ class PrimeRewardLoopManager(RewardLoopManagerBase):
         log_msg += "All limiters are shared globally across all workers."
         logger.info(log_msg)
 
-        cls._prime_class_initialized = True
+        cls._class_initialized = True
 
     def __init__(self, config, tokenizer, compute_score=None, reward_router_address=None, reward_model_tokenizer=None):
         super().__init__(config, tokenizer)
