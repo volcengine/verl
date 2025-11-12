@@ -47,6 +47,7 @@ actor_rollout_ref:
       moe_config:
         freeze_moe_router: False
     enable_gradient_checkpointing: False
+    use_remove_padding: False
     # gradient_checkpointing_kwargs:
     #   ## Activation Checkpointing
     #   activations_checkpoint_method: null # 'uniform', 'block'; not used with 'selective'
@@ -226,6 +227,7 @@ actor_rollout_ref:
 
     # Multi-turn interaction config for tools or chat.
     multi_turn:
+      _target_: verl.workers.config.MultiTurnConfig
       # set to True for multi-turn tool interaction tasks; should set rollout.name to sglang as well
       enable: False
       # null for no limit (default max_length // 3)
@@ -242,8 +244,6 @@ actor_rollout_ref:
       tool_response_truncate_side: middle
       # null for no interaction
       interaction_config_path: null
-      # null for default callback
-      completion_callback: null
       # - When set to True, the model's default chat template is used for multi-turn rollout, which typically matches production behavior.
       # - When set to False, the token ids recorded for training are used instead; unlike the default chat template, these always include the model's full output,
       #   which may contain additional content such as reasoning content. This maintains the consistency between training and rollout, but it will lead to longer prompts.

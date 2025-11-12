@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 import logging
 import os
 
@@ -646,6 +647,7 @@ class MegatronOnPolicyDistillRolloutWorker(ActorRolloutRefWorker):
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
 
         self._build_rollout(trust_remote_code=self.config.model.get("trust_remote_code", False))
+        self.rollout_device_mesh = self.rollout.device_mesh
         log_gpu_memory_usage("After rollout init", logger=logger)
         get_torch_device().empty_cache()
 
@@ -695,12 +697,21 @@ class MegatronOnPolicyDistillRolloutWorker(ActorRolloutRefWorker):
         assert self._is_rollout and not self.config.hybrid_engine
         assert hasattr(self, "_weights_info") and self._weights_info is not None
         load_weights_size = self.config.vllm_load_weights_size
-        inference_model = (
-            self.rollout.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
-        )
-        from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
+        rollout_name = self.config.rollout.name
 
-        patch_vllm_moe_model_weight_loader(inference_model)
+        if rollout_name == "vllm":
+            inference_model = (
+                self.rollout.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
+            )
+            from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
+
+            patch_vllm_moe_model_weight_loader(inference_model)
+        elif rollout_name == "sglang":
+            inference_model = self.rollout._engine
+        else:
+            raise NotImplementedError(f"Unknown rollout name: {rollout_name}")
+        loop = asyncio.get_event_loop()
+
         tensors = []
         for key, shape, dtype in self._weights_info:
             tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
@@ -709,9 +720,28 @@ class MegatronOnPolicyDistillRolloutWorker(ActorRolloutRefWorker):
             collective.broadcast(tensor, src_rank=0, group_name="actor_rollout")
             tensors.append((key, tensor))
             if len(tensors) >= load_weights_size:
-                inference_model.load_weights(tensors)
+                if rollout_name == "vllm":
+                    inference_model.load_weights(tensors)
+                elif rollout_name == "sglang":
+                    loop.run_until_complete(self.update_weights(inference_model, tensors))
                 tensors.clear()
-        inference_model.load_weights(tensors)
+        if rollout_name == "vllm":
+            inference_model.load_weights(tensors)
+        elif rollout_name == "sglang":
+            loop.run_until_complete(self.update_weights(inference_model, tensors))
+
+    async def update_weights(self, inference_engine, params):
+        from sglang.srt.weight_sync.utils import update_weights as sgl_update_weights
+
+        await sgl_update_weights(
+            engine=inference_engine,
+            params_batch=params,
+            device_mesh_key="infer_tp",
+            device_mesh=self.rollout_device_mesh,
+        )
+
+        if self.rollout_device_mesh["infer_tp"].get_local_rank() == 0:
+            await inference_engine.flush_cache()
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def set_actor_weights_info(self, weights_info):
