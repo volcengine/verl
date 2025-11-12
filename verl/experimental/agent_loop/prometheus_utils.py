@@ -16,8 +16,8 @@
 import logging
 import os
 
-import yaml
 import ray
+import yaml
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -75,6 +75,7 @@ def update_prometheus_config(server_addresses: list[str]):
                 subprocess.run(["curl", "-X", "POST", reload_url], capture_output=True, text=True, timeout=10)
                 print(f"Reloading Prometheus on node: {reload_url}")
             except Exception:
+                # skip slave node error
                 pass
 
         # Schedule task on each specific node

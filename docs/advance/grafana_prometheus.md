@@ -2,6 +2,8 @@
 
 **Author:** `https://github.com/meituan-search`
 
+Last updated: 11/12/2025.
+
 Monitor the rollout computation process using Prometheus and Grafana when using verl to enhance system observability and facilitate further performance optimization.
 
 We provide an additional training monitoring capability, leveraging Prometheus and Grafana to display rollout information during training and enhance system observability to facilitate further performance optimization.
