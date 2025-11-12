@@ -93,7 +93,7 @@ def our_group_reward(batch, acc, task_sampler, batch_dict, metrics, sampled_acqu
             solve_all += 1
     success_rate = torch.tensor(uid_reward_list)
     if task_sampler is not None:
-        ts_loss, ts_recon_loss, ts_kl_loss = task_sampler.train(batch_dict, success_rate)
+        task_sampler.train(batch_dict, success_rate)
         if sampled_acquisition_score is not None:
             x = sampled_acquisition_score.squeeze().detach().numpy()
             y = (-success_rate).squeeze().detach().cpu().numpy()
@@ -103,9 +103,6 @@ def our_group_reward(batch, acc, task_sampler, batch_dict, metrics, sampled_acqu
             spearman_corr, spearman_p = spearmanr(x, y)
             metrics["tasksample/train_spearman_corr"] = spearman_corr
             metrics["tasksample/train_spearman_p"] = spearman_p
-            metrics["tasksample/sampler_loss"] = ts_loss
-            metrics["tasksample/recon_loss"] = ts_recon_loss
-            metrics["tasksample/kl_loss"] = ts_kl_loss
             metrics["tasksample/train_success_rate"] = success_rate.mean().item()
             metrics["tasksample/train_success_rate_min"] = success_rate.min().item()
             metrics["tasksample/train_success_rate_max"] = success_rate.max().item()
