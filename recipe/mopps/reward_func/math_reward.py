@@ -22,8 +22,9 @@ def compute_score(solution_str, ground_truth, data_source="", extra_info=None) -
             answer = remove_boxed(string_in_last_boxed)
             if is_equiv(answer, ground_truth):
                 retval = 1.0
-    except Exception as e:
-        print(e)
+    except Exception:
+        import traceback
+        traceback.print_exc()
 
     return {"acc": retval, "score": retval}
 
