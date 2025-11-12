@@ -100,7 +100,7 @@ sh recipe/spo/estimate_offline_values/eval.sh
 To process all subsets, you can loop through them:
 
 ```bash
-for i in {0..N}; do
+for i in $(seq 0 N); do
     OUTPUT_DIR=spo_verl_pr \
     DATA_FILE=DAPO-Math-17k-Processed_Splits/subset_${i}.parquet \
     MODEL_PATH=Qwen/Qwen3-8B \
