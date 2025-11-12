@@ -33,6 +33,8 @@ except ImportError:
     repatch = None
 
 from megatron.core import parallel_state as mpu
+from megatron.core.distributed import finalize_model_grads
+from megatron.core.utils import get_model_config
 
 from verl import DataProto
 from verl.models.mcore import get_mcore_weight_converter
@@ -155,13 +157,18 @@ class MegatronWorker(Worker):
 
         # todo: remove this line after mcore adopt mbridge 0.15, now for compatibility
         override_transformer_config = mapping_string_to_attn_backend(override_transformer_config)
-
+        fp16 = dtype == torch.float16
+        bf16 = dtype == torch.bfloat16
+        if fp16:
+            assert use_mbridge, "fp16 mode requires use_mbridge to be True"
         if use_mbridge:
             from verl.models.mcore.mbridge import AutoBridge
 
-            bridge = AutoBridge.from_config(hf_config)
+            bridge = AutoBridge.from_config(hf_config, dtype=dtype)
             bridge.set_extra_args(**override_transformer_config)
             tf_config = bridge.config
+            tf_config.fp16 = fp16
+            tf_config.bf16 = bf16
             self.bridge = bridge
         else:
             tf_config = hf_to_mcore_config(hf_config, dtype, **override_transformer_config)
@@ -375,7 +382,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         # TODO: add more optimizer args into config
         if self._is_actor:
-            optim_config_megatron = init_megatron_optim_config(optim_config)
+            optim_config_megatron = init_megatron_optim_config(optim_config, fp16=self.dtype == torch.float16)
             actor_optimizer = get_megatron_optimizer(model=actor_module, config=optim_config_megatron)
             actor_optimizer_scheduler = get_megatron_optimizer_param_scheduler(
                 optimizer=actor_optimizer, config=optim_config
@@ -386,6 +393,11 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             actor_optimizer_scheduler = None
 
         log_gpu_memory_usage("After actor optimizer init", logger=logger)
+
+        for model in actor_module:
+            get_model_config(model).grad_scale_func = actor_optimizer.scale_loss
+            get_model_config(model).finalize_model_grads_func = finalize_model_grads
+            # TODO: config.no_sync_func config.grad_sync_func config.param_sync_func
 
         return actor_module, actor_optimizer, actor_optimizer_scheduler, self.hf_config, optim_config
 
@@ -462,7 +474,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             )
         else:
             override_transformer_config = {}
-        self.param_dtype = torch.bfloat16
+        self.param_dtype = PrecisionType.to_dtype(self.config.actor.megatron.dtype)
         log_gpu_memory_usage("Before init actor model and optimizer", logger=logger)
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
         if self._is_actor:
@@ -955,12 +967,18 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             print_model_size(critic_module[0])
 
         # TODO: add more optimizer args into config
-        optim_config_megatron = init_megatron_optim_config(optim_config)
+        optim_config_megatron = init_megatron_optim_config(optim_config, fp16=self.dtype == torch.float16)
         critic_optimizer = get_megatron_optimizer(model=critic_module, config=optim_config_megatron)
         critic_optimizer_scheduler = get_megatron_optimizer_param_scheduler(
             optimizer=critic_optimizer, config=optim_config
         )
         get_torch_device().empty_cache()
+
+        for model in critic_module:
+            get_model_config(model).grad_scale_func = critic_optimizer.scale_loss
+            get_model_config(model).finalize_model_grads_func = finalize_model_grads
+            # TODO: config.no_sync_func config.grad_sync_func config.param_sync_func
+
         return critic_module, critic_optimizer, critic_optimizer_scheduler, self.hf_config, optim_config
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
@@ -981,7 +999,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
         override_ddp_config = OmegaConf.to_container(
             OmegaConf.create(self.config.megatron.get("override_ddp_config", {}))
         )
-        self.param_dtype = torch.bfloat16
+        self.param_dtype = PrecisionType.to_dtype(self.config.megatron.dtype)
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
         (
             self.critic_module,
@@ -1237,7 +1255,7 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
                 rm_tokenizer_local_path, trust_remote_code=self.config.model.get("trust_remote_code", False)
             )
 
-        self.param_dtype = torch.bfloat16
+        self.param_dtype = PrecisionType.to_dtype(self.config.megatron.dtype)
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
 
         reward_model_module, reward_model_config = self._build_rm_model(

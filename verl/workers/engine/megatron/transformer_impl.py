@@ -98,9 +98,8 @@ class MegatronEngine(BaseEngine):
         from verl.models.mcore import hf_to_mcore_config
         from verl.utils.torch_dtypes import PrecisionType
 
-        self.param_dtype = torch.bfloat16
-        if self.engine_config.fp16:
-            self.param_dtype = torch.float16
+        self.param_dtype = PrecisionType.to_dtype(self.engine_config.dtype)
+        if self.param_dtype == torch.float16:
             assert self.engine_config.use_mbridge, "fp16 mode requires use_mbridge to be True"
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
         tf_config = hf_to_mcore_config(
@@ -114,8 +113,8 @@ class MegatronEngine(BaseEngine):
             bridge = AutoBridge.from_config(self.model_config.hf_config, dtype=self.param_dtype)
             bridge.set_extra_args(**self.engine_config.override_transformer_config)
             tf_config = bridge.config
-            tf_config.fp16 = self.engine_config.fp16
-            tf_config.bf16 = not self.engine_config.fp16
+            tf_config.fp16 = self.param_dtype == torch.float16
+            tf_config.bf16 = self.param_dtype == torch.bfloat16
             self.bridge = bridge
         else:
             self.bridge = None
@@ -187,7 +186,7 @@ class MegatronEngine(BaseEngine):
     def _build_optimizer(self):
         from verl.utils.megatron.optimizer import get_megatron_optimizer, init_megatron_optim_config
 
-        optim_config_megatron = init_megatron_optim_config(self.optimizer_config, self.engine_config.fp16)
+        optim_config_megatron = init_megatron_optim_config(self.optimizer_config, self.param_dtype == torch.float16)
         optimizer = get_megatron_optimizer(model=self.module, config=optim_config_megatron)
         from megatron.core.utils import get_model_config
 
