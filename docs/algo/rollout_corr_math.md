@@ -468,15 +468,19 @@ rollout_is_batch_normalize = True  # Default: False
 **Normalization formula (aggregation-aware):**
 
 For **token-level IS** (§3.3.1):
+
 $$
 \tilde{w}_t = \frac{w_t}{\frac{1}{\sum_{i,t} m_{i,t}} \sum_{i,t} w_{i,t} \cdot m_{i,t}}
 $$
+
 where $w_{i,t}$ are truncated token IS weights, $m_{i,t}$ is the response mask, and normalization is over **all tokens**.
 
 For **sequence-level IS** (§3.3.2):
+
 $$
 \tilde{w}_i = \frac{w_i}{\frac{1}{B}\sum_{j=1}^B \bar{w}_j}
 $$
+
 where $\bar{w}_j = \frac{1}{T_j}\sum_{t=1}^{T_j} w_{j,t} \cdot m_{j,t}$ is the per-sequence mean (all tokens in a sequence have the same weight), and normalization is over **sequences**.
 
 **Properties:**
