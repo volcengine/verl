@@ -109,6 +109,7 @@ Actor/Rollout/Reference Policy
       path: ~/models/deepseek-llm-7b-chat
       external_lib: null
       override_config:
+        attn_implementation: flash_attention_2  # or eager, sdpa - attention implementation override
         model_config: {}
         moe_config:  # Megatron only, can adjust moe configuration
           freeze_moe_router: False  # Megatron only, can freeze moe router (no grad)
@@ -127,13 +128,14 @@ Actor/Rollout/Reference Policy
       clip_ratio: 0.2
       entropy_coeff: 0.0
       use_kl_loss: False # True for GRPO
-      # Rollout Importance Sampling (corrects distribution mismatch between rollout and training)
-      rollout_is: False # Enable IS correction
-      rollout_is_threshold: null # Upper threshold for IS weights (null to disable)
-      rollout_is_threshold_lower: null # Lower threshold (null = auto 1/upper)
-      rollout_is_level: token # Aggregation: token/sequence/geometric
-      rollout_is_mode: truncate # Bounding: truncate/mask
-      rollout_is_veto_threshold: null # Catastrophic outlier threshold (null to disable)
+      # Rollout Correction (corrects distribution mismatch between rollout and training)
+      rollout_correction:
+        rollout_is: token # IS weights: token/sequence/null
+        rollout_is_threshold: 2.0 # Upper threshold for IS weights
+        rollout_rs: null # Rejection sampling: token/sequence/geometric/null
+        rollout_rs_threshold: null # RS upper threshold
+        rollout_rs_threshold_lower: null # RS lower threshold
+        rollout_token_veto_threshold: null # Per-token veto (null to disable)
       use_torch_compile: True # False to disable torch compile
       kl_loss_coef: 0.001 # for grpo
       kl_loss_type: low_var_kl # for grpo
@@ -226,7 +228,12 @@ Actor/Rollout/Reference Policy
   that need to be imported. Used to register models or tokenizers into
   the Huggingface system.
 - ``actor_rollout_ref.model.override_config``: Used to override some of
-  the model's original configurations, mainly dropout
+  the model's original configurations. Common overrides include:
+  
+  - ``attn_implementation``: Override the attention implementation. Default is ``flash_attention_2``.
+    Supported values: ``flash_attention_2``, ``eager``, ``sdpa``. Use ``eager`` for debugging or
+    compatibility issues. See :ref:`attention-implementation-override` for detailed usage.
+
 - ``actor_rollout_ref.model.enable_gradient_checkpointing``: FSDP only, decide
   Whether to enable gradient checkpointing for the actor,
   Megatron uses recompute options in ``override_transformer_config`` to set this
@@ -515,13 +522,14 @@ Algorithm
        kl_coef: 0.005
        horizon: 10000
        target_kl: 0.1
-     # Rollout Importance Sampling
-     rollout_is: False
-     rollout_is_threshold: null
-     rollout_is_threshold_lower: null
-     rollout_is_level: token
-     rollout_is_mode: truncate
-     rollout_is_veto_threshold: null  # Disabled by default
+     # Rollout Correction
+     rollout_correction:
+       rollout_is: null  # IS weights: token/sequence/null
+       rollout_is_threshold: 2.0  # Upper threshold for IS weights
+       rollout_rs: null  # Rejection sampling: token/sequence/geometric/null
+       rollout_rs_threshold: null  # RS upper threshold
+       rollout_rs_threshold_lower: null  # RS lower threshold
+       rollout_token_veto_threshold: null  # Per-token veto (null to disable)
 
 - ``gamma``: discount factor
 - ``lam``: Trade-off between bias and variance in the GAE estimator
@@ -536,13 +544,17 @@ Algorithm
   - ``type``: 'fixed' for FixedKLController and 'adaptive' for AdaptiveKLController.
   - ``horizon`` and ``target_kl``: See source code of AdaptiveKLController for details.
 
-- ``rollout_is``: Whether to enable rollout importance sampling correction. Default is False.
-- ``rollout_is_threshold``: Upper threshold for IS weights. Set to ``null`` to disable IS completely.
-- ``rollout_is_threshold_lower``: Lower threshold for IS weights. If ``null``, defaults to reciprocal of upper (1/upper).
-- ``rollout_is_level``: Aggregation level: ``token`` (biased), ``sequence`` (unbiased), or ``geometric`` (experimental).
-- ``rollout_is_mode``: Bounding mode: ``truncate`` (cap upper only) or ``mask`` (zero outside bounds).
-- ``rollout_is_veto_threshold``: Per-token veto threshold for catastrophic outliers. Default is null (disabled).
-  Note: Rollout IS requires setting ``actor_rollout_ref.rollout.calculate_log_probs=True``.
+- ``rollout_correction``: Rollout Correction configuration (nested dict). Set to ``null`` to disable.
+  When enabled, contains:
+
+  - ``rollout_is``: IS weights aggregation level: ``token``, ``sequence``, or ``null`` to disable IS weights.
+  - ``rollout_is_threshold``: Upper threshold for IS weights (e.g., 2.0).
+  - ``rollout_rs``: Rejection sampling mode: ``token``, ``sequence``, ``geometric``, or ``null`` to disable RS.
+  - ``rollout_rs_threshold``: RS upper threshold.
+  - ``rollout_rs_threshold_lower``: RS lower threshold (null = auto-reciprocal).
+  - ``rollout_token_veto_threshold``: Per-token veto threshold for catastrophic outliers (null = disabled).
+
+  Note: Rollout Correction requires setting ``actor_rollout_ref.rollout.calculate_log_probs=True``.
 
 Trainer
 ~~~~~~~

@@ -1,5 +1,5 @@
 # 1. Base Image
-FROM swr.cn-south-1.myhuaweicloud.com/ascendhub/cann:8.2.rc1-910b-ubuntu22.04-py3.11
+FROM swr.cn-south-1.myhuaweicloud.com/ascendhub/cann:8.2.rc1-a3-ubuntu22.04-py3.11
 
 # 2. Pre-installation foundation vllm with architecture echo
 RUN ARCH=$(uname -m) && \
@@ -16,7 +16,7 @@ RUN ARCH=$(uname -m) && \
     echo "[LOG INFO] Detected architecture: $ARCH" && \
     if [ "$ARCH" = "x86_64" ]; then \
         echo "[LOG INFO] Entering x86_64 branch: Setting pip extra index url"; \
-        pip config set global.extra-index-url "https://download.pytorch.org/whl/cpu/ https://mirrors.huaweicloud.com/ascend/repos/pypi"; \
+        pip config set global.extra-index-url "https://download.pytorch.org/whl/cpu/"; \
     else \
         echo "[LOG INFO] Entering aarch64 branch: No extra pip index url set"; \
     fi && \
@@ -62,8 +62,8 @@ RUN git clone https://github.com/NVIDIA/Megatron-LM.git && \
     cd .. && \
     echo "export PYTHONPATH=\$PYTHONPATH:/Megatron-LM" >> ~/.bashrc
 
-# Clear pip cache to reduce image size
-RUN pip cache purge
+# Show pip list and clear pip cache to reduce image size
+RUN pip list && pip cache purge
 
 # Setting Default Commands
 CMD ["/bin/bash"]

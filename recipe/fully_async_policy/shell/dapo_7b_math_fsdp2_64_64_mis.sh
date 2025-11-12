@@ -2,7 +2,7 @@
 set -xeuo pipefail
 
 project_name='DAPO'
-exp_name='dapo_qwen2-7B-math_28k_fsdp2_fully-async_16-16'
+exp_name='dapo_qwen2-7B-math_28k_fsdp2_fully-async_64-64'
 
 # Ray
 # RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
@@ -61,8 +61,8 @@ sp_size=4
 fsdp_size=8
 
 # Fully async specific parameters
-NNODES_ROLLOUT=${NNODES_ROLLOUT:-2}
-NNODES_TRAIN=${NNODES_TRAIN:-2}
+NNODES_ROLLOUT=${NNODES_ROLLOUT:-8}
+NNODES_TRAIN=${NNODES_TRAIN:-8}
 NGPUS_PER_NODE=${NGPUS_PER_NODE:-8}
 
 train_prompt_bsz=0
@@ -71,10 +71,18 @@ n_resp_per_prompt=16
 train_prompt_mini_bsz=32
 total_rollout_steps=$(((512*400)))
 test_freq=20
-staleness_threshold=0.1
+staleness_threshold=0.5
 trigger_parameter_sync_step=4
 require_batches=4
 partial_rollout=True
+
+# Rollout Correction
+rollout_is=geometric
+rollout_is_threshold=1.001
+rollout_rs=geometric
+rollout_rs_threshold=1.001
+rollout_rs_threshold_lower=0.99
+rollout_token_veto_threshold=1e-4
 
 python -m recipe.fully_async_policy.fully_async_main \
     data.train_files="${TRAIN_FILE}" \
@@ -159,4 +167,12 @@ python -m recipe.fully_async_policy.fully_async_main \
     async_training.trigger_parameter_sync_step="${trigger_parameter_sync_step}" \
     async_training.require_batches="${require_batches}" \
     async_training.partial_rollout="${partial_rollout}" \
-    async_training.use_rollout_log_probs=True
+    async_training.use_rollout_log_probs=True \
+    async_training.compute_prox_log_prob=True \
+    algorithm.rollout_correction.rollout_is=${rollout_is} \
+    algorithm.rollout_correction.rollout_is_threshold=${rollout_is_threshold} \
+    algorithm.rollout_correction.rollout_rs=${rollout_rs} \
+    algorithm.rollout_correction.rollout_rs_threshold=${rollout_rs_threshold} \
+    algorithm.rollout_correction.rollout_rs_threshold_lower=${rollout_rs_threshold_lower} \
+    algorithm.rollout_correction.rollout_token_veto_threshold=${rollout_token_veto_threshold}
+

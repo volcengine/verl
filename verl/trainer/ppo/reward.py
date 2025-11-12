@@ -142,7 +142,7 @@ def load_reward_manager(
     if compute_score is None:
         sandbox_config = config.reward_model.get("sandbox_fusion")
         sandbox_url = sandbox_config.get("url") if sandbox_config else None
-        memory_limit_mb = sandbox_config.get("memory_limit_mb", 1024)
+        memory_limit_mb = sandbox_config.get("memory_limit_mb", 1024) if sandbox_config else 1024
         if sandbox_url:
             sandbox_manager = multiprocessing.Manager()
             # Create a semaphore to control concurrent access to the sandbox
