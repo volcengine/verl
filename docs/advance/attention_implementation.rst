@@ -3,19 +3,26 @@
 Attention Implementation Override
 ==================================
 
-Last updated: 10/31/2025.
+Last updated: 11/05/2025.
 
-By default, VERL's FSDP workers use ``flash_attention_2`` as the attention implementation for improved performance. 
-However, you can now override this setting to use different attention implementations based on your needs.
+By default, VERL auto-detects the attention backend (prefers ``flash_attention_3`` > ``flash_attention_2`` > ``flex_attention`` > ``sdpa``) unless overridden.
+You can override this setting when needed.
 
 Supported Attention Implementations
 -----------------------------------
 
 The following attention implementations are supported (subject to model and hardware compatibility):
 
-- ``flash_attention_2``: High-performance attention implementation (default)
-- ``eager``: Standard PyTorch attention implementation
-- ``sdpa``: Scaled Dot-Product Attention (PyTorch native)
+- ``flash_attention_3``
+- ``flash_attention_2``
+- ``flex_attention``
+- ``sdpa``
+- ``eager``
+- ``flashinfer`` (SGLang/vLLM only)
+
+Where to set:
+- Per-role: ``actor.attn_implementation``, ``rollout.attn_implementation``, ``ref.attn_implementation``, ``critic.attn_implementation``, ``reward_model.attn_implementation``
+- Via environment: ``VERL_ATTN_IMPLEMENTATION``
 
 When to Override
 ----------------
@@ -30,62 +37,87 @@ You might want to override the attention implementation in the following scenari
 Configuration Examples
 -----------------------
 
-PPO Training with Eager Attention
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-To override the attention implementation for the actor, rollout, and reference models:
+PPO Training with Eager Attention (per-role)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code:: bash
 
     python3 ppo_trainer.py \
-        +actor_rollout_ref.model.override_config.attn_implementation=eager \
+        +actor_rollout_ref.actor.attn_implementation=eager \
+        +actor_rollout_ref.rollout.attn_implementation=eager \
+        +actor_rollout_ref.ref.attn_implementation=eager \
         [other parameters...]
 
-PPO Training with SDPA Attention
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+PPO Training with SDPA Attention (actor only)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code:: bash
 
     python3 ppo_trainer.py \
-        +actor_rollout_ref.model.override_config.attn_implementation=sdpa \
+        +actor_rollout_ref.actor.attn_implementation=sdpa \
         [other parameters...]
 
 Critic Model Override
 ~~~~~~~~~~~~~~~~~~~~~
 
-For training configurations that include a critic model, you can also override its attention implementation:
-
 .. code:: bash
 
     python3 ppo_trainer.py \
-        +actor_rollout_ref.model.override_config.attn_implementation=eager \
-        +critic.model.override_config.attn_implementation=eager \
+        +critic.attn_implementation=eager \
         [other parameters...]
 
-YAML Configuration
-~~~~~~~~~~~~~~~~~~
-
-You can also specify the attention implementation in your YAML configuration file:
+YAML Configuration (defaults to auto per-role)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code:: yaml
 
     actor_rollout_ref:
-      model:
-        override_config:
-          attn_implementation: eager
-          # other overrides...
+      actor:
+        attn_implementation: auto
+      rollout:
+        # defaults to actor's attn_implementation unless specified
+        attn_implementation: ${oc.select:actor_rollout_ref.actor.attn_implementation,auto}
+      ref:
+        # defaults to actor's attn_implementation unless specified
+        attn_implementation: ${oc.select:actor_rollout_ref.actor.attn_implementation,auto}
 
-    critic:  # if using a critic model
-      model:
-        override_config:
-          attn_implementation: eager
-          # other overrides...
+    critic:
+      attn_implementation: ${oc.select:actor_rollout_ref.actor.attn_implementation,auto}
+
+Role-specific overrides
+~~~~~~~~~~~~~~~~~~~~~~~
+
+When your training and inference engines need different backends, set per-role keys. Precedence:
+``<role>.attn_implementation`` > ``VERL_ATTN_IMPLEMENTATION`` > auto.
+
+.. code:: yaml
+
+    actor_rollout_ref:
+      # Prefer FA3 for the HF training model
+      actor:
+        attn_implementation: flash_attention_3
+      # Prefer FlashInfer for SGLang/vLLM rollout
+      rollout:
+        attn_implementation: flashinfer
+      # Use SDPA for the reference policy (HF)
+      ref:
+        attn_implementation: sdpa
+
+    critic:
+      # Critic can use its own backend
+      attn_implementation: eager
+
+    reward_model:
+      # Reward model can use its own backend
+      attn_implementation: eager
 
 Important Notes
 ---------------
 
-**Backward Compatibility**: If you don't specify ``attn_implementation`` in the override config, 
-VERL will continue to use ``flash_attention_2`` by default, ensuring backward compatibility with existing configurations.
+**Defaults**: All roles default to ``auto``. Use per-role keys to override explicitly.
+
+**Backward Compatibility**: If you don't specify ``attn_implementation`` (or ``VERL_ATTN_IMPLEMENTATION``),
+VERL will auto-detect and select a supported backend (preferring ``flash_attention_3`` > ``flash_attention_2`` > ``flex_attention`` > ``sdpa``).
 
 **Model Support**: Not all models support all attention implementations. Ensure your model is compatible 
 with the chosen attention implementation before training.
@@ -113,7 +145,6 @@ If you see an error like "flash_attention_2 is not supported", you can resolve i
 
 .. code:: bash
 
-    # Instead of the default flash_attention_2
-    python3 ppo_trainer.py +actor_rollout_ref.model.override_config.attn_implementation=eager
+    python3 ppo_trainer.py +actor_rollout_ref.actor.attn_implementation=eager
 
 This override ensures your training can proceed while you investigate the flash attention compatibility issue.

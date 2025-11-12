@@ -81,6 +81,9 @@ use_kl_loss: false
 # oc.select: the default val for ref.use_torch_compile
 use_torch_compile: true
 
+# Attention backend for the actor. Defaults to auto; can be overridden per-role.
+attn_implementation: auto
+
 # KL loss coefficient when use_kl_loss is enabled. For GRPO
 kl_loss_coef: 0.001
 
