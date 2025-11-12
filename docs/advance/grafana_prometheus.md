@@ -102,19 +102,20 @@ Start verl training with the following parameters configured:
 
 * `actor_rollout_ref.rollout.mode="async"`
 * `actor_rollout_ref.rollout.disable_log_stats=False`
+* `actor_rollout_ref.rollout.prometheus.enable=True`
 
-**Environment Variables:**
+If use default port, this parameter can be omitted.
+* `actor_rollout_ref.rollout.prometheus.prometheus_port=9090`
 
-When running verl, the following environment variables must be set to enable Prometheus monitoring:
+If use default path, this parameter can be omitted.
+* `actor_rollout_ref.rollout.prometheus.prometheus_config_file="/tmp/ray/session_latest/metrics/prometheus/prometheus.yml"`
 
-```yaml
-env_vars:
-  PROMETHEUS_PORT: "9090"
-  PROMETHEUS_FILE: "/tmp/ray/session_latest/metrics/prometheus/prometheus.yml"
-  
-  # For async vLLM, also include:
-  VLLM_USE_V1: "1"
-```
+
+served_model_name uses `model_path.split("/")[-1]` for data statistics by default. 
+Users can also customize other aliases:
+
+* `actor_rollout_ref.rollout.prometheus.served_model_name="Qwen3-235B"`
+
 
 **Shell Script Example:**
 
@@ -137,6 +138,7 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     actor_rollout_ref.rollout.name=${rollout_name} \
     actor_rollout_ref.rollout.mode=${rollout_mode} \
     actor_rollout_ref.rollout.disable_log_stats=False \
+    actor_rollout_ref.rollout.prometheus.enable=True
     ...
     
 # Asynchronous training
@@ -147,6 +149,7 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     actor_rollout_ref.rollout.name=${rollout_name} \
     actor_rollout_ref.rollout.mode=${rollout_mode} \
     actor_rollout_ref.rollout.disable_log_stats=False \
+    actor_rollout_ref.rollout.prometheus.enable=True
     ...
 ```
 

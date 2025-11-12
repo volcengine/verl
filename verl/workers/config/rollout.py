@@ -92,6 +92,22 @@ class ServerConfig(BaseConfig):
 
 
 @dataclass
+class PrometheusConfig(BaseConfig):
+    """
+    Configuration for Prometheus server
+    """
+
+    # whether enable prometheus on server mode rollout
+    enable: bool = False
+    # Port number that Prometheus listens on, default is 9090
+    prometheus_port: int = 9090
+    # Path to Prometheus configuration file
+    prometheus_config_file: str = "/tmp/ray/session_latest/metrics/prometheus/prometheus.yml"
+    # Specify served_model_name to avoid displaying overly long model paths in Grafana
+    served_model_name: Optional[str] = None
+
+
+@dataclass
 class RolloutConfig(BaseConfig):
     _mutable_fields = {"max_model_len", "load_format"}
 
@@ -153,6 +169,9 @@ class RolloutConfig(BaseConfig):
 
     # Server configuration for sglang server mode
     server: ServerConfig = field(default_factory=ServerConfig)
+
+    # Use Prometheus to collect and monitor rollout statistics
+    prometheus: PrometheusConfig = field(default_factory=PrometheusConfig)
 
     update_weights_bucket_megabytes: int = 512
 

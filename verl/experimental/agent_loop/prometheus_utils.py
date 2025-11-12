@@ -19,11 +19,13 @@ import os
 import ray
 import yaml
 
+from verl.workers.config.rollout import PrometheusConfig
+
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-def update_prometheus_config(server_addresses: list[str]):
+def update_prometheus_config(config: PrometheusConfig, server_addresses: list[str]):
     """
     Update Prometheus configuration file with server addresses and reload on first node.
 
@@ -35,11 +37,8 @@ def update_prometheus_config(server_addresses: list[str]):
         return
 
     try:
-        # Read existing Prometheus config or create default one
-        prometheus_config_path = str(
-            os.getenv("PROMETHEUS_FILE", "/tmp/ray/session_latest/metrics/prometheus/prometheus.yml")
-        )
-        prometheus_config = {
+        # Get Prometheus config file path from environment or use default
+        prometheus_config_json = {
             "global": {"scrape_interval": "10s", "evaluation_interval": "10s"},
             "scrape_configs": [
                 {
@@ -50,7 +49,7 @@ def update_prometheus_config(server_addresses: list[str]):
             ],
         }
 
-        # Write the configuration to file on all nodes
+        # Write configuration file to all nodes
         @ray.remote(num_cpus=0)
         def write_config_file(config_data, config_path):
             os.makedirs(os.path.dirname(config_path), exist_ok=True)
@@ -58,16 +57,14 @@ def update_prometheus_config(server_addresses: list[str]):
                 yaml.dump(config_data, f, default_flow_style=False, indent=2)
             return True
 
-        # Call prometheus on all nodes, just master node should success, we skip other node error.
+        # Reload Prometheus on all nodes. Only master node should succeed, skip errors on other nodes.
         @ray.remote(num_cpus=0)
-        def reload_prometheus():
-            import os
+        def reload_prometheus(port):
             import socket
             import subprocess
 
             hostname = socket.gethostname()
             ip_address = socket.gethostbyname(hostname)
-            port = int(os.getenv("PROMETHEUS_PORT", "9090"))
 
             reload_url = f"http://{ip_address}:{port}/-/reload"
 
@@ -75,33 +72,36 @@ def update_prometheus_config(server_addresses: list[str]):
                 subprocess.run(["curl", "-X", "POST", reload_url], capture_output=True, text=True, timeout=10)
                 print(f"Reloading Prometheus on node: {reload_url}")
             except Exception:
-                # skip slave node error
+                # Skip errors on non-master nodes
                 pass
 
-        # Schedule task on each specific node
-
-        # Get all available nodes and schedule task on each node
+        # Get all available nodes and schedule tasks on each node
         nodes = ray.nodes()
         alive_nodes = [node for node in nodes if node["Alive"]]
 
+        # Write config files on all nodes
         write_tasks = []
         for node in alive_nodes:
             node_ip = node["NodeManagerAddress"]
             task = write_config_file.options(
                 resources={"node:" + node_ip: 0.001}  # Schedule to specific node
-            ).remote(prometheus_config, prometheus_config_path)
+            ).remote(prometheus_config_json, config.prometheus_config_file)
             write_tasks.append(task)
 
         ray.get(write_tasks)
 
-        print(f"Updated Prometheus configuration at {prometheus_config_path} with {len(server_addresses)} VLLM servers")
+        print(
+            f"Updated Prometheus configuration at {config.prometheus_config_file} "
+            f"with {len(server_addresses)} VLLM servers"
+        )
 
+        # Reload Prometheus on all nodes
         reload_tasks = []
         for node in alive_nodes:
             node_ip = node["NodeManagerAddress"]
             task = reload_prometheus.options(
                 resources={"node:" + node_ip: 0.001}  # Schedule to specific node
-            ).remote()
+            ).remote(config.prometheus_port)
             reload_tasks.append(task)
 
         ray.get(reload_tasks)
