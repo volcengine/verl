@@ -52,7 +52,7 @@ def load_dist_checkpointing(sharded_state_dict, ckpt_dir):
     )
 
     # Load model sharded state dicts
-    torch.serialization.add_safe_globals([torch.optim.adamw.AdamW])
+    torch.serialization.add_safe_globals([torch.optim.AdamW])
     state_dict = dist_checkpointing.load(sharded_state_dict, ckpt_dir, sharded_strategy=load_strategy)
 
     return state_dict
