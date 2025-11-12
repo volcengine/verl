@@ -26,7 +26,6 @@ from verl.experimental.reward.reward_loop.base import RewardLoopManagerBase
 from verl.utils.reward_score import default_compute_score
 
 logger = logging.getLogger(__file__)
-logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 @register("prime")
