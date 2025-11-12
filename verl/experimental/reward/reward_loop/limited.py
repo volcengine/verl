@@ -118,59 +118,53 @@ class AsyncTokenBucket:
             - Tokens are refilled continuously based on elapsed time
             - For requests > max_tokens, allows temporary negative balance
         """
-        while True:
+        # Handle requests larger than max_tokens separately
+        if num_tokens > self.max_tokens:
+            wait_time = 0.0
             async with self.lock:
                 loop = asyncio.get_running_loop()
                 now = loop.time()
-
                 if self.last_update is None:
                     self.last_update = now
 
-                # Refill tokens based on elapsed time
+                elapsed = now - self.last_update
+                new_tokens = elapsed * self.rate_limit
+                self.tokens = min(self.max_tokens, self.tokens + new_tokens)
+
+                tokens_needed = num_tokens - self.tokens
+                if tokens_needed > 0:
+                    wait_time = tokens_needed / self.rate_limit
+
+                self.tokens -= num_tokens
+                self.last_update = now
+
+            if wait_time > 0:
+                await asyncio.sleep(wait_time)
+            return
+
+        # Standard case: request <= max_tokens
+        while True:
+            wait_time = 0.0
+            async with self.lock:
+                loop = asyncio.get_running_loop()
+                now = loop.time()
+                if self.last_update is None:
+                    self.last_update = now
+
                 elapsed = now - self.last_update
                 new_tokens = elapsed * self.rate_limit
                 self.tokens = min(self.max_tokens, self.tokens + new_tokens)
                 self.last_update = now
 
-                # Check if we have enough tokens
                 if self.tokens >= num_tokens:
                     self.tokens -= num_tokens
                     return
 
-                # For requests larger than max_tokens, we need to make progress
-                # even if we can't accumulate enough tokens at once
-                if num_tokens > self.max_tokens:
-                    # Wait until bucket is reasonably full, then consume
-                    # This ensures we're rate limiting properly
-                    tokens_needed = num_tokens - self.tokens
-                    wait_time = tokens_needed / self.rate_limit
+                tokens_needed = num_tokens - self.tokens
+                wait_time = tokens_needed / self.rate_limit
 
-                    # After waiting, we'll have accumulated enough "time credit"
-                    # to justify consuming the tokens (even if it goes negative)
-                    self.lock.release()
-                    try:
-                        await asyncio.sleep(wait_time)
-                    finally:
-                        await self.lock.acquire()
-
-                    # Update time and consume tokens
-                    now = loop.time()
-                    elapsed = now - self.last_update
-                    new_tokens = elapsed * self.rate_limit
-                    self.tokens = min(self.max_tokens, self.tokens + new_tokens)
-                    self.last_update = now
-
-                    # Consume tokens (will go negative)
-                    self.tokens -= num_tokens
-                    return
-                else:
-                    # Normal case: request <= max_tokens
-                    # Calculate wait time and loop again
-                    tokens_needed = num_tokens - self.tokens
-                    wait_time = tokens_needed / self.rate_limit
-
-            # Sleep outside the lock to allow other coroutines to proceed
-            await asyncio.sleep(wait_time)
+            if wait_time > 0:
+                await asyncio.sleep(wait_time)
 
 
 @register("rate_limited")
