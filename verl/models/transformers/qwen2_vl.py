@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import inspect
 import logging
 import os
 from dataclasses import dataclass
@@ -20,15 +19,18 @@ from typing import Optional
 
 import torch
 import torch.distributed as dist
-from transformers.modeling_flash_attention_utils import _flash_attention_forward, fa_peft_integration_check
 from transformers.models.qwen2_vl.modeling_qwen2_vl import (
     Qwen2VLAttention,
     Qwen2VLCausalLMOutputWithPast,
     Qwen2VLForConditionalGeneration,
 )
-from transformers.utils import is_flash_attn_2_available, is_flash_attn_greater_or_equal_2_10
 
-from verl.utils.device import is_npu_available
+from verl.utils.attention_utils import (
+    _flash_attention_forward,
+    fa_peft_integration_check,
+    flash_attn_supports,
+    flash_attn_varlen_func,
+)
 from verl.utils.transformers_compat import is_transformers_version_in_range
 from verl.utils.ulysses import (
     gather_heads_scatter_seq,
@@ -42,21 +44,9 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-if is_flash_attn_2_available():
-    from flash_attn import flash_attn_func, flash_attn_varlen_func
-
-    _flash_supports_window_size = "window_size" in inspect.signature(flash_attn_func).parameters
-    _flash_supports_deterministic = "deterministic" in inspect.signature(flash_attn_func).parameters
-    _flash_use_top_left_mask = not is_flash_attn_greater_or_equal_2_10()
-
-if is_npu_available:
-    from transformers.integrations.npu_flash_attention import npu_flash_attn_func as flash_attn_func
-    from transformers.integrations.npu_flash_attention import npu_flash_attn_varlen_func as flash_attn_varlen_func
-    from transformers.modeling_flash_attention_utils import flash_attn_supports_top_left_mask
-
-    _flash_supports_window_size = "window_size" in inspect.signature(flash_attn_func).parameters
-    _flash_supports_deterministic = "deterministic" in inspect.signature(flash_attn_func).parameters
-    _flash_use_top_left_mask = flash_attn_supports_top_left_mask()
+_flash_use_top_left_mask = flash_attn_supports("top_left_mask")
+_flash_supports_window_size = flash_attn_supports("sliding_window")
+_flash_supports_deterministic = flash_attn_supports("deterministic")
 
 _flash_deterministic_enabled = os.getenv("FLASH_ATTENTION_DETERMINISTIC", "0") == "1"
 

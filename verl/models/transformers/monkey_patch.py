@@ -20,9 +20,9 @@ from types import SimpleNamespace
 from typing import Optional
 
 import torch
-from transformers.modeling_flash_attention_utils import _flash_attention_forward
 from transformers.modeling_utils import PreTrainedModel
 
+from verl.utils.attention_utils import _flash_attention_forward
 from verl.utils.import_utils import is_trl_available
 from verl.utils.transformers_compat import is_transformers_version_in_range
 from verl.utils.ulysses import (
