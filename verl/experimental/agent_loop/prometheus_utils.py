@@ -16,6 +16,7 @@
 import logging
 import os
 
+import yaml
 import ray
 
 logger = logging.getLogger(__file__)
@@ -52,9 +53,6 @@ def update_prometheus_config(server_addresses: list[str]):
         # Write the configuration to file on all nodes
         @ray.remote(num_cpus=0)
         def write_config_file(config_data, config_path):
-            import yaml
-            import os
-
             os.makedirs(os.path.dirname(config_path), exist_ok=True)
             with open(config_path, "w") as f:
                 yaml.dump(config_data, f, default_flow_style=False, indent=2)
@@ -76,7 +74,7 @@ def update_prometheus_config(server_addresses: list[str]):
             try:
                 subprocess.run(["curl", "-X", "POST", reload_url], capture_output=True, text=True, timeout=10)
                 print(f"Reloading Prometheus on node: {reload_url}")
-            except Exception as e:
+            except Exception:
                 pass
 
         # Schedule task on each specific node
