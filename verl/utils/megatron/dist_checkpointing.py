@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import torch
 from megatron.core import dist_checkpointing, mpu
 from megatron.core.dist_checkpointing.serialization import (
     get_default_load_sharded_strategy,
@@ -51,6 +52,7 @@ def load_dist_checkpointing(sharded_state_dict, ckpt_dir):
     )
 
     # Load model sharded state dicts
+    torch.serialization.add_safe_globals([torch.optim.adamw.AdamW])
     state_dict = dist_checkpointing.load(sharded_state_dict, ckpt_dir, sharded_strategy=load_strategy)
 
     return state_dict
