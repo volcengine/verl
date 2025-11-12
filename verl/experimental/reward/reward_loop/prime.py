@@ -59,6 +59,7 @@ class PrimeRewardLoopManager(RewardLoopManagerBase):
     # Class-level semaphore shared across all instances for global rate limiting
     _semaphore = None
     _max_concurrent = None
+    _prime_class_initialized = False
 
     @classmethod
     def init_class(cls, config: DictConfig, tokenizer: AutoTokenizer):
@@ -67,7 +68,11 @@ class PrimeRewardLoopManager(RewardLoopManagerBase):
         This creates a class-level semaphore that is shared by all PrimeRewardLoopManager
         instances, ensuring true global rate limiting across all agent loop workers.
         """
-        if cls._class_initialized:
+        # Call parent init_class first
+        super().init_class(config, tokenizer)
+
+        # Use our own class-level flag to avoid conflicts with base class
+        if cls._prime_class_initialized:
             return
 
         cls._max_concurrent = config.reward_model.get("max_concurrent", 1)
@@ -78,7 +83,7 @@ class PrimeRewardLoopManager(RewardLoopManagerBase):
             f"This semaphore is shared across all agent loop workers for global rate limiting."
         )
 
-        cls._class_initialized = True
+        cls._prime_class_initialized = True
 
     def __init__(self, config, tokenizer, compute_score=None, reward_router_address=None, reward_model_tokenizer=None):
         super().__init__(config, tokenizer)
