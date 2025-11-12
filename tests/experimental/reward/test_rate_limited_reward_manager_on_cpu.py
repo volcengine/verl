@@ -133,7 +133,8 @@ def create_test_data_proto(tokenizer, response_text: str, ground_truth: str, dat
         }
     )
 
-    data.non_tensor_batch = {"data_source": data_source, "reward_model": {"ground_truth": ground_truth}}
+    # Wrap non-tensor values in lists to match batch dimension
+    data.non_tensor_batch = {"data_source": [data_source], "reward_model": [{"ground_truth": ground_truth}]}
 
     return data
 
@@ -392,19 +393,21 @@ class TestRateLimitedRewardManager:
 
         data = create_test_data_proto(tokenizer, "answer", "answer")
 
-        # Make 4 requests
+        # Make 6 requests to exceed burst capacity (RPM bucket starts with 2 tokens)
         start_time = time.time()
 
-        tasks = [manager.run_single(data) for _ in range(4)]
+        tasks = [manager.run_single(data) for _ in range(6)]
         results = await asyncio.gather(*tasks)
 
         elapsed = time.time() - start_time
 
-        # Should be limited by TPM: 4 * 100 tokens = 400 tokens
-        # At 200 tokens/sec: ~2 seconds
-        assert elapsed >= 1.5, f"Combined rate limiting: {elapsed:.3f}s"
+        # Bucket starts with 2 RPM tokens and 200 TPM tokens
+        # First 2 requests: use burst capacity (2 RPM tokens, 200 TPM tokens)
+        # Next 4 requests: need 4 RPM tokens (wait 2 seconds) and 400 TPM tokens (wait 2 seconds)
+        # Limiting factor: RPM at 2 seconds
+        assert elapsed >= 1.8, f"Combined rate limiting: {elapsed:.3f}s"
         assert all(r["reward_score"] == 1.0 for r in results)
-        assert api_counter.call_count == 4
+        assert api_counter.call_count == 6
 
     @pytest.mark.asyncio
     async def test_correct_vs_incorrect_answers(self, tokenizer):
@@ -447,23 +450,29 @@ class TestRateLimitedRewardManager:
 
         data = create_test_data_proto(tokenizer, "answer", "answer")
 
-        # Launch 50 concurrent requests
+        # Launch 200 concurrent requests (more than burst capacity of 100)
         start_time = time.time()
 
-        tasks = [manager.run_single(data) for _ in range(50)]
+        tasks = [manager.run_single(data) for _ in range(200)]
         results = await asyncio.gather(*tasks)
 
         elapsed = time.time() - start_time
 
-        assert len(results) == 50
+        assert len(results) == 200
         assert all(r["reward_score"] == 1.0 for r in results)
 
-        # Calculate actual rate
+        # Bucket starts with 100 tokens (burst capacity)
+        # First 100 requests: use burst capacity instantly
+        # Next 100 requests: need to wait for refill at 100 tokens/sec = 1 second minimum
+        # Total time should be at least 1 second
+        assert elapsed >= 0.9, f"Should take at least 0.9s for rate limiting, took {elapsed:.3f}s"
+
+        # Calculate actual rate over the time window
         actual_rate = api_counter.call_count / elapsed
 
-        # Should not exceed 100 req/sec significantly
-        # Allow some overhead but check we're rate limiting
-        assert actual_rate <= 120, f"Rate limiting failed: {actual_rate:.1f} req/sec"
+        # Average rate should not significantly exceed 100 req/sec
+        # Allow some burst overhead due to initial capacity
+        assert actual_rate <= 200, f"Rate limiting failed: {actual_rate:.1f} req/sec (max 200)"
 
     @pytest.mark.asyncio
     async def test_class_initialization_once(self, tokenizer):
@@ -499,7 +508,7 @@ class TestRateLimitedRewardManager:
         )
 
         data = create_test_data_proto(tokenizer, "answer", "answer")
-        data.non_tensor_batch["extra_info"] = {"custom_field": "test_value"}
+        data.non_tensor_batch["extra_info"] = [{"custom_field": "test_value"}]
 
         await manager.run_single(data)
 

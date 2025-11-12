@@ -92,6 +92,10 @@ class AsyncTokenBucket:
         are available. It automatically refills tokens based on elapsed time
         and the configured rate_limit.
 
+        For requests exceeding max_tokens, the method will wait for enough time
+        to accumulate the required tokens at the configured rate_limit, allowing
+        tokens to temporarily go negative.
+
         Args:
             num_tokens (float): Number of tokens to consume. Defaults to 1.0.
                 Can be fractional for fine-grained rate limiting.
@@ -112,6 +116,7 @@ class AsyncTokenBucket:
             - Uses event loop's time() for high-precision timestamps
             - Lock is released during sleep to allow other coroutines to proceed
             - Tokens are refilled continuously based on elapsed time
+            - For requests > max_tokens, allows temporary negative balance
         """
         while True:
             async with self.lock:
@@ -127,13 +132,44 @@ class AsyncTokenBucket:
                 self.tokens = min(self.max_tokens, self.tokens + new_tokens)
                 self.last_update = now
 
+                # Check if we have enough tokens
                 if self.tokens >= num_tokens:
                     self.tokens -= num_tokens
                     return
 
-                tokens_needed = num_tokens - self.tokens
-                wait_time = tokens_needed / self.rate_limit
+                # For requests larger than max_tokens, we need to make progress
+                # even if we can't accumulate enough tokens at once
+                if num_tokens > self.max_tokens:
+                    # Wait until bucket is reasonably full, then consume
+                    # This ensures we're rate limiting properly
+                    tokens_needed = num_tokens - self.tokens
+                    wait_time = tokens_needed / self.rate_limit
 
+                    # After waiting, we'll have accumulated enough "time credit"
+                    # to justify consuming the tokens (even if it goes negative)
+                    self.lock.release()
+                    try:
+                        await asyncio.sleep(wait_time)
+                    finally:
+                        await self.lock.acquire()
+
+                    # Update time and consume tokens
+                    now = loop.time()
+                    elapsed = now - self.last_update
+                    new_tokens = elapsed * self.rate_limit
+                    self.tokens = min(self.max_tokens, self.tokens + new_tokens)
+                    self.last_update = now
+
+                    # Consume tokens (will go negative)
+                    self.tokens -= num_tokens
+                    return
+                else:
+                    # Normal case: request <= max_tokens
+                    # Calculate wait time and loop again
+                    tokens_needed = num_tokens - self.tokens
+                    wait_time = tokens_needed / self.rate_limit
+
+            # Sleep outside the lock to allow other coroutines to proceed
             await asyncio.sleep(wait_time)
 
 
@@ -231,10 +267,11 @@ class RateLimitedRewardLoopManager(RewardLoopManagerBase):
     @classmethod
     def init_class(cls, config: DictConfig, tokenizer: AutoTokenizer):
         """Initialize class state shared across all instances."""
-        super().init_class(config, tokenizer)
-
+        # Check if already initialized before calling parent
         if cls._class_initialized:
             return
+
+        super().init_class(config, tokenizer)
 
         # Concurrency limiter
         cls._max_concurrent = config.reward_model.get("max_concurrent", 1)
