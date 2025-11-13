@@ -9,7 +9,7 @@ RUN ARCH=$(uname -m) && \
 # 3. Install system dependencies
 RUN apt-get update -y && apt-get install -y --no-install-recommends \
     gcc g++ cmake libnuma-dev wget git curl jq vim build-essential \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* && pip install --upgrade pip setuptools packaging
 
 # 4. Install vllm
 RUN ARCH=$(uname -m) && \
