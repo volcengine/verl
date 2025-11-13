@@ -246,6 +246,12 @@ actor_rollout_ref:
       ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
       save_path: ${oc.select:global_profiler.save_path,null}
       tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}
+    prometheus:
+      _target_: verl.workers.config.PrometheusConfig
+      enable: false
+      port: 9090
+      file: /tmp/ray/session_latest/metrics/prometheus/prometheus.yml
+      served_model_name: ${oc.select:actor_rollout_ref.model.path,null}
     layered_summon: false
   model:
     _target_: verl.workers.config.HFModelConfig
