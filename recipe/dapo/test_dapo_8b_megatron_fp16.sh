@@ -139,3 +139,4 @@ python3 -m verl.trainer.main_ppo \
     trainer.default_local_dir="${CKPTS_DIR}" \
     trainer.resume_mode=auto \
     trainer.log_val_generations=10
+
