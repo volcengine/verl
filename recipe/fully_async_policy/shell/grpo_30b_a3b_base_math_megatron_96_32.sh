@@ -1,21 +1,34 @@
-set -x
+#!/usr/bin/env bash
+set -xeuo pipefail
 
-# tested in NNODES=1~4 * 96G H20 GPU
-NNODES=${NNODES:-1}
-NGPUS_PER_NODES=${NGPUS_PER_NODES:-8}
+project_name='GRPO-Qwen3-30b-Base-MATH'
+exp_name='GRPO-Qwen3-30b-Base-MATH-megatron-fully-async_96-32'
 
-project_name='DAPO-Qwen3-30b-MATH'
-exp_name='DAPO-Qwen3-30b-MATH-megatron'
+RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
+MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen3-30B-A3B-Base"}
+CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/ckpts/${project_name}/${exp_name}"}
+TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/dapo-math-17k.parquet"}
+TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/aime-2024.parquet"}
 
+rollout_mode="async"
+rollout_name="vllm" # sglang or vllm
+if [ "$rollout_mode" = "async" ]; then
+    export VLLM_USE_V1=1
+    return_raw_chat="True"
+fi
+# Algorithm parameters
 adv_estimator=grpo
 
 use_kl_in_reward=False
 kl_coef=0.0
-use_kl_loss=False
-kl_loss_coef=0.0
+use_kl_loss=True
+kl_loss_coef=0.001
+kl_loss_type=low_var_kl
 
 clip_ratio_low=0.2
 clip_ratio_high=0.28
+
+# Response length parameters
 max_prompt_length=$((1024 * 2))
 max_response_length=$((1024 * 8))
 enable_overlong_buffer=True
@@ -23,19 +36,6 @@ overlong_buffer_len=$((1024 * 4))
 overlong_penalty_factor=1.0
 
 loss_agg_mode="token-mean"
-
-train_prompt_bsz=512
-n_resp_per_prompt=16
-train_prompt_mini_bsz=128
-train_ppo_micro_batch_size_per_gpu=2
-infer_ppo_micro_batch_size_per_gpu=2
-# Paths
-MODEL_PATH=Qwen/Qwen3-30B-A3B-Base
-
-RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
-TRAIN_FILE=$RAY_DATA_HOME/dataset/dapo-math-17k.parquet
-TEST_FILE=$RAY_DATA_HOME/dataset/aime-2024.parquet
-TEST_FILE="['$aime24_test_path']"
 
 # Algorithm
 temperature=1.0
@@ -48,13 +48,15 @@ use_dynamic_bsz=True
 actor_ppo_max_token_len=$(((max_prompt_length + max_response_length)))
 infer_ppo_max_token_len=$(((max_prompt_length + max_response_length)))
 offload=True
+train_ppo_micro_batch_size_per_gpu=2
+infer_ppo_micro_batch_size_per_gpu=2
 
 optimizer_offload_fraction=${OFFLOAD_FRACTION:-1.}
 
 COMMON_PP=${COMMON_PP:-1}
 COMMON_VPP=${COMMON_VPP:-null}
-COMMON_CP=${COMMON_CP:-1}
-COMMON_TP=${COMMON_TP:-1}
+COMMON_CP=${COMMON_CP:-2}
+COMMON_TP=${COMMON_TP:-2}
 COMMON_EP=${COMMON_EP:-8}
 COMMON_ETP=${COMMON_ETP:-1}
 
@@ -92,7 +94,25 @@ RM_ETP=${RM_ETP:-$COMMON_ETP}
 USE_MBRIDGE=True
 USE_DIST_CKPT=False
 
-python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megatron_trainer'\
+# Fully async specific parameters
+NNODES_ROLLOUT=${NNODES_ROLLOUT:-12}
+NNODES_TRAIN=${NNODES_TRAIN:-4}
+NGPUS_PER_NODE=${NGPUS_PER_NODE:-8}
+
+train_prompt_bsz=0
+gen_prompt_bsz=1
+n_resp_per_prompt=16
+train_prompt_mini_bsz=128
+total_rollout_steps=$(((512*400)))
+test_freq=20
+staleness_threshold=0.5
+trigger_parameter_sync_step=4
+require_batches=1
+partial_rollout=True
+
+python -m recipe.fully_async_policy.fully_async_main \
+    --config-path=config \
+    --config-name='fully_async_ppo_megatron_trainer.yaml'\
     data.train_files="${TRAIN_FILE}" \
     data.val_files="${TEST_FILE}" \
     data.prompt_key=prompt \
@@ -100,6 +120,7 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     data.max_prompt_length=${max_prompt_length} \
     data.max_response_length=${max_response_length} \
     data.train_batch_size=${train_prompt_bsz} \
+    data.return_raw_chat=${return_raw_chat} \
     actor_rollout_ref.rollout.n=${n_resp_per_prompt} \
     algorithm.adv_estimator=${adv_estimator} \
     algorithm.use_kl_in_reward=${use_kl_in_reward} \
@@ -120,6 +141,7 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     actor_rollout_ref.actor.optim.lr_warmup_steps=10 \
     actor_rollout_ref.actor.optim.lr_decay_style='constant' \
     actor_rollout_ref.actor.optim.weight_decay=0.1 \
+    actor_rollout_ref.actor.optim.lr_decay_steps=${total_rollout_steps} \
     +actor_rollout_ref.actor.optim.override_optimizer_config.optimizer_offload_fraction=${optimizer_offload_fraction} \
     +actor_rollout_ref.actor.optim.override_optimizer_config.overlap_cpu_optimizer_d2h_h2d=True \
     +actor_rollout_ref.actor.optim.override_optimizer_config.use_precision_aware_optimizer=True \
@@ -163,7 +185,10 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     actor_rollout_ref.rollout.val_kwargs.top_k=${top_k} \
     actor_rollout_ref.rollout.val_kwargs.do_sample=True \
     actor_rollout_ref.rollout.val_kwargs.n=1 \
-    actor_rollout_ref.rollout.name=vllm \
+    actor_rollout_ref.rollout.name=${rollout_name} \
+    actor_rollout_ref.rollout.mode=${rollout_mode} \
+    actor_rollout_ref.rollout.calculate_log_probs=True \
+    actor_rollout_ref.hybrid_engine=False \
     actor_rollout_ref.rollout.enforce_eager=True \
     actor_rollout_ref.rollout.free_cache_engine=True \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=${infer_ppo_micro_batch_size_per_gpu} \
@@ -182,14 +207,24 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     +reward_model.reward_kwargs.overlong_buffer_cfg.penalty_factor=${overlong_penalty_factor} \
     +reward_model.reward_kwargs.overlong_buffer_cfg.log=False \
     +reward_model.reward_kwargs.max_resp_len=${max_response_length} \
-    trainer.logger=['console','wandb'] \
+    trainer.logger=['console','tensorboard'] \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
-    trainer.n_gpus_per_node="${NGPUS_PER_NODES}" \
-    trainer.nnodes="${NNODES}" \
-    trainer.val_before_train=False \
-    trainer.test_freq=10 \
-    trainer.save_freq=100 \
+    trainer.val_before_train=True \
+    trainer.save_freq=-1 \
     trainer.total_epochs=10 \
     trainer.resume_mode=auto \
-    trainer.log_val_generations=10
+    trainer.log_val_generations=10 \
+    trainer.nnodes="${NNODES_TRAIN}" \
+    trainer.n_gpus_per_node="${NGPUS_PER_NODE}" \
+    rollout.nnodes="${NNODES_ROLLOUT}" \
+    rollout.n_gpus_per_node="${NGPUS_PER_NODE}" \
+    rollout.total_rollout_steps="${total_rollout_steps}" \
+    rollout.total_epochs=10 \
+    rollout.test_freq="${test_freq}" \
+    async_training.staleness_threshold="${staleness_threshold}" \
+    async_training.trigger_parameter_sync_step="${trigger_parameter_sync_step}" \
+    async_training.require_batches="${require_batches}" \
+    async_training.partial_rollout="${partial_rollout}" \
+    async_training.use_rollout_log_probs=True \
+

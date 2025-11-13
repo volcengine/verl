@@ -16,10 +16,10 @@ import asyncio
 import json
 import logging
 import os
-import pickle
 from pprint import pprint
 from typing import Any, Callable, Optional
 
+import cloudpickle as pickle
 import numpy as np
 import ray
 import vllm.entrypoints.cli.serve
@@ -220,7 +220,7 @@ class vLLMHttpServerBase:
             "dtype": self.config.dtype,
             "load_format": self.config.load_format,
             "skip_tokenizer_init": False,
-            # "trust_remote_code": True,
+            "trust_remote_code": self.model_config.trust_remote_code,
             "max_model_len": self.config.max_model_len,
             "max_num_seqs": self.config.max_num_seqs,
             "enable_chunked_prefill": self.config.enable_chunked_prefill,

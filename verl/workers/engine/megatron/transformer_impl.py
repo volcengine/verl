@@ -38,6 +38,7 @@ from verl.utils.megatron_utils import (
     offload_megatron_model_to_cpu,
     offload_megatron_optimizer,
     per_tensor_generator,
+    register_megatron_training_hooks,
 )
 from verl.utils.model import load_mcore_dist_weights, load_megatron_gptmodel_weights
 from verl.workers.config import HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
@@ -97,7 +98,9 @@ class MegatronEngine(BaseEngine):
         from verl.models.mcore import hf_to_mcore_config
         from verl.utils.torch_dtypes import PrecisionType
 
-        self.param_dtype = torch.bfloat16
+        self.param_dtype = PrecisionType.to_dtype(self.engine_config.dtype)
+        if self.param_dtype == torch.float16:
+            assert self.engine_config.use_mbridge, "fp16 mode requires use_mbridge to be True"
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
         tf_config = hf_to_mcore_config(
             self.model_config.hf_config, self.dtype, **self.engine_config.override_transformer_config
@@ -107,9 +110,11 @@ class MegatronEngine(BaseEngine):
         if use_mbridge:
             from verl.models.mcore.mbridge import AutoBridge
 
-            bridge = AutoBridge.from_config(self.model_config.hf_config)
+            bridge = AutoBridge.from_config(self.model_config.hf_config, dtype=self.param_dtype)
             bridge.set_extra_args(**self.engine_config.override_transformer_config)
             tf_config = bridge.config
+            tf_config.fp16 = self.param_dtype == torch.float16
+            tf_config.bf16 = self.param_dtype == torch.bfloat16
             self.bridge = bridge
         else:
             self.bridge = None
@@ -181,8 +186,9 @@ class MegatronEngine(BaseEngine):
     def _build_optimizer(self):
         from verl.utils.megatron.optimizer import get_megatron_optimizer, init_megatron_optim_config
 
-        optim_config_megatron = init_megatron_optim_config(self.optimizer_config)
+        optim_config_megatron = init_megatron_optim_config(self.optimizer_config, self.param_dtype == torch.float16)
         optimizer = get_megatron_optimizer(model=self.module, config=optim_config_megatron)
+        register_megatron_training_hooks(self.module, optimizer)
         return optimizer
 
     def _build_lr_scheduler(self):

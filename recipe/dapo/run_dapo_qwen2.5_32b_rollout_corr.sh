@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 set -xeuo pipefail
 
-# Rollout Importance Sampling Example
+# Rollout Correction Example
 # References:
+#   - Rollout Correction Docs: https://github.com/volcengine/verl/blob/main/docs/algo/rollout_corr.md
+#   - Rollout Correction Math: https://github.com/volcengine/verl/blob/main/docs/algo/rollout_corr_math.md
 #   - When Speed Kills Stability: https://yingru.notion.site/When-Speed-Kills-Stability-271211a558b7808d8b12d403fd15edda
 #   - Off-policy RL: https://fengyao.notion.site/off-policy-rl
 
 project_name='DAPO'
-exp_name='DAPO-Qwen2.5-32B-RolloutIS'  # Rollout Importance Sampling
+exp_name='DAPO-Qwen2.5-32B-RolloutCorr'  # Rollout Correction
 
 adv_estimator=grpo
 
@@ -16,13 +18,14 @@ kl_coef=0.0
 use_kl_loss=False
 kl_loss_coef=0.0
 
-# Rollout Importance Sampling parameters
-rollout_is=True
+# Rollout Correction parameters (sequence-level TIS + geometric RS)
+rollout_is=sequence
 rollout_is_threshold=2.0
-rollout_is_threshold_lower=null  # No lower bound
-rollout_is_level=token  # token-level
-rollout_is_mode=truncate  # truncate mode
-rollout_is_veto_threshold=null  # No veto
+rollout_is_batch_normalize=true
+rollout_rs=geometric
+rollout_rs_threshold=1.01
+rollout_rs_threshold_lower=0.99
+rollout_token_veto_threshold=1e-4
 
 clip_ratio_low=0.2
 clip_ratio_high=0.28
@@ -70,16 +73,24 @@ offload=True
 gen_tp=4
 
 
-# Rollout Importance Sampling (corrects distribution mismatch between rollout and training)
+# Rollout Correction (corrects distribution mismatch between rollout and training)
+#
+# Configuration: DAPO with Rollout Correction:
+# - Self-normalized sequence-level TIS (Truncated Importance Sampling)
+# - Geometric rejection sampling for outlier filtering
+# - Token veto for catastrophic distribution shifts
 #
 # Please note that server mode (agent loop) hasn't returned rollout_log_probs for now,
-# so currently server mode is not supported for Rollout IS.
+# so currently server mode is not supported for Rollout Correction.
 #
-# Rollout IS parameters (configured at top of script):
-#   algorithm.rollout_is=True
-#   algorithm.rollout_is_threshold=2.0  # Upper threshold (can be tuned)
-#   algorithm.rollout_is_level=token  # Aggregation level
-#   algorithm.rollout_is_mode=truncate  # Bounding mode
+# Rollout Correction parameters (configured at top of script):
+#   algorithm.rollout_correction.rollout_is=sequence
+#   algorithm.rollout_correction.rollout_is_threshold=2.0
+#   algorithm.rollout_correction.rollout_is_batch_normalize=true
+#   algorithm.rollout_correction.rollout_rs=geometric
+#   algorithm.rollout_correction.rollout_rs_threshold=1.01
+#   algorithm.rollout_correction.rollout_rs_threshold_lower=0.99
+#   algorithm.rollout_correction.rollout_token_veto_threshold=1e-4
 #   actor_rollout_ref.rollout.calculate_log_probs=True  # Required!
 
 ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
@@ -124,12 +135,13 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     actor_rollout_ref.actor.grad_clip=1.0 \
     actor_rollout_ref.actor.loss_agg_mode=${loss_agg_mode} \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=${sp_size} \
-    algorithm.rollout_is=${rollout_is} \
-    algorithm.rollout_is_threshold=${rollout_is_threshold} \
-    algorithm.rollout_is_threshold_lower=${rollout_is_threshold_lower} \
-    algorithm.rollout_is_level=${rollout_is_level} \
-    algorithm.rollout_is_mode=${rollout_is_mode} \
-    algorithm.rollout_is_veto_threshold=${rollout_is_veto_threshold} \
+    algorithm.rollout_correction.rollout_is=${rollout_is} \
+    algorithm.rollout_correction.rollout_is_threshold=${rollout_is_threshold} \
+    algorithm.rollout_correction.rollout_is_batch_normalize=${rollout_is_batch_normalize} \
+    algorithm.rollout_correction.rollout_rs=${rollout_rs} \
+    algorithm.rollout_correction.rollout_rs_threshold=${rollout_rs_threshold} \
+    algorithm.rollout_correction.rollout_rs_threshold_lower=${rollout_rs_threshold_lower} \
+    algorithm.rollout_correction.rollout_token_veto_threshold=${rollout_token_veto_threshold} \
     actor_rollout_ref.rollout.calculate_log_probs=True \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.80 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=${gen_tp} \
