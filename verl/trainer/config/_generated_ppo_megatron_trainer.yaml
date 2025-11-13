@@ -56,7 +56,6 @@ actor_rollout_ref:
       dtype: bfloat16
     _target_: verl.workers.config.McoreActorConfig
     strategy: megatron
-    dtype: bfloat16
     ppo_mini_batch_size: 256
     ppo_micro_batch_size: null
     ppo_micro_batch_size_per_gpu: null
@@ -121,7 +120,6 @@ actor_rollout_ref:
     load_weight: true
   ref:
     strategy: megatron
-    dtype: bfloat16
     use_torch_compile: ${oc.select:actor_rollout_ref.actor.use_torch_compile,true}
     log_prob_micro_batch_size: null
     log_prob_micro_batch_size_per_gpu: null

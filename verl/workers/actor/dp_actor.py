@@ -83,8 +83,8 @@ class DataParallelPPOActor(BasePPOActor):
             else entropy_from_logits
         )
         self.device_name = get_device_name()
-        assert self.config.dtype in ["float16", "float32", "bfloat16"]
-        if self.config.dtype == "float16":
+        self.param_dtype = PrecisionType.to_dtype(self.config.fsdp_config.get("dtype", "bfloat16"))
+        if self.param_dtype == torch.float16:
             from torch.distributed.fsdp.sharded_grad_scaler import ShardedGradScaler
 
             self.scaler = ShardedGradScaler(growth_interval=400)
@@ -106,8 +106,7 @@ class DataParallelPPOActor(BasePPOActor):
 
             multi_modal_inputs = extract_multi_modal_inputs(micro_batch["multi_modal_inputs"])
 
-        torch_dtype = PrecisionType.to_dtype(self.config.dtype)
-        with torch.autocast(device_type=self.device_name, dtype=torch_dtype):
+        with torch.autocast(device_type=self.device_name, dtype=self.param_dtype):
             input_ids = micro_batch["input_ids"]
             batch_size, seqlen = input_ids.shape
             attention_mask = micro_batch["attention_mask"]

@@ -308,13 +308,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             else:
                 self.tokenizer.chat_template = self.config.model.custom_chat_template
 
-        # For ref workers, use rollout.dtype if available, otherwise default to bfloat16
-        # For actor workers, use fp32 for model initialization (gradients stay in fp32)
-        if role == "actor":
-            torch_dtype = PrecisionType.to_dtype(fsdp_config.get("model_dtype", "fp32"))
-        else:  # role == "ref"
-            rollout_dtype = OmegaConf.select(self.config, "rollout.dtype", default="bfloat16")
-            torch_dtype = PrecisionType.to_dtype(rollout_dtype)
+        torch_dtype = fsdp_config.get("model_dtype", None)
+        if torch_dtype is None:
+            torch_dtype = torch.float32 if self._is_actor else torch.bfloat16
+        else:
+            torch_dtype = PrecisionType.to_dtype(torch_dtype)
 
         # override model kwargs
         attn_implementation = override_model_config.get("attn_implementation", "flash_attention_2")
@@ -466,7 +464,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             reduce_dtype = PrecisionType.to_dtype(mixed_precision_config.get("reduce_dtype", "fp32"))
             buffer_dtype = PrecisionType.to_dtype(mixed_precision_config.get("buffer_dtype", "fp32"))
         else:
-            param_dtype = PrecisionType.to_dtype(self.config.actor.get("dtype", "bfloat16"))
+            param_dtype = PrecisionType.to_dtype(fsdp_config.dtype)
             reduce_dtype = torch.float32
             buffer_dtype = torch.float32
 
