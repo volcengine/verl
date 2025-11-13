@@ -4,6 +4,9 @@ _target_: verl.workers.config.RolloutConfig
 # actor_rollout_ref.rollout.name: hf/vllm/sglang. The default value will be removed in the future
 name: ???
 
+# Attention backend for rollout engine (SGLang/vLLM/HF). Defaults to actor's value, otherwise auto.
+attn_implementation: ${oc.select:actor_rollout_ref.actor.attn_implementation,auto}
+
 # sync: LLM, async: AsyncLLM
 mode: sync
 

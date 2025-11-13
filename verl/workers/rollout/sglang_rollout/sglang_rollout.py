@@ -403,6 +403,8 @@ class SGLangRollout(BaseRollout):
             self.config.multi_turn.max_user_turns = self.config.max_model_len // 3
 
     def _init_inference_engine(self, trust_remote_code, actor_module, port):
+        from verl.utils.attention_utils import configure_attention
+
         # initialize the inference engine
         nnodes = -(-self._tp_size // len(self.visible_devices_set))
         if nnodes > 1:
@@ -426,8 +428,9 @@ class SGLangRollout(BaseRollout):
         engine_kwargs = self.config.get("engine_kwargs", {}).get("sglang", {}) or {}
         engine_kwargs = {key: val for key, val in engine_kwargs.items() if val is not None}
 
-        # attention backend will be changed to fa3 if not specified
-        attention_backend = engine_kwargs.pop("attention_backend", None)
+        preferred_attn = self.config.get("attn_implementation", None)
+        configure_attention(preferred=preferred_attn, sglang_engine_kwargs=engine_kwargs)
+        backend = engine_kwargs.get("attention_backend") or "fa3"
         max_running_requests = self.config.get("max_num_seqs", None)
 
         try:
@@ -438,7 +441,6 @@ class SGLangRollout(BaseRollout):
 
         if self.config.mode == "async" and not self.config.skip_tokenizer_init:
             raise ValueError("async mode requires skip_tokenizer_init to be True")
-        backend = attention_backend if attention_backend is not None else "fa3"
         sglang_port = int(os.getenv("SGLANG_PORT", "30000")) + (dist.get_rank() * 2)
         if effective_first:
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"

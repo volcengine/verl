@@ -109,7 +109,6 @@ Actor/Rollout/Reference Policy
       path: ~/models/deepseek-llm-7b-chat
       external_lib: null
       override_config:
-        attn_implementation: flash_attention_2  # or eager, sdpa - attention implementation override
         model_config: {}
         moe_config:  # Megatron only, can adjust moe configuration
           freeze_moe_router: False  # Megatron only, can freeze moe router (no grad)
@@ -118,6 +117,7 @@ Actor/Rollout/Reference Policy
       trust_remote_code: False
       use_remove_padding: False
     actor:
+      attn_implementation: auto
       strategy: fsdp  # This is for backward-compatibility
       ppo_mini_batch_size: 256
       ppo_micro_batch_size: null # will be deprecated, use ppo_micro_batch_size_per_gpu
@@ -165,6 +165,7 @@ Actor/Rollout/Reference Policy
         # For more flexibility, you can specify the contents to load from the checkpoint.
         load_contents: ${actor_rollout_ref.actor.checkpoint.save_contents}
     ref:
+      attn_implementation: ${actor_rollout_ref.actor.attn_implementation}
       fsdp_config:
         param_offload: False
         wrap_policy:
@@ -177,6 +178,7 @@ Actor/Rollout/Reference Policy
       ulysses_sequence_parallel_size: ${actor_rollout_ref.actor.ulysses_sequence_parallel_size} # sp size
     rollout:
       name: vllm
+      attn_implementation: ${actor_rollout_ref.actor.attn_implementation}
       temperature: 1.0
       top_k: -1 # 0 for hf rollout, -1 for vllm rollout
       top_p: 1
@@ -228,11 +230,7 @@ Actor/Rollout/Reference Policy
   that need to be imported. Used to register models or tokenizers into
   the Huggingface system.
 - ``actor_rollout_ref.model.override_config``: Used to override some of
-  the model's original configurations. Common overrides include:
-  
-  - ``attn_implementation``: Override the attention implementation. Default is ``flash_attention_2``.
-    Supported values: ``flash_attention_2``, ``eager``, ``sdpa``. Use ``eager`` for debugging or
-    compatibility issues. See :ref:`attention-implementation-override` for detailed usage.
+  the model's original configurations
 
 - ``actor_rollout_ref.model.enable_gradient_checkpointing``: FSDP only, decide
   Whether to enable gradient checkpointing for the actor,
@@ -461,6 +459,7 @@ Reward Model
 
    reward_model:
      enable: False
+     attn_implementation: ${actor_rollout_ref.actor.attn_implementation}
      model:
        input_tokenizer: ${actor_rollout_ref.model.path}  # set this to null if the chat template is identical
        path: ~/models/Anomy-RM-v0.1

@@ -15,6 +15,9 @@ nnodes: 0
 # FSDP strategy: "fsdp" or "fsdp2"
 strategy: ???
 
+# Attention backend for reward model. Defaults to actor's value, otherwise auto.
+attn_implementation: ${oc.select:actor_rollout_ref.actor.attn_implementation,auto}
+
 # model config for reward scoring
 model:
 

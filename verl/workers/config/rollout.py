@@ -130,6 +130,7 @@ class RolloutConfig(BaseConfig):
     response_length: int = 512
 
     dtype: str = "bfloat16"
+    attn_implementation: str = "auto"
     gpu_memory_utilization: float = 0.5
     ignore_eos: bool = False
     enforce_eager: bool = True

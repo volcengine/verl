@@ -124,14 +124,12 @@ class DataParallelPPOActor(BasePPOActor):
                 # unpad the position_ids to align the rotary
                 if position_ids.dim() == 3:
                     position_ids_rmpad = (
-                        index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices)
+                        index_first_axis(rearrange(position_ids, "c b s ... -> b s c ..."), indices)
                         .transpose(0, 1)
                         .unsqueeze(1)
                     )  # (4, bsz, seqlen) -> (4, 1, bsz * seqlen)
                 else:
-                    position_ids_rmpad = index_first_axis(
-                        rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices
-                    ).transpose(0, 1)
+                    position_ids_rmpad = index_first_axis(position_ids.unsqueeze(-1), indices).transpose(0, 1)
 
                 if "image_bound" in multi_modal_inputs:
                     from verl.utils.dataset.vision_utils import process_multi_modal_inputs_for_minicpmo

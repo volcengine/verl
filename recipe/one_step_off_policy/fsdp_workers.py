@@ -187,6 +187,8 @@ class RolloutWorker(ActorRolloutRefWorker):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
+        from verl.utils.attention_utils import configure_attention
+
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get("external_lib", None))
         override_model_config = OmegaConf.to_container(OmegaConf.create(self.config.model.get("override_config", {})))
@@ -205,8 +207,9 @@ class RolloutWorker(ActorRolloutRefWorker):
                 self.tokenizer.chat_template = self.config.model.custom_chat_template
 
         # override model kwargs
+        attn_impl = configure_attention(self.config.model.get("attn_implementation", None))["hf"]
         actor_model_config = AutoConfig.from_pretrained(
-            local_path, trust_remote_code=trust_remote_code, attn_implementation="flash_attention_2"
+            local_path, trust_remote_code=trust_remote_code, attn_implementation=attn_impl
         )
 
         # patch for kimi-vl

@@ -130,6 +130,7 @@ class vLLMRollout(BaseRollout):
         device_mesh: DeviceMesh,
     ):
         super().__init__(config, model_config, device_mesh)
+        from verl.utils.attention_utils import configure_attention
 
         if config.layered_summon:
             self.sleep_level = 1
@@ -212,6 +213,9 @@ class vLLMRollout(BaseRollout):
         engine_kwargs = {key: val for key, val in engine_kwargs.items() if val is not None}
         if config.get("limit_images", None):  # support for multi-image data
             engine_kwargs["limit_mm_per_prompt"] = {"image": config.get("limit_images")}
+
+        preferred_attn = config.get("attn_implementation", None)
+        configure_attention(preferred=preferred_attn, set_vllm_env=True)
 
         compilation_config = {}
 

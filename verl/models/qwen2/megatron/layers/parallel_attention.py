@@ -21,15 +21,8 @@
 import math
 from typing import Optional
 
-import torch.nn.functional as F
-from einops import rearrange
-from transformers.utils import is_flash_attn_2_available
-
-if is_flash_attn_2_available():
-    from flash_attn import flash_attn_varlen_func
-    from flash_attn.bert_padding import index_first_axis, pad_input, unpad_input  # noqa: F401
-
 import torch
+import torch.nn.functional as F
 from flash_attn.layers.rotary import apply_rotary_emb
 from megatron.core import ModelParallelConfig, tensor_parallel
 from megatron.core import parallel_state as mpu
@@ -37,6 +30,7 @@ from torch import nn
 from transformers import Qwen2Config
 
 from verl.models.qwen2.megatron.layers.parallel_linear import QKVParallelLinear
+from verl.utils.attention_utils import flash_attn_varlen_func, index_first_axis, pad_input, unpad_input  # noqa: F401
 from verl.utils.megatron import tensor_parallel as tp_utils
 
 
@@ -300,8 +294,8 @@ def apply_rotary_pos_emb_rmpad(q, k, cos, sin, position_ids, indices, sequence_l
     q_embed = (q * cos) + (rotate_half(q) * sin)
     k_embed = (k * cos) + (rotate_half(k) * sin)
 
-    q_embed = index_first_axis(rearrange(q_embed, "b s ... -> (b s) ..."), indices)
-    k_embed = index_first_axis(rearrange(k_embed, "b s ... -> (b s) ..."), indices)
+    q_embed = index_first_axis(q_embed, indices)
+    k_embed = index_first_axis(k_embed, indices)
 
     return q_embed, k_embed
 
