@@ -24,7 +24,7 @@ jobs:
         uses: jlumbroso/free-disk-space@v1.3.1
         with:
           tool-cache: true
-          docker-images: false
+          docker-images: true
           
       - name: Checkout code
         uses: actions/checkout@v4
