@@ -18,6 +18,8 @@ import time
 import ray
 from ray.util.collective import collective
 
+from verl.utils.device import get_nccl_backend
+
 logger = logging.getLogger(__name__)
 
 
@@ -69,7 +71,7 @@ class ParameterSynchronizer:
             actor_rollout_workers,
             len(actor_rollout_workers),
             list(range(0, len(actor_rollout_workers))),
-            backend="nccl",
+            backend=get_nccl_backend(),
             group_name=self.sync_group_name,
         )
 
