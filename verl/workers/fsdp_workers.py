@@ -308,10 +308,15 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             else:
                 self.tokenizer.chat_template = self.config.model.custom_chat_template
 
-        vllm_dtype = PrecisionType.to_dtype(self.config.rollout.dtype)
         torch_dtype = fsdp_config.get("model_dtype", None)
         if torch_dtype is None:
-            torch_dtype = torch.float32 if self._is_actor else vllm_dtype
+            if self._is_actor:
+                torch_dtype = torch.float32
+            else:
+                # For ref workers, use rollout dtype if available, otherwise default to bfloat16
+                rollout_dtype = OmegaConf.select(self.config, "rollout.dtype", default="bfloat16")
+                vllm_dtype = PrecisionType.to_dtype(rollout_dtype)
+                torch_dtype = vllm_dtype
         else:
             torch_dtype = PrecisionType.to_dtype(torch_dtype)
 
