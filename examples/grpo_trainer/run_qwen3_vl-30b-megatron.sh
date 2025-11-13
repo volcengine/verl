@@ -70,6 +70,9 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_num_layers=1 \
     +actor_rollout_ref.actor.megatron.override_transformer_config.gradient_accumulation_fusion=True \
     +actor_rollout_ref.actor.megatron.override_transformer_config.moe_permute_fusion=True \
+    # Use aux_loss and z_loss to mitigate expert load imbalance when training MoE models
+    +actor_rollout_ref.actor.megatron.override_transformer_config.moe_aux_loss_coeff=0.01 \
+    +actor_rollout_ref.actor.megatron.override_transformer_config.moe_z_loss_coeff=0.001 \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
