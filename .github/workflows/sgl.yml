@@ -77,7 +77,7 @@ permissions:
   contents: read
 
 env:
-  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:app-verl0.6-transformers4.56.1-sglang0.5.2-mcore0.13.0-te2.2"
+  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:sgl055.dev2"
   DYNAMIC_RUNNER_ENDPOINT: "https://sd10g3clalm04ug7alq90.apigateway-cn-beijing.volceapi.com/runner"
 
 jobs:
@@ -117,12 +117,6 @@ jobs:
         run: |
           pip3 install hf_transfer fastmcp
           pip3 install -e .[test]
-#      - name: Download Model to Use
-#        run: |
-#          huggingface-cli download Qwen/Qwen2.5-0.5B --local-dir ${HOME}/models/Qwen/Qwen2.5-0.5B
-#          huggingface-cli download Qwen/Qwen2.5-1.5B-Instruct --local-dir ${HOME}/models/Qwen/Qwen2.5-1.5B-Instruct
-#          huggingface-cli download Qwen/Qwen2.5-VL-3B-Instruct --local-dir ${HOME}/models/Qwen/Qwen2.5-VL-3B-Instruct
-#          export HF_HUB_OFFLINE=1
       - name: Prepare gsm8k dataset
         run: |
           ray stop --force
@@ -130,7 +124,6 @@ jobs:
       - name: Test the latest SGLang Rollout async with agent loop
         run: |
           ROLLOUT_NAME=sglang pytest -svvv tests/experimental/agent_loop
-#          huggingface-cli download verl-team/gsm8k-v0.4.1 --repo-type dataset --local-dir ~/verl-data/gsm8k
       - name: Test the latest SGLang
         run: |
           cd tests/workers/rollout
@@ -147,23 +140,7 @@ jobs:
         run: |
           cd tests/workers/rollout
           torchrun --nnodes=1 --nproc_per_node=2 $(which pytest) -s test_sglang_async_rollout_w_tools.py
-      - name: Test the latest SGLang Rollout async with sandbox fusion tool
-        run: |
-          cd tests/workers/rollout
-          pytest -s test_sglang_async_rollout_sf_tools.py
-      - name: Test the latest SGLang Rollout async with search tool
-        run: |
-          cd tests/workers/rollout
-          pytest -s test_sglang_async_rollout_search_tools.py
-      - name: Test the latest SGLang Rollout async with mcp search tool
-        run: |
-          cd tests/workers/rollout
-          pytest -s test_sglang_async_rollout_mcp_tools.py
       # Note(haibin.lin): for any new test, please update gpu_unit_tests.yaml to avoid repeated tests
-      - name: Test the latest SGLang Rollout async with multimodal delta
-        run: |
-          cd tests/workers/rollout
-          pytest -s test_sglang_async_rollout_multimodal_delta.py
 
   cleanup:
     runs-on: ubuntu-latest

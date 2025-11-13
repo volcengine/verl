@@ -1,4 +1,4 @@
-verl x Ascend
+Ascend Quickstart
 ===================================
 
 Last updated: 10/31/2025.
