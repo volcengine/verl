@@ -1,4 +1,3 @@
-#!/usr/bin/env bash
 set -x
 
 project_name='GRPO'
