@@ -60,7 +60,7 @@ class AsyncPartialToolAgentLoop(ToolAgentLoop):
         # 1. check whether is the partial task
         output: Optional[AgentLoopOutput] = kwargs.get("output", None)
         if output and output.extra_fields.get("is_cancel", False):
-            agent_data, state = self._restore_from_output(output, param_version, kwargs)
+            agent_data, state = self._restore_from_output(output)
 
             logger.info(f"[PartialToolAgent] Resuming from {state.value}")
         else:
