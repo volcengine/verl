@@ -109,7 +109,8 @@ from verl.workers.config import DeepSpeedCriticConfig, DeepSpeedEngineConfig, HF
 from verl.workers.actor import DataParallelPPOActor
 from verl.workers.critic import DataParallelPPOCritic
 from verl.workers.rollout import get_rollout_class
-from verl.utils.ulysses import set_ulysses_sequence_parallel_group
+from verl.workers.sharding_manager.deepspeed_ulysses import DeepSpeedUlyssesShardingManager
+from verl.utils.ulysses import get_ulysses_sequence_parallel_group, set_ulysses_sequence_parallel_group
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -148,6 +149,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         Worker.__init__(self)
 
         self.config = config
+        self.actor_sharding_manager = None
+        self.ref_sharding_manager = None
 
         rollout_cfg = self.config.get("rollout", {}) if isinstance(self.config, DictConfig) else {}
         self._skip_rollout = rollout_cfg.get("skip_rollout", False)
@@ -249,14 +252,19 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         self._lora_rank = self.config.model.get("lora_rank", 0)
         self._is_lora = self._lora_rank > 0
 
-        # Ulysses sequence parallel size (align with FSDP semantics)
-        # Used for dynamic batch sizing and kernel patching
+        # Ulysses sequence parallel configs per role (align with FSDP semantics)
+        self.actor_ulysses_sequence_parallel_size = 1
         if self._is_actor and hasattr(self.config.actor, "deepspeed_config"):
-            self.ulysses_sequence_parallel_size = int(
+            self.actor_ulysses_sequence_parallel_size = int(
                 self.config.actor.deepspeed_config.get("ulysses_sequence_parallel_size", 1)
             )
-        else:
-            self.ulysses_sequence_parallel_size = 1
+        self.ref_ulysses_sequence_parallel_size = 1
+        if self._is_ref and hasattr(self.config, "ref") and hasattr(self.config.ref, "deepspeed_config"):
+            self.ref_ulysses_sequence_parallel_size = int(
+                self.config.ref.deepspeed_config.get("ulysses_sequence_parallel_size", 1)
+            )
+        # Backward compatibility: actor paths still reference self.ulysses_sequence_parallel_size
+        self.ulysses_sequence_parallel_size = self.actor_ulysses_sequence_parallel_size
 
     def _build_model_optimizer(
         self,
@@ -353,10 +361,15 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             )
 
             # Initialize Ulysses SP group for DeepSpeed-HF if requested
-            try:
-                sp_size = int(getattr(self, "ulysses_sequence_parallel_size", 1))
-            except Exception:
-                sp_size = 1
+            if role == "actor":
+                sp_size = self.actor_ulysses_sequence_parallel_size
+                self.ulysses_sequence_parallel_size = sp_size
+            elif role == "ref":
+                sp_size = self.ref_ulysses_sequence_parallel_size
+            else:
+                sp_size = int(getattr(deepspeed_config, "ulysses_sequence_parallel_size", 1) or 1)
+            sp_group = None
+            prev_sp_group = get_ulysses_sequence_parallel_group()
             if sp_size > 1 and torch.distributed.is_initialized():
                 world = torch.distributed.get_world_size()
                 assert world % sp_size == 0, f"world_size {world} must be divisible by ulysses sp_size {sp_size}"
@@ -395,6 +408,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                     "bias": "none",
                 }
                 actor_module = get_peft_model(actor_module, LoraConfig(**lora_config))
+        if sp_group is not None:
+            torch.distributed.barrier(group=sp_group)
+        set_ulysses_sequence_parallel_group(prev_sp_group)
 
         torch.distributed.barrier()
 
@@ -402,6 +418,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             print_model_size(actor_module)
 
         log_gpu_memory_usage(f"After init {role} from HF AutoModel", logger=logger)
+
+        if role == "actor":
+            self.actor_sharding_manager = DeepSpeedUlyssesShardingManager(sp_group)
+        elif role == "ref":
+            self.ref_sharding_manager = DeepSpeedUlyssesShardingManager(sp_group)
 
         # Initialize DeepSpeed
         if optim_config is not None and role == "actor":
@@ -837,21 +858,26 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         data = data.to("cpu")
 
-        with Timer(name="update_policy", logger=None) as timer:
-            metrics = self.actor.update_policy(data=data)
-        delta_time = timer.last
-        global_num_tokens = data.meta_info["global_token_num"]
-        estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
-        metrics["perf/mfu/actor"] = estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
-        metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024**3)
-        metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024**3)
-        metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024**3)
+        manager = self.actor_sharding_manager
+        ctx = manager if manager is not None else nullcontext()
+        with ctx:
+            with Timer(name="update_policy", logger=None) as timer:
+                metrics = self.actor.update_policy(data=data)
+            delta_time = timer.last
+            global_num_tokens = data.meta_info["global_token_num"]
+            estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
+            metrics["perf/mfu/actor"] = (
+                estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
+            )
+            metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024**3)
+            metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024**3)
+            metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024**3)
 
-        lr = self.actor_lr_scheduler.get_last_lr()[0]
-        metrics["actor/lr"] = lr
-        self.actor_lr_scheduler.step()
+            lr = self.actor_lr_scheduler.get_last_lr()[0]
+            metrics["actor/lr"] = lr
+            self.actor_lr_scheduler.step()
 
-        output = DataProto(meta_info={"metrics": metrics})
+            output = DataProto(meta_info={"metrics": metrics})
         output = output.to("cpu")
 
         if self._is_offload_param:
@@ -1030,21 +1056,25 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         if self._is_offload_param:
             load_deepspeed_model_to_gpu(self.actor_engine)
 
-        is_lora = data.meta_info.pop("is_lora", False)
-        adapter_ctx = self.actor.disable_adapter() if is_lora else nullcontext()
+        manager = self.actor_sharding_manager
+        ctx = manager if manager is not None else nullcontext()
 
-        data.meta_info["micro_batch_size"] = self.config.rollout.log_prob_micro_batch_size_per_gpu
-        data.meta_info["max_token_len"] = self.config.rollout.log_prob_max_token_len_per_gpu
-        data.meta_info["use_dynamic_bsz"] = self.config.rollout.log_prob_use_dynamic_bsz
-        data.meta_info["temperature"] = self.config.rollout.temperature
+        with ctx:
+            is_lora = data.meta_info.pop("is_lora", False)
+            adapter_ctx = self.actor.disable_adapter() if is_lora else nullcontext()
 
-        with adapter_ctx:
-            log_probs, entropys = self.actor.compute_log_prob(data=data, calculate_entropy=True)
+            data.meta_info["micro_batch_size"] = self.config.rollout.log_prob_micro_batch_size_per_gpu
+            data.meta_info["max_token_len"] = self.config.rollout.log_prob_max_token_len_per_gpu
+            data.meta_info["use_dynamic_bsz"] = self.config.rollout.log_prob_use_dynamic_bsz
+            data.meta_info["temperature"] = self.config.rollout.temperature
 
-        output = DataProto.from_dict(
-            tensors={"old_log_probs": log_probs, "entropys": entropys},
-            meta_info={"temperature": self.config.rollout.temperature},
-        )
+            with adapter_ctx:
+                log_probs, entropys = self.actor.compute_log_prob(data=data, calculate_entropy=True)
+
+            output = DataProto.from_dict(
+                tensors={"old_log_probs": log_probs, "entropys": entropys},
+                meta_info={"temperature": self.config.rollout.temperature},
+            )
 
         output = output.to("cpu")
 
@@ -1071,9 +1101,12 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         data.meta_info["max_token_len"] = self.config.ref.log_prob_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = self.config.ref.log_prob_use_dynamic_bsz
 
-        data = data.to("cpu")
-        log_prob, _ = self.ref_policy.compute_log_prob(data=data, calculate_entropy=False)
-        output = DataProto.from_dict(tensors={"ref_log_prob": log_prob})
+        manager = self.ref_sharding_manager
+        ctx = manager if manager is not None else nullcontext()
+        with ctx:
+            data = data.to("cpu")
+            log_prob, _ = self.ref_policy.compute_log_prob(data=data, calculate_entropy=False)
+            output = DataProto.from_dict(tensors={"ref_log_prob": log_prob})
 
         return output.to("cpu")
 
@@ -1370,6 +1403,7 @@ class CriticWorker(Worker, DistProfilerExtension):
             critic_config = config
 
         self.config: DeepSpeedCriticConfig = critic_config
+        self.critic_sharding_manager = None
 
         if not torch.distributed.is_initialized():
             torch.distributed.init_process_group(
@@ -1456,10 +1490,9 @@ class CriticWorker(Worker, DistProfilerExtension):
         use_remove_padding = getattr(self.config.model, "use_remove_padding", False)
 
         # Initialize Ulysses SP group for Critic if requested
-        try:
-            sp_size = int(getattr(self, "ulysses_sequence_parallel_size", 1))
-        except Exception:
-            sp_size = 1
+        sp_size = int(getattr(self, "ulysses_sequence_parallel_size", 1))
+        sp_group = None
+        prev_sp_group = get_ulysses_sequence_parallel_group()
         if sp_size > 1 and torch.distributed.is_initialized():
             world = torch.distributed.get_world_size()
             assert world % sp_size == 0, f"world_size {world} must be divisible by ulysses sp_size {sp_size}"
@@ -1475,6 +1508,10 @@ class CriticWorker(Worker, DistProfilerExtension):
             use_remove_padding=use_remove_padding,
             ulysses_sp_size=sp_size,
         )
+
+        if sp_group is not None:
+            torch.distributed.barrier(group=sp_group)
+        set_ulysses_sequence_parallel_group(prev_sp_group)
 
         critic_module.to(torch_dtype)
 
@@ -1500,6 +1537,7 @@ class CriticWorker(Worker, DistProfilerExtension):
             print_model_size(critic_module)
 
         self.critic_model_config = critic_model_config
+        self.critic_sharding_manager = DeepSpeedUlyssesShardingManager(sp_group)
 
         # Initialize DeepSpeed
         # Parse mixed precision config (supports str or dict)
@@ -1573,7 +1611,10 @@ class CriticWorker(Worker, DistProfilerExtension):
 
         data = data.to("cpu")  # tensors move to device inside critic.compute_values
 
-        values = self.critic.compute_values(data=data)
+        manager = self.critic_sharding_manager
+        ctx = manager if manager is not None else nullcontext()
+        with ctx:
+            values = self.critic.compute_values(data=data)
         output = DataProto.from_dict(tensors={"values": values}).to("cpu")
 
         if self._is_offload_param:
@@ -1590,8 +1631,11 @@ class CriticWorker(Worker, DistProfilerExtension):
 
         data = data.to("cpu")
 
-        with Timer(name="update_critic", logger=None):
-            metrics = self.critic.update_critic(data=data)
+        manager = self.critic_sharding_manager
+        ctx = manager if manager is not None else nullcontext()
+        with ctx:
+            with Timer(name="update_critic", logger=None):
+                metrics = self.critic.update_critic(data=data)
 
         lr = self.critic_lr_scheduler.get_last_lr()[0]
         metrics["critic/lr"] = lr
