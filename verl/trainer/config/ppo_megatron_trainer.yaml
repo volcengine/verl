@@ -44,6 +44,35 @@ actor_rollout_ref:
     # Whether to remove padding tokens in inputs during training
     use_remove_padding: false
 
+    # LoRA (Low-Rank Adaptation) configuration for parameter-efficient fine-tuning
+    lora:
+      # LoRA rank (dimension of adaptation matrices). Set to 0 to disable LoRA
+      rank: 0  # typical values: 8, 16, 32, 64
+      
+      # LoRA alpha (scaling parameter, typically 2x rank)
+      alpha: 16
+      
+      # LoRA dropout rate
+      dropout: 0.0
+      
+      # LoRA type: "lora", "canonical_lora", or "dora"
+      type: lora
+      
+      # Target modules to apply LoRA to under megatron context
+      # For fused LoRA (default): ["linear_qkv", "linear_proj", "linear_fc1", "linear_fc2"]
+      # For canonical LoRA: ["linear_q", "linear_k", "linear_v", "linear_proj", "linear_fc1_up", "linear_fc1_gate", "linear_fc2"]
+      target_modules:
+        - linear_qkv
+        - linear_proj
+        - linear_fc1
+        - linear_fc2
+      
+      # Exclude modules from apply LoRA to under megatron context
+      exclude_modules: []
+
+      # Path to pre-trained LoRA adapter weights (null to train from scratch)
+      adapter_path: null
+
   rollout:
     quantization: null
 

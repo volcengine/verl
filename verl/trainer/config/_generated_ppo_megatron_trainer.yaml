@@ -51,8 +51,11 @@ actor_rollout_ref:
         recompute_method: null
         recompute_num_layers: null
         attention_backend: flash
+        variable_seq_lengths: true
+        moe_token_dispatcher_type: alltoall
       override_mcore_model_config: {}
       use_mbridge: false
+      vanilla_mbridge: true
       forward_only: false
       dtype: bfloat16
     _target_: verl.workers.config.McoreActorConfig
@@ -172,6 +175,7 @@ actor_rollout_ref:
       override_transformer_config: ${oc.select:actor_rollout_ref.actor.megatron.override_transformer_config,{}}
       override_mcore_model_config: {}
       use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
+      vanilla_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.vanilla_mbridge,True}
       forward_only: false
       dtype: bfloat16
     load_weight: true
@@ -283,6 +287,18 @@ actor_rollout_ref:
     use_fused_kernels: false
     trust_remote_code: false
     use_remove_padding: false
+    lora:
+      rank: 0
+      alpha: 16
+      dropout: 0.0
+      type: lora
+      target_modules:
+      - linear_qkv
+      - linear_proj
+      - linear_fc1
+      - linear_fc2
+      exclude_modules: []
+      adapter_path: null
 data:
   tokenizer: null
   use_shm: false
@@ -370,8 +386,11 @@ critic:
       recompute_method: null
       recompute_num_layers: null
       attention_backend: flash
+      variable_seq_lengths: true
+      moe_token_dispatcher_type: alltoall
     override_mcore_model_config: {}
     use_mbridge: false
+    vanilla_mbridge: true
     forward_only: false
     dtype: bfloat16
   _target_: verl.workers.config.McoreCriticConfig
@@ -388,6 +407,18 @@ critic:
     external_lib: ${oc.select:actor_rollout_ref.model.external_lib,null}
     trust_remote_code: ${oc.select:actor_rollout_ref.model.trust_remote_code,false}
     _target_: verl.trainer.config.BaseModelConfig
+    lora:
+      rank: 0
+      alpha: 16
+      dropout: 0.0
+      type: lora
+      target_modules:
+      - linear_qkv
+      - linear_proj
+      - linear_fc1
+      - linear_fc2
+      exclude_modules: []
+      adapter_path: null
   ppo_mini_batch_size: ${oc.select:actor_rollout_ref.actor.ppo_mini_batch_size,256}
   ppo_micro_batch_size: null
   ppo_micro_batch_size_per_gpu: ${oc.select:.ppo_micro_batch_size,null}
@@ -482,6 +513,7 @@ reward_model:
     seed: ${oc.select:actor_rollout_ref.actor.megatron.seed,42}
     override_transformer_config: ${oc.select:actor_rollout_ref.actor.megatron.override_transformer_config,{}}
     use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
+    vanilla_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.vanilla_mbridge,True}
     dtype: bfloat16
   load_weight: true
 algorithm:

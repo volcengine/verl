@@ -72,10 +72,19 @@ override_transformer_config:
   # Attention backend to use (flash,fused,unfused,local,auto). Defaults to auto in mcore, flash in verl
   attention_backend: flash
 
+  # We would need this to be True to match Verl implementation
+  variable_seq_lengths: True
+
+  # Need to be "alltoall" so that variable_seq_lengths can be True
+  moe_token_dispatcher_type: "alltoall"
+
 override_mcore_model_config: {}
 
 # oc.select: default val for ref.megatron.use_mbridge
 use_mbridge: False
+
+# oc.select: default val for ref.megatron.vanilla_mbridge
+vanilla_mbridge: True
 
 # whether to use forward only
 forward_only: False

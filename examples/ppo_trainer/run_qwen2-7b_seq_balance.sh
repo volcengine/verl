@@ -9,8 +9,10 @@ train_files="['$gsm8k_train_path', '$math_train_path']"
 test_files="['$gsm8k_test_path', '$math_test_path']"
 
 # For async rollout mode, dataset should return raw chat.
+return_raw_chat="False"
 rollout_mode="sync"
 if [ "$rollout_mode" = "async" ]; then
+    export VLLM_USE_V1=1
     return_raw_chat="True"
 fi
 
