@@ -4,6 +4,16 @@
 
 Last updated: 10/30/2025.
 
+---
+
+> **📖 Documentation Structure**
+> - **This document** - Practical usage guide: configurations, presets, troubleshooting
+> - **[Mathematical Formulations](rollout_corr_math.md)** - Theoretical foundations, derivations, and algorithmic details
+>
+> Start here for implementation, refer to the math doc for theory and design rationale.
+
+---
+
 This document provides a comprehensive overview of the Rollout Correction implementation in verl.
 
 **Note on Naming**: This feature is called "Rollout Correction" to reflect the complete functionality: importance sampling (IS) weights, rejection sampling (RS), and veto mechanism. The internal variable `rollout_is_weights` retains its name as it specifically refers to the IS weights component.
@@ -64,34 +74,36 @@ This critical implementation mistake that leads to RL training collapse was iden
 **Mathematically correct approaches:**
 - **Decoupled mode**: Three policies (π_rollout, π_old, π_θ) with IS correction from π_rollout to π_old
 - **Bypass mode**: Two policies (π_rollout = π_old, π_θ) using actual rollout policy as PPO anchor
-- **Pure IS mode**: Two policies (π_rollout, π_θ) with IS correction and no PPO clipping
+- **Bypass + Policy Gradient mode**: Two policies (π_rollout, π_θ) with IS/RS correction and no PPO clipping
 
-See [Mathematical Formulations](rollout_corr_math.md#321-incorrect-llm-rl-implementation-ppo-without-rollout-correction) for detailed explanation.
+See [Mathematical Formulations](rollout_corr_math.md#38-common-implementation-mistake) for detailed explanation.
 
 ### Key Design Principle: Separation of IS Weights and Rejection Sampling
 
-The implementation separates two mechanisms:
+The implementation cleanly separates two orthogonal mechanisms:
 
-1. **IS Weights** (`rollout_is_weights`): Policy ratios with processing (π_old/π_rollout in decoupled mode, π_θ/π_rollout in bypass/pure IS mode):
-   - **Safety-bounded** to [exp(-20), exp(20)] ≈ [2e-9, 5e8] to prevent overflow:
+1. **IS Weights** (`rollout_is_weights`): Continuous reweighting for gradient correction
+   - Policy ratio: π_old/π_rollout (decoupled) or π_θ/π_rollout (bypass)
+   - **Safety-bounded**: Clamped to [exp(-20), exp(20)] ≈ [2e-9, 5e8] to prevent overflow
      * Token level: Bounds per-token ratios
-     * Sequence level: Bounds product of ratios (broadcast to all tokens in sequence)
-     * Geometric level: Bounds geometric mean of ratios (broadcast to all tokens)
-   - **Truncate mode**: Upper clamped via .clamp(max=upper_threshold)
-   - **Mask mode**: Safety-bounded ratios preserved (no threshold clamping)
-   - **All modes**: Zeroed at padding positions (response_mask == 0)
-   - Used for policy gradient calculations
+     * Sequence level: Bounds product of ratios (broadcast to all tokens)
+   - **Truncated**: Upper clamped via `.clamp(max=rollout_is_threshold)` (TIS: Truncated Importance Sampling)
+   - **Zeroed at padding**: Multiplied by response_mask to zero out padding positions
+   - Used to weight policy gradients (variance reduction)
 
-2. **Rejection Sampling** (`modified_response_mask`): Applied via response_mask
-   - Mask mode: Excludes tokens/sequences with outlier IS ratios
-   - Veto: Excludes sequences with catastrophic tokens
-   - Used for loss aggregation (denominator calculation)
+2. **Rejection Sampling** (`modified_response_mask`): Binary filtering for outlier exclusion
+   - Creates binary mask: 1 = keep, 0 = reject
+   - Rejects tokens/sequences with IS ratios outside [lower_threshold, upper_threshold]
+   - **Veto mechanism**: Independently rejects sequences containing catastrophic tokens
+   - Modifies response_mask to exclude rejected samples from training
+   - Used for loss aggregation (rejected samples don't contribute to gradients or denominators)
 
 This separation ensures:
-- ✅ Correct loss normalization (rejected samples excluded from denominator)
-- ✅ Mode-specific weight processing (truncate: upper clamped, mask: safety-bounded only)
-- ✅ Padding positions zeroed in weights (for correct aggregation)
-- ✅ Safety bounds always applied (prevent overflow in all modes)
+- ✅ IS weights provide continuous reweighting (reduce variance)
+- ✅ Rejection sampling provides hard filtering (remove extreme outliers)
+- ✅ Both mechanisms can be enabled independently or together
+- ✅ Correct loss normalization (rejected samples excluded from all calculations)
+- ✅ Safety bounds prevent numerical overflow in all cases
 
 ## Quick Start: Using Verified Presets
 
@@ -102,23 +114,26 @@ This separation ensures:
 ```python
 from verl.trainer.config.algorithm import RolloutCorrectionConfig
 
-# Token-level IS
-config = RolloutCorrectionConfig.token_is()
+# Decoupled mode with token-level IS
+config = RolloutCorrectionConfig.decoupled_token_is()
 
-# Sequence-level IS
-config = RolloutCorrectionConfig.seq_is()
+# Decoupled mode with sequence-level IS
+config = RolloutCorrectionConfig.decoupled_seq_is()
 
-# Sequence IS + rejection sampling - alias: seq_mis()
-config = RolloutCorrectionConfig.seq_is_rs()
+# Decoupled mode with sequence IS + rejection sampling
+config = RolloutCorrectionConfig.decoupled_seq_is_rs()
 
-# Geometric IS + RS + Veto (maximum outlier sensitivity)
-config = RolloutCorrectionConfig.geo_rs()
+# Decoupled mode with geometric RS + veto (maximum outlier sensitivity)
+config = RolloutCorrectionConfig.decoupled_geo_rs()
 
 # Performance mode: PPO with bypass
 config = RolloutCorrectionConfig.ppo_is_bypass()
 
 # Advanced: Pure policy gradient with IS
-config = RolloutCorrectionConfig.pure_is()
+config = RolloutCorrectionConfig.pg_is()
+
+# Advanced: Pure policy gradient with rejection sampling (bypass + pure + geometric RS)
+config = RolloutCorrectionConfig.pg_rs()
 
 # Metrics only (no correction)
 config = RolloutCorrectionConfig.disabled()
@@ -133,12 +148,13 @@ algorithm:
   rollout_correction:
     rollout_is: token                      # IS weights: "token", "sequence", or null
     rollout_is_threshold: 2.0              # Upper threshold for IS weights
+    rollout_is_batch_normalize: false      # Batch normalize IS weights to mean=1.0
     rollout_rs: null                       # Rejection sampling: "token", "sequence", "geometric", or null
     rollout_rs_threshold: null             # RS upper threshold (required if rollout_rs is enabled)
     rollout_rs_threshold_lower: null       # RS lower threshold (auto-reciprocal if null)
     rollout_token_veto_threshold: null     # Per-token veto threshold (null = disabled)
-    bypass_old_logprob_for_rollout: false  # Skip old_log_prob computation
-    use_pure_rollout_correction: false     # Pure policy gradient with IS
+    bypass_mode: false  # Skip old_log_prob computation
+    use_policy_gradient: false     # Use policy gradient loss (vs PPO loss)
 
 # REQUIRED: Enable log prob calculation
 actor_rollout_ref:
@@ -169,7 +185,6 @@ actor_rollout_ref:
 ### **Example Scripts**
 
 - `recipe/dapo/run_dapo_qwen2.5_32b_rollout_corr.sh` - DAPO example with Rollout Correction
-- `examples/rollout_correction/README.md` - Comprehensive usage guide
 - `examples/rollout_correction/run_with_rollout_corr.sh` - Basic example
 
 ### **Tests**
@@ -196,9 +211,10 @@ Importance sampling weights aggregation level:
 All IS weights are safety-bounded to [exp(-20), exp(20)] ≈ [2e-9, 5e8]
 
 ### `rollout_is_threshold` (float)
-Upper threshold for IS weights. Default: `2.0`
-- Used to clamp IS weights (not for rejection)
-- Rejection is controlled by `rollout_rs` parameters
+Upper threshold for IS weight truncation. Default: `2.0`
+- Truncates IS weights via `.clamp(max=rollout_is_threshold)` (TIS: Truncated Importance Sampling)
+- Applied to IS weights for variance reduction
+- Separate from rejection sampling (controlled by `rollout_rs` parameters)
 
 ### `rollout_rs` (str or null)
 Rejection sampling aggregation level:
@@ -210,7 +226,7 @@ Rejection sampling aggregation level:
 
 ### `rollout_rs_threshold` (float or null)
 Upper threshold for rejection sampling. Default: `null`
-- If `null`, uses `rollout_is_threshold`
+- **Required** when `rollout_rs` is enabled (must be explicitly set)
 - Tokens/sequences with ratios > threshold are masked out
 
 ### `rollout_rs_threshold_lower` (float or null)
@@ -226,18 +242,92 @@ Per-token veto for catastrophic outliers. Default: `null`
 - Typical values: `1e-4` to `1e-6` when enabled
 - Example: `1e-4` catches tokens 10,000x less likely
 
+### `rollout_is_batch_normalize` (bool)
+Apply batch normalization to IS weights. Default: `False`
+- `True`: Normalize IS weights to have mean=1.0 within each batch
+  - **Token-level IS**: Normalizes over all token weights
+  - **Sequence-level IS**: Normalizes over sequence means (one weight per sequence)
+- `False`: Use raw (truncated) IS weights
+- Reduces variance by ensuring average weight is 1.0 per batch
+- Applied AFTER truncation to preserve truncation semantics
+- Only affects IS weight values, not rejection sampling
+
+## Understanding the Framework: Components and Combinations
+
+The rollout correction framework is built from **orthogonal components** that can be combined flexibly. Understanding these components helps you choose the right configuration for your scenario.
+
+### Key Components
+
+1. **Operating Mode** (Section: [Operation Modes](#operation-modes))
+   - **Decoupled**: Three policies (π_rollout, π_old, π_θ) with separate π_old computation
+   - **Bypass**: Two policies (π_rollout = π_old, π_θ), skips π_old computation
+
+2. **Loss Function**
+   - **PPO**: With clipping (standard RL training)
+   - **Pure IS**: Policy gradient only (no clipping)
+
+3. **IS/RS Aggregation Level**
+   - **Token**: Per-token IS weights/rejection
+   - **Sequence**: Sequence-level IS weights/rejection
+   - **Geometric**: Geometric mean (for rejection only)
+
+4. **Safety Mechanisms**
+   - **Veto**: Rejects sequences with catastrophic tokens
+
+See [Mathematical Formulations](rollout_corr_math.md#3-algorithmic-components-and-combinations) for detailed theory.
+
+---
+
 ## Preset Configuration Guide
 
-This section provides detailed guidance on choosing and using the verified presets for different scenarios.
+This section provides detailed guidance on choosing and using the verified presets. Each preset is a specific combination of components optimized for common scenarios.
 
-### 1. Token-level Importance Sampling
+### Understanding the Presets
 
-**Theory:** Decoupled PPO with per-token truncated importance sampling.
+#### Available Preset Methods
+
+| Preset Method | Mode | IS Level | RS Level | Properties |
+|---------------|------|----------|----------|------------|
+| `decoupled_token_is()` | Decoupled | token | - | Per-token IS weights |
+| `decoupled_seq_is()` | Decoupled | sequence | - | Sequence-level IS weights |
+| `decoupled_seq_is_rs()` | Decoupled | sequence | sequence | Sequence IS + sequence RS |
+| `decoupled_geo_rs()` | Decoupled | - | geometric + veto | Geometric RS + veto, no IS weights |
+| `ppo_is_bypass()` | Bypass | - | - | Bypass mode, skips old_log_prob |
+| `pg_rs()` | Bypass | - | geometric + veto | Policy gradient with RS (no IS weights) |
+| `pg_is()` | Bypass | sequence | - | Policy gradient with IS |
+| `disabled()` | - | - | - | Metrics only, no correction |
+
+**Note:** All presets use PPO loss except `pg_is()` and `pg_rs()` which use policy gradient (both require `use_policy_gradient=True`).
+
+#### Other Supported Combinations (Manual Configuration Required)
+
+**Other supported combinations without preset methods:**
+- Token IS + Token RS: Token-level IS weights + token-level RS mask
+- Pure token RS: Token-level RS only, no IS weights
+- Pure sequence RS: Sequence-level RS only, no IS weights
+
+See [detailed configuration examples below](#additional-useful-configurations-not-exposed-as-presets) for manual configurations.
+
+**Key properties:**
+- Any aggregation level (token/sequence/geometric) works in either decoupled or bypass mode
+- All combinations are fully supported by the implementation
+- Rejection sampling is independent of IS weighting
+- Pure RS (`pg_rs`) uses bypass + geometric RS with `use_policy_gradient=True` (no IS weights)
+
+---
+
+### 1. Decoupled Mode with Token-level Importance Sampling (`decoupled_token_is`)
 
 **Configuration:**
 ```python
-config = RolloutCorrectionConfig.token_is(threshold=2.0)
+config = RolloutCorrectionConfig.decoupled_token_is(threshold=2.0)
 ```
+
+**Components:**
+- **Operating Mode**: Decoupled (3 policies)
+- **Loss**: PPO with clipping
+- **IS Aggregation**: Token-level
+- **RS**: None (can be added separately)
 
 **Equivalent YAML:**
 ```yaml
@@ -246,21 +336,30 @@ algorithm:
     rollout_is: token
     rollout_is_threshold: 2.0
     rollout_rs: null
+    bypass_mode: false  # Decoupled mode
 ```
 
 **Properties:**
-- **Algorithm**: Decoupled PPO
-- **Policies**: Three (π_rollout, π_old, π_θ) in decoupled mode
-- **Double correction**: IS weights correct Drift 1 (rollout→old), PPO clips correct Drift 2 (old→current)
+- Independent truncation per token
+- Lower variance than sequence-level (product of ratios bounded individually)
+- Typical threshold: 1.5 - 5.0
 
-### 2. Sequence-level Importance Sampling
+**Theory:** See [rollout_corr_math.md §3.3.1](rollout_corr_math.md#331-token-level-aggregation)
 
-**Theory:** Decoupled PPO with sequence-level importance sampling.
+---
+
+### 2. Decoupled Mode with Sequence-level Importance Sampling (`decoupled_seq_is`)
 
 **Configuration:**
 ```python
-config = RolloutCorrectionConfig.seq_is(threshold=2.0)
+config = RolloutCorrectionConfig.decoupled_seq_is(threshold=2.0)
 ```
+
+**Components:**
+- **Operating Mode**: Decoupled (3 policies)
+- **Loss**: PPO with clipping
+- **IS Aggregation**: Sequence-level
+- **RS**: None (can be added separately)
 
 **Equivalent YAML:**
 ```yaml
@@ -269,27 +368,30 @@ algorithm:
     rollout_is: sequence
     rollout_is_threshold: 2.0
     rollout_rs: null
+    bypass_mode: false  # Decoupled mode
 ```
 
 **Properties:**
-- **Algorithm**: Decoupled PPO
-- **Policies**: Three (π_rollout, π_old, π_θ) in decoupled mode
-- **Sequence-level IS**: Uses product of all token ratios (broadcast to all tokens)
+- Multiplicative aggregation across sequence
+- More sensitive to outliers than token-level
+- Typical threshold: 2.0 - 10.0 (higher than token-level)
 
-**Note:** Sequence-level IS uses multiplicative aggregation. Typical thresholds: 5.0-10.0 (compared to token-level: 1.5-5.0).
+**Theory:** See [rollout_corr_math.md §3.3.2](rollout_corr_math.md#332-sequence-level-aggregation)
 
-### 3. Sequence-level IS + Rejection Sampling
+---
 
-**Theory:** Decoupled PPO combining sequence-level IS weighting with rejection sampling.
-
-**Alias:** `seq_mis(threshold)`
+### 3. Decoupled Mode with Sequence-level IS + Rejection Sampling (`decoupled_seq_is_rs`)
 
 **Configuration:**
 ```python
-config = RolloutCorrectionConfig.seq_is_rs(is_threshold=2.0, rs_threshold=2.0)
-# OR use alias with single threshold (sets rs_threshold_lower=0)
-config = RolloutCorrectionConfig.seq_mis(threshold=2.0)
+config = RolloutCorrectionConfig.decoupled_seq_is_rs(is_threshold=2.0, rs_threshold=2.0)
 ```
+
+**Components:**
+- **Operating Mode**: Decoupled (3 policies)
+- **Loss**: PPO with clipping
+- **IS Aggregation**: Sequence-level
+- **RS**: Sequence-level rejection
 
 **Equivalent YAML:**
 ```yaml
@@ -300,21 +402,31 @@ algorithm:
     rollout_rs: sequence
     rollout_rs_threshold: 2.0
     rollout_rs_threshold_lower: 0.5  # Reciprocal of threshold
+    bypass_mode: false  # Decoupled mode
 ```
 
 **Properties:**
-- **Algorithm**: Decoupled PPO + rejection sampling
-- **Policies**: Three (π_rollout, π_old, π_θ) in decoupled mode
-- **Double mechanism**: IS reweighting + rejection filtering
+- Double mechanism: IS reweighting + rejection filtering
+- Lower effective sample size (rejects outliers)
+- For severe off-policy gaps
 
-### 4. Geometric IS + RS + Veto (Maximum Sensitivity)
+**Theory:** See [rollout_corr_math.md §3.4](rollout_corr_math.md#34-rejection-sampling-rs)
 
-**Theory:** Pure rejection sampling based on geometric mean of IS ratios.
+---
+
+### 4. Decoupled Mode with Geometric Rejection Sampling (`decoupled_geo_rs`)
 
 **Configuration:**
 ```python
-config = RolloutCorrectionConfig.geo_rs(rs_threshold=1.001, veto_threshold=1e-4)
+config = RolloutCorrectionConfig.decoupled_geo_rs(rs_threshold=1.001, veto_threshold=1e-4)
 ```
+
+**Components:**
+- **Operating Mode**: Decoupled (3 policies)
+- **Loss**: PPO with clipping
+- **IS Aggregation**: None (pure rejection)
+- **RS**: Geometric-level rejection
+- **Veto**: Enabled
 
 **Equivalent YAML:**
 ```yaml
@@ -325,117 +437,267 @@ algorithm:
     rollout_rs_threshold: 1.001
     rollout_rs_threshold_lower: 0.999
     rollout_token_veto_threshold: 1e-4
+    bypass_mode: false  # Decoupled mode
 ```
 
 **Properties:**
-- **Algorithm**: Decoupled PPO + geometric rejection sampling
-- **Policies**: Three (π_rollout, π_old, π_θ) in decoupled mode
-- **No IS weights**: Pure rejection (no reweighting)
-- **Extremely selective**: Requires near-perfect policy match
+- No IS weights (pure rejection)
+- Geometric mean aggregation (more sensitive than arithmetic product)
+- Typical threshold: 1.0001 - 1.001 (tighter than sequence/token level)
+- Rejects sequences based on average per-token ratio deviation
 
-**Note:** Geometric thresholds are typically very close to 1.0 (typical: 1.0001-1.001, ±0.01%-0.1%). Geometric mean is very sensitive - a threshold of 1.001 rejects sequences with average per-token deviation > 0.1%.
+**Why tight thresholds?** Geometric mean is very sensitive. For 100 tokens with ratio 1.01 each:
+- Product: 1.01^100 ≈ 2.7
+- Geometric mean: 1.01
 
-### 5. PPO with IS Bypass
+A threshold of 1.001 rejects sequences with average per-token deviation > 0.1%.
 
-**Theory:** PPO applied to off-policy data by using π_rollout as the PPO anchor (bypass mode).
+**Theory:** See [rollout_corr_math.md §3.3.3](rollout_corr_math.md#333-geometric-aggregation)
+
+---
+
+### 5. PPO with Bypass Mode (`ppo_is_bypass`)
 
 **Configuration:**
 ```python
 config = RolloutCorrectionConfig.ppo_is_bypass(threshold=2.0)
 ```
 
+**Components:**
+- **Operating Mode**: Bypass (2 policies: π_rollout = π_old, π_θ)
+- **Loss**: PPO with clipping
+- **IS Aggregation**: None (not needed, π_old = π_rollout)
+- **RS**: None
+
 **Equivalent YAML:**
 ```yaml
 algorithm:
   rollout_correction:
-    rollout_is: token
+    rollout_is: token  # Placeholder for metrics
     rollout_is_threshold: 2.0
     rollout_rs: null
-    bypass_old_logprob_for_rollout: true
-    use_pure_rollout_correction: false
+    bypass_mode: true  # Bypass mode
+    use_policy_gradient: false
 ```
 
 **Properties:**
-- **Algorithm**: PPO in bypass mode
-- **Policies**: Two (π_rollout = π_old, π_θ)
-- **Faster**: Skips `actor.compute_log_prob()` forward pass
-- **PPO clipping**: Clips against π_rollout
-- **Mathematically correct**: Uses actual behavior policy π_rollout as proximal policy (avoids common mistake of ignoring π_rollout)
+- Skips `actor.compute_log_prob()` forward pass
+- PPO clips against π_rollout (behavior policy)
+- Sets π_old = π_rollout (two-policy setup)
+- Does not separate proximal from behavior policy
 
 **Configuration requirement:**
 - Set `actor_rollout_ref.rollout.calculate_log_probs: true`
 
-### 6. Pure IS (Off-Policy REINFORCE)
+**Theory:** See [rollout_corr_math.md §3.1.2](rollout_corr_math.md#312-bypass-mode-two-policies)
+
+---
+
+### 6. Policy Gradient with IS (`pg_is`)
 
 **Configuration:**
 ```python
-config = RolloutCorrectionConfig.pure_is(threshold=2.0)
+config = RolloutCorrectionConfig.pg_is(threshold=2.0)
 ```
 
-**Theory:** Off-policy REINFORCE with sequence-level truncated importance sampling.
+**Components:**
+- **Operating Mode**: Bypass (2 policies: π_rollout, π_θ)
+- **Loss**: Pure IS (policy gradient only, no PPO clipping)
+- **IS Aggregation**: Sequence-level
+- **RS**: None
+
+**Equivalent YAML:**
+```yaml
+algorithm:
+  rollout_correction:
+    rollout_is: sequence
+    rollout_is_threshold: 2.0
+    rollout_rs: null
+    bypass_mode: true  # Required
+    use_policy_gradient: true  # Use policy gradient loss (no PPO clipping)
+```
 
 **Properties:**
-- **Algorithm**: Off-policy REINFORCE + IS
-- **Policies**: Two (π_rollout, π_θ)
-- **No PPO clipping**: Pure policy gradient
-- **Always uses bypass mode**: No π_old computation
-- **Fast**: Single forward pass for IS weights
+- Policy gradient loss (no PPO clipping)
+- Single forward pass (skips old_log_prob computation)
+- IS weights computed on-the-fly in loss function
+
+**Theory:** See [rollout_corr_math.md §3.2.2](rollout_corr_math.md#322-pure-is-loss-policy-gradient)
+
+---
+
+### 7. Policy Gradient with Rejection Sampling (`pg_rs`)
+
+**Configuration:**
+```python
+config = RolloutCorrectionConfig.pg_rs(
+    rs_threshold=1.001,
+    veto_threshold=1e-4
+)
+```
+
+**Components:**
+- **Operating Mode**: Bypass (2 policies: π_rollout, π_θ)
+- **Loss**: Pure policy gradient (no PPO clipping, via `use_policy_gradient=True`)
+- **IS Aggregation**: None
+- **RS**: Geometric-level rejection
+- **Veto**: Enabled
+
+**Equivalent YAML:**
+```yaml
+algorithm:
+  rollout_correction:
+    rollout_is: null
+    rollout_rs: geometric
+    rollout_rs_threshold: 1.001
+    rollout_rs_threshold_lower: 0.999
+    rollout_token_veto_threshold: 1e-4
+    bypass_mode: true
+    use_policy_gradient: true
+```
+
+**Properties:**
+- Pure geometric RS (no IS weights, only rejection)
+- Skips `actor.compute_log_prob()` forward pass (bypass mode)
+- Veto mechanism enabled
+- Typical threshold: 1.0001 - 1.001 (tighter than sequence/token level)
+
+**Theory:** [§3.1.2 (Bypass)](rollout_corr_math.md#312-bypass-mode-two-policies) + [§3.3.3 (Geometric)](rollout_corr_math.md#333-geometric-aggregation)
+
+---
+
+## Additional Useful Configurations (Not Exposed as Presets)
+
+These configurations are **fully supported** but don't have convenience preset methods yet.
+
+### 1. Token IS + Token RS (`token_is_rs`)
+
+Token-level IS weights with token-level RS mask.
+
+**Python:**
+```python
+config = RolloutCorrectionConfig(
+    rollout_is="token",
+    rollout_is_threshold=2.0,
+    rollout_rs="token",
+    rollout_rs_threshold=2.0,
+)
+```
+
+**Properties:** Per-token IS weights + per-token RS mask.
+
+### 2. Pure Token RS (`token_rs`)
+
+Token-level RS only, no IS weights.
+
+**Python:**
+```python
+config = RolloutCorrectionConfig(
+    rollout_is=None,
+    rollout_rs="token",
+    rollout_rs_threshold=2.0,
+)
+```
+
+**Properties:** Token-level RS mask, no IS reweighting.
+
+### 3. Pure Sequence RS (`seq_rs`)
+
+Sequence-level RS only, no IS weights.
+
+**Python:**
+```python
+config = RolloutCorrectionConfig(
+    rollout_is=None,
+    rollout_rs="sequence",
+    rollout_rs_threshold=2.0,
+)
+```
+
+**Properties:** Sequence-level RS mask, no IS reweighting.
+
+---
 
 ### Summary: How IS Weights are Processed
 
-The final IS weights go through multiple stages of processing:
+IS weights (`rollout_is_weights`) go through a fixed processing pipeline:
 
-**Stage 1: Safety Bound (All Modes)**
+**Stage 1: Safety Bound (Prevent Overflow)**
 - Token level: `exp(clamp(log_ratio, -20, 20))` per token → bounds each token to [2e-9, 5e8]
 - Sequence level: `exp(clamp(sum(log_ratio), -20, 20))` → bounds product to [2e-9, 5e8], broadcast to all tokens
-- Geometric level: `exp(clamp(mean(log_ratio), -20, 20))` → bounds geometric mean to [2e-9, 5e8], broadcast to all tokens
 
-**Stage 2: Threshold Processing (Mode-Dependent)**
-- Truncate mode: `.clamp(max=upper_threshold)` → upper clamps weights to threshold
-- Mask mode: No modification → weights remain as safety-bounded ratios
+**Stage 2: Truncation (Reduce Variance)**
+- `.clamp(max=rollout_is_threshold)` → caps weights at upper threshold (TIS: Truncated Importance Sampling)
+- No lower truncation (preserves unbiasedness for small weights)
 
-**Stage 3: Padding (All Modes)**
+**Stage 3: Padding Zeroing (Correct Aggregation)**
 - `weights * response_mask` → zeros out padding positions
 
-**Rejection Mechanisms (Modify response_mask, NOT weights)**
-- Veto: Checks **unclamped per-token ratios** (before safety bound), rejects sequences via mask
-- Outlier (mask mode only): Checks safety-bounded weights against [lower, upper], rejects via mask
+**Stage 4: Optional Batch Normalization**
+- If `rollout_is_batch_normalize=True`: Normalize weights to mean=1.0 within batch
+- Applied after truncation to preserve truncation semantics
+
+**Rejection Sampling (Separate Mechanism)**
+
+Rejection sampling modifies `response_mask` (NOT weights) through `compute_rollout_rejection_mask()`:
+- Computes safety-bounded ratios independently
+- Creates binary mask: tokens/sequences outside [lower_threshold, upper_threshold] → 0 (rejected)
+- Veto: Checks **unclamped per-token ratios** (before safety bound), rejects entire sequences containing catastrophic tokens
+- Modified mask used for loss aggregation (rejected samples excluded from training)
 
 ## Operation Modes
 
-The system has **two operating modes** for computing π_old, plus an additional algorithmic option:
+The framework provides **two operating modes** for computing π_old, which can be combined with different loss functions.
 
 ### Operating Modes and Configuration
 
-| Configuration | `bypass_old_logprob_for_rollout` | `use_pure_rollout_correction` | Operating Mode | Loss Function | Description |
+| Configuration | `bypass_mode` | `use_policy_gradient` | Operating Mode | Loss Function | Description |
 |---------------|----------------------------------|------------------------------|----------------|---------------|-------------|
 | **Decoupled** | `false` | `false` | Decoupled | PPO | Computes `old_log_prob` separately via `actor.compute_log_prob()` |
 | **Bypass** | `true` | `false` | Bypass | PPO | Sets `old_log_prob = rollout_log_prob`, PPO clips against rollout policy |
-| **Pure IS** | `true` | `true` | Bypass | Pure Policy Gradient | Bypass mode with pure IS loss (no PPO clipping) |
+| **Bypass + PG** | `true` | `true` | Bypass | Policy Gradient | Bypass mode with policy gradient loss (no PPO clipping) |
 
-**Operating Mode Descriptions:**
+### Operating Mode Details
 
-**Decoupled Mode** (three policies: π_rollout, π_old, π_θ):
-- Computes π_old separately at start of training epoch
-- Requires extra forward pass via `actor.compute_log_prob()`
-- Achieves batch size invariance
-- Separately corrects Drift 1 (rollout→old) and Drift 2 (old→current)
+#### Decoupled Mode (Three Policies)
 
-**Bypass Mode** (two policies: π_rollout = π_old, π_θ):
-- Sets π_old = π_rollout (skips separate computation)
-- Faster: No extra forward pass needed
-- Uses π_rollout as both behavior policy and proximal policy
-- Does not achieve batch size invariance
-- Can be used with PPO clipping or pure policy gradient (Pure IS)
+**Policy setup:**
+- π_rollout: Behavior policy (data collection)
+- π_old: Proximal policy (computed via `actor.compute_log_prob()` at start of training epoch)
+- π_θ: Current policy (being updated)
 
-### IS Weights and Rejection Sampling
+**Configuration:** `bypass_mode = false`
 
-Within each training mode, you can independently control **two correction mechanisms**:
+**Properties:**
+- ✅ Achieves batch size invariance
+- ✅ Separately corrects Drift 1 (rollout→old) and Drift 2 (old→current)
+- ✅ Efficient stale data utilization
+- ❌ Extra forward pass needed (`actor.compute_log_prob()`)
 
-1. **Importance Sampling (IS) weights**: Controlled by `rollout_is` parameter
-2. **Rejection Sampling (RS)**: Controlled by `rollout_rs` parameter
+**Theory:** See [rollout_corr_math.md §3.1.1](rollout_corr_math.md#311-decoupled-mode-three-policies)
 
-### Mode Combinations
+#### Bypass Mode (Two Policies)
+
+**Policy setup:**
+- π_rollout: Behavior policy (data collection)
+- π_old = π_rollout: Proximal policy equals behavior policy
+- π_θ: Current policy (being updated)
+
+**Configuration:** `bypass_mode = true`
+
+**Properties:**
+- ✅ Skips `actor.compute_log_prob()` call (faster)
+- ✅ Handles off-policy correction via IS/RS (when using policy gradient with IS/RS)
+- ✅ Uses two policies instead of three (π_rollout = π_old)
+- ⚠️ Does not separate proximal policy from behavior policy (unlike decoupled mode)
+
+**Theory:** See [rollout_corr_math.md §3.1.2](rollout_corr_math.md#312-bypass-mode-two-policies)
+
+---
+
+### IS/RS Aggregation Levels (Orthogonal to Operating Mode)
+
+The aggregation level can be chosen **independently** of the operating mode. Any aggregation level works in either decoupled or bypass mode.
 
 | `rollout_is` | `rollout_rs` | Behavior |
 |--------------|--------------|----------|
@@ -446,6 +708,7 @@ Within each training mode, you can independently control **two correction mechan
 
 ### Key Insights
 
+- ✅ Any IS/RS aggregation level (token/sequence/geometric) can be used in **either** decoupled or bypass mode
 - ✅ You can use **rejection sampling alone** without IS weight correction (`rollout_is=null, rollout_rs="token"`)
 - ✅ You can use **IS weights alone** without outlier rejection (`rollout_is="token", rollout_rs=null`)
 - ✅ You can use **both together** (`rollout_is="token", rollout_rs="token"`)
@@ -453,7 +716,13 @@ Within each training mode, you can independently control **two correction mechan
 
 **Veto rejection** (if enabled via `rollout_token_veto_threshold`) is applied **independently** of IS and RS settings.
 
+**Theory:** See [rollout_corr_math.md §3.3](rollout_corr_math.md#33-isrs-aggregation-levels) for details on aggregation levels.
+
 ### Example Workflow
+
+**Recommended: Bypass + Policy Gradient Mode**
+
+This workflow uses bypass mode with pure policy gradient loss for efficiency.
 
 1. **Start with metrics only** to understand the off-policy gap:
    ```yaml
@@ -461,16 +730,20 @@ Within each training mode, you can independently control **two correction mechan
      rollout_correction:
        rollout_is: null
        rollout_rs: null
+       bypass_mode: true  # Bypass mode (recommended)
+       use_policy_gradient: true  # Pure policy gradient (recommended)
    ```
-   Monitor `rollout_corr/rollout_is_mean`, `rollout_corr/kl` to assess off-policy gap.
+   Monitor `rollout_corr/kl`, `rollout_corr/log_ppl_abs_diff`, `rollout_corr/chi2_token` to assess off-policy gap.
 
 2. **Enable rejection sampling** if you see high outlier fractions:
    ```yaml
    algorithm:
      rollout_correction:
        rollout_is: null
-       rollout_rs: token
+       rollout_rs: sequence  # or "geometric" for higher sensitivity
        rollout_rs_threshold: 2.0
+       bypass_mode: true  # Bypass mode
+       use_policy_gradient: true  # Pure policy gradient
    ```
    This excludes outliers from training without modifying gradients.
 
@@ -478,26 +751,19 @@ Within each training mode, you can independently control **two correction mechan
    ```yaml
    algorithm:
      rollout_correction:
-       rollout_is: token
+       rollout_is: sequence  # Recommended: unbiased, suitable for most cases
        rollout_is_threshold: 2.0
-       rollout_rs: token
+       rollout_rs: sequence  # or "geometric" for more aggressive filtering
        rollout_rs_threshold: 2.0
+       bypass_mode: true  # Bypass mode
+       use_policy_gradient: true  # Pure policy gradient
    ```
 
-4. **Optional: Enable bypass mode** to save compute:
-   ```yaml
-   algorithm:
-     rollout_correction:
-       rollout_is: token
-       rollout_is_threshold: 2.0
-       bypass_old_logprob_for_rollout: true    # Skip old_log_prob computation
-       use_pure_rollout_correction: false      # Use Bypass mode
-   ```
-   **Benefits**: Skips expensive forward pass for `old_log_prob` computation
-
-   **Trade-off**: PPO clips against rollout policy instead of true old policy
-
-   **Alternative**: Set `use_pure_rollout_correction: true` for pure policy gradient with IS (no clipping)
+**Benefits of bypass + policy gradient mode:**
+- ✅ Skips expensive `actor.compute_log_prob()` forward pass (faster)
+- ✅ IS weights computed on-the-fly in loss function (π_θ / π_rollout)
+- ✅ Simpler than PPO (no clipping, pure policy gradient with IS/RS)
+- ✅ Works for all IS/RS combinations
 
 ## Usage
 
@@ -554,7 +820,7 @@ These metrics cover both:
 
 - **`rollout_is_veto_fraction`**: Fraction of sequences rejected by veto mechanism
   - **Important**: Sequences are rejected via `response_mask=0`, NOT by modifying IS weights
-  - **IS weights unchanged by veto**: Already processed by mode (truncate: clamped, mask: safety-bounded)
+  - **IS weights unchanged by veto**: Already safety-bounded and truncated
   - Veto checks **unclamped per-token ratios** (true ratios before safety bound)
     - Decoupled mode: π_old(t)/π_rollout(t)
     - Bypass/Pure IS mode: π_θ(t)/π_rollout(t)
@@ -572,12 +838,12 @@ These metrics cover both:
   - For sequence/geometric: computed from unclamped log-space ratios (true exceedance)
   - For token: computed from safety-bounded weights (before threshold clamping)
 
-- **`rollout_is_ratio_fraction_low`**: Fraction of weights below lower threshold
-  - Shows how often masking occurs on low end (mask mode only)
+- **`rollout_is_ratio_fraction_low`**: Fraction of weights below lower threshold (1/upper_threshold)
+  - Diagnostic metric showing how many weights are below the reciprocal threshold
   - For sequence/geometric: computed from unclamped log-space ratios (true exceedance)
-  - For token: computed from safety-bounded weights
+  - For token: computed from safety-bounded weights (before truncation)
 
-#### **Sequence-Level Metrics** (for sequence/geometric modes)
+#### **Sequence-Level Metrics** (for sequence aggregation)
 
 - **`rollout_is_seq_mean`**: Mean IS weight at sequence level
   - Should match `rollout_is_mean` for sequence-level aggregation
@@ -595,16 +861,18 @@ These metrics cover both:
 
 - **`rollout_is_seq_fraction_low`**: Fraction of sequences below lower threshold
 
-#### **Masking Metrics** (mask mode only)
+#### **Rejection Sampling Metrics** (when `rollout_rs` is enabled)
 
-- **`rollout_is_masked_fraction`**: Fraction of tokens rejected via response_mask (mask mode only)
-  - **Important**: Tokens are rejected by setting `response_mask=0`, NOT by modifying IS weights
-  - **IS weights in mask mode**: Safety-bounded ratios preserved (no threshold clamping)
+- **`rollout_rs_masked_fraction`**: Fraction of tokens rejected via rejection sampling
+  - **Important**: Rejection sampling modifies `response_mask` (sets rejected tokens to 0)
+  - **Separate from IS weights**: IS weights are still truncated; rejection is an independent filtering step
+  - Only present when `rollout_rs` is enabled (token/sequence/geometric)
 
-- **`rollout_is_seq_masked_fraction`**: Fraction of sequences with at least one rejected token
+- **`rollout_rs_seq_masked_fraction`**: Fraction of sequences with at least one rejected token
   - Shows sequence-level impact of rejection sampling
-  - For token-level: sequence rejected if ANY token is outside [lower, upper]
-  - For sequence-level: all tokens have same weight, so entire sequence rejected or accepted
+  - Token-level RS: sequence rejected if ANY token is outside [lower, upper]
+  - Sequence-level RS: entire sequence rejected or accepted based on sequence-level ratio
+  - Geometric RS: entire sequence rejected or accepted based on geometric mean
 
 #### **Off-Policy Diagnostic Metrics** (Training vs Rollout Policy)
 
@@ -684,19 +952,21 @@ is_weights = weights_proto.batch["rollout_is_weights"]
 
 # IS weights processing (with IS enabled at token level):
 # 1. Safety-bounded: exp(clamp(log_ratio, -20, 20)) per token
-# 2. Zeroed at padding positions
-# Note: Not threshold-clamped since we're using rejection sampling (rollout_rs)
+# 2. Truncated: .clamp(max=2.0) to cap extreme weights
+# 3. Zeroed at padding positions
+# Note: Truncation is ALWAYS applied to IS weights (TIS: Truncated Importance Sampling)
 
 # modified_response_mask has rejection applied (since rollout_rs="token"):
-# 1. Outlier rejection: tokens outside [0.5, 2.0] masked to 0
+# 1. RS rejection: tokens outside [0.5, 2.0] masked to 0 via response_mask
 # 2. Veto rejection: sequences with catastrophic tokens (ratio < 1e-4) masked to 0
-# Note: Veto checks unclamped per-token ratios, not the safety-bounded weights
+# Note: Veto checks unclamped per-token ratios (before safety bounds)
+# Note: RS and IS are separate mechanisms - both can be enabled independently
 
 # All metrics have 'rollout_corr/' prefix
 print(f"Mean IS weight: {metrics['rollout_corr/rollout_is_mean']:.3f}")
 print(f"Effective sample size: {metrics['rollout_corr/rollout_is_eff_sample_size']:.3f}")
 print(f"Veto fraction: {metrics['rollout_corr/rollout_is_veto_fraction']:.3f}")
-print(f"Masked fraction: {metrics['rollout_corr/rollout_is_masked_fraction']:.3f}")
+print(f"RS masked fraction: {metrics['rollout_corr/rollout_rs_masked_fraction']:.3f}")
 print(f"KL divergence: {metrics['rollout_corr/kl']:.3f}")
 
 # Check IS weights for valid tokens (non-padding)
@@ -704,12 +974,13 @@ valid_weights = is_weights[response_mask.bool()]
 print(f"\n✓ IS weights min (valid tokens): {valid_weights.min():.4f}")
 print(f"✓ IS weights max (valid tokens): {valid_weights.max():.4f}")
 print(f"✓ All valid IS weights > 0: {(valid_weights > 0).all()}")
+print(f"✓ IS weights are capped at threshold: {(valid_weights <= 2.0).all()}")
 
 # Check rejection via response_mask
 rejected_tokens = (response_mask == 1) & (modified_response_mask == 0)
 print(f"\n✓ Rejected {rejected_tokens.sum()} tokens via response_mask")
-print(f"✓ With rejection sampling (rollout_rs): tokens outside thresholds are masked")
-print(f"✓ IS weights are always safety-bounded to [exp(-20), exp(20)] ≈ [2e-9, 5e8]")
+print(f"✓ Rejection sampling modifies response_mask (separate from IS weight truncation)")
+print(f"✓ IS weights are always truncated to [0, threshold] after safety bounding")
 
 # Check for warning conditions
 if metrics['rollout_corr/rollout_is_mean'] < 0.5 or metrics['rollout_corr/rollout_is_mean'] > 2.0:
@@ -877,8 +1148,8 @@ algorithm:
     rollout_is_threshold: 2.0
     rollout_rs: token
     rollout_rs_threshold: 2.0
-    bypass_old_logprob_for_rollout: true   # Skip old_log_prob computation
-    use_pure_rollout_correction: false     # Use bypass mode: PPO with rollout_log_prob as old_log_prob
+    bypass_mode: true   # Skip old_log_prob computation
+    use_policy_gradient: false     # Use bypass mode: PPO with rollout_log_prob as old_log_prob
 ```
 **Skips expensive `actor.compute_log_prob()` forward pass**
 
@@ -889,8 +1160,8 @@ algorithm:
     rollout_is: token                      # Explicit IS correction in loss
     rollout_is_threshold: 2.0
     rollout_rs: null                       # Optional: can add rejection sampling
-    bypass_old_logprob_for_rollout: true   # Required for pure mode
-    use_pure_rollout_correction: true      # Use pure policy gradient with IS
+    bypass_mode: true   # Required for policy gradient mode
+    use_policy_gradient: true      # Use policy gradient loss (no PPO clipping)
 ```
 **No PPO clipping, pure policy gradient with IS correction**
 
@@ -1055,7 +1326,7 @@ Rollout Correction provides a unified framework for handling general off-policy 
 - ✅ Supports diverse scenarios: policy mismatch, staleness, replay buffers, off-policy algorithms
 - ✅ Numerical stability with safety bounds and rejection mechanisms
 - ✅ Comprehensive diagnostics: KL, perplexity, χ² divergence
-- ✅ Flexible methods from token-level (token_is) to sequence-level (seq_is_rs)
+- ✅ Flexible methods from token-level to sequence-level aggregation
 - ✅ Memory-efficient implementation
 
 ## References
