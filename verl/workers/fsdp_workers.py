@@ -308,17 +308,13 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             else:
                 self.tokenizer.chat_template = self.config.model.custom_chat_template
 
-        torch_dtype = fsdp_config.get("model_dtype", None)
-        if torch_dtype is None:
-            if self._is_actor:
-                torch_dtype = torch.float32
-            else:
-                # For ref workers, use rollout dtype if available, otherwise default to bfloat16
-                rollout_dtype = OmegaConf.select(self.config, "rollout.dtype", default="bfloat16")
-                vllm_dtype = PrecisionType.to_dtype(rollout_dtype)
-                torch_dtype = vllm_dtype
-        else:
-            torch_dtype = PrecisionType.to_dtype(torch_dtype)
+        # For ref workers, use rollout.dtype if available, otherwise default to bfloat16
+        # For actor workers, use fp32 for model initialization (gradients stay in fp32)
+        if role == "actor":
+            torch_dtype = PrecisionType.to_dtype(fsdp_config.get("model_dtype", "fp32"))
+        else:  # role == "ref"
+            rollout_dtype = OmegaConf.select(self.config, "rollout.dtype", default="bfloat16")
+            torch_dtype = PrecisionType.to_dtype(rollout_dtype)
 
         # override model kwargs
         attn_implementation = override_model_config.get("attn_implementation", "flash_attention_2")
