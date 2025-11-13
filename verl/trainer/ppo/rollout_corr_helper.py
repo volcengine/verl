@@ -398,6 +398,10 @@ def compute_rollout_correction_weights(
     # Truncate extreme weights (TIS: Truncated Importance Sampling)
     rollout_is_weights = rollout_is_weights.clamp(max=rollout_is_threshold)
 
+    # Detach weights to prevent gradient flow (mathematically required by IS theory)
+    # IS weights change the measure, not the objective. See §3.2.2 in docs/algo/rollout_corr_math.md
+    rollout_is_weights = rollout_is_weights.detach()
+
     # Apply batch normalization if requested
     if rollout_is_batch_normalize:
         # Compute mean based on aggregation level
