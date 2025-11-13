@@ -129,6 +129,7 @@ verl is fast with:
    advance/agent_loop
    advance/reward_loop
    advance/fully_async
+   advance/fp8.md
    data/transfer_queue.md
 
 .. toctree::

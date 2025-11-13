@@ -74,6 +74,7 @@ from verl import DataProto
 from verl.third_party.vllm import VLLM_SLEEP_LEVEL, get_version
 from verl.utils.device import is_npu_available
 from verl.utils.distributed import initialize_global_process_group_ray
+from verl.utils.fp8_utils import apply_vllm_fp8_patches, is_fp8_model, load_quanted_weights
 from verl.utils.model import get_lora_rank_from_adapter
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.ray_utils import ray_noset_visible_devices
@@ -213,6 +214,19 @@ class vLLMRollout(BaseRollout):
         if config.get("limit_images", None):  # support for multi-image data
             engine_kwargs["limit_mm_per_prompt"] = {"image": config.get("limit_images")}
 
+        quantization = config.quantization
+        use_block_quant = config.use_block_quant_rollout
+        if quantization:
+            if use_block_quant:
+                FP8_BLOCK_QUANT_KWARGS = {
+                    "activation_scheme": "dynamic",
+                    "fmt": "e4m3",
+                    "quant_method": "fp8",
+                    "weight_block_size": [128, 128],
+                }
+                fp8_block_quant_kwargs = dict(FP8_BLOCK_QUANT_KWARGS)
+            apply_vllm_fp8_patches(block_quant=use_block_quant)
+
         compilation_config = {}
 
         cudagraph_capture_sizes = config.get("cudagraph_capture_sizes")
@@ -247,6 +261,8 @@ class vLLMRollout(BaseRollout):
             enable_prefix_caching=config.enable_prefix_caching,
             trust_remote_code=trust_remote_code,
             seed=config.get("seed", 0),
+            quantization="fp8" if quantization else None,
+            hf_overrides={"quantization_config": fp8_block_quant_kwargs} if quantization and use_block_quant else None,
             **compilation_config,
             **self.lora_kwargs,
             **engine_kwargs,
@@ -491,9 +507,20 @@ class vLLMRollout(BaseRollout):
         else:
             from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 
-            model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
+            model_runner = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner
+            model = model_runner.model
             patch_vllm_moe_model_weight_loader(model)
-            model.load_weights(weights)
+
+            # Add the FP8 related logic here as sharding manager has been deprecated.
+            # Check if FP8 quantization is enabled and apply appropriate weight loading
+            if is_fp8_model(model_runner.vllm_config):
+                logger.info(f"FP8 model detected: {model_runner.vllm_config.quant_config}")
+                # Convert bf16 weights to fp8 format before loading
+                loaded_params = load_quanted_weights(weights, model_runner)
+                logger.info(f"FP8 weights loaded, loaded_params: {len(loaded_params)}")
+            else:
+                logger.debug("Loading standard weights (non-FP8)")
+                model.load_weights(weights)
 
 
 # https://github.com/vllm-project/vllm/issues/13175
@@ -593,6 +620,8 @@ class vLLMAsyncRollout(BaseRollout):
         if self.lora_config:
             lora_dtype = getattr(torch, self.config.dtype)
             self.vllm_config.lora_config = LoRAConfig(lora_dtype=lora_dtype, **self.lora_config)
+        if self.config.quantization:
+            apply_vllm_fp8_patches(block_quant=self.config.use_block_quant_rollout)
         self.inference_engine = WorkerWrapperBase(vllm_config=self.vllm_config)
         self.inference_engine.init_worker(all_kwargs)
 
@@ -646,9 +675,20 @@ class vLLMAsyncRollout(BaseRollout):
         else:
             from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 
-            model = self.inference_engine.worker.model_runner.model
+            model_runner = self.inference_engine.worker.model_runner
+            model = model_runner.model
             patch_vllm_moe_model_weight_loader(model)
-            model.load_weights(weights)
+
+            # Add the FP8 related logic here as sharding manager has been deprecated.
+            # Check if FP8 quantization is enabled and apply appropriate weight loading
+            if is_fp8_model(model_runner.vllm_config):
+                logger.info(f"FP8 model detected (async): {model_runner.vllm_config.quant_config}")
+                # Convert bf16 weights to fp8 format before loading
+                loaded_params = load_quanted_weights(weights, model_runner)
+                logger.info(f"FP8 weights loaded (async), loaded_params: {len(loaded_params)}")
+            else:
+                logger.debug("Loading standard weights (non-FP8, async)")
+                model.load_weights(weights)
 
     def generate_sequences(self, prompts: DataProto) -> DataProto:
         """Batch generate sequences in sync mode."""
