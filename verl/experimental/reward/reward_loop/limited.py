@@ -411,3 +411,74 @@ class RateLimitedRewardLoopManager(RewardLoopManagerBase):
                 reward_extra_info["acc"] = 0.0
 
         return {"reward_score": reward, "reward_extra_info": reward_extra_info}
+
+    def __call__(self, data: DataProto, return_dict: bool = False):
+        """Make the manager callable like traditional reward managers.
+
+        This method provides compatibility with the existing reward manager interface
+        by wrapping the async run_single method in a synchronous call.
+
+        Args:
+            data (DataProto): Input data containing prompts and responses.
+            return_dict (bool): If True, return a dict with reward_tensor and reward_extra_info.
+                               If False, return only the reward_tensor. Defaults to False.
+
+        Returns:
+            torch.Tensor | dict: If return_dict is False, returns a tensor of shape [batch_size, response_length]
+                                with rewards. If return_dict is True, returns a dict with:
+                                - reward_tensor: The reward tensor
+                                - reward_extra_info: Dict containing extra information about rewards
+        """
+        from collections import defaultdict
+
+        import torch
+
+        # If there are pre-computed rm_scores, return them directly
+        if "rm_scores" in data.batch.keys():
+            if return_dict:
+                reward_extra_keys = data.meta_info.get("reward_extra_keys", [])
+                reward_extra_info = {key: data.non_tensor_batch[key] for key in reward_extra_keys}
+                return {"reward_tensor": data.batch["rm_scores"], "reward_extra_info": reward_extra_info}
+            else:
+                return data.batch["rm_scores"]
+
+        # Initialize reward tensor
+        reward_tensor = torch.zeros_like(data.batch["responses"], dtype=torch.float32)
+        reward_extra_info = defaultdict(list)
+
+        # Process each data item through the async event loop
+        async def process_batch():
+            tasks = []
+            for i in range(len(data)):
+                data_item = data[i : i + 1]  # Get single item as DataProto slice
+                tasks.append(self.run_single(data_item))
+
+            results = await asyncio.gather(*tasks)
+            return results
+
+        # Run the async processing using self.loop property which lazily gets/creates event loop
+        # This ensures rate limiters and semaphores work correctly by using the same loop
+        results = self.loop.run_until_complete(process_batch())
+
+        # Aggregate results into reward tensor and extra info
+        for i, result in enumerate(results):
+            data_item = data[i]
+            response_ids = data_item.batch["responses"]
+            response_length = response_ids.shape[-1]
+            valid_response_length = data_item.batch["attention_mask"][-response_length:].sum()
+
+            reward = result["reward_score"]
+            reward_tensor[i, valid_response_length - 1] = reward
+
+            # Collect extra info
+            if "reward_extra_info" in result:
+                for key, value in result["reward_extra_info"].items():
+                    reward_extra_info[key].append(value)
+
+        if return_dict:
+            return {
+                "reward_tensor": reward_tensor,
+                "reward_extra_info": reward_extra_info,
+            }
+        else:
+            return reward_tensor
