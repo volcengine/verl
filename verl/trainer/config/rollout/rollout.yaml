@@ -295,3 +295,22 @@ profiler:
 
   # specific tool config
   tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}
+
+# prometheus configuration for vllm/sglang server mode
+prometheus:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.workers.config.PrometheusConfig
+
+  # whether enable prometheus on server mode rollout
+  enable: false
+
+  # Port number that Prometheus listens on, default is 9090
+  port: 9090
+
+  # Path to Prometheus configuration file
+  file: /tmp/ray/session_latest/metrics/prometheus/prometheus.yml
+
+  # Specify served_model_name to avoid displaying overly long model paths in Grafana
+  served_model_name: ${oc.select:actor_rollout_ref.model.path,null}
+
