@@ -321,7 +321,7 @@ class RayDAPOTrainer(RayPPOTrainer):
 
                     rollout_corr_config = self.config.algorithm.get("rollout_correction", None)
                     if rollout_corr_config is not None and "rollout_log_probs" in batch.batch:
-                        batch, is_metrics = compute_rollout_correction_and_add_to_batch(batch)
+                        batch, is_metrics = compute_rollout_correction_and_add_to_batch(batch, rollout_corr_config)
                         # IS and off-policy metrics already have rollout_corr/ prefix
                         metrics.update(is_metrics)
 
