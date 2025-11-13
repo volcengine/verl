@@ -122,7 +122,6 @@ Users can also customize other aliases:
 
 * `actor_rollout_ref.rollout.prometheus.served_model_name="Qwen3-235B"`
 
-
 **Shell Script Example:**
 
 ```bash
