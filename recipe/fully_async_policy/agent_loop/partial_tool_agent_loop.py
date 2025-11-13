@@ -20,20 +20,11 @@ from typing import Any, Optional
 from uuid import uuid4
 
 from verl.experimental.agent_loop.agent_loop import AgentLoopOutput, register
-from verl.experimental.agent_loop.tool_agent_loop import AgentData as AD
-from verl.experimental.agent_loop.tool_agent_loop import AgentState, ToolAgentLoop
+from verl.experimental.agent_loop.tool_agent_loop import AgentData, AgentState, ToolAgentLoop
 from verl.utils.profiler import simple_timer
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
-
-
-class AgentData(AD):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # additional param version record
-        self.param_version_start: int = 0
-        self.param_version_end: int = 0
 
 
 @register("async_partial_tool_agent")
@@ -124,14 +115,12 @@ class AsyncPartialToolAgentLoop(ToolAgentLoop):
         )
 
         # additional param version record
-        agent_data.param_version_start = param_version
-        agent_data.param_version_end = param_version
+        agent_data.extra_fields["param_version_start"] = param_version
+        agent_data.extra_fields["param_version_end"] = param_version
 
         return agent_data
 
-    def _restore_from_output(
-        self, output: AgentLoopOutput, param_version: int, kwargs: dict
-    ) -> tuple[AgentData, AgentState]:
+    def _restore_from_output(self, output: AgentLoopOutput) -> tuple[AgentData, AgentState]:
         """restore AgentState and AgentData from output"""
         agent_data = output.extra_fields.get("agent_data", None)
         agent_state = output.extra_fields.get("agent_state", None)
@@ -266,7 +255,7 @@ class AsyncPartialToolAgentLoop(ToolAgentLoop):
                 "turn_scores": agent_data.turn_scores,
                 "tool_rewards": agent_data.tool_rewards,
                 "is_cancel": False,
-                "param_version_start": agent_data.param_version_start,
+                "param_version_start": agent_data.extra_fields["param_version_start"],
                 "param_version_end": param_version,
             }
         )
