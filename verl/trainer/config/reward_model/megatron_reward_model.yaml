@@ -61,5 +61,7 @@ megatron:
   # Whether to use mbridge for faster comms
   use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
 
+  dtype: bfloat16
+
 # Whether to load weights (default True)
 load_weight: True

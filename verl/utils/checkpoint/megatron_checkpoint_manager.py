@@ -473,7 +473,20 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             if self.rank == 0:
                 # Save transformer config
                 print(self.transformer_config)
+                bypass_keys = [
+                    "finalize_model_grads_func",
+                    "grad_scale_func",
+                    "no_sync_func",
+                    "grad_sync_func",
+                    "param_sync_func",
+                ]
+                backup = {}
+                for k in bypass_keys:
+                    backup[k] = getattr(self.transformer_config, k, None)
+                    delattr(self.transformer_config, k)
                 transformer_config_dict = asdict(self.transformer_config)
+                for k in bypass_keys:
+                    setattr(self.transformer_config, k, backup[k])
                 to_convert_types = {torch.dtype: str, AttnBackend: str}
                 ignore_types = [Callable]
                 pop_keys = []
