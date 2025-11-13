@@ -1120,10 +1120,10 @@ def register_megatron_training_hooks(model: list[torch.nn.Module], optimizer):
         config.grad_scale_func = optimizer.scale_loss
         config.finalize_model_grads_func = finalize_model_grads
 
-        overlap_param_gather = optimizer.config.overlap_param_gather
-        overlap_grad_reduce = one_model.ddp_config.overlap_grad_reduce
+        overlap_param_gather = getattr(optimizer.config, "overlap_param_gather", False)
+        overlap_grad_reduce = getattr(one_model.ddp_config, "overlap_grad_reduce", False)
         align_grad_reduce = True  # default to True, seldom to be false
-        align_param_gather = one_model.ddp_config.align_param_gather
+        align_param_gather = getattr(one_model.ddp_config, "align_param_gather", False)
 
         if isinstance(model[0], megatron_FSDP | DDP) and overlap_grad_reduce:
             assert config.no_sync_func is None, (
