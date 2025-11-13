@@ -299,11 +299,7 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
 
         for epoch, batch_dict in continuous_iterator:
             # Similar to _prepare_generate_batch: Separate data
-            full_batch = prepare_single_generation_data(
-                batch_dict,
-                self.config.actor_rollout_ref.rollout.multi_turn.enable,
-                self.config.actor_rollout_ref.rollout.n,
-            )
+            full_batch = prepare_single_generation_data(batch_dict, self.config)
 
             sample_id = f"sample_{epoch}_{self.global_steps}"
 

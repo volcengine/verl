@@ -150,14 +150,13 @@ def postprocess_agent_loop_outputs(rs: "RolloutSample", tokenizer, config, proce
         batch_size=len(input_ids),
     )
 
-    if inputs[0].response_logprobs is not None:
-        response_logprobs_list = []
-        for input in inputs:
-            pad_size = config.actor_rollout_ref.rollout.response_length - len(input.response_logprobs)
-            response_logprobs = torch.tensor(input.response_logprobs + [0.0] * pad_size).unsqueeze(0)
-            response_logprobs_list.append(response_logprobs)
-        rollout_log_probs = torch.cat(response_logprobs_list, dim=0)
-        batch["rollout_log_probs"] = rollout_log_probs  # [bsz, response_length]
+    response_logprobs_list = []
+    for input in inputs:
+        pad_size = config.actor_rollout_ref.rollout.response_length - len(input.response_logprobs)
+        response_logprobs = torch.tensor(input.response_logprobs + [0.0] * pad_size).unsqueeze(0)
+        response_logprobs_list.append(response_logprobs)
+    rollout_log_probs = torch.cat(response_logprobs_list, dim=0)
+    batch["rollout_log_probs"] = rollout_log_probs  # [bsz, response_length]
 
     num_turns = np.array([input.num_turns for input in inputs], dtype=np.int32)
     metrics = [input.metrics.model_dump() for input in inputs]
@@ -197,7 +196,7 @@ class ValidateMetrics:
     param_version: Optional[int] = None
 
 
-def prepare_single_generation_data(batch_dict, multi_turn, rollout_n) -> DataProto:
+def prepare_single_generation_data(batch_dict, config) -> DataProto:
     """
     Similar to the logic of ray_trainer._prepare_generate_batch, but for a single sample.
     Separate the data used for generation from the original data.
@@ -217,7 +216,7 @@ def prepare_single_generation_data(batch_dict, multi_turn, rollout_n) -> DataPro
     )
 
     # Setting selected agent, that supports partial
-    if multi_turn:
+    if config.actor_rollout_ref.rollout.multi_turn.enable:
         full_batch.non_tensor_batch["agent_name"] = np.array(
             ["async_partial_tool_agent"] * len(full_batch), dtype=object
         )
@@ -227,40 +226,8 @@ def prepare_single_generation_data(batch_dict, multi_turn, rollout_n) -> DataPro
         )
 
     # Add global step count to generated data
-    full_batch = full_batch.repeat(repeat_times=rollout_n, interleave=True)
+    full_batch = full_batch.repeat(repeat_times=config.actor_rollout_ref.rollout.n, interleave=True)
     return full_batch
-
-
-def process_rollout_log_probs(data_proto: DataProto, rollout_log_probs: list[list[float]]) -> torch.Tensor:
-    """
-    Process rollout_log_probs according to the mask in DataProto
-    mask: [0,0,0,0,1,1,1,1, | 1,1,1,0,0,0,0,0]
-
-    Args:
-        data_proto: A DataProto object containing batch information
-        rollout_log_probs: A two-dimensional list, each sublist containing the log_probs of a sample
-
-    Returns:
-        torch.Tensor: The processed log_probs tensor, with shape: [bsz, response_length]
-    """
-
-    batch = data_proto.batch
-    response_mask = batch["response_mask"]
-    rollout_log_probs_tensor = torch.zeros(response_mask.shape, dtype=torch.float32) - 1
-
-    for i, log_probs_seq in enumerate(rollout_log_probs):
-        # Get the effective length of the current sample (the number of positions with 1 in the mask)
-        valid_length = response_mask[i].sum().item()
-
-        # Ensure that the length of log_probs_seq does not exceed the valid length
-        actual_length = min(len(log_probs_seq), valid_length)
-
-        # Fill log_probs into the corresponding position
-        if actual_length > 0:
-            rollout_log_probs_tensor[i, :actual_length] = torch.tensor(log_probs_seq[:actual_length])
-
-    rollout_log_probs_tensor = rollout_log_probs_tensor.to(torch.float32)
-    return rollout_log_probs_tensor
 
 
 def merge_rollout_sample(config, tokenizer, rs: RolloutSample, processor):
