@@ -71,7 +71,7 @@ permissions:
   contents: read
 
 env:
-  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:app-verl0.6-transformers4.56.1-sglang0.5.2-mcore0.13.0-te2.2"
+  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:sgl055.dev2"
   DYNAMIC_RUNNER_ENDPOINT: "https://sd10g3clalm04ug7alq90.apigateway-cn-beijing.volceapi.com/runner"
 
 jobs:
@@ -108,15 +108,9 @@ jobs:
         run: |
           pip3 install hf_transfer
           pip3 install --no-deps -e .[test]
-          pip3 install --upgrade "ray>=2.40.0"
-          pip3 install cupy-cuda12x
+          pip3 install cupy-cuda12x pytest-asyncio
+          pip3 install --ignore-installed blinker
           pip3 install mlflow
-#      - name: Download Model to Use
-#        run: |
-#          huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct
-#          huggingface-cli download Qwen/Qwen2.5-1.5B-Instruct
-#          export HF_HUB_OFFLINE=1
-        # Disable requests to avoid network errors
       - name: Run all GPU unit tests
         run: |
           pytest -s -x --ignore-glob="*test_special_*.py" --ignore-glob='*on_cpu.py' --ignore-glob="*test_vllm*" --ignore-glob="*_sglang*" --ignore-glob="*_hf_rollout*" --ignore-glob="tests/models/" --ignore-glob='tests/special*' --ignore-glob="tests/experimental" --ignore-glob="tests/workers/reward_model" tests/

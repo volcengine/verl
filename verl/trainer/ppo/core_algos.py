@@ -1565,6 +1565,7 @@ def compute_policy_loss_with_rollout_correction(
     rollout_rs_threshold: Optional[float] = None,
     rollout_rs_threshold_lower: Optional[float] = None,
     rollout_token_veto_threshold: Optional[float] = None,
+    rollout_is_batch_normalize: bool = False,
 ):
     """Compute policy loss with pure rollout correction (no PPO clipping).
 
@@ -1598,15 +1599,7 @@ def compute_policy_loss_with_rollout_correction(
         rollout_rs_threshold: Upper threshold for rejection sampling.
         rollout_rs_threshold_lower: Lower threshold for rejection sampling.
         rollout_token_veto_threshold: Per-token veto threshold for catastrophic outliers.
-
-    Returns:
-        Tuple of (loss, clip_fraction, kl_divergence, clip_fraction_lower):
-            - loss: Policy gradient loss with IS correction
-            - clip_fraction: Always 0.0 (no clipping in this mode)
-            - kl_divergence: KL between current and rollout policy
-            - clip_fraction_lower: Always 0.0 (no clipping in this mode)
-        Note: Rollout correction metrics are computed internally but not returned.
-              Caller should compute them separately if needed.
+        rollout_is_batch_normalize: Whether to normalize IS weights to have mean=1.0 per batch.
 
     Note:
         Unlike compute_policy_loss (PPO), this function:
@@ -1616,40 +1609,41 @@ def compute_policy_loss_with_rollout_correction(
 
     Usage:
         This function is called by the actor when:
-        - bypass_old_logprob_for_rollout=True (trainer uses rollout_log_prob as old_log_prob)
-        - use_pure_rollout_correction=True (actor uses this function instead of compute_policy_loss)
+        - bypass_mode=True (trainer uses rollout_log_prob as old_log_prob)
+        - use_policy_gradient=True (actor uses this function instead of compute_policy_loss)
 
     Example config:
         algorithm:
           rollout_correction:
-            bypass_old_logprob_for_rollout: true
-            use_pure_rollout_correction: true
+            bypass_mode: true
+            use_policy_gradient: true
             rollout_is: "token"
             rollout_is_threshold: 2.0
             rollout_rs: "token"
             rollout_rs_threshold: 2.0
             rollout_rs_threshold_lower: 0.5
 
-    Performance:
-        - Memory: Saves ~1MB per batch (no old_log_prob storage)
-        - Speed: ~15-20% faster (skips actor.compute_log_prob())
-        - Variance: Higher than PPO (no clipping safety net)
     """
     # Import rollout correction helper
     from verl.trainer.ppo.rollout_corr_helper import compute_rollout_correction_and_rejection_mask
 
     # Compute IS weights and rejection mask on-the-fly
-    rollout_is_weights_proto, modified_response_mask, rollout_metrics = compute_rollout_correction_and_rejection_mask(
-        old_log_prob=log_prob,  # Current policy
-        rollout_log_prob=rollout_log_prob,  # Rollout policy
-        response_mask=eos_mask,
-        rollout_is=rollout_is,
-        rollout_is_threshold=rollout_is_threshold,
-        rollout_rs=rollout_rs,
-        rollout_rs_threshold=rollout_rs_threshold,
-        rollout_rs_threshold_lower=rollout_rs_threshold_lower,
-        rollout_token_veto_threshold=rollout_token_veto_threshold,
-    )
+    # Use no_grad since weights are detached inside and metrics don't need gradients
+    with torch.no_grad():
+        rollout_is_weights_proto, modified_response_mask, rollout_metrics = (
+            compute_rollout_correction_and_rejection_mask(
+                old_log_prob=log_prob,  # Current policy
+                rollout_log_prob=rollout_log_prob,  # Rollout policy
+                response_mask=eos_mask,
+                rollout_is=rollout_is,
+                rollout_is_threshold=rollout_is_threshold,
+                rollout_rs=rollout_rs,
+                rollout_rs_threshold=rollout_rs_threshold,
+                rollout_rs_threshold_lower=rollout_rs_threshold_lower,
+                rollout_token_veto_threshold=rollout_token_veto_threshold,
+                rollout_is_batch_normalize=rollout_is_batch_normalize,
+            )
+        )
 
     # Extract weights tensor from DataProto (or None if disabled)
     rollout_is_weights = rollout_is_weights_proto.batch["rollout_is_weights"] if rollout_is_weights_proto else None
@@ -1665,15 +1659,10 @@ def compute_policy_loss_with_rollout_correction(
     # So we apply it to the standard log-prob trick formula
 
     if rollout_is_weights is not None:
-        # With IS correction: weight the log-prob trick by IS weight
-        # w = exp(log_prob - rollout_log_prob).clamp(max=threshold)
-        # L = -E[w * log π * A]
-        # Gradient: ∇L = -E[w * ∇log π * A] = -E[w * A]
+        # IS-corrected policy gradient: L = -E[stopgrad(w) · log π · A]
         pg_losses = -advantages * log_prob * rollout_is_weights
     else:
-        # No IS correction: standard REINFORCE with log-prob trick
-        # L = -E[log π(a|s) * A]
-        # Gradient: ∇L = -E[∇log π * A] = -E[A]
+        # Standard REINFORCE: L = -E[log π · A]
         pg_losses = -advantages * log_prob
 
     # Aggregate loss (apply scale factor manually)
@@ -1712,7 +1701,7 @@ def compute_policy_loss_rollout_correction_wrapper(
 ) -> tuple[torch.Tensor, dict[str, Any]]:
     """Wrapper for compute_policy_loss_with_rollout_correction to match PolicyLossFn interface.
 
-    This function is used when algorithm.rollout_correction.use_pure_rollout_correction=True.
+    This function is used when algorithm.rollout_correction.use_policy_gradient=True.
     In this mode, the trainer has already set old_log_prob=rollout_log_prob (bypass mode).
 
     Args:
@@ -1723,14 +1712,11 @@ def compute_policy_loss_rollout_correction_wrapper(
         loss_agg_mode: Loss aggregation mode
         config: Actor config containing rollout_correction settings
         rollout_is_weights: Pre-computed IS weights (ignored, computed internally)
-
-    Returns:
-        Tuple of (loss, clip_fraction, kl, clip_fraction_lower)
     """
     assert config is not None, "config is required for rollout_correction loss mode"
 
     # Extract rollout_correction config
-    # In ray_trainer, when use_pure_rollout_correction=True, the rollout_correction config
+    # In ray_trainer, when use_policy_gradient=True, the rollout_correction config
     # is embedded in actor config's policy_loss field
     rollout_corr_config = config.policy_loss.get("rollout_correction", None) if hasattr(config, "policy_loss") else None
 
@@ -1747,6 +1733,7 @@ def compute_policy_loss_rollout_correction_wrapper(
     rollout_rs_threshold = rollout_corr_config.get("rollout_rs_threshold", None)
     rollout_rs_threshold_lower = rollout_corr_config.get("rollout_rs_threshold_lower", None)
     rollout_token_veto_threshold = rollout_corr_config.get("rollout_token_veto_threshold", None)
+    rollout_is_batch_normalize = rollout_corr_config.get("rollout_is_batch_normalize", False)
 
     # Call the actual implementation
     # In bypass mode, old_log_prob IS rollout_log_prob
@@ -1763,4 +1750,5 @@ def compute_policy_loss_rollout_correction_wrapper(
         rollout_rs_threshold=rollout_rs_threshold,
         rollout_rs_threshold_lower=rollout_rs_threshold_lower,
         rollout_token_veto_threshold=rollout_token_veto_threshold,
+        rollout_is_batch_normalize=rollout_is_batch_normalize,
     )
