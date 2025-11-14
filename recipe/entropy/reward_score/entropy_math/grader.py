@@ -105,6 +105,76 @@ from sympy.parsing.sympy_parser import parse_expr
 # verl related
 from verl.utils.py_functional import timeout_limit
 
+import ast
+import operator
+import math
+
+def safe_eval(expr, allowed_names=None):
+    """Safely evaluate a mathematical expression."""
+    if allowed_names is None:
+        allowed_names = {}
+    
+    # Define allowed operations
+    allowed_operators = {
+        ast.Add: operator.add,
+        ast.Sub: operator.sub,
+        ast.Mult: operator.mul,
+        ast.Div: operator.truediv,
+        ast.FloorDiv: operator.floordiv,
+        ast.Mod: operator.mod,
+        ast.Pow: operator.pow,
+        ast.USub: operator.neg,
+        ast.UAdd: operator.pos,
+    }
+    
+    allowed_functions = {
+        'abs': abs,
+        'min': min,
+        'max': max,
+        'sum': sum,
+        'round': round,
+        'pow': pow,
+    }
+    
+    def eval_node(node):
+        if isinstance(node, ast.Num):  # number
+            return node.n
+        elif isinstance(node, ast.Constant):  # Python 3.8+
+            return node.value
+        elif isinstance(node, ast.BinOp):  # binary operation
+            left = eval_node(node.left)
+            right = eval_node(node.right)
+            return allowed_operators[type(node.op)](left, right)
+        elif isinstance(node, ast.UnaryOp):  # unary operation
+            operand = eval_node(node.operand)
+            return allowed_operators[type(node.op)](operand)
+        elif isinstance(node, ast.Name):  # variable
+            if node.id in allowed_names:
+                return allowed_names[node.id]
+            raise ValueError(f"Name '{node.id}' is not allowed")
+        elif isinstance(node, ast.Call):  # function call
+            if isinstance(node.func, ast.Name) and node.func.id in allowed_functions:
+                args = [eval_node(arg) for arg in node.args]
+                return allowed_functions[node.func.id](*args)
+            raise ValueError(f"Function calls not allowed or function not in whitelist")
+        elif isinstance(node, ast.List):
+            return [eval_node(item) for item in node.elts]
+        elif isinstance(node, ast.Tuple):
+            return tuple(eval_node(item) for item in node.elts)
+        else:
+            raise ValueError(f"Unsupported operation: {type(node).__name__}")
+    
+    try:
+        parsed = ast.parse(expr, mode='eval')
+        return eval_node(parsed.body)
+    except Exception as e:
+        # Fallback to original behavior with restricted globals
+        safe_dict = {"__builtins__": {}}
+        safe_dict.update(allowed_names)
+        return safe_eval(expr, safe_dict, {})
+
+
+
 
 def is_digit(s):
     try:
@@ -164,9 +234,9 @@ def handle_pi(string, pi):
             # Find the next occurrence of "\pi"
             idx = string.find("\\pi", idx + 1)
 
-        # Evaluate the expression using eval() function
+        # Evaluate the expression using safe_eval() function
         with contextlib.suppress(Exception):
-            string = eval(string)
+            string = safe_eval(string)
 
     return string
 
@@ -296,9 +366,9 @@ def math_equal(
         except Exception:
             pass
     elif r"\begin{pmatrix}" in reference and prediction.startswith("[") and prediction.endswith("]"):
-        if isinstance(eval(prediction), list):
+        if isinstance(safe_eval(prediction), list):
             try:
-                pred_matrix = eval(prediction)
+                pred_matrix = safe_eval(prediction)
                 # ref_matrix_items = reference.split()[1:-1:2]
                 ref_matrix_items = (
                     reference.removeprefix(r"\\begin{pmatrix}")
