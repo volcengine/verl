@@ -545,7 +545,7 @@ def load_mcore_dist_weights(parallel_model, dist_weight_path, is_value_model=Fal
             for k in list(ssd.keys()):
                 if "output_layer" in k:
                     ssd.pop(k)
-        dist_checkpointing.load(ssd, dist_weight_path, strict=strict, prefix=prefix)
+        dist_checkpointing.load(ssd, dist_weight_path, strict=strict)
 
     return
 
