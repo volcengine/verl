@@ -15,7 +15,7 @@ RUN export NVTE_FRAMEWORK=pytorch && MAX_JOBS=128 NVTE_BUILD_THREADS_PER_JOB=4 p
 
 RUN pip install --upgrade --no-cache-dir transformers tokenizers
 
-RUN pip install codetiming tensordict mathruler pylatexenc qwen_vl_utils
+RUN pip install codetiming tensordict mathruler pylatexenc qwen_vl_utils omegaconf
 
 RUN pip install flash_attn==2.8.1
 
