@@ -531,7 +531,7 @@ def pad_packed_inputs(unpad_tokens: torch.Tensor, cu_seqlens, max_seqlen_in_batc
     return unpad_tokens, cu_seqlens, max_seqlen_in_batch
 
 
-def load_mcore_dist_weights(parallel_model, dist_weight_path, is_value_model=False):
+def load_mcore_dist_weights(parallel_model, dist_weight_path, is_value_model=False, prefix=""):
     from megatron.core import dist_checkpointing
     from megatron.core.dist_checkpointing.serialization import StrictHandling
 
@@ -545,7 +545,7 @@ def load_mcore_dist_weights(parallel_model, dist_weight_path, is_value_model=Fal
             for k in list(ssd.keys()):
                 if "output_layer" in k:
                     ssd.pop(k)
-        dist_checkpointing.load(ssd, dist_weight_path, strict=strict)
+        dist_checkpointing.load(ssd, dist_weight_path, strict=strict, prefix=prefix)
 
     return
 
