@@ -1,4 +1,7 @@
-# actor_rollout_ref.ref: FSDP config same as actor. For models larger than 7B, it's recommended to turn on offload for ref by default
+# Number of rollouts per update (mirrors actor rollout_n)
+rollout_n: ${oc.select:actor_rollout_ref.rollout.n,1}
+
+# actor_rollout_ref.ref: FSDP config same as actor. For models larger than 7B, it’s recommended to turn on offload for ref by default
 strategy: ${actor_rollout_ref.actor.strategy}
 
 # whether to enable torch.compile
@@ -22,7 +25,6 @@ log_prob_max_token_len_per_gpu: ${oc.select:actor_rollout_ref.actor.ppo_max_toke
 
 # profile the ref model in `compute_log_prob`
 profiler:
-
   # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.utils.profiler.ProfilerConfig
 
@@ -43,19 +45,16 @@ profiler:
 
   # specific tool config which only related to the role
   tool_config:
-
     # nsys tool config
     nsys:
-
       # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
       _target_: verl.utils.profiler.config.NsightToolConfig
-    
+
       # True for each task has its own database, False for all tasks in one training step share one database.
       discrete: ${oc.select:global_profiler.global_tool_config.nsys.discrete}
-    
+
     # npu config
     npu:
-
       # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
       _target_: verl.utils.profiler.config.NPUToolConfig
 
@@ -71,10 +70,9 @@ profiler:
 
       # True for each task has its own database, False for all tasks in one training step share one database.
       discrete: False
-    
+
     # torch profiler config
     torch:
-
       # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
       _target_: verl.utils.profiler.config.TorchProfilerToolConfig
 
@@ -88,7 +86,6 @@ profiler:
 
     # torch memory profiler config
     torch_memory:
-
       # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
       _target_: verl.utils.profiler.config.TorchMemoryToolConfig
 

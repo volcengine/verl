@@ -206,7 +206,10 @@ def list_of_dict_to_dict_of_list(list_of_dict: list[dict]):
     for data in list_of_dict:
         for key, item in data.items():
             assert key in output
-            output[key].append(item)
+            if isinstance(item, list):
+                output[key].extend(item)
+            else:
+                output[key].append(item)
     return output
 
 

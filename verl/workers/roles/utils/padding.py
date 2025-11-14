@@ -49,10 +49,8 @@ def left_right_2_no_padding(data: TensorDict) -> TensorDict:
     assert "position_ids" in data, "position_ids is required in left-right padding data"
 
     input_ids = data.pop("input_ids")
-    attention_mask = data.pop("attention_mask")
+    attention_mask = data["attention_mask"]
     response_mask = data["response_mask"]
-    if "responses" in data:
-        _ = data.pop("responses")
 
     max_seq_len, max_response_len = input_ids.shape[1], response_mask.shape[1]
     tu.assign_non_tensor_data(data, "max_seq_len", max_seq_len)
@@ -67,20 +65,14 @@ def left_right_2_no_padding(data: TensorDict) -> TensorDict:
     response_lens = response_mask.sum(dim=1).tolist()
 
     position_ids_list = []
-    loss_mask_list = []
     for seq_len, response_len in zip(seq_lens, response_lens, strict=False):
         position_ids_list.append(torch.arange(seq_len, device=input_ids.device))
-        loss_mask = torch.zeros(seq_len, dtype=torch.bool, device=input_ids.device)
-        assert seq_len >= response_len, f"{seq_len=} is less than {response_len=}"
-        loss_mask[-response_len:] = 1
-        loss_mask_list.append(loss_mask)
 
     position_ids_nested = torch.nested.as_nested_tensor(position_ids_list, layout=torch.jagged)
-    loss_mask_nested = torch.nested.as_nested_tensor(loss_mask_list, layout=torch.jagged)
 
     data["input_ids"] = input_ids_nested
     data["position_ids"] = position_ids_nested
-    data["loss_mask"] = loss_mask_nested
+    data["loss_mask"] = data["response_mask"]
 
     return data
 
