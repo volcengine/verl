@@ -51,6 +51,7 @@ from torch.distributed.device_mesh import DeviceMesh
 from vllm import LLM, SamplingParams
 from vllm.config import CompilationConfig, LoRAConfig
 from vllm.lora.request import LoRARequest
+from vllm.model_executor.model_loader.utils import process_weights_after_loading
 
 try:
     # https://github.com/vllm-project/vllm/commit/96b9aa5aa076e64c68765232aec343e4d0006e2a
@@ -494,6 +495,9 @@ class vLLMRollout(BaseRollout):
             model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
             patch_vllm_moe_model_weight_loader(model)
             model.load_weights(weights)
+            vllm_config = self.inference_engine.llm_engine.vllm_config.model_config
+            device = next(model.parameters()).device()
+            process_weights_after_loading(model, vllm_config, device)
 
 
 # https://github.com/vllm-project/vllm/issues/13175
