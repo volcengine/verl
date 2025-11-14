@@ -3,7 +3,7 @@ export PROXY_BACKEND_PORT=15556
 
 PROXY_IP="127.0.0.1"
 BACKEND=vllm
-CKPT_PATH="./ckpt/DeepSeek-V3-Base/"
+CKPT_PATH="/path/to/TEACHER_MODEL/"
 
 wait_server_ready() {
     server=$1
@@ -28,6 +28,6 @@ wait_server_ready proxy $PROXY_IP $PROXY_BACKEND_PORT
 
 echo "teacher proxy is ready"
 
-nohup python worker.py --backend $BACKEND --proxy-addr $PROXY_IP:$PROXY_BACKEND_PORT --tp-size 8 --seq-len 4096 --ckpt-path $CKPT_PATH &> worker.log &
+nohup python worker.py --backend $BACKEND --proxy-addr $PROXY_IP:$PROXY_BACKEND_PORT --tp-size 8 --n-logprobs 256 --ckpt-path $CKPT_PATH &> worker.log &
 
 echo "teacher server is ready"
