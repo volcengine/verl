@@ -1860,8 +1860,8 @@ def kpo_clip_harmful_tokens(
         # No clipping needed -> effectively no constraint
         return 0.0, 100000, M2_now, M2_now
 
-    print(f"tr-M2_now: {M2_now}")
-    print(f"KL2_budget: {KL2_budget}")
+    # print(f"tr-M2_now: {M2_now}")
+    # print(f"KL2_budget: {KL2_budget}")
 
     # import pdb; pdb.set_trace()
 
@@ -2014,7 +2014,7 @@ def compute_policy_loss_m2po(
     loss_agg_mode: str = "token-mean",
     config: Optional[DictConfig | AlgoConfig] = None,
     rollout_is_weights: torch.Tensor | None = None,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, dict[str, Any]]:
     """
     Compute policy loss under an M2 (KL^2) budget using per-token clipping bounds.
 
@@ -2041,7 +2041,7 @@ def compute_policy_loss_m2po(
 
     clip_low = 1 - clip_low
     clip_high = clip_high - 1
-    print(f"m2po clip_low: {clip_low}, clip_high: {clip_high}")
+    # print(f"m2po clip_low: {clip_low}, clip_high: {clip_high}")
     if miniclip_low is not None and clip_low < miniclip_low:
         clip_low = miniclip_low
     if miniclip_high is not None and clip_high < miniclip_high:
@@ -2064,14 +2064,19 @@ def compute_policy_loss_m2po(
         clip_pg_losses1 = clip_pg_losses1 * rollout_is_weights
 
     pg_loss = agg_loss(loss_mat=clip_pg_losses1, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+    pg_clipfrac_lower = torch.tensor(0.0, device=pg_loss.device)
 
+    pg_metrics = {
+        "actor/pg_clipfrac": pg_clipfrac.detach().item(),
+        "actor/ppo_kl": ppo_kl.detach().item(),
+        "actor/pg_clipfrac_lower":pg_clipfrac_lower.detach().item(),
+        "m2po/clip_low": clip_low,
+        "m2po/clip_high": clip_high,
+        "m2po/m2": m2_data,
+        "m2po/m2_after": m2_after,
+        "m2po/m2_budget": m2_budget
 
-    ratio_stats["m2po/clip_low"] = clip_low
-    ratio_stats["m2po/clip_high"] = clip_high
-    ratio_stats["m2po/m2"] = m2_data
-    ratio_stats["m2po/m2_after"] = m2_after
-    ratio_stats["m2po/m2_budget"] = m2_budget
-
-    return pg_loss, pg_clipfrac, ppo_kl, (ppo_kl - ppo_kl)
+    }
+    return pg_loss, pg_metrics
 
 
