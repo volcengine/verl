@@ -1,17 +1,12 @@
 # 1. Base Image
 FROM swr.cn-south-1.myhuaweicloud.com/ascendhub/cann:8.2.rc1-a3-ubuntu22.04-py3.11
 
-# 2. Pre-installation foundation vllm with architecture echo
-RUN ARCH=$(uname -m) && \
-    echo "export ARCH=$ARCH" >> ~/.bashrc && \
-    echo "[LOG INFO] Current system architecture: $ARCH"
-
-# 3. Install system dependencies
+# 2. Install system dependencies
 RUN apt-get update -y && apt-get install -y --no-install-recommends \
     gcc g++ cmake libnuma-dev wget git curl jq vim build-essential \
     && rm -rf /var/lib/apt/lists/* && pip install --upgrade pip setuptools packaging
 
-# 4. Install vllm
+# 3. Install vllm
 RUN ARCH=$(uname -m) && \
     echo "[LOG INFO] Detected architecture: $ARCH" && \
     if [ "$ARCH" = "x86_64" ]; then \
@@ -25,7 +20,7 @@ RUN ARCH=$(uname -m) && \
     VLLM_TARGET_DEVICE=empty pip install -v -e . && \
     cd ..
 
-# 5. Install vllm_ascend
+# 4. Install vllm_ascend
 RUN ARCH=$(uname -m) && \
     echo "[LOG INFO] Configuring LD_LIBRARY_PATH for $ARCH" && \
     if [ "$ARCH" = "aarch64" ]; then \
@@ -40,7 +35,7 @@ RUN ARCH=$(uname -m) && \
     pip install -v -e . && \
     cd ..
 
-# 6. Install verl
+# 5. Install verl
 RUN git clone https://github.com/volcengine/verl.git && \
     cd verl && \
     git checkout main && \
@@ -48,21 +43,21 @@ RUN git clone https://github.com/volcengine/verl.git && \
     pip install -e . && \
     cd ..
 
-# 7. Install MindSpeed
+# 6. Install MindSpeed
 RUN git clone https://gitcode.com/Ascend/MindSpeed.git && \
     cd MindSpeed && \
     git checkout f2b0977e && \
     cd .. && \
     pip install -e MindSpeed
 
-# 8. Install Megatron-LM and configure PYTHONPATH
+# 7. Install Megatron-LM and configure PYTHONPATH
 RUN git clone https://github.com/NVIDIA/Megatron-LM.git && \
     cd Megatron-LM && \
     git checkout core_v0.12.1 && \
     cd .. && \
     echo "export PYTHONPATH=\$PYTHONPATH:/Megatron-LM" >> ~/.bashrc
 
-# Show pip list and clear pip cache to reduce image size
+# 8. Show pip list and clear pip cache to reduce image size
 RUN pip list && pip cache purge
 
 # Setting Default Commands
