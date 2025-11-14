@@ -1,0 +1,33 @@
+hydra:
+  searchpath:
+    - file://verl/trainer/config
+
+defaults:
+  - ppo_trainer
+  - _self_
+
+reward_model:
+  elliptical:
+    enable: True
+    lamb: 0.01
+    normalization: none # none, rnd, z_score
+    reward_type: leave_one_out # leave_one_out, leverage
+    sparse_dim: 512
+    randomize_sparse_matrix: True
+    persist_covariance: False
+
+  reward_kwargs:
+    elliptical:
+      alpha: 1.0
+      beta: 1.0
+      turn_off_elliptical_if_none_correct: True
+      turn_off_elliptical_if_some_correct: False
+      turn_off_elliptical_if_all_correct: False
+      turn_off_elliptical_if_rollout_incorrect: False
+
+actor_rollout_ref:
+  rollout:
+    val_kwargs:
+      temperature: 1.0
+      n: 128
+      do_sample: True
