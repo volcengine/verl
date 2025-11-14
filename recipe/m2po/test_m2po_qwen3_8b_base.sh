@@ -16,7 +16,7 @@ NGPUS_PER_NODE=${NGPUS_PER_NODE:-8}
 BYTENAS=${BYTENAS:-"bandai-lf"}
 # Paths
 DATA_PATH=${DATA_PATH:-"/mnt/bn/${BYTENAS}"}
-MODEL_PATH=${MODEL_PATH:-"${DATA_PATH}/shared/models/Qwen3-14B-Base"}
+MODEL_PATH=${MODEL_PATH:-"${DATA_PATH}/shared/models/Qwen3-8B-Base"}
 MLX_USER=${MLX_USER:-"angel"}
 ARNOLD_TRIAL_ID=${ARNOLD_TRIAL_ID:-"1"}
 CKPTS_DIR=${CKPTS_DIR:-"${DATA_PATH}/users/${MLX_USER}/${project_name}/${exp_name}/trial_${ARNOLD_TRIAL_ID}-$(date +%Y%m%d_%H%M%S)"}

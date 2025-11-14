@@ -1812,14 +1812,15 @@ def _solve_tau_from_sorted_delta2(sorted_delta2: torch.Tensor, target_sum: float
 
             if n - k > 0:
                 tau_sq = (target_sum - csum_k_minus_1) / (n - k)
-            else: # Should not happen if target_sum < total
+            else:
                 tau_sq = sorted_delta2[k].item()
 
             m2_after = target_sum / n
             return tau_sq**0.5, m2_after
 
-    # This part should not be reached if target_sum < total.
-    return 100000.0, total / n if n > 0 else 0.0
+    # This part should not be reached if target_sum < total, as the loop is guaranteed to return.
+    # Raising an error for unexpected cases is safer than returning a potentially incorrect value.
+    raise RuntimeError("Unreachable code in _solve_tau_from_sorted_delta2 was reached. This indicates a logic error.")
 
 def kpo_clip_harmful_tokens(
     old_log_prob: torch.Tensor,
@@ -1988,12 +1989,6 @@ def get_ratio_stats(ratio: torch.Tensor,
         "neg": advantages < 0,
         "nonzero": advantages != 0,
     }
-
-    def _mean_where(x: torch.Tensor, m: torch.Tensor):
-        n = m.sum()
-        if n.item() == 0:
-            return torch.tensor(0.0, device=x.device, dtype=torch.float32)
-        return x[m].sum() / (n + eps)
 
     for name, cmask in conds.items():
         m = base_mask & cmask
