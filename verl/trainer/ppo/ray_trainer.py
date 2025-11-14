@@ -921,16 +921,16 @@ class RayPPOTrainer:
         attention_mask = batch.batch["attention_mask"]
         batch_size = attention_mask.shape[0]
         global_seqlen_lst = batch.batch["attention_mask"].view(batch_size, -1).sum(-1)  # (train_batch_size,)
-        global_seqlen_lst = calculate_workload(global_seqlen_lst)
+        workload_lst = calculate_workload(global_seqlen_lst)
         world_size = self.actor_rollout_wg.world_size
         if keep_minibatch:
             # Decouple the DP balancing and mini-batching.
             minibatch_size = self.config.actor_rollout_ref.actor.get("ppo_mini_batch_size")
-            minibatch_num = len(global_seqlen_lst) // minibatch_size
+            minibatch_num = len(workload_lst) // minibatch_size
             global_partition_lst = [[] for _ in range(world_size)]
             for i in range(minibatch_num):
                 rearrange_minibatch_lst = get_seqlen_balanced_partitions(
-                    global_seqlen_lst[i * minibatch_size : (i + 1) * minibatch_size],
+                    workload_lst[i * minibatch_size : (i + 1) * minibatch_size],
                     k_partitions=world_size,
                     equal_size=True,
                 )
@@ -938,11 +938,11 @@ class RayPPOTrainer:
                     global_partition_lst[j].extend([x + minibatch_size * i for x in part])
         else:
             global_partition_lst = get_seqlen_balanced_partitions(
-                global_seqlen_lst, k_partitions=world_size, equal_size=True
+                workload_lst, k_partitions=world_size, equal_size=True
             )
         # Place smaller micro-batches at both ends to reduce the bubbles in pipeline parallel.
         for idx, partition in enumerate(global_partition_lst):
-            partition.sort(key=lambda x: (global_seqlen_lst[x], x))
+            partition.sort(key=lambda x: (workload_lst[x], x))
             ordered_partition = partition[::2] + partition[1::2][::-1]
             global_partition_lst[idx] = ordered_partition
         # reorder based on index. The data will be automatically equally partitioned by dispatch function
