@@ -310,17 +310,17 @@ class EllipticalRewardModelWorker(RewardModelWorker):
         else:
             sparse_matrix = self.sparse_matrix
 
-        mean_hidden_states = data.batch["mean_hidden_states"].cuda().float()
+        mean_hidden_states = data.batch["mean_hidden_states"].to(get_device_id()).float()
 
         # sparse project
-        mean_hidden_states = mean_hidden_states @ sparse_matrix.cuda()
+        mean_hidden_states = mean_hidden_states @ sparse_matrix.to(get_device_id())
 
         # upgrade to float64
         mean_hidden_states = mean_hidden_states.to(torch.float64)
 
         seen_uids = set()
-        reward_tensor = torch.zeros_like(data.batch["responses"], dtype=torch.float32).cuda()
-        raw_bonuses_tensor = torch.zeros_like(data.batch["responses"], dtype=torch.float32).cuda()
+        reward_tensor = torch.zeros_like(data.batch["responses"], dtype=torch.float32).to(get_device_id())
+        raw_bonuses_tensor = torch.zeros_like(data.batch["responses"], dtype=torch.float32).to(get_device_id())
         for i in range(len(data)):
             data_item = data[i]
             uid = data_item.non_tensor_batch["uid"]
@@ -353,14 +353,16 @@ class EllipticalRewardModelWorker(RewardModelWorker):
 
                 if prompt_index not in self.cov_inv_dict:
                     d = final_mean_hidden_states.shape[-1]
-                    self.cov_inv_dict[prompt_index] = torch.eye(d, dtype=torch.float64).cuda() * self.lamb**-1
+                    self.cov_inv_dict[prompt_index] = (
+                        torch.eye(d, dtype=torch.float64).to(get_device_id()) * self.lamb**-1
+                    )
                 cov_inv = self.cov_inv_dict[prompt_index]
             else:
                 centered_mean_hidden_states = filtered_mean_hidden_states - filtered_mean_hidden_states.mean(dim=0)
                 final_mean_hidden_states = centered_mean_hidden_states
 
                 d = final_mean_hidden_states.shape[-1]
-                cov_inv = torch.eye(d, dtype=torch.float64).cuda() * self.lamb**-1
+                cov_inv = torch.eye(d, dtype=torch.float64).to(get_device_id()) * self.lamb**-1
 
             # update inverse covariance matrix with rank-1 updates
             for hidden_state in final_mean_hidden_states:
