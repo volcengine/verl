@@ -1,5 +1,5 @@
 # 1. Base Image
-FROM swr.cn-south-1.myhuaweicloud.com/ascendhub/cann:8.2.rc1-910b-ubuntu22.04-py3.11
+FROM swr.cn-south-1.myhuaweicloud.com/ascendhub/cann:8.3.rc1-a3-ubuntu22.04-py3.11
 
 # 2. Install system dependencies
 RUN apt-get update -y && apt-get install -y --no-install-recommends \
@@ -15,7 +15,7 @@ RUN ARCH=$(uname -m) && \
     else \
         echo "[LOG INFO] Entering aarch64 branch: No extra pip index url set"; \
     fi && \
-    git clone --depth 1 --branch v0.9.1 https://github.com/vllm-project/vllm && \
+    git clone --depth 1 --branch v0.11.0 https://github.com/vllm-project/vllm && \
     cd vllm && \
     VLLM_TARGET_DEVICE=empty pip install -v -e . && \
     cd ..
@@ -24,13 +24,13 @@ RUN ARCH=$(uname -m) && \
 RUN ARCH=$(uname -m) && \
     echo "[LOG INFO] Configuring LD_LIBRARY_PATH for $ARCH" && \
     if [ "$ARCH" = "aarch64" ]; then \
-        export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/8.2.RC1/aarch64-linux/devlib/linux/aarch64:$LD_LIBRARY_PATH; \
+        export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/8.3.RC1/aarch64-linux/devlib/linux/aarch64:$LD_LIBRARY_PATH; \
     elif [ "$ARCH" = "x86_64" ]; then \
-        export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/8.2.RC1/x86_64-linux/devlib/linux/x86_64/:$LD_LIBRARY_PATH; \
+        export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/8.3.RC1/x86_64-linux/devlib/linux/x86_64/:$LD_LIBRARY_PATH; \
     fi && \
     source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
     source /usr/local/Ascend/nnal/atb/set_env.sh && \
-    git clone --depth 1 --branch v0.9.1 https://github.com/vllm-project/vllm-ascend.git && \
+    git clone --depth 1 --branch v0.11.0rc1 https://github.com/vllm-project/vllm-ascend.git && \
     cd vllm-ascend && \
     pip install -v -e . && \
     cd ..

@@ -1,7 +1,7 @@
 Ascend Dockerfile Build Guidance
 ===================================
 
-Last updated: 10/31/2025.
+Last updated: 11/14/2025.
 
 我们在verl上增加对华为昇腾镜像构建的支持。
 
@@ -24,11 +24,11 @@ Atlas 800T A3
 =========== ============
 基础镜像    Ubuntu 22.04
 Python      3.11
-CANN        8.2.RC1
-torch       2.5.1
-torch_npu   2.5.1
-vLLM        0.9.1
-vLLM-ascend 0.9.1
+CANN        8.3.RC1
+torch       2.7.1
+torch_npu   2.7.1
+vLLM        0.11.0
+vLLM-ascend 0.11.0rc1
 Megatron-LM v0.12.1
 MindSpeed   (f2b0977e)
 =========== ============
@@ -40,7 +40,9 @@ Dockerfile构建镜像脚本
 设备类型         基础镜像版本     参考文件
 ============== ============== ==============
 A2              8.2.RC1       `Dockerfile.ascend_8.2.rc1_a2 <https://github.com/volcengine/verl/blob/main/docker/ascend/Dockerfile.ascend_8.2.rc1_a2>`_
+A2              8.3.RC1       `Dockerfile.ascend_8.3.rc1_a2 <https://github.com/volcengine/verl/blob/main/docker/ascend/Dockerfile.ascend_8.3.rc1_a2>`_
 A3              8.2.RC1       `Dockerfile.ascend_8.2.rc1_a3 <https://github.com/volcengine/verl/blob/main/docker/ascend/Dockerfile.ascend_8.2.rc1_a3>`_
+A3              8.3.RC1       `Dockerfile.ascend_8.3.rc1_a3 <https://github.com/volcengine/verl/blob/main/docker/ascend/Dockerfile.ascend_8.3.rc1_a3>`_
 ============== ============== ==============
 
 
