@@ -1760,33 +1760,23 @@ def _get_trust_region_tokens_delta_sq(
     advantages: torch.Tensor,
     response_mask: torch.Tensor,
 ):
+    """Calculates delta^2 for harmful tokens based on per-token advantages."""
     mask = response_mask.bool()
-    adv_example = advantages[:,0]
-    pos_adv_mask = adv_example > 1e-12
-    neg_adv_mask = adv_example < -1e-12
+    delta = old_log_prob - log_prob  # Δ = log p_old - log p_new
+    ratio = torch.exp(-delta)  # r = exp(log_new - log_old)
 
-    delta = (old_log_prob - log_prob)             # Δ = log p_old - log p_new
-    ratio = torch.exp(-delta)                     # r = exp(log_new - log_old)
+    # Identify harmful tokens based on per-token advantage and ratio
+    pos_adv_harmful = (advantages > 1e-12) & (ratio > 1.0 + 1e-12)
+    neg_adv_harmful = (advantages < -1e-12) & (ratio < 1.0 - 1e-12)
 
-    pos_adv_response_mask = mask[pos_adv_mask]
-    neg_adv_response_mask = mask[neg_adv_mask]
-
-    pos_adv_ratio = ratio[pos_adv_mask]
-    neg_adv_ratio = ratio[neg_adv_mask]
-
-    pos_adv_r_gt_1_mask = pos_adv_ratio > 1.0 + 1e-12
-    neg_adv_r_lt_1_mask = neg_adv_ratio < 1.0 - 1e-12
+    harmful_mask = (pos_adv_harmful | neg_adv_harmful) & mask
 
     delta_sq = delta.pow(2)
-    pos_adv_harm_tokens_delta_sq = delta_sq[pos_adv_mask][pos_adv_r_gt_1_mask & pos_adv_response_mask]
-    neg_adv_harm_tokens_delta_sq = delta_sq[neg_adv_mask][neg_adv_r_lt_1_mask & neg_adv_response_mask]
-
-    tr_tokens_delta_sq = torch.cat([pos_adv_harm_tokens_delta_sq, neg_adv_harm_tokens_delta_sq])
+    tr_tokens_delta_sq = delta_sq[harmful_mask]
 
     return tr_tokens_delta_sq
 
-
-def _solve_tau_from_sorted_delta2(sorted_delta2: torch.Tensor, target_sum: float) -> float:
+def _solve_tau_from_sorted_delta2(sorted_delta2: torch.Tensor, target_sum: float) -> tuple[float, float]:
     """
     Given sorted ascending values v_i = Δ_i^2 (i=0..n-1) and a target sum S,
     find τ^2 such that sum_i min(v_i, τ^2) = S.
@@ -1795,33 +1785,41 @@ def _solve_tau_from_sorted_delta2(sorted_delta2: torch.Tensor, target_sum: float
     Returns:
         tau (float): sqrt(τ^2). If S >= sum(v_i), returns +inf (no clipping needed).
                      If S <= 0, returns 0.0 (clip everything to 0).
+        m2_after (float): The new M2 value after clipping.
     """
 
     if sorted_delta2.numel() == 0:
-        return 100000
+        return 100000.0, 0.0
 
+    n = sorted_delta2.numel()
     total = float(sorted_delta2.sum().item())
-    if target_sum >= total - 1e-12: # no clipping needed
-        return 100000
-    if target_sum <= 1e-12: # clip everything to 0
-        return 0.0
+
+    if target_sum >= total - 1e-12:  # no clipping needed
+        return 100000.0, total / n if n > 0 else 0.0
+    if target_sum <= 1e-12:  # clip everything to 0
+        return 0.0, 0.0
 
     csum = torch.cumsum(sorted_delta2, dim=0)  # prefix sums
-    n = sorted_delta2.numel()
 
-    for k in range(0,n):
-        left_sum = float(csum[k].item())
-        rest = n - k - 1
-        m2 = sorted_delta2[k].item() - 1e-12
-        if m2 * rest + left_sum >= target_sum - 1e-12:
-            if k == 0:
-                return 0.0, csum[-1].item() / n
-            else:
-                m2_after = (sorted_delta2[k-1].item() * (rest + 1) + float(csum[k-1].item())) / n
-                return float(sorted_delta2[k-1].item() - 1e-12) ** 0.5, m2_after
+    for k in range(n):
+        # Sum if we clip all subsequent values at the current breakpoint sorted_delta2[k]
+        sum_if_clipped_at_vk = (csum[k - 1].item() if k > 0 else 0.0) + (n - k) * sorted_delta2[k].item()
 
-    return 100000
+        if sum_if_clipped_at_vk >= target_sum - 1e-12:
+            # The correct tau^2 is between sorted_delta2[k-1] and sorted_delta2[k].
+            # We need to solve: csum[k-1] + (n-k) * tau^2 = target_sum
+            csum_k_minus_1 = csum[k - 1].item() if k > 0 else 0.0
 
+            if n - k > 0:
+                tau_sq = (target_sum - csum_k_minus_1) / (n - k)
+            else: # Should not happen if target_sum < total
+                tau_sq = sorted_delta2[k].item()
+
+            m2_after = target_sum / n
+            return tau_sq**0.5, m2_after
+
+    # This part should not be reached if target_sum < total.
+    return 100000.0, total / n if n > 0 else 0.0
 
 def kpo_clip_harmful_tokens(
     old_log_prob: torch.Tensor,
@@ -2033,7 +2031,6 @@ def compute_policy_loss_m2po(
       stats:         dict with basic diagnostics (M2 before/after, fractions)
       clip_low/high: the per-token bounds actually used
     """
-    print(f"==Use m2po loss==")
     assert config is not None
     assert not isinstance(config, AlgoConfig)
     m2_budget = config.policy_loss.get("m2_budget", 0.04)
@@ -2064,7 +2061,7 @@ def compute_policy_loss_m2po(
 
     # Apply rollout importance sampling weights if provided
     if rollout_is_weights is not None:
-        pg_losses = pg_losses * rollout_is_weights
+        clip_pg_losses1 = clip_pg_losses1 * rollout_is_weights
 
     pg_loss = agg_loss(loss_mat=clip_pg_losses1, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
 
