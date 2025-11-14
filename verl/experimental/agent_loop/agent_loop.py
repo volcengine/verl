@@ -393,6 +393,7 @@ class AgentLoopWorkerBase:
                 processor=self.processor,
             )
             output: AgentLoopOutput = await agent_loop.run(sampling_params, **kwargs)
+            output.extra_fields["raw_prompt"] = kwargs["raw_prompt"]
 
             # Some AgentLoop may have already computed the reward score, e.g SWE-agent.
 
