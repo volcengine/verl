@@ -30,6 +30,7 @@ from vllm.config import CompilationConfig, CompilationLevel
 from verl.third_party.vllm import VLLM_SLEEP_LEVEL
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.vllm_rollout import vLLMRollout as vLLMRolloutBase
+from verl.utils.memory_utils import aggressive_empty_cache
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -210,12 +211,14 @@ class vLLMRollout(vLLMRolloutBase):
             if hasattr(SamplingParams(), str(k)) and k != "seed":
                 kwargs[k] = config.get(k)
         kwargs["n"] = 1  # already repeat in ray_trainer
-        print(f"kwargs: {kwargs}")
+        logger.info(f"vllm sampling kwargs: {kwargs}")
         self.sampling_params = SamplingParams(**kwargs)
 
         self.pad_token_id = tokenizer.pad_token_id
 
     # NPU-ADAPTATION: Weight onload and offload, kv_cache init and free function
+    # NOTE: Due to potential incomplete memory offloading during sleep operations for vLLM on NPUs, we add 
+    # patches to manually handle the off/on loading of the rollout model and KVcache on NPUs. 
     def init_cache_engine(self):
         if os.environ["VLLM_USE_V1"] == "1":
             worker = self.inference_engine.llm_engine.model_executor.driver_worker.worker
@@ -257,8 +260,7 @@ class vLLMRollout(vLLMRolloutBase):
                     mla.W_UK_T = None
 
         self.gpu_buffers = None
-        gc.collect()
-        torch.npu.empty_cache()
+        aggressive_empty_cache()
 
     def free_cache_engine(self):
         if os.environ["VLLM_USE_V1"] == "1":
@@ -297,9 +299,8 @@ class vLLMRollout(vLLMRolloutBase):
                 if hasattr(attn_impl, "key_cache"):
                     attn_impl.key_cache = None
                     attn_impl.value_cache = None
-
-        gc.collect()
-        torch.npu.empty_cache()
+        
+        aggressive_empty_cache()
 
     def _process_mla(self, load_weight=False):
         for i in range(self.model.model.start_layer, self.model.model.end_layer):

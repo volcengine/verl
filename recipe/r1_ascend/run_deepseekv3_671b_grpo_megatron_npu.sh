@@ -1,7 +1,7 @@
 set -x
 
 project_name='GRPO'
-exp_name='GRPO-DeepSeekV3-671B-Megatron-256rank-gbs512'
+exp_name='DeepSeekV3-671B-GRPO-Megatron-256rank-gbs512'
 
 NNODES=16
 NPUS_PER_NODE=16

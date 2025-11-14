@@ -16,8 +16,12 @@ import argparse
 import json
 import os
 import random
+import logging
 
 import pandas as pd
+
+logger = logging.getLogger(__file__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 def parse_arguments():
@@ -27,6 +31,7 @@ def parse_arguments():
     parser.add_argument("--output_dir", type=str, required=True, help="output dir for train/test parquet file")
     parser.add_argument("--json_path", type=str, default="./deepscaler.json", help="path of deepscaler.json")
     parser.add_argument("--train_data_ratio", type=float, default=0.9, help="ratio of train data")
+    parser.add_argument("--seed", type=int, default=42, help="random seed")
     return parser.parse_args()
 
 
@@ -38,8 +43,8 @@ def validate_arguments(args):
     os.makedirs(args.output_dir, exist_ok=True)
 
 
-def convert_json_to_parquet(json_path, train_data_ratio, output_dir):
-    random.seed(42)
+def convert_json_to_parquet(json_path, train_data_ratio, output_dir, seed):
+    random.seed(seed)
 
     with open(json_path, encoding="utf-8") as f:
         original_data = json.load(f)
@@ -81,7 +86,7 @@ def convert_json_to_parquet(json_path, train_data_ratio, output_dir):
 
     train_df.to_parquet(os.path.join(output_dir, "train.parquet"), engine="pyarrow", index=False)
     test_df.to_parquet(os.path.join(output_dir, "test.parquet"), engine="pyarrow", index=False)
-    print(
+    logger.info(
         f"Json to parquet success! Total num {len(all_data)}, train num {len(train_data)}, test num {len(test_data)}",
         flush=True,
     )
@@ -91,9 +96,9 @@ def main():
     try:
         args = parse_arguments()
         validate_arguments(args)
-        convert_json_to_parquet(args.json_path, args.train_data_ratio, args.output_dir)
+        convert_json_to_parquet(args.json_path, args.train_data_ratio, args.output_dir, args.seed)
     except Exception as e:
-        print(f"[ERROR]: {e}")
+        logger.error(f"[ERROR]: {e}")
         exit(1)
 
 

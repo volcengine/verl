@@ -16,14 +16,15 @@
 # limitations under the License.
 
 import time
+import logging
 
 from vllm.config import VllmConfig
-from vllm.logger import init_logger
 from vllm.v1.core.kv_cache_utils import get_kv_cache_config, unify_kv_cache_configs
 from vllm.v1.engine.core import EngineCore
 from vllm.v1.kv_cache_interface import KVCacheConfig
 
-logger = init_logger(__name__)
+logger = logging.getLogger(__file__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 def _initialize_kv_caches(self, vllm_config: VllmConfig) -> tuple[int, int, KVCacheConfig]:
