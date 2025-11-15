@@ -332,12 +332,11 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             print(f"actor_module: {len(actor_module)}")
             if self.config.actor.load_weight:
                 if self.config.actor.megatron.use_dist_checkpointing:
-                    prefix = self.config.actor.megatron.get("dist_checkpointing_prefix", "")
                     load_mcore_dist_weights(
                         actor_module, 
                         self.config.actor.megatron.dist_checkpointing_path, 
                         is_value_model=False, 
-                        prefix=prefix,
+                        prefix=self.config.actor.megatron.dist_checkpointing_prefix,
                     )
                 else:
                     if self.bridge is not None:
@@ -369,12 +368,11 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 assert self.config.actor.load_weight == self.config.ref.load_weight
                 print("load ref weight start")
                 if self.config.ref.megatron.use_dist_checkpointing:
-                    prefix = self.config.ref.megatron.get("dist_checkpointing_prefix", "")
                     load_mcore_dist_weights(
                         ref_module,
                         self.config.ref.megatron.dist_checkpointing_path, 
                         is_value_model=False,
-                        prefix=prefix,
+                        prefix=self.config.ref.megatron.dist_checkpointing_prefix,
                     )
                 else:
                     if self.bridge is not None:
@@ -978,12 +976,11 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
         if self.config.load_weight:
             t0 = time.time()
             if self.config.megatron.use_dist_checkpointing:
-                prefix = self.config.megatron.get("dist_checkpointing_prefix", "")
                 load_mcore_dist_weights(
                     critic_module, 
                     self.config.megatron.dist_checkpointing_path, 
                     is_value_model=True,
-                    prefix=prefix,
+                    prefix=self.config.megatron.dist_checkpointing_prefix,
                 )
             else:
                 if self.bridge is not None:
@@ -1245,12 +1242,11 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
 
         if self.config.load_weight:
             if self.config.megatron.use_dist_checkpointing:
-                prefix = self.config.megatron.get("dist_checkpointing_prefix", "") 
                 load_mcore_dist_weights(
                     reward_model,
                     self.config.megatron.dist_checkpointing_path,
                     is_value_model=True,
-                    prefix=prefix,
+                    prefix=self.config.megatron.dist_checkpointing_prefix,
                 )
             else:
                 if self.bridge is not None:
