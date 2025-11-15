@@ -15,10 +15,10 @@
 import asyncio
 import json
 import logging
+import math
 import os
 
 import aiohttp
-from openai.types.chat import ChatCompletion
 
 from verl import DataProto
 from verl.single_controller.ray.base import RayWorkerGroup
@@ -108,22 +108,22 @@ class RewardModelManager:
 
         return asyncio.run(run_all())
 
-    async def chat_complete(self, chat_complete_request: dict):
-        url = f"http://{self.router_address}/v1/chat/completions"
+    async def post_request(self, payload: dict, endpoint: str):
+        url = f"http://{self.router_address}/{endpoint}"
         try:
             timeout = aiohttp.ClientTimeout(total=None)
             session = aiohttp.ClientSession(timeout=timeout)
-            async with session.post(url, json=chat_complete_request) as resp:
+            async with session.post(url, json=payload) as resp:
                 output = await resp.text()
                 output = json.loads(output)
-                return ChatCompletion(**output)
+                return output
         except Exception as e:
             raise e
         finally:
             await session.close()
 
     def generate_sequences(self, prompts: DataProto, sampling_params: dict):
-        chat_complete_requests = [
+        payloads = [
             {
                 "model": self.config.model.path,
                 "messages": list(messages),
@@ -131,6 +131,41 @@ class RewardModelManager:
             }
             for messages in prompts.non_tensor_batch.get("raw_prompt")
         ]
-        tasks = [self.chat_complete(chat_complete_request) for chat_complete_request in chat_complete_requests]
+        tasks = [self.post_request(payload, "v1/chat/completions") for payload in payloads]
         results = self._run_all(tasks)
+        results = [{"grm_response": result["choices"][0]["message"]["content"]} for result in results]
+        return results
+
+    def compute_score_disrm(self, prompt: DataProto):
+        """Compute reward scores for given prompts using Discriminative Reward Model (DisRM).
+
+        Args:
+            prompt (DataProto): Input prompts.
+
+        Returns:
+            list[dict]: Reward scores.
+        """
+        engine_name = self.config.rollout.name
+        payloads = [
+            {"model": self.config.model.path, "input": self.tokenizer.apply_chat_template(messages, tokenize=False)}
+            for messages in prompt.non_tensor_batch.get("raw_prompt")
+        ]
+        if engine_name == "vllm":
+            tasks = [self.post_request(payload, "classify") for payload in payloads]
+            results = self._run_all(tasks)
+            # dyy: vllm /classify and /reward returns sigmoid results
+            results = [
+                {
+                    "prob": result["data"][0]["probs"][0],
+                    "reward_score": math.log(result["data"][0]["probs"][0] / (1 - result["data"][0]["probs"][0])),
+                }
+                for result in results
+            ]
+        elif engine_name == "sglang":
+            tasks = [self.post_request(payload, "v1/embeddings") for payload in payloads]
+            results = self._run_all(tasks)
+            results = [{"reward_score": result["data"][0]["embedding"][0]} for result in results]
+        else:
+            raise ValueError(f"Unknown Engine: {engine_name}")
+
         return results
