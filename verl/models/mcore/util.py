@@ -21,7 +21,7 @@ from verl.utils.model import CausalLMOutputForPPO
 
 
 def preprocess_packed_seqs(
-    input_ids: torch.Tensor, attention_mask: torch.Tensor, pre_process: bool = True
+    input_ids: torch.Tensor, attention_mask: torch.Tensor, pre_process: bool = True, align_size: int = None
 ) -> tuple[torch.Tensor, PackedSeqParams]:
     """
     Preprocess packed sequences
@@ -35,7 +35,6 @@ def preprocess_packed_seqs(
     tp_size = mpu.get_tensor_model_parallel_world_size()
     cp_size = mpu.get_context_parallel_world_size()
     cp_rank = mpu.get_context_parallel_rank()
-    align_size = tp_size * cp_size * 2 if cp_size > 1 else tp_size
 
     pad_size = (align_size - seqlens_in_batch % align_size) % align_size
     seqlens_in_batch_padded = seqlens_in_batch + pad_size
@@ -163,7 +162,7 @@ def postprocess_packed_seqs(
 
 
 def preprocess_packed_seqs_no_padding(
-    input_ids: torch.Tensor, pre_process: bool = True
+    input_ids: torch.Tensor, pre_process: bool = True, align_size: int = None
 ) -> tuple[torch.Tensor, PackedSeqParams]:
     """
     Preprocess packed sequences
@@ -176,7 +175,7 @@ def preprocess_packed_seqs_no_padding(
     tp_size = mpu.get_tensor_model_parallel_world_size()
     cp_size = mpu.get_context_parallel_world_size()
     cp_rank = mpu.get_context_parallel_rank()
-    align_size = tp_size * cp_size * 2 if cp_size > 1 else tp_size
+
     seqlens_in_batch = input_ids.offsets().diff()
 
     pad_size = (align_size - seqlens_in_batch % align_size) % align_size

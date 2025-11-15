@@ -553,6 +553,14 @@ class MegatronPPOActor(BasePPOActor):
 
             from verl.models.mcore import get_mcore_forward_fn, get_mcore_forward_fused_fn
 
+            tp_size = self.tf_config.tensor_model_parallel_size
+            cp_size = self.tf_config.context_parallel_size
+            align_size = tp_size * cp_size * 2 if cp_size > 1 else tp_size
+
+            if self.tf_config.fp8 == "hybrid":
+                from math import lcm
+                align_size = lcm(align_size, 16)
+
             if self.use_fused_kernels:
                 forward_fn = get_mcore_forward_fused_fn(self.hf_config)
                 if return_schedule_plan:
@@ -567,6 +575,7 @@ class MegatronPPOActor(BasePPOActor):
                     labels_mask=label_mask,
                     temperature=temperature,
                     multi_modal_inputs=multi_modal_inputs,
+                    align_size=align_size,
                 )
             else:
                 forward_fn = get_mcore_forward_fn(self.hf_config)
@@ -601,6 +610,7 @@ class MegatronPPOActor(BasePPOActor):
                     multi_modal_inputs=multi_modal_inputs,
                     logits_processor=logits_processor,
                     logits_processor_args=logits_processor_args,
+                    align_size=align_size,
                 )
 
             if forward_only:

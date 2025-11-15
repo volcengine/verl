@@ -35,6 +35,7 @@ def model_forward_gen(vision_model: bool = False):
         logits_processor=None,
         logits_processor_args: dict = None,
         value_model=False,
+        align_size
     ):
         """Forward pass for models with sequence packing."""
         pre_process = (
@@ -53,7 +54,9 @@ def model_forward_gen(vision_model: bool = False):
             model_kwargs["video_grid_thw"] = multi_modal_inputs["video_grid_thw"].to(input_ids.device)
 
         batch_size, seq_len = attention_mask.shape[:2]
-        input_ids_rmpad, packed_seq_params = preprocess_packed_seqs(input_ids, attention_mask, pre_process=pre_process)
+        input_ids_rmpad, packed_seq_params = preprocess_packed_seqs(input_ids, attention_mask,
+                                                                    pre_process=pre_process,
+                                                                    align_size=align_size)
         input_ids_rmpad = input_ids_rmpad.contiguous()
 
         input_args = dict(
@@ -75,7 +78,7 @@ def model_forward_gen(vision_model: bool = False):
         output_orig = model(**input_args)
         if post_process and logits_processor is not None:
             args = {
-                k: preprocess_packed_seqs(v, attention_mask, pre_process=True)[0]
+                k: preprocess_packed_seqs(v, attention_mask, pre_process=True, align_size=align_size)[0]
                 for k, v in logits_processor_args.items()
             }
             output_dict = logits_processor(output_orig, **args)
@@ -103,6 +106,7 @@ def gptmodel_forward_no_padding(
     logits_processor=None,
     logits_processor_args: dict = None,
     value_model=False,
+    align_size
 ):
     """Default forward pass for GPT models with optional sequence packing."""
     pre_process = unwrap_model(model).pre_process
@@ -115,7 +119,8 @@ def gptmodel_forward_no_padding(
         model_kwargs["image_grid_thw"] = multi_modal_inputs["image_grid_thw"].to(input_ids.device)
 
     batch_size = input_ids.shape[0]
-    input_ids_rmpad, packed_seq_params = preprocess_packed_seqs_no_padding(input_ids, pre_process=pre_process)
+    input_ids_rmpad, packed_seq_params = preprocess_packed_seqs_no_padding(input_ids, pre_process=pre_process,
+                                                                           align_size=align_size)
     input_ids_rmpad = input_ids_rmpad.contiguous()
     output_orig = model(
         input_ids=input_ids_rmpad,
