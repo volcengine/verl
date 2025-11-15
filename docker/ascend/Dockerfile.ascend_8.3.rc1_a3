@@ -1,7 +1,7 @@
-# 1. Pull base image
+# Pull base image
 FROM swr.cn-south-1.myhuaweicloud.com/ascendhub/cann:8.3.rc1-a3-ubuntu22.04-py3.11
 
-# 2. Prepare required system dependencies
+# Prepare required system dependencies
 RUN apt-get update -y && \
     apt-get install -y --no-install-recommends gcc g++ cmake libnuma-dev wget git curl jq vim build-essential && \
     apt-get clean && \
@@ -9,7 +9,7 @@ RUN apt-get update -y && \
     pip install --upgrade pip setuptools packaging && \
     pip cache purge
 
-# 3. Prepare libs for installation
+# Prepare repositories with low update frequency
 RUN ARCH=$(uname -m) && \
     # Set extra pip index for x86_64 platform
     echo "[LOG INFO] Detected architecture: $ARCH" && \
@@ -19,12 +19,11 @@ RUN ARCH=$(uname -m) && \
     # Clone libs
     git clone --depth 1 --branch v0.11.0 https://github.com/vllm-project/vllm && \
     git clone --depth 1 --branch v0.11.0rc1 https://github.com/vllm-project/vllm-ascend.git && \
-    git clone --depth 1 https://github.com/volcengine/verl.git && \
     git clone --depth 1 https://gitcode.com/Ascend/MindSpeed.git && \
     cd MindSpeed && git checkout f2b0977e && cd .. && \
     git clone --depth 1 --branch core_v0.12.1 https://github.com/NVIDIA/Megatron-LM.git
 
-# 4. Install libs
+# Install repositories with low update frequency
 RUN ARCH=$(uname -m) && \
     # Export and source env
     if [ "$ARCH" = "aarch64" ]; then \
@@ -38,8 +37,6 @@ RUN ARCH=$(uname -m) && \
     cd vllm && VLLM_TARGET_DEVICE=empty pip install -v -e . && cd .. && \
     # Install vllm-ascend
     cd vllm-ascend && pip install -v -e . && cd .. && \
-    # Install verl
-    cd verl && pip install -r requirements-npu.txt && pip install -v -e . && cd .. && \
     # Install MindSpeed & Megatron
     pip install -e MindSpeed && \
     echo "export PYTHONPATH=\$PYTHONPATH:/Megatron-LM" >> ~/.bashrc && \
@@ -47,7 +44,14 @@ RUN ARCH=$(uname -m) && \
     rm -rf /tmp/* /var/tmp/* && \
     pip cache purge
 
-# 5. Show install results
+# Prepare and install verl (update frequently)
+RUN git clone --depth 1 https://github.com/volcengine/verl.git && \
+    cd verl && pip install -r requirements-npu.txt && pip install -v -e . && cd .. && \
+    # Clear extra files
+    rm -rf /tmp/* /var/tmp/* && \
+    pip cache purge
+
+# Show install results
 RUN pip list
 
 # Setting Default Commands
