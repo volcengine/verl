@@ -13,7 +13,7 @@ on:
     - cron: "0 19 * * *"
 
 jobs:
-  build-ascend-image:
+  build-ascend-image-a3:
     if: ${{ github.event_name != 'pull_request' && github.repository_owner == 'volcengine' }}
     runs-on: ubuntu-latest
     concurrency:
@@ -25,7 +25,12 @@ jobs:
         with:
           tool-cache: true
           docker-images: true
-          
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          swap-storage: true
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -33,7 +38,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
 
       - name: Get base image name and tag
         id: base_image
@@ -67,6 +71,10 @@ jobs:
           username: ${{ secrets.QUAY_USERNAME }}
           password: ${{ secrets.QUAY_PASSWORD }}
 
+      - name: Clean Docker cache before build
+        run: |
+          docker system prune -a -f --volumes || true
+
       - name: Build and push images Quay
         uses: docker/build-push-action@v6
         with:
@@ -77,4 +85,7 @@ jobs:
           tags: |  
             quay.io/ascend/verl:${{ steps.version.outputs.tag }}
           cache-from: type=gha  
-          cache-to: type=gha,mode=max  
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
+          compress: true
