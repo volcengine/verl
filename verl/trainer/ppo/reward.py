@@ -19,7 +19,7 @@ import os
 import sys
 import warnings
 from functools import partial
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import ray
 import torch
@@ -31,10 +31,13 @@ from verl.utils.transferqueue_utils import tqbridge
 from verl.workers.reward_manager import get_reward_manager_cls
 from verl.workers.reward_manager.abstract import AbstractRewardManager, RawRewardFn
 
-try:
+if TYPE_CHECKING:
     from verl.experimental.reward.reward_loop.base import RewardLoopManagerBase
-except ImportError:
-    RewardLoopManagerBase = None
+else:
+    try:
+        from verl.experimental.reward.reward_loop.base import RewardLoopManagerBase
+    except ImportError:
+        RewardLoopManagerBase = None  # type: ignore[assignment,misc]
 
 
 def _call_with_kwargs(raw_fn, extra_kwargs, *args, **kwargs):
