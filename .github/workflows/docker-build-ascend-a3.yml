@@ -20,16 +20,10 @@ jobs:
       group: ${{ github.workflow }}-${{ github.ref }}-build-ascend-image-a3
       cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
     steps:
-      - name: Free up disk space
+      - name: Remove unnecessary parts in github actions runners to free up disk space
         uses: jlumbroso/free-disk-space@v1.3.1
         with:
           tool-cache: true
-          docker-images: true
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          swap-storage: true
 
       - name: Checkout code
         uses: actions/checkout@v4
