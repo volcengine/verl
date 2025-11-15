@@ -793,7 +793,9 @@ class FSDPSFTTrainer:
                     if rank == 0:
                         print(f"Total time for train steps: {train_time:.2f}s")
                         print(f"Final validation metrics: {last_valid_metric}")
+                    tracking.finish()
                     return
+        tracking.finish()
 
 
 def run_sft(config):
