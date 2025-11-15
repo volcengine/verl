@@ -38,8 +38,19 @@ class RewardLoopManagerBase(ABC):
         """
         self.config = config
         self.tokenizer = tokenizer
-        self.loop = asyncio.get_running_loop()
+        self._loop = None  # Will be set when first async method is called
         self.init_class(config, tokenizer)
+
+    @property
+    def loop(self):
+        """Get the current event loop, lazily initializing if needed."""
+        if self._loop is None:
+            try:
+                self._loop = asyncio.get_running_loop()
+            except RuntimeError:
+                # If no event loop is running, get or create one
+                self._loop = asyncio.get_event_loop()
+        return self._loop
 
     @classmethod
     def init_class(cls, config: DictConfig, tokenizer: AutoTokenizer):
