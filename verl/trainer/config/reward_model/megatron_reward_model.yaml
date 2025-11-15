@@ -52,6 +52,9 @@ megatron:
   # Path for distributed checkpoints
   dist_checkpointing_path: null
 
+  # distributed checkpointing prefix, e.g. Nemo2 will append prefix 'module.' to the state dict keys
+  dist_checkpointing_prefix: ''
+
   # RNG seed for megatron
   seed: ${oc.select:actor_rollout_ref.actor.megatron.seed,42}
 
