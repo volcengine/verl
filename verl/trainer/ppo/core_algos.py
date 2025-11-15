@@ -147,6 +147,7 @@ def get_adv_estimator_fn(name_or_enum):
     return ADV_ESTIMATOR_REGISTRY[name]
 
 
+
 class AdaptiveKLController:
     """
     Adaptive KL controller described in the paper:
@@ -269,6 +270,8 @@ def compute_grpo_outcome_advantage(
     epsilon: float = 1e-6,
     norm_adv_by_std_in_grpo: bool = True,
     config: Optional[AlgoConfig] = None,
+    token_level_advantages: Optional[torch.Tensor] = None,
+    **kwargs,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Compute advantage for GRPO, operating only on Outcome reward
@@ -298,6 +301,17 @@ def compute_grpo_outcome_advantage(
         Returns: `(torch.Tensor)`
             shape is (bs, response_length)
     """
+    if token_level_advantages is not None:
+        if token_level_advantages.shape != response_mask.shape:
+            raise ValueError(
+                f"token_level_advantages shape {token_level_advantages.shape} does not match response_mask "
+                f"shape {response_mask.shape}"
+            )
+        advantages = token_level_advantages.to(device=response_mask.device)
+        mask = response_mask.to(dtype=advantages.dtype, device=advantages.device)
+        advantages = advantages * mask
+        return advantages, advantages
+
     scores = token_level_rewards.sum(dim=-1)
 
     id2score = defaultdict(list)
@@ -415,6 +429,8 @@ def compute_grpo_passk_outcome_advantage(
 
     advantages = advantages.unsqueeze(-1) * response_mask
     return advantages, advantages
+
+
 
 
 @register_adv_est(
