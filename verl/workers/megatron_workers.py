@@ -333,9 +333,9 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             if self.config.actor.load_weight:
                 if self.config.actor.megatron.use_dist_checkpointing:
                     load_mcore_dist_weights(
-                        actor_module, 
-                        self.config.actor.megatron.dist_checkpointing_path, 
-                        is_value_model=False, 
+                        actor_module,
+                        self.config.actor.megatron.dist_checkpointing_path,
+                        is_value_model=False,
                         prefix=self.config.actor.megatron.dist_checkpointing_prefix,
                     )
                 else:
@@ -370,7 +370,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 if self.config.ref.megatron.use_dist_checkpointing:
                     load_mcore_dist_weights(
                         ref_module,
-                        self.config.ref.megatron.dist_checkpointing_path, 
+                        self.config.ref.megatron.dist_checkpointing_path,
                         is_value_model=False,
                         prefix=self.config.ref.megatron.dist_checkpointing_prefix,
                     )
@@ -977,8 +977,8 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             t0 = time.time()
             if self.config.megatron.use_dist_checkpointing:
                 load_mcore_dist_weights(
-                    critic_module, 
-                    self.config.megatron.dist_checkpointing_path, 
+                    critic_module,
+                    self.config.megatron.dist_checkpointing_path,
                     is_value_model=True,
                     prefix=self.config.megatron.dist_checkpointing_prefix,
                 )
