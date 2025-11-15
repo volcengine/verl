@@ -55,10 +55,23 @@ Best Practices and Notes
 - LoRA rank recommendation from @thelongestusernameofall:
 
   - A very small lora_rank can lead to slower convergence or worse training performance. It is recommended to set lora_rank to be>=32. Tests have shown that for a 0.5B model, with lora_rank=32,the training convergence speed and final performance are almost identical to non-LoRA training
-  - For a 32B model,with lora_rank=128,the training convergence speed and final performance are also almost identical to non-LoRA training.
+ - For a 32B model,with lora_rank=128,the training convergence speed and final performance are also almost identical to non-LoRA training.
   - More comprehensive reference results are coming soon.
 
 .. image:: https://github.com/eric-haibin-lin/verl-community/blob/f2b80b8b26829124dd393b7a795a0640eff11644/docs/lora.jpg?raw=true
+
+SVD-LoRA adapters
+-----------------
+
+`ESSA: Evolutionary Strategies for Scalable Alignment <https://arxiv.org/abs/2507.04453>`_ introduced SVD-LoRA-GRPO, which
+factorizes LoRA adapters into orthogonal matrices plus singular values. ``verl`` includes a matching experimental
+conversion:
+
+- Enable it with ``actor_rollout_ref.model.use_svd_lora=True`` (see :mod:`verl.workers.config.model`). It currently
+  activates only when the actor runs with ``fsdp2``.
+- Initialization calls :func:`verl.utils.experimental.svd_lora.apply_svd_lora`, swapping LoRA modules for
+  ``SVDLinear`` layers whose weights are rebuilt from ``U``, ``sigma``, and ``V``; only the singular values stay
+  trainable.
 
 3. Reference configuration for RL training with the Qwen2.5-72B model using 8 x 80GB GPUs (increase lora_rank if needed):
 
