@@ -65,3 +65,7 @@ fused_kernel_options:
 
   # the implementation backend for fused kernels.
   impl_backend: torch
+
+attn_implementation: "flash_attention_2"
+
+moe_implementation: "eager"
