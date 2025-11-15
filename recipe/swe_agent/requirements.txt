@@ -1,0 +1,5 @@
+volcengine-python-sdk>=1.0.0
+swe-rex
+dotenv
+swebench
+vllm
