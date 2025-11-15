@@ -35,7 +35,7 @@ def model_forward_gen(vision_model: bool = False):
         logits_processor=None,
         logits_processor_args: dict = None,
         value_model=False,
-        align_size
+        align_size=1,
     ):
         """Forward pass for models with sequence packing."""
         pre_process = (
@@ -106,7 +106,7 @@ def gptmodel_forward_no_padding(
     logits_processor=None,
     logits_processor_args: dict = None,
     value_model=False,
-    align_size
+    align_size=1,
 ):
     """Default forward pass for GPT models with optional sequence packing."""
     pre_process = unwrap_model(model).pre_process
