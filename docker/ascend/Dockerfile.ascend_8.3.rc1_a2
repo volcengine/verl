@@ -33,6 +33,8 @@ RUN ARCH=$(uname -m) && \
     fi && \
     source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
     source /usr/local/Ascend/nnal/atb/set_env.sh && \
+    # Install torch & torch_npu & torchvision
+    pip install torch==2.7.1 torch_npu==2.7.1 torchvision==0.22.1 && \
     # Install vllm
     cd vllm && VLLM_TARGET_DEVICE=empty pip install -v -e . && cd .. && \
     # Install vllm-ascend
@@ -40,8 +42,6 @@ RUN ARCH=$(uname -m) && \
     # Install MindSpeed & Megatron
     pip install -e MindSpeed && \
     echo "export PYTHONPATH=\$PYTHONPATH:/Megatron-LM" >> ~/.bashrc && \
-    # Install torch & torch_npu
-    pip install torch==2.7.1 torch_npu==2.7.1 && \
     # Clear extra files
     rm -rf /tmp/* /var/tmp/* && \
     pip cache purge
