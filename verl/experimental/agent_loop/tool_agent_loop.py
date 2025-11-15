@@ -76,6 +76,9 @@ class AgentData:
         # Temporary state for tool calls
         self.tool_calls: list[FunctionCall] = []
 
+        # Extra fields for dynamic addition
+        self.extra_fields: dict[str, Any] = {}
+
 
 @register("tool_agent")
 class ToolAgentLoop(AgentLoopBase):
