@@ -25,7 +25,7 @@ from verl.trainer.ppo.metric_utils import (
     bootstrap_metric,
     calc_maj_val,
     compute_data_metrics,
-    compute_throughout_metrics,
+    compute_throughput_metrics,
     compute_timing_metrics,
     process_validation_metrics,
 )
@@ -179,7 +179,7 @@ class TestComputeTimingMetrics(unittest.TestCase):
 
 
 class TestComputeThroughputMetrics(unittest.TestCase):
-    """Tests for the compute_throughout_metrics function."""
+    """Tests for the compute_throughput_metrics function."""
 
     def setUp(self):
         """Set up common test data."""
@@ -189,21 +189,21 @@ class TestComputeThroughputMetrics(unittest.TestCase):
             "global_token_num": [100, 200, 300],  # 600 tokens total
         }
 
-    def test_compute_throughout_metrics(self):
-        """Test compute_throughout_metrics with various timing data."""
+    def test_compute_throughput_metrics(self):
+        """Test compute_throughput_metrics with various timing data."""
         timing_raw = {
             "step": 2.0,  # 2 seconds per step
         }
 
         # Test with 1 GPU
-        metrics = compute_throughout_metrics(self.batch, timing_raw, n_gpus=1)
+        metrics = compute_throughput_metrics(self.batch, timing_raw, n_gpus=1)
 
         self.assertEqual(metrics["perf/total_num_tokens"], 600)
         self.assertEqual(metrics["perf/time_per_step"], 2.0)
         self.assertEqual(metrics["perf/throughput"], 600 / 2.0)  # 300 tokens/sec
 
         # Test with 2 GPUs
-        metrics = compute_throughout_metrics(self.batch, timing_raw, n_gpus=2)
+        metrics = compute_throughput_metrics(self.batch, timing_raw, n_gpus=2)
 
         self.assertEqual(metrics["perf/total_num_tokens"], 600)
         self.assertEqual(metrics["perf/time_per_step"], 2.0)
