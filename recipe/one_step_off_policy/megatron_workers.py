@@ -22,9 +22,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
 from verl.utils.config import omega_conf_to_dataclass
-from verl.utils.debug import (
-    log_gpu_memory_usage,
-)
+from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.device import get_device_name, get_torch_device
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.megatron_workers import ActorRolloutRefWorker as ARRWorker
@@ -151,6 +149,7 @@ class RolloutWorker(ActorRolloutRefWorker):
             override_model_config,
             override_transformer_config,
             trust_remote_code,
+            self.config.actor.megatron,
         )
         self.generation_config = get_generation_config(self.local_path)
 
@@ -179,7 +178,13 @@ class RolloutWorker(ActorRolloutRefWorker):
         log_gpu_memory_usage("Before building vllm rollout", logger=None)
 
         rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
-        model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model, dataclass_type=HFModelConfig)
+        # Convert megatron lora config to HFModelConfig
+        model_config_dict = OmegaConf.to_container(self.config.model)
+        model_config_dict.pop("lora", None)
+
+        model_config: HFModelConfig = omega_conf_to_dataclass(
+            OmegaConf.create(model_config_dict), dataclass_type=HFModelConfig
+        )
         rollout = get_rollout_class(rollout_config.name, rollout_config.mode)(
             config=rollout_config, model_config=model_config, device_mesh=rollout_device_mesh
         )
