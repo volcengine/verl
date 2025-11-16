@@ -45,7 +45,7 @@ from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import AdvantageEstimator, agg_loss
 from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
-    compute_throughout_metrics,
+    compute_throughput_metrics,
     compute_timing_metrics,
     process_validation_metrics,
 )
@@ -1282,7 +1282,7 @@ class RayPPOTrainer:
                 metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
                 # TODO: implement actual tflpo and theoretical tflpo
                 n_gpus = self.resource_pool_manager.get_n_gpus()
-                metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
+                metrics.update(compute_throughput_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
                 # Note: mismatch metrics (KL, PPL, etc.) are collected at line 1179 after advantage computation
 
                 # this is experimental and may be changed/removed in the future in favor of a general-purpose one
