@@ -143,6 +143,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                     )
 
                 new_batch: DataProto = DataProto.from_single_dict(batch_dict)
+                num_gen_batches += 1
                 gen_batch = self._get_gen_batch(new_batch)
                 gen_batch_output = gen_batch.repeat(
                     repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True
@@ -161,7 +162,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                         with marked_timer("gen_max", timing_raw, "red"):
                             gen_baseline_batch = deepcopy(gen_batch)
                             gen_baseline_batch.meta_info["do_sample"] = False
-                            gen_baseline_output = self.async_rollout_manager.generate_sequences(gen_batch_output)
+                            gen_baseline_output = self.async_rollout_manager.generate_sequences(gen_baseline_batch)
 
                             new_batch = new_batch.union(gen_baseline_output)
                             # compute reward model score on new_batch
