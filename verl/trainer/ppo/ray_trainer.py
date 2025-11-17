@@ -1211,7 +1211,10 @@ class RayPPOTrainer:
                     if self.config.trainer.critic_warmup <= self.global_steps:
                         # update actor
                         with marked_timer("update_actor", timing_raw, color="red"):
-                            batch.meta_info["multi_turn"] = self.config.actor_rollout_ref.rollout.multi_turn.enable
+                            rollout_config = self.config.actor_rollout_ref.rollout
+                            batch.meta_info["multi_turn"] = rollout_config.multi_turn.enable
+                            # TODO: Make "temperature" single source of truth from generation.
+                            batch.meta_info["temperature"] = rollout_config.temperature
                             actor_output = self.actor_rollout_wg.update_actor(batch)
                         actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
                         metrics.update(actor_output_metrics)
