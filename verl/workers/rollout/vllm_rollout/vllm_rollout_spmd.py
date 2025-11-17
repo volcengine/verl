@@ -496,7 +496,7 @@ class vLLMRollout(BaseRollout):
             patch_vllm_moe_model_weight_loader(model)
             model.load_weights(weights)
             vllm_config = self.inference_engine.llm_engine.vllm_config.model_config
-            device = next(model.parameters()).device()
+            device = next(model.parameters()).device
             process_weights_after_loading(model, vllm_config, device)
 
 
