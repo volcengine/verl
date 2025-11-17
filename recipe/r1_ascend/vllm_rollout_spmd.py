@@ -28,6 +28,7 @@ from vllm import LLM, SamplingParams
 from vllm.config import CompilationConfig, CompilationLevel
 
 from verl.third_party.vllm import VLLM_SLEEP_LEVEL
+from verl.utils.device import get_device_name
 from verl.utils.memory_utils import aggressive_empty_cache
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.vllm_rollout import vLLMRollout as vLLMRolloutBase
@@ -234,16 +235,9 @@ class vLLMRollout(vLLMRolloutBase):
                 self.inference_engine.llm_engine.model_executor.driver_worker.worker._init_cache_engine()
 
     def onload_model_weights(self):
-        """
-        Advantages over model.cuda():
-        1) Avoids CPU to GPU data transfer entirely, leveraging pre-allocated GPU buffers
-        instead of copying data from CPU tensors.
-        2) Eliminates the recursive traversal of submodules inherent in .cuda(),
-        which can be particularly slow for deeply nested model architectures.
-        """
         self.gpu_buffers = {}
         for name, param in self.model.named_parameters():
-            self.gpu_buffers[name] = torch.empty_like(param, device="cuda")
+            self.gpu_buffers[name] = torch.empty_like(param, device=get_device_name())
         for name, param in self.model.named_parameters():
             param.data = self.gpu_buffers[name]
 
