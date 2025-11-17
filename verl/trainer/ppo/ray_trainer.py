@@ -975,11 +975,8 @@ class RayPPOTrainer:
 
         # load checkpoint before doing anything
         self._load_checkpoint()
-        # resume sampler state if needed
+
         current_epoch = self.global_steps // len(self.train_dataloader)
-        for _ in range(current_epoch - 1):
-            for _ in iter(self.train_dataloader.sampler):
-                pass
 
         # perform validation before training
         # currently, we only support validation using the reward_function.
