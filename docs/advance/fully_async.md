@@ -486,7 +486,7 @@ To validate the performance of `fully_async_policy` on multi-turn tool-calling t
 | colocate           	| 32                  	| 375.47  	|  228.03 	| 35.19        	| 111.84       	| 9h 46m                 	| 22h 28m                	| start:0.1078<br>last:0.2056   	|
 | fully_async_policy 	| 16: 16              	|  221.36 	| 40.59   	| \            	| 179.58       	| 6h 19m<br>(1.55x)      	| 14h 4m<br>(1.60x)      	| start:0.11<br>last:0.2044 	|
 
-> source data: 
+> source data: https://wandb.ai/hou-zg-meituan/fully-async-policy-multiturn-tool?nw=nwuserhouzg
 
 ## Future Plans
 
