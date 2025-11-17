@@ -194,6 +194,8 @@ class vLLMRollout(BaseRollout):
 
         max_model_len = int(config.max_model_len or config.prompt_length + config.response_length)
 
+        # This parameter verification is borrowed from vllm: 
+        # https://github.com/vllm-project/vllm/blob/561253b37faadaafe68168ea32d8d8157621a6b4/vllm/config/scheduler.py#L249
         if max_num_batched_tokens < max_model_len and not self.config.enable_chunked_prefill:
             raise ValueError(
                 f"max_num_batched_tokens ({max_num_batched_tokens}) is smaller than max_model_len ({max_model_len}). "
