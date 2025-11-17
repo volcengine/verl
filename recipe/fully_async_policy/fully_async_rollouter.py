@@ -28,6 +28,7 @@ from recipe.fully_async_policy.message_queue import MessageQueueClient
 from recipe.fully_async_policy.ray_trainer import FullyAsyncRayPPOTrainer
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.trainer.ppo.ray_trainer import ResourcePoolManager
+from verl.trainer.ppo.reward import load_reward_manager
 from verl.trainer.ppo.utils import Role, WorkerType
 from verl.utils.profiler import marked_timer
 from verl.utils.tracking import ValidationGenerationsLogger
@@ -57,9 +58,12 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         self.tokenizer = tokenizer
         self.processor = processor
         self.config = config
-        self.reward_fn = reward_fn
-        self.val_reward_fn = val_reward_fn
-
+        self.reward_fn = load_reward_manager(
+            config, tokenizer, num_examine=0, **config.reward_model.get("reward_kwargs", {})
+        )
+        self.val_reward_fn = load_reward_manager(
+            config, tokenizer, num_examine=1, **config.reward_model.get("reward_kwargs", {})
+        )
         self.hybrid_engine = config.actor_rollout_ref.hybrid_engine
 
         assert not self.hybrid_engine
@@ -295,9 +299,7 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
 
         for epoch, batch_dict in continuous_iterator:
             # Similar to _prepare_generate_batch: Separate data
-            full_batch = prepare_single_generation_data(
-                batch_dict, self.global_steps, self.config.actor_rollout_ref.rollout.n
-            )
+            full_batch = prepare_single_generation_data(batch_dict, self.config)
 
             sample_id = f"sample_{epoch}_{self.global_steps}"
 
@@ -310,6 +312,7 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
                 param_version_start=[],
                 param_version_end=[],
                 processing_times=[],
+                tool_calls=[],
                 rollout_status={},
             )
 
@@ -412,15 +415,13 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         rollout_sample.full_batch.non_tensor_batch["param_version"] = [self.current_param_version] * len(
             rollout_sample.full_batch
         )
-        agent_loop_output_list = await self.async_rollout_manager.generate_single_sample_async(
+        rollout_sample.agent_loop_output_list = await self.async_rollout_manager.generate_single_sample_async(
             rollout_sample.full_batch, rollout_sample.agent_loop_output_list
         )
-        rollout_sample.agent_loop_output_list = agent_loop_output_list
 
-        is_cancel = False
-        for agent_loop in agent_loop_output_list:
-            if not is_cancel and agent_loop.is_cancel:
-                is_cancel = True
+        is_cancel = any(
+            agent_loop.extra_fields.get("is_cancel", False) for agent_loop in rollout_sample.agent_loop_output_list
+        )
 
         if is_cancel:
             # Put in the cancel queue and wait for the generation to resume
@@ -613,12 +614,11 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
             ray.get(dependency_ref)
         print("[FullyAsyncRollouter][Public][Resume]")
         async with self.lock:
+            if self.config.async_training.partial_rollout:
+                await self.async_rollout_manager.resume()
             self.paused = False
             self.monitor_loop_trigger = True
             self.condition.notify_all()
-
-            if self.config.async_training.partial_rollout:
-                await self.async_rollout_manager.resume()
 
     async def get_statistics(self) -> dict:
         queue_stats = self.message_queue_client.get_statistics_sync()

@@ -288,6 +288,10 @@ python3 -m recipe.one_step_off_policy.async_main_ppo \
    > - When `trainer.n_gpus_per_node + rollout.n_gpus_per_node > physical_gpus_per_node`,
        > the required node count is `trainer.nnodes + rollout.nnodes`
 
+3. **Ascend NPU Configuration**
+    If you are using Ascend NPU devices, add the following parameter:
+    - `trainer.device=npu`
+
 ## Functional Support
 
 | Category           | Support Situation                                                                                               |

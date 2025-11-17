@@ -402,7 +402,10 @@ def create_rl_sampler(data_config, dataset):
         sampler (Sampler): The sampler.
     """
     import torch
-    from torch.utils.data import RandomSampler, SequentialSampler
+    from torch.utils.data import SequentialSampler
+
+    # torch.utils.data.RandomSampler could not recover properly
+    from torchdata.stateful_dataloader.sampler import RandomSampler
 
     if data_config.sampler is not None and data_config.sampler.get("class_path", None) is not None:
         curriculum_class = load_extern_type(
