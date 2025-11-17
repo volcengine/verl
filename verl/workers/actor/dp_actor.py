@@ -133,6 +133,14 @@ class DataParallelPPOActor(BasePPOActor):
                         rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices
                     ).transpose(0, 1)
 
+                is_mask_all_zero = attention_mask.sum() == 0
+                if is_mask_all_zero:
+                    input_ids_rmpad = torch.zeros((1, self.ulysses_sequence_parallel_size), device=input_ids.device, dtype=input_ids.dtype)
+                    if position_ids.dim() == 3:
+                        position_ids_rmpad = torch.zeros((position_ids.shape[0], 1, self.ulysses_sequence_parallel_size), device=position_ids.device, dtype=position_ids.dtype)
+                    else:
+                        position_ids_rmpad = torch.zeros((1, self.ulysses_sequence_parallel_size), device=position_ids.device, dtype=position_ids.dtype)
+
                 if "image_bound" in multi_modal_inputs:
                     from verl.utils.dataset.vision_utils import process_multi_modal_inputs_for_minicpmo
 
@@ -187,10 +195,15 @@ class DataParallelPPOActor(BasePPOActor):
                 if self.use_fused_kernels:
                     log_probs = output.log_probs.squeeze(0)  # (total_nnz,)
                     entropy_rmpad = output.entropy.squeeze(0)  # (total_nnz,)
+                    if is_mask_all_zero:
+                        log_probs = log_probs[:0]
+                        entropy_rmpad = entropy_rmpad[:0]
 
                 else:
                     logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
                     logits_rmpad.div_(temperature)
+                    if is_mask_all_zero:
+                        logits_rmpad = logits_rmpad[:0, :]
 
                     # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
                     inplace_backward = True
