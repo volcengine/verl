@@ -29,7 +29,6 @@ from pydantic import BaseModel, ConfigDict
 from tensordict import TensorDict
 from transformers import AutoProcessor, AutoTokenizer
 
-from verl.experimental.agent_loop.utils import resolve_config_path
 from verl.experimental.reward import RewardManagerWorker
 from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayWorkerGroup
@@ -282,8 +281,7 @@ class AgentLoopWorkerBase:
 
         agent_loop_config_path = config.actor_rollout_ref.rollout.agent.agent_loop_config_path
         if agent_loop_config_path:
-            resolved_path = resolve_config_path(agent_loop_config_path)
-            agent_loop_configs = OmegaConf.load(resolved_path)
+            agent_loop_configs = OmegaConf.load(agent_loop_config_path)
             for agent_loop_config in agent_loop_configs:
                 _agent_loop_registry[agent_loop_config.name] = agent_loop_config
         if self.config.actor_rollout_ref.model.get("custom_chat_template", None) is not None:
@@ -465,7 +463,7 @@ class AgentLoopWorkerBase:
             ):
                 from verl.models.transformers.qwen2_vl import get_rope_index
 
-                images = getattr(output, "multi_modal_data", {}).get("image", None)
+                images = output.multi_modal_data.get("image", None)
                 current_text = self.tokenizer.decode(input_ids.squeeze(0), skip_special_tokens=True)
                 multi_modal_inputs = self.processor(text=[current_text], images=images, return_tensors="pt")
                 multi_modal_inputs.pop("input_ids", None)
@@ -512,9 +510,12 @@ class AgentLoopWorkerBase:
                 non_tensor_batch = {
                     **{k: np.array([v]) for k, v in kwargs.items()},
                     "__num_turns__": np.array([output.num_turns]),
-                    "tool_extra_fields": np.array([output.extra_fields], dtype=object),
                 }
+                extra_fields = {}
+                for key, val in output.extra_fields.items():
+                    extra_fields[key] = np.array([val], dtype=object)
 
+                non_tensor_batch.update(extra_fields)
                 data = DataProto(
                     batch=batch,
                     non_tensor_batch=non_tensor_batch,

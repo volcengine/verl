@@ -18,14 +18,13 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Callable, Optional
 
-from omegaconf import DictConfig
 from pydantic import BaseModel
 from ray.actor import ActorHandle
 
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.trainer.ppo.ray_trainer import RayResourcePool, ResourcePoolManager
 from verl.utils.config import omega_conf_to_dataclass
-from verl.workers.config import RolloutConfig
+from verl.workers.config import HFModelConfig, RolloutConfig
 
 logger = logging.getLogger(__file__)
 
@@ -72,7 +71,6 @@ class RolloutReplica(ABC):
     Args:
         replica_rank: int, rank of this rollout replica.
         config: RolloutConfig, full config.
-        model_config: DictConfig, model config.
         gpus_per_node: int, number of gpus per node.
     """
 
@@ -80,13 +78,13 @@ class RolloutReplica(ABC):
         self,
         replica_rank: int,
         config: RolloutConfig,
-        model_config: DictConfig,
+        model_config: HFModelConfig,
         gpus_per_node: int = 8,
         is_reward_model: bool = False,
     ) -> None:
         self.replica_rank = replica_rank
         self.config = omega_conf_to_dataclass(config)
-        self.model_config = model_config
+        self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
 
         self.world_size = (
             self.config.tensor_model_parallel_size

@@ -51,13 +51,6 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
 ]
-
-# MyST-Parser settings
-myst_enable_extensions = [
-    "dollarmath",  # Enables $...$ and $$...$$ syntax
-    "amsmath",  # Enables amsmath environments
-]
-
 # Use Google style docstrings instead of NumPy docstrings.
 napoleon_google_docstring = True
 napoleon_numpy_docstring = False

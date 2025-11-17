@@ -1,4 +1,4 @@
-Ascend Quickstart with SGLang Backend
+verl x Ascend
 ===================================
 
 Last updated: 09/25/2025.
