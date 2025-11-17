@@ -1,4 +1,4 @@
-# Copyright (c) 2025, HUAWEI CORPORATION. All rights reserved.
+# Copyright (c) 2025 Huawei Technologies Co., Ltd. All Rights Reserved.
 # Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
 #
 # Adapted from https://gitcode.com/Ascend/MindSpeed-RL/blob/2.1.0/mindspeed_rl/utils/utils.py

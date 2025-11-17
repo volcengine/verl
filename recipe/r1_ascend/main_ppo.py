@@ -17,6 +17,7 @@
 """
 Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
 """
+
 import logging
 import os
 
@@ -122,7 +123,7 @@ class TaskRunner(TaskRunnerBase):
             ray_worker_group_cls = RayWorkerGroup
         elif config.actor_rollout_ref.actor.strategy == "megatron":
             from verl.workers.megatron_workers import AsyncActorRolloutRefWorker
-            
+
             # NPU-ADAPTATION: Modify the Megatron worker entry point and rewrite some functions.
             from .megatron_workers import ActorRolloutRefWorker
             # NPU-ADAPTATION END
