@@ -1,3 +1,4 @@
+# The script has been validated on the Ascend Atlas 800T A3.
 set -x
 
 export VLLM_ASCEND_ENABLE_NZ=0
