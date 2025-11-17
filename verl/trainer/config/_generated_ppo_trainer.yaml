@@ -41,6 +41,7 @@ actor_rollout_ref:
       entropy_checkpointing: false
       forward_only: false
       strategy: fsdp
+      dtype: bfloat16
     _target_: verl.workers.config.FSDPActorConfig
     strategy: fsdp
     ppo_mini_batch_size: 256
@@ -158,6 +159,7 @@ actor_rollout_ref:
       entropy_checkpointing: false
       forward_only: false
       strategy: fsdp
+      dtype: bfloat16
     model: null
     ulysses_sequence_parallel_size: ${oc.select:actor_rollout_ref.actor.ulysses_sequence_parallel_size,1}
     entropy_from_logits_with_chunking: false
@@ -246,6 +248,12 @@ actor_rollout_ref:
       ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
       save_path: ${oc.select:global_profiler.save_path,null}
       tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}
+    prometheus:
+      _target_: verl.workers.config.PrometheusConfig
+      enable: false
+      port: 9090
+      file: /tmp/ray/session_latest/metrics/prometheus/prometheus.yml
+      served_model_name: ${oc.select:actor_rollout_ref.model.path,null}
     layered_summon: false
   model:
     _target_: verl.workers.config.HFModelConfig
@@ -349,6 +357,7 @@ critic:
       entropy_checkpointing: false
       forward_only: false
       strategy: fsdp
+      dtype: bfloat16
     path: ~/models/deepseek-llm-7b-chat
     tokenizer_path: ${oc.select:actor_rollout_ref.model.path,"~/models/deepseek-llm-7b-chat"}
     override_config: {}

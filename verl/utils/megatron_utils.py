@@ -192,6 +192,9 @@ def make_megatron_module(
         return bridge.get_model(
             post_model_creation_callbacks=post_model_creation_callbacks,
             wrap_with_ddp=wrap_config.wrap_with_ddp,
+            fp16=tf_config.fp16,
+            bf16=tf_config.bf16,
+            ddp_config=override_ddp_config,
         )
     else:
 
@@ -1100,3 +1103,41 @@ def get_transformer_layer_offset(pipeline_rank, vp_stage, config: TransformerCon
     else:
         offset = 0
     return offset
+
+
+def register_megatron_training_hooks(model: list[torch.nn.Module], optimizer):
+    from megatron.core.distributed import finalize_model_grads
+    from megatron.core.utils import get_model_config
+
+    try:
+        from megatron.core.distributed.fsdp.mcore_fsdp_adapter import FullyShardedDataParallel as megatron_FSDP
+    except ImportError:
+        megatron_FSDP = DDP
+
+    # register some callbacks for megatron training, following https://github.com/NVIDIA/Megatron-LM/blob/core_v0.15.0rc7/megatron/training/training.py#L2039-L2057
+    for one_model in model:
+        config = get_model_config(one_model)
+        config.grad_scale_func = optimizer.scale_loss
+        config.finalize_model_grads_func = finalize_model_grads
+
+        overlap_param_gather = getattr(optimizer.config, "overlap_param_gather", False)
+        overlap_grad_reduce = getattr(one_model.ddp_config, "overlap_grad_reduce", False)
+        align_grad_reduce = True  # default to True, seldom to be false
+        align_param_gather = getattr(one_model.ddp_config, "align_param_gather", False)
+
+        if isinstance(model[0], megatron_FSDP | DDP) and overlap_grad_reduce:
+            assert config.no_sync_func is None, (
+                "When overlap_grad_reduce is True, config.no_sync_func must be None; "
+                "a custom no_sync_func is not supported when overlapping grad-reduce"
+            )
+            config.no_sync_func = [model_chunk.no_sync for model_chunk in model]
+            if len(model) == 1:
+                config.no_sync_func = config.no_sync_func[0]
+            if align_grad_reduce:
+                config.grad_sync_func = [model_chunk.start_grad_sync for model_chunk in model]
+                if len(model) == 1:
+                    config.grad_sync_func = config.grad_sync_func[0]
+        if overlap_param_gather and align_param_gather:
+            config.param_sync_func = [model_chunk.start_param_sync for model_chunk in model]
+            if len(model) == 1:
+                config.param_sync_func = config.param_sync_func[0]

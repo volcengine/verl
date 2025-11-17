@@ -236,6 +236,16 @@ class vLLMHttpServerBase:
             "override_generation_config": json.dumps(override_generation_config),
             **engine_kwargs,
         }
+
+        if self.config.prometheus.enable:
+            if self.config.prometheus.served_model_name:
+                # Extract model name from path if it's a full path
+                served_model_name = self.config.prometheus.served_model_name
+                if "/" in served_model_name:
+                    # If it's a full path, extract the last part as model name
+                    served_model_name = served_model_name.split("/")[-1]
+                args["served_model_name"] = served_model_name
+
         if self.config.expert_parallel_size > 1:
             assert self.gpus_per_node % self.config.tensor_model_parallel_size == 0, (
                 "gpus_per_node should be divisible by tensor_model_parallel_size"

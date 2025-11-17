@@ -39,14 +39,14 @@ https://raw.githubusercontent.com/eric-haibin-lin/verl-community/refs/heads/main
 
 Our core contributions include:
 
-1. **Parallel Generation and Training**:  
+1. **Parallel Generation and Training**:
    Samples for the next batch are asynchronously generated while the current batch is being trained.
 
-2. **Resource Isolation**:  
+2. **Resource Isolation**:
    Unlike `hybrid_engine`, this method requires explicit resource allocation for rollout, with remaining resources
    automatically assigned to training.
 
-3. **NCCL Parameter Synchronization**:  
+3. **NCCL Parameter Synchronization**:
    Employs NCCL communication primitives for seamless parameter transfer between generation and training modules.
 
 ### Experimental Results
@@ -77,7 +77,7 @@ https://raw.githubusercontent.com/eric-haibin-lin/verl-community/refs/heads/main
 
 ## Implementation
 
-### One Step Off Policy Async Pipline
+### One Step Off Policy Async Pipeline
 
 Our implemented **One Step Off Policy Async Pipeline** integrates seamlessly into existing training logic at minimal
 cost,
@@ -121,7 +121,7 @@ while batch_data_future is not None:
     # launch the next async call to generate sequences
     batch_data_future = self._async_gen_next_batch(continuous_iterator)
 
-    # compute advantages 
+    # compute advantages
     batch = critic.compute_values(batch)
     batch = reference.compute_log_prob(batch)
     batch = reward.compute_reward(batch)
@@ -179,7 +179,7 @@ collective.create_collective_group(
 ```
 
 ```python
-# drive process call the actor and rollout respectively to sync parameters by nccl 
+# drive process call the actor and rollout respectively to sync parameters by nccl
 def sync_rollout_weights(self):
     self.actor_wg.sync_rollout_weights()
     ray.get(self.rollout_wg.sync_rollout_weights())
@@ -248,17 +248,17 @@ python3 -m recipe.one_step_off_policy.async_main_ppo \
 
 ### Configuration Guidelines
 
-1. **Card Number Relationships**  
+1. **Card Number Relationships**
    Maintain either of these relationships for optimal batch distribution:
-    - `actor_rollout_ref.rollout.n` should be an integer divisor of:  
+    - `actor_rollout_ref.rollout.n` should be an integer divisor of:
       `trainer.n_gpus_per_node * trainer.nnodes`
-    - `actor_rollout_ref.rollout.n * data.train_batch_size` should be evenly divisible by:  
+    - `actor_rollout_ref.rollout.n * data.train_batch_size` should be evenly divisible by:
       `trainer.n_gpus_per_node * trainer.nnodes`
 
    > Rationale: Ensures training samples can be evenly distributed across training GPUs when using partial resources for
    generation.
 
-2. **Dynamic Resource Tuning**  
+2. **Dynamic Resource Tuning**
    Adjust `trainer.nnodes` `trainer.n_gpus_per_node` `rollout.nnodes` `rollout.n_gpus_per_node` based on phase
    durations:
     - **Ideal state**: Rollout and training phases have comparable durations
@@ -287,6 +287,10 @@ python3 -m recipe.one_step_off_policy.async_main_ppo \
        > the required node count is `max(trainer.nnodes, rollout.nnodes)`
    > - When `trainer.n_gpus_per_node + rollout.n_gpus_per_node > physical_gpus_per_node`,
        > the required node count is `trainer.nnodes + rollout.nnodes`
+
+3. **Ascend NPU Configuration**
+    If you are using Ascend NPU devices, add the following parameter:
+    - `trainer.device=npu`
 
 ## Functional Support
 

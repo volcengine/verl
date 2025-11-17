@@ -33,7 +33,7 @@ actor_rollout_ref:
       optimizer_offload: false
       tensor_model_parallel_size: 1
       expert_model_parallel_size: 1
-      expert_tensor_parallel_size: 1
+      expert_tensor_parallel_size: null
       pipeline_model_parallel_size: 1
       virtual_pipeline_model_parallel_size: null
       context_parallel_size: 1
@@ -53,6 +53,7 @@ actor_rollout_ref:
       override_mcore_model_config: {}
       use_mbridge: false
       forward_only: false
+      dtype: bfloat16
     _target_: verl.workers.config.McoreActorConfig
     strategy: megatron
     ppo_mini_batch_size: 256
@@ -156,7 +157,7 @@ actor_rollout_ref:
       optimizer_offload: false
       tensor_model_parallel_size: 1
       expert_model_parallel_size: 1
-      expert_tensor_parallel_size: 1
+      expert_tensor_parallel_size: null
       pipeline_model_parallel_size: 1
       virtual_pipeline_model_parallel_size: null
       context_parallel_size: 1
@@ -170,6 +171,7 @@ actor_rollout_ref:
       override_mcore_model_config: {}
       use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
       forward_only: false
+      dtype: bfloat16
     load_weight: true
   rollout:
     _target_: verl.workers.config.RolloutConfig
@@ -255,6 +257,12 @@ actor_rollout_ref:
       ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
       save_path: ${oc.select:global_profiler.save_path,null}
       tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}
+    prometheus:
+      _target_: verl.workers.config.PrometheusConfig
+      enable: false
+      port: 9090
+      file: /tmp/ray/session_latest/metrics/prometheus/prometheus.yml
+      served_model_name: ${oc.select:actor_rollout_ref.model.path,null}
     layer_name_map:
       qkv_layer_name: qkv
       gate_proj_layer_name: gate_up
@@ -340,7 +348,7 @@ critic:
     optimizer_offload: false
     tensor_model_parallel_size: 1
     expert_model_parallel_size: 1
-    expert_tensor_parallel_size: 1
+    expert_tensor_parallel_size: null
     pipeline_model_parallel_size: 1
     virtual_pipeline_model_parallel_size: null
     context_parallel_size: 1
@@ -360,6 +368,7 @@ critic:
     override_mcore_model_config: {}
     use_mbridge: false
     forward_only: false
+    dtype: bfloat16
   _target_: verl.workers.config.McoreCriticConfig
   rollout_n: ${oc.select:actor_rollout_ref.rollout.n,1}
   strategy: megatron
@@ -456,7 +465,7 @@ reward_model:
     param_offload: false
     tensor_model_parallel_size: 1
     expert_model_parallel_size: 1
-    expert_tensor_parallel_size: 1
+    expert_tensor_parallel_size: null
     pipeline_model_parallel_size: 1
     virtual_pipeline_model_parallel_size: null
     context_parallel_size: 1
@@ -467,6 +476,7 @@ reward_model:
     seed: ${oc.select:actor_rollout_ref.actor.megatron.seed,42}
     override_transformer_config: ${oc.select:actor_rollout_ref.actor.megatron.override_transformer_config,{}}
     use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
+    dtype: bfloat16
   load_weight: true
 algorithm:
   rollout_correction:

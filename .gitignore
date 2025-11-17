@@ -114,6 +114,9 @@ ENV/
 # vim
 *.swp
 
+# emacs
+*~
+
 # ckpt
 *.lock
 

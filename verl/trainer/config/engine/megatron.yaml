@@ -16,8 +16,8 @@ tensor_model_parallel_size: 1
 # expert model parallel size
 expert_model_parallel_size: 1
 
-# expert tensor parallel size
-expert_tensor_parallel_size: 1
+# expert tensor parallel size (null to be same as TP)
+expert_tensor_parallel_size: null
 
 # pipeline model parallel size
 pipeline_model_parallel_size: 1
@@ -76,3 +76,6 @@ use_mbridge: False
 
 # whether to use forward only
 forward_only: False
+
+# Mixed precision training param dtype
+dtype: bfloat16 # ["bfloat16", "float16"]

@@ -1628,18 +1628,22 @@ def compute_policy_loss_with_rollout_correction(
     from verl.trainer.ppo.rollout_corr_helper import compute_rollout_correction_and_rejection_mask
 
     # Compute IS weights and rejection mask on-the-fly
-    rollout_is_weights_proto, modified_response_mask, rollout_metrics = compute_rollout_correction_and_rejection_mask(
-        old_log_prob=log_prob,  # Current policy
-        rollout_log_prob=rollout_log_prob,  # Rollout policy
-        response_mask=eos_mask,
-        rollout_is=rollout_is,
-        rollout_is_threshold=rollout_is_threshold,
-        rollout_rs=rollout_rs,
-        rollout_rs_threshold=rollout_rs_threshold,
-        rollout_rs_threshold_lower=rollout_rs_threshold_lower,
-        rollout_token_veto_threshold=rollout_token_veto_threshold,
-        rollout_is_batch_normalize=rollout_is_batch_normalize,
-    )
+    # Use no_grad since weights are detached inside and metrics don't need gradients
+    with torch.no_grad():
+        rollout_is_weights_proto, modified_response_mask, rollout_metrics = (
+            compute_rollout_correction_and_rejection_mask(
+                old_log_prob=log_prob,  # Current policy
+                rollout_log_prob=rollout_log_prob,  # Rollout policy
+                response_mask=eos_mask,
+                rollout_is=rollout_is,
+                rollout_is_threshold=rollout_is_threshold,
+                rollout_rs=rollout_rs,
+                rollout_rs_threshold=rollout_rs_threshold,
+                rollout_rs_threshold_lower=rollout_rs_threshold_lower,
+                rollout_token_veto_threshold=rollout_token_veto_threshold,
+                rollout_is_batch_normalize=rollout_is_batch_normalize,
+            )
+        )
 
     # Extract weights tensor from DataProto (or None if disabled)
     rollout_is_weights = rollout_is_weights_proto.batch["rollout_is_weights"] if rollout_is_weights_proto else None
@@ -1655,15 +1659,10 @@ def compute_policy_loss_with_rollout_correction(
     # So we apply it to the standard log-prob trick formula
 
     if rollout_is_weights is not None:
-        # With IS correction: weight the log-prob trick by IS weight
-        # w = exp(log_prob - rollout_log_prob).clamp(max=threshold)
-        # L = -E[w * log π * A]
-        # Gradient: ∇L = -E[w * ∇log π * A] = -E[w * A]
+        # IS-corrected policy gradient: L = -E[stopgrad(w) · log π · A]
         pg_losses = -advantages * log_prob * rollout_is_weights
     else:
-        # No IS correction: standard REINFORCE with log-prob trick
-        # L = -E[log π(a|s) * A]
-        # Gradient: ∇L = -E[∇log π * A] = -E[A]
+        # Standard REINFORCE: L = -E[log π · A]
         pg_losses = -advantages * log_prob
 
     # Aggregate loss (apply scale factor manually)

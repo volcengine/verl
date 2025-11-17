@@ -1,4 +1,6 @@
 set -x
+export VLLM_ASCEND_ENABLE_NZ=0
+
 ENGINE=${1:-vllm}
 
 # Some models are optimized by vllm ascend. While in some case, e.g. rlhf training, 
