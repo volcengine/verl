@@ -196,8 +196,8 @@ class vLLMRollout(BaseRollout):
 
         if max_num_batched_tokens < max_model_len and not self.config.enable_chunked_prefill:
             raise ValueError(
-                " max_num_batched_tokens is smaller than max_model_len, \
-                             please increase max_num_batched_tokens or enable chunked prefill"
+                f"max_num_batched_tokens ({max_num_batched_tokens}) is smaller than max_model_len ({max_model_len}). "
+                "Please increase max_num_batched_tokens or enable chunked prefill."
             )
 
         load_format = "dummy" if config.load_format.startswith("dummy") else config.load_format
