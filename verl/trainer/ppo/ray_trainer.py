@@ -859,9 +859,9 @@ class RayPPOTrainer:
         else:
             if self.config.trainer.resume_mode == "resume_path":
                 assert isinstance(self.config.trainer.resume_from_path, str), "resume ckpt must be str type"
-                assert (
-                    "global_step_" in self.config.trainer.resume_from_path
-                ), "resume ckpt must specify the global_steps"
+                assert "global_step_" in self.config.trainer.resume_from_path, (
+                    "resume ckpt must specify the global_steps"
+                )
                 global_step_folder = self.config.trainer.resume_from_path
                 if not os.path.isabs(global_step_folder):
                     working_dir = os.getcwd()
@@ -975,8 +975,7 @@ class RayPPOTrainer:
 
         # load checkpoint before doing anything
         self._load_checkpoint()
-
-        # resume sampler state
+        # resume sampler state if needed
         current_epoch = self.global_steps // len(self.train_dataloader)
         for _ in range(current_epoch - 1):
             for _ in iter(self.train_dataloader.sampler):
