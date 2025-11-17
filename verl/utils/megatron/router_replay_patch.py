@@ -181,7 +181,7 @@ def _patched_topk_routing_with_score_function(
                 return _compute_topk(scores, topk, num_groups=num_groups, group_topk=group_topk)
 
             # Use the last recorded indices for backward replay
-            top_indices = router_replay.replay_backward_list.pop()
+            top_indices = router_replay.replay_backward_list.pop(0)
             # Ensure indices are on the correct device
             top_indices = top_indices.to(scores.device)
             # Gather the scores for the replayed indices to get the probabilities
