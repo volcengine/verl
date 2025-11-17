@@ -6,6 +6,8 @@ rollout_name="vllm" # sglang or vllm
 if [ "$rollout_mode" = "async" ]; then
     export VLLM_USE_V1=1
     return_raw_chat="True"
+else
+    return_raw_chat="False"
 fi
 
 dtype="float16" # ["bfloat16", "float16"]
