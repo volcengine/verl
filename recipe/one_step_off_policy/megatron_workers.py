@@ -13,19 +13,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import datetime
 import logging
 import os
 
 import torch
 import torch.distributed
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 
+from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
 from verl.utils.config import omega_conf_to_dataclass
-from verl.utils.debug import (
+from verl.utils.device import (
+    get_device_name,
+    get_nccl_backend,
+    get_torch_device,
+)
+from verl.utils.distributed import set_numa_affinity
+from verl.utils.profiler import (
+    DistProfiler,
+    DistProfilerExtension,
+    ProfilerConfig,
     log_gpu_memory_usage,
 )
-from verl.utils.device import get_device_name, get_torch_device
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.megatron_workers import ActorRolloutRefWorker as ARRWorker
 from verl.workers.megatron_workers import CriticWorker, RewardModelWorker
@@ -124,7 +134,52 @@ class ActorRolloutRefWorker(ARRWorker):
 class RolloutWorker(ActorRolloutRefWorker):
     def __init__(self, config: DictConfig, role: str):
         assert role == "rollout"
-        ARRWorker.__init__(self, config, role)
+        Worker.__init__(self)
+        self.config = config
+        self.role = role
+
+        self._is_actor = False
+        self._is_rollout = True
+        self._is_ref = False
+
+        # NOTE(sgm): We utilize colocate WorkerGroup by default.
+        # As a result, Workers for different model share the same process.
+        # Therefore, we only require one distribute initialization.
+        # To utilize different parallel strategy in different models:
+        # 1, users should disable WorkerDict; 2.assign different ResourcePool to different models,
+        # 3. and apply the following patch in ray==2.10, https://github.com/ray-project/ray/pull/44385
+        if not torch.distributed.is_initialized():
+            set_numa_affinity()
+            rank = int(os.environ["LOCAL_RANK"])
+            torch.distributed.init_process_group(
+                backend=get_nccl_backend(),
+                timeout=datetime.timedelta(seconds=self.config.get("nccl_timeout", 600)),
+                init_method=os.environ.get("DIST_INIT_METHOD", None),
+            )
+            get_torch_device().set_device(rank)
+
+        # NOTE: In colocation mode, rollout config may not take effect (follow the actor config)
+        # This is for extendability in AsyncRL cases
+        omega_profiler_config = config.rollout.get("profiler", {})
+
+        # omega_profiler_config is DictConfig
+        # profiler_config is a ProfilerConfig dataclass
+        profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
+        if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch", "torch_memory"]:
+            tool_config = omega_conf_to_dataclass(
+                omega_profiler_config.get("tool_config", {}).get(omega_profiler_config.get("tool"))
+            )
+        else:
+            tool_config = None
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config)
+        )
+
+        # TODO(sgm): Currently, we only support reference model param offload
+        # will support other offload later
+        self._is_offload_param = False
+        self._is_offload_grad = False
+        self._is_offload_optimizer = False
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
@@ -136,22 +191,14 @@ class RolloutWorker(ActorRolloutRefWorker):
 
         from verl.utils.torch_dtypes import PrecisionType
 
-        override_model_config = OmegaConf.to_container(OmegaConf.create(self.config.model.get("override_config", {})))
-        override_transformer_config = {}
         self.param_dtype = torch.bfloat16
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
-        trust_remote_code = self.config.model.get("trust_remote_code", False)
 
+        from verl.utils.fs import copy_to_local
         from verl.utils.model import get_generation_config
 
-        self._init_hf_config_and_tf_config(
-            self.config.model.path,
-            self.config.model.path,
-            self.dtype,
-            override_model_config,
-            override_transformer_config,
-            trust_remote_code,
-        )
+        self.local_path = copy_to_local(self.config.model.path)
+        self.bridge = "none"
         self.generation_config = get_generation_config(self.local_path)
 
         from torch.distributed.device_mesh import init_device_mesh
