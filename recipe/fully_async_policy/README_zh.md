@@ -369,6 +369,67 @@ TODO: 30B 的实验，还在完善中。
 | fully_async_policy | 64:64               | async stream pipeline with staleness samples |      |                    |              |              |            |                  |
 | fully_async_policy | 64:64               | async stream pipeline with partial rollout   |      |                    |              |              |            |                  |
 
+## 多轮工具调用
+参考 **recipe/retool** 和 **ToolAgentLoop**，我们为 **fully_async_policy** 实现了支持partial rollout的多轮工具调用循环 **AsyncPartialToolAgentLoop**。
+
+### 核心设计
+`AsyncPartialToolAgentLoop` 继承自 `ToolAgentLoop`，其核心是适配了 `fully_async_policy` 的异步训练模式。当 `partial_rollout=True` 时，Rollouter 在与 Trainer 同步参数前会中断正在进行的生成任务。`AsyncPartialToolAgentLoop` 能够：
+1.  **中断任务**: 响应中断信号，保存当前的生成状态。目前，中断会发生在GENERATING过程中，或其他状态结束后；
+2.  **恢复任务**: 在参数同步完成后，从保存的状态恢复，继续执行，而不是从头开始。
+
+### 使用方法
+`fully_async_policy`多轮与工具调用的RL训练与 `recipe/retool` 类似，通过在配置文件中指定 `multi_turn` 相关配置来启用。
+1.  **SFT 阶段**: 首先，需要对模型进行 SFT训练，使其具备遵循工具调用格式指令的能力。
+2.  **配置启用**: 在 `fully_async_policy` 的训练配置中，设置以下参数:
+    ```yaml
+    actor_rollout_ref:
+      rollout:
+        multi_turn:
+          enable: True # 在fully_async_policy模式下将默认使用AsyncPartialToolAgentLoop
+          # 其他 multi_turn 相关配置
+    ```
+3.  **配置async参数**: 为提高效率，在启用多轮工具调用时，同时开启 `partial_rollout`和`staleness_threshold`：
+    ```yaml
+    async_training:
+      partial_rollout: True
+      staleness_threshold: 0.5
+      # 其他async参数
+    ```
+4.  **example**: 参考`recipe/fully_async_policy/shell/dapo_7b_async_retool.sh`
+
+### 实验结果
+为验证 `fully_async_policy` 在多轮工具调用任务中的性能，我们将其与标准 `colocate` 同步模式进行了对比。实验具体设置如下。
+*   **SFT模型**: 实验基于 `Qwen2.5-7B-Instruct` 模型，使用`ReTool-SFT`数据集训练6个epoch；
+*   **RL算法**: DAPO
+*   **数据集**:
+    *   训练集: `DAPO-Math-17k`
+    *   测试集: `aime_2025`
+*   **资源与模式对比**:
+    *   `colocate sync`: 32卡 H20
+    *   `fully_async_policy`: 16卡 Trainer + 16卡 Rollouter
+*   **关键配置**:
+    1.  **工具调用配置**:
+        *   `multi_turn.enable: True`
+        *   `multi_turn.max_user_turns: 16`
+        *   `multi_turn.max_assistant_turns: 16`
+        *   `multi_turn.tool_config_path: recipe/retool/sandbox_fusion_tool_config.yaml`
+    2.  **`colocate sync`配置**:
+        *   `ppo_mini_batch_size: 16`
+        *   `train_batch_size: 64`
+    3.  **`fully_async_policy`配置**:
+        *   `ppo_mini_batch_size: 16`
+        *   `trigger_parameter_sync_step: 4`
+        *   `require_batches: 1`
+        *   `staleness_threshold: 1`
+        *   `partial_rollout: True`
+
+|    training mode   	| Resource allocation 	|   step  	|   gen   	| old_log_prob 	| update_actor 	| total time<br>100 step 	| total time<br>200 step 	|   aime_2025<br>acc/mean@30  	|
+|:------------------:	|:-------------------:	|:-------:	|:-------:	|:------------:	|:------------:	|:----------------------:	|:----------------------:	|:---------------------------:	|
+| colocate           	| 32                  	| 375.47  	|  228.03 	| 35.19        	| 111.84       	| 9h 46m                 	| 22h 28m                	| start:0.1078<br>last:0.2056   	|
+| fully_async_policy 	| 16: 16              	|  221.36 	| 40.59   	| \            	| 179.58       	| 6h 19m<br>(1.55x)      	| 14h 4m<br>(1.60x)      	| start:0.11<br>last:0.2044 	|
+
+> source data: https://wandb.ai/hou-zg-meituan/fully-async-policy-multiturn-tool?nw=nwuserhouzg
+
 ## 后续计划
 
 * GRPO实验
