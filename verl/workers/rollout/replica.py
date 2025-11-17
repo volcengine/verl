@@ -121,6 +121,7 @@ class RolloutReplica(ABC):
         await self.launch_servers()
 
     # TODO(@dyy): init with resource_pool?
+    # TODO(sgm): this should be the default solution, but need to make the RolloutMode more clear.
     async def init_colocated(self, worker_group: RayWorkerGroup):
         """Init colocated rollout server, rollout engine and hybrid engine colocated in same ray placement group
         but in separate processes.
@@ -139,7 +140,9 @@ class RolloutReplica(ABC):
         # create resource pool for this rollout
         self.rollout_mode = RolloutMode.STANDALONE
         resource_pool_name = (
-            f"rollout_pool_{self.replica_rank}" if self.is_reward_model else f"rollout_pool_reward_{self.replica_rank}"
+            f"rollout_pool_{self.replica_rank}"
+            if not self.is_reward_model
+            else f"rollout_pool_reward_{self.replica_rank}"
         )
         resource_pool_spec = {
             resource_pool_name: [self.gpus_per_node] * self.nnodes,
