@@ -927,6 +927,8 @@ def apply_rollout_correction(
     Note:
         The implementation is copied from szrlee <szrlee@gmail.com>.
     """
+    from omegaconf import open_dict
+
     if "rollout_log_probs" not in batch.batch:
         raise ValueError(
             "bypass_mode=True requires rollout_log_probs in batch. "
@@ -936,8 +938,9 @@ def apply_rollout_correction(
     # Use rollout log probs as old log probs (zero-cost substitution)
     batch.batch["old_log_probs"] = batch.batch["rollout_log_probs"]
 
-    # Always pass rollout_correction config to actor for metrics computation
-    policy_loss_config["rollout_correction"] = rollout_corr_config
+    with open_dict(policy_loss_config):
+        # Always pass rollout_correction config to actor for metrics computation
+        policy_loss_config["rollout_correction"] = rollout_corr_config
 
     # Check if policy gradient loss mode is enabled
     use_policy_gradient = rollout_corr_config.get("use_policy_gradient", False)
