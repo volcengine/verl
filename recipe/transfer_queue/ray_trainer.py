@@ -1106,7 +1106,7 @@ class RayPPOTrainer:
                 self.rm_wg.stop_profile()
 
     def _balance_batch(
-            self, batch: BatchMeta, data_system_client, metrics, logging_prefix="global_seqlen", keep_minibatch=False
+        self, batch: BatchMeta, data_system_client, metrics, logging_prefix="global_seqlen", keep_minibatch=False
     ):
         """Reorder the batchmeta on single controller such that each dp rank gets similar total tokens"""
         data = asyncio.run(data_system_client.async_get_data(batch))
