@@ -1,5 +1,3 @@
-# Adapted from
-# https://github.com/volcengine/verl/blob/main/verl/trainer/main_ppo.py
 # Copyright (c) 2025 Huawei Technologies Co., Ltd. All Rights Reserved.
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
 #
@@ -14,6 +12,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# Adapted from https://github.com/volcengine/verl/blob/main/verl/trainer/main_ppo.py
 """
 Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
 """
