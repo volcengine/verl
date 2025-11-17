@@ -16,7 +16,6 @@
 # Adapted from
 # https://github.com/volcengine/verl/blob/main/verl/workers/rollout/vllm_rollout/vllm_rollout_spmd.py
 
-import gc
 import logging
 import os
 from typing import Generator
@@ -29,9 +28,9 @@ from vllm import LLM, SamplingParams
 from vllm.config import CompilationConfig, CompilationLevel
 
 from verl.third_party.vllm import VLLM_SLEEP_LEVEL
+from verl.utils.memory_utils import aggressive_empty_cache
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.vllm_rollout import vLLMRollout as vLLMRolloutBase
-from verl.utils.memory_utils import aggressive_empty_cache
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -52,6 +51,7 @@ class vLLMRollout(vLLMRolloutBase):
             platform,  # noqa: F401
             worker,  # noqa: F401
         )
+
         from recipe.r1_ascend import engine_core  # noqa: F401
         # NPU-ADAPTATION END
 
@@ -218,8 +218,8 @@ class vLLMRollout(vLLMRolloutBase):
         self.pad_token_id = tokenizer.pad_token_id
 
     # NPU-ADAPTATION: Weight onload and offload, kv_cache init and free function
-    # NOTE: Due to potential incomplete memory offloading during sleep operations for vLLM on NPUs, we add 
-    # patches to manually handle the off/on loading of the rollout model and KVcache on NPUs. 
+    # NOTE: Due to potential incomplete memory offloading during sleep operations for vLLM on NPUs, we add
+    # patches to manually handle the off/on loading of the rollout model and KVcache on NPUs.
     def init_cache_engine(self):
         if os.environ["VLLM_USE_V1"] == "1":
             worker = self.inference_engine.llm_engine.model_executor.driver_worker.worker
@@ -300,7 +300,7 @@ class vLLMRollout(vLLMRolloutBase):
                 if hasattr(attn_impl, "key_cache"):
                     attn_impl.key_cache = None
                     attn_impl.value_cache = None
-        
+
         aggressive_empty_cache()
 
     def _process_mla(self, load_weight=False):

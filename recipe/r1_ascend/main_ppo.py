@@ -18,6 +18,7 @@
 Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
 """
 import logging
+import os
 
 import hydra
 import ray
@@ -73,6 +74,7 @@ def run_ppo(config) -> None:
         and len(config.global_profiler.get("steps", [])) > 0
     ):
         from verl.utils.import_utils import is_nvtx_available
+
         assert is_nvtx_available(), "nvtx is not available in CUDA platform. Please 'pip3 install nvtx'"
         nsight_options = OmegaConf.to_container(
             config.global_profiler.global_tool_config.nsys.controller_nsight_options
@@ -111,6 +113,7 @@ class TaskRunner(TaskRunnerBase):
 
         if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
             from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
+
             actor_rollout_cls = (
                 AsyncActorRolloutRefWorker
                 if config.actor_rollout_ref.rollout.mode == "async"
@@ -119,9 +122,11 @@ class TaskRunner(TaskRunnerBase):
             ray_worker_group_cls = RayWorkerGroup
         elif config.actor_rollout_ref.actor.strategy == "megatron":
             from verl.workers.megatron_workers import AsyncActorRolloutRefWorker
+            
             # NPU-ADAPTATION: Modify the Megatron worker entry point and rewrite some functions.
             from .megatron_workers import ActorRolloutRefWorker
             # NPU-ADAPTATION END
+
             actor_rollout_cls = (
                 AsyncActorRolloutRefWorker
                 if config.actor_rollout_ref.rollout.mode == "async"

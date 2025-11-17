@@ -12,11 +12,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# 
+#
 # Adapted from https://github.com/vllm-project/vllm/blob/v0.9.1/vllm/v1/engine/core.py
 
-import time
 import logging
+import os
+import time
 
 from vllm.config import VllmConfig
 from vllm.v1.core.kv_cache_utils import get_kv_cache_config, unify_kv_cache_configs

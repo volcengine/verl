@@ -1,4 +1,3 @@
-# coding=utf-8
 # Copyright (c) 2025 Huawei Technologies Co., Ltd. All Rights Reserved.
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
 #
@@ -13,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# 
+#
 # Adapted from https://github.com/volcengine/verl/blob/main/verl/workers/megatron_workers.py
 """
 The main entry point to run the PPO algorithm
