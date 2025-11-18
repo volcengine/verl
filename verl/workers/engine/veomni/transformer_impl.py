@@ -45,6 +45,7 @@ from verl.utils.fsdp_utils import (
 from verl.utils.torch_functional import logprobs_from_logits
 from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad, ulysses_pad_and_slice_inputs
 from verl.workers.config import HFModelConfig, VeomniEngineConfig, VeomniOptimizerConfig
+from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 from ..base import BaseEngine, EngineRegistry
 from ..utils import postprocess_batch_func, prepare_micro_batches
@@ -102,7 +103,7 @@ class VeomniEngine(BaseEngine):
         self._is_offload_optimizer = self.engine_config.optimizer_offload
         self._is_lora = self.model_config.lora_rank > 0
 
-        # self.ulysses_sharding_manager = FSDPUlyssesShardingManager(parallel_state.get_parallel_state().device_mesh)
+        self.ulysses_sharding_manager = FSDPUlyssesShardingManager(parallel_state.get_parallel_state().device_mesh)
         self.use_ulysses_sp = parallel_state.get_parallel_state().sp_enabled
 
         if self.engine_config.entropy_from_logits_with_chunking:
@@ -632,11 +633,11 @@ class EngineTrainModeCtx:
             load_fsdp_model_to_gpu(self.engine.model)
         if self.engine._is_offload_optimizer:
             load_fsdp_optimizer(optimizer=self.engine.optimizer, device_id=get_torch_device().current_device())
-        # self.engine.ulysses_sharding_manager.__enter__()
+        self.engine.ulysses_sharding_manager.__enter__()
         self.engine.model.train()
 
     def __exit__(self, exc_type, exc_value, traceback):
-        # self.engine.ulysses_sharding_manager.__exit__(exc_type, exc_value, traceback)
+        self.engine.ulysses_sharding_manager.__exit__(exc_type, exc_value, traceback)
         self.engine.optimizer_zero_grad()
 
         if self.engine._is_offload_param:
