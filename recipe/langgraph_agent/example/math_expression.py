@@ -18,6 +18,7 @@ from langchain_core.tools import tool
 from recipe.langgraph_agent.react_agent_loop import ReactAgentLoop
 
 
+
 def safe_int(x):
     """
     Safely convert to int, return None if invalid.
