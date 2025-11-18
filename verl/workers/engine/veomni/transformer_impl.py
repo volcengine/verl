@@ -412,6 +412,7 @@ class VeOmniEngineWithLMHead(VeomniEngine):
                         input_ids_rmpad,
                         position_ids_rmpad=position_ids_rmpad,
                         sp_size=self.engine_config.ulysses_parallel_size,
+                        skip_position_ids_rmpad=True,
                     )
                 input_ids_rmpad_rolled, _, _ = ulysses_pad_and_slice_inputs(
                     input_ids_rmpad_rolled,
