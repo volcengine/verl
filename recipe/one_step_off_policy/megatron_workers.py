@@ -18,7 +18,7 @@ import os
 
 import torch
 import torch.distributed
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
 from verl.utils.config import omega_conf_to_dataclass
@@ -134,24 +134,10 @@ class RolloutWorker(ActorRolloutRefWorker):
 
             importlib.import_module(self.config.model.external_lib)
 
-        from verl.utils.torch_dtypes import PrecisionType
-
-        override_model_config = OmegaConf.to_container(OmegaConf.create(self.config.model.get("override_config", {})))
-        override_transformer_config = {}
-        self.param_dtype = torch.bfloat16
-        self.dtype = PrecisionType.to_dtype(self.param_dtype)
-        trust_remote_code = self.config.model.get("trust_remote_code", False)
-
+        from verl.utils.fs import copy_to_local
         from verl.utils.model import get_generation_config
 
-        self._init_hf_config_and_tf_config(
-            self.config.model.path,
-            self.config.model.path,
-            self.dtype,
-            override_model_config,
-            override_transformer_config,
-            trust_remote_code,
-        )
+        self.local_path = copy_to_local(self.config.model.path)
         self.generation_config = get_generation_config(self.local_path)
 
         from torch.distributed.device_mesh import init_device_mesh
