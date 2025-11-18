@@ -12,30 +12,37 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import re
 import json
+import re
 from langchain_core.tools import tool
 from recipe.langgraph_agent.react_agent_loop import ReactAgentLoop
 
+
 def safe_int(x):
-    """Safely convert to int, return None if not a valid number\n
-    Due to the maximum response length limit, the LLM may not strictly respond in JSON format, causing errors in the model tools' operations."""
+    """
+    Safely convert to int, return None if invalid.
+
+    Due to LLM output being possibly non-JSON, tool inputs may contain invalid
+    formats that must not crash the evaluator.
+    """
     try:
         return int(x)
     except (ValueError, TypeError):
         return None
 
+
 def _eval_expr(expression: str):
     """
-    Safely evaluate expression with operator precedence using RPN (Reverse Polish Notation).
+    Safely evaluate expression with operator precedence using RPN.
+
     Operators:
-      +, -, *, @
+        +, -, *, @
     Precedence:
-      * and @  >  + and -
+        * and @ > + and -
     All operators are left-associative.
-    Unary minus is supported (e.g., -5, 3 + -2, (-3) * 4).
+
+    Unary minus is supported: -5, 3 + -2, (-3) * 4
     """
-    # Basic type / empty checks
     if not expression or not isinstance(expression, str):
         return 0
 
@@ -47,17 +54,18 @@ def _eval_expr(expression: str):
     if expr.startswith("-"):
         expr = "0 " + expr
 
-    # Clean invalid characters but keep parentheses
+    # Keep only numbers, operators, parentheses
     expr = re.sub(r"[^0-9+\-*@()\s]", " ", expr)
     expr = re.sub(r"\s+", " ", expr).strip()
     if expr == "":
         return 0
 
-    #Tokenize: numbers, operators, parentheses
+    # Tokenize
     raw_tokens = re.findall(r"\d+|[@+\-*()]", expr)
     if not raw_tokens:
         return 0
 
+    # Process unary minus
     tokens = []
     i = 0
     while i < len(raw_tokens):
@@ -74,24 +82,24 @@ def _eval_expr(expression: str):
         tokens.append(t)
         i += 1
 
-    filtered = []
-    for t in tokens:
-        if re.fullmatch(r"-?\d+", t) or t in "+-*@()":
-            filtered.append(t)
+    # Filter valid tokens
+    filtered = [
+        t for t in tokens if re.fullmatch(r"-?\d+", t) or t in "+-*@()"
+    ]
     tokens = filtered
 
     if not tokens:
         return 0
-   # Single Digit Calculation
+
+    # Single token case
     if len(tokens) == 1 and re.fullmatch(r"-?\d+", tokens[0]):
-        v = safe_int(tokens[0])
-        return v if v is not None else 0
+        val = safe_int(tokens[0])
+        return val if val is not None else 0
 
-   
-    precedence = {"+": 1, "-": 1, "*": 2, "@": 2} # RPN:Priority definition: * and @ highest, + and - next, all left-associative
+    precedence = {"+": 1, "-": 1, "*": 2, "@": 2}
 
-    output = []      # RPN output queue
-    op_stack = []    # Operator Stack
+    output = []      # RPN output
+    op_stack = []    # Operator stack
 
     for t in tokens:
         if re.fullmatch(r"-?\d+", t):
@@ -144,8 +152,8 @@ def _eval_expr(expression: str):
                 return 0
             b = stack.pop()
             a = stack.pop()
-            result = calc(a, tok, b)
-            stack.append(str(result))
+            res = calc(a, tok, b)
+            stack.append(str(res))
 
     if not stack:
         return 0
@@ -154,42 +162,40 @@ def _eval_expr(expression: str):
     return final if final is not None else 0
 
 
-
 @tool(parse_docstring=True)
 def calculate(expression: str) -> int:
     """
-     Evaluate a full mathematical expression with custom '@' operator.
+    Evaluate a full mathematical expression with custom '@' operator.
 
-     Args:
-         expression: A string expression using '+', '-', '*', and '@'.
-             '@' means (3*a - 2*b). Parentheses are supported.
+    Args:
+        expression: A string expression using '+', '-', '*', and '@'.
+            '@' means (3*a - 2*b). Parentheses are supported.
+    """
+    print(f"Received expression: {expression}")
 
-     Examples:
-         >>> calculate("3 @ (9 @ 4 @ 4) @ (2 @ 2 @ 2)")
-     """
-
-    print( f"Received expression: {expression}")
     # LangGraph tool sometimes passes dict
     if isinstance(expression, dict):
         expression = expression.get("expression", "")
 
-    # Try to parse JSON
+    # Try load JSON
     try:
         obj = json.loads(expression)
         if "expression" in obj:
             expression = obj["expression"]
-    except:
-        # Fix some broken JSON formats
-        s = expression.replace("expression:", '"expression":')
-        s = s.replace("'", '"')
+    except Exception:
+        # Try fallback JSON recovery
         try:
+            s = expression.replace("expression:", '"expression":')
+            s = s.replace("'", '"')
             obj = json.loads(s)
-        except Exception as e:
-            print(f"expression eorrs:{e}")
+            expression = obj.get("expression", expression)
+        except Exception:
+            pass
+
     try:
         return _eval_expr(expression)
     except Exception as e:
-        print(f"Return eorrs:{e}")
+        print(f"Return error: {e}")
         return 0
 
 
