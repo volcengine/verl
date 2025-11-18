@@ -305,7 +305,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         self._init_hf_config_and_tf_config(
             model_path,
-            model_path,
+            self.config.model.get("tokenizer_path") or model_path,
             self.dtype,
             override_model_config,
             override_transformer_config,
@@ -947,7 +947,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
 
         self._init_hf_config_and_tf_config(
             model_path,
-            self.config.model.tokenizer_path,
+            self.config.model.get("tokenizer_path") or model_path,
             self.dtype,
             override_model_config,
             override_transformer_config,
