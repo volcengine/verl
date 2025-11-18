@@ -11,10 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import re
 import json
 from langchain_core.tools import tool
 from recipe.langgraph_agent.react_agent_loop import ReactAgentLoop
+
 def safe_int(x):
     """Safely convert to int, return None if not a valid number\n
     Due to the maximum response length limit, the LLM may not strictly respond in JSON format, causing errors in the model tools' operations."""
@@ -29,8 +31,7 @@ def _eval_expr(expression: str):
     Operators:
       +, -, *, @
     Precedence:
-      ◦ and @  >  + and -
-
+      * and @  >  + and -
     All operators are left-associative.
     Unary minus is supported (e.g., -5, 3 + -2, (-3) * 4).
     """
@@ -166,9 +167,8 @@ def calculate(expression: str) -> int:
      Examples:
          >>> calculate("3 @ (9 @ 4 @ 4) @ (2 @ 2 @ 2)")
      """
-    print(
-          f"Received expression: {expression}"
-       )
+
+    print( f"Received expression: {expression}")
     # LangGraph tool sometimes passes dict
     if isinstance(expression, dict):
         expression = expression.get("expression", "")
@@ -184,13 +184,12 @@ def calculate(expression: str) -> int:
         s = s.replace("'", '"')
         try:
             obj = json.loads(s)
-            expression = obj.get("expression", expression)
-        except (ValueError, TypeError, json.JSONDecodeError):
-            pass
+        except Exception as e:
+            print(f"expression eorrs:{e}")
     try:
         return _eval_expr(expression)
     except Exception as e:
-        print(f"eorrs:{e}")
+        print(f"Return eorrs:{e}")
         return 0
 
 
