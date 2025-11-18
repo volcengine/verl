@@ -130,8 +130,7 @@ class EnvLoop:
                 )
                 staged_next_obs[stage_id] = next_obs
 
-            if step < self.max_interactions - 1:
-                for stage_id in range(self.stage_num):
+                if step < self.max_interactions - 1:
                     # Start next trajectory step
                     trajectories[stage_id].append({})
 
