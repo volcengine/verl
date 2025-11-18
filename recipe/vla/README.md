@@ -26,6 +26,14 @@ Notes:
 2. IsaacSim only support GPU with RT Cores
 3. RTX GPU will be supported in the future release with remote deployment feature, but it can not work with colocated mode because of the limitation of GPU memory capacity.
 
+## Docker image
+
+The Isaac Lab support for libero dataset depends on RobotLearningLab project from The Isaac Lab Project Developers team. The project is in the process of being public available and is currently build in this image with BSD-3-Clause license. 
+
+`recipe/vla/run_simpleVLA_libero_grpo.sh` is the example of training SimpleVLA-OFT with this image:
+
+`vemlp-cn-shanghai.cr.volces.com/preset-images/verl_vla:preview_vla_0.1`
+
 **References:**
 *   [https://github.com/PRIME-RL/SimpleVLA-RL](https://github.com/PRIME-RL/SimpleVLA-RL)
 *   [https://github.com/RLinf/RLinf](https://github.com/RLinf/RLinf)

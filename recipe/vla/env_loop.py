@@ -39,7 +39,6 @@ class EnvLoop:
         self.rollout_wg = rollout_wg
         self.config = config
         # Extract relevant configuration
-        # self.max_steps = config.env.train.max_episode_steps
         self.max_interactions = config.env.train.max_episode_steps // config.env.actor.model.num_action_chunks
         self.stage_num = config.env.rollout.pipeline_stage_num
         self.num_envs_per_worker = config.env.train.num_envs
@@ -183,15 +182,7 @@ class EnvLoop:
         all_attn_masks = [step["action"].batch["attention_mask"] for step in flat_trajs]
         all_actions = [step["action"].batch["action"] for step in flat_trajs]
         all_dones = [step["done"] for step in flat_trajs]
-        # # Pad to max_steps if loop ended early
-        # while len(all_actions) < self.max_steps:
-        #      all_actions.append(torch.zeros_like(all_actions[0]))
-        #      all_input_ids.append(torch.zeros_like(all_input_ids[0]))
-        #      all_attn_masks.append(torch.zeros_like(all_attn_masks[0]))
 
-        # while len(all_dones) < self.max_steps:
-        #     all_dones.append(torch.ones_like(all_dones[0]))
-        # Tensors need to have shape [bs, steps, ...]
         pixel_values = torch.stack(all_pixel_values, dim=1)
         responses = torch.stack(all_responses, dim=1)
         input_ids = torch.stack(all_input_ids, dim=1)

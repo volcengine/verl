@@ -15,19 +15,22 @@
 Single Process Actor
 """
 
-import itertools
+import logging
 
 import torch
+from tensordict.base import TensorDictBase
 from torch import nn
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 import verl.utils.torch_functional as verl_F
-from verl import DataProto
+from verl.protocol import DataProto
 from verl.trainer.ppo import core_algos
 from verl.utils.py_functional import append_to_dict
-from verl.utils.seqlen_balancing import prepare_dynamic_batch, restore_dynamic_batch, rearrange_micro_batches
+from verl.utils.seqlen_balancing import prepare_dynamic_batch, restore_dynamic_batch
 from verl.utils.torch_functional import logprobs_from_logits
 from verl.workers.actor import BasePPOActor
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["RobDataParallelPPOActor"]
 
@@ -44,8 +47,8 @@ class RobDataParallelPPOActor(BasePPOActor):
         self.actor_module = actor_module
         self.actor_optimizer = actor_optimizer
         self.use_remove_padding = self.config.get("use_remove_padding", False)
-        print(f"Actor use_remove_padding={self.use_remove_padding}")
-        print(f"PRM use dynamic bsz={self.config.get('use_dynamic_bsz', False)}")
+        logger.info(f"Actor use_remove_padding={self.use_remove_padding}")
+        logger.info(f"PRM use dynamic bsz={self.config.get('use_dynamic_bsz', False)}")
         self.ulysses_sequence_parallel_size = self.config.ulysses_sequence_parallel_size
         self.use_ulysses_sp = False  # self.ulysses_sequence_parallel_size > 1
         self.compute_entropy_from_logits = torch.compile(verl_F.entropy_from_logits, dynamic=True)
@@ -82,15 +85,7 @@ class RobDataParallelPPOActor(BasePPOActor):
             log_probs_masked:
             entropy_masked:
         """
-        
-        # mask_expanded = mask.unsqueeze(-1).to(log_probs.device)
-        # log_probs_reshaped = log_probs.view(-1, 8, 7)
-        # entropy_reshaped = entropy.view(-1, 8, 7)
-        # log_probs_masked = torch.where(mask_expanded, log_probs_reshaped, torch.zeros_like(log_probs_reshaped, requires_grad=False))
-        # entropy_masked = torch.where(mask_expanded, entropy_reshaped, torch.zeros_like(entropy_reshaped, requires_grad=False))
 
-        # log_probs_masked = log_probs_masked.view(-1, 56)
-        # entropy_masked = entropy_masked.view(-1, 56)
         mask = mask.to(log_probs.device)
         log_probs_masked = torch.where(mask, log_probs, torch.zeros_like(log_probs, requires_grad=False))
         entropy_masked = torch.where(mask, entropy, torch.zeros_like(entropy, requires_grad=False))
@@ -105,20 +100,11 @@ class RobDataParallelPPOActor(BasePPOActor):
             log_probs: # (bs, response_len)
         """
 
-        # batch_size = micro_batch["responses"].size(0)
-
-        # response_length = micro_batch["responses"].size(-1)  # 7*8
-
         with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
             input_ids = micro_batch["input_ids"]
             attention_mask = micro_batch["attention_mask"]
             pixel_values = micro_batch["pixel_values"]
             responses = micro_batch["responses"]
-
-            # input_ids = input_ids.reshape((batch_size * traj_len,) + input_ids.shape[2:])
-            # attention_mask = attention_mask.reshape((batch_size * traj_len,) + attention_mask.shape[2:])
-            # pixel_values = pixel_values.reshape((batch_size * traj_len,) + pixel_values.shape[2:])
-            # responses = responses.reshape((batch_size * traj_len,) + responses.shape[2:])
 
             input_ids_unpad, _ = self.process_tensor(input_ids, self.pad_token_id)
             attention_mask_unpad, _ = self.process_tensor(attention_mask, 0)
@@ -240,7 +226,7 @@ class RobDataParallelPPOActor(BasePPOActor):
                 entropys = restore_dynamic_batch(entropys, batch_idx_list)
 
         return log_probs, entropys
-    
+
     def update_policy(self, data: DataProto):
         self.actor_module.train()
 
@@ -271,20 +257,16 @@ class RobDataParallelPPOActor(BasePPOActor):
                 max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
                 micro_batches, _ = prepare_dynamic_batch(mini_batch, max_token_len=max_token_len)
             else:
-                self.gradient_accumulation = (
-                    self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
-                )
+                self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
                 micro_batches = mini_batch.split(self.config.ppo_micro_batch_size_per_gpu)
 
             self.actor_optimizer.zero_grad()
 
-            for test_idx, micro_batch in enumerate(micro_batches):
+            for _, micro_batch in enumerate[DataProto | TensorDictBase](micro_batches):
                 micro_batch = micro_batch.cuda()  # actor device is cpu when using offload
                 responses = micro_batch["responses"]
 
                 response_mask = micro_batch["response_mask"]  # (batch_size, traj_len)
-
-                response_mask_sum = response_mask.sum(axis=None)
 
                 old_log_prob = micro_batch["old_log_probs"]
                 advantages = micro_batch["advantages"]
@@ -299,21 +281,19 @@ class RobDataParallelPPOActor(BasePPOActor):
                 responses = micro_batch["responses"]
 
                 loss_info = {
-                    #'actor/entropy_loss': entropy_loss.detach().item(),
                     "actor/pg_loss": 0,
                     "actor/pg_clipfrac": 0,
                     "actor/ppo_kl": 0,
                     "actor/pg_clipfrac_lower": 0,
                 }
 
-                entropy, log_prob = self._forward_micro_batch_update(
+                _, log_prob = self._forward_micro_batch_update(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
                     pixel_values=pixel_values,
                     responses=responses,
                     temperature=temperature,
                 )
-
 
                 pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = core_algos.compute_policy_loss(
                     old_log_prob=old_log_prob,
@@ -330,7 +310,9 @@ class RobDataParallelPPOActor(BasePPOActor):
                 loss_info["actor/pg_loss"] = loss_info["actor/pg_loss"] + pg_loss.detach().item()
                 loss_info["actor/pg_clipfrac"] = loss_info["actor/pg_clipfrac"] + pg_clipfrac.detach().item()
                 loss_info["actor/ppo_kl"] = loss_info["actor/ppo_kl"] + ppo_kl.detach().item()
-                loss_info["actor/pg_clipfrac_lower"] = loss_info["actor/pg_clipfrac_lower"] + pg_clipfrac_lower.detach().item()
+                loss_info["actor/pg_clipfrac_lower"] = (
+                    loss_info["actor/pg_clipfrac_lower"] + pg_clipfrac_lower.detach().item()
+                )
                 append_to_dict(metrics, loss_info)
 
             grad_norm = self._optimizer_step()

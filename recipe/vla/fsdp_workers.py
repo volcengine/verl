@@ -17,34 +17,24 @@ The main entry point to run the PPO algorithm
 
 import asyncio
 import contextlib
-import inspect
 import logging
-import os
 
 import torch
 import torch.distributed
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from verl.utils.flops_counter import FlopsCounter
-from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from torch.distributed.fsdp._unshard_param_utils import _get_module_fsdp_state, _unshard_params_for_summon
 from torch.distributed.fsdp.api import FullStateDictConfig, ShardedStateDictConfig, StateDictType
 
 from verl import DataProto
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
+from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.device import get_device_id, get_device_name, get_torch_device, set_expandable_segments
+from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fsdp_utils import (
     fsdp_version,
-    load_fsdp_model_to_gpu,
-    offload_fsdp_model_to_cpu,
 )
-try:
-    # for torch 2.5+
-    from torch.distributed.tensor import DTensor
-except ImportError:
-    from torch.distributed._tensor import DTensor
-
 from verl.utils.import_utils import import_external_libs
 from verl.utils.memory_utils import aggressive_empty_cache
 from verl.utils.profiler import DistProfiler, log_gpu_memory_usage, simple_timer
@@ -53,7 +43,6 @@ from verl.workers.config import HFModelConfig
 from verl.workers.fsdp_workers import ActorRolloutRefWorker
 
 logger = logging.getLogger(__file__)
-logger.setLevel(os.getenv("VERL_PPO_LOGGING_LEVEL", "WARN"))
 
 device_name = get_device_name()
 
@@ -95,10 +84,11 @@ class RobActorRolloutRefWorker(ActorRolloutRefWorker):
                 state_dict_type=StateDictType.SHARDED_STATE_DICT,
                 state_dict_config=ShardedStateDictConfig(),
             )
+        else:
+            raise NotImplementedError(f"Unsupported fsdp version {fsdp_version(self.actor_module_fsdp)}")
 
         self._register_dispatch_collect_info("rollout", dp_rank=self.rank, is_collect=True)
         self.rollout = NaiveRolloutRob(module=self.actor_module_fsdp, model_config=self.config.model)
-        # self.rollout = NaiveRolloutRob(module=None, model_config=self.config.model)
         model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model, dataclass_type=HFModelConfig)
         self.model_config = model_config
 
@@ -114,7 +104,6 @@ class RobActorRolloutRefWorker(ActorRolloutRefWorker):
         loop.run_until_complete(self.trainer_mode())
         log_gpu_memory_usage("After switch to trainer mode", logger=logger)
 
-    
     async def rollout_mode(self):
         """Context switch hybridengine to rollout mode."""
         aggressive_empty_cache(force_sync=True)
@@ -141,7 +130,7 @@ class RobActorRolloutRefWorker(ActorRolloutRefWorker):
             )
 
         self.fsdp_unshard_exit_stack = fsdp_unshard_exit_stack
-        print("rollout mode")
+        logger.info("rollout mode")
 
     async def trainer_mode(self):
         """Context switch hybridengine to trainer mode."""
@@ -159,7 +148,7 @@ class RobActorRolloutRefWorker(ActorRolloutRefWorker):
         if self.fsdp_unshard_exit_stack is not None:
             self.fsdp_unshard_exit_stack.close()
             self.fsdp_unshard_exit_stack = None
-        print("trainer mode")
+        logger.info("trainer mode")
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="rollout"), blocking=False)
     @DistProfiler.annotate(color="red", role="rollout_generate")
@@ -179,20 +168,10 @@ class RobActorRolloutRefWorker(ActorRolloutRefWorker):
         prompts.meta_info.update(meta_info)
 
         timing_generate = {}
-        # if self._is_actor:  # For rollout only, we do not switch context.
-        #     loop = asyncio.get_event_loop()
-        #     loop.run_until_complete(self.rollout_mode())
-        #     log_gpu_memory_usage("After switch to rollout mode", logger=logger)
 
         with simple_timer("generate_sequences", timing_generate):
             output = self.rollout.generate_sequences(prompts=prompts)
 
-        # if self._is_actor:
-        #     loop.run_until_complete(self.trainer_mode())
-        #     log_gpu_memory_usage("After switch to trainer mode", logger=logger)
-
-        # We calculate the average timing across all ranks
-        # to make sure meta_info["timing"] is the same
         timing_generate_topk_ratio, timing_generate_min, timing_generate_max = topk_reduce_ratio_min_max(
             timing_generate["generate_sequences"]
         )
@@ -276,12 +255,3 @@ class RobActorRolloutRefWorker(ActorRolloutRefWorker):
         torch.cuda.synchronize()
         torch.distributed.barrier()
         torch.cuda.empty_cache()
-
-    # @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    # def compute_ref_log_prob(self, data: DataProto):
-    #     return data
-    #     # pass
-
-    # @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    # def save_checkpoint(self, local_path, hdfs_path=None):
-    #     pass

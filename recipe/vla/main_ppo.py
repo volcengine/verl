@@ -13,6 +13,8 @@
 # limitations under the License.
 
 
+import logging
+
 import datasets
 import hydra
 import ray
@@ -22,11 +24,11 @@ from omegaconf import OmegaConf
 from verl import DataProto
 from verl.trainer.constants_ppo import get_ppo_ray_runtime_env
 from verl.trainer.ppo.ray_trainer import ResourcePoolManager
-
 from verl.trainer.ppo.utils import Role
-# from verl.trainer.ppo.ray_trainer import RayTrainer
+
 from .rob_ray_trainer import RobRayPPOTrainer
 
+logger = logging.getLogger(__name__)
 
 
 def calculate_reward(data: DataProto, return_dict: bool = False) -> torch.Tensor:
@@ -49,7 +51,7 @@ def main(config):
         runtime_env_kwargs = ray_init_kwargs.get("runtime_env", {})
         runtime_env = OmegaConf.merge(default_runtime_env, runtime_env_kwargs)
         ray_init_kwargs = OmegaConf.create({**ray_init_kwargs, "runtime_env": runtime_env})
-        print(f"ray init kwargs: {ray_init_kwargs}")
+        logger.info(f"ray init kwargs: {ray_init_kwargs}")
         ray.init(**OmegaConf.to_container(ray_init_kwargs))
     ray.get(main_task.remote(config))
 
@@ -87,7 +89,6 @@ def main_task(config):
     else:
         raise NotImplementedError
 
-
     role_worker_mapping = {
         # Role.Critic: ray.remote(RobActorRolloutRefWorker),
         Role.ActorRollout: ray.remote(RobActorRolloutRefWorker),
@@ -104,16 +105,9 @@ def main_task(config):
     }
     mapping = {
         Role.ActorRollout: global_pool_id,
-        # Role.Critic: global_pool_id,
-        # Role.RefPolicy: global_pool_id,
         Role.Env: "env_gpu_pool",
     }
 
-    # reward_fn = RobRewardManager( num_examine=0, config=config) # note: verifier is called
-    # both inside reward_fn and outside.
-
-    # # Note that we always use function-based RM for validation
-    # val_reward_fn = RobRewardManager( num_examine=1,config=config)
     reward_fn = calculate_reward
     val_reward_fn = calculate_reward
 

@@ -61,10 +61,6 @@ def create_env_batch_dataproto(obs, rews, terminations, truncations, infos, meta
         "rews": ret_dict["rews"],
         "terminations": ret_dict["terminations"],
         "truncations": ret_dict["truncations"],
-        # "success_once": infos['episode']['success_once'],
-        # "return": infos['episode']['return'],
-        # "episode_length": infos['episode']['episode_len'],
-        # "reward": infos['episode']['reward'],
     }
     non_tensor_batch = {"task_descriptions": obs["task_descriptions"]}
     output = DataProto.from_dict(tensors=tensor_batch, non_tensors=non_tensor_batch)
@@ -84,32 +80,7 @@ class EnvWorker(Worker):
         self.last_dones_list = []
         self.eval_simulator_list = []
 
-        # assert (
-        #     self._component_placement.get_world_size("rollout")
-        #     % self._component_placement.get_world_size("env")
-        #     == 0
-        # )
-        # # gather_num: number of rollout for each env process
-        # self.gather_num = self._component_placement.get_world_size(
-        #     "rollout"
-        # ) // self._component_placement.get_world_size("env")
-        # stage_num: default to 2, use for pipeline rollout process
         self.stage_num = self.cfg.rollout.pipeline_stage_num
-        # self.batch_size = self.cfg.train.num_group * self.cfg.train.group_size
-        # self.eval_batch_size = (
-        #     self.cfg.eval.num_group * self.cfg.eval.group_size
-        # )
-
-        # # only need rank0 to create channel
-        # if self._rank == 0:
-        #     self.channel = self.create_channel(cfg.env.channel.name)
-        # else:
-        #     self.channel = self.connect_channel(cfg.env.channel.name)
-        # for i in range(self.gather_num):
-        #     self.channel.create_queue(
-        #         f"{self._obs_queue_name}_{i + self._rank * self.gather_num}",
-        #         maxsize=cfg.env.channel.queue_size,
-        #     )
         initialize_global_process_group_ray(timeout_second=None)
         device_name = get_device_name()
         env_device_mesh = init_device_mesh(device_name, mesh_shape=(self.world_size, 1), mesh_dim_names=["dp", "tp"])
@@ -117,8 +88,6 @@ class EnvWorker(Worker):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_worker(self):
-        # enable_offload = self.cfg.enable_offload
-        # only_eval = getattr(self.cfg.runner, "only_eval", False)
         if self.cfg.train.simulator_type == "libero":
             from verl.envs.libero_env.libero_env import LiberoEnv
 
@@ -147,11 +116,6 @@ class EnvWorker(Worker):
         else:
             raise NotImplementedError(f"Simulator type {self.cfg.train.simulator_type} not implemented")
 
-        # if not only_eval:
-        #     self._init_simulator()
-
-    # @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="env"), blocking=False)
-    # @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_simulator(self):
         for i in range(self.stage_num):
@@ -159,7 +123,6 @@ class EnvWorker(Worker):
         return
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="env"), blocking=False)
-    # @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="env"))  # for debug
     def env_interact_step(self, data: DataProto) -> dict:
         """
         This function is used to interact with the environment.

@@ -17,78 +17,10 @@
 """Utils for evaluating policies in LIBERO simulation environments."""
 
 import math
-import os
-from typing import Any
 
 import numpy as np
-from libero.libero import get_libero_path
-from libero.libero.envs import OffScreenRenderEnv
 
-
-def get_libero_env(
-    task: Any, model_family: str, seed: int = 0, resolution: int = 256
-) -> tuple[OffScreenRenderEnv, str]:
-    """
-    Initializes and returns the LIBERO environment, along with the task description.
-
-    Args:
-        task: LIBERO task object
-        model_family: Model family name
-        seed: Random seed for environment
-        resolution: Camera resolution
-
-    Returns:
-        Tuple of (environment, task_description)
-    """
-    task_description = task.language
-    task_bddl_file = os.path.join(get_libero_path("bddl_files"), task.problem_folder, task.bddl_file)
-    env_args = {
-        "bddl_file_name": task_bddl_file,
-        "camera_heights": resolution,
-        "camera_widths": resolution,
-    }
-    env = OffScreenRenderEnv(**env_args)
-    env.seed(seed)  # IMPORTANT: seed seems to affect object positions even when using fixed initial state
-    return env, task_description
-
-
-def get_libero_dummy_action(model_family: str) -> list[int]:
-    """
-    Get dummy/no-op action, used to roll out the simulation while the robot does nothing.
-
-    Args:
-        model_family: Model family name
-
-    Returns:
-        List of zero actions for robot control
-    """
-    return [0, 0, 0, 0, 0, 0, -1]
-
-
-def resize_image(img: np.ndarray, resize_size: int | tuple[int, int]) -> np.ndarray:
-    """
-    Takes numpy array corresponding to a single image and returns resized image as numpy array.
-    NOTE (Moo Jin): To make input images in distribution with respect to the inputs seen at training time, we follow
-                    the same resizing scheme used in the Octo dataloader, which OpenVLA uses for training.
-
-    Args:
-        img: Input image as numpy array
-        resize_size: Target size for resizing
-
-    Returns:
-        Resized image as numpy array
-    """
-
-    import tensorflow as tf
-
-    assert isinstance(resize_size, tuple)
-    # Resize to image size expected by model
-    img = tf.image.encode_jpeg(img)  # Encode as JPEG, as done in RLDS dataset builder
-    img = tf.io.decode_image(img, expand_animations=False, dtype=tf.uint8)  # Immediately decode back
-    img = tf.image.resize(img, resize_size, method="lanczos3", antialias=True)
-    img = tf.cast(tf.clip_by_value(tf.round(img), 0, 255), tf.uint8)
-    img = img.numpy()
-    return img
+from verl.envs.action_utils import resize_image
 
 
 def get_libero_image(obs: dict[str, np.ndarray]) -> np.ndarray:
@@ -151,25 +83,6 @@ def quat2axisangle(quat: np.ndarray) -> np.ndarray:
         return np.zeros(3)
 
     return (quat[:3] * 2.0 * math.acos(quat[3])) / den
-
-
-def get_image_resize_size(cfg: Any) -> int:
-    """
-    Gets image resize size for a model class.
-    If `resize_size` is an int, then the resized image will be a square.
-    Else, the image will be a rectangle.
-
-    Args:
-        cfg: Configuration object containing model_family
-
-    Returns:
-        Resize size for the specified model family
-    """
-    if cfg.model_family == "openvla":
-        resize_size = 224
-    else:
-        raise ValueError("Unexpected `model_family` found in config.")
-    return resize_size
 
 
 def normalize_gripper_action(action: np.ndarray, binarize: bool = True) -> np.ndarray:

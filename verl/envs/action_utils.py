@@ -15,59 +15,24 @@
 # limitations under the License.
 
 import os
+from io import BytesIO
 from typing import Any, Optional
 
 import imageio
 import numpy as np
 import torch
+import torchvision.transforms.functional as F
 from PIL import Image, ImageDraw, ImageFont
 
 
-def prepare_actions_for_maniskill(
-    raw_chunk_actions,
-    num_action_chunks,
-    action_dim,
-    action_scale,
-    policy,
-) -> torch.Tensor:
-    # TODO only suitable for action_dim = 7
-    reshaped_actions = raw_chunk_actions.reshape(-1, action_dim)
-    batch_size = reshaped_actions.shape[0]
-    raw_actions = {
-        "world_vector": np.array(reshaped_actions[:, :3]),
-        "rotation_delta": np.array(reshaped_actions[:, 3:6]),
-        "open_gripper": np.array(reshaped_actions[:, 6:7]),  # range [0, 1]; 1 = open; 0 = close
-    }
-
-    # process raw_action to obtain the action to be sent to the maniskill2 environment
-    actions = {}
-    actions["world_vector"] = raw_actions["world_vector"] * action_scale  # [B, 3]
-    actions["rot_axangle"] = raw_actions["rotation_delta"] * action_scale  # [B, 3]
-
-    if policy == "google_robot":
-        raise NotImplementedError
-    elif policy == "widowx_bridge":
-        actions["gripper"] = 2.0 * (raw_actions["open_gripper"] > 0.5) - 1.0  # [B, 1]
-
-    actions["terminate_episode"] = np.array([0.0] * batch_size).reshape(-1, 1)  # [B, 1]
-
-    actions = {k: torch.tensor(v, dtype=torch.float32) for k, v in actions.items()}
-    actions = torch.cat([actions["world_vector"], actions["rot_axangle"], actions["gripper"]], dim=1).cuda()
-
-    chunk_actions = actions.reshape(-1, num_action_chunks, action_dim)
-
-    return chunk_actions
-
-
-def prepare_actions_for_libero(
+def prepare_actions_simplevla(
     raw_chunk_actions,
 ) -> torch.Tensor:
-    chunk_actions = raw_chunk_actions.copy()
-    chunk_actions[..., -1] = 2 * chunk_actions[..., -1] - 1
-    chunk_actions[..., -1] = np.sign(chunk_actions[..., -1]) * -1.0
+    from verl.envs.libero_env.utils import invert_gripper_action, normalize_gripper_action
 
-    chunk_actions = torch.from_numpy(chunk_actions).cuda()
-    return chunk_actions
+    normalized_action = normalize_gripper_action(raw_chunk_actions, binarize=True)
+    inverted_action = invert_gripper_action(normalized_action)
+    return inverted_action
 
 
 def prepare_actions(
@@ -78,22 +43,10 @@ def prepare_actions(
     action_scale: float = 1.0,
     policy: str = "widowx_bridge",
 ) -> torch.Tensor:
-    if simulator_type == "libero":
-        chunk_actions = prepare_actions_for_libero(
-            raw_chunk_actions=raw_chunk_actions,
-        )
-    elif simulator_type == "maniskill":
-        chunk_actions = prepare_actions_for_maniskill(
-            raw_chunk_actions=raw_chunk_actions,
-            num_action_chunks=num_action_chunks,
-            action_dim=action_dim,
-            action_scale=action_scale,
-            policy=policy,
-        )
-    elif simulator_type == "robotwin":
-        chunk_actions = raw_chunk_actions
-    else:
-        raise NotImplementedError
+    # TODO: prepare_actions according to simulator_type
+    chunk_actions = prepare_actions_simplevla(
+        raw_chunk_actions=raw_chunk_actions,
+    )
 
     return chunk_actions
 
@@ -301,3 +254,50 @@ def save_rollout_video(rollout_images: list[np.ndarray], output_dir: str, video_
     for img in rollout_images:
         video_writer.append_data(img)
     video_writer.close()
+
+
+def resize_image(img: np.ndarray, resize_size: tuple[int, int]) -> np.ndarray:
+    """
+    Takes numpy array corresponding to a single image and returns resized image as numpy array.
+
+    Args:
+        img: Input image as numpy array
+        resize_size: Target size for resizing
+
+    Returns:
+        Resized image as numpy array
+    """
+
+    assert isinstance(resize_size, tuple), "resize_size must be a tuple"
+    assert isinstance(img, np.ndarray), "img must be a numpy array"
+
+    # Convert numpy array to PIL Image
+    pil_img = Image.fromarray(img)
+
+    # Encode as JPEG, as done in RLDS dataset builder
+    buffer = BytesIO()
+    pil_img.save(buffer, format="JPEG")
+    buffer.seek(0)
+
+    # Immediately decode back
+    img = Image.open(buffer)
+
+    img = img.resize(resize_size, Image.Resampling.LANCZOS)
+    img = np.array(img)
+    img = np.clip(np.round(img), 0, 255).astype(np.uint8)
+
+    return img
+
+
+def center_crop_image(image: Image.Image) -> Image.Image:
+    crop_scale = 0.9
+    orig_w, orig_h = image.size
+    image_tensor = F.to_tensor(image)
+    crop_h = int(orig_h * crop_scale)
+    crop_w = int(orig_w * crop_scale)
+    image_tensor = F.center_crop(image_tensor, (crop_h, crop_w))
+    image_tensor = F.resize(image_tensor, (orig_h, orig_w))
+    final_image = F.to_pil_image(image_tensor)
+
+    final_image = final_image.convert("RGB")
+    return final_image

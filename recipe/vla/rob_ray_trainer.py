@@ -149,10 +149,6 @@ class RobRayPPOTrainer(RayPPOTrainer):
         wg_kwargs["device_name"] = self.device_name
 
         for resource_pool, class_dict in self.resource_pool_to_cls.items():
-            # breakpoint()
-            # if resource_pool == "env_gpu_pool":
-            #     worker_dict_cls = class_dict
-            # else:
             worker_dict_cls = create_colocated_worker_cls(class_dict=class_dict)
             wg_dict = self.ray_worker_group_cls(
                 resource_pool=resource_pool,
@@ -162,11 +158,9 @@ class RobRayPPOTrainer(RayPPOTrainer):
             spawn_wg = wg_dict.spawn(prefix_set=class_dict.keys())
             all_wg.update(spawn_wg)
 
-        # breakpoint()
         # we should create rollout at the end so that vllm can have a better estimation of kv cache memory
         self.actor_rollout_wg = all_wg["actor_rollout"]
         self.actor_rollout_wg.init_model()
-        # breakpoint()
         self.env_wg = all_wg["env"]
 
         # create async rollout manager and request scheduler
@@ -274,23 +268,10 @@ class RobRayPPOTrainer(RayPPOTrainer):
                 with marked_timer("step", timing_raw):
                     # generate a batch
                     with marked_timer("gen", timing_raw, color="red"):
-                        # debug only
-                        # batch = torch.load("batch_flatten.pt", weights_only=False)
-                        # batch.meta_info["pad_token_id"] = self.tokenizer.pad_token_id
-                        # batch.batch["response_mask"] = batch.batch["response_mask"].repeat_interleave(7, dim=-1)
-                        # debug only
-
-                        # real rollout
-                        if not self.async_rollout_mode:
-                            gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
-                        else:  # vla loop
-                            gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
-                        # timing_raw.update(gen_batch_output.meta_info["timing"])
-                        # gen_batch_output.meta_info.pop("timing", None)
+                        gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
 
                     # repeat to align with repeated responses in rollout
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
-                    # batch = batch.union(gen_batch_output)
                     batch = gen_batch_output
 
                     if "response_mask" not in batch.batch.keys():
@@ -302,14 +283,6 @@ class RobRayPPOTrainer(RayPPOTrainer):
 
                     batch.batch["reward_tensor"] = reward_tensor
                     batch = flatten_trajectories(batch)
-                    # real rollout
-
-                    # compute global_valid tokens
-                    # valid_rows_mask = batch.batch["response_mask"].any(dim=1)
-                    # valid_rows_idx = valid_rows_mask.nonzero(as_tuple=False).flatten().tolist()
-                    # batch = batch[valid_rows_idx]
-                    # size_divisor = self.actor_rollout_wg.world_size
-                    # batch, pad_size = pad_dataproto_to_divisor(batch, size_divisor)
 
                     batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
 
@@ -349,9 +322,7 @@ class RobRayPPOTrainer(RayPPOTrainer):
                     with marked_timer("adv", timing_raw, color="brown"):
                         # we combine with rule-based rm
                         reward_extra_infos_dict: dict[str, list] = None
-                        # batch.batch["token_level_scores"] = (
-                        #     batch.batch["reward_tensor"].unsqueeze(-1).expand(-1, response_masks.shape[-1])
-                        # )
+
                         token_level_scores = torch.zeros_like(response_masks, dtype=torch.float32)
                         flipped_mask = response_masks.flip(dims=[1])
                         indices_in_flipped = torch.argmax(flipped_mask.long(), dim=1)
@@ -603,20 +574,6 @@ class RobRayPPOTrainer(RayPPOTrainer):
                 sample_turns.append(test_batch.non_tensor_batch["__num_turns__"])
 
             data_source_lst.append(test_batch.non_tensor_batch.get("data_source", ["unknown"] * reward_tensor.shape[0]))
-
-        # self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
-
-        # # dump generations
-        # val_data_dir = self.config.trainer.get("validation_data_dir", None)
-        # if val_data_dir:
-        #     self._dump_generations(
-        #         inputs=sample_inputs,
-        #         outputs=sample_outputs,
-        #         gts=sample_gts,
-        #         scores=sample_scores,
-        #         reward_extra_infos_dict=reward_extra_infos_dict,
-        #         dump_path=val_data_dir,
-        #     )
 
         for key_info, lst in reward_extra_infos_dict.items():
             assert len(lst) == 0 or len(lst) == len(sample_scores), f"{key_info}: {len(lst)=}, {len(sample_scores)=}"

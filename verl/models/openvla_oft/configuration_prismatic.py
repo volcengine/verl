@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# from https://github.com/PRIME-RL/SimpleVLA-RL/blob/main/verl/utils/vla_utils/openvla_oft/
+# form https://huggingface.co/Haozhan72/Openvla-oft-SFT-libero10-trajall/blob/main/
 """
 configuration_prismatic.py
 

@@ -21,58 +21,21 @@ The output will contain
 """
 
 import json
+import logging
 import os
-from io import BytesIO
 
-import numpy as np
 import torch
-import torchvision.transforms.functional as F
 from PIL import Image
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.nn.utils.rnn import pad_sequence
 
 from verl import DataProto
+from verl.envs.action_utils import center_crop_image, resize_image
 from verl.models.openvla_oft.modeling_prismatic import OpenVLAForActionPrediction
 from verl.models.openvla_oft.processing_prismatic import PrismaticProcessor
 from verl.workers.rollout.base import BaseRollout
 
-# from recipe.vla.profiler_utils import conditional_profiler
-
-
-def center_crop_image(image: Image.Image) -> Image.Image:
-    crop_scale = 0.9
-    orig_w, orig_h = image.size
-    image_tensor = F.to_tensor(image)
-    crop_h = int(orig_h * crop_scale)
-    crop_w = int(orig_w * crop_scale)
-    image_tensor = F.center_crop(image_tensor, (crop_h, crop_w))
-    image_tensor = F.resize(image_tensor, (orig_h, orig_w))
-    final_image = F.to_pil_image(image_tensor)
-
-    final_image = final_image.convert("RGB")
-    return final_image
-
-
-def resize_image(img, resize_size):
-    assert isinstance(resize_size, tuple), "resize_size must be a tuple"
-    assert isinstance(img, np.ndarray), "img must be a numpy array"
-
-    # Convert numpy array to PIL Image
-    pil_img = Image.fromarray(img)
-
-    # Encode as JPEG, as done in RLDS dataset builder
-    buffer = BytesIO()
-    pil_img.save(buffer, format="JPEG")
-    buffer.seek(0)
-
-    # Immediately decode back
-    img = Image.open(buffer)
-
-    img = img.resize(resize_size, Image.Resampling.LANCZOS)
-    img = np.array(img)
-    img = np.clip(np.round(img), 0, 255).astype(np.uint8)
-
-    return img
+logger = logging.getLogger(__name__)
 
 
 __all__ = ["NaiveRolloutRob"]
@@ -101,15 +64,6 @@ def process_input(task_descriptions, images_and_states, processor):
         image = center_crop_image(image)
         prompt = f"In: What action should the robot take to {task_description.lower()}?\nOut:"
         batch_feature = processor(prompt, image)
-
-        # if "wrist_image" in venv_obs.keys():
-        #     wrist_image = Image.fromarray(input["wrist_image"]).convert("RGB")
-        #     if config["center_crop"]:
-        #         wrist_image = center_crop_image(wrist_image)
-        #     wrist_batch_feature = processor(prompt, wrist_image)
-        #     primary_pixel_values = batch_feature["pixel_values"]
-        #     batch_feature["pixel_values"] = (torch.cat([primary_pixel_values] +
-        #     [wrist_batch_feature["pixel_values"]], dim=1))
 
         input_ids = batch_feature["input_ids"]
         attention_mask = batch_feature["attention_mask"]
@@ -161,12 +115,6 @@ class NaiveRolloutRob(BaseRollout):
         module: torch.nn.Module = None,
     ):
         self.model_config = model_config
-        # self.model_config.update({
-        #     "center_crop": True,
-        #     "num_steps_wait": 10
-        # })
-        # actor_model_config = OpenVLAConfig.from_pretrained(local_path, trust_remote_code=True)
-        # print("model_config local_path", model_config["local_path"])
         if module is not None:
             self.module = module
         else:
@@ -214,7 +162,6 @@ class NaiveRolloutRob(BaseRollout):
 
         assert idx.device.type == "cuda"
         assert response.device.type == "cuda"
-        # assert seq.device.type == 'cuda'
         assert attention_mask.device.type == "cuda"
         assert pixel_values.device.type == "cuda"
         batch = {
@@ -247,36 +194,10 @@ class NaiveRolloutRob(BaseRollout):
 
     async def update_weights(self, weights_iterator, **kwargs):
         pass
-        # prefix = "_fsdp_wrapped_module."
-
-        # # cleaned_state_dict = {
-        # #     name.replace(prefix, ""): param.cpu()
-        # #     for name, param in weights_iterator
-        # # }
-
-        # # self.module.load_state_dict(cleaned_state_dict, strict=False)
-        # target_state_dict = self.module.state_dict()
-
-        # loaded_tensors_count = 0
-        # for name, param in weights_iterator:
-        #     cleaned_name = name.replace(prefix, "")
-
-        #     if cleaned_name in target_state_dict:
-        #         target_tensor = target_state_dict[cleaned_name]
-
-        #         try:
-        #             target_tensor.copy_(param, non_blocking=True)
-        #             loaded_tensors_count += 1
-        #         except Exception as e:
-        #             print(f"Warning: Failed to copy tensor '{cleaned_name}'. Error: {e}")
-        #     else:
-        #         print(f"Warning: Failed to copy tensor '{cleaned_name}'. Model has no such key.")
-        #         pass
-        # print(f"Rollout model weights updated. Loaded {loaded_tensors_count} tensors one by one.")
 
     async def release(self):
         if self.module.device.type == "cuda":
-            print("Releasing rollout model to CPU.")
+            logger.info("Releasing rollout model to CPU.")
             self.module.cpu()
             self.device = torch.device("cpu")
             torch.cuda.empty_cache()
@@ -284,6 +205,6 @@ class NaiveRolloutRob(BaseRollout):
     async def resume(self, **kwargs):
         if self.module.device.type == "cpu":
             target_device = "cuda"
-            print(f"Resuming rollout model to device: {target_device}.")
+            logger.info(f"Resuming rollout model to device: {target_device}.")
             self.module.to(target_device)
             self.device = torch.device(target_device)
