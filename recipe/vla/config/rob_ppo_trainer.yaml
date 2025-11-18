@@ -33,6 +33,10 @@ env:
       camera_names: 
         - agentview
         - robot0_eye_in_hand
+  disagg_sim:
+    enable: False
+    nnodes: 1
+
 
 actor_rollout_ref:
   actor:

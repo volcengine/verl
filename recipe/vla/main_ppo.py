@@ -96,15 +96,26 @@ def main_task(config):
         Role.Env: ray.remote(EnvWorker),
     }
 
-    global_pool_id = "global_pool"
-    env_gpu_num = config.trainer.n_env_gpus_per_node
+    train_rollout_pool_id = "train_rollout_pool"
+    
+    num_nodes_actor_rollout = config.trainer.nnodes
     train_rollout_gpu_num = config.trainer.n_rollout_gpus_per_node
+    env_gpu_num = config.trainer.n_env_gpus_per_node
+    if config.env.disagg_sim.enable:
+        # disaggregated sim and actor rollout
+        num_nodes_sim = config.env.disagg_sim.nnodes
+    else:
+        # colocated sim and actor rollout
+        num_nodes_sim = config.trainer.nnodes
+
     resource_pool_spec = {
-        global_pool_id: [train_rollout_gpu_num] * config.trainer.nnodes,
-        "env_gpu_pool": [env_gpu_num] * config.trainer.nnodes,
+        train_rollout_pool_id: [train_rollout_gpu_num] * num_nodes_actor_rollout,
+        "env_gpu_pool": [env_gpu_num] * num_nodes_sim,
     }
     mapping = {
-        Role.ActorRollout: global_pool_id,
+        Role.ActorRollout: train_rollout_pool_id,
+        # Role.Critic: global_pool_id,
+        # Role.RefPolicy: global_pool_id,
         Role.Env: "env_gpu_pool",
     }
 

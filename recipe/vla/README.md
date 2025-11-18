@@ -34,6 +34,34 @@ The Isaac Lab support for libero dataset depends on RobotLearningLab project fro
 
 `vemlp-cn-shanghai.cr.volces.com/preset-images/verl_vla:preview_vla_0.1`
 
+## Disaggregation Mode for Train-Rollout / Simulation
+
+Disaggregate Train-Rollout workers and Simulation workers into different nodes.
+
+To enable disaggregation mode for Train-Rollout nodes and Simulation nodes, we need to establish ray connection before running verl.
+* On Train-Rollout node (default main node):
+```shell
+ray start --head --dashboard-host=0.0.0.0 --resources='{"train_rollout": 1}'
+```
+* On Simulation node:
+```shell
+ray start --address='<main_node_ip>:6379' --resources='{"sim": 1}'
+```
+
+Then run verl on main node **only**. See `run_simpleVLA_isaac_disagg.sh` for example.
+- `env.disagg_sim.enable=True` enable disagg mode
+- `trainer.n_env_gpus_per_node` GPUs for simulaton per node
+- `trainer.n_rollout_gpus_per_node` GPUs for train-rollout node
+- `env.disagg_sim.nnodes` sim node num
+- `trainer.nnodes` train-rollout node num
+
+*Tips: you can run the following command on the sim node to check whether sim workers are scheduled up*
+```shell
+python -c "import ray; ray.init(address=\"<main_node_ip>:6379\"); print(ray._private.state.available_resources_per_node())"
+```
+*If you see output pattern like "'train_rollout': 0.9992" and "'sim': 0.9992", the sim workers are scheduled up successfully*
+*The actual value depends on your GPUs per node, usually <1 - 1e-4 * num_gpus>*
+
 **References:**
 *   [https://github.com/PRIME-RL/SimpleVLA-RL](https://github.com/PRIME-RL/SimpleVLA-RL)
 *   [https://github.com/RLinf/RLinf](https://github.com/RLinf/RLinf)
