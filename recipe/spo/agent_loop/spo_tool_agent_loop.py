@@ -16,16 +16,15 @@ import asyncio
 import copy
 import logging
 import os
-from enum import Enum
 from typing import Any, Optional
 from uuid import uuid4
 
-from recipe.spo.agent_loop.spo_agent_loop import (
+from verl.experimental.agent_loop.agent_loop import (
     AgentLoopBase,
     AgentLoopOutput,
     register,
 )
-from recipe.spo.agent_loop.spo_tool_parser import FunctionCall, ToolParser
+from verl.experimental.agent_loop.tool_agent_loop import AgentState
 from verl.interactions.base import BaseInteraction
 from verl.interactions.utils.interaction_registry import (
     initialize_interactions_from_config,
@@ -38,13 +37,6 @@ from verl.utils.rollout_trace import rollout_trace_op
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
-
-class AgentState(Enum):
-    PENDING = "pending"
-    GENERATING = "generating"
-    PROCESSING_TOOLS = "processing_tools"
-    TERMINATED = "terminated"
-    INTERACTING = "interacting"
 
 
 class AgentData:
@@ -79,11 +71,11 @@ class AgentData:
         self.assistant_turns = 0
 
         # Temporary state for tool calls
-        self.tool_calls: list[FunctionCall] = []
+        self.tool_calls: list[str] = []  # Raw Python code strings extracted from <code> tags
 
 
-@register("tool_agent")
-class ToolAgentLoop(AgentLoopBase):
+@register("spo_tool_agent")
+class SPOToolAgentLoop(AgentLoopBase):
     @classmethod
     def init_class(cls, config, tokenizer, processor, **kwargs):
         if cls._class_initialized:
@@ -103,8 +95,6 @@ class ToolAgentLoop(AgentLoopBase):
         tool_list = initialize_tools_from_config(tool_config_path) if tool_config_path else []
         cls.tools = {tool.name: tool for tool in tool_list}
         cls.tool_schemas = [tool.tool_schema.model_dump(exclude_unset=True, exclude_none=True) for tool in tool_list]
-        cls.tool_parser = ToolParser.get_tool_parser(config.actor_rollout_ref.rollout.multi_turn.format, cls.tokenizer)
-        cls.tool_parser_name = config.actor_rollout_ref.rollout.multi_turn.format
         print(f"Initialized tools: {cls.tools}")
 
         cls.apply_chat_template_kwargs = config.data.get("apply_chat_template_kwargs", {})
@@ -186,6 +176,34 @@ class ToolAgentLoop(AgentLoopBase):
         output.extra_fields.update({"turn_scores": agent_data.turn_scores, "tool_rewards": agent_data.tool_rewards})
         return output
 
+    def _extract_code_blocks(self, response_ids: list[int]) -> list[str]:
+        """Extract Python code from <code>...</code> tags in response.
+
+        Args:
+            response_ids: Token IDs from model response
+
+        Returns:
+            List of cleaned Python code strings
+        """
+        import re
+
+        # Decode token IDs to text
+        response_text = self.tokenizer.decode(response_ids, skip_special_tokens=False)
+
+        # Extract all code blocks between <code> and </code> tags
+        pattern = r"<code>(.*?)</code>"
+        matches = re.findall(pattern, response_text, re.DOTALL)
+
+        # Clean each code block (remove markdown fences, strip whitespace)
+        cleaned_codes = []
+        for match in matches:
+            # Remove markdown code fences if present
+            cleaned = re.sub(r"^```(?:python)?\s*\n?", "", match.strip())
+            cleaned = re.sub(r"\n?```\s*$", "", cleaned)
+            cleaned_codes.append(cleaned.strip())
+
+        return cleaned_codes
+
     async def _handle_pending_state(self, agent_data: AgentData, sampling_params: dict[str, Any]) -> AgentState:
         """Handle the pending state: prepare the prompt and start generation."""
         problem = agent_data.messages[0]["content"]
@@ -231,8 +249,8 @@ class ToolAgentLoop(AgentLoopBase):
         if self.max_user_turns and agent_data.user_turns >= self.max_user_turns:
             return AgentState.TERMINATED
 
-        # Extract tool calls
-        _, agent_data.tool_calls = await self.tool_parser.extract_tool_calls(agent_data.response_ids)
+        # Extract code blocks from <code> tags
+        agent_data.tool_calls = self._extract_code_blocks(agent_data.response_ids)
 
         # Handle interaction if needed
         if self.interaction_config_file:
@@ -334,6 +352,7 @@ class ToolAgentLoop(AgentLoopBase):
         try:
             tool = self.tools["code_interpreter"]
             instance_id, _ = await tool.create(create_kwargs={})
+
             tool_execution_response, _, _ = await tool.execute(instance_id, tool_call)
         except Exception as e:
             logger.warning(f"Error when executing tool: {e}")

@@ -23,6 +23,10 @@ val_files="['Maxwell-Jia/AIME_2024', 'yentinglin/aime_2025']"
 # tool
 tool_config_path=recipe/spo/spo_tool_config.yaml
 
+# agent loop
+agent_loop_config_path=recipe/spo/config/spo_agent.yaml
+default_agent_loop=spo_tool_agent
+
 # wandb
 project_name=spo
 experiment_name=$EXP_NAME
@@ -116,7 +120,8 @@ python3 -m recipe.spo.spo_main_ppo \
     actor_rollout_ref.rollout.multi_turn.max_user_turns=$max_turns \
     actor_rollout_ref.rollout.multi_turn.max_assistant_turns=$max_turns \
     actor_rollout_ref.rollout.multi_turn.tool_config_path=$tool_config_path \
-    actor_rollout_ref.rollout.multi_turn.format=spo \
+    actor_rollout_ref.rollout.agent.agent_loop_config_path=$agent_loop_config_path \
+    actor_rollout_ref.rollout.agent.default_agent_loop=$default_agent_loop \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
     actor_rollout_ref.rollout.n=$n_resp_per_prompt \
     actor_rollout_ref.rollout.val_kwargs.temperature=0.6 \

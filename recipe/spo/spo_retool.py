@@ -114,14 +114,14 @@ class CustomRLHFDataset(RLHFDataset):
             "prompt": [{"role": "user", "content": prompt}],
             "ability": "MATH",
             "reward_model": {"ground_truth": str(answer)},
-            "agent_name": "tool_agent",
+            "agent_name": "spo_tool_agent",
         }
         return data
 
     def map_fn2(self, row: dict):
         content = row["prompt"]
         row["prompt"] = [{"role": "user", "content": content + answer_format}]
-        row["agent_name"] = "tool_agent"
+        row["agent_name"] = "spo_tool_agent"
         return row
 
 

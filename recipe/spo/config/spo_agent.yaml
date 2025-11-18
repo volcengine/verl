@@ -13,8 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .spo_agent_loop import SPOAgentLoopManager
+# SPO Agent Loop Configuration
+# This file registers the SPO tool agent for code generation and execution
+# The agent uses a code interpreter to execute Python code within sandboxed environments
 
-__all__ = [
-    "SPOAgentLoopManager"
-]
+- name: spo_tool_agent
+  _target_: recipe.spo.agent_loop.spo_tool_agent_loop.SPOToolAgentLoop

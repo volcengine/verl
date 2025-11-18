@@ -13,7 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Note that we don't combine the main with ray_trainer as ray_trainer is used by other mpain.
+SPO main PPO training entry point.
+This module extends the base PPO trainer with SPO-specific logic.
 """
 
 import os
@@ -24,13 +25,13 @@ import ray
 from omegaconf import OmegaConf
 
 from recipe.spo.spo_ray_trainer import RayPPOTrainer
-from verl.experimental.dataset.sampler import AbstractSampler
 from verl.trainer.constants_ppo import get_ppo_ray_runtime_env
+from verl.trainer.main_ppo import TaskRunner as BaseTaskRunner
+from verl.trainer.main_ppo import create_rl_dataset, create_rl_sampler
 from verl.trainer.ppo.reward import load_reward_manager
 from verl.trainer.ppo.utils import need_critic, need_reference_policy
 from verl.utils.config import validate_config
 from verl.utils.device import is_cuda_available
-from verl.utils.import_utils import load_extern_type
 
 
 @hydra.main(config_path="config", config_name="spo_trainer", version_base=None)
@@ -60,6 +61,7 @@ def run_ppo(config, task_runner_class=None) -> None:
         # NCCL debug level, VLLM logging level, and allow runtime LoRA updating
         # `num_cpus` specifies the number of CPU cores Ray can use, obtained from the configuration
         default_runtime_env = get_ppo_ray_runtime_env()
+        # SPO-specific debug logic: Enable Ray debug mode for legacy debugging
         if config.trainer.debug:
             default_runtime_env["env_vars"]["RAY_DEBUG"] = "legacy"
         ray_init_kwargs = config.ray_kwargs.get("ray_init", {})
@@ -105,23 +107,19 @@ def run_ppo(config, task_runner_class=None) -> None:
         ray.timeline(filename=timeline_json_file)
 
 
-class TaskRunner:
-    """Ray remote class for executing distributed PPO training tasks.
+class TaskRunner(BaseTaskRunner):
+    """SPO-specific TaskRunner extending base implementation.
 
-    This class encapsulates the main training logic and runs as a Ray remote actor
-    to enable distributed execution across multiple nodes and GPUs.
-
-    Attributes:
-        role_worker_mapping: Dictionary mapping Role enums to Ray remote worker classes
-        mapping: Dictionary mapping Role enums to resource pool IDs for GPU allocation
+    Inherits most functionality from base TaskRunner and only overrides methods
+    that need to import from recipe.spo.spo_ray_trainer instead of verl.trainer.ppo.ray_trainer.
     """
 
-    def __init__(self):
-        self.role_worker_mapping = {}
-        self.mapping = {}
-
     def add_actor_rollout_worker(self, config):
-        """Add actor rollout worker based on the actor strategy."""
+        """Override: Add actor rollout worker with SPO Role import.
+
+        SPO modification: Imports Role from recipe.spo.spo_ray_trainer
+        instead of verl.trainer.ppo.ray_trainer.
+        """
         from verl.single_controller.ray import RayWorkerGroup
 
         if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
@@ -160,7 +158,11 @@ class TaskRunner:
         return actor_rollout_cls, ray_worker_group_cls
 
     def add_critic_worker(self, config):
-        """Add critic worker to role mapping."""
+        """Override: Add critic worker with SPO Role import.
+
+        SPO modification: Imports Role from recipe.spo.spo_ray_trainer
+        instead of verl.trainer.ppo.ray_trainer.
+        """
         if config.critic.strategy in {"fsdp", "fsdp2"}:
             use_legacy_worker_impl = config.trainer.get("use_legacy_worker_impl", "auto")
             if use_legacy_worker_impl in ["auto", "enable"]:
@@ -183,7 +185,11 @@ class TaskRunner:
         self.role_worker_mapping[Role.Critic] = ray.remote(CriticWorker)
 
     def init_resource_pool_mgr(self, config):
-        """Initialize resource pool manager."""
+        """Override: Initialize resource pool manager with SPO imports.
+
+        SPO modification: Imports Role and ResourcePoolManager from
+        recipe.spo.spo_ray_trainer instead of verl.trainer.ppo.ray_trainer.
+        """
         from recipe.spo.spo_ray_trainer import Role
 
         global_pool_id = "global_pool"
@@ -208,7 +214,11 @@ class TaskRunner:
         return resource_pool_manager
 
     def add_reward_model_worker(self, config):
-        """Add reward model worker if enabled."""
+        """Override: Add reward model worker with SPO Role import.
+
+        SPO modification: Imports Role from recipe.spo.spo_ray_trainer
+        instead of verl.trainer.ppo.ray_trainer.
+        """
         from recipe.spo.spo_ray_trainer import Role
 
         if config.reward_model.enable:
@@ -234,7 +244,11 @@ class TaskRunner:
                 self.mapping[Role.RewardModel] = "global_pool"
 
     def add_ref_policy_worker(self, config, ref_policy_cls):
-        """Add reference policy worker if KL loss or KL reward is used."""
+        """Override: Add reference policy worker with SPO Role import.
+
+        SPO modification: Imports Role from recipe.spo.spo_ray_trainer
+        instead of verl.trainer.ppo.ray_trainer.
+        """
         from recipe.spo.spo_ray_trainer import Role
 
         if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
@@ -348,101 +362,6 @@ class TaskRunner:
 
         # Start the training process.
         trainer.fit()
-
-
-def create_rl_dataset(data_paths, data_config, tokenizer, processor, is_train=True, max_samples: int = -1):
-    """Create a dataset.
-
-    Arguments:
-        data_paths: List of paths to data files.
-        data_config: The data config.
-        tokenizer (Tokenizer): The tokenizer.
-        processor (Processor): The processor.
-
-    Returns:
-        dataset (Dataset): The dataset.
-    """
-    from torch.utils.data import Dataset
-
-    from verl.utils.dataset.rl_dataset import RLHFDataset
-
-    # Check if a custom dataset class is specified in the data configuration
-    # and if the path to the custom class is provided
-    if "custom_cls" in data_config and data_config.custom_cls.get("path", None) is not None:
-        # Dynamically load the custom dataset class
-        dataset_cls = load_extern_type(data_config.custom_cls.path, data_config.custom_cls.name)
-        # Verify that the custom dataset class inherits from torch.utils.data.Dataset
-        if not issubclass(dataset_cls, Dataset):
-            raise TypeError(
-                f"The custom dataset class '{data_config.custom_cls.name}' from "
-                f"'{data_config.custom_cls.path}' must inherit from torch.utils.data.Dataset"
-            )
-    elif "datagen" in data_config and data_config.datagen.get("path", None) is not None and is_train:
-        # If a data generation strategy is specified, use the DynamicGenDataset class
-        from verl.utils.dataset.dynamicgen_dataset import DynamicGenDataset
-
-        dataset_cls = DynamicGenDataset
-        print("Using DynamicGenDataset for data generation.")
-    else:
-        # Use the default RLHFDataset class if no custom class is specified
-        dataset_cls = RLHFDataset
-    print(f"Using dataset class: {dataset_cls.__name__}")
-
-    # Instantiate the dataset using the determined dataset class
-    dataset = dataset_cls(
-        data_files=data_paths,
-        tokenizer=tokenizer,
-        processor=processor,
-        config=data_config,
-        max_samples=max_samples,
-    )
-
-    return dataset
-
-
-def create_rl_sampler(data_config, dataset):
-    """Create a sampler for the dataset.
-
-    Arguments:
-        data_config: The data config.
-        dataset (Dataset): The dataset.
-
-    Returns:
-        sampler (Sampler): The sampler.
-    """
-    import torch
-    from torch.utils.data import RandomSampler, SequentialSampler
-
-    if data_config.sampler is not None and data_config.sampler.get("class_path", None) is not None:
-        curriculum_class = load_extern_type(
-            data_config.sampler.class_path,
-            data_config.sampler.class_name,
-        )
-        sampler = curriculum_class(
-            data_source=dataset,
-            data_config=data_config,
-        )
-        assert isinstance(sampler, AbstractSampler)
-        assert data_config.get("dataloader_num_workers", 8) == 0, (
-            "If using curriculum, num_workers must be 0 to prevent data caching. "
-            "If the dataloader caches data before the batch is done the "
-            "curriculum sampler won't have the opportunity to reorder it. "
-        )
-
-    # Use a sampler to facilitate checkpoint resumption.
-    # If shuffling is enabled in the data configuration, create a random sampler.
-    elif data_config.shuffle:
-        train_dataloader_generator = torch.Generator()
-        seed = data_config.get("seed")
-        if seed is not None:
-            train_dataloader_generator.manual_seed(seed)
-        sampler = RandomSampler(data_source=dataset, generator=train_dataloader_generator)
-    else:
-        # If shuffling is disabled, use a sequential sampler to iterate through the dataset in order.
-        sampler = SequentialSampler(data_source=dataset)
-
-    return sampler
-
 
 if __name__ == "__main__":
     main()
