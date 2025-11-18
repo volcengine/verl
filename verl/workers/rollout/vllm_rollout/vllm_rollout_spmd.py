@@ -75,6 +75,7 @@ from verl import DataProto
 from verl.third_party.vllm import VLLM_SLEEP_LEVEL, get_version
 from verl.utils.device import is_npu_available
 from verl.utils.distributed import initialize_global_process_group_ray
+from verl.utils.import_utils import deprecated
 from verl.utils.model import get_lora_rank_from_adapter
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.ray_utils import ray_noset_visible_devices
@@ -123,6 +124,9 @@ def _check_vllm_version_for_sleep_level():
     return vs.parse(current_version) >= vs.parse(minver)
 
 
+@deprecated(
+    "vLLM spmd mode is deprecated. Please set `actor_rollout_ref.rollout.mode=async` to use vllm native server mode."
+)
 class vLLMRollout(BaseRollout):
     def __init__(
         self,

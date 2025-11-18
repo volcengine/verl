@@ -97,13 +97,13 @@ class TaskRunner:
         if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
             assert config.critic.strategy in {"fsdp", "fsdp2"}
 
-            from verl.workers.fsdp_workers import ActorRolloutRefWorker, CriticWorker
+            from verl.workers.fsdp_workers import AsyncActorRolloutRefWorker, CriticWorker
 
             ray_worker_group_cls = RayWorkerGroup
 
         elif config.actor_rollout_ref.actor.strategy == "megatron":
             assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
-            from verl.workers.megatron_workers import ActorRolloutRefWorker, CriticWorker
+            from verl.workers.megatron_workers import AsyncActorRolloutRefWorker, CriticWorker
 
             ray_worker_group_cls = RayWorkerGroup
 
@@ -113,7 +113,7 @@ class TaskRunner:
         from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
 
         role_worker_mapping = {
-            Role.ActorRollout: ray.remote(ActorRolloutRefWorker),
+            Role.ActorRollout: ray.remote(AsyncActorRolloutRefWorker),
             Role.Critic: ray.remote(CriticWorker),
         }
 
@@ -144,7 +144,7 @@ class TaskRunner:
 
         # reference model
         if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
-            role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
+            role_worker_mapping[Role.RefPolicy] = ray.remote(AsyncActorRolloutRefWorker)
             mapping[Role.RefPolicy] = global_pool_id
 
         reward_fn = load_reward_manager(

@@ -17,6 +17,7 @@ Note that we don't combine the main with ray_trainer as ray_trainer is used by o
 
 import os
 import socket
+import warnings
 
 import hydra
 import ray
@@ -120,6 +121,9 @@ class TaskRunner:
     def add_actor_rollout_worker(self, config):
         """Add actor rollout worker based on the actor strategy."""
         from verl.single_controller.ray import RayWorkerGroup
+
+        if config.actor_rollout_ref.rollout.mode == "sync":
+            warnings.warn("spmd rollout mode is deprecated and will be removed in v0.6.2", stacklevel=2)
 
         if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
             from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
