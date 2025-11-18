@@ -444,10 +444,8 @@ class MultiTurnSFTDataset(Dataset):
 if __name__ == "__main__":
     from transformers import AutoProcessor
 
-    processor = AutoProcessor.from_pretrained(
-        "/file_system/common-models/Haozhan72-kangsheng/Openvla-oft-SFT-libero10-traj1", trust_remote_code=True
-    )
-    parquet_path = "/file_system/common-data/physical-intelligence/libero/"
+    processor = AutoProcessor.from_pretrained("Haozhan72/Openvla-oft-SFT-libero10-traj1", trust_remote_code=True)
+    parquet_path = "$DATA_PATH/physical-intelligence/libero/"
     dataset = MultiTurnSFTDataset(parquet_path, processor, None)
     actions = torch.tensor(
         [
