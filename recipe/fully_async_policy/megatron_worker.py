@@ -91,7 +91,7 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
             if self._is_rollout:
                 inference_model.load_weights([(key, tensor)])
         if self._is_actor and self._is_offload_param:
-            offload_megatron_model_to_cpu(self.actor.actor_module)
+            offload_megatron_model_to_cpu(self.actor_module)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def save_model_to_cpu(self, n):
