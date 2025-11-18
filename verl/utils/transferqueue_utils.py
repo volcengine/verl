@@ -44,7 +44,7 @@ is_transferqueue_enabled = os.environ.get("TRANSFER_QUEUE_ENABLE", False)
 
 def create_transferqueue_client(
     client_id: str,
-    controller_info: dict[Any, "ZMQServerInfo"],
+    controller_info: "ZMQServerInfo",
     config,
 ) -> None:
     global _TRANSFER_QUEUE_CLIENT
