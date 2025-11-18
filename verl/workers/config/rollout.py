@@ -77,6 +77,7 @@ class AgentLoopConfig(BaseConfig):
 class TraceConfig(BaseConfig):
     backend: Optional[str] = None
     token2text: bool = False
+    max_samples_per_step_per_worker: Optional[int] = None
 
 
 @dataclass

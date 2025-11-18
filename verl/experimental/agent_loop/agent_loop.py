@@ -305,6 +305,7 @@ class AgentLoopWorkerBase:
             self.config.trainer.experiment_name,
             trace_config.get("backend"),
             trace_config.get("token2text", False),
+            trace_config.get("max_samples_per_step_per_worker", None),
         )
 
     @tqbridge()
@@ -352,14 +353,35 @@ class AgentLoopWorkerBase:
         else:
             index = np.arange(len(batch))
 
+        max_samples_per_worker = RolloutTraceConfig.get_instance().max_samples_per_step_per_worker
+
+        # For n rollouts per sample, we trace all n rollouts for selected samples
+        # Note: This sampling happens per-worker, so total traces = max_samples_per_worker * num_workers * n
+        if max_samples_per_worker is not None:
+            unique_sample_indices = np.unique(index)
+            if max_samples_per_worker < len(unique_sample_indices):
+                selected_samples = set(
+                    np.random.choice(unique_sample_indices, max_samples_per_worker, replace=False).tolist()
+                )
+                traced_indices = set(i for i in range(len(batch)) if index[i] in selected_samples)
+            else:
+                traced_indices = set(range(len(batch)))
+        else:
+            traced_indices = set(range(len(batch)))
+
         trajectory_info = await get_trajectory_info(
             batch.meta_info.get("global_steps", -1), index.tolist(), batch.meta_info.get("validate", False)
         )
 
         tasks = []
         for i in range(len(batch)):
+            trace_this_sample = i in traced_indices
             kwargs = {k: v[i] for k, v in batch.non_tensor_batch.items()}
-            tasks.append(asyncio.create_task(self._run_agent_loop(sampling_params, trajectory_info[i], **kwargs)))
+            tasks.append(
+                asyncio.create_task(
+                    self._run_agent_loop(sampling_params, trajectory_info[i], trace=trace_this_sample, **kwargs)
+                )
+            )
         outputs = await asyncio.gather(*tasks)
 
         output = self._postprocess(outputs)
@@ -371,6 +393,7 @@ class AgentLoopWorkerBase:
         trajectory: dict[str, Any],
         *,
         agent_name: str,
+        trace: bool = True,
         **kwargs,
     ) -> _InternalAgentLoopOutput:
         with rollout_trace_attr(
@@ -379,6 +402,7 @@ class AgentLoopWorkerBase:
             rollout_n=trajectory["rollout_n"],
             validate=trajectory["validate"],
             name="agent_loop",
+            trace=trace,
         ):
             assert agent_name in _agent_loop_registry, (
                 f"Agent loop {agent_name} not registered, registered agent loops: {_agent_loop_registry.keys()}"

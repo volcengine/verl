@@ -237,6 +237,7 @@ actor_rollout_ref:
       _target_: verl.workers.config.TraceConfig
       backend: null
       token2text: false
+      max_samples_per_step_per_worker: null
     skip_rollout: false
     skip_dump_dir: /tmp/rollout_dump
     skip_tokenizer_init: true
