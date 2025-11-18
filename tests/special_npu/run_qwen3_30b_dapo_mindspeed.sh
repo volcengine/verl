@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -xeuo pipefail
 
+export VLLM_ASCEND_ENABLE_NZ=0
+
 MODEL_ID=${MODEL_ID:-Qwen/Qwen3-30B-A3B-Instruct-2507}
 MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
 USE_DIST_CKPT=${USE_DIST_CKPT:-False}
