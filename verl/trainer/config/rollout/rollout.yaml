@@ -5,7 +5,7 @@ _target_: verl.workers.config.RolloutConfig
 name: ???
 
 # sync: LLM, async: AsyncLLM
-mode: sync
+mode: async
 
 # Sampling temperature for rollout.
 temperature: 1.0

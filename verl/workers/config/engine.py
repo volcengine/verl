@@ -65,6 +65,7 @@ class McoreEngineConfig(BaseConfig):
     use_distributed_optimizer: bool = True
     use_dist_checkpointing: bool = False
     dist_checkpointing_path: Optional[str] = None
+    dist_checkpointing_prefix: str = ""
     seed: int = 42
     override_ddp_config: dict[str, Any] = field(default_factory=dict)
     override_transformer_config: dict[str, Any] = field(default_factory=dict)

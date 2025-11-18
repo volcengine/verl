@@ -46,6 +46,11 @@ class NaiveRewardLoopManager(RewardLoopManagerBase):
         if tool_extra_fields is not None:
             extra_info.update(tool_extra_fields.items())
 
+        num_turns = data_item.non_tensor_batch.get("__num_turns__", None)
+        rollout_reward_scores = data_item.non_tensor_batch.get("reward_scores", {})
+        extra_info["num_turns"] = num_turns
+        extra_info["rollout_reward_scores"] = rollout_reward_scores
+
         response_str = await self.loop.run_in_executor(
             None, lambda: self.tokenizer.decode(valid_response_ids, skip_special_tokens=True)
         )
