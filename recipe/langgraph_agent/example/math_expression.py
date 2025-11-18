@@ -47,7 +47,7 @@ def _eval_expr(expression: str):
     if expr.startswith("-"):
         expr = "0 " + expr
 
-    # Clean invalid characters but keep parentheses
+    # Cleaning invalid characters but keep parentheses
     expr = re.sub(r"[^0-9+\-*@()\s]", " ", expr)
     expr = re.sub(r"\s+", " ", expr).strip()
     if expr == "":
@@ -87,8 +87,8 @@ def _eval_expr(expression: str):
         v = safe_int(tokens[0])
         return v if v is not None else 0
 
-   
-    precedence = {"+": 1, "-": 1, "*": 2, "@": 2} # RPN:Priority definition: * and @ highest, + and - next, all left-associative
+    # RPN:Priority definition: * and @ highest, + and - next, all left-associative
+    precedence = {"+": 1, "-": 1, "*": 2, "@": 2}
 
     output = []      # RPN output queue
     op_stack = []    # Operator Stack
