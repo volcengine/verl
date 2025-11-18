@@ -30,6 +30,9 @@ defaults:
   # Reward model config.
   - reward_model@reward_model: dp_reward_model
 
+  # Rollout correction config.
+  - algorithm@algorithm.rollout_correction: rollout_correction
+
   # load the reference default config, then apply the fields in the current yaml
   # self config override anything above
   - _self_

@@ -51,7 +51,7 @@ on:
       - "!verl/trainer/main_*.py"
       - "!verl/trainer/fsdp_sft_trainer.py"
       - "!recipe/**"
-      - "recipe/fully_async_policy"
+      - "recipe/fully_async_policy/**"
   pull_request:
     branches:
       - main

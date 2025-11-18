@@ -17,6 +17,7 @@ Note that we don't combine the main with ray_trainer as ray_trainer is used by o
 
 import os
 import socket
+import warnings
 
 import hydra
 import ray
@@ -120,6 +121,9 @@ class TaskRunner:
     def add_actor_rollout_worker(self, config):
         """Add actor rollout worker based on the actor strategy."""
         from verl.single_controller.ray import RayWorkerGroup
+
+        if config.actor_rollout_ref.rollout.mode == "sync":
+            warnings.warn("spmd rollout mode is deprecated and will be removed in v0.6.2", stacklevel=2)
 
         if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
             from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
@@ -402,7 +406,10 @@ def create_rl_sampler(data_config, dataset):
         sampler (Sampler): The sampler.
     """
     import torch
-    from torch.utils.data import RandomSampler, SequentialSampler
+    from torch.utils.data import SequentialSampler
+
+    # torch.utils.data.RandomSampler could not recover properly
+    from torchdata.stateful_dataloader.sampler import RandomSampler
 
     if data_config.sampler is not None and data_config.sampler.get("class_path", None) is not None:
         curriculum_class = load_extern_type(

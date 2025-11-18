@@ -25,7 +25,7 @@ from verl.trainer.main_ppo import create_rl_sampler
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
 
 
-@pytest.mark.skip(reason="reward model is depreated and replaced by GRM")
+@pytest.mark.skip(reason="reward model is deprecated and replaced by GRM")
 def test_agent_loop_compute_score_with_model():
     ray.init(
         runtime_env={

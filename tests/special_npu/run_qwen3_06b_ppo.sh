@@ -1,4 +1,5 @@
 set -x
+export VLLM_ASCEND_ENABLE_NZ=0
 
 # TODO (FightingZhen) Env VLLM_USE_V1=1 is not supported in vllm==0.7.3
 # export VLLM_USE_V1=1

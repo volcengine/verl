@@ -320,6 +320,7 @@ def compute_rollout_correction_weights(
     response_mask: torch.Tensor,
     rollout_is: str = "token",
     rollout_is_threshold: float = 2.0,
+    rollout_is_batch_normalize: bool = False,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """Compute importance sampling weights to correct for off-policy distribution shifts.
 
@@ -329,6 +330,7 @@ def compute_rollout_correction_weights(
     Key design:
     - Log-space computations to avoid overflow
     - Truncation of extreme weights (TIS: Truncated Importance Sampling)
+    - Optional batch normalization (normalize to mean=1.0)
     - Metrics tracking for weight distribution analysis
 
     Args:
@@ -341,15 +343,18 @@ def compute_rollout_correction_weights(
             - "sequence": Per-sequence weight (product of tokens; unbiased, high variance)
         rollout_is_threshold: Upper threshold for truncating extreme weights (e.g., 2.0),
             default 2.0.
+        rollout_is_batch_normalize: Whether to normalize IS weights to have mean=1.0 per batch,
+            default False.
 
     Returns:
         Tuple containing:
             rollout_is_weights: Truncated IS weights (masked to zero for padding tokens),
-                shape (batch_size, seq_length).
+                shape (batch_size, seq_length). If batch_normalize=True, normalized to mean=1.0.
             metrics: Dictionary of IS weight metrics (all scalars), including:
-                - rollout_is_mean/max/min: Statistic of truncated weights
+                - rollout_is_mean/max/min: Statistic of weights (before batch normalization)
                 - rollout_is_eff_sample_size: Effective sample size (ESS)
                 - rollout_is_seq_*: Sequence-level weight statistics
+                - rollout_is_batch_norm_factor: Normalization factor (only if batch_normalize=True)
     """
     # Validate input parameters
     valid_is_levels = {"token", "sequence"}
@@ -392,6 +397,32 @@ def compute_rollout_correction_weights(
 
     # Truncate extreme weights (TIS: Truncated Importance Sampling)
     rollout_is_weights = rollout_is_weights.clamp(max=rollout_is_threshold)
+
+    # Detach weights to prevent gradient flow (mathematically required by IS theory)
+    # IS weights change the measure, not the objective. See §3.2.2 in docs/algo/rollout_corr_math.md
+    rollout_is_weights = rollout_is_weights.detach()
+
+    # Apply batch normalization if requested
+    if rollout_is_batch_normalize:
+        # Compute mean based on aggregation level
+        if rollout_is == "token":
+            # Token-level: normalize over all token weights
+            weights_mean = verl_F.masked_mean(rollout_is_weights, response_mask)
+        elif rollout_is == "sequence":
+            # Sequence-level: normalize over sequence weights (one weight per sequence)
+            # For each sequence, compute mean over valid tokens (they all have the same weight)
+            # then average across sequences
+            seq_weights_mean = verl_F.masked_mean(rollout_is_weights, response_mask, axis=-1)  # (batch_size,)
+            weights_mean = seq_weights_mean.mean()
+        else:
+            raise ValueError(f"Unsupported rollout_is: {rollout_is}")
+
+        # Normalize to mean=1.0 (avoid division by zero)
+        if weights_mean > 1e-8:
+            rollout_is_weights = rollout_is_weights / weights_mean
+            metrics["rollout_is_batch_norm_factor"] = weights_mean.item()
+        else:
+            metrics["rollout_is_batch_norm_factor"] = 1.0
 
     return rollout_is_weights, metrics
 
@@ -521,6 +552,7 @@ def compute_rollout_correction_and_rejection_mask(
     rollout_rs_threshold: Optional[float] = 2.0,
     rollout_rs_threshold_lower: Optional[float] = None,
     rollout_token_veto_threshold: Optional[float] = None,
+    rollout_is_batch_normalize: bool = False,
 ) -> tuple[Optional[DataProto], torch.Tensor, dict[str, float]]:
     """Unified interface for computing IS weights and rejection masks.
 
@@ -552,6 +584,8 @@ def compute_rollout_correction_and_rejection_mask(
             Defaults to 1/rollout_rs_threshold if None.
         rollout_token_veto_threshold: Minimum allowed token-level IS weight. Sequences containing
             any token below this threshold are fully rejected. Set to None to disable veto.
+        rollout_is_batch_normalize: Whether to normalize IS weights to have mean=1.0 per batch.
+            Default: False.
 
     Returns:
         Tuple containing:
@@ -590,6 +624,7 @@ def compute_rollout_correction_and_rejection_mask(
             response_mask=response_mask,
             rollout_is=rollout_is,
             rollout_is_threshold=rollout_is_threshold,
+            rollout_is_batch_normalize=rollout_is_batch_normalize,
         )
         metrics.update(is_metrics)
 
@@ -805,6 +840,7 @@ def compute_rollout_correction_and_add_to_batch(
     rollout_rs_threshold = rollout_corr_config.get("rollout_rs_threshold", None)
     rollout_rs_threshold_lower = rollout_corr_config.get("rollout_rs_threshold_lower", None)
     rollout_token_veto_threshold = rollout_corr_config.get("rollout_token_veto_threshold", None)
+    rollout_is_batch_normalize = rollout_corr_config.get("rollout_is_batch_normalize", False)
 
     # Compute IS weights and get modified response_mask
     rollout_is_weights, modified_response_mask, rollout_corr_metrics = compute_rollout_correction_and_rejection_mask(
@@ -817,6 +853,7 @@ def compute_rollout_correction_and_add_to_batch(
         rollout_rs_threshold=rollout_rs_threshold,
         rollout_rs_threshold_lower=rollout_rs_threshold_lower,
         rollout_token_veto_threshold=rollout_token_veto_threshold,
+        rollout_is_batch_normalize=rollout_is_batch_normalize,
     )
 
     # ALWAYS update response_mask with rejection applied
@@ -829,51 +866,86 @@ def compute_rollout_correction_and_add_to_batch(
     return batch, rollout_corr_metrics
 
 
-def maybe_apply_rollout_correction(
+def compute_rollout_corr_metrics_from_logprobs(
+    log_prob: torch.Tensor,
+    rollout_log_prob: torch.Tensor,
+    response_mask: torch.Tensor,
+) -> dict[str, float]:
+    """Compute rollout correction metrics from log probabilities during training.
+
+    This function is used in the actor to compute metrics using the CURRENT policy
+    log probabilities versus rollout log probabilities, allowing tracking of the
+    off-policy gap as training progresses.
+
+    It computes off-policy diagnostic metrics (KL, PPL, χ²) from log probabilities.
+
+    Args:
+        log_prob: Current policy log probabilities, shape (batch_size, seq_length)
+        rollout_log_prob: Rollout policy log probabilities, shape (batch_size, seq_length)
+        response_mask: Valid token mask, shape (batch_size, seq_length)
+
+    Returns:
+        Dictionary of metrics with "rollout_corr/" prefix
+    """
+    # Compute off-policy diagnostic metrics
+    offpolicy_metrics = compute_offpolicy_metrics(
+        old_log_prob=log_prob,
+        rollout_log_prob=rollout_log_prob,
+        response_mask=response_mask,
+    )
+
+    # Add rollout_corr/ prefix to all metrics
+    metrics_with_prefix = {}
+    for key, value in offpolicy_metrics.items():
+        if isinstance(value, torch.Tensor):
+            metrics_with_prefix[f"rollout_corr/{key}"] = value.item()
+        else:
+            metrics_with_prefix[f"rollout_corr/{key}"] = value
+
+    return metrics_with_prefix
+
+
+def apply_rollout_correction(
     batch: DataProto,
     rollout_corr_config: Optional[RolloutCorrectionConfig] = None,
     policy_loss_config: PolicyLossConfig = None,
-) -> bool:
+) -> None:
     """
     BYPASS MODE: Use rollout_log_probs as old_log_probs
     Skips expensive actor forward pass for old_log_prob computation
 
-    Two sub-modes (controlled by use_pure_rollout_correction in actor):
-    1. PPO_IS mode (use_pure_rollout_correction=False, default):
-       - Actor uses standard PPO with old_log_prob=rollout_log_prob
-       - PPO clips ratio = π_current / π_rollout (not π_current / π_old)
+    Two sub-modes (controlled by use_policy_gradient):
+    1. Bypass + PPO loss (use_policy_gradient=False, default):
+       - Uses standard PPO loss function with old_log_prob=rollout_log_prob
+       - PPO clips ratio π_θ/π_rollout instead of π_θ/π_old
 
-    2. Pure rollout correction mode (use_pure_rollout_correction=True):
-       - Actor uses compute_policy_loss_with_rollout_correction()
-       - Pure policy gradient with IS correction (no PPO clipping)
-
-    Returns:
-        need_recomputation (bool): Whether recomputing logprobs is needed.
+    2. Bypass + Policy Gradient loss (use_policy_gradient=True):
+       - Uses compute_policy_loss_with_rollout_correction()
+       - Policy gradient (REINFORCE-style) with IS/RS correction applied
+       - No PPO clipping
 
     Note:
         The implementation is copied from szrlee <szrlee@gmail.com>.
     """
-    # Rollout correction mode selection
-    bypass_mode = rollout_corr_config.get("bypass_old_logprob_for_rollout", False) if rollout_corr_config else False
+    from omegaconf import open_dict
 
-    if bypass_mode:
-        if "rollout_log_probs" not in batch.batch:
-            raise ValueError(
-                "bypass_old_logprob_for_rollout=True requires rollout_log_probs in batch. "
-                "Ensure rollout worker is configured to calculate_log_probs=true."
-            )
+    if "rollout_log_probs" not in batch.batch:
+        raise ValueError(
+            "bypass_mode=True requires rollout_log_probs in batch. "
+            "Ensure rollout worker is configured to calculate_log_probs=true."
+        )
 
-        # Use rollout log probs as old log probs (zero-cost substitution)
-        batch.batch["old_log_probs"] = batch.batch["rollout_log_probs"]
-        # Check if pure rollout correction mode is enabled
-        use_pure_rollout_correction = rollout_corr_config.get("use_pure_rollout_correction", False)
+    # Use rollout log probs as old log probs (zero-cost substitution)
+    batch.batch["old_log_probs"] = batch.batch["rollout_log_probs"]
 
-        if use_pure_rollout_correction:
-            # Pure IS mode: Configure actor to use rollout_correction loss function
-            # This will use compute_policy_loss_with_rollout_correction (no PPO clipping)
-            policy_loss_config["loss_mode"] = "rollout_correction"
-            policy_loss_config["rollout_correction"] = rollout_corr_config
+    with open_dict(policy_loss_config):
+        # Always pass rollout_correction config to actor for metrics computation
+        policy_loss_config["rollout_correction"] = rollout_corr_config
 
-        return False
+    # Check if policy gradient loss mode is enabled
+    use_policy_gradient = rollout_corr_config.get("use_policy_gradient", False)
 
-    return True
+    if use_policy_gradient:
+        # Policy gradient mode: Configure actor to use rollout_correction loss function
+        # This will use compute_policy_loss_with_rollout_correction (no PPO clipping)
+        policy_loss_config["loss_mode"] = "rollout_correction"

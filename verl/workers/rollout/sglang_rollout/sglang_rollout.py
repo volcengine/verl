@@ -57,6 +57,7 @@ from verl.tools.base_tool import BaseTool
 from verl.tools.schemas import OpenAIFunctionCallSchema, OpenAIFunctionParsedSchema, OpenAIFunctionToolCall
 from verl.tools.utils.tool_registry import initialize_tools_from_config
 from verl.utils.device import get_visible_devices_keyword
+from verl.utils.import_utils import deprecated
 from verl.utils.net_utils import is_ipv6
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
@@ -254,6 +255,10 @@ def get_tool_call_parser_type(
         raise ValueError(f"No tool call parser found for processing_class {processing_class}")
 
 
+@deprecated(
+    "SGLangRollout spmd mode is deprecated and is not compatible since sglang>=0.5.5. "
+    "Please set `actor_rollout_ref.rollout.mode=async` to use sglang native server mode."
+)
 class SGLangRollout(BaseRollout):
     def __init__(
         self,
