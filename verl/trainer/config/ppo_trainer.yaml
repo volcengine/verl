@@ -30,6 +30,9 @@ defaults:
   # Reward model config.
   - reward_model@reward_model: dp_reward_model
 
+  # Rollout correction config.
+  - algorithm@algorithm.rollout_correction: rollout_correction
+
   # load the reference default config, then apply the fields in the current yaml
   # self config override anything above
   - _self_
@@ -294,6 +297,12 @@ global_profiler:
 
       # devices, record_context etc.
       kw_args: {}
+
+# configs for TransferQueue
+transfer_queue:
+
+  # Whether to enable transfer queue
+  enable: False
 
 # configs related to ray
 ray_kwargs:

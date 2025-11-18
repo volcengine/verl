@@ -46,6 +46,7 @@ class McoreEngineConfig(BaseConfig):
         override_ddp_config (dict[str, Any]): Override configuration for DDP.
         override_transformer_config (dict[str, Any]): Override configuration for transformer.
         use_mbridge (bool): Whether to use MBridge for communication.
+        dtype (str): Mixed precision training param dtype, default "bfloat16"
     """
 
     # sequence_parallel is not listed as a frozen field for auto-correction purpose
@@ -64,6 +65,7 @@ class McoreEngineConfig(BaseConfig):
     use_distributed_optimizer: bool = True
     use_dist_checkpointing: bool = False
     dist_checkpointing_path: Optional[str] = None
+    dist_checkpointing_prefix: str = ""
     seed: int = 42
     override_ddp_config: dict[str, Any] = field(default_factory=dict)
     override_transformer_config: dict[str, Any] = field(default_factory=dict)
@@ -71,10 +73,12 @@ class McoreEngineConfig(BaseConfig):
     use_mbridge: bool = False
     forward_only: bool = False
     strategy: str = "megatron"
+    dtype: str = "bfloat16"  # ["bfloat16", "float16"]
 
     def __post_init__(self) -> None:
         """config validation logics go here"""
         assert self.strategy == "megatron"
+        assert self.dtype in ["bfloat16", "float16"], f"dtype {self.dtype} not supported"
         if self.tensor_model_parallel_size == 1:
             warnings.warn("set sequence parallel to false as TP size is 1", stacklevel=2)
             self.sequence_parallel = False
@@ -97,6 +101,7 @@ class FSDPEngineConfig(BaseConfig):
         model_dtype (str): Model data type used to initialize the transformers model. default "fp32"
         use_orig_params (bool): Whether to use original parameters when initialize FSDP1, default False
         mixed_precision (Optional[dict[str, Any]]): Mixed precision configuration for FSDP, default None
+        dtype (str): Mixed precision training param dtype, default "bfloat16"
     """
 
     wrap_policy: dict[str, Any] = field(default_factory=dict)
@@ -115,6 +120,7 @@ class FSDPEngineConfig(BaseConfig):
     entropy_checkpointing: bool = False
     forward_only: bool = False
     strategy: str = "fsdp"
+    dtype: str = "bfloat16"  # ["bfloat16", "float16"]
 
     def __post_init__(self):
         assert self.strategy in ["fsdp", "fsdp2"], f"strategy {self.strategy} not supported"

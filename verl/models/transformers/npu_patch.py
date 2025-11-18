@@ -15,19 +15,27 @@
 # limitations under the License.
 
 
+from importlib.metadata import version as get_version
+from typing import Optional
+
 import torch
 import torch.nn.functional as F
 import torch_npu
 from torch_npu import npu_rotary_mul as apply_rotary_emb
+from transformers.modeling_utils import PretrainedConfig, PreTrainedModel
+from transformers.models.qwen2 import modeling_qwen2
 from transformers.models.qwen2_5_vl import modeling_qwen2_5_vl
 from transformers.models.qwen3 import modeling_qwen3
 from transformers.models.qwen3_moe import modeling_qwen3_moe
+from transformers.utils import logging
+
+logger = logging.get_logger(__name__)
 
 
 # This patch takes effect when using apply_rotary_pos_emb_flashatt on qwen2_5_vl and will be removed in
 # subsequent versions
 # https://github.com/huggingface/transformers/pull/38491
-def apply_rotary_pos_emb_flashatt_qwen2_5_vl_npu(
+def apply_rotary_pos_emb_flashatt_npu(
     q: torch.Tensor, k: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor
 ) -> tuple[torch.Tensor, torch.Tensor]:
     cos = cos.chunk(2, dim=-1)[0].contiguous()
@@ -54,7 +62,7 @@ def silu_forward(self, hidden_state):
     return self.down_proj(torch_npu.npu_swiglu(gate_up, dim=-1))
 
 
-def apply_rotary_pos_emb_qwen3_npu(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
+def apply_rotary_pos_emb_npu(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
     cos = cos.unsqueeze(unsqueeze_dim)
     sin = sin.unsqueeze(unsqueeze_dim)
     q_embed = torch_npu.npu_rotary_mul(q, cos, sin)
@@ -158,11 +166,46 @@ def moe_block_forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
     return final_hidden_states, router_logits
 
 
+@classmethod
+def _check_and_enable_flash_attn_2(
+    cls,
+    config,
+    torch_dtype: Optional[torch.dtype] = None,
+    device_map: Optional[str | dict[str, int]] = None,
+    check_device_map: bool = True,
+    hard_check_only: bool = False,
+) -> PretrainedConfig:
+    """
+    Checks the availability of Flash Attention 2 and compatibility with the current model.
+
+    If all checks pass and `hard_check_only` is False, the method will set the config attribute
+    `attn_implementation` to "flash_attention_2" so that the model can initialize
+    the correct attention module.
+    """
+    if not cls._supports_flash_attn_2:
+        raise ValueError(
+            f"{cls.__name__} does not support Flash Attention 2.0 yet. Please request to add support where the"
+            f" model is hosted, on its model hub page: https://huggingface.co/{config._name_or_path}/discussions/new"
+            " or in the Transformers GitHub repo: https://github.com/huggingface/transformers/issues/new"
+        )
+
+    if not hard_check_only:
+        config._attn_implementation = "flash_attention_2"
+    logger.info("Detect using FlashAttention2 on Ascend NPU.")
+    return config
+
+
+modeling_qwen2.Qwen2RMSNorm.forward = rms_norm_forward
+modeling_qwen2.Qwen2MLP.forward = silu_forward
+modeling_qwen2.apply_rotary_pos_emb = apply_rotary_pos_emb_npu
 modeling_qwen2_5_vl.Qwen2RMSNorm.forward = rms_norm_forward
 modeling_qwen2_5_vl.Qwen2_5_VLMLP.forward = silu_forward
-modeling_qwen2_5_vl.apply_rotary_pos_emb_flashatt = apply_rotary_pos_emb_flashatt_qwen2_5_vl_npu
+modeling_qwen2_5_vl.apply_rotary_pos_emb_flashatt = apply_rotary_pos_emb_flashatt_npu
 modeling_qwen3_moe.Qwen3MoeRMSNorm.forward = rms_norm_forward
 modeling_qwen3_moe.Qwen3MoeSparseMoeBlock.forward = moe_block_forward
-modeling_qwen3_moe.apply_rotary_pos_emb = apply_rotary_pos_emb_qwen3_npu
+modeling_qwen3_moe.apply_rotary_pos_emb = apply_rotary_pos_emb_npu
 modeling_qwen3.Qwen3RMSNorm.forward = rms_norm_forward
 modeling_qwen3.Qwen3MLP.forward = silu_forward
+
+if get_version("transformers") < "4.54.0":
+    PreTrainedModel._check_and_enable_flash_attn_2 = _check_and_enable_flash_attn_2

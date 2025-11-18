@@ -69,13 +69,16 @@ def get_tensordict(tensor_dict: dict[str, torch.Tensor | list], non_tensor_dict:
                     "Passing a list makes the data NonTensorStack, "
                     "which doesn't support torch.Tensor. Please convert to numpy first"
                 )
-
         assert isinstance(val, torch.Tensor | list)
 
         if batch_size is None:
-            batch_size = len(val)
+            batch_size = val.size(0) if isinstance(val, torch.Tensor) else len(val)
         else:
-            assert len(val) == batch_size
+            val_batch_size = val.size(0) if isinstance(val, torch.Tensor) else len(val)
+            assert val_batch_size == batch_size, (
+                f"Batch size of tensor {key} is not consistent with other tensors. "
+                f"Expected {batch_size}, got {val_batch_size}"
+            )
 
     if batch_size is None:
         batch_size = []
@@ -87,6 +90,35 @@ def get_tensordict(tensor_dict: dict[str, torch.Tensor | list], non_tensor_dict:
         tensor_dict[key] = NonTensorData(val)
 
     return TensorDict(source=tensor_dict, batch_size=batch_size)
+
+
+def index_select_tensor_dict(batch: TensorDict, indices: torch.Tensor | list[int]) -> TensorDict:
+    """Index a tensor dict with a tensor of indices."""
+    if isinstance(indices, list):
+        indices = torch.tensor(indices)
+
+    assert indices.dim() == 1, "indices must be a 1D tensor"
+
+    data_dict = {}
+    batch_size = indices.shape[0]
+
+    if batch is not None:
+        for key, tensor in batch.items():
+            if isinstance(tensor, torch.Tensor) and not tensor.is_nested:
+                data_dict[key] = tensor[indices]
+            elif isinstance(tensor, torch.Tensor) and tensor.is_nested:
+                data_dict[key] = torch.nested.as_nested_tensor([tensor[idx] for idx in indices], layout=torch.jagged)
+            else:
+                # This handles NonTensorStack (indexable by batch dim) and NonTensorData (scalar metadata).
+                if tensor.shape:
+                    data_dict[key] = tensor[indices]
+                else:
+                    data_dict[key] = tensor
+        selected_batch = TensorDict(source=data_dict, batch_size=batch_size)
+    else:
+        selected_batch = None
+
+    return selected_batch
 
 
 def union_tensor_dict(tensor_dict1: TensorDict, tensor_dict2: TensorDict) -> TensorDict:
@@ -147,7 +179,16 @@ def assert_tensordict_eq(tensordict1: TensorDict, tensordict2: TensorDict):
         assert type(val) is type(val2), f"The type of {key} must be the same. Got {type(val)} vs {type(val2)}"
 
         if isinstance(val, torch.Tensor):
-            assert torch.all(torch.eq(val, val2)).item()
+            if val.is_nested:
+                assert val.is_nested and val2.is_nested, (
+                    f"Both tensors must be nested tensors. {val.is_nested=}, {val2.is_nested=}"
+                )
+                t1, t2 = val.unbind(), val2.unbind()
+                assert len(t1) == len(t2), f"Nested tensor should have the same lengths. {len(t1)=} vs {len(t2)=}"
+                for c1, c2 in zip(t1, t2, strict=True):
+                    assert torch.equal(c1, c2), f"Nested tensor components have different values. {c1=} vs {c2=}"
+            else:
+                assert torch.all(torch.eq(val, val2)).item()
         else:
             assert val == val2
 

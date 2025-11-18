@@ -45,7 +45,6 @@ on:
     paths:
       - ".github/workflows/e2e_ascend.yml"
       - "**/*.py"
-      - "docs/ascend_tutorial/**"
       - "examples/**"
       - "recipe/**"
       - "tests/special_npu/**"
@@ -65,17 +64,20 @@ permissions:
 
 jobs:
   test:
+    if: github.repository_owner == 'volcengine'
     name: verl Ascend test (self-host)
     runs-on: [self-hosted, npu-0]
-    timeout-minutes: 40 # Increase this timeout value as needed
+    timeout-minutes: 45 # Increase this timeout value as needed
     container:
-      image: crispig/verl_npu:cann8.1rc1-py3.10-torch2.5.1-vllm-ascend0.7.3.post1-mindspeed0121-250731
+      image: quay.io/ascend/verl:verl-8.3.rc1-910b-ubuntu22.04-py3.11-latest
       volumes:
         - /usr/local/dcmi:/usr/local/dcmi
         - /usr/local/bin/npu-smi:/usr/local/bin/npu-smi
         - /usr/local/Ascend/driver/lib64/:/usr/local/Ascend/driver/lib64/
         - /usr/local/Ascend/driver/version.info:/usr/local/Ascend/driver/version.info
         - /etc/ascend_install.info:/etc/ascend_install.info
+        - /data00/dataset:/github/home/dataset
+        - /data00/models:/github/home/models
         # Use self-host cache speed up pip and model download
         # - /home/action/actions-runner/_work/cache:/github/home/.cache/
       options: >-
@@ -99,25 +101,25 @@ jobs:
           npu-smi info
       - name: Checkout volcengine/verl repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          clean: true
       - name: Install the current repository
         run: |
           pip3 install hf_transfer peft
           pip3 install -r requirements-npu.txt
           pip install -e .
-      - name: Install torchviison
+      - name: Preprocess gsm8k dataset
         run: |
-          pip install torchvision==0.20.1+cpu --index-url https://download.pytorch.org/whl/cpu
-      - name: Uninstall Triton
+          python examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/dataset/openai/gsm8k
+      - name: Preprocess geo3k dataset
         run: |
-          pip uninstall -y triton
-      - name: Prepare gsm8k dataset
-        run: |
-          ray stop --force
-          python3 examples/data_preprocess/gsm8k.py
-      - name: Prepare geo3k dataset
+          python examples/data_preprocess/geo3k.py --local_dataset_path ${HOME}/dataset/hiyouga/geometry3k
+      - name: Running gsm8k e2e qwen3 training tests with PPO on ASCEND NPU
         run: |
           ray stop --force
-          python3 examples/data_preprocess/geo3k.py
+          bash tests/special_npu/run_qwen3_06b_ppo.sh
+          rm -rf $HOME/ckpts
       - name: Running gsm8k e2e training tests with peft sft on ASCEND NPU
         run: |
           ray stop --force
@@ -141,6 +143,7 @@ jobs:
       - name: Running gsm8k e2e training tests with GRPO MindSpeed on ASCEND NPU
         run: |
           ray stop --force
+          export PYTHONPATH=$PYTHONPATH:/Megatron-LM
           USE_DIST_CKPT=True bash tests/special_npu/run_qwen2_5_05b_grpo_mindspeed.sh
           rm -rf $HOME/dist_ckpt/qwen2_5_05b_grpo_mindspeed
           rm -rf $HOME/ckpts
@@ -148,9 +151,3 @@ jobs:
         run: |
           ray stop --force
           pytest -s -x tests/utils/test_special_mstx_profile.py
-      # TODO (FightingZhen) Reopen this case when error fixed
-#      - name: Running gsm8k e2e qwen3 training tests with PPO on ASCEND NPU
-#        run: |
-#          ray stop --force
-#          bash tests/special_npu/run_qwen3_06b_ppo.sh
-#          rm -rf $HOME/ckpts

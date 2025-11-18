@@ -12,6 +12,8 @@ data:
   tokenizer: null
   train_files: ~/data/rlhf/gsm8k/train.parquet
   val_files: ~/data/rlhf/gsm8k/test.parquet
+  train_max_samples: -1  # set to -1 to use full dataset
+  val_max_samples: -1  # set to -1 to use full dataset
   prompt_key: prompt
   max_prompt_length: 512
   max_response_length: 512
@@ -21,6 +23,7 @@ data:
   return_raw_chat: False
   return_full_prompt: False
   shuffle: True
+  seed: 42
 
 actor_rollout_ref:
   hybrid_engine: True
@@ -51,7 +54,7 @@ actor_rollout_ref:
       lr_warmup_steps: -1 # Prioritized. Negative values mean delegating to lr_warmup_steps_ratio.
       lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
       min_lr_ratio: null   # only useful for warmup with cosine
-      warmup_style: constant  # select from constant/cosine
+      lr_scheduler_type: constant  # select from constant/cosine
       total_training_steps: -1  # must be override by program
     fsdp_config:
       wrap_policy:
@@ -105,7 +108,7 @@ critic:
     lr: 1e-5
     lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
     min_lr_ratio: null   # only useful for warmup with cosine
-    warmup_style: constant  # select from constant/cosine
+    lr_scheduler_type: constant  # select from constant/cosine
     total_training_steps: -1  # must be override by program
   model:
     path: ~/models/deepseek-llm-7b-chat

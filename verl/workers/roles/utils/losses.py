@@ -17,20 +17,49 @@ import torch
 from tensordict import TensorDict
 
 from verl.trainer.ppo.core_algos import agg_loss, compute_value_loss, get_policy_loss_fn, kl_penalty
-from verl.utils.torch_functional import masked_mean
+from verl.utils import tensordict_utils as tu
+from verl.utils.dataset.dataset_utils import DatasetPadMode
+from verl.utils.torch_functional import masked_mean, masked_sum
 from verl.workers.config import ActorConfig, CriticConfig
+from verl.workers.roles.utils.padding import no_padding_2_padding
 
 
 def sft_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None):
-    log_prob = model_output["log_probs"]  # [bsz, response_length]
-    response_mask = data["response_mask"][:, 1:].to(bool)
-    loss = -torch.mean(log_prob * response_mask)
+    pad_mode = tu.get_non_tensor_data(data=data, key="pad_mode", default=DatasetPadMode.NO_PADDING)
+    dp_size = data["dp_size"]
+    batch_num_tokens = data["batch_num_tokens"]
+
+    log_prob = model_output["log_probs"]
+
+    if pad_mode == DatasetPadMode.NO_PADDING:
+        # log_prob and loss mask are nested tensors of shape [bsz, j1]
+        # for each sample, loss mask shape is [1, prompt_length + response_length]
+        loss_mask = data["loss_mask"]
+
+        log_prob_flatten = log_prob.values()
+        loss_mask_flatten = loss_mask.values()
+
+        # left-shift the loss mask by one token to align with log_prob
+        loss_mask_flatten = torch.roll(loss_mask_flatten, shifts=-1, dims=0)
+
+        # NOTE: loss is averaged over all tokens in the batch across all data parallel groups,
+        # For FSDP backend, the loss is directly used for backward; while for Megatron backend,
+        # the loss should be scaled by `num_microbatches` and `cp_size` for pp schedule.
+        loss = -masked_sum(log_prob_flatten, loss_mask_flatten) / batch_num_tokens * dp_size
+    else:
+        response_mask = data["response_mask"].to(bool)
+        loss = -masked_sum(log_prob, response_mask) / batch_num_tokens * dp_size
+
     return loss, {"loss": loss.detach().item()}
 
 
 def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None):
     log_prob = model_output["log_probs"]
     entropy = model_output.get("entropy", None)
+
+    log_prob = no_padding_2_padding(log_prob, data)  # (bsz, response_length)
+    if entropy is not None:
+        entropy = no_padding_2_padding(entropy, data)  # (bsz, response_length)
 
     metrics = {}
 
@@ -44,7 +73,7 @@ def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
     loss_mode = config.policy_loss.get("loss_mode", "vanilla")
 
     policy_loss_fn = get_policy_loss_fn(loss_mode)
-    pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = policy_loss_fn(
+    pg_loss, pg_metrics = policy_loss_fn(
         old_log_prob=old_log_prob,
         log_prob=log_prob,
         advantages=advantages,
@@ -52,15 +81,8 @@ def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
         loss_agg_mode=loss_agg_mode,
         config=config,
     )
-
-    metrics.update(
-        {
-            "pg_loss": pg_loss.detach().item(),
-            "pg_clipfrac": pg_clipfrac.detach().item(),
-            "ppo_kl": ppo_kl.detach().item(),
-            "pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
-        }
-    )
+    metrics.update(pg_metrics)
+    metrics["actor/pg_loss"] = pg_loss.detach().item()
     policy_loss = pg_loss
 
     # add entropy loss
@@ -85,7 +107,7 @@ def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
 
 def value_loss(config: CriticConfig, model_output, data: TensorDict, dp_group=None):
     vpreds = model_output["values"]
-    values = data["values"]
+    vpreds = no_padding_2_padding(vpreds, data)  # (bsz, response_length)
 
     values = data["values"]
     returns = data["returns"]

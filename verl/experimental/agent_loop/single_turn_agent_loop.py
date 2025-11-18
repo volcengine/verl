@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import copy
 import logging
 import os
 from typing import Any
@@ -35,19 +36,35 @@ class SingleTurnAgentLoop(AgentLoopBase):
 
     async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
         messages = list(kwargs["raw_prompt"])
+        image_data = copy.deepcopy((kwargs.get("multi_modal_data") or {}).get("image", None))
 
         metrics = {}
         request_id = uuid4().hex
-        prompt_ids = await self.loop.run_in_executor(
-            None,
-            lambda: self.tokenizer.apply_chat_template(
-                messages, add_generation_prompt=True, tokenize=True, **self.apply_chat_template_kwargs
-            ),
-        )
+
+        # Use processor if available for multimodal support
+        if self.processor is not None:
+            raw_prompt = await self.loop.run_in_executor(
+                None,
+                lambda: self.processor.apply_chat_template(
+                    messages,
+                    add_generation_prompt=True,
+                    tokenize=False,
+                    **self.apply_chat_template_kwargs,
+                ),
+            )
+            model_inputs = self.processor(text=[raw_prompt], images=image_data, return_tensors="pt")
+            prompt_ids = model_inputs.pop("input_ids").squeeze(0).tolist()
+        else:
+            prompt_ids = await self.loop.run_in_executor(
+                None,
+                lambda: self.tokenizer.apply_chat_template(
+                    messages, add_generation_prompt=True, tokenize=True, **self.apply_chat_template_kwargs
+                ),
+            )
 
         with simple_timer("generate_sequences", metrics):
             output = await self.server_manager.generate(
-                request_id=request_id, prompt_ids=prompt_ids, sampling_params=sampling_params
+                request_id=request_id, prompt_ids=prompt_ids, sampling_params=sampling_params, image_data=image_data
             )
         response_mask = [1] * len(output.token_ids)
 
@@ -56,7 +73,7 @@ class SingleTurnAgentLoop(AgentLoopBase):
             response_ids=output.token_ids[: self.response_length],
             response_mask=response_mask[: self.response_length],
             response_logprobs=output.log_probs[: self.response_length] if output.log_probs else None,
-            multi_modal_data={},
+            multi_modal_data={"image": image_data} if image_data is not None else {},
             num_turns=2,
             metrics=metrics,
         )

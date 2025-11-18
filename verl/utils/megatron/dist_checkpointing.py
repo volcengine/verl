@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import torch
 from megatron.core import dist_checkpointing, mpu
 from megatron.core.dist_checkpointing.serialization import (
     get_default_load_sharded_strategy,
@@ -49,6 +50,15 @@ def load_dist_checkpointing(sharded_state_dict, ckpt_dir):
     load_strategy = FullyParallelLoadStrategyWrapper(
         load_strategy, mpu.get_data_parallel_group(with_context_parallel=True)
     )
+
+    # Fix torch.load weights only error
+    try:
+        import transformer_engine as te
+
+        torch.serialization.add_safe_globals([torch.optim.AdamW])
+        torch.serialization.add_safe_globals([te.pytorch.optimizers.fused_adam.FusedAdam])
+    except Exception:
+        pass
 
     # Load model sharded state dicts
     state_dict = dist_checkpointing.load(sharded_state_dict, ckpt_dir, sharded_strategy=load_strategy)

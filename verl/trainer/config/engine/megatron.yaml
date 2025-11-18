@@ -16,8 +16,8 @@ tensor_model_parallel_size: 1
 # expert model parallel size
 expert_model_parallel_size: 1
 
-# expert tensor parallel size
-expert_tensor_parallel_size: 1
+# expert tensor parallel size (null to be same as TP)
+expert_tensor_parallel_size: null
 
 # pipeline model parallel size
 pipeline_model_parallel_size: 1
@@ -39,6 +39,9 @@ use_dist_checkpointing: False
 
 # distributed checkpointing path
 dist_checkpointing_path: null
+
+# distributed checkpointing prefix, e.g. Nemo2 will append prefix 'module.' to the state dict keys
+dist_checkpointing_prefix: ''
 
 # oc.select: default val for ref.megatron.seed
 seed: 42
@@ -76,3 +79,6 @@ use_mbridge: False
 
 # whether to use forward only
 forward_only: False
+
+# Mixed precision training param dtype
+dtype: bfloat16 # ["bfloat16", "float16"]

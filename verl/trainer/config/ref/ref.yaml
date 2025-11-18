@@ -1,4 +1,4 @@
-# actor_rollout_ref.ref: FSDP config same as actor. For models larger than 7B, it’s recommended to turn on offload for ref by default
+# actor_rollout_ref.ref: FSDP config same as actor. For models larger than 7B, it's recommended to turn on offload for ref by default
 strategy: ${actor_rollout_ref.actor.strategy}
 
 # whether to enable torch.compile

@@ -30,7 +30,7 @@
 #     - new tests are added to workflow mentioned in 2.
 
 name: checkpoint_converter
-# latest version: Megatron-LM core_r0.11.0 https://github.com/NVIDIA/Megatron-LM/tree/core_r0.11.0
+# latest version: Megatron-LM core_v0.14.0 https://github.com/NVIDIA/Megatron-LM/tree/core_v0.14.0
 
 on:
   # Trigger the workflow on push or pull request,
@@ -71,18 +71,35 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:sgl055.dev2"
+  DYNAMIC_RUNNER_ENDPOINT: "https://sd10g3clalm04ug7alq90.apigateway-cn-beijing.volceapi.com/runner"
+
 jobs:
+  setup:
+    if: github.repository_owner == 'volcengine'
+    runs-on: ubuntu-latest
+    outputs:
+      runner-label: ${{ steps.create-runner.outputs.runner-label }}
+      mlp-task-id: ${{ steps.create-runner.outputs.mlp-task-id }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: create-runner
+        uses: volcengine/vemlp-github-runner@v1
+        with:
+          mode: "create"
+          faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
+          mlp-image: "${{ env.IMAGE }}"
+
   checkpoint_converter:
-    runs-on: [L20x8]
+    needs: setup
+    runs-on: [ "${{ needs.setup.outputs.runner-label || 'L20x8' }}" ]
     timeout-minutes: 20 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
       NO_PROXY: "localhost,127.0.0.1"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
-    container:
-      image: verlai/verl:app-verl0.5-transformers4.55.4-sglang0.4.10.post2-mcore0.13.0-te2.2
-      options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -90,11 +107,11 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install -e .[test]
-      - name: Download Model to Use
-        run: |
+#      - name: Download Model to Use
+#        run: |
 #          huggingface-cli download Qwen/Qwen2.5-0.5B --local-dir ${HOME}/models/Qwen/Qwen2.5-0.5B
 #          huggingface-cli download deepseek-ai/deepseek-coder-1.3b-instruct --local-dir ${HOME}/models/deepseek-ai/deepseek-coder-1.3b-instruct
-          export HF_HUB_OFFLINE=1
+#          export HF_HUB_OFFLINE=1
       - name: Running Huggingface to Megatron dist_ckpt converter (Qwen/Qwen2.5-0.5B)
         run: |
           ray stop --force
@@ -106,8 +123,10 @@ jobs:
       - name: Clean up
         run: |
           rm -rf checkpoints
+
   checkpoint_converter_large_moe_models:
-    runs-on: [L20x8]
+    needs: setup
+    runs-on: [ "${{ needs.setup.outputs.runner-label || 'L20x8' }}" ]
     timeout-minutes: 30 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
@@ -115,9 +134,6 @@ jobs:
       NO_PROXY: "localhost,127.0.0.1"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
       HF_ENDPOINT: "https://hf-mirror.com"
-    container:
-      image: verlai/verl:app-verl0.5-transformers4.55.4-sglang0.4.10.post2-mcore0.13.0-te2.2
-      options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -125,10 +141,10 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install -e .[test]
-      - name: Download Model to Use
-        run: |
+#      - name: Download Model to Use
+#        run: |
 #          huggingface-cli download Qwen/Qwen1.5-MoE-A2.7B-Chat --local-dir ${HOME}/models/Qwen/Qwen1.5-MoE-A2.7B-Chat
-          export HF_HUB_OFFLINE=1
+#          export HF_HUB_OFFLINE=1
       - name: Running Huggingface to Megatron dist_ckpt CPU converter (Qwen/Qwen1.5-MoE-A2.7B-Chat)
         run: |
           ray stop --force
@@ -140,3 +156,20 @@ jobs:
       - name: clean up
         run: |
           rm -rf checkpoints
+
+  cleanup:
+    runs-on: ubuntu-latest
+    needs:
+      [
+        setup,
+        checkpoint_converter,
+        checkpoint_converter_large_moe_models
+      ]
+    if: always()
+    steps:
+      - id: destroy-runner
+        uses: volcengine/vemlp-github-runner@v1
+        with:
+          mode: "destroy"
+          faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
+          mlp-task-id: "${{ needs.setup.outputs.mlp-task-id }}"

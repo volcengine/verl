@@ -74,7 +74,7 @@ permissions:
   contents: read
 
 env:
-  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:app-verl0.5-transformers4.55.4-vllm0.10.0-mcore0.13.0-te2.2"
+  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:vllm011.dev7"
   DYNAMIC_RUNNER_ENDPOINT: "https://sd10g3clalm04ug7alq90.apigateway-cn-beijing.volceapi.com/runner"
 
 jobs:
@@ -130,18 +130,6 @@ jobs:
       - name: Test the latest vLLM on model with rope scaling
         run: |
           torchrun --standalone --nnodes=1 --nproc_per_node=4 $(which pytest) -s tests/workers/rollout/rollout_vllm/test_vllm_model_rope_scaling.py
-      - name: Run Qwen 0.5B generation test
-        run: |
-          cd tests/special_e2e/generation
-          export OUTPUT_PATH="${HOME}/data/gen/qwen_05_gen_test.parquet"
-          MODEL_ID=${HOME}/models/Qwen/Qwen2.5-0.5B-Instruct NGPUS_PER_NODE=4 GEN_TP=2 bash ./run_gen_qwen05.sh
-          rm -rf "${OUTPUT_PATH}"
-      - name: Run Qwen 0.5B generation test when world_size == 1
-        run: |
-          cd tests/special_e2e/generation
-          export OUTPUT_PATH="${HOME}/data/gen/qwen_05_gen_test.parquet"
-          MODEL_ID=${HOME}/models/Qwen/Qwen2.5-0.5B-Instruct NGPUS_PER_NODE=1 GEN_TP=1 bash ./run_gen_qwen05.sh
-          rm -rf "${OUTPUT_PATH}"
       # Note(haibin.lin): for any new test, please update gpu_unit_tests.yaml to avoid repeated tests
 
   cleanup:

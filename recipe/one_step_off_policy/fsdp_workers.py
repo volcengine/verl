@@ -40,6 +40,7 @@ from verl.utils.import_utils import import_external_libs
 from verl.utils.model import get_generation_config, update_model_config
 from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerConfig, log_gpu_memory_usage, simple_timer
 from verl.utils.profiler.performance import reduce_timing, topk_reduce_ratio_min_max
+from verl.utils.ray_utils import get_event_loop
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.fsdp_workers import ActorRolloutRefWorker as ARRWorker
 from verl.workers.fsdp_workers import CriticWorker
@@ -83,13 +84,20 @@ class ActorRolloutRefWorker(ARRWorker):
         assert hasattr(self, "_weights_info") and self._weights_info is not None
 
         params = self._get_actor_params() if self._is_actor else None
+        rollout_name = self.config.rollout.name
         if self._is_rollout:
-            inference_model = (
-                self.rollout.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
-            )
-            from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
+            if rollout_name == "vllm":
+                inference_model = (
+                    self.rollout.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
+                )
+                from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 
-            patch_vllm_moe_model_weight_loader(inference_model)
+                patch_vllm_moe_model_weight_loader(inference_model)
+            elif rollout_name == "sglang":
+                inference_model = self.rollout._engine
+            else:
+                raise NotImplementedError(f"Unknown rollout name: {rollout_name}")
+        loop = get_event_loop()
         for key, shape, dtype in self._weights_info:
             tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
             if self._is_actor:
@@ -102,7 +110,23 @@ class ActorRolloutRefWorker(ARRWorker):
 
             self._weight_sync_group.broadcast(tensor, src=0, stream=get_torch_device().current_stream())
             if self._is_rollout:
-                inference_model.load_weights([(key, tensor)])
+                if rollout_name == "vllm":
+                    inference_model.load_weights([(key, tensor)])
+                elif rollout_name == "sglang":
+                    loop.run_until_complete(self.update_weights(inference_model, [(key, tensor)]))
+
+    async def update_weights(self, inference_engine, params):
+        from sglang.srt.weight_sync.utils import update_weights as sgl_update_weights
+
+        await sgl_update_weights(
+            engine=inference_engine,
+            params_batch=params,
+            device_mesh_key="infer_tp",
+            device_mesh=self.rollout_device_mesh,
+        )
+
+        if self.rollout_device_mesh["infer_tp"].get_local_rank() == 0:
+            await inference_engine.flush_cache()
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def get_actor_weights_info(self):
@@ -209,6 +233,7 @@ class RolloutWorker(ActorRolloutRefWorker):
         rollout_device_mesh = init_device_mesh(
             device_name, mesh_shape=(dp, infer_tp), mesh_dim_names=["dp", "infer_tp"]
         )
+        self.rollout_device_mesh = rollout_device_mesh
 
         is_collect = rollout_device_mesh["infer_tp"].get_local_rank() == 0
         self._register_dispatch_collect_info(
@@ -216,7 +241,8 @@ class RolloutWorker(ActorRolloutRefWorker):
         )
 
         rollout_name = self.config.rollout.name
-        assert rollout_name == "vllm"
+        if rollout_name not in ("vllm", "sglang"):
+            raise NotImplementedError(f"rollout_name: {rollout_name} is not supported")
 
         rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
         model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model, dataclass_type=HFModelConfig)
@@ -227,14 +253,23 @@ class RolloutWorker(ActorRolloutRefWorker):
             config=rollout_config, model_config=model_config, device_mesh=rollout_device_mesh
         )
         log_gpu_memory_usage(f"After building {rollout_name} rollout", logger=logger)
-        from .vllm_sharding_manager import VLLMShardingManager
 
-        rollout_sharding_manager = VLLMShardingManager(
-            inference_engine=rollout.inference_engine, device_mesh=rollout_device_mesh
-        )
+        if rollout_name == "vllm":
+            from .vllm_sharding_manager import VLLMShardingManager
 
-        log_gpu_memory_usage("After building sharding manager", logger=logger)
+            rollout_sharding_manager = VLLMShardingManager(
+                inference_engine=rollout.inference_engine, device_mesh=rollout_device_mesh
+            )
 
+            log_gpu_memory_usage("After building sharding manager", logger=logger)
+        elif rollout_name == "sglang":
+            from .sglang_sharding_manager import SGLangShardingManager
+
+            rollout_sharding_manager = SGLangShardingManager(device_mesh=rollout_device_mesh)
+
+            log_gpu_memory_usage("After building sharding manager", logger=logger)
+
+        self.model_config = model_config
         self.rollout = rollout
         self.rollout_sharding_manager = rollout_sharding_manager
 

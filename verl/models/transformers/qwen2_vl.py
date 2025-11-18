@@ -378,8 +378,10 @@ def _get_input_embeds(
         video_embeds = video_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
         inputs_embeds = inputs_embeds.masked_scatter(video_mask, video_embeds)
 
-    if model.training and pixel_values is None and pixel_values_videos is None:  # handle mixed text-image data
-        pixel_values = torch.zeros((16, 1176), dtype=inputs_embeds.dtype, device=inputs_embeds.device)
+    if pixel_values is None and pixel_values_videos is None:  # handle mixed text-image data
+        config = model.config.vision_config
+        patch_dim = config.in_channels * config.temporal_patch_size * config.patch_size**2
+        pixel_values = torch.zeros((16, patch_dim), dtype=inputs_embeds.dtype, device=inputs_embeds.device)
         image_grid_thw = torch.tensor([[1, 4, 4]], dtype=torch.long, device=inputs_embeds.device)
         image_embeds = model.visual(pixel_values, grid_thw=image_grid_thw)
         inputs_embeds += 0.0 * image_embeds.mean()
@@ -423,10 +425,7 @@ def qwen2_vl_base_forward(
     kwargs["inputs_embeds"], kwargs["attention_mask"] = _get_input_embeds(
         self, input_ids, attention_mask, pixel_values, pixel_values_videos, image_grid_thw, video_grid_thw
     )  # avoid lora module having multiple keyword arguments
-    return self.language_model(
-        input_ids=None,
-        **kwargs,
-    )
+    return self.language_model(input_ids=None, **kwargs)
 
 
 def qwen2_vl_forward(

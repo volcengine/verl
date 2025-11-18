@@ -106,7 +106,6 @@ class ActorConfig(BaseConfig):
     clip_ratio_c: float = 3.0
     loss_agg_mode: str = "token-mean"
     entropy_coeff: float = 0
-    tis_imp_ratio_cap: float = -1
     use_kl_loss: bool = False
     use_torch_compile: bool = True
     kl_loss_coef: float = 0.001
@@ -205,6 +204,7 @@ class McoreActorConfig(ActorConfig):
     load_weight: bool = True
     megatron: McoreEngineConfig = field(default_factory=McoreEngineConfig)
     profile: dict[str, Any] = field(default_factory=dict)
+    use_rollout_log_probs: bool = False
 
 
 @dataclass
@@ -232,6 +232,7 @@ class FSDPActorConfig(ActorConfig):
     fsdp_config: FSDPEngineConfig = field(default_factory=FSDPEngineConfig)
     use_remove_padding: bool = False
     profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
+    use_rollout_log_probs: bool = False
 
     def __post_init__(self):
         """Validate FSDP actor configuration parameters."""

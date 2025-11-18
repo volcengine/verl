@@ -29,6 +29,7 @@ CUDA_KEYWORD_CHECK_WHITELIST = [
     "recipe/spin/spin_trainer.py",  # appear in default device_name
     "recipe/sppo/sppo_ray_trainer.py",  # appear in default device_name
     "recipe/one_step_off_policy/ray_trainer.py",  # appear in default device_name
+    "recipe/transfer_queue/ray_trainer.py",  # appear in default device_name
     "verl/utils/profiler/nvtx_profile.py",  # appear in NsightSystemsProfiler
     "verl/utils/kernel/linear_cross_entropy.py",  # appear in nvidia nvtx
     "verl/utils/rendezvous/ray_backend.py",  # appear in cupy importance
@@ -38,6 +39,8 @@ CUDA_KEYWORD_CHECK_WHITELIST = [
     "verl/workers/reward_model/megatron/reward_model.py",  # appear in default device_name
     "verl/third_party/torch/distributed/_state_dict_utils.py",  # torch monkey patch fixes
     "verl/third_party/torch/distributed/checkpoint/state_dict.py",  # torch monkey patch fixes
+    "verl/workers/engine/base.py",  # appear in default device_name
+    "verl/workers/engine/fsdp/transformer_impl.py",  # appear in default device_name
     "verl/workers/rollout/vllm_rollout/vllm_async_server.py",  # appear in config.cudagraph_capture_sizes
     "verl/workers/rollout/sglang_rollout/async_sglang_server.py",  # manually set CUDA_VISIBLE_DEVICES
 ]
@@ -46,6 +49,7 @@ CUDA_KEYWORD_CHECK_WHITELIST = [
 NCCL_KEYWORD_CHECK_WHITELIST = [
     "verl/utils/device.py",
     "verl/third_party/sglang/parallel_state.py",  # appear in default backend
+    "verl/recipe/fully_async_policy/param_sync.py",  # fully_async_policy in default backend
 ]
 
 SEARCH_WHITELIST = CUDA_KEYWORD_CHECK_WHITELIST + NCCL_KEYWORD_CHECK_WHITELIST

@@ -13,12 +13,13 @@
 # limitations under the License.
 
 import importlib.util
+import inspect
 import multiprocessing
 import os
 import sys
 import warnings
 from functools import partial
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import ray
 import torch
@@ -26,8 +27,17 @@ from omegaconf import DictConfig
 
 from verl import DataProto
 from verl.utils.reward_score import default_compute_score
+from verl.utils.transferqueue_utils import tqbridge
 from verl.workers.reward_manager import get_reward_manager_cls
 from verl.workers.reward_manager.abstract import AbstractRewardManager, RawRewardFn
+
+if TYPE_CHECKING:
+    from verl.experimental.reward.reward_loop.base import RewardLoopManagerBase
+else:
+    try:
+        from verl.experimental.reward.reward_loop.base import RewardLoopManagerBase
+    except ImportError:
+        RewardLoopManagerBase = None  # type: ignore[assignment,misc]
 
 
 def _call_with_kwargs(raw_fn, extra_kwargs, *args, **kwargs):
@@ -37,6 +47,15 @@ def _call_with_kwargs(raw_fn, extra_kwargs, *args, **kwargs):
     """
     merged_kwargs = {**kwargs, **extra_kwargs}
     return raw_fn(*args, **merged_kwargs)
+
+
+async def _call_with_kwargs_async(raw_fn, extra_kwargs, *args, **kwargs):
+    """Calls `raw_fn` by merging `extra_kwargs` into call-time `kwargs`, with `extra_kwargs` taking precedence.
+
+    This function is used to merge additional keyword arguments with the original function's arguments.
+    """
+    merged_kwargs = {**kwargs, **extra_kwargs}
+    return await raw_fn(*args, **merged_kwargs)
 
 
 def get_custom_reward_fn(config: DictConfig) -> Optional[RawRewardFn]:
@@ -90,7 +109,10 @@ def get_custom_reward_fn(config: DictConfig) -> Optional[RawRewardFn]:
 
     reward_kwargs = dict(reward_fn_config.get("reward_kwargs", {}))
 
-    return partial(_call_with_kwargs, raw_fn, reward_kwargs)
+    if not inspect.iscoroutinefunction(raw_fn):
+        return partial(_call_with_kwargs, raw_fn, reward_kwargs)
+    else:
+        return partial(_call_with_kwargs_async, raw_fn, reward_kwargs)
 
 
 def load_reward_manager(
@@ -109,6 +131,11 @@ def load_reward_manager(
         An instance of the specified reward manager class.
     """
 
+    # Try to get a custom reward function based on the configuration
+    # user defined reward manager can be registered in custom_reward_fn
+    compute_score = get_custom_reward_fn(config)
+    final_compute_score = compute_score
+
     # The list of pre-defined reward managers are defined in `verl/workers/reward_manager/`:
     # naive: NaiveRewardManager
     # prime: PrimeRewardManager
@@ -120,14 +147,10 @@ def load_reward_manager(
     reward_manager_name = config.reward_model.get("reward_manager", "naive")
     reward_manager_cls = get_reward_manager_cls(reward_manager_name)
 
-    # Try to get a custom reward function based on the configuration
-    compute_score = get_custom_reward_fn(config)
-    final_compute_score = compute_score
-
     if compute_score is None:
         sandbox_config = config.reward_model.get("sandbox_fusion")
         sandbox_url = sandbox_config.get("url") if sandbox_config else None
-        memory_limit_mb = sandbox_config.get("memory_limit_mb", 1024)
+        memory_limit_mb = sandbox_config.get("memory_limit_mb", 1024) if sandbox_config else 1024
         if sandbox_url:
             sandbox_manager = multiprocessing.Manager()
             # Create a semaphore to control concurrent access to the sandbox
@@ -142,15 +165,28 @@ def load_reward_manager(
             final_compute_score = default_compute_score
 
     # Instantiate and return the reward manager with the specified parameters
-    return reward_manager_cls(
-        tokenizer=tokenizer,
-        num_examine=num_examine,
-        compute_score=final_compute_score,
-        reward_fn_key=config.data.reward_fn_key,
-        **reward_kwargs,
-    )
+    # RewardLoopManagerBase subclasses (like RateLimitedRewardLoopManager) don't accept num_examine
+    # while AbstractRewardManager subclasses (like NaiveRewardManager) do
+    if RewardLoopManagerBase is not None and issubclass(reward_manager_cls, RewardLoopManagerBase):
+        # RewardLoopManagerBase-based managers use a different signature
+        return reward_manager_cls(
+            config=config,
+            tokenizer=tokenizer,
+            compute_score=final_compute_score,
+            **reward_kwargs,
+        )
+    else:
+        # Traditional AbstractRewardManager-based managers
+        return reward_manager_cls(
+            tokenizer=tokenizer,
+            num_examine=num_examine,
+            compute_score=final_compute_score,
+            reward_fn_key=config.data.reward_fn_key,
+            **reward_kwargs,
+        )
 
 
+@tqbridge(put_data=False)
 def compute_reward(data: DataProto, reward_fn: AbstractRewardManager) -> tuple[torch.Tensor, dict[str, Any]]:
     """
     Compute reward for a batch of data.
