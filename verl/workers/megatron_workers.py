@@ -271,7 +271,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         self._is_offload_optimizer = False
 
         # normalize config
-        if self._is_actor and self._is_rollout:
+        if self._is_actor:
             self.config.actor.ppo_mini_batch_size *= self.config.rollout.n
             self.config.actor.ppo_mini_batch_size //= mpu.get_data_parallel_world_size()
             if self.config.actor.get("ppo_micro_batch_size", None):
