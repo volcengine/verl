@@ -11,6 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import re
+import json
+from langchain_core.tools import tool
+from recipe.langgraph_agent.react_agent_loop import ReactAgentLoop
 def safe_int(x):
     """Safely convert to int, return None if not a valid number\n
     Due to the maximum response length limit, the LLM may not strictly respond in JSON format, causing errors in the model tools' operations."""
@@ -162,7 +166,9 @@ def calculate(expression: str) -> int:
      Examples:
          >>> calculate("3 @ (9 @ 4 @ 4) @ (2 @ 2 @ 2)")
      """
-    print(f"Received expression: {expression}")
+    print(
+          f"Received expression: {expression}"
+       )
     # LangGraph tool sometimes passes dict
     if isinstance(expression, dict):
         expression = expression.get("expression", "")
@@ -179,9 +185,8 @@ def calculate(expression: str) -> int:
         try:
             obj = json.loads(s)
             expression = obj.get("expression", expression)
-        except:
+        except (ValueError, TypeError, json.JSONDecodeError):
             pass
-
     try:
         return _eval_expr(expression)
     except Exception as e:
