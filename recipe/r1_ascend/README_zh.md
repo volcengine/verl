@@ -5,9 +5,9 @@
 为了在Ascend NPU上实现DeepSeek模型的RL训练，本样例中补充了一些代码，如下所示：
 - 我们参考`verl/utils/reward_score/gsm8k.py`，在`deepscaler.py`中实现了一个简单的规则奖励函数。
 - 我们提供了数据集文件转换脚本`json_to_parquet.py`，在数据文件格式转换的同时给prompt增加了激发模型思考的模板。
-- NPU上vLLM的sleep可能存在内存卸载不干净的问题，因此添加了一些patch，手动实现NPU上Rollout模型的卸载与加载。相关代码在`megatron_vllm.py`以及 `megatron_workers.py`中。
+- NPU上vLLM的sleep可能存在内存卸载不干净的问题，因此添加了一些patch，手动实现NPU上Rollout模型与KVcache的卸载与加载。相关代码在`vllm_rollout_spmd.py`以及 `megatron_workers.py`中。
 - 为了实现vLLM利用所有卡进行专家并行，需要支持vLLM的数据并行。为此添加了一些patch构建正确的DP通信域。相关代码在`vllm_parallel_state.py`以及`vllm_rollout_spmd.py`中。此外还需要正确配置`VLLM_DP_SIZE`环境变量为`world_size / vllm_tp_size`。
-- NPU的MindSpeed训练框架会将torch.compile无效化来规避训练侧的compile失败，但这会使推理侧无法利用torch.compile加速。为了解决该问题，本样例添加了一些patch，使推理时可以compile，训练时不compile。相关代码`megatron_workers.py`以及`patch_compile.py`中。
+- NPU的MindSpeed训练框架会将torch.compile无效化来规避训练侧的compile失败，但这会使推理侧无法利用torch.compile加速。为了解决该问题，本样例添加了一些patch，使推理时可以compile，训练时不compile。相关代码`megatron_workers.py`中。
 - RL训练过程中，NPU上vLLM多次KVcache调度可能引发申请内存不一致导致内存踩踏问题，修复patch在`engine_core.py`中。
 
 通过全局搜索`# NPU-ADAPTATION`，可以看到patch代码所做的实际改动。
