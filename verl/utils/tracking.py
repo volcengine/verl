@@ -70,6 +70,9 @@ class Tracking:
                 settings = wandb.Settings(https_proxy=config["trainer"]["wandb_proxy"])
             entity = os.environ.get("WANDB_ENTITY", None)
             wandb.init(project=project_name, name=experiment_name, entity=entity, config=config, settings=settings)
+            # display name has to match experiment name for our w+b connection to work
+            if wandb.run is not None:
+                wandb.run.display_name = experiment_name
             self.logger["wandb"] = wandb
 
         if "trackio" in default_backend:
