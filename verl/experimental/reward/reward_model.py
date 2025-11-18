@@ -12,11 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import aiohttp
 import asyncio
 import json
 import logging
 import os
+
+import aiohttp
 from openai.types.chat import ChatCompletion
 
 from verl import DataProto
@@ -61,7 +62,7 @@ class RewardModelManager:
             path=self.config.model.path,
             external_lib=self.config.model.external_lib,
             trust_remote_code=self.config.model.trust_remote_code,
-            )
+        )
         self.tokenizer = model_config.get_processor()
         self.rollout_replicas = [
             rollout_replica_class(
@@ -70,9 +71,9 @@ class RewardModelManager:
                 model_config=model_config,
                 gpus_per_node=self.config.n_gpus_per_node,
                 is_reward_model=True,
-                )
+            )
             for replica_rank in range(num_replicas)
-            ]
+        ]
         if self.worker_group:
             self._run_all([server.init_colocated(self.worker_group) for server in self.rollout_replicas])
         else:
@@ -127,9 +128,9 @@ class RewardModelManager:
                 "model": self.config.model.path,
                 "messages": list(messages),
                 **sampling_params,
-                }
+            }
             for messages in prompts.non_tensor_batch.get("raw_prompt")
-            ]
+        ]
         tasks = [self.chat_complete(chat_complete_request) for chat_complete_request in chat_complete_requests]
         results = self._run_all(tasks)
         return results
