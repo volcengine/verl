@@ -20,6 +20,7 @@ This trainer supports model-agonistic model initialization with huggingface
 
 import asyncio
 import uuid
+from collections import defaultdict
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pprint import pprint
@@ -35,7 +36,7 @@ from tqdm import tqdm
 
 from verl import DataProto
 from verl.experimental.dataset.sampler import AbstractCurriculumSampler
-from verl.protocol import collate_fn
+from verl.protocol import collate_fn, pad_dataproto_to_divisor, unpad_dataproto
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.config import AlgoConfig
@@ -45,6 +46,7 @@ from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
     compute_throughout_metrics,
     compute_timing_metrics,
+    process_validation_metrics,
 )
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
@@ -263,7 +265,7 @@ def _get_all_from_queue(queue, max_item=None):
             items.append(item)
         except asyncio.QueueEmpty:
             break
-        if not max_item and len(items) >= max_item:
+        if max_item and len(items) >= max_item:
             break
     return items
 
@@ -310,7 +312,6 @@ class RayPPOReorderTrainer(RayPPOTrainer):
             device_name=device_name,
         )
         self.unfinished_queue = Queue()
-        self.finished_queue = Queue()
 
     def init_workers(self):
         """Initialize distributed training workers using Ray backend.
@@ -418,7 +419,6 @@ class RayPPOReorderTrainer(RayPPOTrainer):
             self.async_rollout_manager = ReorderAgentLoopManager(
                 config=self.config, worker_group=self.actor_rollout_wg, rm_wg=self.rm_wg
             )
-            self.async_rollout_manager.set_finished_queue(self.finished_queue)
             self.async_rollout_manager.set_unfinished_queue(self.unfinished_queue)
 
     def _step(
@@ -456,21 +456,21 @@ class RayPPOReorderTrainer(RayPPOTrainer):
                 if not self.async_rollout_mode:
                     gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch_output)
                 else:
-                    gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch_output)
+                    (gen_batch_output, raw_item) = self.async_rollout_manager.generate_sequences(gen_batch_output)
 
                 timing_raw.update(gen_batch_output.meta_info["timing"])
                 gen_batch_output.meta_info.pop("timing", None)
+                if raw_item:
+                    batch = collate_fn(raw_item)
+                    gen_batch = self._get_gen_batch(batch)
 
             if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                 if self.reward_fn is None:
                     raise ValueError("A reward_fn is required for REMAX advantage estimation.")
 
                 with marked_timer("gen_max", timing_raw, color="purple"):
-                    if not self.finished_queue.empty():
-                        finished_batch_list = _get_all_from_queue(self.finished_queue)
-                        gen_baseline_batch = collate_fn(finished_batch_list)
-                    else:
-                        gen_baseline_batch = deepcopy(gen_batch)
+                    gen_baseline_batch = deepcopy(gen_batch)
+                    gen_baseline_batch.meta_info["global_steps"] = self.global_steps
                     gen_baseline_batch.meta_info["do_sample"] = False
                     if not self.async_rollout_mode:
                         gen_baseline_output = self.actor_rollout_wg.generate_sequences(gen_baseline_batch)
@@ -786,3 +786,151 @@ class RayPPOReorderTrainer(RayPPOTrainer):
 
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
                 self._step(batch, logger, epoch, self.config.actor_rollout_ref.rollout.n)
+
+    def _validate(self):
+        data_source_lst = []
+        reward_extra_infos_dict: dict[str, list] = defaultdict(list)
+
+        # Lists to collect samples for the table
+        sample_inputs = []
+        sample_outputs = []
+        sample_gts = []
+        sample_scores = []
+        sample_turns = []
+        sample_uids = []
+
+        if self.async_rollout_mode:
+            old_threshold = self.async_rollout_manager.get_threshold()
+
+        for test_data in self.val_dataloader:
+            test_batch = DataProto.from_single_dict(test_data)
+
+            if "uid" not in test_batch.non_tensor_batch:
+                test_batch.non_tensor_batch["uid"] = np.array(
+                    [str(uuid.uuid4()) for _ in range(len(test_batch.batch))], dtype=object
+                )
+
+            # repeat test batch
+            test_batch = test_batch.repeat(
+                repeat_times=self.config.actor_rollout_ref.rollout.val_kwargs.n, interleave=True
+            )
+
+            # we only do validation on rule-based rm
+            if self.config.reward_model.enable and test_batch[0].non_tensor_batch["reward_model"]["style"] == "model":
+                return {}
+
+            # Store original inputs
+            input_ids = test_batch.batch["input_ids"]
+            # TODO: Can we keep special tokens except for padding tokens?
+            input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
+            sample_inputs.extend(input_texts)
+            sample_uids.extend(test_batch.non_tensor_batch["uid"])
+
+            ground_truths = [
+                item.non_tensor_batch.get("reward_model", {}).get("ground_truth", None) for item in test_batch
+            ]
+            sample_gts.extend(ground_truths)
+
+            test_gen_batch = self._get_gen_batch(test_batch)
+            test_gen_batch.meta_info = {
+                "eos_token_id": self.tokenizer.eos_token_id,
+                "pad_token_id": self.tokenizer.pad_token_id,
+                "recompute_log_prob": False,
+                "do_sample": self.config.actor_rollout_ref.rollout.val_kwargs.do_sample,
+                "validate": True,
+                "global_steps": self.global_steps,
+            }
+            print(f"test_gen_batch meta info: {test_gen_batch.meta_info}")
+
+            # pad to be divisible by dp_size
+            size_divisor = (
+                self.actor_rollout_wg.world_size
+                if not self.async_rollout_mode
+                else self.config.actor_rollout_ref.rollout.agent.num_workers
+            )
+            test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(test_gen_batch, size_divisor)
+            if not self.async_rollout_mode:
+                test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
+            else:
+                self.async_rollout_manager.set_threshold(len(test_gen_batch_padded))
+                test_output_gen_batch_padded, _ = self.async_rollout_manager.generate_sequences(test_gen_batch_padded)
+
+            # unpad
+            test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
+
+            print("validation generation end")
+
+            # Store generated outputs
+            output_ids = test_output_gen_batch.batch["responses"]
+            output_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in output_ids]
+            sample_outputs.extend(output_texts)
+
+            test_batch = test_batch.union(test_output_gen_batch)
+            test_batch.meta_info["validate"] = True
+
+            # evaluate using reward_function
+            if self.val_reward_fn is None:
+                raise ValueError("val_reward_fn must be provided for validation.")
+            result = self.val_reward_fn(test_batch, return_dict=True)
+            reward_tensor = result["reward_tensor"]
+            scores = reward_tensor.sum(-1).cpu().tolist()
+            sample_scores.extend(scores)
+
+            reward_extra_infos_dict["reward"].extend(scores)
+            if "reward_extra_info" in result:
+                for key, lst in result["reward_extra_info"].items():
+                    reward_extra_infos_dict[key].extend(lst)
+
+            # collect num_turns of each prompt
+            if "__num_turns__" in test_batch.non_tensor_batch:
+                sample_turns.append(test_batch.non_tensor_batch["__num_turns__"])
+
+            data_source_lst.append(test_batch.non_tensor_batch.get("data_source", ["unknown"] * reward_tensor.shape[0]))
+
+        self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
+
+        # dump generations
+        val_data_dir = self.config.trainer.get("validation_data_dir", None)
+        if val_data_dir:
+            self._dump_generations(
+                inputs=sample_inputs,
+                outputs=sample_outputs,
+                gts=sample_gts,
+                scores=sample_scores,
+                reward_extra_infos_dict=reward_extra_infos_dict,
+                dump_path=val_data_dir,
+            )
+
+        for key_info, lst in reward_extra_infos_dict.items():
+            assert len(lst) == 0 or len(lst) == len(sample_scores), f"{key_info}: {len(lst)=}, {len(sample_scores)=}"
+
+        data_sources = np.concatenate(data_source_lst, axis=0)
+
+        data_src2var2metric2val = process_validation_metrics(data_sources, sample_uids, reward_extra_infos_dict)
+        metric_dict = {}
+        for data_source, var2metric2val in data_src2var2metric2val.items():
+            core_var = "acc" if "acc" in var2metric2val else "reward"
+            for var_name, metric2val in var2metric2val.items():
+                n_max = max([int(name.split("@")[-1].split("/")[0]) for name in metric2val.keys()])
+                for metric_name, metric_val in metric2val.items():
+                    if (
+                        (var_name == core_var)
+                        and any(metric_name.startswith(pfx) for pfx in ["mean", "maj", "best"])
+                        and (f"@{n_max}" in metric_name)
+                    ):
+                        metric_sec = "val-core"
+                    else:
+                        metric_sec = "val-aux"
+                    pfx = f"{metric_sec}/{data_source}/{var_name}/{metric_name}"
+                    metric_dict[pfx] = metric_val
+
+        if len(sample_turns) > 0:
+            sample_turns = np.concatenate(sample_turns)
+            metric_dict["val-aux/num_turns/min"] = sample_turns.min()
+            metric_dict["val-aux/num_turns/max"] = sample_turns.max()
+            metric_dict["val-aux/num_turns/mean"] = sample_turns.mean()
+
+        if self.async_rollout_mode:
+            self.async_rollout_manager.set_threshold(old_threshold)
+
+        return metric_dict

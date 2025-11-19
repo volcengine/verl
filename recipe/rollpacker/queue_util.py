@@ -20,7 +20,6 @@ import ray
 
 
 @ray.remote
-@ray.remote
 class QueueMonitor:
     """队列监控器 - 非阻塞检查容量"""
 
@@ -28,6 +27,12 @@ class QueueMonitor:
         self.queue = Queue()
         self.threshold = threshold
         self.workers = []
+
+    def get_threshold(self):
+        return self.threshold
+
+    def set_threshold(self, threshold: int):
+        self.threshold = threshold
 
     def check_threshold(self) -> bool:
         """
@@ -43,12 +48,13 @@ class QueueMonitor:
 
     async def put(self, item: Any):
         """添加数据并检查阈值"""
-        await self.queue.put(item)
-
-        # 检查是否达到阈值
         if self.check_threshold():
             print(f"⚠️  队列已达到阈值 {self.threshold}，当前大小: {self.get_current_size()}")
             # 触发回调
+            await self._cancel_all_workers()
+            return
+
+        await self.queue.put(item)
 
     def append_worker(self, worker):
         self.workers.append(worker)

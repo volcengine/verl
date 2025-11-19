@@ -16,7 +16,7 @@ import asyncio
 import logging
 import os
 from copy import deepcopy
-from typing import Any
+from typing import Any, Optional
 
 import hydra
 import numpy as np
@@ -31,21 +31,81 @@ from verl.experimental.agent_loop.agent_loop import (
     AgentLoopManager,
     AgentLoopOutput,
     AgentLoopWorkerBase,
+    AsyncLLMServerManager,
     _agent_loop_registry,
     _DummyConfig,
     _InternalAgentLoopOutput,
     get_trajectory_info,
 )
-from verl.protocol import DataProto
+from verl.protocol import DataProto, DataProtoItem
 from verl.single_controller.ray.base import RayWorkerGroup
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.rollout_trace import (
     rollout_trace_attr,
+    rollout_trace_op,
 )
 from verl.utils.transferqueue_utils import tqbridge
+from verl.workers.rollout.replica import TokenOutput
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
+
+
+class AsyncReorderLLMServerManager(AsyncLLMServerManager):
+    """
+    A class to manage multiple OpenAI compatible LLM servers. This class provides
+    - Load balance: least requests load balancing
+    - Sticky session: send multi-turn chat completions to same server for automatic prefix caching
+    """
+
+    def __init__(self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], max_cache_size: int = 10000):
+        """Initialize the AsyncLLMServerManager.
+
+        Args:
+            config (DictConfig): YAML config.
+            server_handles (List[ray.actor.ActorHandle]): OpenAI compatible LLM server actor handles.
+            max_cache_size (int, optional): max cache size for request_id to server mapping. Defaults to 10000.
+        """
+        super().__init__(config, server_handles, max_cache_size)
+        self.ray_tasks = []
+
+    def cancel_tasks(self):
+        for ray_task in self.ray_tasks:
+            ray.cancel(ray_task)
+        self.ray_tasks = []
+
+    @rollout_trace_op
+    async def generate(
+        self,
+        request_id,
+        *,
+        prompt_ids: list[int],
+        sampling_params: dict[str, Any],
+        image_data: Optional[list[Any]] = None,
+    ) -> TokenOutput:
+        """Generate tokens from prompt ids.
+
+        Args:
+            request_id (str): request id for sticky session.
+            prompt_ids (List[int]): List of prompt token ids.
+            sampling_params (Dict[str, Any]): Sampling parameters for the chat completion.
+
+        Returns:
+            TokenOutput: token output
+        """
+        try:
+            server = self._choose_server(request_id)
+            task = server.generate.remote(
+                request_id=request_id,
+                prompt_ids=prompt_ids,
+                sampling_params=sampling_params,
+                image_data=image_data,
+            )
+            self.ray_tasks.append(task)
+            output = await task
+            return output
+        except Exception as e:
+            logger.error(f"server manager got exception: {e}")
 
 
 def _postprocess(inputs: list[_InternalAgentLoopOutput]) -> DataProto:
@@ -126,11 +186,10 @@ class AgentLoopReorderWorker(AgentLoopWorkerBase):
             server_handles (List[ray.actor.ActorHandle]): OpenAI compatible LLM server actor handles.
             reward_router_address (str): reward router address.
         """
-
+        self.server_manager = AsyncReorderLLMServerManager(config, server_handles)
         super().__init__(config, server_handles, reward_router_address)
         self.queue = None
         self.unfinished_queue = None
-        self.finished_queue = None
         self.tasks = []
 
     def set_queue(self, queue: QueueMonitor):
@@ -139,15 +198,11 @@ class AgentLoopReorderWorker(AgentLoopWorkerBase):
     def set_unfinished_queue(self, unfinished_queue: Queue):
         self.unfinished_queue = unfinished_queue
 
-    def set_finished_queue(self, finished_queue: Queue):
-        self.finished_queue = finished_queue
-
     @tqbridge()
-    async def generate_sequences(self, batch: DataProto, queue: QueueMonitor):
+    async def generate_sequences(self, batch: DataProto):
         """Generate sequences from agent loop.
 
         Args:
-            queue: QueueMonitor: output queue
             batch (DataProto): Input batch.
 
         Returns:
@@ -197,20 +252,23 @@ class AgentLoopReorderWorker(AgentLoopWorkerBase):
         self.tasks = []
         for i in range(len(batch)):
             kwargs = {k: v[i] for k, v in batch.non_tensor_batch.items()}
-            self.tasks.append(asyncio.create_task(self._run_agent_loop(sampling_params, trajectory_info[i], **kwargs)))
+            self.tasks.append(
+                asyncio.create_task(
+                    self._run_reorder_agent_loop(sampling_params, trajectory_info[i], raw_batch[i], **kwargs)
+                )
+            )
 
-        results = await asyncio.gather(*self.tasks)
+        results = await asyncio.gather(*self.tasks, return_exceptions=True)
 
         for i, result in enumerate(results):
             if isinstance(result, asyncio.CancelledError):
                 await self.unfinished_queue.put_async(raw_batch[i])
-            else:
-                await self.finished_queue.put_async(raw_batch[i])
 
-    async def _run_agent_loop(
+    async def _run_reorder_agent_loop(
         self,
         sampling_params: dict[str, Any],
         trajectory: dict[str, Any],
+        raw_item: DataProtoItem,
         *,
         agent_name: str,
         **kwargs,
@@ -367,49 +425,55 @@ class AgentLoopReorderWorker(AgentLoopWorkerBase):
                 output.reward_score = result["reward_score"]
                 output.extra_fields["reward_extra_info"] = result["reward_extra_info"]
 
-            self.queue.put(
-                _InternalAgentLoopOutput(
-                    prompt_ids=prompt_output["input_ids"],
-                    response_ids=response_output["input_ids"],
-                    input_ids=input_ids,
-                    position_ids=position_ids,
-                    response_mask=response_mask,
-                    attention_mask=attention_mask,
-                    response_logprobs=response_logprobs,
-                    multi_modal_inputs=multi_modal_inputs,
-                    multi_modal_data=output.multi_modal_data,
-                    reward_score=output.reward_score,
-                    num_turns=output.num_turns,
-                    metrics=output.metrics,
-                    extra_fields=output.extra_fields,
+            await self.queue.put.remote(
+                (
+                    raw_item,
+                    _InternalAgentLoopOutput(
+                        prompt_ids=prompt_output["input_ids"],
+                        response_ids=response_output["input_ids"],
+                        input_ids=input_ids,
+                        position_ids=position_ids,
+                        response_mask=response_mask,
+                        attention_mask=attention_mask,
+                        response_logprobs=response_logprobs,
+                        multi_modal_inputs=multi_modal_inputs,
+                        multi_modal_data=output.multi_modal_data,
+                        reward_score=output.reward_score,
+                        num_turns=output.num_turns,
+                        metrics=output.metrics,
+                        extra_fields=output.extra_fields,
+                    ),
                 )
             )
 
     async def cancel_tasks(self):
         for task in self.tasks:
             task.cancel()
+        self.server_manager.cancel_tasks()
 
 
 class ReorderAgentLoopManager(AgentLoopManager):
     def __init__(self, config: DictConfig, worker_group: RayWorkerGroup = None, rm_wg: RayWorkerGroup = None):
         self.agent_loop_workers_class = AgentLoopReorderWorker
         super().__init__(config, worker_group, rm_wg)
-        self.queue = QueueMonitor(self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n)
+        self.queue = QueueMonitor.remote(self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n)
         for worker in self.agent_loop_workers:
             ray.get(worker.set_queue.remote(self.queue))
             ray.get(self.queue.append_worker.remote(worker))
 
             ray.get(worker.set_unfinished_queue.remote(self.queue))
 
-    def set_finished_queue(self, finished_queue):
-        for worker in self.agent_loop_workers:
-            ray.get(worker.set_finished_queue.remote(finished_queue))
+    def get_threshold(self):
+        return ray.get(self.queue.get_threshold.remote())
+
+    def set_threshold(self, threshold: int):
+        ray.get(self.queue.set_threshold.remote(threshold))
 
     def set_unfinished_queue(self, unfinished_queue):
         for worker in self.agent_loop_workers:
             ray.get(worker.set_unfinished_queue.remote(unfinished_queue))
 
-    def generate_sequences(self, prompts: DataProto) -> DataProto:
+    def generate_sequences(self, prompts: DataProto) -> tuple[DataProto, list[Any]]:
         """Split input batch and dispatch to agent loop workers.
 
         Args:
@@ -429,15 +493,20 @@ class ReorderAgentLoopManager(AgentLoopManager):
             worker.generate_sequences.remote(chunk)
             for worker, chunk in zip(self.agent_loop_workers, chunkes, strict=True)
         ]
-
         try:
             ray.get(tasks)
-        except ray.exceptions.RayTaskError as e:
-            logger.warning(f"任务被取消: {e}")
+        except ray.exceptions.TaskCancelledError as e:
+            logger.warning(f"Task cancelled: {e}")
 
-        tasks_output = self.queue.clear()
+        hybird_out = ray.get(self.queue.clear.remote())
 
-        batch_output = _postprocess(tasks_output)
+        tasks_outputs = []
+        raw_items = []
+        for raw_item, tasks_output in hybird_out:
+            tasks_outputs.append(tasks_output)
+            raw_items.append(raw_item)
+
+        batch_output = _postprocess(tasks_outputs)
 
         if self.config.actor_rollout_ref.rollout.free_cache_engine:
             self.sleep()
@@ -449,4 +518,4 @@ class ReorderAgentLoopManager(AgentLoopManager):
         timing = self._performance_metrics(metrics, batch_output)
 
         batch_output.meta_info = {"timing": timing, **batch_output.meta_info}
-        return batch_output
+        return batch_output, raw_items
