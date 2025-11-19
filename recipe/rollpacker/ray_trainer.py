@@ -261,7 +261,7 @@ def _get_all_from_queue(queue, max_item=None):
     items = []
     while not queue.empty():
         try:
-            item = queue.get()
+            item = queue.get_nowait()
             items.append(item)
         except asyncio.QueueEmpty:
             break

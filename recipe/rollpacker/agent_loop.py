@@ -461,8 +461,6 @@ class ReorderAgentLoopManager(AgentLoopManager):
             ray.get(worker.set_queue.remote(self.queue))
             ray.get(self.queue.append_worker.remote(worker))
 
-            ray.get(worker.set_unfinished_queue.remote(self.queue))
-
     def get_threshold(self):
         return ray.get(self.queue.get_threshold.remote())
 
