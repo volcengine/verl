@@ -195,15 +195,10 @@ class DataParallelPPOActor(BasePPOActor):
                 if self.use_fused_kernels:
                     log_probs = output.log_probs.squeeze(0)  # (total_nnz,)
                     entropy_rmpad = output.entropy.squeeze(0)  # (total_nnz,)
-                    if is_mask_all_zero:
-                        log_probs = log_probs[:0]
-                        entropy_rmpad = entropy_rmpad[:0]
 
                 else:
                     logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
                     logits_rmpad.div_(temperature)
-                    if is_mask_all_zero:
-                        logits_rmpad = logits_rmpad[:0, :]
 
                     # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
                     inplace_backward = True
@@ -240,6 +235,12 @@ class DataParallelPPOActor(BasePPOActor):
                             unpad_dim=0,
                             padding_size=pad_size,
                         )
+
+                if is_mask_all_zero:
+                    log_probs = log_probs[:0]
+                    if calculate_entropy:
+                        entropy_rmpad = entropy_rmpad[:0]
+
                 # pad back to (bsz, seqlen)
                 if calculate_entropy:
                     full_entropy = pad_input(
