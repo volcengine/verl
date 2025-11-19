@@ -131,9 +131,9 @@ python3 -m recipe.dapo.main_dapo \
     +actor_rollout_ref.actor.megatron.override_transformer_config.use_flash_attn=True $@
 
 # clean up
-if [[ "$USE_DIST_CKPT" == "True" ]]; then
-    rm -rf $DIST_CKPT_PATH
-fi
 if [[ "$USE_DUMMY_MODEL" == "True" ]]; then
     rm -rf $DUMMY_MODEL_PATH
+    if [[ "$USE_DIST_CKPT" == "True" ]]; then
+        rm -rf $DIST_CKPT_PATH
+    fi
 fi
