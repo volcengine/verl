@@ -21,8 +21,6 @@ import ray
 
 @ray.remote
 class QueueMonitor:
-    """队列监控器 - 非阻塞检查容量"""
-
     def __init__(self, threshold: int = 10):
         self.queue = Queue()
         self.threshold = threshold
@@ -35,22 +33,15 @@ class QueueMonitor:
         self.threshold = threshold
 
     def check_threshold(self) -> bool:
-        """
-        非阻塞检查队列是否达到阈值
-        返回: True 表示达到或超过阈值
-        """
         current_size = self.queue.qsize()
         return current_size >= self.threshold
 
     def get_current_size(self) -> int:
-        """获取当前队列大小（非阻塞）"""
         return self.queue.qsize()
 
     async def put(self, item: Any):
         """添加数据并检查阈值"""
         if self.check_threshold():
-            print(f"⚠️  队列已达到阈值 {self.threshold}，当前大小: {self.get_current_size()}")
-            # 触发回调
             await self._cancel_all_workers()
             return
 
@@ -64,16 +55,12 @@ class QueueMonitor:
         await asyncio.gather(*tasks)
 
     def clear(self):
-        """
-        同步清空队列（非阻塞）
-        返回被清空的所有元素
-        """
         items = []
         while not self.queue.empty():
             try:
                 item = self.queue.get_nowait()
                 items.append(item)
-                self.queue.task_done()  # 如果使用了join()，需要调用
+                self.queue.task_done()
             except asyncio.QueueEmpty:
                 break
         return items
