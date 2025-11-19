@@ -33,7 +33,7 @@ from verl import DataProto
 from verl.envs.action_utils import center_crop_image, resize_image
 from verl.models.openvla_oft.modeling_prismatic import OpenVLAForActionPrediction
 from verl.models.openvla_oft.processing_prismatic import PrismaticProcessor
-from verl.utils.device import get_device_name, get_torch_device
+from verl.utils.device import get_device_id, get_device_name, get_torch_device
 from verl.workers.rollout.base import BaseRollout
 
 logger = logging.getLogger(__name__)
@@ -82,7 +82,7 @@ def process_input(task_descriptions, images_and_states, processor):
         batchdata["attention_mask"].append(attention_mask)
         batchdata["pixel_values"].append(pixel_values)
 
-    device = get_torch_device()
+    device = get_device_id()
 
     batchdata["input_ids"] = [x.transpose(0, 1) for x in batchdata["input_ids"]]
     batchdata["attention_mask"] = [x.transpose(0, 1) for x in batchdata["attention_mask"]]
@@ -195,7 +195,21 @@ class NaiveRolloutRob(BaseRollout):
         return batch
 
     async def update_weights(self, weights_iterator, **kwargs):
-        pass
+        prefix = "_fsdp_wrapped_module."
+        target_state_dict = self.module.state_dict()
+        loaded_tensors_count = 0
+        for name, param in weights_iterator:
+            cleaned_name = name.replace(prefix, "")
+            if cleaned_name in target_state_dict:
+                target_tensor = target_state_dict[cleaned_name]
+                try:
+                    target_tensor.copy_(param, non_blocking=True)
+                    loaded_tensors_count += 1
+                except Exception as e:
+                    logger.warning(f"Warning: Failed to copy tensor '{cleaned_name}'. Error: {e}")
+            else:
+                logger.warning(f"Warning: Failed to copy tensor '{cleaned_name}'. Model has no such key.")
+        logger.info(f"Rollout model weights updated. Loaded {loaded_tensors_count} tensors one by one.")
 
     async def release(self):
         if self.module.device.type == get_device_name():

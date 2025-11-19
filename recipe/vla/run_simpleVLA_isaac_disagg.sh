@@ -11,21 +11,21 @@ test_files=$libero_test_path
 
 OUTPUT_DIR=${MLP_MODEL_OUTPUT:-"$HOME/models/vla_libero_grpo"}
 VIDEO_OUTPUT=${MLP_MODEL_OUTPUT:-"$HOME"}/video
-SFT_MODEL_PATH=${SFT_MODEL_PATH:-"/file_system/common-models/Haozhan72-kangsheng/Openvla-oft-SFT-libero10-trajall"}
+SFT_MODEL_PATH=${SFT_MODEL_PATH:-"$HOME/data/Openvla-oft-SFT-libero10-trajall"}
 
 # for rollout and train
 NUM_NODES=1
 # for simulator
 SIM_NODES=1
-NUM_ENV_GPUS=4
+NUM_ENV_GPUS=8
 NUM_ROLLOUT_GPUS=8
 STAGE_NUM=2
-BATCH_SIZE=8
+BATCH_SIZE=16
 # rollout.n should equal to num_envs for isaac env
 ROLLOUT_N=8
 
 # 512 is required for libero benchmark, but you can reduce it in debugging to run faster
-MAX_EPISODE_STEPS=32
+MAX_EPISODE_STEPS=512
 
 # isaac or libero
 # libero means original libero benchmark with mujoco sim
