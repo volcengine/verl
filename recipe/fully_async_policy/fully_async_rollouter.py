@@ -595,17 +595,20 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
 
     async def pause(self):
         """pause rollout"""
-        print("[FullyAsyncRollouter][Public][Pause]")
+        print("[FullyAsyncRollouter][Public][Pause] partial rollout: ", {self.config.async_training.partial_rollout})
         async with self.lock:
             self.paused = True
             # Cancel all rollout tasks
             if self.config.async_training.partial_rollout:
                 await self.async_rollout_manager.cancel()
+                print("[FullyAsyncRollouter][Public][Pause] Unfinished rollout tasks canceled")
             if self.active_tasks:
                 await asyncio.gather(*self.active_tasks, return_exceptions=True)
                 self.active_tasks.clear()
                 print("[FullyAsyncRollouter][Public][Pause] All active tasks completed")
+            print("[FullyAsyncRollouter][Public][Pause] Ready to reset prefix cache")
             await self.async_rollout_manager.reset_prefix_cache()
+            print("[FullyAsyncRollouter][Public][Pause] Prefix cache reset")
             self.monitor_loop_trigger = False
 
     async def resume(self, dependency_ref: ObjectRef = None):

@@ -468,6 +468,7 @@ class SGLangRollout(BaseRollout):
                 # In async mode, we want token in token out.
                 "skip_tokenizer_init": self.config.skip_tokenizer_init,
                 "dist_timeout": 1800,
+                "disable_radix_cache": True,
             }
 
             if is_server_mode:
