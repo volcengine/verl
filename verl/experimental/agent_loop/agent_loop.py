@@ -363,11 +363,13 @@ class AgentLoopWorkerBase:
             tasks.append(asyncio.create_task(self._run_agent_loop(sampling_params, trajectory_info[i], **kwargs)))
         outputs = await asyncio.gather(*tasks)
 
-        # Append Performance Data
-        outputs.meta_info["attention_mask_perf"] = outputs.batch["attention_mask"]
-        outputs.meta_info["prompts_perf"] = outputs.batch["prompts"]
-
         output = self._postprocess(outputs)
+
+        # TODO (TransferQueue): support to put temp data in DataProto.meta_info
+        # Append Performance Data
+        # outputs.meta_info["attention_mask_perf"] = outputs.batch["attention_mask"]
+        # outputs.meta_info["prompts_perf"] = outputs.batch["prompts"]
+
         return output
 
     async def _run_agent_loop(
