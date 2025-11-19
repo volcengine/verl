@@ -5,8 +5,8 @@ ENTRYPOINT=${ENTRYPOINT:-"-m verl.trainer.sft_trainer"}
 
 NUM_GPUS=${NUM_GPUS:-1}
 
-TRAIN_FILES=libero_dataset
-VAL_FILES=libero_dataset
+TRAIN_FILES=~/data/gsm8k_sft/train.parquet
+VAL_FILES=~/data/gsm8k_sft/test.parquet
 
 backend=${BACKEND:-fsdp}
 
@@ -14,10 +14,10 @@ project_name=verl_sft_test
 
 RESUME_MODE=disable
 
-ckpts_home="checkpoints/simple-vla-all-sft"
+ckpts_home=${ckpts_home:-~/verl/test/gsm8k-sft-${backend}}
 
 MODEL_ID=${MODEL_ID:-Qwen/Qwen3-0.6B}
-MODEL_PATH="Haozhan72/openvla-oft"
+MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
 #huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
 
 SP_SIZE=${SP_SIZE:-1}
@@ -36,8 +36,8 @@ USE_REMOVE_PADDING=${USE_REMOVE_PADDING:-True}
 FSDP_ENGINE_CONFIG="\
     engine=${backend} \
     optim=${backend} \
-    optim.lr=1e-4 \
-    optim.lr_warmup_steps_ratio=0.02 \
+    optim.lr=1e-5 \
+    optim.lr_warmup_steps_ratio=0.2 \
     optim.weight_decay=0.1 \
     optim.betas="[0.9,0.95]" \
     optim.clip_grad=1.0 \
@@ -82,20 +82,19 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     data.train_batch_size=256 \
     data.pad_mode=${PAD_MODE} \
     data.truncation=error \
-    data.use_dynamic_bsz=False \
-    data.max_token_len_per_gpu=20480 \
+    data.use_dynamic_bsz=True \
+    data.max_token_len_per_gpu=8192 \
     data.messages_key=messages \
-    data.pad_mode=right \
     model.path=$MODEL_PATH \
     model.use_remove_padding=${USE_REMOVE_PADDING} \
     ${ENGINE_CONFIG} \
-    trainer.test_freq=2000000 \
-    trainer.save_freq=300 \
+    trainer.test_freq=after_each_epoch \
+    trainer.save_freq=-1 \
     trainer.logger=['console','file'] \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
-    trainer.total_epochs=10 \
-    trainer.total_training_steps=10000 \
+    trainer.total_epochs=2 \
+    trainer.total_training_steps=2 \
     trainer.default_local_dir="${ckpts_home}" \
     trainer.resume_mode=${RESUME_MODE} \
 
@@ -103,4 +102,4 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     # trainer.checkpoint.save_contents=[model,optimizer,extra,hf_model] \
     # trainer.max_ckpt_to_keep=1 \
     
-# rm -rf "${ckpts_home:?}/*"
+rm -rf "${ckpts_home:?}/*"

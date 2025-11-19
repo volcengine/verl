@@ -183,7 +183,7 @@ class RobActorRolloutRefWorker(ActorRolloutRefWorker):
                 "generation_timing/topk_ratio": timing_generate_topk_ratio,
             }
         )
-        output.meta_info["timing"] = timing_generate
+        output.meta_info["metrics"] = timing_generate
         output = output.to("cpu")
 
         # clear kv cache

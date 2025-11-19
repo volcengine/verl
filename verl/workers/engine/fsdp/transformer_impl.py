@@ -202,7 +202,6 @@ class FSDPEngine(BaseEngine):
             warnings.simplefilter("ignore")
 
             auto_class = get_hf_auto_model_class(hf_config=self.model_config.hf_config)
-            self.model_config.hf_config._attn_implementation = "sdpa"
 
             module = auto_class.from_pretrained(
                 pretrained_model_name_or_path=self.model_config.local_path,
@@ -237,8 +236,6 @@ class FSDPEngine(BaseEngine):
 
             if self.model_config.enable_gradient_checkpointing:
                 module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
-            module.vision_backbone.set_num_images_in_input(1)
-
         return module
 
     def _build_lora_module(self, module):
@@ -732,12 +729,8 @@ class FSDPEngineWithLMHead(FSDPEngine):
             from verl.utils.model import extract_multi_modal_inputs
 
             multi_modal_inputs = extract_multi_modal_inputs(micro_batch["multi_modal_inputs"])
-        for k, v in micro_batch.items():
-            if k.startswith("multi_modal_inputs_"):
-                multi_modal_inputs[k[len("multi_modal_inputs_") :]] = v
 
         input_ids = micro_batch["input_ids"]
-
         position_ids = micro_batch["position_ids"]
 
         if position_ids.dim() == 3:  # qwen2vl mrope
@@ -948,8 +941,6 @@ class FSDPEngineWithLMHead(FSDPEngine):
         # actually, we should avoid assigning like this...
         micro_batch = micro_batch.to(get_device_id())
         model_inputs, output_args = self.prepare_model_inputs(micro_batch=micro_batch)
-        model_inputs["pixel_values"] = micro_batch["pixel_values"]
-        model_inputs["labels"] = micro_batch["labels"]
 
         with torch.autocast(device_type=device_name, dtype=torch.bfloat16):
             raw_output = self.module(
@@ -957,24 +948,21 @@ class FSDPEngineWithLMHead(FSDPEngine):
                 use_cache=False,
             )  # prevent model thinks we are generating
 
-            # model_output = self.prepare_model_outputs(
-            #     output=raw_output, output_args=output_args, micro_batch=micro_batch
-            # )
-            # model_output = raw_output
-            # loss = torch.nn.functional.cross_entropy(model_output.transpose(1, 2), micro_batch["responses"])
-            loss = raw_output["loss"]
-            metrics = {"loss": loss.detach().cpu().item()}
+            model_output = self.prepare_model_outputs(
+                output=raw_output, output_args=output_args, micro_batch=micro_batch
+            )
 
-            # if loss_function is not None:
-            #     loss, metrics = loss_function(
-            #         model_output=model_output, data=micro_batch, dp_group=self.get_data_parallel_group()
-            #     )
-            # else:
-            #     assert forward_only, "forward_only must be True when loss_function is None"
-            #     loss = torch.tensor(1.0, device=device_name)
-            #     metrics = {}
+            if loss_function is not None:
+                loss, metrics = loss_function(
+                    model_output=model_output, data=micro_batch, dp_group=self.get_data_parallel_group()
+                )
+            else:
+                assert forward_only, "forward_only must be True when loss_function is None"
+                loss = torch.tensor(1.0, device=device_name)
+                metrics = {}
 
             output = {
+                "model_output": model_output,
                 "loss": loss,
                 "metrics": metrics,
             }

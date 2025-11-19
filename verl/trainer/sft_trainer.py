@@ -26,7 +26,7 @@ import torch
 import torch.distributed
 from codetiming import Timer
 from omegaconf import OmegaConf
-from torch.utils.data import DistributedSampler, default_collate
+from torch.utils.data import DistributedSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
 
@@ -47,99 +47,6 @@ elif is_npu_available:
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_SFT_LOGGING_LEVEL", "WARN"))
-
-
-def patch_llama_attention_for_non_causal():
-    """
-    Monkey patch LlamaAttention to use non-causal attention.
-    This modifies the forward method to change causal attention to non-causal.
-    """
-    try:
-        from transformers.models.llama.modeling_llama import LlamaAttention
-    except ImportError:
-        print("Warning: Could not import LlamaAttention. Skipping monkey patch.")
-        return
-
-    # Store the original forward method
-    original_forward = LlamaAttention.forward
-
-    def non_causal_forward(self, *args, **kwargs):
-        # Get the original implementation result but modify the attention mechanism
-        # We need to intercept before the scaled_dot_product_attention call
-
-        # Check if this is the SDPA version (transformers >= 4.36)
-        if hasattr(self, "_update_causal_mask"):
-            # For newer transformers versions, we need to modify the causal mask
-            def patched_update_causal_mask(
-                self, attention_mask, input_tensor, cache_position, past_key_values, output_attentions
-            ):
-                # Get the original causal mask
-                causal_mask = self._update_causal_mask.__wrapped__(
-                    self, attention_mask, input_tensor, cache_position, past_key_values, output_attentions
-                )
-
-                # Modify causal mask to be non-causal as per your reference code
-                if causal_mask is not None:
-                    D = causal_mask.shape[-1]
-                    last_row = causal_mask[:, :, -1, :].clone()
-                    new_mask = last_row.unsqueeze(2).expand(-1, -1, D, -1)
-                    causal_mask = new_mask
-
-                return causal_mask
-
-            # Wrap the original _update_causal_mask method
-            if not hasattr(self._update_causal_mask, "__wrapped__"):
-                self._update_causal_mask.__wrapped__ = self._update_causal_mask
-                self._update_causal_mask = patched_update_causal_mask.__get__(self, type(self))
-
-        # For direct SDPA calls, we need to patch the actual attention computation
-        original_sdpa = torch.nn.functional.scaled_dot_product_attention
-
-        def non_causal_sdpa(query, key, value, attn_mask=None, dropout_p=0.0, is_causal=False, **kwargs):
-            # Force is_causal to False and modify the mask if needed
-            if attn_mask is not None:
-                D = attn_mask.shape[-1] if attn_mask.ndim >= 2 else None
-                if D is not None and attn_mask.ndim >= 4:
-                    last_row = attn_mask[:, :, -1, :].clone()
-                    new_mask = last_row.unsqueeze(2).expand(-1, -1, D, -1)
-                    attn_mask = new_mask
-
-            return original_sdpa(
-                query,
-                key,
-                value,
-                attn_mask=attn_mask,
-                dropout_p=dropout_p,
-                is_causal=False,  # Force non-causal
-                **kwargs,
-            )
-
-        # Temporarily replace SDPA
-        torch.nn.functional.scaled_dot_product_attention = non_causal_sdpa
-
-        try:
-            # Call the original forward method
-            result = original_forward(self, *args, **kwargs)
-        finally:
-            # Restore the original SDPA
-            torch.nn.functional.scaled_dot_product_attention = original_sdpa
-
-        return result
-
-    # Apply the monkey patch
-    LlamaAttention.forward = non_causal_forward
-    print("Successfully applied monkey patch to LlamaAttention for non-causal attention.")
-
-
-patch_llama_attention_for_non_causal()
-
-
-def multi_modal_collect(data):
-    multi_modal_data = [i.pop("multi_modal_inputs", None) for i in data]
-    others = default_collate(data)
-    if multi_modal_data[0] is not None:
-        others["multi_modal_inputs"] = multi_modal_data
-    return others
 
 
 class SFTTrainer:
@@ -193,20 +100,12 @@ class SFTTrainer:
         )
 
     def _build_config(self):
-        from verl.trainer.config import CheckpointConfig
         from verl.utils.config import omega_conf_to_dataclass
-        from verl.workers.config import (
-            FSDPEngineConfig,
-            FSDPOptimizerConfig,
-            HFModelConfig,
-            McoreEngineConfig,
-            McoreOptimizerConfig,
-        )
 
-        self.model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model)
-        self.engine_config: FSDPEngineConfig | McoreEngineConfig = omega_conf_to_dataclass(self.config.engine)
-        self.optimizer_config: FSDPOptimizerConfig | McoreOptimizerConfig = omega_conf_to_dataclass(self.config.optim)
-        self.checkpoint_config: CheckpointConfig = omega_conf_to_dataclass(self.config.checkpoint)
+        self.model_config = omega_conf_to_dataclass(self.config.model)
+        self.engine_config = omega_conf_to_dataclass(self.config.engine)
+        self.optimizer_config = omega_conf_to_dataclass(self.config.optim)
+        self.checkpoint_config = omega_conf_to_dataclass(self.config.checkpoint)
 
     def _build_engine(self):
         from verl.workers.engine import BaseEngine, EngineRegistry
@@ -228,7 +127,7 @@ class SFTTrainer:
             self.total_training_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
         self.optimizer_config.total_training_steps = self.total_training_steps
 
-        self.steps_per_epoch = min(self.total_training_steps, len(self.train_dataloader))
+        self.steps_per_epoch = len(self.train_dataloader)
 
         # manage save and test frequency
         self.save_freq = self.config.trainer.save_freq
@@ -243,7 +142,6 @@ class SFTTrainer:
 
     def _build_dataset(self):
         config = self.config
-
         tokenizer = self.model_config.tokenizer
         train_dataset = create_sft_dataset(
             config.data.train_files, config.data, tokenizer, max_samples=config.data.get("train_max_samples", -1)
@@ -439,18 +337,18 @@ class SFTTrainer:
                             if self.engine.is_mp_src_rank_with_outputs():
                                 val_losses.extend(output["metrics"]["loss"])
 
-                #     if self.engine.is_mp_src_rank_with_outputs():
-                #         val_loss = torch.mean(torch.tensor(val_losses, device=self.device_name))
-                #         # average over data parallel group
-                #         torch.distributed.all_reduce(
-                #             val_loss, op=torch.distributed.ReduceOp.AVG, group=self.engine.get_data_parallel_group()
-                #         )
+                    if self.engine.is_mp_src_rank_with_outputs():
+                        val_loss = torch.mean(torch.tensor(val_losses, device=self.device_name))
+                        # average over data parallel group
+                        torch.distributed.all_reduce(
+                            val_loss, op=torch.distributed.ReduceOp.AVG, group=self.engine.get_data_parallel_group()
+                        )
 
-                #     if is_logging:
-                #         metric = {"val/loss": val_loss.detach().item()}
-                #         tracking.log(data=metric, step=global_step)
-                #         last_valid_metric = metric
-                #     torch.distributed.barrier()
+                    if is_logging:
+                        metric = {"val/loss": val_loss.detach().item()}
+                        tracking.log(data=metric, step=global_step)
+                        last_valid_metric = metric
+                    torch.distributed.barrier()
 
                 if is_last_step or (self.save_freq > 0 and is_save_step):
                     self.ckpt_handler.save_checkpoint(step=global_step)
