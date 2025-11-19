@@ -249,7 +249,9 @@ class vLLMHttpServerBase:
             "seed": self.config.get("seed", 0),
             "override_generation_config": json.dumps(override_generation_config),
             "quantization": "fp8" if quantization else None,
-            "hf_overrides": {"quantization_config": fp8_block_quant_kwargs} if quantization and use_block_quant else None,
+            "hf_overrides": {"quantization_config": fp8_block_quant_kwargs}
+            if quantization and use_block_quant
+            else None,
             **engine_kwargs,
         }
 
