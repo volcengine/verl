@@ -33,6 +33,7 @@ from verl import DataProto
 from verl.envs.action_utils import center_crop_image, resize_image
 from verl.models.openvla_oft.modeling_prismatic import OpenVLAForActionPrediction
 from verl.models.openvla_oft.processing_prismatic import PrismaticProcessor
+from verl.utils.device import get_device_name, get_torch_device
 from verl.workers.rollout.base import BaseRollout
 
 logger = logging.getLogger(__name__)
@@ -81,7 +82,7 @@ def process_input(task_descriptions, images_and_states, processor):
         batchdata["attention_mask"].append(attention_mask)
         batchdata["pixel_values"].append(pixel_values)
 
-    device = torch.device("cuda")
+    device = get_torch_device()
 
     batchdata["input_ids"] = [x.transpose(0, 1) for x in batchdata["input_ids"]]
     batchdata["attention_mask"] = [x.transpose(0, 1) for x in batchdata["attention_mask"]]
@@ -137,7 +138,7 @@ class NaiveRolloutRob(BaseRollout):
         attention_mask = prompts["attention_mask"]  # left-padded attention_mask
         pixel_values = prompts["pixel_values"]
 
-        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+        with torch.autocast(device_type=get_device_name(), dtype=torch.bfloat16):
             actions, response = self.module.generate_action_verl(
                 input_ids=idx,
                 pixel_values=pixel_values,
@@ -160,10 +161,11 @@ class NaiveRolloutRob(BaseRollout):
             attention_mask, max_seq_len=max_prompt_length, pad_token_id=0, left_pad=True
         )
 
-        assert idx.device.type == "cuda"
-        assert response.device.type == "cuda"
-        assert attention_mask.device.type == "cuda"
-        assert pixel_values.device.type == "cuda"
+        device_type = get_device_name()
+        assert idx.device.type == device_type
+        assert response.device.type == device_type
+        assert attention_mask.device.type == device_type
+        assert pixel_values.device.type == device_type
         batch = {
             "responses": response,
             "input_ids": idx,
@@ -196,15 +198,15 @@ class NaiveRolloutRob(BaseRollout):
         pass
 
     async def release(self):
-        if self.module.device.type == "cuda":
+        if self.module.device.type == get_device_name():
             logger.info("Releasing rollout model to CPU.")
             self.module.cpu()
             self.device = torch.device("cpu")
-            torch.cuda.empty_cache()
+            get_torch_device().empty_cache()
 
     async def resume(self, **kwargs):
         if self.module.device.type == "cpu":
-            target_device = "cuda"
+            target_device = get_device_name()
             logger.info(f"Resuming rollout model to device: {target_device}.")
             self.module.to(target_device)
             self.device = torch.device(target_device)

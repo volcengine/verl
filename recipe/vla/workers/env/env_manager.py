@@ -13,39 +13,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import ctypes
 import gc
 import logging
 import os
 import subprocess
-import sys
 from typing import Optional
 
 import torch
 import torch.multiprocessing as mp
 
+from verl.utils.device import get_torch_device
+
 logger = logging.getLogger(__name__)
 
 
-def force_gc_tensor(tensor):
-    if not torch.is_tensor(tensor):
-        return
-
-    try:
-        ref_count = sys.getrefcount(tensor)
-        for _ in range(ref_count + 10):
-            ctypes.pythonapi.Py_DecRef(ctypes.py_object(tensor))
-
-    except Exception as e:
-        logger.debug(f"Error during force delete: {e}")
-
-
-def cleanup_cuda_tensors():
-    for obj in gc.get_objects():
-        if torch.is_tensor(obj) and obj.is_cuda:
-            force_gc_tensor(obj)
+def cleanup_device_tensors():
     gc.collect()
-    torch.cuda.empty_cache()
+    get_torch_device().empty_cache()
 
 
 def get_gpu_numa_node(gpu_id: int) -> int:

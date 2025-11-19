@@ -25,6 +25,7 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 import verl.utils.torch_functional as verl_F
 from verl.protocol import DataProto
 from verl.trainer.ppo import core_algos
+from verl.utils.device import get_device_id, get_device_name
 from verl.utils.py_functional import append_to_dict
 from verl.utils.seqlen_balancing import prepare_dynamic_batch, restore_dynamic_batch
 from verl.utils.torch_functional import logprobs_from_logits
@@ -100,7 +101,7 @@ class RobDataParallelPPOActor(BasePPOActor):
             log_probs: # (bs, response_len)
         """
 
-        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+        with torch.autocast(device_type=get_device_name(), dtype=torch.bfloat16):
             input_ids = micro_batch["input_ids"]
             attention_mask = micro_batch["attention_mask"]
             pixel_values = micro_batch["pixel_values"]
@@ -138,7 +139,7 @@ class RobDataParallelPPOActor(BasePPOActor):
     def _forward_micro_batch_update(
         self, input_ids, attention_mask, pixel_values, responses, temperature
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+        with torch.autocast(device_type=get_device_name(), dtype=torch.bfloat16):
             input_ids_unpad, _ = self.process_tensor(input_ids, self.pad_token_id)
             attention_mask_unpad, _ = self.process_tensor(attention_mask, 0)
 
@@ -263,7 +264,7 @@ class RobDataParallelPPOActor(BasePPOActor):
             self.actor_optimizer.zero_grad()
 
             for _, micro_batch in enumerate[DataProto | TensorDictBase](micro_batches):
-                micro_batch = micro_batch.cuda()  # actor device is cpu when using offload
+                micro_batch = micro_batch.to(get_device_id())  # actor device is cpu when using offload
                 responses = micro_batch["responses"]
 
                 response_mask = micro_batch["response_mask"]  # (batch_size, traj_len)
