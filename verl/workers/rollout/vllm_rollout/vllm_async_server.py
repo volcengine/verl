@@ -227,6 +227,8 @@ class vLLMHttpServerBase:
                     "weight_block_size": [128, 128],
                 }
                 fp8_block_quant_kwargs = dict(FP8_BLOCK_QUANT_KWARGS)
+            # Apply vllm fp8 patches
+            # Will remove the patch after vllm support on-the-fly quant for rollout natively.
             apply_vllm_fp8_patches(block_quant=use_block_quant)
         args = {
             "dtype": self.config.dtype,

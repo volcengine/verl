@@ -605,6 +605,8 @@ class vLLMAsyncRollout(BaseRollout):
             lora_dtype = getattr(torch, self.config.dtype)
             self.vllm_config.lora_config = LoRAConfig(lora_dtype=lora_dtype, **self.lora_config)
         if self.config.quantization:
+            # Apply vllm fp8 patches
+            # Will remove the patch after vllm support on-the-fly quant for rollout natively.
             apply_vllm_fp8_patches(block_quant=self.config.use_block_quant_rollout)
         self.inference_engine = WorkerWrapperBase(vllm_config=self.vllm_config)
         self.inference_engine.init_worker(all_kwargs)
@@ -665,15 +667,12 @@ class vLLMAsyncRollout(BaseRollout):
 
             # Add the FP8 related logic here as sharding manager has been deprecated.
             # Check if FP8 quantization is enabled and apply appropriate weight loading
-            print("Checking if FP8 model is detected")
             if is_fp8_model(model_runner.vllm_config):
-                print("Loading FP8 weights (async)")
                 logger.info(f"FP8 model detected (async): {model_runner.vllm_config.quant_config}")
                 # Convert bf16 weights to fp8 format before loading
                 loaded_params = load_quanted_weights(weights, model_runner)
                 logger.info(f"FP8 weights loaded (async), loaded_params: {len(loaded_params)}")
             else:
-                print("Loading standard weights (non-FP8, async)")
                 logger.info("Loading standard weights (non-FP8, async)")
                 model.load_weights(weights)
 
