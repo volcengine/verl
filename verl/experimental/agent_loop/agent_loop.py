@@ -546,8 +546,9 @@ class AgentLoopWorkerBase:
                     batch=batch,
                     non_tensor_batch=non_tensor_batch,
                 )
-                extra_info = data.non_tensor_batch.get("extra_info", {})
-                extra_info[0]["num_turns"] = output.num_turns
+                extra_info = data.non_tensor_batch.get("extra_info", [{}])
+                if len(extra_info) > 0:
+                    extra_info[0]["num_turns"] = output.num_turns
 
                 result = await self.reward_manager_worker.compute_score.remote(data)
                 output.reward_score = result["reward_score"]
