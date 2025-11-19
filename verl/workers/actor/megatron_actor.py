@@ -40,6 +40,14 @@ from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, get_policy_loss_fn, kl_penalty
 from verl.utils.device import get_device_id, get_torch_device
 from verl.utils.megatron.pipeline_parallel import make_batch_generator
+from verl.utils.megatron.router_replay_patch import RouterReplay, RoutingMode
+from verl.utils.megatron.router_replay_utils import (
+    RouterReplayHelper,
+    merge_router_topk_indices,
+    set_router_replay_data,
+    pp_gather,
+    reorder_and_merge_vpp_layers,
+)
 from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy, vocab_parallel_log_probs_from_logits
 from verl.utils.megatron_utils import get_model_config
 from verl.utils.profiler import GPUMemoryLogger
@@ -149,6 +157,11 @@ class MegatronPPOActor(BasePPOActor):
                 "reduce_grads_use_alltoall": False,
             }
         )
+
+        self.router_replay = self.config.router_replay
+        self.enable_routing_replay = self.router_replay.mode != "disabled"
+        if self.enable_routing_replay:
+            self.mini_layer_topk_idx_list = []
 
         config = get_model_config(self.actor_module[0])
         print(config)
@@ -273,11 +286,22 @@ class MegatronPPOActor(BasePPOActor):
                         async_op=False,
                     )
                     entropys = entropys.to("cpu")
+            layers_topk_idx = None
 
+            if RouterReplayHelper.is_r2_record_mode(self.tf_config):
+                # (bs, max_seq_len/response_len,local_layer_num,topk)
+                layers_topk_idx = output["mini_layer_topk_idx_tensor"].to(torch.uint8)
+                if use_dynamic_bsz:
+                    indices = output["indices"]
+                    indices = list(itertools.chain.from_iterable(indices))
+                    assert len(indices) == layers_topk_idx.size(0), f"{len(indices)} vs. {layers_topk_idx.size()}"
+                    revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
+                    layers_topk_idx = layers_topk_idx[revert_indices]
+                layers_topk_idx = pp_gather(layers_topk_idx, self.tf_config)
         # add empty cache after each compute
         get_torch_device().empty_cache()
 
-        return log_probs, entropys
+        return log_probs, entropys, layers_topk_idx
 
     def make_minibatch_iterator(self, data: DataProto) -> Iterable[DataProto]:
         """Make minibatch iterator for updating the actor
@@ -324,10 +348,14 @@ class MegatronPPOActor(BasePPOActor):
         if "rollout_log_probs" in data.batch.keys():
             select_keys.append("rollout_log_probs")
         self.has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
+        # router replay
+        if self.enable_routing_replay:
+            select_keys.append("layers_topk_idx")
         if self.has_multi_modal_inputs:
             data = data.select(select_keys, ["multi_modal_inputs"])
         else:
             data = data.select(batch_keys=select_keys)
+
         return data.make_iterator(
             mini_batch_size=self.config.ppo_mini_batch_size,
             epochs=self.config.ppo_epochs,
@@ -536,6 +564,7 @@ class MegatronPPOActor(BasePPOActor):
             input_ids = batch["input_ids"]
             attention_mask = batch["attention_mask"].to(bool)
             position_ids = batch["position_ids"]
+            vp_rank = model.module.module.vp_stage
 
             multi_modal_inputs = {}
             if "multi_modal_inputs" in batch:
@@ -550,6 +579,15 @@ class MegatronPPOActor(BasePPOActor):
             label_mask = attention_mask.clone()
             label_mask[:, : -response_length - 1] = False
             label_mask[:, -1] = False
+            
+            if RouterReplayHelper.is_replay_backward_mode(self.tf_config, vp_rank):
+                router_instance_list = RouterReplayHelper.get_micro_batch_router_list(self.tf_config, vp_rank)
+                for router in router_instance_list:
+                    router.set_routing_mode(RoutingMode.REPLAY_FORWARD)
+
+            if RouterReplayHelper.is_replay_forward_mode(self.tf_config, vp_rank):
+                layers_topk_idx = batch["layers_topk_idx"]
+                set_router_replay_data(layers_topk_idx, attention_mask, self.tf_config, vp_rank)
 
             from verl.models.mcore import get_mcore_forward_fn, get_mcore_forward_fused_fn
 
@@ -612,6 +650,15 @@ class MegatronPPOActor(BasePPOActor):
                     "entropy_coeff": self.config.entropy_coeff,
                     "clip_ratio_c": clip_ratio_c,
                 }
+
+            if RouterReplayHelper.is_r2_record_mode(self.tf_config, vp_rank):
+                merge_router_topk_indices(attention_mask, input_ids, self.mini_layer_topk_idx_list, self.tf_config, vp_rank)
+
+            if RouterReplayHelper.is_replay_forward_mode(self.tf_config, vp_rank):
+                router_instance_list = RouterReplayHelper.get_micro_batch_router_list(self.tf_config, vp_rank)
+                for router in router_instance_list:
+                    router.set_routing_mode(RoutingMode.REPLAY_BACKWARD)
+
             return output, partial(loss_func, data=batch, meta_info=meta_info)
 
         # batch should be a list of batches inside micro-batches
@@ -649,6 +696,16 @@ class MegatronPPOActor(BasePPOActor):
         losses_reduced = {"output": losses_reduced}
         if use_dynamic_bsz:
             losses_reduced["indices"] = indices
+        if RouterReplayHelper.is_r2_record_mode(self.tf_config):
+            losses_reduced["mini_layer_topk_idx_tensor"] = torch.cat(self.mini_layer_topk_idx_list, dim=0)
+            self.mini_layer_topk_idx_list = []
+            if self.tf_config.virtual_pipeline_model_parallel_size is not None:
+                # config = self.actor_module[0].module.module.config
+                vp_size = len(self.actor_module)
+                microbatch_group_size_per_vp_stage = self.tf_config.microbatch_group_size_per_vp_stage
+                bs = mini_batch.batch["attention_mask"].shape[0]
+                losses_reduced["mini_layer_topk_idx_tensor"] = reorder_and_merge_vpp_layers(losses_reduced["mini_layer_topk_idx_tensor"], bs, vp_size, microbatch_group_size_per_vp_stage)
+
         return losses_reduced
 
     @GPUMemoryLogger(role="megatron actor", logger=logger)
@@ -668,6 +725,8 @@ class MegatronPPOActor(BasePPOActor):
         if self.use_torch_profiler and self.prof and self.prof.enable:
             self.prof.start()
         for data in dataloader:
+            if self.config.router_replay.mode in ["R2", "R3"]:
+                RouterReplay.set_global_routing_mode(RoutingMode.REPLAY_FORWARD)
             self.actor_optimizer.zero_grad()
             # use use_contiguous_buffers_in_local_ddp and no overlap_dp_param_comm
             for chunk in self.actor_module:
@@ -706,6 +765,11 @@ class MegatronPPOActor(BasePPOActor):
                 raise NotImplementedError
             if self.use_torch_profiler and self.prof and self.prof.enable:
                 self.prof.step()
+
+            if self.config.router_replay.mode in ["R2", "R3"]:
+                RouterReplay.clear_global_routing_mode()
+                RouterReplay.clear_global_indices()
+
         # add empty cache after each compute
         if self.use_torch_profiler and self.prof and self.prof.enable:
             self.prof.stop_and_save()
