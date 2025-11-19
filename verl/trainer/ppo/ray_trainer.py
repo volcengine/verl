@@ -69,6 +69,7 @@ class ResourcePoolManager:
 
     resource_pool_spec: dict[str, list[int]]
     mapping: dict[Role, str]
+    max_colocate_count: int = 1
     resource_pool_dict: dict[str, RayResourcePool] = field(default_factory=dict)
 
     def create_resource_pool(self):
@@ -76,17 +77,34 @@ class ResourcePoolManager:
 
         Initializes resource pools based on the resource pool specification,
         with each pool managing GPU resources across multiple nodes.
-        For FSDP backend, uses max_colocate_count=1 to merge WorkerGroups.
-        For Megatron backend, uses max_colocate_count>1 for different models.
+
+        Args:
+            max_colocate_count: Number of processes that can share a GPU.
+                - 1 (default): Each process gets exclusive GPU access (recommended for FSDP)
+                - >1: Multiple processes share GPUs (for Megatron with colocated models)
+                Note: max_colocate_count > 1 requires Ray >= 2.39.0 (PR #48088)
         """
+        # Check Ray version if max_colocate_count > 1
+        if self.max_colocate_count > 1:
+            from packaging.version import parse as parse_version
+            if parse_version(ray.__version__) < parse_version("2.39.0"):
+                raise ValueError(
+                    f"max_colocate_count > 1 requires Ray >= 2.39.0, "
+                    f"but found Ray {ray.__version__}. "
+                    f"Please upgrade: pip install 'ray[default]>=2.39.0'"
+                )
+
         for resource_pool_name, process_on_nodes in self.resource_pool_spec.items():
             # max_colocate_count means the number of WorkerGroups (i.e. processes) in each RayResourcePool
             # For FSDP backend, we recommend using max_colocate_count=1 that merge all WorkerGroups into one.
             # For Megatron backend, we recommend using max_colocate_count>1
             # that can utilize different WorkerGroup for differnt models
-            # max_colocate_count = 3: actor_critic_ref, rollout, reward model (optional)
+            # Default max_colocate_count = 3: actor_critic_ref, rollout, reward model (optional)
             resource_pool = RayResourcePool(
-                process_on_nodes=process_on_nodes, use_gpu=True, max_colocate_count=3, name_prefix=resource_pool_name
+                process_on_nodes=process_on_nodes,
+                use_gpu=True,
+                max_colocate_count=self.max_colocate_count,
+                name_prefix=resource_pool_name
             )
             self.resource_pool_dict[resource_pool_name] = resource_pool
 
