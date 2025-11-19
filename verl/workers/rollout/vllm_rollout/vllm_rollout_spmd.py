@@ -75,6 +75,7 @@ from verl import DataProto
 from verl.third_party.vllm import VLLM_SLEEP_LEVEL, get_version
 from verl.utils.device import is_npu_available
 from verl.utils.distributed import initialize_global_process_group_ray
+from verl.utils.fp8_utils import apply_vllm_fp8_patches, is_fp8_model, load_quanted_weights
 from verl.utils.import_utils import deprecated
 from verl.utils.model import get_lora_rank_from_adapter
 from verl.utils.profiler import GPUMemoryLogger
@@ -603,6 +604,8 @@ class vLLMAsyncRollout(BaseRollout):
         if self.lora_config:
             lora_dtype = getattr(torch, self.config.dtype)
             self.vllm_config.lora_config = LoRAConfig(lora_dtype=lora_dtype, **self.lora_config)
+        if self.config.quantization:
+            apply_vllm_fp8_patches(block_quant=self.config.use_block_quant_rollout)
         self.inference_engine = WorkerWrapperBase(vllm_config=self.vllm_config)
         self.inference_engine.init_worker(all_kwargs)
 
@@ -656,9 +659,20 @@ class vLLMAsyncRollout(BaseRollout):
         else:
             from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 
-            model = self.inference_engine.worker.model_runner.model
+            model_runner = self.inference_engine.worker.model_runner
+            model = model_runner.model
             patch_vllm_moe_model_weight_loader(model)
-            model.load_weights(weights)
+
+            # Add the FP8 related logic here as sharding manager has been deprecated.
+            # Check if FP8 quantization is enabled and apply appropriate weight loading
+            if is_fp8_model(model_runner.vllm_config):
+                logger.info(f"FP8 model detected (async): {model_runner.vllm_config.quant_config}")
+                # Convert bf16 weights to fp8 format before loading
+                loaded_params = load_quanted_weights(weights, model_runner)
+                logger.info(f"FP8 weights loaded (async), loaded_params: {len(loaded_params)}")
+            else:
+                logger.debug("Loading standard weights (non-FP8, async)")
+                model.load_weights(weights)
 
     def generate_sequences(self, prompts: DataProto) -> DataProto:
         """Batch generate sequences in sync mode."""
