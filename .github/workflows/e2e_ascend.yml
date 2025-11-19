@@ -44,11 +44,13 @@ on:
       - main
     paths:
       - ".github/workflows/e2e_ascend.yml"
-      - "**/*.py"
-      - "examples/**"
-      - "recipe/**"
+      - "examples/data_preprocess/**"
+      - "examples/grpo_trainer/**"
+      - "examples/ppo_trainer/**"
+      - "examples/sft/**"
+      - "recipe/dapo/**"
       - "tests/special_npu/**"
-      - "tests/special_sanity/**"
+      - "tests/special_sanity/check_device_api_usage.py"
       - "verl/**"
       - "pyproject.toml"
       - "requirements-npu.txt"
