@@ -68,6 +68,8 @@ Results and observations:
 - 2\*8*H100
 - vLLM 0.10.0+CUDA 12.6
 
+Please refer to `recipe/dapo/run_dapo_qwen3_moe_30b_vllm_fp8_rollout.sh`
+
 **Accuracy**
 ![Qwen3-30b-a3b_fp8_acc](
 https://github.com/Agoniii/verl/blob/xueh/fp8_pr_images/docs/advance/images/Qwen3-30b-a3b_fp8_acc.png?raw=true)
@@ -103,6 +105,8 @@ FP8 can be enabled in the config file `verl/trainer/config/ppo_megatron_trainer.
 Or it can be enabled by command line:
 - `actor_rollout_ref.rollout.quantization=True`
 - `actor_rollout_ref.rollout.use_block_quant_rollout=True`
+
+Please refer to `recipe/dapo/run_dapo_qwen3_moe_30b_vllm_fp8_rollout.sh`
 
 ## Plans
 
