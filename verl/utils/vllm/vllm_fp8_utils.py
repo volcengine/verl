@@ -161,7 +161,7 @@ def scaled_fp8_blockwise(
     return fp_data, descale_fp
 
 
-def quant_weights(weights, model, quant_config):
+def quant_weights(weights, model, quant_config, dtype=torch.bfloat16):
     weights_quantized = []
     for k, v in weights:
         if not is_fp8_weight(k, model):
@@ -171,7 +171,7 @@ def quant_weights(weights, model, quant_config):
         if quant_config.weight_block_size is not None:
             logger.info("Using blockwise quantization")
             param_lp, param_scale = scaled_fp8_blockwise(
-                v.to(torch.bfloat16),
+                v.to(dtype),
                 weight_block_size=quant_config.weight_block_size,
             )
             param_scale = param_scale.squeeze(-1)
@@ -193,8 +193,9 @@ def quant_weights(weights, model, quant_config):
 def load_quanted_weights(weights, model_runner):
     model = model_runner.model
     quant_config = model_runner.vllm_config.quant_config
+    vllm_dtype = model_runner.vllm_config.model_config.dtype
 
-    weights_quantized = quant_weights(weights, model, quant_config)
+    weights_quantized = quant_weights(weights, model, quant_config, dtype=vllm_dtype)
 
     # Monkey patch the param class to their subclass, as certain models
     # will check the param type to call the proper weightloader
