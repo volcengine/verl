@@ -111,12 +111,12 @@ class RobRayPPOTrainer(RayPPOTrainer):
 
     def init_workers(self):
         self.resource_pool_manager.create_resource_pool()
-        
+
         if self.config.env.disagg_sim.enable:
             # pin EnvWorker to Simulator GPU nodes
             self.resource_pool_manager.get_resource_pool(Role.Env).accelerator_type = "sim"
             self.resource_pool_manager.get_resource_pool(Role.ActorRollout).accelerator_type = "train_rollout"
-        
+
         self.resource_pool_to_cls = {pool: {} for pool in self.resource_pool_manager.resource_pool_dict.values()}
         resource_pool = self.resource_pool_manager.get_resource_pool(Role.ActorRollout)
         actor_rollout_cls = RayClassWithInitArgs(

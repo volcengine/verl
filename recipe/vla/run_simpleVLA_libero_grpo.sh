@@ -92,10 +92,11 @@ $PYTHON -m recipe.vla.main_ppo \
     +trainer.n_rollout_gpus_per_node=$((NUM_GPUS - NUM_ENV_GPUS)) \
     trainer.nnodes=$NUM_NODES \
     trainer.save_freq=30 \
-    trainer.test_freq=-1 \
-    trainer.total_epochs=10 \
+    trainer.test_freq=30 \
+    trainer.total_epochs=20 \
     trainer.val_only=False \
+    trainer.total_training_steps=10000 \
     algorithm.adv_estimator=reinforce_plus_plus \
-    trainer.val_before_train=False
+    trainer.val_before_train=False  $@
 
 

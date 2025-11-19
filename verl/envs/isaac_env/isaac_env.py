@@ -102,7 +102,6 @@ class IsaacEnv(gym.Env):
 
         self.action_space = self.env.action_space
         self.observation_space = self.env.observation_space
-        logger.info("Isaac Sim environment initialized")
 
         # TODO support other task suite
         if self.task_suite_name.startswith("libero"):

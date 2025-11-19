@@ -150,3 +150,8 @@ RUN cd /workspace/isaaclab/ && \
     rm -rf source && \
     ln -s /root/RobotLearningLab/source source && \
     /workspace/isaaclab/_isaac_sim/python.sh -m pip install -e ./source/isaaclab
+# Ray cmd
+RUN /workspace/isaaclab/_isaac_sim/python.sh -m pip install colorama && \
+cat <<'EOP' >> /root/.bashrc
+alias ray='/workspace/isaaclab/_isaac_sim/python.sh /workspace/isaaclab/_isaac_sim/kit/python/lib/python3.11/site-packages/ray/scripts/scripts.py'
+EOP

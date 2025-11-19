@@ -55,6 +55,8 @@ def main(config):
         ray.init(**OmegaConf.to_container(ray_init_kwargs))
     ray.get(main_task.remote(config))
 
+    # ray.timeline(filename="/tmp/ray_timeline.json")
+
 
 @ray.remote
 def main_task(config):
@@ -97,7 +99,7 @@ def main_task(config):
     }
 
     train_rollout_pool_id = "train_rollout_pool"
-    
+
     num_nodes_actor_rollout = config.trainer.nnodes
     train_rollout_gpu_num = config.trainer.n_rollout_gpus_per_node
     env_gpu_num = config.trainer.n_env_gpus_per_node

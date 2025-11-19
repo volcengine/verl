@@ -252,6 +252,4 @@ class RobActorRolloutRefWorker(ActorRolloutRefWorker):
                 checkpoint_config=self.config.actor.checkpoint,
             )
 
-        torch.cuda.synchronize()
         torch.distributed.barrier()
-        torch.cuda.empty_cache()
