@@ -15,17 +15,18 @@ import asyncio
 import time
 from pprint import pformat
 
+import numpy as np
 import ray
 from ray import ObjectRef
 
 from recipe.fully_async_policy.detach_utils import (
     RolloutSample,
     ValidateMetrics,
-    merge_rollout_sample,
     prepare_single_generation_data,
 )
 from recipe.fully_async_policy.message_queue import MessageQueueClient
 from recipe.fully_async_policy.ray_trainer import FullyAsyncRayPPOTrainer
+from verl.protocol import DataProto
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.trainer.ppo.ray_trainer import ResourcePoolManager
 from verl.trainer.ppo.reward import load_reward_manager
@@ -415,22 +416,21 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         rollout_sample.full_batch.non_tensor_batch["param_version"] = [self.current_param_version] * len(
             rollout_sample.full_batch
         )
-        rollout_sample.agent_loop_output_list = await self.async_rollout_manager.generate_single_sample_async(
+        ret = await self.async_rollout_manager.generate_single_sample_async(
             rollout_sample.full_batch, rollout_sample.agent_loop_output_list
         )
+        if isinstance(ret, DataProto):
+            rollout_sample.full_batch = ret
+            rollout_sample.full_batch.non_tensor_batch["uid"] = np.array(
+                [f"uid_{rollout_sample.sample_id}"] * len(rollout_sample.full_batch), dtype=object
+            )
 
-        is_cancel = any(
-            agent_loop.extra_fields.get("is_cancel", False) for agent_loop in rollout_sample.agent_loop_output_list
-        )
-
-        if is_cancel:
-            # Put in the cancel queue and wait for the generation to resume
-            await self.cancel_queue.put(rollout_sample)
-        else:
-            # put into the result_queue
             rollout_sample.param_version = self.current_param_version
             rollout_sample.rollout_status = await self.get_statistics()
             await self.result_queue.put(rollout_sample)
+        else:
+            rollout_sample.agent_loop_output_list = ret
+            await self.cancel_queue.put(rollout_sample)
 
         self.processed_sample_count += 1
 
@@ -441,7 +441,6 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         """
         while True:
             rollout_sample = await self.result_queue.get()
-            rollout_sample = merge_rollout_sample(self.config, self.tokenizer, rollout_sample, self.processor)
 
             # Put RolloutSample into the message queue
             success = await self.message_queue_client.put_sample(
