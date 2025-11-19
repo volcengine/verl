@@ -31,13 +31,13 @@ import getpass
 import inspect
 import logging
 import os
-import pickle
 import time
 from contextlib import contextmanager
 from dataclasses import asdict
 from types import MethodType
 from typing import Any, Generator
 
+import cloudpickle as pickle
 import numpy as np
 import ray
 import torch
@@ -51,6 +51,7 @@ from torch.distributed.device_mesh import DeviceMesh
 from vllm import LLM, SamplingParams
 from vllm.config import CompilationConfig, LoRAConfig
 from vllm.lora.request import LoRARequest
+from vllm.model_executor.model_loader.utils import process_weights_after_loading
 
 try:
     # https://github.com/vllm-project/vllm/commit/96b9aa5aa076e64c68765232aec343e4d0006e2a
@@ -68,10 +69,14 @@ except ModuleNotFoundError:
     # https://github.com/vllm-project/vllm/commit/6a113d9aed8221a9c234535958e70e34ab6cac5b
     from vllm.v1.worker.worker_base import WorkerWrapperBase
 
+from packaging import version as vs
+
 from verl import DataProto
-from verl.third_party.vllm import VLLM_SLEEP_LEVEL
+from verl.third_party.vllm import VLLM_SLEEP_LEVEL, get_version
 from verl.utils.device import is_npu_available
 from verl.utils.distributed import initialize_global_process_group_ray
+from verl.utils.import_utils import deprecated
+from verl.utils.model import get_lora_rank_from_adapter
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.ray_utils import ray_noset_visible_devices
 from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
@@ -109,6 +114,19 @@ if is_version_ge(pkg="vllm", minver="0.7.3"):
     VLLMHijack.hijack()
 
 
+def _check_vllm_version_for_sleep_level():
+    # https://github.com/vllm-project/vllm/issues/25171
+    minver = "0.11.0"
+    current_version = get_version("vllm")
+    if not current_version:
+        logger.warning("Could not determine vLLM version, assuming an older version for sleep_level configuration.")
+        return False
+    return vs.parse(current_version) >= vs.parse(minver)
+
+
+@deprecated(
+    "vLLM spmd mode is deprecated. Please set `actor_rollout_ref.rollout.mode=async` to use vllm native server mode."
+)
 class vLLMRollout(BaseRollout):
     def __init__(
         self,
@@ -127,8 +145,15 @@ class vLLMRollout(BaseRollout):
         tokenizer = model_config.tokenizer
         model_hf_config = model_config.hf_config
         trust_remote_code = model_config.trust_remote_code
+
+        lora_adapter_path = getattr(model_config, "lora_adapter_path", None)
+        if lora_adapter_path is not None:
+            lora_rank = get_lora_rank_from_adapter(lora_adapter_path)
+        else:
+            lora_rank = model_config.lora_rank
+
         self.lora_kwargs = (
-            {"enable_lora": True, "max_loras": 1, "max_lora_rank": get_vllm_max_lora_rank(model_config.lora_rank)}
+            {"enable_lora": True, "max_loras": 1, "max_lora_rank": get_vllm_max_lora_rank(lora_rank)}
             if model_config.lora_rank > 0
             else {}
         )
@@ -174,10 +199,12 @@ class vLLMRollout(BaseRollout):
 
         max_model_len = int(config.max_model_len or config.prompt_length + config.response_length)
 
-        if max_num_batched_tokens < max_model_len and self.config.enable_chunked_prefill:
+        # This parameter verification is borrowed from vllm:
+        # https://github.com/vllm-project/vllm/blob/561253b37faadaafe68168ea32d8d8157621a6b4/vllm/config/scheduler.py#L249
+        if max_num_batched_tokens < max_model_len and not self.config.enable_chunked_prefill:
             raise ValueError(
-                "Enable chunked prefill, max_num_batched_tokens is smaller than max_model_len, \
-                             please increase max_num_batched_tokens or disable chunked prefill"
+                f"max_num_batched_tokens ({max_num_batched_tokens}) is smaller than max_model_len ({max_model_len}). "
+                "Please increase max_num_batched_tokens or enable chunked prefill."
             )
 
         load_format = "dummy" if config.load_format.startswith("dummy") else config.load_format
@@ -474,6 +501,9 @@ class vLLMRollout(BaseRollout):
             model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
             patch_vllm_moe_model_weight_loader(model)
             model.load_weights(weights)
+            vllm_config = self.inference_engine.llm_engine.vllm_config.model_config
+            device = next(model.parameters()).device
+            process_weights_after_loading(model, vllm_config, device)
 
 
 # https://github.com/vllm-project/vllm/issues/13175
@@ -502,17 +532,17 @@ class vLLMAsyncRollout(BaseRollout):
         device_mesh: DeviceMesh,
     ):
         super().__init__(config, model_config, device_mesh)
-        self.tokenizer = model_config.tokenizer
+        self.tokenizer = self.model_config.tokenizer
         self.inference_engine: WorkerWrapperBase = None
         self.address = self._init_zeromq()
         self.lora_config = (
-            {"max_loras": 1, "max_lora_rank": get_vllm_max_lora_rank(model_config.lora_rank)}
-            if model_config.lora_rank > 0
+            {"max_loras": 1, "max_lora_rank": get_vllm_max_lora_rank(self.model_config.lora_rank)}
+            if self.model_config.lora_rank > 0
             else {}
         )
 
-        # https://github.com/vllm-project/vllm/issues/25171
-        if config.layered_summon or config.expert_parallel_size > 1:
+        if config.layered_summon or (config.expert_parallel_size > 1 and not _check_vllm_version_for_sleep_level()):
+            logger.warning("Setting the sleep level to 1 may cause a memory overflow.")
             self.sleep_level = 1
         else:
             self.sleep_level = VLLM_SLEEP_LEVEL

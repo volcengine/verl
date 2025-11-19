@@ -57,7 +57,7 @@ data:
   return_raw_input_ids: False
 
   # Whether to return the original chat (prompt) without applying chat template.
-  return_raw_chat: False
+  return_raw_chat: True
 
   # Whether to return the full prompt with chat template.
   return_full_prompt: False
@@ -411,7 +411,7 @@ actor_rollout_ref:
     name: vllm
 
     # sync: LLM, async: AsyncLLM
-    mode: sync
+    mode: async
 
     # Sampling temperature for rollout.
     temperature: 1.0

@@ -38,6 +38,7 @@ from verl.utils.megatron_utils import (
     offload_megatron_model_to_cpu,
     offload_megatron_optimizer,
     per_tensor_generator,
+    register_megatron_training_hooks,
 )
 from verl.utils.model import load_mcore_dist_weights, load_megatron_gptmodel_weights
 from verl.workers.config import HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
@@ -86,7 +87,6 @@ class MegatronEngine(BaseEngine):
             tensor_model_parallel_size=self.engine_config.tensor_model_parallel_size,
             pipeline_model_parallel_size=self.engine_config.pipeline_model_parallel_size,
             virtual_pipeline_model_parallel_size=self.engine_config.virtual_pipeline_model_parallel_size,
-            pipeline_model_parallel_split_rank=None,
             use_sharp=False,
             context_parallel_size=self.engine_config.context_parallel_size,
             expert_model_parallel_size=self.engine_config.expert_model_parallel_size,
@@ -98,7 +98,9 @@ class MegatronEngine(BaseEngine):
         from verl.models.mcore import hf_to_mcore_config
         from verl.utils.torch_dtypes import PrecisionType
 
-        self.param_dtype = torch.bfloat16
+        self.param_dtype = PrecisionType.to_dtype(self.engine_config.dtype)
+        if self.param_dtype == torch.float16:
+            assert self.engine_config.use_mbridge, "fp16 mode requires use_mbridge to be True"
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
         tf_config = hf_to_mcore_config(
             self.model_config.hf_config, self.dtype, **self.engine_config.override_transformer_config
@@ -108,9 +110,11 @@ class MegatronEngine(BaseEngine):
         if use_mbridge:
             from verl.models.mcore.mbridge import AutoBridge
 
-            bridge = AutoBridge.from_config(self.model_config.hf_config)
+            bridge = AutoBridge.from_config(self.model_config.hf_config, dtype=self.param_dtype)
             bridge.set_extra_args(**self.engine_config.override_transformer_config)
             tf_config = bridge.config
+            tf_config.fp16 = self.param_dtype == torch.float16
+            tf_config.bf16 = self.param_dtype == torch.bfloat16
             self.bridge = bridge
         else:
             self.bridge = None
@@ -182,8 +186,9 @@ class MegatronEngine(BaseEngine):
     def _build_optimizer(self):
         from verl.utils.megatron.optimizer import get_megatron_optimizer, init_megatron_optim_config
 
-        optim_config_megatron = init_megatron_optim_config(self.optimizer_config)
+        optim_config_megatron = init_megatron_optim_config(self.optimizer_config, self.param_dtype == torch.float16)
         optimizer = get_megatron_optimizer(model=self.module, config=optim_config_megatron)
+        register_megatron_training_hooks(self.module, optimizer)
         return optimizer
 
     def _build_lr_scheduler(self):
@@ -381,6 +386,15 @@ class MegatronEngine(BaseEngine):
 
     def forward_backward_batch(self, data: TensorDict, loss_function: Callable, forward_only=False) -> Any:
         tu.assign_non_tensor(data, sp_size=self.engine_config.context_parallel_size)
+
+        # compute num_tokens in global batch for loss normalization
+        batch_num_tokens = data["loss_mask"].sum().to(get_device_id())
+        torch.distributed.all_reduce(
+            batch_num_tokens, op=torch.distributed.ReduceOp.SUM, group=self.get_data_parallel_group()
+        )
+        tu.assign_non_tensor(data, batch_num_tokens=batch_num_tokens.item())
+        tu.assign_non_tensor(data, dp_size=self.get_data_parallel_size())
+
         vpp_size = mpu.get_virtual_pipeline_model_parallel_world_size()
         if vpp_size is not None and vpp_size > 1:
             num_batches_divided_by = self.tf_config.microbatch_group_size_per_vp_stage
@@ -624,18 +638,13 @@ class MegatronEngineWithLMHead(MegatronEngine):
         # For memory efficiency
         # We move calculation of entropy to compute_log_probs, forward_only == True
         device = data["input_ids"].device
-        local_micro_bsz = data["input_ids"].shape[0]
         model_output = self.prepare_model_outputs(output, data)
 
         if loss_function is not None:
             loss, metrics = loss_function(model_output=model_output, data=data, dp_group=self.get_data_parallel_group())
             # scale loss by num_micro_batch because megatron will scale loss
             # by n_micro_batch and cp size inside pp schedule
-            n_micro_batch = data["num_micro_batch"]
-            loss = loss * n_micro_batch / mpu.get_context_parallel_world_size()
-            global_bsz = data["global_batch_size"]
-            loss_scale_factor = local_micro_bsz / (global_bsz / self.get_data_parallel_size())
-            loss = loss * loss_scale_factor
+            loss = loss * data["num_micro_batch"] / mpu.get_context_parallel_world_size()
         else:
             assert forward_only, "forward_only must be True when loss_function is None"
             loss = torch.tensor(1.0, device=device)

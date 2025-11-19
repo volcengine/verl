@@ -19,8 +19,10 @@ This implementation is exact same as `ToolAgentLoop`.
 Ref: https://langchain-ai.github.io/langgraph/tutorials/workflows/
 """
 
+import logging
 from typing import Any, Literal
 
+from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode
@@ -31,6 +33,8 @@ from recipe.langgraph_agent.chat_model import (
     convert_to_agent_output,
 )
 from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput
+
+logger = logging.getLogger(__name__)
 
 
 async def call_model(state: MessagesState, config: RunnableConfig):
@@ -45,7 +49,14 @@ async def call_model(state: MessagesState, config: RunnableConfig):
 
 
 def should_continue(state: MessagesState, config: RunnableConfig) -> Literal["tools", END]:
-    max_assistant_turns = config["configurable"]["max_assistant_turns"]
+    # Safely extract max_assistant_turns from config
+    max_assistant_turns = None
+    try:
+        if config and "configurable" in config:
+            max_assistant_turns = config["configurable"].get("max_assistant_turns")
+    except Exception as e:
+        logger.warning(f"Failed to extract max_assistant_turns from config: {e}")
+
     num_assistant_turns = 0
     for message in state["messages"]:
         if message.type == "ai":
@@ -58,17 +69,26 @@ def should_continue(state: MessagesState, config: RunnableConfig) -> Literal["to
         return END
 
     # max assistant turns exceeded
-    if max_assistant_turns and num_assistant_turns >= max_assistant_turns:
+    # Use a reasonable default limit (25) if max_assistant_turns is not set
+    # This prevents infinite loops
+    effective_max_turns = max_assistant_turns if max_assistant_turns is not None else 25
+    if num_assistant_turns >= effective_max_turns:
         return END
 
     # no tool calls
-    if not last_message.tool_calls:
+    if not getattr(last_message, "tool_calls", None):
         return END
 
     return "tools"
 
 
 class ReactAgentLoop(AgentLoopBase):
+    # Recursion limit calculation constants
+    DEFAULT_MAX_ASSISTANT_TURNS = 25
+    MIN_RECURSION_LIMIT = 50
+    NODES_PER_TURN = 2  # Each AI turn involves agent + tools nodes
+    RECURSION_LIMIT_SAFETY_FACTOR = 1.5  # 50% buffer for edge cases
+
     @classmethod
     def init_class(cls, config, tokenizer, **kwargs):
         if cls._class_initialized:
@@ -117,19 +137,52 @@ class ReactAgentLoop(AgentLoopBase):
 
         model = model.bind_tools(self.tools, tool_choice="any")
 
+        # Calculate recursion_limit dynamically based on max_assistant_turns
+        max_assistant_turns = (
+            rollout.multi_turn.max_assistant_turns
+            if rollout.multi_turn.max_assistant_turns
+            else self.DEFAULT_MAX_ASSISTANT_TURNS
+        )
+
+        # Formula: nodes_per_turn * max_turns * safety_buffer, with minimum threshold
+        recursion_limit = max(
+            self.MIN_RECURSION_LIMIT,
+            int(max_assistant_turns * self.NODES_PER_TURN * self.RECURSION_LIMIT_SAFETY_FACTOR),
+        )
+        logger.info(f"Configured recursion_limit={recursion_limit} (max_assistant_turns={max_assistant_turns})")
+
         config = {
             "configurable": {
                 "model": model,
                 "sampling_params": sampling_params,
                 "max_user_turns": rollout.multi_turn.max_user_turns,
                 "max_assistant_turns": rollout.multi_turn.max_assistant_turns,
-            }
+            },
+            "recursion_limit": recursion_limit,
         }
 
         # TODO: how to handle multiple trajectories in an graph invocation?
         # Each graph node may has its own LLM calls and state, e.g:
         # https://github.com/google-gemini/gemini-fullstack-langgraph-quickstart
-        state = await self.graph.ainvoke(input={"messages": messages}, config=config)
+        try:
+            state = await self.graph.ainvoke(input={"messages": messages}, config=config)
+        except Exception as e:
+            logger.error(f"Agent loop execution failed: {type(e).__name__}: {e}")
+            logger.error("Falling back to a minimal dummy trajectory.")
+
+            # Fallback to a minimal assistant message so that
+            # convert_to_agent_output and downstream padding logic
+            # can still run without crashing.
+            dummy_id = 0
+            fallback_message = AIMessage(
+                content="[Agent execution failed - no valid trajectory]",
+                response_metadata={
+                    "request_id": "fallback",
+                    "prompt_ids": [dummy_id, dummy_id],
+                    "response_mask": [1],
+                },
+            )
+            state = {"messages": [fallback_message]}
 
         output = convert_to_agent_output(state["messages"], rollout.response_length)
         return output

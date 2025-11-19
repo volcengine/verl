@@ -240,16 +240,34 @@ class FSDPEngine(BaseEngine):
 
     def _build_lora_module(self, module):
         module.enable_input_require_grads()
-        # Convert config to regular Python types before creating PEFT model
-        lora_config = {
-            "task_type": TaskType.CAUSAL_LM,
-            "r": self.model_config.lora_rank,
-            "lora_alpha": self.model_config.lora_alpha,
-            "target_modules": convert_to_regular_types(self.model_config.target_modules),
-            "exclude_modules": convert_to_regular_types(self.model_config.exclude_modules),
-            "bias": "none",
-        }
-        module = get_peft_model(module, LoraConfig(**lora_config))
+
+        lora_adapter_path = getattr(self.model_config, "lora_adapter_path", None)
+        if lora_adapter_path is not None:
+            from peft import PeftModel
+
+            from verl.utils.fs import copy_to_local
+
+            print(f"Loading pre-trained LoRA adapter to from: {lora_adapter_path}")
+            # Copy adapter to local if needed
+            local_adapter_path = copy_to_local(lora_adapter_path, use_shm=self.model_config.use_shm)
+
+            module = PeftModel.from_pretrained(module, local_adapter_path, is_trainable=True)
+            peft_config = module.peft_config["default"]
+            # Ensure task_type is TaskType enum, not string
+            if isinstance(peft_config.task_type, str):
+                peft_config.task_type = TaskType.CAUSAL_LM
+        else:
+            # Convert config to regular Python types before creating PEFT model
+            lora_config = {
+                "task_type": TaskType.CAUSAL_LM,
+                "r": self.model_config.lora_rank,
+                "lora_alpha": self.model_config.lora_alpha,
+                "target_modules": convert_to_regular_types(self.model_config.target_modules),
+                "exclude_modules": convert_to_regular_types(self.model_config.exclude_modules),
+                "bias": "none",
+            }
+            module = get_peft_model(module, LoraConfig(**lora_config))
+
         return module
 
     def _build_fsdp_module(self, module):
@@ -458,6 +476,14 @@ class FSDPEngine(BaseEngine):
         # note that the global_batch_size should include data on all the dp
         tu.assign_non_tensor(data, sp_size=self.ulysses_sequence_parallel_size)
 
+        # compute num_tokens in global batch for loss normalization
+        batch_num_tokens = data["loss_mask"].sum().to(get_device_id())
+        torch.distributed.all_reduce(
+            batch_num_tokens, op=torch.distributed.ReduceOp.SUM, group=self.get_data_parallel_group()
+        )
+        tu.assign_non_tensor(data, batch_num_tokens=batch_num_tokens.item())
+        tu.assign_non_tensor(data, dp_size=self.get_data_parallel_size())
+
         micro_batches, indices = prepare_micro_batches(
             data=data, dp_group=self.get_data_parallel_group(), same_micro_num_in_dp=True
         )
@@ -471,12 +497,6 @@ class FSDPEngine(BaseEngine):
                 loss, meta_info = self.forward_step(micro_batch, loss_function=loss_function, forward_only=forward_only)
 
                 if not forward_only:
-                    global_bsz = data["global_batch_size"]
-                    local_micro_bsz = micro_batch.batch_size[0]
-                    # metrics contain the output, loss is dummy
-                    loss_scale_factor = local_micro_bsz / (global_bsz / self.get_data_parallel_size())
-                    # scale loss
-                    loss = loss * loss_scale_factor
                     loss.backward()
 
             output_lst.append(meta_info)

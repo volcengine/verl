@@ -28,8 +28,8 @@ megatron:
   # Number of GPUs in expert model parallel group
   expert_model_parallel_size: 1
 
-  # Expert tensor parallel size
-  expert_tensor_parallel_size: 1
+  # Expert tensor parallel size (null to be same as TP)
+  expert_tensor_parallel_size: null
 
   # Number of pipeline model parallel stages
   pipeline_model_parallel_size: 1
@@ -52,6 +52,9 @@ megatron:
   # Path for distributed checkpoints
   dist_checkpointing_path: null
 
+  # distributed checkpointing prefix, e.g. Nemo2 will append prefix 'module.' to the state dict keys
+  dist_checkpointing_prefix: ''
+
   # RNG seed for megatron
   seed: ${oc.select:actor_rollout_ref.actor.megatron.seed,42}
 
@@ -60,6 +63,8 @@ megatron:
 
   # Whether to use mbridge for faster comms
   use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
+
+  dtype: bfloat16
 
 # Whether to load weights (default True)
 load_weight: True
