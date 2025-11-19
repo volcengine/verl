@@ -75,13 +75,13 @@ from verl import DataProto
 from verl.third_party.vllm import VLLM_SLEEP_LEVEL, get_version
 from verl.utils.device import is_npu_available
 from verl.utils.distributed import initialize_global_process_group_ray
-from verl.utils.fp8_utils import apply_vllm_fp8_patches, is_fp8_model, load_quanted_weights
 from verl.utils.import_utils import deprecated
 from verl.utils.model import get_lora_rank_from_adapter
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.ray_utils import ray_noset_visible_devices
 from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
 from verl.utils.vllm import TensorLoRARequest, VLLMHijack, is_version_ge
+from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches, is_fp8_model, load_quanted_weights
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
 from verl.workers.rollout.utils import get_free_port, is_valid_ipv6_address
@@ -665,13 +665,16 @@ class vLLMAsyncRollout(BaseRollout):
 
             # Add the FP8 related logic here as sharding manager has been deprecated.
             # Check if FP8 quantization is enabled and apply appropriate weight loading
+            print("Checking if FP8 model is detected")
             if is_fp8_model(model_runner.vllm_config):
+                print("Loading FP8 weights (async)")
                 logger.info(f"FP8 model detected (async): {model_runner.vllm_config.quant_config}")
                 # Convert bf16 weights to fp8 format before loading
                 loaded_params = load_quanted_weights(weights, model_runner)
                 logger.info(f"FP8 weights loaded (async), loaded_params: {len(loaded_params)}")
             else:
-                logger.debug("Loading standard weights (non-FP8, async)")
+                print("Loading standard weights (non-FP8, async)")
+                logger.info("Loading standard weights (non-FP8, async)")
                 model.load_weights(weights)
 
     def generate_sequences(self, prompts: DataProto) -> DataProto:

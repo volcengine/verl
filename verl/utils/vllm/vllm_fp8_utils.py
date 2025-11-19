@@ -185,16 +185,7 @@ def quant_weights(weights, model, quant_config):
                 weights_quantized.append([k + "_scale_inv", param_scale])
 
         else:
-            logger.info("Using Per tensor quantization")
-            original_shape = v.shape
-            # Use per tensor quantization
-            quantized_tensor, scale = scaled_fp8_quant(v)
-            # Reshape back to original shape
-            quantized_tensor = quantized_tensor.view(original_shape)
-
-            scale_k = k.replace(".weight", ".weight_scale")
-            scale = scale.view(1)
-            weights_quantized.extend([(k, quantized_tensor), (scale_k, scale)])
+            raise ValueError("Currently only support blockwise quantization, please set weight_block_size in quant_config")
 
     return weights_quantized
 
@@ -221,6 +212,11 @@ def load_quanted_weights(weights, model_runner):
 
 
 def process_weights_after_loading_for_vllm10(self, layer) -> None:
+    """This function is used to process the weights after loading for a Linear layer, it is used for vllm v0.10
+
+    Compared to the original process_weights_after_loading in vllm, we just avoid creation of
+    new torch.nn.Parameter objects, because that removes the weight_loader attribute which we need for refit.
+    """
     logger.debug("Applying patch process_weights_after_loading")
     try:
         from vllm.model_executor.layers.quantization.utils.w8a8_utils import requantize_with_max_scale
@@ -230,15 +226,7 @@ def process_weights_after_loading_for_vllm10(self, layer) -> None:
             PerTensorScaleParameter,
         )
     except Exception:
-        try:
-            from sglang.srt.layers.parameter import (
-                BlockQuantScaleParameter,
-                ModelWeightParameter,
-                PerTensorScaleParameter,
-            )
-            from sglang.srt.layers.quantization.utils import requantize_with_max_scale
-        except Exception:
-            print("error")
+        print("error")
     from torch.nn import Parameter
 
     def _create_param_from_subclass_attributes(custom_param):
@@ -256,68 +244,32 @@ def process_weights_after_loading_for_vllm10(self, layer) -> None:
         param.subclass_type = type(custom_param)
         return param
 
-    if self.block_quant:
-        assert self.block_quant and self.quant_config.is_checkpoint_fp8_serialized
-        assert self.quant_config.activation_scheme == "dynamic"
-        weight = layer.weight.data
-        weight_scale_inv = layer.weight_scale_inv.data
-        weight = self._maybe_pad_weight(weight)
+    assert self.block_quant and self.quant_config.is_checkpoint_fp8_serialized
+    assert self.quant_config.activation_scheme == "dynamic"
+    weight = layer.weight.data
+    weight_scale_inv = layer.weight_scale_inv.data
+    weight = self._maybe_pad_weight(weight)
 
-        layer.weight = _create_param_from_subclass_attributes(
-            ModelWeightParameter(
-                data=weight,
-                output_dim=0,
-                input_dim=1,
-                weight_loader=layer.weight.weight_loader,
-            )
+    layer.weight = _create_param_from_subclass_attributes(
+        ModelWeightParameter(
+            data=weight,
+            output_dim=0,
+            input_dim=1,
+            weight_loader=layer.weight.weight_loader,
         )
-        layer.weight_scale_inv = _create_param_from_subclass_attributes(
-            BlockQuantScaleParameter(
-                data=weight_scale_inv,
-                output_dim=0,
-                input_dim=1,
-                weight_loader=layer.weight_scale_inv.weight_loader,
-            )
+    )
+    layer.weight_scale_inv = _create_param_from_subclass_attributes(
+        BlockQuantScaleParameter(
+            data=weight_scale_inv,
+            output_dim=0,
+            input_dim=1,
+            weight_loader=layer.weight_scale_inv.weight_loader,
         )
-
-    else:
-        weight = layer.weight.data
-        weight_scale = layer.weight_scale.data
-
-        # # If using w8a8, torch._scaled_mm needs per tensor, so
-        # # requantize the logical shards as a single weight.
-        if not self.use_marlin:
-            # Dequant -> Quant with max scale so we can run per tensor.
-
-            weight_scale, weight = requantize_with_max_scale(
-                weight=weight,
-                weight_scale=weight_scale,
-                logical_widths=layer.logical_widths,
-            )
-
-        weight = self._maybe_pad_weight(weight)
-        # Update layer with new values.
-        # layer.weight = Parameter(weight.t(), requires_grad=False)
-        # layer.weight_scale = Parameter(weight_scale, requires_grad=False)
-
-        layer.weight = _create_param_from_subclass_attributes(
-            ModelWeightParameter(
-                data=weight,
-                output_dim=0,
-                input_dim=1,
-                weight_loader=layer.weight.weight_loader,
-            )
-        )
-        layer.weight_scale = _create_param_from_subclass_attributes(
-            PerTensorScaleParameter(
-                data=weight_scale.repeat(len(layer.logical_widths)),
-                weight_loader=layer.weight_scale.weight_loader,
-            )
-        )
+    )
 
 
 def process_weights_after_loading_for_vllm11(self, layer) -> None:
-    """This function is used to process the weights after loading for a Linear layer.
+    """This function is used to process the weights after loading for a Linear layer, it is used for vllm 0.11
 
     Compared to the original process_weights_after_loading in vllm, we just avoid creation of
     new torch.nn.Parameter objects, because that removes the weight_loader attribute which we need for refit.
@@ -387,7 +339,7 @@ def process_weights_after_loading_moe(self, layer) -> None:
     from vllm.utils.deep_gemm import is_blackwell_deep_gemm_used
     from vllm.model_executor.layers.quantization.utils.fp8_utils import (
     get_col_major_tma_aligned_tensor, requant_weight_ue8m0_inplace)
-    
+
     self.rocm_aiter_moe_enabled = is_rocm_aiter_moe_enabled()
     assert self.quant_config.activation_scheme == "dynamic"
     if self.flashinfer_moe_enabled:
@@ -456,51 +408,9 @@ def process_weights_after_loading_moe(self, layer) -> None:
                 layer.w2_weight_scale_inv).contiguous()
 
 
-def apply(self, layer: torch.nn.Module, x: torch.Tensor, bias: Optional[torch.Tensor] = None) -> torch.Tensor:
-    from vllm.model_executor.layers.quantization.utils.marlin_utils_fp8 import apply_fp8_marlin_linear
-    from vllm.model_executor.layers.quantization.utils.w8a8_utils import requantize_with_max_scale
-
-    if self.use_marlin:
-        return apply_fp8_marlin_linear(
-            input=x,
-            weight=layer.weight,
-            weight_scale=layer.weight_scale,
-            workspace=layer.workspace,
-            size_n=layer.output_size_per_partition,
-            size_k=layer.input_size_per_partition,
-            bias=bias,
-        )
-
-    if self.block_quant:
-        assert self.quant_config.weight_block_size is not None
-        return torch.ops.vllm.apply_w8a8_block_fp8_linear(
-            input=x,
-            weight=layer.weight,
-            block_size=self.quant_config.weight_block_size,
-            weight_scale=layer.weight_scale_inv,
-            input_scale=layer.input_scale,
-            bias=bias,
-            cutlass_block_fp8_supported=self.cutlass_block_fp8_supported,
-            use_aiter_and_is_supported=self.use_aiter_and_is_supported,
-        )
-
-    weight_scale, weight = requantize_with_max_scale(
-        weight=layer.weight,
-        weight_scale=layer.weight_scale,
-        logical_widths=layer.logical_widths,
-    )
-    return self.fp8_linear.apply(
-        input=x,
-        weight=weight.t(),
-        weight_scale=weight_scale,
-        out_dtype=self.out_dtype,
-        input_scale=layer.input_scale,
-        bias=bias,
-    )
-
-
 def apply_vllm_fp8_patches(block_quant=True):
     if block_quant:
+        print("Applying vllm fp8 patches for blockwise quantization")
         func1_path = "vllm.model_executor.layers.quantization.fp8.Fp8LinearMethod.process_weights_after_loading"
         patcher1 = patch(func1_path, process_weights_after_loading_for_vllm11 if vllm.__version__ >= "0.11.0" else process_weights_after_loading_for_vllm10)
         patcher1.start()
@@ -508,9 +418,4 @@ def apply_vllm_fp8_patches(block_quant=True):
         patcher2 = patch(func2_path, process_weights_after_loading_moe)
         patcher2.start()
     else:
-        func1_path = "vllm.model_executor.layers.quantization.fp8.Fp8LinearMethod.process_weights_after_loading"
-        patcher1 = patch(func1_path, process_weights_after_loading_for_vllm10)
-        patcher1.start()
-        func2_path = "vllm.model_executor.layers.quantization.fp8.Fp8LinearMethod.apply"
-        patcher2 = patch(func2_path, apply)
-        patcher2.start()
+        raise ValueError("Only blockwise quantization is supported for FP8 rollout")
