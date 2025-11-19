@@ -14,9 +14,10 @@
 
 import json
 import re
-from langchain_core.tools import tool
-from recipe.langgraph_agent.react_agent_loop import ReactAgentLoop
 
+from langchain_core.tools import tool
+
+from recipe.langgraph_agent.react_agent_loop import ReactAgentLoop
 
 
 def safe_int(x):
@@ -84,9 +85,7 @@ def _eval_expr(expression: str):
         i += 1
 
     # Filter valid tokens
-    filtered = [
-        t for t in tokens if re.fullmatch(r"-?\d+", t) or t in "+-*@()"
-    ]
+    filtered = [t for t in tokens if re.fullmatch(r"-?\d+", t) or t in "+-*@()"]
     tokens = filtered
 
     if not tokens:
@@ -99,18 +98,14 @@ def _eval_expr(expression: str):
 
     precedence = {"+": 1, "-": 1, "*": 2, "@": 2}
 
-    output = []      # RPN output
-    op_stack = []    # Operator stack
+    output = []  # RPN output
+    op_stack = []  # Operator stack
 
     for t in tokens:
         if re.fullmatch(r"-?\d+", t):
             output.append(t)
         elif t in precedence:
-            while (
-                op_stack
-                and op_stack[-1] in precedence
-                and precedence[op_stack[-1]] >= precedence[t]
-            ):
+            while op_stack and op_stack[-1] in precedence and precedence[op_stack[-1]] >= precedence[t]:
                 output.append(op_stack.pop())
             op_stack.append(t)
         elif t == "(":
