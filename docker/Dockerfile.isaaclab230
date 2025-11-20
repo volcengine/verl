@@ -2,13 +2,6 @@
 #FROM nvcr.nju.edu.cn/nvidia/isaac-lab:2.3.0
 FROM isaac-lab-base:latest
 
-ARG http_proxy=http://100.68.175.150:3128
-ARG https_proxy=http://100.68.175.150:3128
-ARG no_proxy=localhost,127.0.0.1,.ivolces.com,192.168.0.0/16,10.0.0.0/8
-
-ARG HTTP_PROXY=${http_proxy}
-ARG HTTPS_PROXY=${https_proxy}
-ARG NO_PROXY=${no_proxy}
 ENV ACCEPT_EULA=Y
 ENTRYPOINT []
 
