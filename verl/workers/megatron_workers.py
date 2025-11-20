@@ -26,8 +26,25 @@ import torch
 import torch.distributed
 from codetiming import Timer
 from omegaconf import DictConfig, OmegaConf
+from contextlib import contextmanager
+
+_COMPILE = None
+
+def init_torch_compile(compile):
+    global _COMPILE
+    _COMPILE = compile
+
+@contextmanager
+def replace_torch_compile():
+    original_compile = torch.compile
+    torch.compile = _COMPILE
+    try:
+        yield
+    finally:
+        torch.compile = original_compile
 
 try:
+    init_torch_compile(torch.compile)
     from mindspeed.megatron_adaptor import repatch
 except ImportError:
     repatch = None
@@ -517,7 +534,8 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             log_gpu_memory_usage("After MegatronPPOActor init", logger=logger)
 
         if self._is_rollout:
-            self._build_rollout(trust_remote_code=self.config.model.get("trust_remote_code", False))
+            with replace_torch_compile():
+                self._build_rollout(trust_remote_code=self.config.model.get("trust_remote_code", False))
             log_gpu_memory_usage("After rollout init", logger=logger)
 
         if self._is_ref:
