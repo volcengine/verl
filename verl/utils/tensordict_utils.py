@@ -47,6 +47,51 @@ def get_non_tensor_data(data: TensorDict, key: str, default):
     return unwrap_non_tensor_data(output)
 
 
+def concat_nested_tensors(tensors: list[torch.Tensor]) -> torch.Tensor:
+    for tensor in tensors:
+        assert tensor.is_nested and tensor.is_contiguous()
+    unbind_tensors = []
+    for tensor in tensors:
+        assert len(tensor.shape) == 2
+        unbind_tensor = tensor.unbind(0)
+        unbind_tensors.extend(list(unbind_tensor))
+
+    tensor = torch.nested.as_nested_tensor(unbind_tensors, layout=torch.jagged)
+    return tensor
+
+
+def concat_tensordict(data: list[TensorDict]) -> TensorDict:
+    """Concatenates tensordicts into a single tensordict on dim zero. Support nested tensor"""
+
+    # pop all the nested tensor if any
+    nested_tensors = {}
+
+    # find nested tensor
+    for key in data[0].keys():
+        tensor = data[0][key]
+        if isinstance(tensor, torch.Tensor) and tensor.is_nested:
+            nested_tensors[key] = []
+            for d in data:
+                assert d[key].is_nested
+
+    for key in nested_tensors.keys():
+        for d in data:
+            nested_tensors[key].append(d.pop(key))
+
+    # concat nested tensor
+    for key in nested_tensors.keys():
+        nested_tensors[key] = concat_nested_tensors(nested_tensors[key])
+
+    # concat reset
+    output = TensorDict.cat(data, dim=0)
+
+    # put together
+    for key in nested_tensors.keys():
+        output[key] = nested_tensors[key]
+
+    return output
+
+
 def get_tensordict(tensor_dict: dict[str, torch.Tensor | list], non_tensor_dict: dict = None) -> TensorDict:
     """
 
@@ -63,6 +108,9 @@ def get_tensordict(tensor_dict: dict[str, torch.Tensor | list], non_tensor_dict:
     batch_size = None
 
     for key, val in tensor_dict.items():
+        if isinstance(val, torch.Tensor) and val.is_nested:
+            assert val.is_contiguous(), "Nested tensors must be contiguous. Try setting layout=torch.jagged"
+
         if isinstance(val, list):
             for v in val:
                 assert not isinstance(v, torch.Tensor), (

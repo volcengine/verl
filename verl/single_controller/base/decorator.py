@@ -16,6 +16,8 @@ import inspect
 from functools import partial, wraps
 from types import FunctionType
 
+from tensordict import TensorDict
+
 from verl.protocol import DataProtoFuture, _padding_size_key
 from verl.utils.py_functional import DynamicEnum
 from verl.utils.transferqueue_utils import BatchMeta
@@ -74,13 +76,17 @@ def _split_args_kwargs_data_proto(chunks, *args, **kwargs):
 
     splitted_args = []
     for arg in args:
-        assert isinstance(arg, DataProto | DataProtoFuture | BatchMeta)
-        splitted_args.append(arg.chunk(chunks=chunks))
+        assert isinstance(arg, DataProto | DataProtoFuture | BatchMeta | TensorDict)
+        chunked_arg = arg.chunk(chunks=chunks)
+        assert len(chunked_arg) == chunks
+        splitted_args.append(chunked_arg)
 
     splitted_kwargs = {}
     for key, val in kwargs.items():
-        assert isinstance(val, DataProto | DataProtoFuture | BatchMeta)
-        splitted_kwargs[key] = val.chunk(chunks=chunks)
+        assert isinstance(val, DataProto | DataProtoFuture | BatchMeta | TensorDict)
+        chunked_kwarg = val.chunk(chunks=chunks)
+        assert len(chunked_kwarg) == chunks
+        splitted_kwargs[key] = chunked_kwarg
 
     return splitted_args, splitted_kwargs
 
@@ -149,6 +155,10 @@ def _concat_data_proto_or_future(output: list):
         return DataProtoFuture.concat(output)
     elif isinstance(o, BatchMeta):
         return BatchMeta.concat(output)
+    elif isinstance(o, TensorDict):
+        from verl.utils.tensordict_utils import concat_tensordict
+
+        return concat_tensordict(output)
     else:
         raise NotImplementedError
 
@@ -268,7 +278,7 @@ def collect_nd_compute_dataproto(collect_mask: list[bool], worker_group, output)
     from verl.protocol import DataProto
 
     for o in output:
-        assert isinstance(o, DataProto | ray.ObjectRef | BatchMeta), (
+        assert isinstance(o, DataProto | ray.ObjectRef | BatchMeta | TensorDict), (
             f"expecting {o} to be DataProto or BatchMeta, but got {type(o)}"
         )
     return _concat_data_proto_or_future(output)
