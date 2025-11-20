@@ -110,6 +110,20 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> list[in
     token_ids = prompt_token_ids[non_pad_index:].tolist()
     return token_ids
 
+def pad_first_dim_tail(x: torch.Tensor, M: int, value: float = 0.0, left_pad: bool = True):
+    """在第一个维度尾部填充张量到指定长度"""
+    N = x.size(0)
+    if M < N:
+        raise ValueError(f"M ({M}) must be >= N ({N})")
+    if M == N:
+        return x
+    pad_shape = (M - N, *x.shape[1:])
+    pad_tensor = torch.full(pad_shape, value, dtype=x.dtype, device=x.device)
+    if left_pad:
+        return torch.cat([pad_tensor, x], dim=0)
+    return torch.cat([x, pad_tensor], dim=0)
+
+
 
 if is_version_ge(pkg="vllm", minver="0.7.3"):
     VLLMHijack.hijack()
@@ -236,6 +250,8 @@ class vLLMRollout(BaseRollout):
             else:
                 logger.warning(f"cudagraph_capture_sizes must be a list, but got {cudagraph_capture_sizes}")
 
+        router_replay_agrs = {"enable_return_routed_experts": config.enable_rollout_routing_replay}
+
         self.inference_engine = LLM(
             model=model_path,
             enable_sleep_mode=config.free_cache_engine,
@@ -258,6 +274,7 @@ class vLLMRollout(BaseRollout):
             **compilation_config,
             **self.lora_kwargs,
             **engine_kwargs,
+            **router_replay_agrs,
         )
 
         kwargs = dict(
@@ -409,7 +426,39 @@ class vLLMRollout(BaseRollout):
                         for i, logprob in enumerate(output.outputs[sample_id].logprobs):
                             curr_log_prob.append(logprob[response_ids[i]].logprob)
                         rollout_log_probs.append(curr_log_prob)
+                        
 
+            # [prompt_length + response_length, num_layer, num_expert]
+            # [pad_prompt_length, num_layer, num_expert]
+            # [pad_response_length, num_layer, num_expert]
+            
+            routed_experts = []
+            input_routed_experts = []
+            output_routed_experts = []
+            if self.config.enable_rollout_routing_replay:
+                # Calculate target length for padding (prompt length + max response length)
+                max_prompt_length = idx.shape[-1]
+                
+                for output in outputs:
+                    for sample_id in range(len(output.outputs)):
+                        routed_expert = output.outputs[sample_id].routed_experts
+                        routed_experts.append(routed_expert)
+            
+                for i, routed_expert in enumerate(routed_experts):
+                    response_length = response[i].size(0)
+                    total_length = routed_expert.size(0)
+                    assert total_length >= response_length , f"routed_expert length {total_length} is shorter than response length {response_length}"
+                    input_expert = routed_expert[:-response_length]
+                    pad_input_expert = pad_first_dim_tail(input_expert, max_prompt_length, value=-1, left_pad=True)
+                    input_routed_experts.append(pad_input_expert)
+
+                    output_expert = routed_expert[-response_length:]
+                    pad_output_expert = pad_first_dim_tail(output_expert, self.config.response_length, value=-1, left_pad=False)
+                    output_routed_experts.append(pad_output_expert)
+                
+                # Convert list of tensors to batch tensor
+                routed_experts = torch.stack(routed_experts, dim=0)
+            
             response = pad_2d_list_to_length(response, self.pad_token_id, max_length=self.config.response_length).to(
                 idx.device
             )
