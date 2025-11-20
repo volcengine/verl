@@ -198,8 +198,10 @@ class FullyAsyncTaskRunner:
 
         # load checkpoint and sync parameter before doing anything
         val_before_train = config.trainer.get("val_before_train", True)
-        ray.get(self.components["trainer"].load_checkpoint.remote())
-        ray.get(param_synchronizer.sync_weights.remote(version=0, validate=val_before_train))
+        # param_version resume from ckpt or default 0
+        param_version = ray.get(self.components["trainer"].load_checkpoint.remote())
+        ray.get(self.components["rollouter"].load_checkpoint.remote())
+        ray.get(param_synchronizer.sync_weights.remote(version=param_version, validate=val_before_train))
         ray.get(param_synchronizer.wait_last_valid.remote())
 
         self.components["param_synchronizer"] = param_synchronizer

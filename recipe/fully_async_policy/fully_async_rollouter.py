@@ -12,10 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import asyncio
+import os
 import time
 from pprint import pformat
 
 import ray
+import torch
 from ray import ObjectRef
 
 from recipe.fully_async_policy.detach_utils import (
@@ -30,6 +32,7 @@ from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.trainer.ppo.ray_trainer import ResourcePoolManager
 from verl.trainer.ppo.reward import load_reward_manager
 from verl.trainer.ppo.utils import Role, WorkerType
+from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.profiler import marked_timer
 from verl.utils.tracking import ValidationGenerationsLogger
 
@@ -134,7 +137,8 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         self.staleness_samples = 0
         self.dropped_stale_samples = 0
         self.processed_sample_count = 0
-        self.global_steps = 0
+        # we start from step 1
+        self.global_steps = 1
         self.idle_start_time = None
         self.version_start_time = None
 
@@ -147,6 +151,8 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         # Initialize async locks directly
         self.lock = asyncio.Lock()
         self.condition = asyncio.Condition(self.lock)
+        # Add dataloader lock
+        self.dataloader_lock = asyncio.Lock()
 
         # Initialize async queues
         self.pending_queue = asyncio.Queue(maxsize=128)
@@ -237,6 +243,80 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
             await self.message_queue_client.put_validate(ray.cloudpickle.dumps(data))
 
             self.version_start_time = time.time()
+
+    async def save_checkpoint(self, local_global_step_folder: str):
+        # WARNING!: Due to the asynchronous nature, there are some in-flight samples
+        # (pending/cancel/result queue and message queue).
+        # Therefore, directly saving the state of the dataloader will result in losing these
+        # samples when resuming training.
+        # TODO: Implement dataloader recovery without losing in-flight samples.
+        from verl.utils.fs import local_mkdir_safe
+
+        # save dataloader
+        local_mkdir_safe(local_global_step_folder)
+        dataloader_local_path = os.path.join(local_global_step_folder, "data.pt")
+        async with self.dataloader_lock:
+            dataloader_state_dict = self.train_dataloader.state_dict()
+        torch.save(dataloader_state_dict, dataloader_local_path)
+        print(f"[FullyAsyncRollouter] Saved dataloader checkpoint to {dataloader_local_path}")
+
+    def load_checkpoint(self):
+        """Load checkpoint including dataloader state based on resume mode"""
+
+        if self.config.trainer.resume_mode == "disable":
+            print("[FullyAsyncRollouter] Resume mode is disabled, starting from scratch")
+            return 0
+
+        # Determine checkpoint folder path
+        if self.config.trainer.default_hdfs_dir is not None:
+            raise NotImplementedError("[FullyAsyncRollouter] Load from hdfs is not implemented yet")
+        else:
+            checkpoint_folder = self.config.trainer.default_local_dir
+            if not os.path.isabs(checkpoint_folder):
+                working_dir = os.getcwd()
+                checkpoint_folder = os.path.join(working_dir, checkpoint_folder)
+
+            global_step_folder = find_latest_ckpt_path(checkpoint_folder)
+
+        # Find and validate global_step_folder based on resume mode
+        if self.config.trainer.resume_mode == "auto":
+            if global_step_folder is None:
+                print("[FullyAsyncRollouter] Training from scratch (no checkpoint found)")
+                return 0
+        elif self.config.trainer.resume_mode == "resume_path":
+            assert isinstance(self.config.trainer.resume_from_path, str), (
+                "[FullyAsyncRollouter] resume_from_path must be str type"
+            )
+            assert "global_step_" in self.config.trainer.resume_from_path, (
+                "[FullyAsyncRollouter] resume_from_path must specify the global_steps"
+            )
+            global_step_folder = self.config.trainer.resume_from_path
+            if not os.path.isabs(global_step_folder):
+                working_dir = os.getcwd()
+                global_step_folder = os.path.join(working_dir, global_step_folder)
+        else:
+            raise ValueError(f"[FullyAsyncRollouter] Unknown resume_mode: {self.config.trainer.resume_mode}")
+
+        print(f"[FullyAsyncRollouter] Loading checkpoint from: {global_step_folder}")
+
+        # Extract and set global step
+        trainer_global_steps = int(global_step_folder.split("global_step_")[-1])
+        self.global_steps = (
+            trainer_global_steps * self.required_samples * self.config.async_training.trigger_parameter_sync_step + 1
+        )
+        print(f"[FullyAsyncRollouter] Setting global_steps to {self.global_steps}")
+
+        # Load dataloader state
+        dataloader_local_path = os.path.join(global_step_folder, "data.pt")
+        if os.path.exists(dataloader_local_path):
+            dataloader_state_dict = torch.load(dataloader_local_path, weights_only=False)
+            self.train_dataloader.load_state_dict(dataloader_state_dict)
+            print(f"[FullyAsyncRollouter] Loaded dataloader state from {dataloader_local_path}")
+        else:
+            print(
+                f"[FullyAsyncRollouter] Warning: No dataloader state found at {dataloader_local_path}, "
+                f"will start from scratch"
+            )
 
     def _validate_config(self):
         # Validate asynchronous training configuration
@@ -457,9 +537,6 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
 
     async def _streaming_generation_main(self):
         """The main entry method for stream processing"""
-
-        # we start from step 1
-        self.global_steps += 1
 
         if self.async_rollout_manager is None:
             await self._init_async_rollout_manager()
