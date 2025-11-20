@@ -17,7 +17,10 @@ import contextlib
 import functools
 import inspect
 import os
+from contextvars import ContextVar
 from typing import Optional
+
+_trace_enabled: ContextVar[bool] = ContextVar("_trace_enabled", default=True)
 
 
 class RolloutTraceConfig:
@@ -32,6 +35,10 @@ class RolloutTraceConfig:
         token2text (bool): Whether to convert tokens to text in traces. Defaults to False.
         project_name (str): Name of the project for tracing.
         experiment_name (str): Name of the experiment for tracing.
+        max_samples_per_step_per_worker (Optional[int]): Maximum number of unique samples to trace
+            per worker per step. If None, all samples are traced. If set, each worker will randomly
+            select up to this many unique samples to trace (including all their rollouts for GRPO).
+            Total traces = max_samples_per_step_per_worker * num_workers * n_rollouts_per_sample.
     """
 
     _instance: Optional["RolloutTraceConfig"] = None
@@ -41,6 +48,7 @@ class RolloutTraceConfig:
     _initialized: bool = False
     project_name: str = None
     experiment_name: str = None
+    max_samples_per_step_per_worker: Optional[int] = None
 
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
@@ -55,7 +63,14 @@ class RolloutTraceConfig:
         return cls._instance
 
     @classmethod
-    def init(cls, project_name: str, experiment_name: str, backend: str, token2text: bool = False):
+    def init(
+        cls,
+        project_name: str,
+        experiment_name: str,
+        backend: str,
+        token2text: bool = False,
+        max_samples_per_step_per_worker: Optional[int] = None,
+    ):
         config = cls.get_instance()
         if config._initialized:
             return
@@ -64,6 +79,7 @@ class RolloutTraceConfig:
         config.token2text = token2text
         config.project_name = project_name
         config.experiment_name = experiment_name
+        config.max_samples_per_step_per_worker = max_samples_per_step_per_worker
 
         if backend == "weave":
             import weave
@@ -102,9 +118,32 @@ class RolloutTraceConfig:
 
 
 @contextlib.contextmanager
-def rollout_trace_attr(sample_index=None, step=None, rollout_n=None, name="rollout_trace", validate=False):
-    """A context manager to add attributes to a trace for the configured backend."""
+def rollout_trace_attr(
+    sample_index=None, step=None, rollout_n=None, name="rollout_trace", validate=False, trace: bool = True
+):
+    """A context manager to add attributes to a trace for the configured backend.
+
+    Args:
+        sample_index: Sample index for the trace.
+        step: Training step number.
+        rollout_n: Rollout number (for GRPO with multiple rollouts per sample).
+        name: Name for the trace span (used by mlflow backend).
+        validate: Whether this is a validation run.
+        trace: If False, disables tracing for the duration of the context.
+    """
     backend = RolloutTraceConfig.get_backend()
+
+    should_skip = backend is not None and not trace
+
+    if should_skip:
+        token = _trace_enabled.set(False)
+        try:
+            yield
+        finally:
+            _trace_enabled.reset(token)
+        return
+
+    # Build attributes for the trace
     attributes = {}
     if backend:
         if sample_index is not None:
@@ -140,6 +179,9 @@ def rollout_trace_attr(sample_index=None, step=None, rollout_n=None, name="rollo
 def rollout_trace_op(func):
     @functools.wraps(func)
     async def async_wrapper(self, *args, **kwargs):
+        if not _trace_enabled.get():
+            return await func(self, *args, **kwargs)
+
         backend = RolloutTraceConfig.get_backend()
         enable_token2text = RolloutTraceConfig.enable_token2text()
         if backend is None:
@@ -204,6 +246,9 @@ def rollout_trace_op(func):
 
     @functools.wraps(func)
     def wrapper(self, *args, **kwargs):
+        if not _trace_enabled.get():
+            return func(self, *args, **kwargs)
+
         backend = RolloutTraceConfig.get_backend()
         if backend is None:
             return func(self, *args, **kwargs)

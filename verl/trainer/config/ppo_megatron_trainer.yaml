@@ -45,6 +45,8 @@ actor_rollout_ref:
     use_remove_padding: false
 
   rollout:
+    quantization: null
+
     layer_name_map:
       qkv_layer_name: qkv
       gate_proj_layer_name: gate_up

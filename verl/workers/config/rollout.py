@@ -77,6 +77,11 @@ class AgentLoopConfig(BaseConfig):
 class TraceConfig(BaseConfig):
     backend: Optional[str] = None
     token2text: bool = False
+    max_samples_per_step_per_worker: Optional[int] = None
+
+    def __post_init__(self):
+        if self.max_samples_per_step_per_worker is not None and self.max_samples_per_step_per_worker < 0:
+            raise ValueError("`max_samples_per_step_per_worker` must be a non-negative integer or null.")
 
 
 @dataclass
@@ -197,6 +202,8 @@ class RolloutConfig(BaseConfig):
     limit_images: Optional[int] = None
 
     skip_tokenizer_init: bool = False
+
+    quantization: Optional[str] = None
 
     def __post_init__(self):
         """Validate the rollout config"""

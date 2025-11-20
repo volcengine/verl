@@ -85,7 +85,7 @@ class RewardModelManager:
         worker_urls = [f"http://{server_address}" for server_address in self.server_addresses]
 
         if self.config.rollout.name == "sglang":
-            from .router.sglang_router import launch_router_process
+            from .router.inner_sglang_router import launch_router_process
         else:
             from .router.naive_router import launch_router_process
 
