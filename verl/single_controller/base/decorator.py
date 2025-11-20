@@ -20,6 +20,7 @@ from tensordict import TensorDict
 
 from verl.protocol import DataProtoFuture, _padding_size_key
 from verl.utils.py_functional import DynamicEnum
+from verl.utils.tensordict_utils import concat_tensordict
 from verl.utils.transferqueue_utils import BatchMeta
 
 # here we add a magic number of avoid user-defined function already have this attribute
@@ -156,8 +157,6 @@ def _concat_data_proto_or_future(output: list):
     elif isinstance(o, BatchMeta):
         return BatchMeta.concat(output)
     elif isinstance(o, TensorDict):
-        from verl.utils.tensordict_utils import concat_tensordict
-
         return concat_tensordict(output)
     else:
         raise NotImplementedError
@@ -279,7 +278,7 @@ def collect_nd_compute_dataproto(collect_mask: list[bool], worker_group, output)
 
     for o in output:
         assert isinstance(o, DataProto | ray.ObjectRef | BatchMeta | TensorDict), (
-            f"expecting {o} to be DataProto or BatchMeta, but got {type(o)}"
+            f"expecting {o} to be DataProto | ray.ObjectRef | BatchMeta | TensorDict, but got {type(o)}"
         )
     return _concat_data_proto_or_future(output)
 

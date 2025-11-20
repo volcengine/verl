@@ -639,8 +639,15 @@ def test_concat_tensordict():
         tensor_dict={"input_ids": nested_c_d, "labels": ["c", "d"]}, non_tensor_dict={"temp": 2.0}
     )
 
+    tensordict1_copy = copy.deepcopy(tensordict1)
+    tensordict2_copy = copy.deepcopy(tensordict2)
+
     output = tu.concat_tensordict([tensordict1, tensordict2])
 
     assert torch.all(torch.eq(output["input_ids"].values(), torch.cat([a, b, c, d]))).item()
     assert output["labels"] == ["a", "b", "c", "d"]
     assert output["temp"] == 1.0
+
+    # make sure tensordict1 and tensordict2 is untouched
+    tu.assert_tensordict_eq(tensordict1, tensordict1_copy)
+    tu.assert_tensordict_eq(tensordict2, tensordict2_copy)

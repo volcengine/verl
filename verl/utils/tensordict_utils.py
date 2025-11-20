@@ -62,6 +62,7 @@ def concat_nested_tensors(tensors: list[torch.Tensor]) -> torch.Tensor:
 
 def concat_tensordict(data: list[TensorDict]) -> TensorDict:
     """Concatenates tensordicts into a single tensordict on dim zero. Support nested tensor"""
+    assert len(data) > 0, "Must have at least one tensordict"
 
     # pop all the nested tensor if any
     nested_tensors = {}
@@ -78,16 +79,15 @@ def concat_tensordict(data: list[TensorDict]) -> TensorDict:
         for d in data:
             nested_tensors[key].append(d.pop(key))
 
-    # concat nested tensor
-    for key in nested_tensors.keys():
-        nested_tensors[key] = concat_nested_tensors(nested_tensors[key])
-
     # concat reset
     output = TensorDict.cat(data, dim=0)
 
-    # put together
+    # concat nested tensor
     for key in nested_tensors.keys():
-        output[key] = nested_tensors[key]
+        output[key] = concat_nested_tensors(nested_tensors[key])
+        # add nested tensor back
+        for i, d in enumerate(data):
+            d[key] = nested_tensors[key][i]
 
     return output
 
@@ -218,7 +218,11 @@ def make_iterator(tensordict: TensorDict, mini_batch_size, epochs, seed=None, da
 
 
 def assert_tensordict_eq(tensordict1: TensorDict, tensordict2: TensorDict):
-    assert set(tensordict1.keys()) == set(tensordict2.keys())
+    tensordict1_key_set = set(tensordict1.keys())
+    tensordict2_key_set = set(tensordict2.keys())
+    assert tensordict1_key_set == tensordict2_key_set, (
+        f"key set diffs. Got {tensordict2_key_set=} vs {tensordict1_key_set=}"
+    )
 
     for key in tensordict1.keys():
         val = tensordict1[key]
