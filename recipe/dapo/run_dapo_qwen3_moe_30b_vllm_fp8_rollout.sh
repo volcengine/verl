@@ -140,8 +140,7 @@ RAY_ADDRESS='http://127.0.0.1:8265' ray job submit --runtime-env=${RUNTIME_ENV} 
     actor_rollout_ref.rollout.val_kwargs.top_k=${top_k} \
     actor_rollout_ref.rollout.val_kwargs.do_sample=True \
     actor_rollout_ref.rollout.val_kwargs.n=1 \
-    +actor_rollout_ref.rollout.quantization=True \
-    +actor_rollout_ref.rollout.use_block_quant_rollout=True \
+    +actor_rollout_ref.rollout.quantization=fp8 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.mode=async \
     actor_rollout_ref.rollout.calculate_log_probs=True \

@@ -217,9 +217,8 @@ class vLLMHttpServerBase:
         )
         logger.info(f"override_generation_config: {override_generation_config}")
         quantization = self.config.quantization
-        use_block_quant = self.config.use_block_quant_rollout
-        if quantization:
-            if use_block_quant:
+        if quantization is not None:
+            if quantization == "fp8":
                 FP8_BLOCK_QUANT_KWARGS = {
                     "activation_scheme": "dynamic",
                     "fmt": "e4m3",
@@ -227,9 +226,11 @@ class vLLMHttpServerBase:
                     "weight_block_size": [128, 128],
                 }
                 fp8_block_quant_kwargs = dict(FP8_BLOCK_QUANT_KWARGS)
-            # Apply vllm fp8 patches
-            # Will remove the patch after vllm support on-the-fly quant for rollout natively.
-            apply_vllm_fp8_patches(block_quant=use_block_quant)
+                # Apply vllm fp8 patches
+                # Will remove the patch after vllm support on-the-fly quant for rollout natively.
+                apply_vllm_fp8_patches()
+            else:
+                raise ValueError(f"Currently only support fp8 quantization, got: {quantization}")
         args = {
             "dtype": self.config.dtype,
             "load_format": self.config.load_format,
@@ -248,10 +249,8 @@ class vLLMHttpServerBase:
             "tensor_parallel_size": self.config.tensor_model_parallel_size,
             "seed": self.config.get("seed", 0),
             "override_generation_config": json.dumps(override_generation_config),
-            "quantization": "fp8" if quantization else None,
-            "hf_overrides": {"quantization_config": fp8_block_quant_kwargs}
-            if quantization and use_block_quant
-            else None,
+            "quantization": quantization,
+            "hf_overrides": {"quantization_config": fp8_block_quant_kwargs} if quantization == "fp8" else None,
             **engine_kwargs,
         }
 

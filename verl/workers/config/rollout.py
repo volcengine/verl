@@ -198,9 +198,7 @@ class RolloutConfig(BaseConfig):
 
     skip_tokenizer_init: bool = False
 
-    quantization: bool = False
-
-    use_block_quant_rollout: bool = False
+    quantization: Optional[str] = None
 
     def __post_init__(self):
         """Validate the rollout config"""

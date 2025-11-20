@@ -400,19 +400,16 @@ def process_weights_after_loading_moe(self, layer) -> None:
             layer.w2_weight_scale_inv = get_col_major_tma_aligned_tensor(layer.w2_weight_scale_inv).contiguous()
 
 
-def apply_vllm_fp8_patches(block_quant=True):
-    if block_quant:
-        print("Applying vllm fp8 patches for blockwise quantization")
-        func1_path = "vllm.model_executor.layers.quantization.fp8.Fp8LinearMethod.process_weights_after_loading"
-        patcher1 = patch(
-            func1_path,
-            process_weights_after_loading_for_vllm11
-            if vllm.__version__ >= "0.11.0"
-            else process_weights_after_loading_for_vllm10,
-        )
-        patcher1.start()
-        func2_path = "vllm.model_executor.layers.quantization.fp8.Fp8MoEMethod.process_weights_after_loading"
-        patcher2 = patch(func2_path, process_weights_after_loading_moe)
-        patcher2.start()
-    else:
-        raise ValueError("Only blockwise quantization is supported for FP8 rollout")
+def apply_vllm_fp8_patches():
+    logger.info("Applying vllm fp8 patches for blockwise quantization")
+    func1_path = "vllm.model_executor.layers.quantization.fp8.Fp8LinearMethod.process_weights_after_loading"
+    patcher1 = patch(
+        func1_path,
+        process_weights_after_loading_for_vllm11
+        if vllm.__version__ >= "0.11.0"
+        else process_weights_after_loading_for_vllm10,
+    )
+    patcher1.start()
+    func2_path = "vllm.model_executor.layers.quantization.fp8.Fp8MoEMethod.process_weights_after_loading"
+    patcher2 = patch(func2_path, process_weights_after_loading_moe)
+    patcher2.start()

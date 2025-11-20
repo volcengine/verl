@@ -45,9 +45,7 @@ actor_rollout_ref:
     use_remove_padding: false
 
   rollout:
-    quantization: False
-
-    use_block_quant_rollout: True
+    quantization: null
 
     layer_name_map:
       qkv_layer_name: qkv

@@ -604,10 +604,13 @@ class vLLMAsyncRollout(BaseRollout):
         if self.lora_config:
             lora_dtype = getattr(torch, self.config.dtype)
             self.vllm_config.lora_config = LoRAConfig(lora_dtype=lora_dtype, **self.lora_config)
-        if self.config.quantization:
-            # Apply vllm fp8 patches
-            # Will remove the patch after vllm support on-the-fly quant for rollout natively.
-            apply_vllm_fp8_patches(block_quant=self.config.use_block_quant_rollout)
+        if self.config.quantization is not None:
+            if self.config.quantization == "fp8":
+                # Apply vllm fp8 patches
+                # Will remove the patch after vllm support on-the-fly quant for rollout natively.
+                apply_vllm_fp8_patches()
+            else:
+                raise ValueError(f"Currently only support fp8 quantization, got: {self.config.quantization}")
         self.inference_engine = WorkerWrapperBase(vllm_config=self.vllm_config)
         self.inference_engine.init_worker(all_kwargs)
 

@@ -97,14 +97,11 @@ FP8 can be enabled in the config file `verl/trainer/config/ppo_megatron_trainer.
 
 ```
   rollout:
-    quantization: True
-
-    use_block_quant_rollout: True
+    quantization: "fp8"
 ```
 
 Or it can be enabled by command line:
-- `actor_rollout_ref.rollout.quantization=True`
-- `actor_rollout_ref.rollout.use_block_quant_rollout=True`
+- `actor_rollout_ref.rollout.quantization=fp8`
 
 Please refer to `recipe/dapo/run_dapo_qwen3_moe_30b_vllm_fp8_rollout.sh`
 
