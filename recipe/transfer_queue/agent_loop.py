@@ -16,7 +16,6 @@ import ray
 from transfer_queue import BatchMeta
 
 import verl.experimental.agent_loop.agent_loop as agent_loop
-from verl import DataProto
 
 
 class AgentLoopManager(agent_loop.AgentLoopManager):
@@ -66,15 +65,14 @@ class AgentLoopManager(agent_loop.AgentLoopManager):
         timing["agent_loop/tool_calls/max"] = t_tool_calls.max()
         timing["agent_loop/tool_calls/mean"] = t_tool_calls.mean()
 
-        # TODO (TransferQueue): support to put temp data in DataProto.meta_info
         # batch sequence generation is bounded by the slowest sample
-        # slowest = np.argmax(t_generate_sequences + t_tool_calls)
-        # attention_mask = output.extra_info.pop("attention_mask_perf")[slowest]
-        # prompt_length = output.extra_info.pop("prompts_perf").shape[1]
-        # timing["agent_loop/slowest/generate_sequences"] = t_generate_sequences[slowest]
-        # timing["agent_loop/slowest/tool_calls"] = t_tool_calls[slowest]
-        # timing["agent_loop/slowest/prompt_length"] = attention_mask[:prompt_length].sum().item()
-        # timing["agent_loop/slowest/response_length"] = attention_mask[prompt_length:].sum().item()
+        slowest = np.argmax(t_generate_sequences + t_tool_calls)
+        attention_mask = output.extra_info.pop("attention_mask_perf")[slowest]
+        prompt_length = output.extra_info.pop("prompts_perf").shape[1]
+        timing["agent_loop/slowest/generate_sequences"] = t_generate_sequences[slowest]
+        timing["agent_loop/slowest/tool_calls"] = t_tool_calls[slowest]
+        timing["agent_loop/slowest/prompt_length"] = attention_mask[:prompt_length].sum().item()
+        timing["agent_loop/slowest/response_length"] = attention_mask[prompt_length:].sum().item()
 
         return timing
 

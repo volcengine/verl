@@ -1123,7 +1123,6 @@ class DataProto:
         common_keys = set(tensor_batch.keys()) & set(non_tensor_batch.keys())
         assert len(common_keys) == 0, f"tensor_batch and non_tensor_batch have common keys {common_keys}"
 
-        # TODO (TransferQueue): support to put temp data in DataProto.meta_info 
         for key, val in non_tensor_batch.items():
             assert isinstance(val, np.ndarray)
             tensor_batch[key] = val.tolist()

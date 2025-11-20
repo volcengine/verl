@@ -365,10 +365,9 @@ class AgentLoopWorkerBase:
 
         output = self._postprocess(outputs)
 
-        # TODO (TransferQueue): support to put temp data in DataProto.meta_info
         # Append Performance Data
-        # outputs.meta_info["attention_mask_perf"] = outputs.batch["attention_mask"]
-        # outputs.meta_info["prompts_perf"] = outputs.batch["prompts"]
+        output.meta_info["attention_mask_perf"] = output.batch["attention_mask"]
+        output.meta_info["prompts_perf"] = output.batch["prompts"]
 
         return output
 
