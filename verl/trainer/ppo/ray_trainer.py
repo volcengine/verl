@@ -543,7 +543,7 @@ class RayPPOTrainer:
 
             if "uid" not in test_batch.non_tensor_batch:
                 test_batch.non_tensor_batch["uid"] = np.array(
-                    [str(uuid.uuid4()) for _ in range(len(test_batch.batch))], dtype=object
+                    [str(uuid.uuid4()) for _ in range(len(test_batch))], dtype=object
                 )
 
             # repeat test batch
@@ -555,19 +555,22 @@ class RayPPOTrainer:
             if self.config.reward_model.enable and test_batch[0].non_tensor_batch["reward_model"]["style"] == "model":
                 return {}
 
-            # Store original inputs
-            input_ids = test_batch.batch["input_ids"]
-            # TODO: Can we keep special tokens except for padding tokens?
-            input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
-            sample_inputs.extend(input_texts)
-            sample_uids.extend(test_batch.non_tensor_batch["uid"])
+            if not self.agentcore_rollout_mode:
+                # Store original inputs
+                input_ids = test_batch.batch["input_ids"]
+                # TODO: Can we keep special tokens except for padding tokens?
+                input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
+                sample_inputs.extend(input_texts)
+                sample_uids.extend(test_batch.non_tensor_batch["uid"])
 
             ground_truths = [
                 item.non_tensor_batch.get("reward_model", {}).get("ground_truth", None) for item in test_batch
             ]
             sample_gts.extend(ground_truths)
 
-            test_gen_batch = self._get_gen_batch(test_batch)
+            # In agentcore rollout mode, the input data batch does not have
+            # torch tensors but only agentcore request fields. So we do not need to call _get_gen_batch.
+            test_gen_batch = self._get_gen_batch(test_batch) if not self.agentcore_rollout_mode else test_batch
             test_gen_batch.meta_info = {
                 "eos_token_id": self.tokenizer.eos_token_id,
                 "pad_token_id": self.tokenizer.pad_token_id,
@@ -585,10 +588,12 @@ class RayPPOTrainer:
                 else self.config.actor_rollout_ref.rollout.agent.num_workers
             )
             test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(test_gen_batch, size_divisor)
-            if not self.async_rollout_mode:
-                test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
-            else:
+            if self.async_rollout_mode:
                 test_output_gen_batch_padded = self.async_rollout_manager.generate_sequences(test_gen_batch_padded)
+            elif self.agentcore_rollout_mode:
+                test_output_gen_batch_padded = self.agentcore_rollout_manager.generate_sequences(test_gen_batch_padded)
+            else:
+                test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
 
             # unpad
             test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
@@ -600,14 +605,29 @@ class RayPPOTrainer:
             output_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in output_ids]
             sample_outputs.extend(output_texts)
 
-            test_batch = test_batch.union(test_output_gen_batch)
+            test_batch = (
+                test_batch.union(test_output_gen_batch) if not self.agentcore_rollout_mode else test_output_gen_batch
+            )
             test_batch.meta_info["validate"] = True
 
-            # evaluate using reward_function
-            if self.val_reward_fn is None:
-                raise ValueError("val_reward_fn must be provided for validation.")
-            result = self.val_reward_fn(test_batch, return_dict=True)
-            reward_tensor = result["reward_tensor"]
+            if self.agentcore_rollout_mode:
+                # Store original inputs
+                input_ids = test_batch.batch["prompts"]
+                # TODO: Can we keep special tokens except for padding tokens?
+                input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
+                sample_inputs.extend(input_texts)
+                sample_uids.extend(test_batch.non_tensor_batch["uid"])
+
+            if self.agentcore_rollout_mode:
+                # In agentcore rollout mode, reward is computed and returned in agentcore agents.
+                result = {}
+                reward_tensor = test_batch.batch["reward_tensor"]
+            else:
+                # evaluate using reward_function
+                if self.val_reward_fn is None:
+                    raise ValueError("val_reward_fn must be provided for validation.")
+                result = self.val_reward_fn(test_batch, return_dict=True)
+                reward_tensor = result["reward_tensor"]
             scores = reward_tensor.sum(-1).cpu().tolist()
             sample_scores.extend(scores)
 
@@ -772,6 +792,15 @@ class RayPPOTrainer:
             self.async_rollout_mode = True
             self.async_rollout_manager = AgentLoopManager(
                 config=self.config, worker_group=self.actor_rollout_wg, rm_wg=self.rm_wg
+            )
+
+        self.agentcore_rollout_mode = False
+        if self.config.actor_rollout_ref.rollout.mode == "agentcore":
+            from verl.experimental.agent_loop.agentcore_loop import AgentCoreLoopManager
+
+            self.agentcore_rollout_mode = True
+            self.agentcore_rollout_manager = AgentCoreLoopManager(
+                config=self.config, worker_group=self.actor_rollout_wg
             )
 
     def _save_checkpoint(self):
@@ -1022,11 +1051,9 @@ class RayPPOTrainer:
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
 
                 # add uid to batch
-                batch.non_tensor_batch["uid"] = np.array(
-                    [str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object
-                )
+                batch.non_tensor_batch["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(batch))], dtype=object)
 
-                gen_batch = self._get_gen_batch(batch)
+                gen_batch = self._get_gen_batch(batch) if not self.agentcore_rollout_mode else batch
 
                 # pass global_steps to trace
                 gen_batch.meta_info["global_steps"] = self.global_steps
@@ -1038,10 +1065,12 @@ class RayPPOTrainer:
                 with marked_timer("step", timing_raw):
                     # generate a batch
                     with marked_timer("gen", timing_raw, color="red"):
-                        if not self.async_rollout_mode:
-                            gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch_output)
-                        else:
+                        if self.async_rollout_mode:
                             gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch_output)
+                        elif self.agentcore_rollout_mode:
+                            gen_batch_output = self.agentcore_rollout_manager.generate_sequences(gen_batch_output)
+                        else:
+                            gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch_output)
 
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)
@@ -1053,10 +1082,14 @@ class RayPPOTrainer:
                         with marked_timer("gen_max", timing_raw, color="purple"):
                             gen_baseline_batch = deepcopy(gen_batch)
                             gen_baseline_batch.meta_info["do_sample"] = False
-                            if not self.async_rollout_mode:
-                                gen_baseline_output = self.actor_rollout_wg.generate_sequences(gen_baseline_batch)
-                            else:
+                            if self.async_rollout_mode:
                                 gen_baseline_output = self.async_rollout_manager.generate_sequences(gen_baseline_batch)
+                            elif self.agentcore_rollout_mode:
+                                gen_baseline_output = self.agentcore_rollout_manager.generate_sequences(
+                                    gen_baseline_batch
+                                )
+                            else:
+                                gen_baseline_output = self.actor_rollout_wg.generate_sequences(gen_baseline_batch)
                             batch = batch.union(gen_baseline_output)
                             # compute reward model score on batch
                             rm_scores = None
@@ -1074,9 +1107,13 @@ class RayPPOTrainer:
                             batch.batch["reward_baselines"] = reward_baseline_tensor
 
                             del rm_scores, gen_baseline_batch, gen_baseline_output
-                    # repeat to align with repeated responses in rollout
-                    batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
-                    batch = batch.union(gen_batch_output)
+
+                    if not self.agentcore_rollout_mode:
+                        # repeat to align with repeated responses in rollout
+                        batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+                        batch = batch.union(gen_batch_output)
+                    else:
+                        batch = gen_batch_output
 
                     if "response_mask" not in batch.batch.keys():
                         batch.batch["response_mask"] = compute_response_mask(batch)
@@ -1091,17 +1128,29 @@ class RayPPOTrainer:
                     batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
 
                     with marked_timer("reward", timing_raw, color="yellow"):
-                        # compute reward model score
-                        if self.use_rm and "rm_scores" not in batch.batch.keys():
-                            reward_tensor = self.rm_wg.compute_rm_score(batch)
-                            batch = batch.union(reward_tensor)
-
-                        if self.config.reward_model.launch_reward_fn_async:
-                            future_reward = compute_reward_async.remote(
-                                data=batch, config=self.config, tokenizer=self.tokenizer
-                            )
+                        # In agentcore rollout mode, reward is computed and returned in agentcore agents.
+                        if self.agentcore_rollout_mode:
+                            reward_tensor = batch.batch["reward_tensor"]
                         else:
-                            reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
+                            # compute reward model score
+                            if self.use_rm and "rm_scores" not in batch.batch.keys():
+                                reward_tensor = self.rm_wg.compute_rm_score(batch)
+                                batch = batch.union(reward_tensor)
+
+                            if self.config.reward_model.launch_reward_fn_async:
+                                future_reward = compute_reward_async.remote(
+                                    data=batch, config=self.config, tokenizer=self.tokenizer
+                                )
+                            else:
+                                # compute reward model score
+                                if self.use_rm and "rm_scores" not in batch.batch.keys():
+                                    reward_tensor = self.rm_wg.compute_rm_score(batch)
+                                    batch = batch.union(reward_tensor)
+
+                                if self.config.reward_model.launch_reward_fn_async:
+                                    future_reward = compute_reward_async.remote(data=batch, reward_fn=self.reward_fn)
+                                else:
+                                    reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
 
                     # Operating Mode Selection:
                     # - Bypass mode: Sets old_log_probs = rollout_log_probs (2 policies: π_rollout, π_θ)
@@ -1156,7 +1205,9 @@ class RayPPOTrainer:
                     with marked_timer("adv", timing_raw, color="brown"):
                         # we combine with rule-based rm
                         reward_extra_infos_dict: dict[str, list]
-                        if self.config.reward_model.launch_reward_fn_async:
+                        if self.agentcore_rollout_mode:
+                            reward_extra_infos_dict = {}
+                        elif self.config.reward_model.launch_reward_fn_async:
                             reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
                         batch.batch["token_level_scores"] = reward_tensor
 
@@ -1309,6 +1360,9 @@ class RayPPOTrainer:
                     )
 
                 if is_last_step:
+                    if self.agentcore_rollout_mode:
+                        self.agentcore_rollout_manager.shutdown()
+
                     pprint(f"Final validation metrics: {last_val_metrics}")
                     progress_bar.close()
                     return

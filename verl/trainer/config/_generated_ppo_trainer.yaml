@@ -248,6 +248,19 @@ actor_rollout_ref:
       ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
       save_path: ${oc.select:global_profiler.save_path,null}
       tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}
+    agentcore:
+      _target_: verl.workers.config.AgentCoreConfig
+      agent_name: null
+      subnets: null
+      security_groups: null
+      container_uri: null
+      role_arn: null
+      s3_bucket: null
+      router_host: null
+      router_port: null
+      router_timeout: null
+      reqs_per_sec: 25
+      max_rollout_time: 1800
     prometheus:
       _target_: verl.workers.config.PrometheusConfig
       enable: false

@@ -27,6 +27,7 @@ __all__ = [
     "AgentLoopConfig",
     "TraceConfig",
     "ServerConfig",
+    "AgentCoreConfig",
     "PrometheusConfig",
     "RolloutConfig",
 ]
@@ -90,6 +91,23 @@ class ServerConfig(BaseConfig):
     retry_delay: float = 2.0
     max_connections: int = 1000
     max_start_wait_time: float = 300.0
+
+
+@dataclass
+class AgentCoreConfig(BaseConfig):
+    # All fields other than router configuration are required
+    # using MISSING to allow delayed init.
+    agent_name: str = MISSING
+    subnets: list[str] = MISSING
+    security_groups: list[str] = MISSING
+    container_uri: str = MISSING
+    role_arn: str = MISSING
+    s3_bucket: str = MISSING
+    reqs_per_sec: int = 25
+    router_host: Optional[str] = None
+    router_port: Optional[int] = 30_000
+    router_timeout: Optional[int] = 120
+    max_rollout_time: Optional[int] = 1800
 
 
 @dataclass
@@ -197,6 +215,9 @@ class RolloutConfig(BaseConfig):
     limit_images: Optional[int] = None
 
     skip_tokenizer_init: bool = False
+
+    # configs for using agentcore runtime for rollout
+    agentcore: AgentCoreConfig = field(default_factory=AgentCoreConfig)
 
     def __post_init__(self):
         """Validate the rollout config"""

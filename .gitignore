@@ -129,3 +129,6 @@ logs
 log
 outputs
 .history
+
+# agentcore related env vars
+agentcore.env

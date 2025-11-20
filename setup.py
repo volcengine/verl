@@ -58,6 +58,7 @@ SGLANG_REQUIRES = [
 TRL_REQUIRES = ["trl<=0.9.6"]
 MCORE_REQUIRES = ["mbridge"]
 TRANSFERQUEUE_REQUIRES = ["TransferQueue @ git+https://github.com/TransferQueue/TransferQueue.git@68c04e7"]
+AGENTCORE_REQUIRES = ["sglang-router==0.2.3", "bedrock-agentcore-starter-toolkit==0.1.33"]
 
 extras_require = {
     "test": TEST_REQUIRES,
@@ -70,6 +71,7 @@ extras_require = {
     "trl": TRL_REQUIRES,
     "mcore": MCORE_REQUIRES,
     "transferqueue": TRANSFERQUEUE_REQUIRES,
+    "agentcore": AGENTCORE_REQUIRES,
 }
 
 

@@ -176,4 +176,9 @@ transfer_queue:
 ray_kwargs:
   ray_init:
     num_cpus: null # `None` means using all CPUs, which might cause hang if limited in systems like SLURM. Please set to a number allowed then.
+    runtime_env:
+      env_vars:
+        # Need to disable NVLink SHARP when using EFA.
+        NCCL_NVLS_ENABLE: "0"
+        NCCL_DEBUG: "WARN"
   timeline_json_file: null

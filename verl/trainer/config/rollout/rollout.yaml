@@ -296,6 +296,46 @@ profiler:
   # specific tool config
   tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}
 
+
+# agentcore based rollout configs
+agentcore: 
+  _target_: verl.workers.config.AgentCoreConfig
+
+  # any name str you pick for your agent  
+  agent_name: null
+
+  # a string starting with "subnet-""
+  subnets: null
+
+  # two comma separated strings starting with "sg-"
+  security_groups: null
+
+  # ECR image uri 
+  container_uri: null
+
+  # arn str for agentcore access
+  role_arn: null
+
+  # s3 bucket name where the rollout will be stored
+  s3_bucket: null
+
+  # network interface that the router should bind to,
+  # defaults to the node IP where the router actor is placed by Ray
+  router_host: null
+
+  # port which the router should bind to
+  router_port: null
+
+  # timeout for router management API requests
+  router_timeout: null
+
+  # Account quota on number of new session (for each request) that can be created
+  # per second.
+  reqs_per_sec: 25
+
+  # max time per rollout batch
+  max_rollout_time: 1800
+  
 # prometheus configuration for vllm/sglang server mode
 prometheus:
 

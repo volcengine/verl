@@ -721,7 +721,7 @@ class AgentLoopManager:
         self.server_handles = [server._server_handle for server in self.rollout_replicas]
         self.server_addresses = [server._server_address for server in self.rollout_replicas]
 
-        print(f"AgentLoopManager: {self.server_addresses}")
+        print(f"{self.__class__.__name__}: {self.server_addresses}")
 
         # Update Prometheus configuration with server addresses
         if rollout_config.prometheus.enable:

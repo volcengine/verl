@@ -126,7 +126,7 @@ class TaskRunner:
 
             actor_rollout_cls = (
                 AsyncActorRolloutRefWorker
-                if config.actor_rollout_ref.rollout.mode == "async"
+                if config.actor_rollout_ref.rollout.mode in ("async", "agentcore")
                 else ActorRolloutRefWorker
             )
             ray_worker_group_cls = RayWorkerGroup
@@ -136,7 +136,7 @@ class TaskRunner:
 
             actor_rollout_cls = (
                 AsyncActorRolloutRefWorker
-                if config.actor_rollout_ref.rollout.mode == "async"
+                if config.actor_rollout_ref.rollout.mode in ("async", "agentcore")
                 else ActorRolloutRefWorker
             )
             ray_worker_group_cls = RayWorkerGroup
