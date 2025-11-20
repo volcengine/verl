@@ -49,6 +49,10 @@ def init_megatron_optim_config(optim_config: dict, fp16: bool = False) -> Optimi
                 "params_dtype": torch.bfloat16,
             }
         )
+    if optim_config.optimizer == "adam":
+        optim_args["adam_beta1"] = optim_config.betas[0]
+        optim_args["adam_beta2"] = optim_config.betas[1]
+        
     override_config = optim_config.get("override_optimizer_config", {})
     if override_config:
         for k, v in override_config.items():
