@@ -64,30 +64,29 @@ def concat_tensordict(data: list[TensorDict]) -> TensorDict:
     """Concatenates tensordicts into a single tensordict on dim zero. Support nested tensor"""
     assert len(data) > 0, "Must have at least one tensordict"
 
-    # pop all the nested tensor if any
-    nested_tensors = {}
+    # Find nested tensor keys from the first tensordict
+    nested_tensor_keys = {key for key, value in data[0].items() if isinstance(value, torch.Tensor) and value.is_nested}
 
-    # find nested tensor
-    for key in data[0].keys():
-        tensor = data[0][key]
-        if isinstance(tensor, torch.Tensor) and tensor.is_nested:
-            nested_tensors[key] = []
-            for d in data:
-                assert d[key].is_nested
+    if not nested_tensor_keys:
+        return TensorDict.cat(data, dim=0)
 
-    for key in nested_tensors.keys():
-        for d in data:
-            nested_tensors[key].append(d.pop(key))
+    # Create a list of tensordicts containing only non-nested tensors for concatenation
+    regular_tds = []
+    for td in data:
+        current_nested_keys = {k for k, v in td.items() if isinstance(v, torch.Tensor) and v.is_nested}
+        assert current_nested_keys == nested_tensor_keys, "All tensordicts must have the same set of nested tensors."
 
-    # concat reset
-    output = TensorDict.cat(data, dim=0)
+        # Create a new TensorDict with non-nested items without modifying the original
+        regular_items = {k: v for k, v in td.items() if k not in nested_tensor_keys}
+        regular_tds.append(TensorDict(regular_items, batch_size=td.batch_size, device=td.device))
 
-    # concat nested tensor
-    for key in nested_tensors.keys():
-        output[key] = concat_nested_tensors(nested_tensors[key])
-        # add nested tensor back
-        for i, d in enumerate(data):
-            d[key] = nested_tensors[key][i]
+    # Concatenate the regular tensordicts
+    output = TensorDict.cat(regular_tds, dim=0)
+
+    # Concatenate and add nested tensors to the output
+    for key in nested_tensor_keys:
+        nested_tensors_to_concat = [td[key] for td in data]
+        output[key] = concat_nested_tensors(nested_tensors_to_concat)
 
     return output
 
