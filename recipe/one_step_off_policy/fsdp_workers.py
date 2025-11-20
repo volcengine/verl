@@ -35,6 +35,8 @@ from verl.utils.device import (
 from verl.utils.fs import copy_to_local
 from verl.utils.fsdp_utils import (
     fsdp_version,
+    load_fsdp_model_to_gpu,
+    offload_fsdp_model_to_cpu,
 )
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import get_generation_config, update_model_config
@@ -83,6 +85,8 @@ class ActorRolloutRefWorker(ARRWorker):
         assert (self._is_actor or self._is_rollout) and not self.config.hybrid_engine
         assert hasattr(self, "_weights_info") and self._weights_info is not None
 
+        if self._is_actor and self._is_offload_param:
+            load_fsdp_model_to_gpu(self.actor_module_fsdp)
         params = self._get_actor_params() if self._is_actor else None
         rollout_name = self.config.rollout.name
         if self._is_rollout:
@@ -114,6 +118,8 @@ class ActorRolloutRefWorker(ARRWorker):
                     inference_model.load_weights([(key, tensor)])
                 elif rollout_name == "sglang":
                     loop.run_until_complete(self.update_weights(inference_model, [(key, tensor)]))
+        if self._is_actor and self._is_offload_param:
+            offload_fsdp_model_to_cpu(self.actor_module_fsdp)
 
     async def update_weights(self, inference_engine, params):
         from sglang.srt.weight_sync.utils import update_weights as sgl_update_weights
