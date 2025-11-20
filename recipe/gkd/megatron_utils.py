@@ -173,7 +173,6 @@ def per_tensor_generator(
                 yield from zip(converted_names, [param.detach() for param in converted_params], strict=True)
 
             continue
-
         # tp all gather
         if tp_utils.is_tensor_parallel_param(cur_tensor):
             # allocate a new tensor with proper size

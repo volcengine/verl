@@ -147,11 +147,12 @@ class TaskRunner:
 
         # Megatron-only workers, split into rollout and actor
         if config.actor_rollout_ref.actor.strategy == "megatron":
-            from recipe.gkd.megatron_workers import (
+            from verl.single_controller.ray import RayWorkerGroup
+
+            from .megatron_workers import (
                 MegatronOnPolicyDistillActorWorker,
                 MegatronOnPolicyDistillRolloutWorker,
             )
-            from verl.single_controller.ray import RayWorkerGroup
 
             rollout_cls = MegatronOnPolicyDistillRolloutWorker
             actor_cls = MegatronOnPolicyDistillActorWorker

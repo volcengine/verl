@@ -17,6 +17,7 @@
 import asyncio
 import logging
 import os
+import time
 
 import numpy as np
 import psutil
@@ -55,6 +56,46 @@ from verl.workers.megatron_workers import ActorRolloutRefWorker
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
+
+
+class TensorBuffer:
+    def __init__(self, capacity, dtype):
+        self.capacity = capacity
+        self.tensor = torch.empty(capacity, dtype=dtype, device="cuda")
+        self.keys = []
+        self.shapes = []
+
+    @property
+    def size(self):
+        return sum(shape.numel() for shape in self.shapes)
+
+    def clear(self):
+        self.keys.clear()
+        self.shapes.clear()
+
+    def append(self, key, shape, weight=None):
+        if weight is not None:
+            self.tensor[self.size : self.size + shape.numel()] = weight.view(-1)
+        self.keys.append(key)
+        self.shapes.append(shape)
+
+    def to_tensors(self):
+        tensors = []
+        start = 0
+        for key_, shape_ in zip(self.keys, self.shapes, strict=False):
+            tensors.append((key_, self.tensor[start : start + shape_.numel()].view(shape_)))
+            start += shape_.numel()
+        return tensors
+
+
+def record_time(func):
+    def wrapper(*args, **kwargs):
+        tik = time.time()
+        func(*args, **kwargs)
+        tok = time.time()
+        return tok - tik
+
+    return wrapper
 
 
 class OnPolicyDistillActor:
@@ -526,6 +567,8 @@ class MegatronOnPolicyDistillActorWorker(ActorRolloutRefWorker):
 
         from ray.util.collective import collective
 
+        tensor_buffer = TensorBuffer(2**31, self.param_dtype)
+
         for key, shape, dtype in self._weights_info:
             weight_key, weight = next(params_generator)
             assert key == weight_key
@@ -535,10 +578,18 @@ class MegatronOnPolicyDistillActorWorker(ActorRolloutRefWorker):
             except AssertionError:
                 if not key.endswith("e_score_correction_bias"):
                     raise
-            tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
-            if torch.distributed.get_rank() == 0:
-                tensor.copy_(weight)
-                collective.broadcast(tensor, src_rank=0, group_name="actor_rollout")
+                weight = weight.to(dtype)
+
+            if shape.numel() > tensor_buffer.capacity:
+                collective.broadcast(weight, src_rank=0, group_name="actor_rollout")
+            else:
+                if tensor_buffer.size + shape.numel() > tensor_buffer.capacity:
+                    collective.broadcast(tensor_buffer.tensor, src_rank=0, group_name="actor_rollout")
+                    tensor_buffer.clear()
+                tensor_buffer.append(key, shape, weight)
+        if tensor_buffer.size > 0:
+            collective.broadcast(tensor_buffer.tensor, src_rank=0, group_name="actor_rollout")
+            tensor_buffer.clear()
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def get_actor_weights_info(self):
@@ -694,11 +745,11 @@ class MegatronOnPolicyDistillRolloutWorker(ActorRolloutRefWorker):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
     def sync_rollout_weights(self):
+        from ray.util.collective import collective
+
         assert self._is_rollout and not self.config.hybrid_engine
         assert hasattr(self, "_weights_info") and self._weights_info is not None
-        load_weights_size = self.config.vllm_load_weights_size
         rollout_name = self.config.rollout.name
-
         if rollout_name == "vllm":
             inference_model = (
                 self.rollout.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
@@ -707,41 +758,49 @@ class MegatronOnPolicyDistillRolloutWorker(ActorRolloutRefWorker):
 
             patch_vllm_moe_model_weight_loader(inference_model)
         elif rollout_name == "sglang":
+            from sglang.srt.weight_sync.utils import update_weights as sgl_update_weights
+
             inference_model = self.rollout._engine
+            loop = asyncio.get_event_loop()
+
+            async def update_weights(inference_engine, params):
+                await sgl_update_weights(
+                    engine=inference_engine,
+                    params_batch=params,
+                    device_mesh_key="infer_tp",
+                    device_mesh=self.rollout_device_mesh,
+                )
+
+                if self.rollout_device_mesh["infer_tp"].get_local_rank() == 0:
+                    await inference_engine.flush_cache()
         else:
             raise NotImplementedError(f"Unknown rollout name: {rollout_name}")
-        loop = asyncio.get_event_loop()
 
-        tensors = []
-        for key, shape, dtype in self._weights_info:
-            tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
-            from ray.util.collective import collective
+        tensor_buffer = TensorBuffer(2**31, self.param_dtype)
 
-            collective.broadcast(tensor, src_rank=0, group_name="actor_rollout")
-            tensors.append((key, tensor))
-            if len(tensors) >= load_weights_size:
-                if rollout_name == "vllm":
-                    inference_model.load_weights(tensors)
-                elif rollout_name == "sglang":
-                    loop.run_until_complete(self.update_weights(inference_model, tensors))
-                tensors.clear()
-        if rollout_name == "vllm":
-            inference_model.load_weights(tensors)
-        elif rollout_name == "sglang":
-            loop.run_until_complete(self.update_weights(inference_model, tensors))
+        def group_tensor_generator():
+            for key, shape, dtype in self._weights_info:
+                assert dtype == self.param_dtype, key
+                if shape.numel() > tensor_buffer.capacity:
+                    tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
+                    collective.broadcast(tensor, src_rank=0, group_name="actor_rollout")
+                    yield [(key, tensor)]
+                else:
+                    if tensor_buffer.size + shape.numel() > tensor_buffer.capacity:
+                        collective.broadcast(tensor_buffer.tensor, src_rank=0, group_name="actor_rollout")
+                        yield tensor_buffer.to_tensors()
+                        tensor_buffer.clear()
+                    tensor_buffer.append(key, shape)
+            if tensor_buffer.size > 0:
+                collective.broadcast(tensor_buffer.tensor, src_rank=0, group_name="actor_rollout")
+                yield tensor_buffer.to_tensors()
+                tensor_buffer.clear()
 
-    async def update_weights(self, inference_engine, params):
-        from sglang.srt.weight_sync.utils import update_weights as sgl_update_weights
-
-        await sgl_update_weights(
-            engine=inference_engine,
-            params_batch=params,
-            device_mesh_key="infer_tp",
-            device_mesh=self.rollout_device_mesh,
-        )
-
-        if self.rollout_device_mesh["infer_tp"].get_local_rank() == 0:
-            await inference_engine.flush_cache()
+        for tensors in group_tensor_generator():
+            if rollout_name == "vllm":
+                inference_model.load_weights(tensors)
+            elif rollout_name == "sglang":
+                loop.run_until_complete(update_weights(inference_model, tensors))
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def set_actor_weights_info(self, weights_info):
