@@ -19,24 +19,6 @@ from hydra import compose, initialize_config_dir
 from verl.experimental.reward import RewardModelManager
 from verl.protocol import DataProto
 
-GRM_PROMPT_TEMPLATE = """
-You are given a problem and a proposed solution.
-
-Problem:
-{problem}
-
-Solution:
-{solution}
-
-Please evaluate how well the solution addresses the problem. 
-Give a score from 1 to 10, where:
-- 1 means the solution is completely irrelevant or incorrect.
-- 5 means the solution is partially correct but incomplete or not well reasoned.
-- 10 means the solution is fully correct, well-reasoned, and directly solves the problem.
-
-Only output the score as a single number (integer).
-""".strip()
-
 
 def create_data_samples() -> DataProto:
     convs = [
@@ -58,7 +40,13 @@ def create_data_samples() -> DataProto:
         },
     ]
 
-    messages = [[{"role": "user", "content": GRM_PROMPT_TEMPLATE.format(**conv)}] for conv in convs]
+    messages = [
+        [
+            {"role": "user", "content": conv["problem"]},
+            {"role": "assistant", "content": conv["solution"]},
+        ]
+        for conv in convs
+    ]
     prompts = DataProto.from_dict(
         non_tensors={
             "raw_prompt": messages,
@@ -81,7 +69,7 @@ def test_reward_model_manager():
     with initialize_config_dir(config_dir=os.path.abspath("recipe/fapo/config")):
         config = compose("rm_config")
 
-    model_path = os.path.expanduser("~/models/Qwen/Qwen2.5-0.5B-Instruct")
+    model_path = os.path.expanduser("~/models/Skywork/Skywork-Reward-V2-Llama-3.2-1B")
 
     config.reward_model.reward_manager = "dapo"
     config.reward_model.enable = True
@@ -102,20 +90,13 @@ def test_reward_model_manager():
     # 2. init test data
     convs, prompts = create_data_samples()
 
-    # 3. generate responses
-    sampling_params = {
-        "max_tokens": 4096,
-        "temperature": 0.7,
-        "top_p": 0.8,
-        "top_k": 20,
-    }
-    results = reward_model_manager.generate_sequences(prompts, sampling_params)
-    responses = [result.choices[0].message.content for result in results]
+    # 3. compute reward scores
+    results = reward_model_manager.compute_score_disrm(prompts)
 
-    for idx, (conv, response) in enumerate(zip(convs, responses, strict=False)):
+    for idx, (conv, result) in enumerate(zip(convs, results, strict=False)):
         print(f"Problem {idx}:\n{conv['problem']}\n")
         print(f"AI Solution {idx}:\n{conv['solution']}\n")
-        print(f"GRM Response {idx}:\n{response}\n")
+        print(f"DisRM Score {idx}:\n{result['reward_score']}\n")
         print("=" * 50 + "\n")
 
     ray.shutdown()
