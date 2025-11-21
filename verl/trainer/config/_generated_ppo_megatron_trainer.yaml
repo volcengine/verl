@@ -41,6 +41,7 @@ actor_rollout_ref:
       use_distributed_optimizer: true
       use_dist_checkpointing: false
       dist_checkpointing_path: null
+      dist_checkpointing_prefix: ''
       seed: 42
       override_ddp_config: {}
       override_transformer_config:
@@ -165,6 +166,7 @@ actor_rollout_ref:
       use_distributed_optimizer: true
       use_dist_checkpointing: false
       dist_checkpointing_path: null
+      dist_checkpointing_prefix: ''
       seed: ${oc.select:actor_rollout_ref.actor.megatron.seed,42}
       override_ddp_config: {}
       override_transformer_config: ${oc.select:actor_rollout_ref.actor.megatron.override_transformer_config,{}}
@@ -176,7 +178,7 @@ actor_rollout_ref:
   rollout:
     _target_: verl.workers.config.RolloutConfig
     name: ???
-    mode: sync
+    mode: async
     temperature: 1.0
     top_k: -1
     top_p: 1
@@ -246,6 +248,7 @@ actor_rollout_ref:
       _target_: verl.workers.config.TraceConfig
       backend: null
       token2text: false
+      max_samples_per_step_per_worker: null
     skip_rollout: false
     skip_dump_dir: /tmp/rollout_dump
     skip_tokenizer_init: true
@@ -263,6 +266,7 @@ actor_rollout_ref:
       port: 9090
       file: /tmp/ray/session_latest/metrics/prometheus/prometheus.yml
       served_model_name: ${oc.select:actor_rollout_ref.model.path,null}
+    quantization: null
     layer_name_map:
       qkv_layer_name: qkv
       gate_proj_layer_name: gate_up
@@ -295,7 +299,7 @@ data:
   tool_config_path: ${oc.select:actor_rollout_ref.rollout.multi_turn.tool_config_path,
     null}
   return_raw_input_ids: false
-  return_raw_chat: false
+  return_raw_chat: true
   return_full_prompt: false
   shuffle: true
   seed: null
@@ -356,6 +360,7 @@ critic:
     use_distributed_optimizer: true
     use_dist_checkpointing: false
     dist_checkpointing_path: null
+    dist_checkpointing_prefix: ''
     seed: 42
     override_ddp_config: {}
     override_transformer_config:
@@ -473,6 +478,7 @@ reward_model:
     use_distributed_optimizer: false
     use_dist_checkpointing: false
     dist_checkpointing_path: null
+    dist_checkpointing_prefix: ''
     seed: ${oc.select:actor_rollout_ref.actor.megatron.seed,42}
     override_transformer_config: ${oc.select:actor_rollout_ref.actor.megatron.override_transformer_config,{}}
     use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}

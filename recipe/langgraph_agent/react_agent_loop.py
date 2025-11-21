@@ -168,35 +168,21 @@ class ReactAgentLoop(AgentLoopBase):
             state = await self.graph.ainvoke(input={"messages": messages}, config=config)
         except Exception as e:
             logger.error(f"Agent loop execution failed: {type(e).__name__}: {e}")
-            logger.error("Attempting to recover by extracting last valid trajectory.")
+            logger.error("Falling back to a minimal dummy trajectory.")
 
-            # Strategy: Find the last valid AI message with complete metadata
-            # This preserves any partial progress made before the error
-            last_valid_ai_message = None
-            for msg in reversed(messages):
-                if (
-                    msg.type == "ai"
-                    and hasattr(msg, "response_metadata")
-                    and "prompt_ids" in msg.response_metadata
-                    and "response_mask" in msg.response_metadata
-                ):
-                    last_valid_ai_message = msg
-                    break
-
-            if last_valid_ai_message:
-                logger.info("Recovered valid trajectory from existing messages.")
-                state = {"messages": messages}
-            else:
-                logger.warning("No valid trajectory found. Creating minimal fallback.")
-                fallback_message = AIMessage(
-                    content="[Agent execution failed - no valid trajectory]",
-                    response_metadata={
-                        "request_id": "fallback",
-                        "prompt_ids": [],
-                        "response_mask": [],
-                    },
-                )
-                state = {"messages": messages + [fallback_message]}
+            # Fallback to a minimal assistant message so that
+            # convert_to_agent_output and downstream padding logic
+            # can still run without crashing.
+            dummy_id = 0
+            fallback_message = AIMessage(
+                content="[Agent execution failed - no valid trajectory]",
+                response_metadata={
+                    "request_id": "fallback",
+                    "prompt_ids": [dummy_id, dummy_id],
+                    "response_mask": [1],
+                },
+            )
+            state = {"messages": [fallback_message]}
 
         output = convert_to_agent_output(state["messages"], rollout.response_length)
         return output

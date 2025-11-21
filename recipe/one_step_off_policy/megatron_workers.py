@@ -31,6 +31,13 @@ from verl.workers.megatron_workers import (
     CriticWorker,
     RewardModelWorker,
 )
+from verl.utils.megatron_utils import load_megatron_model_to_gpu, offload_megatron_model_to_cpu
+from verl.workers.config import HFModelConfig, RolloutConfig
+from verl.workers.megatron_workers import ActorRolloutRefWorker as ARRWorker
+from verl.workers.megatron_workers import CriticWorker, RewardModelWorker
+from verl.workers.rollout import get_rollout_class
+
+from .distributed_util import stateless_init_process_group
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -61,6 +68,9 @@ class DetachSync(AsyncActorRolloutRefWorker):
         assert hasattr(self, "_weights_info") and self._weights_info is not None
 
         params_generator = self._get_actor_params_generator() if self._is_actor else None
+
+        if self._is_actor and self._is_offload_param:
+            load_megatron_model_to_gpu(self.actor_module)
 
         rollout_name = self.config.rollout.name
         if self._is_rollout:
@@ -98,6 +108,9 @@ class DetachSync(AsyncActorRolloutRefWorker):
                     inference_model.load_weights([(key, tensor)])
                 elif rollout_name == "sglang":
                     loop.run_until_complete(self.update_weights(inference_model, [(key, tensor)]))
+
+        if self._is_actor and self._is_offload_param:
+            offload_megatron_model_to_cpu(self.actor_module)
 
     async def update_weights(self, inference_engine, params):
         from sglang.srt.weight_sync.utils import update_weights as sgl_update_weights
@@ -138,13 +151,17 @@ class DetachActorWorker(DetachSync):
         assert self._is_actor
         if hasattr(self, "_weights_info"):
             return self._weights_info
-
+        if self._is_offload_param:
+            load_megatron_model_to_gpu(self.actor_module)
         params_generator = self._get_actor_params_generator()
         ret = []
         for key, tensor in params_generator:
             ret.append((key, tensor.size(), tensor.dtype))
 
         self._weights_info = ret
+        # Here, we only call this function at the beginning,
+        # and immediately afterwards we call sync_rollout_weights.
+        # So we no longer call offload in this.
         return ret
 
 

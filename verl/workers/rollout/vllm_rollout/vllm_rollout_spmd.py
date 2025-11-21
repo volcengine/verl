@@ -51,6 +51,7 @@ from torch.distributed.device_mesh import DeviceMesh
 from vllm import LLM, SamplingParams
 from vllm.config import CompilationConfig, LoRAConfig
 from vllm.lora.request import LoRARequest
+from vllm.model_executor.model_loader.utils import process_weights_after_loading
 
 try:
     # https://github.com/vllm-project/vllm/commit/96b9aa5aa076e64c68765232aec343e4d0006e2a
@@ -74,11 +75,13 @@ from verl import DataProto
 from verl.third_party.vllm import VLLM_SLEEP_LEVEL, get_version
 from verl.utils.device import is_npu_available
 from verl.utils.distributed import initialize_global_process_group_ray
+from verl.utils.import_utils import deprecated
 from verl.utils.model import get_lora_rank_from_adapter
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.ray_utils import ray_noset_visible_devices
 from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
 from verl.utils.vllm import TensorLoRARequest, VLLMHijack, is_version_ge
+from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches, is_fp8_model, load_quanted_weights
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
 from verl.workers.rollout.utils import get_free_port, is_valid_ipv6_address
@@ -122,6 +125,9 @@ def _check_vllm_version_for_sleep_level():
     return vs.parse(current_version) >= vs.parse(minver)
 
 
+@deprecated(
+    "vLLM spmd mode is deprecated. Please set `actor_rollout_ref.rollout.mode=async` to use vllm native server mode."
+)
 class vLLMRollout(BaseRollout):
     def __init__(
         self,
@@ -194,10 +200,12 @@ class vLLMRollout(BaseRollout):
 
         max_model_len = int(config.max_model_len or config.prompt_length + config.response_length)
 
-        if max_num_batched_tokens < max_model_len and self.config.enable_chunked_prefill:
+        # This parameter verification is borrowed from vllm:
+        # https://github.com/vllm-project/vllm/blob/561253b37faadaafe68168ea32d8d8157621a6b4/vllm/config/scheduler.py#L249
+        if max_num_batched_tokens < max_model_len and not self.config.enable_chunked_prefill:
             raise ValueError(
-                "Enable chunked prefill, max_num_batched_tokens is smaller than max_model_len, \
-                             please increase max_num_batched_tokens or disable chunked prefill"
+                f"max_num_batched_tokens ({max_num_batched_tokens}) is smaller than max_model_len ({max_model_len}). "
+                "Please increase max_num_batched_tokens or enable chunked prefill."
             )
 
         load_format = "dummy" if config.load_format.startswith("dummy") else config.load_format
@@ -494,6 +502,9 @@ class vLLMRollout(BaseRollout):
             model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
             patch_vllm_moe_model_weight_loader(model)
             model.load_weights(weights)
+            vllm_config = self.inference_engine.llm_engine.vllm_config.model_config
+            device = next(model.parameters()).device
+            process_weights_after_loading(model, vllm_config, device)
 
 
 # https://github.com/vllm-project/vllm/issues/13175
@@ -593,6 +604,13 @@ class vLLMAsyncRollout(BaseRollout):
         if self.lora_config:
             lora_dtype = getattr(torch, self.config.dtype)
             self.vllm_config.lora_config = LoRAConfig(lora_dtype=lora_dtype, **self.lora_config)
+        if self.config.quantization is not None:
+            if self.config.quantization == "fp8":
+                # Apply vllm fp8 patches
+                # Will remove the patch after vllm support on-the-fly quant for rollout natively.
+                apply_vllm_fp8_patches()
+            else:
+                raise ValueError(f"Currently only support fp8 quantization, got: {self.config.quantization}")
         self.inference_engine = WorkerWrapperBase(vllm_config=self.vllm_config)
         self.inference_engine.init_worker(all_kwargs)
 
@@ -646,9 +664,20 @@ class vLLMAsyncRollout(BaseRollout):
         else:
             from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 
-            model = self.inference_engine.worker.model_runner.model
+            model_runner = self.inference_engine.worker.model_runner
+            model = model_runner.model
             patch_vllm_moe_model_weight_loader(model)
-            model.load_weights(weights)
+
+            # Add the FP8 related logic here as sharding manager has been deprecated.
+            # Check if FP8 quantization is enabled and apply appropriate weight loading
+            if is_fp8_model(model_runner.vllm_config):
+                logger.info(f"FP8 model detected (async): {model_runner.vllm_config.quant_config}")
+                # Convert bf16 weights to fp8 format before loading
+                loaded_params = load_quanted_weights(weights, model_runner)
+                logger.info(f"FP8 weights loaded (async), loaded_params: {len(loaded_params)}")
+            else:
+                logger.info("Loading standard weights (non-FP8, async)")
+                model.load_weights(weights)
 
     def generate_sequences(self, prompts: DataProto) -> DataProto:
         """Batch generate sequences in sync mode."""
