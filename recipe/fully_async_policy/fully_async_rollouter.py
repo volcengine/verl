@@ -572,7 +572,6 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
             if self.feed_task not in done:
                 raise RuntimeError("Processor or consumer task exited prematurely")
 
-            # If we get here, feed_task is done successfully
             print("[FullyAsyncRollouter] Sample feed completed")
 
             # Wait for streaming to complete
