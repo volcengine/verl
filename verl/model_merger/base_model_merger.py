@@ -23,8 +23,8 @@ from accelerate import init_empty_weights
 from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
+    AutoModelForImageTextToText,
     AutoModelForTokenClassification,
-    AutoModelForVision2Seq,
     GenerationConfig,
 )
 
@@ -201,8 +201,8 @@ class BaseModelMerger(ABC):
                     return AutoModelForCausalLM
                 case "AutoModelForTokenClassification":
                     return AutoModelForTokenClassification
-                case "AutoModelForVision2Seq":
-                    return AutoModelForVision2Seq
+                case "AutoModelForImageTextToText":
+                    return AutoModelForImageTextToText
                 case _:
                     raise NotImplementedError(f"Unknown auto class {auto_class}")
         else:
@@ -211,7 +211,7 @@ class BaseModelMerger(ABC):
             elif "ForCausalLM" in self.model_config.architectures[0]:
                 return AutoModelForCausalLM
             elif "ForConditionalGeneration" in self.model_config.architectures[0]:
-                return AutoModelForVision2Seq
+                return AutoModelForImageTextToText
 
             raise NotImplementedError(f"Unknown architecture {self.model_config.architectures}")
 
