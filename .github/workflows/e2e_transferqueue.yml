@@ -104,8 +104,8 @@ jobs:
           faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
           mlp-image: "${{ env.IMAGE }}"
 
-  # Test FSDP2 strategy
-  e2e_transferqueue_fsdp2:
+  # Test FSDP strategy
+  e2e_transferqueue_fsdp:
     needs: setup
     runs-on: [ "${{ needs.setup.outputs.runner-label || 'L20x8' }}" ]
     timeout-minutes: 10 # Increase timeout for async training
@@ -115,7 +115,7 @@ jobs:
       NO_PROXY: "localhost,127.0.0.1,hf-mirror.com"
       HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
-      ACTOR_STRATEGY: "fsdp2"
+      ACTOR_STRATEGY: "fsdp"
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -150,9 +150,9 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install -e .[test,gpu,transferqueue]
+          pip3 install --no-deps -e .[test,gpu]
           pip3 install transformers==$TRANSFORMERS_VERSION
-          pip3 install TransferQueue
+          pip3 install TransferQueue==0.1.2.dev0
       - name: Prepare GSM8K dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
@@ -166,7 +166,7 @@ jobs:
     needs:
       [
         setup,
-        e2e_transferqueue_fsdp2,
+        e2e_transferqueue_fsdp,
         e2e_transferqueue_megatron
       ]
     if: always()
