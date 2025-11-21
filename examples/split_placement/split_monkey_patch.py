@@ -65,6 +65,7 @@ def fit(self):
         pprint(f"Initial validation metrics: {val_metrics}")
         logger.log(data=val_metrics, step=self.global_steps)
         if self.config.trainer.get("val_only", False):
+            logger.finish()
             return
 
     # we start from step 1
@@ -232,6 +233,8 @@ def fit(self):
 
             if self.global_steps >= self.total_training_steps:
                 pprint(f"Final validation metrics: {last_val_metrics}")
+                logger.finish()
                 return
 
             self.global_steps += 1
+    logger.finish()

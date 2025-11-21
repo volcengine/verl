@@ -986,6 +986,7 @@ class RayPPOTrainer:
             pprint(f"Initial validation metrics: {val_metrics}")
             logger.log(data=val_metrics, step=self.global_steps)
             if self.config.trainer.get("val_only", False):
+                logger.finish()
                 return
 
         if self.config.actor_rollout_ref.rollout.get("skip_rollout", False):
@@ -1311,6 +1312,7 @@ class RayPPOTrainer:
                 if is_last_step:
                     pprint(f"Final validation metrics: {last_val_metrics}")
                     progress_bar.close()
+                    logger.finish()
                     return
 
                 # this is experimental and may be changed/removed in the future
@@ -1318,3 +1320,5 @@ class RayPPOTrainer:
                 if hasattr(self.train_dataset, "on_batch_end"):
                     # The dataset may be changed after each training batch
                     self.train_dataset.on_batch_end(batch=batch)
+
+        logger.finish()
