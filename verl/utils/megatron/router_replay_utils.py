@@ -111,7 +111,7 @@ def set_router_replay_data(layers_topk_idx, attention_mask, tf_config, vp_rank=N
             router.set_target_indices(layers_topk_idx_reshape[i+offset].to(torch.int64))
 
 def reorder_and_merge_vpp_layers(
-    t: torch.Tensor,
+    micro_batch_tensor_list,
     num_microbatches: int,
     vpp_size: int,
     microbatch_group_size_per_vp_stage: int,
@@ -138,49 +138,21 @@ def reorder_and_merge_vpp_layers(
         ValueError: If input tensor dimensionality or expected sizes do not match.
         RuntimeError: If the computed output shape is unexpected or the schedule length mismatches.
     """
-    if t.dim() != 4:
-        raise ValueError(f"expect a 4D tensor, got dim={t.dim()} and shape={tuple(t.shape)}")
-    bs_vpp, max_token_len, layer_per_vpp, topk = t.shape
-
-    expected_bs_vpp = num_microbatches * vpp_size
-    if bs_vpp != expected_bs_vpp:
-        raise ValueError(
-            f"first dim (bs*vpp_size={bs_vpp}) must equal num_microbatches*vpp_size={expected_bs_vpp}"
-        )
-    if vpp_size <= 0:
-        raise ValueError(f"vpp_size must be positive, got {vpp_size}")
-
     # 1) Build schedule table: map each virtual_microbatch_id -> (microbatch_id, model_chunk_id)
+    pp_rank = mpu.get_pipeline_model_parallel_rank()
     schedule_table = get_schedule_table(num_microbatches, vpp_size, microbatch_group_size_per_vp_stage)
-    if len(schedule_table) != expected_bs_vpp:
-        raise RuntimeError(
-            f"schedule_table length {len(schedule_table)} mismatch total virtual microbatches {expected_bs_vpp}"
-        )
-
+    
     # 2) Group by model_chunk_id to build reorder indices so entries of the same chunk become contiguous along dim 0
-    indices_by_chunk = [[] for _ in range(vpp_size)]
+    tensor_by_chunk = [[] for _ in range(vpp_size)]
+    mini_tensor_list = []
+    
     for vidx, (_mb, chunk_id) in enumerate(schedule_table):
-        indices_by_chunk[chunk_id].append(vidx)
-    reorder_indices = [idx for chunk_id in range(vpp_size) for idx in indices_by_chunk[chunk_id]]
+        tensor_by_chunk[chunk_id].append(micro_batch_tensor_list[vidx])
 
-    index_tensor = torch.tensor(reorder_indices, dtype=torch.long, device=t.device)
-    t_reordered = torch.index_select(t, dim=0, index=index_tensor)
-
-    # 3) After reordering, reshape and merge along the layer dimension
-    bs = num_microbatches
-    # View: [vpp_size, bs, max_token_len, layer_per_vpp, topk]
-    t_view = t_reordered.contiguous().view(vpp_size, bs, max_token_len, layer_per_vpp, topk)
-    # Permute dims -> [bs, max_token_len, vpp_size, layer_per_vpp, topk]
-    t_perm = t_view.permute(1, 2, 0, 3, 4).contiguous()
-    # Merge (vpp_size, layer_per_vpp) -> layer_num
-    out = t_perm.view(bs, max_token_len, vpp_size * layer_per_vpp, topk)
-
-    # Shape check
-    if out.shape != (bs, max_token_len, vpp_size * layer_per_vpp, topk):
-        raise RuntimeError(
-            f"unexpected output shape {tuple(out.shape)}; "
-            f"expected ({bs}, {max_token_len}, {vpp_size * layer_per_vpp}, {topk})"
-        )
+    for chunk_id in range(vpp_size):
+        mini_tensor_list.append(torch.cat(tensor_by_chunk[chunk_id], dim=0))
+    
+    out = torch.cat(mini_tensor_list, dim=2)    
     return out
 
 
@@ -306,6 +278,8 @@ def get_current_rank_layer_info(tf_config, vp_rank = None):
         Tuple[dict, dict]: A tuple of (local_assignment, all_assignments) where local_assignment contains
         keys {"start", "end", "count"} for the current (pp_rank, vp_stage).
     """
+    # num_layers_to_build = get_num_layers_to_build(tf_config, vp_stage=vp_rank)
+    # offset = get_transformer_layer_offset(tf_config, vp_stage=vp_rank)
     assignments = compute_pipeline_layer_assignment(tf_config)
     pp_rank = mpu.get_pipeline_model_parallel_rank()
     vp_size = tf_config.virtual_pipeline_model_parallel_size

@@ -536,7 +536,6 @@ class MegatronPPOActor(BasePPOActor):
 
             append_to_dict(metrics, stats)
             return policy_loss, [metrics, ret_entropy]
-
         def forward_step(batch_iter, model, return_schedule_plan: bool = False):
             """
             Args:
@@ -697,15 +696,16 @@ class MegatronPPOActor(BasePPOActor):
         if use_dynamic_bsz:
             losses_reduced["indices"] = indices
         if RouterReplayHelper.is_r2_record_mode(self.tf_config):
-            losses_reduced["mini_layer_topk_idx_tensor"] = torch.cat(self.mini_layer_topk_idx_list, dim=0)
-            self.mini_layer_topk_idx_list = []
             if self.tf_config.virtual_pipeline_model_parallel_size is not None:
                 # config = self.actor_module[0].module.module.config
                 vp_size = len(self.actor_module)
                 microbatch_group_size_per_vp_stage = self.tf_config.microbatch_group_size_per_vp_stage
-                bs = mini_batch.batch["attention_mask"].shape[0]
-                losses_reduced["mini_layer_topk_idx_tensor"] = reorder_and_merge_vpp_layers(losses_reduced["mini_layer_topk_idx_tensor"], bs, vp_size, microbatch_group_size_per_vp_stage)
-
+                bs = n_micro_batch#mini_batch.batch["attention_mask"].shape[0]
+                losses_reduced["mini_layer_topk_idx_tensor"] = reorder_and_merge_vpp_layers(self.mini_layer_topk_idx_list, bs, vp_size, microbatch_group_size_per_vp_stage)
+            else:
+                losses_reduced["mini_layer_topk_idx_tensor"] = torch.cat(self.mini_layer_topk_idx_list, dim=0)
+            self.mini_layer_topk_idx_list = []
+        
         return losses_reduced
 
     @GPUMemoryLogger(role="megatron actor", logger=logger)

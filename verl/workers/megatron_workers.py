@@ -61,7 +61,6 @@ from verl.utils.megatron_utils import (
     register_megatron_training_hooks,
 )
 
-from verl.utils.megatron.router_replay_utils import pp_dispatch
 from verl.utils.memory_utils import aggressive_empty_cache
 from verl.utils.model import get_hf_model_path, load_mcore_dist_weights, load_megatron_gptmodel_weights
 from verl.utils.profiler import (
