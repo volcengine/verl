@@ -333,7 +333,7 @@ def _worker(rank: int, world_size: int, rendezvous_file: str, strategy: str, mod
     engine.initialize()
 
     # get per tensor parameter
-    per_tensor_params = engine.get_per_tensor_param()
+    per_tensor_params, _ = engine.get_per_tensor_param()
 
     ref_state_dict = ref_model.state_dict()
 
