@@ -41,6 +41,8 @@ def model_forward_gen(vision_model: bool = False):
             unwrap_model(model).pre_process if not vision_model else False
         )  # vision model does not need pre_process, because we pack the input_ids to thd in the forward function
         post_process = unwrap_model(model).post_process
+        fp8 = unwrap_model(model).config.fp8
+        use_fp8_padding = fp8 in ["e4m3", "hybrid"]
 
         model_kwargs = {}
         if "pixel_values" in multi_modal_inputs:
@@ -53,7 +55,9 @@ def model_forward_gen(vision_model: bool = False):
             model_kwargs["video_grid_thw"] = multi_modal_inputs["video_grid_thw"].to(input_ids.device)
 
         batch_size, seq_len = attention_mask.shape[:2]
-        input_ids_rmpad, packed_seq_params = preprocess_packed_seqs(input_ids, attention_mask, pre_process=pre_process)
+        input_ids_rmpad, packed_seq_params = preprocess_packed_seqs(
+            input_ids, attention_mask, pre_process=pre_process, use_fp8_padding=use_fp8_padding
+        )
         input_ids_rmpad = input_ids_rmpad.contiguous()
 
         input_args = dict(
@@ -75,7 +79,7 @@ def model_forward_gen(vision_model: bool = False):
         output_orig = model(**input_args)
         if post_process and logits_processor is not None:
             args = {
-                k: preprocess_packed_seqs(v, attention_mask, pre_process=True)[0]
+                k: preprocess_packed_seqs(v, attention_mask, pre_process=True, use_fp8_padding=use_fp8_padding)[0]
                 for k, v in logits_processor_args.items()
             }
             output_dict = logits_processor(output_orig, **args)
