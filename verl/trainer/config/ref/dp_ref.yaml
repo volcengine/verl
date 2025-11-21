@@ -13,7 +13,10 @@ defaults:
 # Target class for this configuration
 _target_: verl.workers.config.FSDPActorConfig
 
+# fsdp config
 fsdp_config:
+
+  # ref model is forward only
   forward_only: True
 
 # sequence parallel size

@@ -41,7 +41,7 @@ PolicyLossFn = Callable[
         torch.Tensor,  # advantages
         torch.Tensor,  # response_mask
         str,  # loss_agg_mode
-        Optional[DictConfig | AlgoConfig],  # config
+        Optional[DictConfig | ActorConfig],  # config
         torch.Tensor | None,  # rollout_log_probs
     ],
     tuple[torch.Tensor, dict[str, Any]],
@@ -909,7 +909,7 @@ def compute_policy_loss_vanilla(
     advantages: torch.Tensor,
     response_mask: torch.Tensor,
     loss_agg_mode: str = "token-mean",
-    config: Optional[DictConfig | AlgoConfig] = None,
+    config: Optional[ActorConfig] = None,
     rollout_is_weights: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, dict[str, Any]]:
     """
@@ -1003,7 +1003,7 @@ def compute_policy_loss_gspo(
     advantages: torch.Tensor,
     response_mask: torch.Tensor,
     loss_agg_mode: str = "seq-mean-token-mean",
-    config: Optional[DictConfig | ActorConfig] = None,
+    config: Optional[ActorConfig] = None,
     rollout_is_weights: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, dict[str, Any]]:
     """
@@ -1079,7 +1079,7 @@ def compute_policy_loss_gpg(
     advantages: torch.Tensor,
     response_mask: torch.Tensor,
     loss_agg_mode: str = "token-mean",
-    config: Optional[DictConfig | AlgoConfig] = None,
+    config: Optional[ActorConfig] = None,
     rollout_is_weights: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, dict[str, Any]]:
     """Adapted from
@@ -1115,7 +1115,7 @@ def compute_policy_loss_clip_cov(
     advantages: torch.Tensor,
     response_mask: torch.Tensor,
     loss_agg_mode: str = "token-mean",
-    config: Optional[DictConfig | AlgoConfig] = None,
+    config: Optional[ActorConfig] = None,
     rollout_is_weights: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, dict[str, Any]]:
     """
@@ -1220,7 +1220,7 @@ def compute_policy_loss_kl_cov(
     advantages: torch.Tensor,
     response_mask: torch.Tensor,
     loss_agg_mode: str = "token-mean",
-    config: Optional[DictConfig | AlgoConfig] = None,
+    config: Optional[ActorConfig] = None,
     rollout_is_weights: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, dict[str, Any]]:
     """
@@ -1300,7 +1300,7 @@ def compute_policy_loss_geo_mean(
     advantages: torch.Tensor,
     response_mask: torch.Tensor,
     loss_agg_mode: str = "token-mean",
-    config: Optional[DictConfig | AlgoConfig] = None,
+    config: Optional[ActorConfig] = None,
     rollout_is_weights: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, dict[str, Any]]:
     """
@@ -1587,7 +1587,7 @@ def compute_policy_loss_with_rollout_correction(
     advantages,
     eos_mask,
     loss_agg_mode="seq-mean-token-sum",
-    config: ActorConfig = None,
+    config: Optional[ActorConfig] = None,
     loss_scale_factor=1.0,
     rollout_is: Optional[str] = None,
     rollout_is_threshold: float = 2.0,
@@ -1656,6 +1656,8 @@ def compute_policy_loss_with_rollout_correction(
     """
     # Import rollout correction helper
     from verl.trainer.ppo.rollout_corr_helper import compute_rollout_correction_and_rejection_mask
+
+    assert config is not None, "ActorConfig must be provided for rollout correction"
 
     # Compute IS weights and rejection mask on-the-fly
     # Use no_grad since weights are detached inside and metrics don't need gradients
@@ -1727,7 +1729,7 @@ def compute_policy_loss_rollout_correction_wrapper(
     advantages: torch.Tensor,
     response_mask: torch.Tensor,
     loss_agg_mode: str = "token-mean",
-    config: Optional[DictConfig | AlgoConfig] = None,
+    config: Optional[ActorConfig] = None,
     rollout_is_weights: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, dict[str, Any]]:
     """Wrapper for compute_policy_loss_with_rollout_correction to match PolicyLossFn interface.
