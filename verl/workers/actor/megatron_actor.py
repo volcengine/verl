@@ -286,18 +286,18 @@ class MegatronPPOActor(BasePPOActor):
                         async_op=False,
                     )
                     entropys = entropys.to("cpu")
-            layers_topk_idx = None
+                layers_topk_idx = None
 
-            if RouterReplayHelper.is_r2_record_mode(self.tf_config):
-                # (bs, max_seq_len/response_len,local_layer_num,topk)
-                layers_topk_idx = output["mini_layer_topk_idx_tensor"].to(torch.uint8)
-                if use_dynamic_bsz:
-                    indices = output["indices"]
-                    indices = list(itertools.chain.from_iterable(indices))
-                    assert len(indices) == layers_topk_idx.size(0), f"{len(indices)} vs. {layers_topk_idx.size()}"
-                    revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
-                    layers_topk_idx = layers_topk_idx[revert_indices]
-                layers_topk_idx = pp_gather(layers_topk_idx, self.tf_config)
+                if RouterReplayHelper.is_r2_record_mode(self.tf_config):
+                    # (bs, max_seq_len/response_len,local_layer_num,topk)
+                    layers_topk_idx = output["mini_layer_topk_idx_tensor"].to(torch.uint8)
+                    if use_dynamic_bsz:
+                        indices = output["indices"]
+                        indices = list(itertools.chain.from_iterable(indices))
+                        assert len(indices) == layers_topk_idx.size(0), f"{len(indices)} vs. {layers_topk_idx.size()}"
+                        revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
+                        layers_topk_idx = layers_topk_idx[revert_indices]
+                    layers_topk_idx = pp_gather(layers_topk_idx, self.tf_config)
         # add empty cache after each compute
         get_torch_device().empty_cache()
 

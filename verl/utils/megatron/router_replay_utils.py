@@ -23,7 +23,8 @@ from copy import deepcopy
 from megatron.core.tensor_parallel import gather_from_sequence_parallel_region, scatter_to_sequence_parallel_region
 from megatron.core import parallel_state as mpu
 from megatron.core.pipeline_parallel.schedules import get_schedule_table
-
+# from megatron.core.transformer.transformer_block import get_num_layers_to_build
+# from megatron.core.transformer.transformer_layer import get_transformer_layer_offset
 
 from verl.models.mcore.util import postprocess_packed_seqs, preprocess_packed_seqs
 from verl.utils.megatron.router_replay_patch import RouterReplay, RoutingMode
@@ -78,7 +79,7 @@ def set_router_replay_data(layers_topk_idx, attention_mask, tf_config, vp_rank=N
     forward) so that subsequent replay passes can follow exactly the same routing.
 
     Args:
-        layers_topk_idx (torch.Tensor): Router top-k indices with shape [1, dynamic_bs_all, layer_num, topk].
+        layers_topk_idx (torch.Tensor): Router top-k indices with shape [bs, max_seq_len, layer_num, topk].
             This should be the merged output produced by merge_router_topk_indices.
         attention_mask (torch.Tensor): Attention mask [batch_size, seq_len] used for pack/unpack alignment.
         tf_config: Megatron/Transformer engine configuration object.
@@ -101,9 +102,13 @@ def set_router_replay_data(layers_topk_idx, attention_mask, tf_config, vp_rank=N
         layers_topk_idx_reshape = layers_topk_idx_rmpad_split.permute(0, 2, 1, 3).squeeze(
             dim=0
         )  # layer_num, dynamic_bs_all, topk
+        # num_layers_to_build = get_num_layers_to_build(tf_config, vp_stage=vp_rank)
+        # offset = get_transformer_layer_offset(tf_config, vp_stage=vp_rank)
+        local_rank,_ = get_current_rank_layer_info(tf_config,vp_rank)
+        offset, _ = local_rank["start"], local_rank["end"]
         router_instances_list = RouterReplayHelper.get_micro_batch_router_list(tf_config, vp_rank)
         for i,router in enumerate(router_instances_list):
-            router.set_target_indices(layers_topk_idx_reshape[i].to(torch.int64))
+            router.set_target_indices(layers_topk_idx_reshape[i+offset].to(torch.int64))
 
 def reorder_and_merge_vpp_layers(
     t: torch.Tensor,
@@ -310,40 +315,6 @@ def get_current_rank_layer_info(tf_config, vp_rank = None):
     local = assignments[(pp_rank, vp_rank)]
     return local, assignments
 
-
-def build_local_router_map(global_layers_router_map, local_range):
-    """
-    Slice a global router map tensor by the provided local layer range and return the local subset.
-
-    This function expects a torch.Tensor shaped as [bs, max_seq_len, num_layers, topk]. It temporarily
-    permutes the layer dimension to the front to slice [start:end) along layers, then permutes back.
-
-    Args:
-        global_layers_router_map (torch.Tensor): The global router map of shape
-            [bs, max_seq_len, num_layers, topk].
-        local_range (dict): A dict with keys {"start", "end"} specifying the local layer range to slice.
-
-    Returns:
-        torch.Tensor: The local router map tensor of shape [bs, max_seq_len, local_num_layers, topk].
-
-    Raises:
-        ValueError: If the input is a scalar tensor.
-        TypeError: If the input is not a torch.Tensor.
-    """
-    s = local_range["start"]
-    e = local_range["end"]
-
-    if isinstance(global_layers_router_map, torch.Tensor):
-        if global_layers_router_map.dim() == 0:
-            raise ValueError("global_layers_router_map is a scalar; cannot slice by layer dimension")
-        # Treat the first dimension as the layer dimension
-        global_layers_router_map = global_layers_router_map.permute(2, 0, 1, 3)
-        slc = [slice(None)] * global_layers_router_map.dim()
-        slc[0] = slice(s, e)
-        return global_layers_router_map[tuple(slc)].clone().permute(1, 2, 0, 3)
-    else:
-        raise TypeError("Unsupported global_layers_router_map type: {}".format(type(global_layers_router_map)))
-
 def pp_gather(local_layers_router_map, tf_config):
         # TODO: Consider non-uniform layer allocation cases.
         """
@@ -363,13 +334,11 @@ def pp_gather(local_layers_router_map, tf_config):
 
         pp_group = mpu.get_pipeline_model_parallel_group()
         world_size = torch.distributed.get_world_size(pp_group)
-
         local_layers_router_map = local_layers_router_map.cuda()
-        # layers_topk_idx = layers_topk_idx.permute(2,0,1,3).cuda().contiguous() #local_layer_num, bs, max_seq_len,topk
         layers_topk_idx_global_list = [torch.empty(size=local_layers_router_map.shape, \
                                                     dtype=local_layers_router_map.dtype,   \
                                                     device=local_layers_router_map.device ) \
-                                                    for _ in range(world_size) ] 
+                                                    for _ in range(world_size) ]
         torch.distributed.all_gather(
             tensor=local_layers_router_map,
             tensor_list=layers_topk_idx_global_list,
@@ -405,14 +374,16 @@ def pp_dispatch(global_layers_router_map, tf_config):
     local_info, all_assignments = get_current_rank_layer_info(tf_config)
     pp_rank = mpu.get_pipeline_model_parallel_rank()
     if  vp_size is None or vp_size<=1:
-        local_router_map = build_local_router_map(global_layers_router_map, local_info)
+        sta = local_info["start"]
+        end = local_info["end"]
     else:
         local_info = all_assignments[(pp_rank, 0)]
         count = local_info["count"]
         sta = local_info["start"]
         pp_layer_count = count * vp_size
-        local_info["end"] = sta + pp_layer_count
-        local_router_map = build_local_router_map(global_layers_router_map, local_info)
+        end = sta + pp_layer_count
+    local_router_map =  global_layers_router_map[:,:,sta:end,:]
+
     return local_router_map
 
 
@@ -446,8 +417,6 @@ class RouterReplayHelper:
         # Enable VPP
         if not (pp_size <= 1 or vp_size is None or vp_size<=1):
             local_t = all_assignments[(pp_rank, 0)]
-            pp_local = deepcopy(local_t)
-
             count = local_t["count"]
             sta = local_t["start"]
             pp_layer_count = count * vp_size
