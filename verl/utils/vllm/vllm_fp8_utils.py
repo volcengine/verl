@@ -403,8 +403,7 @@ def process_weights_after_loading_moe_for_vllm10(self, layer) -> None:
 
 def process_weights_after_loading_moe_for_vllm11(self, layer) -> None:
     """This function is used to process the weights after loading for a FusedMoE layer, it is used for vllm 0.11"""
-    from vllm.model_executor.layers.fused_moe.rocm_aiter_fused_moe import (
-        is_rocm_aiter_moe_enabled, shuffle_weights)
+    from vllm.model_executor.layers.fused_moe.rocm_aiter_fused_moe import is_rocm_aiter_moe_enabled
     from vllm.model_executor.layers.quantization.utils.flashinfer_utils import (
         swap_w13_to_w31,
     )
@@ -424,19 +423,13 @@ def process_weights_after_loading_moe_for_vllm11(self, layer) -> None:
 
     if self.flashinfer_moe_backend is not None:
         layer.w13_weight.data = swap_w13_to_w31(layer.w13_weight.data)
-        layer.w13_weight_scale_inv.data = swap_w13_to_w31(
-            layer.w13_weight_scale_inv.data
-        )
+        layer.w13_weight_scale_inv.data = swap_w13_to_w31(layer.w13_weight_scale_inv.data)
 
     if self.allow_deep_gemm and not is_deep_gemm_e8m0_used():
         if expert_weight_is_col_major(layer.w13_weight_scale_inv):
-            layer.w13_weight_scale_inv = get_col_major_tma_aligned_tensor(
-                layer.w13_weight_scale_inv
-            )
+            layer.w13_weight_scale_inv = get_col_major_tma_aligned_tensor(layer.w13_weight_scale_inv)
         if expert_weight_is_col_major(layer.w2_weight_scale_inv):
-            layer.w2_weight_scale_inv = get_col_major_tma_aligned_tensor(
-                layer.w2_weight_scale_inv
-            )
+            layer.w2_weight_scale_inv = get_col_major_tma_aligned_tensor(layer.w2_weight_scale_inv)
 
     if is_deep_gemm_e8m0_used():
         assert layer.weight_block_size is not None
@@ -455,13 +448,9 @@ def process_weights_after_loading_moe_for_vllm11(self, layer) -> None:
 
         # Ensure column-major TMA alignment expected by DeepGEMM.
         if expert_weight_is_col_major(layer.w13_weight_scale_inv):
-            layer.w13_weight_scale_inv = get_col_major_tma_aligned_tensor(
-                layer.w13_weight_scale_inv
-            )
+            layer.w13_weight_scale_inv = get_col_major_tma_aligned_tensor(layer.w13_weight_scale_inv)
         if expert_weight_is_col_major(layer.w2_weight_scale_inv):
-            layer.w2_weight_scale_inv = get_col_major_tma_aligned_tensor(
-                layer.w2_weight_scale_inv
-            )
+            layer.w2_weight_scale_inv = get_col_major_tma_aligned_tensor(layer.w2_weight_scale_inv)
 
 
 def apply_vllm_fp8_patches():
@@ -476,9 +465,9 @@ def apply_vllm_fp8_patches():
     patcher1.start()
     func2_path = "vllm.model_executor.layers.quantization.fp8.Fp8MoEMethod.process_weights_after_loading"
     patcher2 = patch(
-        func2_path, 
-        process_weights_after_loading_moe_for_vllm11 
-        if vllm.__version__ >= "0.11.0" 
+        func2_path,
+        process_weights_after_loading_moe_for_vllm11
+        if vllm.__version__ >= "0.11.0"
         else process_weights_after_loading_moe_for_vllm10,
     )
     patcher2.start()
