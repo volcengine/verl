@@ -135,9 +135,9 @@ class FullyAsyncAgentLoopWorker(AgentLoopWorkerBase):
                     asyncio.create_task(self._partial_run_agent_loop(sampling_params, trajectory_info[i], **kwargs))
                 )
             outputs = await asyncio.gather(*tasks)
-        except Exception as e:
-            logger.exception(f"_partial_run_agent_loop failed: {e}")
-            raise e
+        except Exception:
+            logger.exception("_partial_run_agent_loop failed")
+            raise
 
         is_cancel = any(output.extra_fields.get("is_cancel", False) for output in outputs)
         if not is_cancel:
