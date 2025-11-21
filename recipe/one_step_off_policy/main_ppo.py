@@ -22,14 +22,13 @@ import socket
 import hydra
 import ray
 
+from recipe.one_step_off_policy.ray_trainer import OneStepOffRayTrainer
 from recipe.one_step_off_policy.utils import need_critic
 from verl.trainer.main_ppo import create_rl_dataset, create_rl_sampler
 from verl.trainer.ppo.ray_trainer import ResourcePoolManager
 from verl.trainer.ppo.reward import load_reward_manager
-from verl.trainer.ppo.utils import need_reference_policy, Role
+from verl.trainer.ppo.utils import Role, need_reference_policy
 from verl.utils.config import validate_config
-
-from recipe.one_step_off_policy.ray_trainer import OneStepOffRayTrainer
 
 
 def create_resource_pool_manager(config, roles: list) -> ResourcePoolManager:
@@ -96,6 +95,7 @@ def create_role_worker_mapping(config):
     elif config.actor_rollout_ref.actor.strategy == "megatron":
         assert config.critic.strategy == "megatron"
         from recipe.one_step_off_policy.megatron_worker import CriticWorker, DetachActorWorker, DetachAsyncRolloutWorker
+
         from verl.single_controller.ray import RayWorkerGroup
 
         ray_worker_group_cls = RayWorkerGroup
@@ -111,7 +111,8 @@ def create_role_worker_mapping(config):
     if config.reward_model.enable:
         if config.reward_model.strategy in ["fsdp", "fsdp2"]:
             from verl.workers.fsdp_workers import RewardModelWorker
-        # TODO megatron support
+        elif config.reward_model.strategy == "megatron":
+            from verl.workers.megatron_workers import RewardModelWorker
         else:
             raise NotImplementedError(f"Unsupported reward model strategy: {config.reward_model.strategy}")
 

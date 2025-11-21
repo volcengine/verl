@@ -36,3 +36,24 @@ def need_critic(config: DictConfig) -> bool:
         return False
     else:
         raise NotImplementedError
+
+
+def get_inference_model(rollout):
+    """
+    get models according to different types of inference_engine
+    Args:
+        rollout: rollout object
+    Returns:
+        model: model object
+    """
+    inference_engine = rollout.inference_engine
+    if hasattr(inference_engine, "llm_engine"):
+        inference_model = inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
+    elif hasattr(inference_engine, "worker"):
+        inference_model = inference_engine.worker.model_runner.model
+    else:
+        raise AttributeError(
+            f"Unsupported inference_engine type: {type(inference_engine)}. "
+            f"Expected LLM (with llm_engine attribute) or WorkerWrapperBase (with worker attribute)."
+        )
+    return inference_model
