@@ -974,7 +974,9 @@ class DataProto:
                         if k in merged_meta_info:
                             # Ensure consistency for overlapping non-metric keys
                             if k == 'timing':
-                                assert meta_info_equal(merged_meta_info[k], v), f"Conflicting values for meta_info key '{k}'"
+                                assert meta_info_equal(merged_meta_info[k], v), (
+                                    f"Conflicting values for meta_info key '{k}'"
+                                )
                             else:
                                 assert merged_meta_info[k] == v, f"Conflicting values for meta_info key '{k}'"
                         else:
