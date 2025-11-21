@@ -365,10 +365,6 @@ class AgentLoopWorkerBase:
 
         output = self._postprocess(outputs)
 
-        # Append Performance Data
-        output.meta_info["attention_mask_perf"] = output.batch["attention_mask"]
-        output.meta_info["prompts_perf"] = output.batch["prompts"]
-
         return output
 
     async def _run_agent_loop(
