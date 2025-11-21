@@ -1142,16 +1142,7 @@ class RayPPOTrainer:
                                     data=batch, config=self.config, tokenizer=self.tokenizer
                                 )
                             else:
-                                # compute reward model score
-                                if self.use_rm and "rm_scores" not in batch.batch.keys():
-                                    reward_tensor = self.rm_wg.compute_rm_score(batch)
-                                    batch = batch.union(reward_tensor)
-
-                                if self.config.reward_model.launch_reward_fn_async:
-                                    future_reward = compute_reward_async.remote(data=batch, reward_fn=self.reward_fn)
-                                else:
-                                    reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
-
+                                reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
                     # Operating Mode Selection:
                     # - Bypass mode: Sets old_log_probs = rollout_log_probs (2 policies: π_rollout, π_θ)
                     # - Decoupled mode: Recomputes old_log_probs as proximal anchor (3 policies: π_rollout, π_old, π_θ)
