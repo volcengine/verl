@@ -66,51 +66,42 @@ def get_inference_model(rollout):
 
 
 class DetachNcclSync(AsyncActorRolloutRefWorker):
-    def _get_actor_params(self):
-        pass
+    def __init__(self, config: DictConfig, role: str):
+        super().__init__(config, role)
+        
+        self._bg_loop = asyncio.new_event_loop()
+        self._bg_thread = threading.Thread(
+            target=self._start_background_loop,
+            args=(self._bg_loop,),
+            name="rollout_actor_async_worker",
+            daemon=True
+        )
+        self._bg_thread.start()
+        logger.info(f"[DetachNcclSync] Background thread for SGLang sync started. PID: {os.getpid()}")
+
+    def _start_background_loop(self, loop):
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_forever()
+        except Exception as e:
+            logger.error(f"[DetachNcclSync] Background loop crashed: {e}")
 
     def _run_async_safely(self, coro):
-        """Run async coroutine safely, handling cases where event loop may already be running.
+        if not self._bg_thread.is_alive():
+            raise RuntimeError("Background thread for SGLang sync is not running!")
+
+        future = asyncio.run_coroutine_threadsafe(coro, self._bg_loop)
         
-        Uses a new event loop in a separate thread when the current thread already has a running loop.
-        """
-        try:
-            # Check if there's a running event loop in the current thread
-            loop = asyncio.get_running_loop()
-            # Event loop is already running, use a new loop in a separate thread
-            tmp_event_loop = asyncio.new_event_loop()
-            
-            def run_loop():
-                asyncio.set_event_loop(tmp_event_loop)
-                tmp_event_loop.run_forever()
-            
-            thread = threading.Thread(
-                target=run_loop,
-                name="async_weight_sync",
-                daemon=True,
-            )
+        return future.result()    
+    
+    def __del__(self):
+        if hasattr(self, '_bg_loop') and self._bg_loop.is_running():
+            self._bg_loop.call_soon_threadsafe(self._bg_loop.stop)
+        if hasattr(self, '_bg_thread') and self._bg_thread.is_alive():
+            self._bg_thread.join(timeout=1.0)    
 
-            def run_coroutine(coroutine):
-                if not thread.is_alive():
-                    thread.start()
-                    # Give the thread a moment to start the loop
-                    time.sleep(0.01)
-                future = asyncio.run_coroutine_threadsafe(coroutine, tmp_event_loop)
-                return future.result()
-
-            async def stop_loop():
-                tmp_event_loop.stop()
-
-            try:
-                return run_coroutine(coro)
-            finally:
-                if thread.is_alive():
-                    asyncio.run_coroutine_threadsafe(stop_loop(), tmp_event_loop)
-                    thread.join(timeout=1.0)
-        except RuntimeError:
-            # No event loop running, create a new one
-            loop = get_event_loop()
-            return loop.run_until_complete(coro)
+    def _get_actor_params(self):
+        pass
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
     def sync_rollout_weights(self):
@@ -119,6 +110,8 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
 
         params = self._get_actor_params() if self._is_actor else None
         rollout_name = self.config.rollout.name
+        
+        inference_model = None
         if self._is_rollout:
             if rollout_name == "vllm":
                 inference_model = get_inference_model(self.rollout)
@@ -148,7 +141,8 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
                         )
             else:
                 raise NotImplementedError(f"Unknown rollout name: {rollout_name}")
-        # loop = get_event_loop()
+        
+        from ray.util.collective import collective
         for key, shape, dtype in self._weights_info:
             tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
             if self._is_actor:
@@ -158,27 +152,18 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
                     origin_data = origin_data.full_tensor()
                 if torch.distributed.get_rank() == 0:
                     tensor.copy_(origin_data)
-            from ray.util.collective import collective
 
             collective.broadcast(tensor, src_rank=0, group_name="actor_rollout")
+
             if self._is_rollout:
                 if rollout_name == "vllm":
                     inference_model.load_weights([(key, tensor)])
                 elif rollout_name == "sglang":
-                    # loop.run_until_complete(self.update_weights(inference_model, [(key, tensor)]))
                     self._run_async_safely(self.update_weights(inference_model, [(key, tensor)]))
         get_torch_device().empty_cache()
 
 
     async def update_weights(self, inference_engine, params):
-        # if self.rollout_device_mesh == None:
-        #     infer_tp = self.config.rollout.tensor_model_parallel_size
-        #     dp = torch.distributed.get_world_size() // infer_tp
-        #     rollout_device_mesh = init_device_mesh(
-        #         device_name, mesh_shape=(dp, infer_tp), mesh_dim_names=["dp", "infer_tp"]
-        #     )
-        #     self.rollout_device_mesh = rollout_device_mesh
-        print(f"[update_weights] rollout_device_mesh: {self.rollout_device_mesh}")
         from sglang.srt.weight_sync.utils import update_weights as sgl_update_weights
 
         await sgl_update_weights(
