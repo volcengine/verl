@@ -177,6 +177,10 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
             await inference_engine.flush_cache()
 
 class DetachActorWorker(DetachNcclSync):
+    def __init__(self, config: DictConfig, role: str):
+        print(f"[DetachAsyncRolloutWorker] Initializing via DetachNcclSync...")
+        DetachNcclSync.__init__(self, config, role)
+    
     def _get_actor_params(self):
         assert self._is_actor
         params = self.actor_module_fsdp.state_dict()
@@ -211,7 +215,7 @@ class DetachActorWorker(DetachNcclSync):
 class DetachAsyncRolloutWorker(DetachNcclSync):
     def __init__(self, config: DictConfig, role: str):
         print(f"[DetachAsyncRolloutWorker] {DetachAsyncRolloutWorker.__mro__}")
-        ActorRolloutRefWorker.__init__(self, config, role)
+        DetachNcclSync.__init__(self, config, role)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def set_actor_weights_info(self, weights_info):
