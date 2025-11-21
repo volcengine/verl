@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -xeuo pipefail
 
+# need cuda12.9 or higher
+# use docker://verlai/verl:dev.vllm_nightly-243ed7d32e94f00a9a32fbbc51be932f6277a55d or self build
+
+
 # this env var is required for TE fp8 training
 # if you are running multiple nodes, you need to set this env var in RUNTIME_ENV
 export NVTE_FP8_BLOCK_SCALING_FP32_SCALES=1
