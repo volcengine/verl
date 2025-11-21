@@ -316,6 +316,15 @@ def test_chunk_concat():
     assert np.all(concat_data["labels"] == data["labels"])
     assert concat_data["name"] == data["name"]
 
+    data1 = tu.get_tensordict(tensor_dict={"obs": obs, "labels": labels}, non_tensor_dict={"name": "abcde"})
+    data2 = tu.get_tensordict(tensor_dict={"obs": obs, "labels": labels}, non_tensor_dict={"name": "def"})
+    data3 = tu.get_tensordict(tensor_dict={"obs": obs, "labels": labels}, non_tensor_dict={"name": "cfg"})
+
+    output = torch.cat([data1, data2, data3], dim=0)
+
+    # concat NonTensorData will keep the first one.
+    assert output["name"] == "abcde"
+
 
 def test_pop():
     obs = torch.randn(100, 10)
@@ -593,3 +602,52 @@ def test_dataproto_chunk_after_index():
     selected = data[torch_int_mask]
     assert isinstance(selected.batch_size, torch.Size)
     assert all(isinstance(d, int) for d in selected.batch_size)
+
+
+def test_concat_nested_tensor():
+    vocab_size = 128
+    a = torch.randint(low=0, high=vocab_size, size=(11,))
+    b = torch.randint(low=0, high=vocab_size, size=(13,))
+    c = torch.randint(low=0, high=vocab_size, size=(12,))
+    d = torch.randint(low=0, high=vocab_size, size=(15,))
+
+    nested_a_b = torch.nested.as_nested_tensor([a, b], layout=torch.jagged)
+    nested_c_d = torch.nested.as_nested_tensor([c, d], layout=torch.jagged)
+
+    output = tu.concat_nested_tensors([nested_a_b, nested_c_d])
+
+    output_values = output.values()
+    expected = torch.cat([a, b, c, d], dim=0)
+
+    assert torch.all(torch.eq(output_values, expected)).item()
+
+
+def test_concat_tensordict():
+    vocab_size = 128
+    a = torch.randint(low=0, high=vocab_size, size=(11,))
+    b = torch.randint(low=0, high=vocab_size, size=(13,))
+    c = torch.randint(low=0, high=vocab_size, size=(12,))
+    d = torch.randint(low=0, high=vocab_size, size=(15,))
+
+    nested_a_b = torch.nested.as_nested_tensor([a, b], layout=torch.jagged)
+    nested_c_d = torch.nested.as_nested_tensor([c, d], layout=torch.jagged)
+
+    tensordict1 = tu.get_tensordict(
+        tensor_dict={"input_ids": nested_a_b, "labels": ["a", "b"]}, non_tensor_dict={"temp": 1.0}
+    )
+    tensordict2 = tu.get_tensordict(
+        tensor_dict={"input_ids": nested_c_d, "labels": ["c", "d"]}, non_tensor_dict={"temp": 2.0}
+    )
+
+    tensordict1_copy = copy.deepcopy(tensordict1)
+    tensordict2_copy = copy.deepcopy(tensordict2)
+
+    output = tu.concat_tensordict([tensordict1, tensordict2])
+
+    assert torch.all(torch.eq(output["input_ids"].values(), torch.cat([a, b, c, d]))).item()
+    assert output["labels"] == ["a", "b", "c", "d"]
+    assert output["temp"] == 1.0
+
+    # make sure tensordict1 and tensordict2 is untouched
+    tu.assert_tensordict_eq(tensordict1, tensordict1_copy)
+    tu.assert_tensordict_eq(tensordict2, tensordict2_copy)
