@@ -559,11 +559,10 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
 
         try:
             # Wait for sample feed to complete
-            # Use asyncio.wait to monitor all tasks, ensuring that if the processor or consumer exits abnormally,
-            # we can detect it early instead of waiting indefinitely for the feed task (which might be blocked on a full queue).
+            # Use asyncio.wait to monitor all tasks. If processor/consumer exits early,
+            # detect it instead of blocking on feed_task (it might be stuck on a full queue).
             done, pending = await asyncio.wait(
-                [self.feed_task, self.processor_task, self.consumer_task],
-                return_when=asyncio.FIRST_COMPLETED
+                [self.feed_task, self.processor_task, self.consumer_task], return_when=asyncio.FIRST_COMPLETED
             )
 
             for task in done:
