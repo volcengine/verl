@@ -950,7 +950,7 @@ class DataProto:
                     val_b = b[key]
                     # generate_sequences in different meta_info may be slightly different, ignore it
                     if key == 'generate_sequences' and isinstance(val_a, float) and isinstance(val_b, float):
-                        if not math.isclose(val_a, val_b, rel_tol=0.5):
+                        if not math.isclose(val_a, val_b, rel_tol=0.1):
                             return False
                     elif not meta_info_equal(val_a, val_b):
                         return False
@@ -973,7 +973,10 @@ class DataProto:
                     else:
                         if k in merged_meta_info:
                             # Ensure consistency for overlapping non-metric keys
-                            assert meta_info_equal(merged_meta_info[k], v), f"Conflicting values for meta_info key '{k}'"
+                            if k == 'timing':
+                                assert meta_info_equal(merged_meta_info[k], v), f"Conflicting values for meta_info key '{k}'"
+                            else:
+                                assert merged_meta_info[k] == v, f"Conflicting values for meta_info key '{k}'"
                         else:
                             merged_meta_info[k] = v
 
