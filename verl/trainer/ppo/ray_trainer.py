@@ -1090,13 +1090,21 @@ class RayPPOTrainer:
                                 )
                             else:
                                 gen_baseline_output = self.actor_rollout_wg.generate_sequences(gen_baseline_batch)
-                            batch = batch.union(gen_baseline_output)
+                            batch = (
+                                batch.union(gen_baseline_output)
+                                if not self.agentcore_rollout_mode
+                                else gen_baseline_output
+                            )
+
                             # compute reward model score on batch
                             rm_scores = None
-                            if self.use_rm and "rm_scores" not in batch.batch.keys():
-                                rm_scores = self.rm_wg.compute_rm_score(batch)
-                                batch = batch.union(rm_scores)
-                            reward_baseline_tensor, _ = compute_reward(batch, self.reward_fn)
+                            if self.agentcore_rollout_mode:
+                                reward_baseline_tensor = batch.batch["reward_tensor"]
+                            else:
+                                if self.use_rm and "rm_scores" not in batch.batch.keys():
+                                    rm_scores = self.rm_wg.compute_rm_score(batch)
+                                    batch = batch.union(rm_scores)
+                                reward_baseline_tensor, _ = compute_reward(batch, self.reward_fn)
                             reward_baseline_tensor = reward_baseline_tensor.sum(dim=-1)
 
                             keys_to_pop = set(gen_baseline_output.batch.keys())
@@ -1113,6 +1121,22 @@ class RayPPOTrainer:
                         batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                         batch = batch.union(gen_batch_output)
                     else:
+                        if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
+                            # The data examples in the rollout batch returned from AgentCore does not follow the order
+                            # of them in input data batch, so we cannot directly copy reward_baselines in batch to
+                            # gen_batch_output. We need to locate the correct reward baseline with uid.
+                            uid_to_baselines = {
+                                batch.non_tensor_batch["uid"][i]: batch.batch["reward_baselines"][i]
+                                for i in range(len(batch))
+                            }
+                            new_baselines = torch.tensor(
+                                [
+                                    uid_to_baselines.get(gen_batch_output.non_tensor_batch["uid"][i], 0.0)
+                                    for i in range(len(gen_batch_output))
+                                ],
+                                dtype=torch.float32,
+                            )
+                            gen_batch_output.batch["reward_baselines"] = new_baselines
                         batch = gen_batch_output
 
                     if "response_mask" not in batch.batch.keys():
