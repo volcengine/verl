@@ -71,6 +71,7 @@ class McoreEngineConfig(BaseConfig):
     override_transformer_config: dict[str, Any] = field(default_factory=dict)
     override_mcore_model_config: dict[str, Any] = field(default_factory=dict)
     use_mbridge: bool = False
+    vanilla_mbridge: bool = True
     forward_only: bool = False
     strategy: str = "megatron"
     dtype: str = "bfloat16"  # ["bfloat16", "float16"]
