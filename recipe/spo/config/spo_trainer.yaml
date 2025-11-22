@@ -1,0 +1,20 @@
+# the spo config will override default ppo_trainer.yaml
+
+hydra:
+  searchpath:
+    - file://verl/trainer/config
+
+defaults:
+  - ppo_trainer
+  - _self_
+
+trainer:
+  debug: false
+  spo:
+    enable: False
+    offline_values: null
+    offline_N: 8
+    rho:
+      type: "kl"
+      value: 0.875
+      clip_lower: 0.875
