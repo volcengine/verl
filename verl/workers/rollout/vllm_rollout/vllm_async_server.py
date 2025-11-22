@@ -492,8 +492,9 @@ class vLLMReplica(RolloutReplica):
         model_config: HFModelConfig,
         gpus_per_node: int = 8,
         is_reward_model: bool = False,
+        reward_model_name: str = "",
     ):
-        super().__init__(replica_rank, config, model_config, gpus_per_node, is_reward_model)
+        super().__init__(replica_rank, config, model_config, gpus_per_node, is_reward_model, reward_model_name)
         self.server_class = vLLMHttpServer
 
     def get_ray_class_with_init_args(self) -> RayClassWithInitArgs:
@@ -533,7 +534,7 @@ class vLLMReplica(RolloutReplica):
             name = (
                 f"vllm_server_{self.replica_rank}_{node_rank}"
                 if not self.is_reward_model
-                else f"vllm_server_reward_{self.replica_rank}_{node_rank}"
+                else f"vllm_server_reward_{self.replica_rank}_{node_rank}_{self.reward_model_name}"
             )
             server = self.server_class.options(
                 scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(

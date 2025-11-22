@@ -1,0 +1,28 @@
+hydra:
+  searchpath:
+    - file://verl/trainer/config
+
+defaults:
+    - ppo_trainer
+    - reward_models@reward_model.reward_models:
+      - qwen
+      - openaioss
+    - _self_
+
+reward_model:
+    enable: true
+    enable_resource_pool: true
+    # If reward_model is not enabled, we need reward manager
+    reward_manager: naive
+    # reward_models key is instantiated with the defaults above. Each model needs
+    # its own key and config.
+
+custom_reward_function:
+    path: "recipe/mgrm/mgrm_reward_fn.py"
+    name: "compute_score_mgrm"
+
+data:
+    train_batch_size: 1024
+    max_prompt_length: 1024
+    max_response_length: 1024
+    return_raw_chat: true
