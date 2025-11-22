@@ -19,20 +19,15 @@ import datetime
 import logging
 import os
 import time
+from contextlib import contextmanager
 from typing import Any, Optional
 
 import psutil
 import torch
 import torch.distributed
 from codetiming import Timer
-from omegaconf import DictConfig, OmegaConf
-
-try:
-    from mindspeed.megatron_adaptor import repatch
-except ImportError:
-    repatch = None
-
 from megatron.core import parallel_state as mpu
+from omegaconf import DictConfig, OmegaConf
 
 from verl import DataProto
 from verl.models.mcore import get_mcore_weight_converter
@@ -76,6 +71,30 @@ from verl.workers.config import HFModelConfig, McoreCriticConfig, RolloutConfig
 from verl.workers.critic.megatron_critic import MegatronPPOCritic
 from verl.workers.reward_model.megatron.reward_model import MegatronRewardModel
 from verl.workers.rollout import get_rollout_class
+
+_COMPILE = None
+
+
+def init_torch_compile(compile):
+    global _COMPILE
+    _COMPILE = compile
+
+
+@contextmanager
+def replace_torch_compile():
+    original_compile = torch.compile
+    torch.compile = _COMPILE
+    try:
+        yield
+    finally:
+        torch.compile = original_compile
+
+
+try:
+    init_torch_compile(torch.compile)
+    from mindspeed.megatron_adaptor import repatch
+except ImportError:
+    repatch = None
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -517,7 +536,8 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             log_gpu_memory_usage("After MegatronPPOActor init", logger=logger)
 
         if self._is_rollout:
-            self._build_rollout(trust_remote_code=self.config.model.get("trust_remote_code", False))
+            with replace_torch_compile():
+                self._build_rollout(trust_remote_code=self.config.model.get("trust_remote_code", False))
             log_gpu_memory_usage("After rollout init", logger=logger)
 
         if self._is_ref:

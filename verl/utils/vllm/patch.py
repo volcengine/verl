@@ -90,6 +90,9 @@ def patch_vllm_moe_model_weight_loader(model):
         return
 
     original_model_type = type(model)
+    if "ACLGraphWrapper" in str(original_model_type):
+        original_model_type = type(model.runnable)
+        model = model.runnable
 
     # Define MLP attribute mapping for different model types
     MLP_ATTR_MAPPING = {}
