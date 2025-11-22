@@ -47,6 +47,8 @@ def init_megatron_optim_config(optim_config: dict, fp16: bool = False) -> Optimi
             {
                 "bf16": True,
                 "params_dtype": torch.bfloat16,
+                "use_precision_aware_optimizer": True,
+                "store_param_remainders": True,
             }
         )
     override_config = optim_config.get("override_optimizer_config", {})
