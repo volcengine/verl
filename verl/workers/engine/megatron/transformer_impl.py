@@ -411,7 +411,7 @@ class MegatronEngine(BaseEngine):
             data=data,
             dp_group=self.get_data_parallel_group(),
             num_batches_divided_by=num_batches_divided_by,
-            same_micro_num_in_dp=False,
+            same_micro_num_in_dp=True,
             min_num_micro_batch=None,
         )
 
