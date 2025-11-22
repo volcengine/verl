@@ -14,11 +14,11 @@
 
 import warnings
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from verl.base_config import BaseConfig
 
-__all__ = ["FSDPEngineConfig", "McoreEngineConfig"]
+__all__ = ["FSDPEngineConfig", "McoreEngineConfig", "VeomniEngineConfig"]
 
 
 @dataclass
@@ -124,3 +124,74 @@ class FSDPEngineConfig(BaseConfig):
 
     def __post_init__(self):
         assert self.strategy in ["fsdp", "fsdp2"], f"strategy {self.strategy} not supported"
+
+
+@dataclass
+class VeomniEngineConfig(BaseConfig):
+    """Configuration for FSDP (Fully Sharded Data Parallel).
+
+    The inheritance from BaseConfig provides omegaconf.DictConfig-like interface for a dataclass config.
+
+    Args:
+        wrap_policy (Dict[str, Any]): Configuration for FSDP wrap policy.
+        param_offload (bool): Whether to offload parameters to CPU, default False
+        optimizer_offload (bool): Whether to offload optimizer states to CPU, default False
+        offload_policy (bool): Whether to offload policy model parameters, default False
+        reshard_after_forward (bool): Whether to reshard parameters after forward pass, default True
+        fsdp_size (int): FSDP group size. -1 means use all available GPUs.
+        forward_prefetch (bool): Whether to prefetch parameters for next forward pass, default False
+        model_dtype (str): Model data type used to initialize the transformers model. default "fp32"
+        use_orig_params (bool): Whether to use original parameters when initialize FSDP1, default False
+        mixed_precision (Optional[dict[str, Any]]): Mixed precision configuration for FSDP, default None
+    """
+
+    wrap_policy: dict[str, Any] = field(default_factory=dict)
+    param_offload: bool = False
+    optimizer_offload: bool = False
+    offload_policy: bool = False
+    reshard_after_forward: bool = True
+    # fsdp_size: int = -1
+    forward_prefetch: bool = False
+    # model_dtype: str = "fp32"
+    use_orig_params: bool = False
+    # mixed_precision: Optional[dict[str, Any]] = None
+    entropy_from_logits_with_chunking: bool = False
+    use_torch_compile: bool = True
+    entropy_checkpointing: bool = False
+    forward_only: bool = False
+    strategy: str = "veomni"
+    data_parallel_size: int = 1
+    data_parallel_replicate_size: int = 1
+    data_parallel_shard_size: int = 1
+    tensor_parallel_size: int = 1
+    expert_parallel_size: int = 1
+    pipeline_parallel_size: int = 1
+    context_parallel_size: int = 1
+    ulysses_parallel_size: int = 1
+    data_parallel_mode: Optional[str] = None
+    enable_mixed_precision: bool = False
+    init_device: str = "meta"
+    enable_full_shard: bool = False
+    # enable_gradient_checkpointing: bool = False
+    # enable_fsdp_offload: bool = False
+    # enable_reentrant: bool = False
+    enable_forward_prefetch: Optional[bool] = None
+    ckpt_manager: Literal["dcp"] = "dcp"
+    # enable_activation_offload: bool = False
+    # activation_gpu_limit: float = 0.0
+    # basic_modules: Optional[List[str]] = None
+    load_checkpoint_path: Optional[str] = None
+
+    _mutable_fields = BaseConfig._mutable_fields.copy()
+    _mutable_fields.add("forward_prefetch")
+
+    def __post_init__(self):
+        if self.enable_forward_prefetch is not None:
+            warnings.warn(
+                "`enable_forward_prefetch` is for Veomni, be replaced with `forward_prefetch` instead.",
+                UserWarning,
+                stacklevel=2,
+            )
+            self.forward_prefetch = self.enable_forward_prefetch
+
+        assert self.strategy in ["veomni"], f"strategy {self.strategy} not supported"

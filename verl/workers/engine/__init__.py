@@ -13,8 +13,9 @@
 # limitations under the License.
 from .base import BaseEngine, EngineRegistry
 from .fsdp import FSDPEngine, FSDPEngineWithLMHead
+from .veomni import VeomniEngine
 
-__all__ = ["BaseEngine", "EngineRegistry", "FSDPEngine", "FSDPEngineWithLMHead"]
+__all__ = ["BaseEngine", "EngineRegistry", "FSDPEngine", "FSDPEngineWithLMHead", "VeomniEngine"]
 
 # Mindspeed must be imported before Megatron to ensure the related monkey patches take effect as expected
 try:
