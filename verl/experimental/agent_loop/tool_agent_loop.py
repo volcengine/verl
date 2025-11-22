@@ -438,6 +438,18 @@ class ToolAgentLoop(AgentLoopBase):
         try:
             # TODO: append malformed tool_call to the prompt: invalid function name or arguments
             tool_name = tool_call.name
+
+            # Validate tool exists before attempting to execute
+            if tool_name not in self.tools:
+                available_tools = ", ".join(self.tools.keys()) if self.tools else "none"
+                error_msg = f"Tool '{tool_name}' not found. Available tools: {available_tools}"
+                logger.error(error_msg)
+                return (
+                    ToolResponse(text=error_msg),
+                    0.0,
+                    {},
+                )
+
             tool_args = json.loads(tool_call.arguments)
             tool = self.tools[tool_name]
             kwargs = tools_kwargs.get(tool_name, {})
