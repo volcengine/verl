@@ -92,6 +92,7 @@ This logic is largely copied from the Hendrycks' MATH release (math_equivalence)
 - https://github.com/openai/prm800k
 """
 
+import ast
 import contextlib
 import math
 import re
@@ -164,9 +165,12 @@ def handle_pi(string, pi):
             # Find the next occurrence of "\pi"
             idx = string.find("\\pi", idx + 1)
 
-        # Evaluate the expression using eval() function
+        # Evaluate the mathematical expression safely using sympy's parse_expr
         with contextlib.suppress(Exception):
-            string = eval(string)
+            # Use sympy's parse_expr for safe mathematical expression evaluation
+            parsed_expr = parse_expr(string)
+            # Convert to float if it's a numerical result
+            string = float(N(parsed_expr))
 
     return string
 
@@ -296,9 +300,17 @@ def math_equal(
         except Exception:
             pass
     elif r"\begin{pmatrix}" in reference and prediction.startswith("[") and prediction.endswith("]"):
-        if isinstance(eval(prediction), list):
+        # Safely check if prediction is a valid list literal
+        try:
+            parsed_prediction = ast.literal_eval(prediction)
+            is_list = isinstance(parsed_prediction, list)
+        except (ValueError, SyntaxError):
+            is_list = False
+        
+        if is_list:
             try:
-                pred_matrix = eval(prediction)
+                # Use ast.literal_eval for safe evaluation of list literals
+                pred_matrix = ast.literal_eval(prediction)
                 # ref_matrix_items = reference.split()[1:-1:2]
                 ref_matrix_items = (
                     reference.removeprefix(r"\\begin{pmatrix}")
