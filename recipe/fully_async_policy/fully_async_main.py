@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 import os
 import socket
 import threading
@@ -278,7 +279,7 @@ class FullyAsyncTaskRunner:
                 ray.cancel(future)
             raise
         finally:
-            self.components["message_queue_client"].clear_queue()
+            asyncio.run(self.components["message_queue_client"].clear_queue())
             print("[ASYNC MAIN] Training completed or interrupted")
 
 
