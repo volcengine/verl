@@ -623,8 +623,6 @@ class vLLMAsyncRollout(BaseRollout):
             return self._init_worker(*args, **kwargs)
         elif method == "load_model":
             return self._load_model(*args, **kwargs)
-        elif method == "sleep" or method == "wake_up":
-            raise ValueError("wake_up and sleep should not be called through ZeroMQ")
         else:
             return self.inference_engine.execute_method(method, *args, **kwargs)
 

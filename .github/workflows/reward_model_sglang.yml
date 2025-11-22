@@ -98,7 +98,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install -e .[test]
-          pip3 install sglang-router==0.1.8
+          pip3 install sglang-router==0.2.2
       - name: Prepare gsm8k dataset
         run: |
           ray stop --force
@@ -111,6 +111,10 @@ jobs:
         run: |
           unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
           ROLLOUT_NAME=sglang pytest -s -x tests/experimental/reward/test_agent_loop_reward_manager.py
+      - name: Running sglang agent loop with reward model colocate tests on 8 L20 GPUs
+        run: |
+          unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
+          ROLLOUT_NAME=sglang pytest -s -x tests/experimental/reward/test_agent_reward_loop_colocate.py
 
   cleanup:
     runs-on: ubuntu-latest

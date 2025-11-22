@@ -110,6 +110,10 @@ jobs:
         run: |
           unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
           ROLLOUT_NAME=vllm pytest -s -x tests/experimental/reward/test_agent_loop_reward_manager.py
+      - name: Running vllm agent loop with reward model colocate tests on 8 L20 GPUs
+        run: |
+          unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
+          ROLLOUT_NAME=vllm pytest -s -x tests/experimental/reward/test_agent_reward_loop_colocate.py
 
   cleanup:
     runs-on: ubuntu-latest
