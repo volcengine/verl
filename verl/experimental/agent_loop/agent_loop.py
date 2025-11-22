@@ -178,7 +178,7 @@ class _DummyConfig:
 
 
 class AgentLoopBase(ABC):
-    """An agent loop takes a input message, chat with OpenAI compatible LLM server and interact with various
+    """An agent loop takes an input message, chat with OpenAI compatible LLM server and interact with various
     environments."""
 
     _class_initialized = False
@@ -386,6 +386,7 @@ class AgentLoopWorkerBase:
         outputs = await asyncio.gather(*tasks)
 
         output = self._postprocess(outputs)
+
         return output
 
     async def _run_agent_loop(
@@ -632,7 +633,7 @@ class AgentLoopWorkerBase:
             meta_info={"metrics": metrics, "reward_extra_keys": reward_extra_keys},
         )
 
-    def create_transferqueue_client(self, controller_infos, storage_infos, role):
+    def create_transferqueue_client(self, controller_info, role):
         """Create a client for data system(transfer queue)."""
         from verl.single_controller.ray.base import get_random_string
         from verl.utils.transferqueue_utils import create_transferqueue_client
@@ -640,8 +641,8 @@ class AgentLoopWorkerBase:
         client_name = get_random_string(length=6)
         create_transferqueue_client(
             client_id=f"{role}_worker_{client_name}",
-            controller_infos=controller_infos,
-            storage_infos=storage_infos,
+            controller_info=controller_info,
+            config=self.config,
         )
 
 
