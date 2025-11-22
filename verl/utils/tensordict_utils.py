@@ -47,6 +47,50 @@ def get_non_tensor_data(data: TensorDict, key: str, default):
     return unwrap_non_tensor_data(output)
 
 
+def concat_nested_tensors(tensors: list[torch.Tensor]) -> torch.Tensor:
+    for tensor in tensors:
+        assert tensor.is_nested and tensor.is_contiguous()
+    unbind_tensors = []
+    for tensor in tensors:
+        assert len(tensor.shape) == 2
+        unbind_tensor = tensor.unbind(0)
+        unbind_tensors.extend(list(unbind_tensor))
+
+    tensor = torch.nested.as_nested_tensor(unbind_tensors, layout=torch.jagged)
+    return tensor
+
+
+def concat_tensordict(data: list[TensorDict]) -> TensorDict:
+    """Concatenates tensordicts into a single tensordict on dim zero. Support nested tensor"""
+    assert len(data) > 0, "Must have at least one tensordict"
+
+    # Find nested tensor keys from the first tensordict
+    nested_tensor_keys = {key for key, value in data[0].items() if isinstance(value, torch.Tensor) and value.is_nested}
+
+    if not nested_tensor_keys:
+        return TensorDict.cat(data, dim=0)
+
+    # Create a list of tensordicts containing only non-nested tensors for concatenation
+    regular_tds = []
+    for td in data:
+        current_nested_keys = {k for k, v in td.items() if isinstance(v, torch.Tensor) and v.is_nested}
+        assert current_nested_keys == nested_tensor_keys, "All tensordicts must have the same set of nested tensors."
+
+        # Create a new TensorDict with non-nested items without modifying the original
+        regular_items = {k: v for k, v in td.items() if k not in nested_tensor_keys}
+        regular_tds.append(TensorDict(regular_items, batch_size=td.batch_size, device=td.device))
+
+    # Concatenate the regular tensordicts
+    output = TensorDict.cat(regular_tds, dim=0)
+
+    # Concatenate and add nested tensors to the output
+    for key in nested_tensor_keys:
+        nested_tensors_to_concat = [td[key] for td in data]
+        output[key] = concat_nested_tensors(nested_tensors_to_concat)
+
+    return output
+
+
 def get_tensordict(tensor_dict: dict[str, torch.Tensor | list], non_tensor_dict: dict = None) -> TensorDict:
     """
 
@@ -63,6 +107,9 @@ def get_tensordict(tensor_dict: dict[str, torch.Tensor | list], non_tensor_dict:
     batch_size = None
 
     for key, val in tensor_dict.items():
+        if isinstance(val, torch.Tensor) and val.is_nested:
+            assert val.is_contiguous(), "Nested tensors must be contiguous. Try setting layout=torch.jagged"
+
         if isinstance(val, list):
             for v in val:
                 assert not isinstance(v, torch.Tensor), (
@@ -170,7 +217,11 @@ def make_iterator(tensordict: TensorDict, mini_batch_size, epochs, seed=None, da
 
 
 def assert_tensordict_eq(tensordict1: TensorDict, tensordict2: TensorDict):
-    assert set(tensordict1.keys()) == set(tensordict2.keys())
+    tensordict1_key_set = set(tensordict1.keys())
+    tensordict2_key_set = set(tensordict2.keys())
+    assert tensordict1_key_set == tensordict2_key_set, (
+        f"key set diffs. Got {tensordict2_key_set=} vs {tensordict1_key_set=}"
+    )
 
     for key in tensordict1.keys():
         val = tensordict1[key]

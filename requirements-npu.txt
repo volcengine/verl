@@ -17,3 +17,4 @@ mathruler
 torchdata
 einops
 qwen_vl_utils
+hf_transfer
