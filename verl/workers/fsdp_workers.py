@@ -476,9 +476,10 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             is_lora=self._is_lora,
         )
 
-        if self._is_rollout and self.config.rollout.name == "hf":
-            # TODO(zhangchi.usc1992, shengguangming) fix me. Current, auto_wrap_policy causes HFRollout to hang in Gemma
-            auto_wrap_policy = None
+        # if self._is_rollout and self.config.rollout.name == "hf":
+        #     # TODO(zhangchi.usc1992, shengguangming) fix me.
+        #     Current, auto_wrap_policy causes HFRollout to hang in Gemma
+        #     auto_wrap_policy = None
 
         if self.rank == 0:
             print(f"wrap_policy: {auto_wrap_policy}")
