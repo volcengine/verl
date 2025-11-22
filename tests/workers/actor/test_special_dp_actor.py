@@ -85,6 +85,7 @@ class TestDataParallelPPOActor(unittest.TestCase):
             use_torch_compile=False,  # Disable torch.compile for testing
             ulysses_sequence_parallel_size=1,
             optim=OptimizerConfig(lr=1e-6),
+            rollout_n=1,
         )
 
         self.mock_model = MockTransformerModel(vocab_size=1000, hidden_size=64).to(self.device)

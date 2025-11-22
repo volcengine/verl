@@ -44,7 +44,7 @@ install_requires = [
     "tensorboard",
 ]
 
-TEST_REQUIRES = ["pytest", "pre-commit", "py-spy", "pytest-asyncio"]
+TEST_REQUIRES = ["pytest", "pre-commit", "py-spy", "pytest-asyncio", "pytest-rerunfailures"]
 PRIME_REQUIRES = ["pyext"]
 GEO_REQUIRES = ["mathruler", "torchvision", "qwen_vl_utils"]
 GPU_REQUIRES = ["liger-kernel", "flash-attn"]

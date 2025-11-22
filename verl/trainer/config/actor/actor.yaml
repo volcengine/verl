@@ -7,6 +7,9 @@
 # Target class for this configuration
 _target_: verl.workers.config.ActorConfig
 
+# Number of rollouts per update (mirrors actor rollout_n)
+rollout_n: ${oc.select:actor_rollout_ref.rollout.n,1}
+
 # the abstract actor configs
 # fsdp, fsdp2 or megatron. must be set.
 strategy: ???

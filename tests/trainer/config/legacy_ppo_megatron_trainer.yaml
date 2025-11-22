@@ -39,7 +39,7 @@ actor_rollout_ref:
       model_config: {}
       moe_config:
         freeze_moe_router: False
-    enable_gradient_checkpointing: False
+    enable_gradient_checkpointing: True
     gradient_checkpointing_kwargs:
       ## Activation Checkpointing
       activations_checkpoint_method: null # 'uniform', 'block'; not used with 'selective'
@@ -69,7 +69,7 @@ actor_rollout_ref:
     kl_loss_coef: 0.001 # for grpo
     kl_loss_type: low_var_kl # for grpo
     ppo_epochs: 1
-    data_loader_seed: null
+    data_loader_seed: 42
     shuffle: False
     policy_loss:   # policy loss config
       loss_mode: "vanilla" # Loss function mode: vanilla / clip-cov / kl-cov / gpg from https://arxiv.org/abs/2505.22617,
@@ -290,7 +290,7 @@ critic:
         freeze_moe_router: False
     external_lib: ${actor_rollout_ref.model.external_lib}
     trust_remote_code: False
-    enable_gradient_checkpointing: False
+    enable_gradient_checkpointing: True
     gradient_checkpointing_kwargs:
       ## Activation Checkpointing
       activations_checkpoint_method: null

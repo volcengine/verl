@@ -81,6 +81,7 @@ class ActorConfig(BaseConfig):
         checkpoint (CheckpointConfig): Configuration for checkpointing.
         optim (OptimizerConfig): Configuration for optimizer.
         use_fused_kernels (bool): Whether to use custom fused kernels (e.g., FlashAttention, fused MLP).
+        data_loader_seed (int): Seed for data loader. If None, uses global seed.
     """
 
     _mutable_fields = BaseConfig._mutable_fields | {
@@ -88,6 +89,8 @@ class ActorConfig(BaseConfig):
         "ppo_micro_batch_size",
         "ppo_micro_batch_size_per_gpu",
         "ppo_infer_micro_batch_size_per_gpu",
+        "engine",
+        "model_config",
     }
 
     strategy: str = MISSING
@@ -112,14 +115,20 @@ class ActorConfig(BaseConfig):
     kl_loss_type: str = "low_var_kl"
     ppo_epochs: int = 1
     shuffle: bool = False
+    data_loader_seed: int = 1
     checkpoint: CheckpointConfig = field(default_factory=CheckpointConfig)
     optim: OptimizerConfig = field(default_factory=OptimizerConfig)
     use_fused_kernels: bool = False
     profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
     engine: BaseConfig = field(default_factory=BaseConfig)
-    data_loader_seed = 1
-    rollout_n: int = 1  # must be override by sampling config
+    rollout_n: int = MISSING  # must be override by sampling config
     model_config: HFModelConfig = field(default_factory=BaseConfig)
+
+    # Store global batch info for loss aggregation:
+    # dp_size: data parallel size
+    # batch_num_tokens: number of valid tokens in global batch
+    # global_batch_size: global batch size
+    global_batch_info: dict = field(default_factory=dict)
 
     def __post_init__(self):
         """Validate actor configuration parameters."""
@@ -193,18 +202,21 @@ class McoreActorConfig(ActorConfig):
 
     Args:
         strategy (str): Training strategy set to 'megatron' for Megatron parallelism.
-        data_loader_seed (Optional[int]): Seed for data loader. If None, uses global seed.
         load_weight (bool): Whether to load model weights from checkpoint.
         megatron (dict[str, Any]): Configuration for Megatron parallelism settings.
         profile (dict[str, Any]): Configuration for profiling settings.
     """
 
     strategy: str = "megatron"
-    data_loader_seed: Optional[int] = None
     load_weight: bool = True
     megatron: McoreEngineConfig = field(default_factory=McoreEngineConfig)
     profile: dict[str, Any] = field(default_factory=dict)
     use_rollout_log_probs: bool = False
+
+    def __post_init__(self):
+        """Validate FSDP actor configuration parameters."""
+        super().__post_init__()
+        self.engine = self.megatron
 
 
 @dataclass
@@ -216,7 +228,7 @@ class FSDPActorConfig(ActorConfig):
     Args:
         strategy (str): Training strategy set to 'fsdp' for Fully Sharded Data Parallel.
         grad_clip (float): Gradient clipping threshold.
-        ulysses_sequence_parallel_size (int): Ulysses sequence parallel size for long sequences.
+        ulysses_sequence_parallel_size (int): [DEPRECATED] Ulysses sequence parallel size for long sequences.
         entropy_from_logits_with_chunking (bool): Whether to compute entropy from logits
             with chunking for memory efficiency.
         entropy_checkpointing (bool): Whether to use gradient checkpointing for entropy computation.
@@ -237,6 +249,11 @@ class FSDPActorConfig(ActorConfig):
     def __post_init__(self):
         """Validate FSDP actor configuration parameters."""
         super().__post_init__()
+        self.engine = self.fsdp_config
+
+        # backward compatibility
+        if self.ulysses_sequence_parallel_size > 1:
+            self.fsdp_config.ulysses_sequence_parallel_size = self.ulysses_sequence_parallel_size
 
     def validate(self, n_gpus: int, train_batch_size: int, model_config: dict = None):
         """Validate FSDP actor configuration with runtime parameters."""

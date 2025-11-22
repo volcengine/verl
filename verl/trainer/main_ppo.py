@@ -121,6 +121,18 @@ class TaskRunner:
     def add_actor_rollout_worker(self, config):
         """Add actor rollout worker based on the actor strategy."""
         from verl.single_controller.ray import RayWorkerGroup
+        from verl.trainer.ppo.ray_trainer import Role
+
+        use_legacy_worker_impl = config.trainer.get("use_legacy_worker_impl", "auto")
+
+        # use new model engine implementation
+        if use_legacy_worker_impl == "disable":
+            from verl.workers.engine_workers import ActorRolloutRefWorker
+
+            actor_rollout_cls = ActorRolloutRefWorker
+            ray_worker_group_cls = RayWorkerGroup
+            self.role_worker_mapping[Role.ActorRollout] = ray.remote(actor_rollout_cls)
+            return actor_rollout_cls, ray_worker_group_cls
 
         if config.actor_rollout_ref.rollout.mode == "sync":
             warnings.warn("spmd rollout mode is deprecated and will be removed in v0.6.2", stacklevel=2)
@@ -147,8 +159,6 @@ class TaskRunner:
 
         else:
             raise NotImplementedError
-
-        from verl.trainer.ppo.ray_trainer import Role
 
         self.role_worker_mapping[Role.ActorRollout] = ray.remote(actor_rollout_cls)
 

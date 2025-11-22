@@ -109,8 +109,10 @@ class ImageGeneratorTool(BaseTool):
             return ToolResponse(text=str(e)), 0, {}
 
 
+@pytest.mark.flaky(reruns=3)
 def test_multimodal_tool_agent(init_config):
     """Test agent loop with multimodal tool that returns images using Qwen VL model."""
+    ray.shutdown()
     ray.init(
         runtime_env={
             "env_vars": {

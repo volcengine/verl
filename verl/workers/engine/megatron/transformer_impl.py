@@ -83,6 +83,10 @@ class MegatronEngine(BaseEngine):
         self.weight_converter = None
 
     def _init_device_mesh(self):
+        # TODO: set different parallelism for actor, critic, ref
+        if mpu.is_initialized():
+            return
+
         mpu.initialize_model_parallel(
             tensor_model_parallel_size=self.engine_config.tensor_model_parallel_size,
             pipeline_model_parallel_size=self.engine_config.pipeline_model_parallel_size,
@@ -211,12 +215,14 @@ class MegatronEngine(BaseEngine):
 
         self.module = self._build_megatron_module()
 
-        if not self.engine_config.forward_only:
-            self.optimizer = self._build_optimizer()
-            self.lr_scheduler = self._build_lr_scheduler()
-        else:
+        # For forward_only, we don't need optimizer, lr_scheduler, checkpoint_mananager
+        if self.engine_config.forward_only:
             self.optimizer = None
             self.lr_scheduler = None
+            return
+
+        self.optimizer = self._build_optimizer()
+        self.lr_scheduler = self._build_lr_scheduler()
 
         tmp_config = OmegaConf.create({"model": {"path": self.model_config.local_path}})
 
@@ -301,7 +307,7 @@ class MegatronEngine(BaseEngine):
         self.lr_scheduler.step(1)
         return get_megatron_last_lr(self.optimizer)
 
-    def to(self, device: str, model: bool = True, optimizer: bool = True):
+    def to(self, device: str, model: bool = True, optimizer: bool = True, grad: bool = True):
         """
         Move model parameters, optimizer states, or both to the specified device.
 
@@ -314,13 +320,13 @@ class MegatronEngine(BaseEngine):
 
         assert device in (device_name, "cpu")
         if device == device_name:
-            if not self.engine_config.param_offload:
+            if self.engine_config.param_offload:
                 if model:
-                    load_megatron_model_to_gpu(self.module, load_grad=True)
+                    load_megatron_model_to_gpu(self.module, load_grad=grad)
                 if optimizer and self.optimizer is not None:
                     load_megatron_optimizer(self.optimizer, device)
         elif device == "cpu":
-            if not self.engine_config.param_offload:
+            if self.engine_config.param_offload:
                 if model:
                     offload_megatron_model_to_cpu(self.module)
                 if optimizer and self.optimizer is not None:
@@ -405,7 +411,7 @@ class MegatronEngine(BaseEngine):
             data=data,
             dp_group=self.get_data_parallel_group(),
             num_batches_divided_by=num_batches_divided_by,
-            same_micro_num_in_dp=False,
+            same_micro_num_in_dp=True,
             min_num_micro_batch=None,
         )
 
@@ -466,7 +472,8 @@ class MegatronEngine(BaseEngine):
                 self.tf_config,
                 self.layer_name_mapping,
             )
-        return per_tensor_param
+        # TODO: support megatron LoRA
+        return per_tensor_param, None
 
     def forward_step(self, batch_iter, model, postprocess_micro_batch_func):
         raise NotImplementedError("forward_step must be implemented in subclass")
@@ -507,7 +514,7 @@ class EngineTrainModeCtx:
         if self.engine._is_offload_param:
             load_megatron_model_to_gpu(self.engine.module, load_grad=True)
         if self.engine._is_offload_optimizer:
-            load_megatron_optimizer(optimizer=self.engine.optimizer)
+            load_megatron_optimizer(self.engine.optimizer)
 
         # mcore module is a list of model chunk in each vpp stage
         for module in self.engine.module:
@@ -517,7 +524,7 @@ class EngineTrainModeCtx:
         if self.engine._is_offload_param:
             offload_megatron_model_to_cpu(self.engine.module)
         if self.engine._is_offload_optimizer:
-            offload_megatron_optimizer(optimizer=self.engine.optimizer)
+            offload_megatron_optimizer(self.engine.optimizer)
         self.engine.mode = None
 
 

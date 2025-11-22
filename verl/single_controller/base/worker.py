@@ -130,6 +130,35 @@ class Worker(WorkerHelper):
         assert mesh_name in self.__collect_dp_rank, f"{mesh_name} is not registered in {self.__class__.__name__}"
         return self.__collect_dp_rank[mesh_name]
 
+    def get_dispatch_collect(self):
+        """Get all registered dispatch and collect dp_ranks.
+
+        Returns:
+            dict[str, int]:
+                A dictionary mapping mesh names to their dispatch dp_ranks.
+            dict[str, bool]:
+                A dictionary mapping mesh names to whether they are used for collect.
+        """
+        return self.__dispatch_dp_rank, self.__collect_dp_rank
+
+    def set_dispatch_collect(self, dispatch_dp_rank: dict[str, int], collect_dp_rank: dict[str, bool]):
+        """Set the dispatch and collect dp_ranks for all registered meshes.
+
+        Args:
+            dispatch_dp_rank (dict[str, int]):
+                A dictionary mapping mesh names to their dispatch dp_ranks.
+            collect_dp_rank (dict[str, bool]):
+                A dictionary mapping mesh names to whether they are used for collect.
+        """
+        assert not set(self.__dispatch_dp_rank.keys()) & set(dispatch_dp_rank.keys()), (
+            "dispatch_dp_rank has duplicate mesh names"
+        )
+        assert not set(self.__collect_dp_rank.keys()) & set(collect_dp_rank.keys()), (
+            "collect_dp_rank has duplicate mesh names"
+        )
+        self.__dispatch_dp_rank.update(dispatch_dp_rank)
+        self.__collect_dp_rank.update(collect_dp_rank)
+
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=True)
     def create_transferqueue_client(self, controller_infos, storage_infos, role="train"):
         from verl.utils.transferqueue_utils import create_transferqueue_client
