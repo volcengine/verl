@@ -45,10 +45,6 @@ def reduce_metrics(metrics: dict[str, list[Any]]) -> dict[str, Any]:
         {"loss": 2.0, "accuracy": 0.8, "max_reward": 8.0, "min_error": 0.05}
     """
     for key, val in metrics.items():
-        # each dp group may have different number of micro-batches
-        if isinstance(val, list) and len(val) > 0 and isinstance(val[0], list):
-            val = [np.array(v) for v in val]
-
         if "max" in key:
             metrics[key] = np.max(val)
         elif "min" in key:

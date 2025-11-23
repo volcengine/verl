@@ -116,10 +116,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             self.base_sync_done: bool = "dummy" not in self.config.rollout.load_format
             self.layered_summon = self.config.rollout.get("layered_summon", False)
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="ref"))
     @DistProfiler.annotate(color="olive", role="ref_compute_log_prob")
     def compute_ref_log_prob(self, data: DataProto):
-        output = self.ref.compute_log_prob(data, calculate_entropy=False)
+        data.meta_info["calculate_entropy"] = False
+        output = self.ref.compute_log_prob(data)
         if output is not None:
             output.batch["ref_log_prob"] = output.batch.pop("old_log_probs")
         return output

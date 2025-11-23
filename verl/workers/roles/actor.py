@@ -50,6 +50,7 @@ class ActorWorker(Worker, DistProfilerExtension):
     def __init__(self, config: ActorConfig):
         self.config = config
         Worker.__init__(self)
+        self.role = "ref" if config.engine.forward_only else "actor"
         self.profiler_config = self.config.profiler
         tool_config = self.profiler_config.tool_config
         DistProfilerExtension.__init__(
@@ -79,7 +80,7 @@ class ActorWorker(Worker, DistProfilerExtension):
 
         # build dispatch info
         self._register_dispatch_collect_info(
-            mesh_name="actor",
+            mesh_name=self.role,
             dp_rank=self.engine.get_data_parallel_rank(),
             is_collect=self.engine.is_mp_src_rank_with_outputs(),
         )
@@ -105,10 +106,13 @@ class ActorWorker(Worker, DistProfilerExtension):
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @DistProfiler.annotate(color="blue", role="actor_compute_log_prob")
-    def compute_log_prob(self, data: DataProto, calculate_entropy: bool = True):
+    def compute_log_prob(self, data: DataProto):
         data.meta_info["use_dynamic_bsz"] = self.config.use_dynamic_bsz
         data.meta_info["use_fused_kernels"] = self.config.use_fused_kernels
-        data.meta_info["calculate_entropy"] = calculate_entropy
+        if "calculate_entropy" not in data.meta_info:
+            data.meta_info["calculate_entropy"] = True
+        calculate_entropy = data.meta_info["calculate_entropy"]
+
         if self.config.use_dynamic_bsz:
             data.meta_info["max_token_len_per_gpu"] = self.config.ppo_infer_max_token_len_per_gpu
         else:
