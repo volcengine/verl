@@ -230,11 +230,84 @@ def _post_process_outputs(processing_class, output):
 def get_tool_call_parser_type(
     processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
 ) -> str:
-    items = FunctionCallParser.ToolCallParserEnum.items()
-    if "gpt-oss" in getattr(processing_class, "name_or_path", "").lower():
+    """
+    Detect the appropriate tool call parser type for a given model.
+
+    Detection strategy (in priority order):
+    1. model_type from config (most reliable)
+    2. model name pattern matching
+    3. token vocabulary matching (fallback)
+
+    This approach ensures stable detection even when new models are added,
+    as model_type is an official field that uniquely identifies model architectures.
+
+    Args:
+        processing_class: Tokenizer or processor instance
+
+    Returns:
+        str: Parser type identifier (e.g., "qwen25", "glm4")
+
+    Raises:
+        ValueError: If no suitable parser is found
+    """
+    # Fix for Issue #4203: Use model_type for reliable parser detection
+    # model_type is an official config field that uniquely identifies model architecture
+    # This avoids false matches from vocabulary overlap between different models
+
+    # Step 1: Try to get model_type from config (most reliable method)
+    model_type = None
+    model_name = getattr(processing_class, "name_or_path", "").lower()
+
+    try:
+        # Try different ways to access model_type
+        if hasattr(processing_class, "model_type"):
+            # Direct attribute (some tokenizers)
+            model_type = processing_class.model_type
+        elif hasattr(processing_class, "tokenizer") and hasattr(processing_class.tokenizer, "model_type"):
+            # Via tokenizer attribute (processors)
+            model_type = processing_class.tokenizer.model_type
+        elif hasattr(processing_class, "init_kwargs") and "model_type" in processing_class.init_kwargs:
+            # From init_kwargs
+            model_type = processing_class.init_kwargs["model_type"]
+
+        if model_type:
+            logger.debug(f"Detected model_type: {model_type} for {model_name}")
+    except Exception as e:
+        logger.debug(f"Could not extract model_type from processing_class: {e}")
+
+    # model_type -> parser_type mapping
+    # Add new models here - only one line per model architecture!
+    MODEL_TYPE_TO_PARSER = {
+        "qwen2": "qwen25",  # Qwen2 and Qwen2.5 both use model_type="qwen2"
+        "qwen2_vl": "qwen25",  # Qwen2-VL multimodal models
+        "qwen2_audio": "qwen25",  # Qwen2-Audio models
+        "glm4": "glm4",  # GLM-4 series
+        "chatglm": "glm4",  # ChatGLM series
+        # Add new model types here as needed
+    }
+
+    if model_type and model_type in MODEL_TYPE_TO_PARSER:
+        parser_type = MODEL_TYPE_TO_PARSER[model_type]
+        logger.debug(f"Using '{parser_type}' parser for model_type '{model_type}'")
+        return parser_type
+
+    # Step 2: Fallback to model name pattern matching
+    # Keep existing checks for backward compatibility and special cases
+    if "gpt-oss" in model_name:
         logger.debug(f"gpt-oss model detected from name_or_path: {processing_class.name_or_path}")
         logger.debug("Using 'gpt-oss' tool call parser.")
         return "gpt-oss"
+
+    if "qwen2" in model_name or "qwen-2" in model_name or "qwen2.5" in model_name or "qwen-2.5" in model_name:
+        logger.debug(f"Qwen2/Qwen2.5 model detected from name_or_path: {processing_class.name_or_path}")
+        logger.debug("Using 'qwen25' tool call parser.")
+        return "qwen25"
+
+    # Step 3: Fallback to token vocabulary matching (least reliable)
+    # This is kept for backward compatibility but should rarely be needed
+    logger.debug("Falling back to token vocabulary matching")
+    items = FunctionCallParser.ToolCallParserEnum.items()
+
     for parser_type, parser_cls in items:
         parser = parser_cls()
         try:
@@ -250,9 +323,10 @@ def get_tool_call_parser_type(
         if parser.bot_token.strip() in tokenizer_vocab and (
             parser.eot_token == "" or parser.eot_token.strip() in tokenizer_vocab
         ):
+            logger.debug(f"Matched '{parser_type}' via token vocabulary")
             return parser_type
-    else:
-        raise ValueError(f"No tool call parser found for processing_class {processing_class}")
+
+    raise ValueError(f"No tool call parser found for processing_class {processing_class}")
 
 
 @deprecated(
