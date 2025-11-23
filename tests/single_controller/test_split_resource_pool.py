@@ -32,7 +32,7 @@ class Actor(Worker):
     def __init__(self, worker_id) -> None:
         super().__init__()
         self.worker_id = worker_id
-        self.temp_tensor = torch.rand(1024, 1024).to("cuda")
+        self.temp_tensor = torch.rand(4096, 4096).to("cuda")
 
         if not torch.distributed.is_initialized():
             rank = int(os.environ.get("RANK", 0))
@@ -55,15 +55,15 @@ def test_split_resource_pool():
     global_resource_pool.get_placement_groups()
 
     # first 4 gpus for actor_1, last 4 gpus for actor_2
-    actor_resource_pool, critic_resource_pool = global_resource_pool.split(split_size=4)
+    actor_1_resource_pool, actor_2_resource_pool = global_resource_pool.split(split_size=4)
     actor_cls_1 = RayClassWithInitArgs(cls=Actor, worker_id=0)
     actor_cls_2 = RayClassWithInitArgs(cls=Actor, worker_id=100)
     actor_worker_1 = RayWorkerGroup(
-        resource_pool=actor_resource_pool,
+        resource_pool=actor_1_resource_pool,
         ray_cls_with_init=actor_cls_1,
     )
     actor_worker_2 = RayWorkerGroup(
-        resource_pool=actor_resource_pool,
+        resource_pool=actor_2_resource_pool,
         ray_cls_with_init=actor_cls_2,
     )
     assert actor_worker_1.world_size == 4
@@ -74,5 +74,6 @@ def test_split_resource_pool():
     actor_output_2 = actor_worker_2.add(data)
     assert actor_output_1.batch["a"].tolist() == [0, 0, 1, 1, 2, 2, 3, 3]
     assert actor_output_2.batch["a"].tolist() == [100, 100, 101, 101, 102, 102, 103, 103]
+    breakpoint()
 
     ray.shutdown()
