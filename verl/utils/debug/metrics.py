@@ -69,6 +69,7 @@ def calculate_debug_metrics(data: DataProto) -> dict:
             the data batch to calculate
             rollout_log_probs: log_probs record when rollout forward tokens
             old_log_probs(actor log probs): log_probs record when actor forward tokens
+            log_probs_for_metrics: unscaled log_probs from actor (for accurate comparison with rollout)
             loss_mask or attention_mask: to mask unrelated token
             responses: the response tokens, for calculating size
     Returns:
@@ -81,7 +82,15 @@ def calculate_debug_metrics(data: DataProto) -> dict:
     """
 
     rollout_old_log_probs = data.batch["rollout_log_probs"]
-    actor_old_log_probs = data.batch["old_log_probs"]
+
+    # Use unscaled log_probs for metrics if available (to match VLLM rollout behavior)
+    # This ensures rollout_actor_probs_pearson_corr metric is accurate
+    # See: https://github.com/volcengine/verl/issues/4162
+    if "log_probs_for_metrics" in data.batch:
+        actor_old_log_probs = data.batch["log_probs_for_metrics"]
+    else:
+        # Fallback to old_log_probs if log_probs_for_metrics is not available
+        actor_old_log_probs = data.batch["old_log_probs"]
     if "response_mask" in data.batch:
         logger.debug("response mask found, use it to mask log probs")
         log_prob_mask = data.batch["response_mask"]
