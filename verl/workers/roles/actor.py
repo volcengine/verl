@@ -50,7 +50,6 @@ class ActorWorker(Worker, DistProfilerExtension):
     def __init__(self, config: ActorConfig):
         self.config = config
         Worker.__init__(self)
-        self.role = "ref" if config.engine.forward_only else "actor"
         self.profiler_config = self.config.profiler
         tool_config = self.profiler_config.tool_config
         DistProfilerExtension.__init__(
@@ -80,7 +79,7 @@ class ActorWorker(Worker, DistProfilerExtension):
 
         # build dispatch info
         self._register_dispatch_collect_info(
-            mesh_name=self.role,
+            mesh_name="actor",
             dp_rank=self.engine.get_data_parallel_rank(),
             is_collect=self.engine.is_mp_src_rank_with_outputs(),
         )

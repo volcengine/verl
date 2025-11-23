@@ -69,7 +69,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             self.ref = ActorWorker(ref_config)
             self.ref.init_model()
             self.ref.engine.to("cpu")
-            self.set_dispatch_collect(*self.ref.get_dispatch_collect())
+            self.set_dispatch_collect(mesh_name="ref", **self.ref.get_dispatch_collect())
 
         # 2. build actor model
         if "actor" in self.role:
@@ -79,7 +79,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             self.actor = ActorWorker(actor_config)
             self.actor.init_model()
             self.actor.engine.to("cpu")
-            self.set_dispatch_collect(*self.actor.get_dispatch_collect())
+            self.set_dispatch_collect(mesh_name="actor", **self.actor.get_dispatch_collect())
 
         # 3. build rollout engine
         # - vllm: vLLMAsyncRollout
