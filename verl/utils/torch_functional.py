@@ -778,7 +778,7 @@ def distributed_masked_mean(local_tensor, local_mask):
 
 
 @contextmanager
-def revert_torch_compile():
+def use_original_torch_compile():
     """torch.compile might be replaced by mindspeed on NPU, this contextmanager
     can revert torch.compile temporarily.
     """
