@@ -41,7 +41,6 @@ from verl.trainer.ppo.metric_utils import (
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer, apply_kl_penalty, compute_advantage, compute_response_mask
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.trainer.ppo.utils import Role
-from verl.utils.checkpoint.checkpoint_manager import should_save_ckpt_esi
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.debug import marked_timer
 from verl.utils.metric import (
@@ -503,27 +502,6 @@ class FullyAsyncRayPPOTrainer(RayPPOTrainer):
                     last_val_metrics = val_metrics
             metrics.update(val_metrics)
             return last_val_metrics
-
-    def _check_save_checkpoint(self, is_last_step, timing_raw):
-        # Check if the ESI (Elastic Server Instance)/training plan is close to expiration.
-        esi_close_to_expiration = should_save_ckpt_esi(
-            max_steps_duration=self.max_steps_duration,
-            redundant_time=self.config.trainer.esi_redundant_time,
-        )
-        # Check if the conditions for saving a checkpoint are met.
-        # The conditions include a mandatory condition (1) and
-        # one of the following optional conditions (2/3/4):
-        # 1. The save frequency is set to a positive value.
-        # 2. It's the last training step.
-        # 3. The current step number is a multiple of the save frequency.
-        # 4. The ESI(Elastic Server Instance)/training plan is close to expiration.
-        if self.config.trainer.save_freq > 0 and (
-            is_last_step or self.global_steps % self.config.trainer.save_freq == 0 or esi_close_to_expiration
-        ):
-            if esi_close_to_expiration:
-                print("Force saving checkpoint: ESI instance expiration approaching.")
-            with marked_timer("save_checkpoint", timing_raw, color="green"):
-                self._save_checkpoint()
 
     def _collect_metrics(self, batch, epoch, metrics, timing_raw):
         steps_duration = timing_raw["step"]

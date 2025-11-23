@@ -277,6 +277,8 @@ class RayWorkerGroup(WorkerGroup):
         worker_names=None,
         worker_handles: list[ray.actor.ActorHandle] = None,
         ray_wait_register_center_timeout: int = 300,
+        replica_rank: int = 0,
+        replica_world_size: int = None,
         **kwargs,
     ) -> None:
         """Initialize a RayWorkerGroup.
@@ -314,6 +316,12 @@ class RayWorkerGroup(WorkerGroup):
         if self._is_init_with_detached_workers:
             self._init_with_detached_workers(worker_names=worker_names, worker_handles=worker_handles)
         else:
+            self.replica_rank = replica_rank
+            if replica_world_size is None:
+                self.replica_world_size = resource_pool.world_size
+                assert self.replica_rank == 0, f"only one replica is allowed, but got {self.replica_rank=}"
+            else:
+                self.replica_world_size = replica_world_size
             self._init_with_resource_pool(
                 resource_pool=resource_pool,
                 ray_cls_with_init=ray_cls_with_init,
@@ -374,74 +382,80 @@ class RayWorkerGroup(WorkerGroup):
         if bin_pack:
             strategy = "STRICT_PACK"
         pgs = resource_pool.get_placement_groups(strategy=strategy, device_name=self.device_name)
-        world_size = resource_pool.world_size
+        world_size = self.replica_world_size
         self._world_size = world_size
         # cia.add_kwarg("_world_size", world_size)
         num_gpus = 1 / resource_pool.max_colocate_count
 
         rank = -1
         local_world_size = resource_pool.store[0]
-        for pg_idx, pg in enumerate(sort_placement_group_by_node_ip(pgs)):
+        assert world_size * (self.replica_rank + 1) <= resource_pool.world_size, (
+            f"world_size={world_size} is not enough for"
+            f"replica_rank={self.replica_rank} with replica_world_size={self.replica_world_size}"
+        )
+        pgs = sort_placement_group_by_node_ip(pgs)
+        self._get_master_addr_port(pgs[0])
+
+        for curr_rank in range(world_size * self.replica_rank, world_size * (self.replica_rank + 1)):
+            pg_idx = curr_rank // local_world_size
+            pg = pgs[pg_idx]
+            local_rank = curr_rank % local_world_size
             assert local_world_size <= pg.bundle_count, f"when generating for {self.name_prefix}, for the "
-            if pg_idx == 0:
-                self._get_master_addr_port(pg)
 
-            for local_rank in range(local_world_size):
-                rank += 1
-
-                # we pass in environment variable at option so that Worker can use environment variable to set
-                env_vars = {
-                    "WORLD_SIZE": str(world_size),
-                    "RANK": str(rank),
-                    "WG_PREFIX": self.name_prefix,
-                    "WG_BACKEND": "ray",
-                    "RAY_LOCAL_WORLD_SIZE": str(local_world_size),
-                    "MASTER_ADDR": self._master_addr,
-                    "MASTER_PORT": self._master_port,
-                }
-                if worker_env is not None:
-                    logging.debug(f"Appending ray class env, origin: {env_vars}, customized env: {worker_env}")
-                    conflict_env_vars = set(env_vars.keys()) & set(worker_env.keys())
-                    if len(conflict_env_vars) > 0:
-                        logging.error(
-                            f"User customized env vars conflict with system env: {conflict_env_vars} "
-                            f"Overriding may cause unexpected behavior."
-                        )
-                        raise ValueError(f"Cannot override protected system env: {conflict_env_vars}")
-                    env_vars.update(worker_env)
-                import re
-
-                cia_name = type(ray_cls_with_init.cls).__name__
-                match = re.search(r"ActorClass\(([^)]+)\)", cia_name)  # ray.remote(Obj) -> "ActorClass(Obj)"
-                cia_name = match.group(1) if match else cia_name  # "ActorClass(Obj)" -> "Obj"
-                name = f"{self.name_prefix}{cia_name}_{pg_idx}:{local_rank}"  # e.g. Worker_2:5
-
-                if self.profile_steps and self.device_name == "cuda":
-                    ray_cls_with_init.update_options(
-                        {
-                            "runtime_env": {
-                                "env_vars": env_vars,
-                                "nsight": self.worker_nsight_options,
-                            },
-                            "name": name,
-                        }
+            rank += 1
+            # we pass in environment variable at option so that Worker can use environment variable to set
+            env_vars = {
+                "WORLD_SIZE": str(world_size),
+                "RANK": str(rank),
+                "WG_PREFIX": self.name_prefix,
+                "WG_BACKEND": "ray",
+                "RAY_LOCAL_WORLD_SIZE": str(local_world_size),
+                "MASTER_ADDR": self._master_addr,
+                "MASTER_PORT": self._master_port,
+            }
+            if worker_env is not None:
+                logging.debug(f"Appending ray class env, origin: {env_vars}, customized env: {worker_env}")
+                conflict_env_vars = set(env_vars.keys()) & set(worker_env.keys())
+                if len(conflict_env_vars) > 0:
+                    logging.error(
+                        f"User customized env vars conflict with system env: {conflict_env_vars} "
+                        f"Overriding may cause unexpected behavior."
                     )
-                else:
-                    ray_cls_with_init.update_options({"runtime_env": {"env_vars": env_vars}, "name": name})
+                    raise ValueError(f"Cannot override protected system env: {conflict_env_vars}")
+                env_vars.update(worker_env)
+            import re
 
-                if detached:
-                    ray_cls_with_init.update_options({"lifetime": "detached"})
+            cia_name = type(ray_cls_with_init.cls).__name__
+            match = re.search(r"ActorClass\(([^)]+)\)", cia_name)  # ray.remote(Obj) -> "ActorClass(Obj)"
+            cia_name = match.group(1) if match else cia_name  # "ActorClass(Obj)" -> "Obj"
+            name = f"{self.name_prefix}{cia_name}_{pg_idx}:{local_rank}"  # e.g. Worker_2:5
 
-                # create a worker
-                worker = ray_cls_with_init(
-                    placement_group=pg,
-                    placement_group_bundle_idx=local_rank,
-                    use_gpu=use_gpu,
-                    num_gpus=num_gpus,
-                    device_name=self.device_name,
+            if self.profile_steps and self.device_name == "cuda":
+                ray_cls_with_init.update_options(
+                    {
+                        "runtime_env": {
+                            "env_vars": env_vars,
+                            "nsight": self.worker_nsight_options,
+                        },
+                        "name": name,
+                    }
                 )
-                self._workers.append(worker)
-                self._worker_names.append(name)
+            else:
+                ray_cls_with_init.update_options({"runtime_env": {"env_vars": env_vars}, "name": name})
+
+            if detached:
+                ray_cls_with_init.update_options({"lifetime": "detached"})
+
+            # create a worker
+            worker = ray_cls_with_init(
+                placement_group=pg,
+                placement_group_bundle_idx=local_rank,
+                use_gpu=use_gpu,
+                num_gpus=num_gpus,
+                device_name=self.device_name,
+            )
+            self._workers.append(worker)
+            self._worker_names.append(name)
 
     @property
     def worker_names(self):

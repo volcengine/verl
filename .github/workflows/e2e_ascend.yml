@@ -108,8 +108,7 @@ jobs:
           clean: true
       - name: Install the current repository
         run: |
-          pip3 install hf_transfer peft
-          pip3 install -r requirements-npu.txt
+          pip install -r requirements-npu.txt
           pip install -e .
       - name: Preprocess gsm8k dataset
         run: |
