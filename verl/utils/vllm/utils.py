@@ -120,3 +120,16 @@ class VLLMHijack:
 def is_version_ge(pkg: str = "vllm", minver: str = "0.7.3"):
     """check if the package version is greater than or equal to the minimum version"""
     return vs.parse(get_version(pkg)) >= vs.parse(minver)
+
+# copy from https://github.com/vllm-project/vllm/blob/main/examples/offline_inference/rlhf_utils.py
+def rebuild_ipc(
+    handle: tuple[Callable, tuple], device_id: int | None = None
+) -> torch.Tensor:
+    func, args = handle
+    list_args = list(args)
+    if device_id is not None:
+        # the key is to change device id to the current device id
+        # in case two processes have different CUDA_VISIBLE_DEVICES
+        list_args[6] = device_id
+    buffer = func(*list_args)
+    return buffer

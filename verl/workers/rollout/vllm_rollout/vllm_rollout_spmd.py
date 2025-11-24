@@ -32,10 +32,12 @@ import inspect
 import logging
 import os
 import time
+import uuid
+import gc
 from contextlib import contextmanager
 from dataclasses import asdict
 from types import MethodType
-from typing import Any, Generator
+from typing import Any, Generator, Callable
 
 import cloudpickle as pickle
 import numpy as np
@@ -48,6 +50,7 @@ from filelock import FileLock
 from omegaconf import ListConfig
 from tensordict import TensorDict
 from torch.distributed.device_mesh import DeviceMesh
+from torch.multiprocessing.reductions import reduce_tensor
 from vllm import LLM, SamplingParams
 from vllm.config import CompilationConfig, LoRAConfig
 from vllm.lora.request import LoRARequest
@@ -80,7 +83,7 @@ from verl.utils.model import get_lora_rank_from_adapter
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.ray_utils import ray_noset_visible_devices
 from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
-from verl.utils.vllm import TensorLoRARequest, VLLMHijack, is_version_ge
+from verl.utils.vllm import TensorLoRARequest, VLLMHijack, is_version_ge, rebuild_ipc
 from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches, is_fp8_model, load_quanted_weights
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
@@ -524,7 +527,10 @@ def _monkey_patch_compute_logits(model, vocab_size: int):
 
 
 class vLLMAsyncRollout(BaseRollout):
-    """vLLMAsyncRollout is a thin wrapper of WorkerWrapperBase, which is engine in single worker process."""
+    """
+    Refactored vLLMAsyncRollout to be a ZMQ client.
+    No longer directly manages inference engine, but communicates with vLLMMultiprocExecutor via ZMQ.
+    """
 
     def __init__(
         self,
@@ -533,98 +539,64 @@ class vLLMAsyncRollout(BaseRollout):
         device_mesh: DeviceMesh,
     ):
         super().__init__(config, model_config, device_mesh)
-        self.tokenizer = self.model_config.tokenizer
-        self.inference_engine: WorkerWrapperBase = None
-        self.address = self._init_zeromq()
-        self.lora_config = (
-            {"max_loras": 1, "max_lora_rank": get_vllm_max_lora_rank(self.model_config.lora_rank)}
-            if self.model_config.lora_rank > 0
-            else {}
-        )
+        self.tokenizer = model_config.tokenizer
+        self.zmq_client_socket = None
+        self.executor_zmq_address = None
+        self.request_timeout = 30.0
+        self.local_rank = getattr(model_config, 'local_rank', 0)
+        self.world_size = getattr(model_config, 'world_size', 1)
 
-        if config.layered_summon or (config.expert_parallel_size > 1 and not _check_vllm_version_for_sleep_level()):
-            logger.warning("Setting the sleep level to 1 may cause a memory overflow.")
-            self.sleep_level = 1
-        else:
-            self.sleep_level = VLLM_SLEEP_LEVEL
+        # Attributes related to weight updates
+        from vllm.platforms import current_platform
 
-    def _init_zeromq(self) -> str:
-        tensor_parallel_size = self.config.tensor_model_parallel_size
+        self.device_uuid = current_platform.get_device_uuid(self.local_rank)
+        self.zmq_context = zmq.Context()
+        self.zmq_address_counter = 0
+        self.zmq_handle: dict[str, str] = None
+        self.zmq_handles: dict[str, str] = None
 
-        # single node: ipc, multi nodes: tcp
-        local_world_size = int(os.environ["RAY_LOCAL_WORLD_SIZE"])
-        socket_type = "ipc" if tensor_parallel_size <= local_world_size else "tcp"
+    def _init_zmq_client(self):
+        """Initialize ZMQ client connection (only for local_rank=0 instance)."""
+        if self.local_rank != 0:
+            return
 
-        # File lock to prevent multiple workers listen to same port
-        with FileLock(f"/tmp/verl_vllm_zmq_{getpass.getuser()}.lock"):
-            context = zmq.asyncio.Context()
-            self.socket = context.socket(zmq.REP)
-            if socket_type == "ipc":
-                pid = os.getpid()
-                address = f"ipc:///tmp/verl_vllm_zmq_{pid}_{getpass.getuser()}.ipc"
-            else:
-                ip = ray.util.get_node_ip_address().strip("[]")
-                port, sock = get_free_port(ip)
-                if is_valid_ipv6_address(ip):
-                    address = f"tcp://[{ip}]:{port}"
-                    self.socket.setsockopt(zmq.IPV6, 1)
-                else:
-                    address = f"tcp://{ip}:{port}"
-            self.socket.bind(address)
+        if not self.executor_zmq_address:
+            raise ValueError("vLLMMultiprocExecutor ZMQ address not set")
 
-        loop = asyncio.get_running_loop()
-        self.zmq_loop_task = loop.create_task(self._loop_forever())
+        context = zmq.Context()
+        self.zmq_client_socket = context.socket(zmq.REQ)
+        self.zmq_client_socket.connect(self.executor_zmq_address)
+        self.zmq_client_socket.setsockopt(zmq.RCVTIMEO, int(self.request_timeout * 1000))
+        self.zmq_client_socket.setsockopt(zmq.SNDTIMEO, int(self.request_timeout * 1000))
 
-        return address
+    def _execute_method(self, method: str, *args, **kwargs) -> Any:
+        """Execute method on vLLMMultiprocExecutor via ZMQ."""
+        if self.local_rank != 0:
+            return None
 
-    async def _loop_forever(self):
-        while True:
-            try:
-                message = await self.socket.recv()
-                method, args, kwargs = pickle.loads(message)
-                result = await self._execute_method(method, *args, **kwargs)
-                await self.socket.send(pickle.dumps(result))
-            except Exception as e:
-                logger.exception(f"vLLMAsyncRollout _loop_forever error: {e}")
-                await self.socket.send(pickle.dumps(e))
-                break
+        if not self.zmq_client_socket:
+            raise RuntimeError("ZMQ client not initialized")
 
-    def _init_worker(self, all_kwargs: list[dict[str, Any]]):
-        """Initialize worker engine."""
-        if not torch.distributed.is_initialized():
-            initialize_global_process_group_ray()
-        all_kwargs[0]["rank"] = int(os.environ["RANK"])
-        device_name = "NPU" if is_npu_available else "GPU"
-        all_kwargs[0]["local_rank"] = (
-            0
-            if not ray_noset_visible_devices()
-            else int(ray.get_runtime_context().get_accelerator_ids()[device_name][0])
-        )
-        self.vllm_config = all_kwargs[0]["vllm_config"]
-        if self.lora_config:
-            lora_dtype = getattr(torch, self.config.dtype)
-            self.vllm_config.lora_config = LoRAConfig(lora_dtype=lora_dtype, **self.lora_config)
-        if self.config.quantization is not None:
-            if self.config.quantization == "fp8":
-                # Apply vllm fp8 patches
-                # Will remove the patch after vllm support on-the-fly quant for rollout natively.
-                apply_vllm_fp8_patches()
-            else:
-                raise ValueError(f"Currently only support fp8 quantization, got: {self.config.quantization}")
-        self.inference_engine = WorkerWrapperBase(vllm_config=self.vllm_config)
-        self.inference_engine.init_worker(all_kwargs)
+        request = {
+            "method": method,
+            "args": args,
+            "kwargs": kwargs,
+            "request_id": str(uuid.uuid4()),
+        }
 
-    def _load_model(self, *args, **kwargs):
-        self.inference_engine.load_model(*args, **kwargs)
-        _monkey_patch_compute_logits(self.inference_engine.worker.model_runner.model, len(self.tokenizer))
+        message = pickle.dumps(request)
+        self.zmq_client_socket.send(message)
 
-    async def _execute_method(self, method: str | bytes, *args, **kwargs):
-        if method == "init_worker":
-            return self._init_worker(*args, **kwargs)
-        elif method == "load_model":
-            return self._load_model(*args, **kwargs)
-        else:
-            return self.inference_engine.execute_method(method, *args, **kwargs)
+        try:
+            response_message = self.zmq_client_socket.recv()
+            response = pickle.loads(response_message)
+        except zmq.Again:
+            raise TimeoutError(f"ZMQ request timeout after {self.request_timeout} seconds")
+
+        if response.get("status") == "error":
+            raise RuntimeError(f"vLLMMultiprocExecutor method failed: {response.get('error')}")
+
+        return response.get("result")
 
     async def resume(self, tags: list[str]):
         """Resume rollout weights or kv cache in GPU memory.
@@ -633,55 +605,68 @@ class vLLMAsyncRollout(BaseRollout):
             tags: weights or kv_cache.
         """
         if self.config.free_cache_engine:
-            self.inference_engine.wake_up(tags=tags)
+            # Send ZMQ message to Executor
+            self._execute_method("wake_up", tags=tags)
 
     async def release(self):
         """Release weights and kv cache in GPU memory."""
         if self.config.free_cache_engine:
-            self.inference_engine.sleep(level=self.sleep_level)
+            # Send ZMQ message to Executor
+            self._execute_method("update_lora_weights_per_tensor_from_ipc")
 
     async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None], **kwargs):
-        """Update the weights of the rollout model.
-
-        Args:
-            weights: A generator that yields the name of the weight tensor and the tensor itself.
-        """
+        """Update model weights via CUDA IPC to inference workers."""
         peft_config, base_sync_done = kwargs.get("peft_config", None), kwargs.get("base_sync_done", False)
         if peft_config and base_sync_done:
-            # In async mode, make sure the old lora is removed before adding the new one
-            self.inference_engine.worker.remove_lora(VLLM_LORA_INT_ID)
-            lora_request = TensorLoRARequest(
-                lora_name=VLLM_LORA_NAME,
-                lora_int_id=VLLM_LORA_INT_ID,
-                lora_path=VLLM_LORA_PATH,
-                peft_config=asdict(peft_config),
-                lora_tensors=dict(weights),
+            self._execute_method(
+                "update_lora_weights_per_tensor_from_ipc",
+                peft_config=peft_config,
+                zmq_handles=self.zmq_handles,
             )
-            self.inference_engine.worker.add_lora(lora_request)
-            logger.info(f"vLLM load weights, loaded_params: {len(weights)}")
         else:
-            from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
+            self._execute_method(
+                "update_weights_per_tensor_from_ipc",
+                zmq_handles=self.zmq_handles,
+            )
+        await self._update_weights_per_tensor(weights)
 
-            model_runner = self.inference_engine.worker.model_runner
-            model = model_runner.model
-            patch_vllm_moe_model_weight_loader(model)
+    async def _update_weights_per_tensor(self, weights: Generator[tuple[str, torch.Tensor], None, None]):
+        """Update weights per tensor via ZMQ."""
+        s = self.zmq_context.socket(zmq.REQ)
+        s.bind(self.zmq_handle)
 
-            # Add the FP8 related logic here as sharding manager has been deprecated.
-            # Check if FP8 quantization is enabled and apply appropriate weight loading
-            if is_fp8_model(model_runner.vllm_config):
-                logger.info(f"FP8 model detected (async): {model_runner.vllm_config.quant_config}")
-                # Convert bf16 weights to fp8 format before loading
-                loaded_params = load_quanted_weights(weights, model_runner)
-                logger.info(f"FP8 weights loaded (async), loaded_params: {len(loaded_params)}")
-            else:
-                logger.info("Loading standard weights (non-FP8, async)")
-                model.load_weights(weights)
+        for name, p in self.model.named_parameters():
+            handle = reduce_tensor(p)
+            # Send the tensor handle
+            s.send_pyobj(handle)
+            s.recv()
+            # Send metadata (tensor name)
+            s.send_pyobj({"name": name})
+            s.recv()
+
+        # Send None to signal completion
+        s.send_pyobj(None)
+        s.recv()
+        s.close()
 
     def generate_sequences(self, prompts: DataProto) -> DataProto:
         """Batch generate sequences in sync mode."""
         raise NotImplementedError
 
     # ==================== server mode public methods ====================
+    def set_executor_zmq_address(self, zmq_address: str):
+        """Set vLLMMultiprocExecutor ZMQ address and initialize client."""
+        self.executor_zmq_address = zmq_address
+        if self.local_rank == 0:
+            self._init_zmq_client()
+    
+    def get_update_weights_zmq_handle(self) -> dict[str, str]:
+        """Get ZMQ handle for weight updates."""
+        suffix = f"{self.device_uuid}-{self.zmq_address_counter}"
+        self.zmq_address = f"ipc:///tmp/rl-colocate-zmq-{suffix}.sock"
+        self.zmq_address_counter += 1
+        return {self.device_uuid: self.zmq_address}
 
-    def get_zeromq_address(self):
-        return self.address
+    def set_update_weights_zmq_handles(self, zmq_handles: dict[str, str]):
+        """Set ZMQ handles for all workers."""
+        self.zmq_handles = zmq_handles

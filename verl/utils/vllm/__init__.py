@@ -23,4 +23,5 @@ __all__ = [
     "TensorLoRARequest",
     "VLLMHijack",
     "is_version_ge",
+    "rebuild_ipc",
 ]

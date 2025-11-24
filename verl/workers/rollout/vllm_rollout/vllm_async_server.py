@@ -41,6 +41,12 @@ from vllm.v1.engine.core import EngineCoreProc
 from vllm.v1.engine.utils import CoreEngineProcManager
 from vllm.v1.executor.abstract import Executor
 
+# Try to import MultiprocExecutor from vLLM
+try:
+    from vllm.v1.executor.multiproc_executor import MultiprocExecutor
+except ImportError:
+    MultiprocExecutor = None
+
 from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches
@@ -59,6 +65,161 @@ logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
 
 
+# Check if MultiprocExecutor is available, otherwise raise an error
+if MultiprocExecutor is None:
+    raise ImportError(
+        "MultiprocExecutor not found. This refactoring requires vLLM v1 with MultiprocExecutor support. "
+        "Please ensure vLLM v1 is properly installed."
+    )
+
+
+class vLLMMultiprocExecutor(MultiprocExecutor):
+    """
+    vLLM multiproc executor specialized for verl.
+    Inherits from MultiprocExecutor and adds ZMQ server functionality
+    for communicating with training workers.
+    """
+
+    uses_ray: bool = False
+
+    def __init__(self, vllm_config):
+        super().__init__(vllm_config)
+        self.zmq_context = None
+        self.zmq_socket = None
+        self.zmq_thread = None
+        self.zmq_is_running = False
+        self.executor_zmq_address = None
+
+    def _init_executor(self) -> None:
+        """Override _init_executor to add ZMQ server functionality."""
+        # Call parent class initialization first to set up workers
+        super()._init_executor()
+
+        # Get worker count from environment variable and override world_size
+        worker_count = self._get_worker_count()
+        if worker_count <= 0:
+            raise ValueError("VERL_VLLM_WORKER_COUNT environment variable not set or invalid")
+
+        self.world_size = worker_count
+
+        # Initialize ZMQ server to communicate with training workers
+        self._init_zmq_server()
+        self._start_zmq_server()
+
+    def _get_worker_count(self) -> int:
+        """
+        Get worker count from VERL_VLLM_WORKER_COUNT environment variable.
+        This environment variable is set in vLLMHttpServerBase.run_server().
+        """
+        count_str = os.environ.get("VERL_VLLM_WORKER_COUNT", "")
+        try:
+            return int(count_str)
+        except ValueError:
+            return 0
+
+    def _handle_zmq_request(self, request: dict) -> dict:
+        """Handle ZMQ requests from vLLMAsyncRollout."""
+        method = request.get("method")
+        args = request.get("args", ())
+        kwargs = request.get("kwargs", {})
+
+        try:
+            # Use collective_rpc to distribute the method call to workers
+            results = self.collective_rpc(method, *args, **kwargs)
+            return {"status": "success", "result": results}
+
+        except Exception as e:
+            logger.error(f"Error handling ZMQ request {method}: {e}")
+            return {"status": "error", "error": str(e)}
+
+    def _init_zmq_server(self):
+        """Initialize ZMQ server."""
+        # Read ZMQ address from environment variable (set by vLLMHttpServerBase)
+        self.executor_zmq_address = os.environ.get("VERL_VLLM_EXECUTOR_ZMQ_ADDRESS")
+        if not self.executor_zmq_address:
+            raise ValueError("VERL_VLLM_EXECUTOR_ZMQ_ADDRESS environment variable not set")
+
+        logger.info(f"vLLMMultiprocExecutor ZMQ server will bind to: {self.executor_zmq_address}")
+
+    def _start_zmq_server(self):
+        """Start ZMQ server."""
+        import threading
+
+        if self.zmq_is_running:
+            return
+
+        self.zmq_context = zmq.Context()
+        self.zmq_socket = self.zmq_context.socket(zmq.REP)
+
+        # Bind to address
+        self.zmq_socket.bind(self.executor_zmq_address)
+        logger.info(f"vLLMMultiprocExecutor ZMQ server bound to: {self.executor_zmq_address}")
+
+        # Start service thread
+        self.zmq_is_running = True
+        self.zmq_thread = threading.Thread(
+            target=self._zmq_service_loop,
+            daemon=True,
+            name="vLLMMultiprocExecutor-ZMQ"
+        )
+        self.zmq_thread.start()
+        logger.info("vLLMMultiprocExecutor ZMQ server started")
+
+    def _zmq_service_loop(self):
+        """ZMQ service loop to handle requests from vLLMAsyncRollout."""
+        while self.zmq_is_running:
+            try:
+                message = self.zmq_socket.recv()
+                request = pickle.loads(message)
+
+                response = self._handle_zmq_request(request)
+
+                self.zmq_socket.send(pickle.dumps(response))
+
+            except zmq.Again:
+                continue
+            except zmq.ZMQError as e:
+                if e.errno == zmq.ETERM:
+                    logger.info("vLLMMultiprocExecutor ZMQ context terminated")
+                    break
+                logger.error(f"ZMQ error in vLLMMultiprocExecutor: {e}")
+            except Exception as e:
+                logger.exception(f"Error in ZMQ service loop: {e}")
+
+    def _shutdown_zmq_server(self):
+        """Shutdown ZMQ server."""
+        if self.zmq_is_running:
+            self.zmq_is_running = False
+
+            if self.zmq_socket:
+                self.zmq_socket.close()
+                self.zmq_socket = None
+
+            if self.zmq_context:
+                self.zmq_context.term()
+                self.zmq_context = None
+
+            if self.zmq_thread and self.zmq_thread.is_alive():
+                self.zmq_thread.join(timeout=5)
+                if self.zmq_thread.is_alive():
+                    logger.warning("ZMQ thread did not terminate cleanly")
+
+            logger.info("ZMQ server shutdown complete")
+
+    def shutdown(self):
+        """Override shutdown to ensure ZMQ server is properly closed."""
+        # First shutdown ZMQ server
+        self._shutdown_zmq_server()
+
+        # Call parent class shutdown
+        super().shutdown()
+
+    def check_health(self):
+        """Check executor health."""
+        return
+
+
+# Keep ExternalZeroMQDistributedExecutor for backward compatibility
 class ExternalZeroMQDistributedExecutor(Executor):
     """An executor that engines are launched by external ray actors."""
 
@@ -192,6 +353,22 @@ class vLLMHttpServerBase:
         assert self._server_port is not None, "http server is not launched, port is None"
         return self._server_address, self._server_port
 
+    def _generate_executor_zmq_address(self) -> str:
+        """
+        Generate Executor ZMQ IPC address.
+        In separate training/inference scenarios, training and inference may not share GPUs,
+        so we use TCP protocol.
+        """
+        import zmq
+
+        ip = ray.util.get_node_ip_address().strip("[]")
+        port, sock = get_free_port(ip)
+        if is_valid_ipv6_address(ip):
+            address = f"tcp://[{ip}]:{port}"
+        else:
+            address = f"tcp://{ip}:{port}"
+        return address
+
     async def launch_server(self, master_address: str = None, master_port: int = None):
         if self.node_rank != 0:
             assert master_address and master_port, "non-master node should provide master address and port"
@@ -304,6 +481,12 @@ class vLLMHttpServerBase:
                 # Use json.dumps for dict to ensure valid JSON format
                 server_args.append(json.dumps(v) if isinstance(v, dict) else str(v))
 
+        # Pass worker_extension_cls parameter
+        server_args.extend([
+            "--worker_extension_cls",
+            "verl.workers.rollout.vllm_rollout.utils.vLLMColocateWorkerExtension"
+        ])
+
         if self.replica_rank == 0:
             pprint(server_args)
 
@@ -322,15 +505,33 @@ class vLLMHttpServerBase:
             cmds[server_args.subparser].validate(server_args)
 
         # 2. setup distributed executor backend
-        distributed_executor_backend = ExternalZeroMQDistributedExecutor if len(self.workers) > 0 else None
+
+        # Set Executor backend to vLLMMultiprocExecutor
+        distributed_executor_backend = vLLMMultiprocExecutor if len(self.workers) > 0 else None
         server_args.distributed_executor_backend = distributed_executor_backend
 
-        zmq_addresses = ray.get([worker.get_zeromq_address.remote() for worker in self.workers])
+        # Generate Executor ZMQ IPC address and set environment variable
+        executor_zmq_address = self._generate_executor_zmq_address()
+        os.environ["VERL_VLLM_EXECUTOR_ZMQ_ADDRESS"] = executor_zmq_address
+
+        # Set worker count environment variable
+        os.environ["VERL_VLLM_WORKER_COUNT"] = str(len(self.workers))
+
+        # Pass Executor ZMQ address to all training workers
+        ray.get([worker.set_executor_zmq_address.remote(executor_zmq_address) for worker in self.workers])
+
+        # Get ZMQ handles from all training workers
+        zmq_handles = {}
+        for worker in self.workers:
+            zmq_handles.update(ray.get(worker.get_update_weights_zmq_handle.remote()))
+
+        # Set the obtained ZMQ handles
+        ray.get([worker.set_update_weights_zmq_handles.remote(zmq_handles) for worker in self.workers])
+
         logger.info(
             f"replica_rank={self.replica_rank}, node_rank={self.node_rank}, nnodes={self.nnodes}, "
-            f"get worker zmq addresses: {zmq_addresses}"
+            f"get worker zmq handles: {zmq_handles}"
         )
-        os.environ["VERL_VLLM_ZMQ_ADDRESSES"] = ",".join(zmq_addresses)
 
         # 3. launch server
         if self.node_rank == 0:
