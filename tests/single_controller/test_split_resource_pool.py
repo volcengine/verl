@@ -53,9 +53,7 @@ def test_split_resource_pool_with_split_size():
     global_resource_pool.get_placement_groups()
 
     # first 4 gpus for actor_1, last 4 gpus for actor_2
-    actor_1_resource_pool, actor_2_resource_pool = split_resource_pool(
-        resource_pool=global_resource_pool, split_size=4
-    )
+    actor_1_resource_pool, actor_2_resource_pool = split_resource_pool(resource_pool=global_resource_pool, split_size=4)
     actor_cls_1 = RayClassWithInitArgs(cls=Actor, worker_id=0)
     actor_cls_2 = RayClassWithInitArgs(cls=Actor, worker_id=100)
     actor_worker_1 = RayWorkerGroup(
@@ -86,7 +84,8 @@ def test_split_resource_pool_with_split_size_list():
 
     # first 2 gpus for actor_1, last 6 gpus for actor_2
     actor_1_resource_pool, actor_2_resource_pool = split_resource_pool(
-        resource_pool=global_resource_pool, split_size=[2, 6],
+        resource_pool=global_resource_pool,
+        split_size=[2, 6],
     )
     actor_cls_1 = RayClassWithInitArgs(cls=Actor, worker_id=0)
     actor_cls_2 = RayClassWithInitArgs(cls=Actor, worker_id=100)
@@ -102,15 +101,53 @@ def test_split_resource_pool_with_split_size_list():
     assert actor_worker_2.world_size == 6
 
     data_1 = DataProto.from_dict({"a": torch.zeros(4)})
-    data_2 = DataProto.from_dict({"a": torch.zeros(12)})
+    data_2 = DataProto.from_dict({"a": torch.zeros(6)})
     actor_output_1 = actor_worker_1.add(data_1)
     actor_output_2 = actor_worker_2.add(data_2)
     print(actor_output_1.batch["a"].tolist())
     print(actor_output_2.batch["a"].tolist())
-    assert actor_output_1.batch["a"].tolist() == [0.0, 0.0, 1.0, 1.0]
-    assert actor_output_2.batch["a"].tolist() == [100.0, 100.0, 101.0, 101.0, 102.0, 102.0, 103.0, 103.0, 104.0, 104.0, 105.0, 105.0]
+    assert actor_output_1.batch["a"].tolist() == [0, 0, 1, 1]
+    assert actor_output_2.batch["a"].tolist() == [100, 101, 102, 103, 104, 105]
 
     ray.shutdown()
+
+
+def test_split_resource_pool_with_split_size_list_cross_nodes():
+    ray.init()
+    # assume we have 4 nodes, with 2 GPUs each
+    global_resource_pool = RayResourcePool(process_on_nodes=[4, 4])
+    global_resource_pool.get_placement_groups()
+
+    # first 2 gpus for actor_1, last 6 gpus for actor_2
+    actor_1_resource_pool, actor_2_resource_pool = split_resource_pool(
+        resource_pool=global_resource_pool,
+        split_size=[2, 6],
+    )
+    actor_cls_1 = RayClassWithInitArgs(cls=Actor, worker_id=0)
+    actor_cls_2 = RayClassWithInitArgs(cls=Actor, worker_id=100)
+    actor_worker_1 = RayWorkerGroup(
+        resource_pool=actor_1_resource_pool,
+        ray_cls_with_init=actor_cls_1,
+    )
+    actor_worker_2 = RayWorkerGroup(
+        resource_pool=actor_2_resource_pool,
+        ray_cls_with_init=actor_cls_2,
+    )
+
+    assert actor_worker_1.world_size == 2
+    assert actor_worker_2.world_size == 6
+
+    data_1 = DataProto.from_dict({"a": torch.zeros(4)})
+    data_2 = DataProto.from_dict({"a": torch.zeros(6)})
+    actor_output_1 = actor_worker_1.add(data_1)
+    actor_output_2 = actor_worker_2.add(data_2)
+    print(actor_output_1.batch["a"].tolist())
+    print(actor_output_2.batch["a"].tolist())
+    assert actor_output_1.batch["a"].tolist() == [0, 0, 1, 1]
+    assert actor_output_2.batch["a"].tolist() == [100, 101, 102, 103, 104, 105]
+
+    ray.shutdown()
+
 
 def test_split_resource_pool_with_split_twice():
     ray.init()
@@ -119,21 +156,24 @@ def test_split_resource_pool_with_split_twice():
     global_resource_pool = RayResourcePool(process_on_nodes=[2, 2, 2, 2])
     global_resource_pool.get_placement_groups()
 
-    # first 2 gpus for actor_1, last 6 gpus for actor_2
+    # actors with [2, 1, 1, 1, 1, 2] (split twice)
     rp_1, rp_2, rp_3 = split_resource_pool(
-        resource_pool=global_resource_pool, split_size=[2, 4, 2],
+        resource_pool=global_resource_pool,
+        split_size=[2, 4, 2],
     )
     rp_2_1, rp_2_2, rp_2_3, rp_2_4 = split_resource_pool(
-        resource_pool=rp_2, split_size=1,
+        resource_pool=rp_2,
+        split_size=1,
     )
     fp_list = [rp_1, rp_2_1, rp_2_2, rp_2_3, rp_2_4, rp_3]
     correct_world_size = [2, 1, 1, 1, 1, 2]
     correct_output = [
-        [100.0, 100.0, 100.0, 100.0],
-        [200.0, 200.0, 200.0, 200.0],
-        [300.0, 300.0, 300.0, 300.0],
-        [400.0, 400.0, 400.0, 400.0],
-        [500.0, 500.0, 501.0, 501.0],
+        [0.0, 0.0, 1.0, 1.0],  # 2 worker
+        [100.0, 100.0, 100.0, 100.0],  # 1 worker
+        [200.0, 200.0, 200.0, 200.0],  # 1 worker
+        [300.0, 300.0, 300.0, 300.0],  # 1 worker
+        [400.0, 400.0, 400.0, 400.0],  # 1 worker
+        [500.0, 500.0, 501.0, 501.0],  # 2 worker
     ]
     for idx, rp in enumerate(fp_list):
         actor_cls = RayClassWithInitArgs(cls=Actor, worker_id=idx * 100)
@@ -144,6 +184,6 @@ def test_split_resource_pool_with_split_twice():
         data = DataProto.from_dict({"a": torch.zeros(4)})
         actor_output = actor_worker.add(data)
         assert actor_worker.world_size == correct_world_size[idx]
-        print(actor_output.batch["a"].tolist())
+        assert actor_output.batch["a"].tolist() == correct_output[idx]
 
     ray.shutdown()
