@@ -174,7 +174,9 @@ class MegatronEngine(BaseEngine):
 
         from verl.workers.config.megatron_peft import get_peft_cls
 
-        self.peft_cls = get_peft_cls(model_config=self.model_config, bridge=self.bridge, provider=self.provider)
+        self.peft_cls = get_peft_cls(
+            model_config=self.model_config, bridge=self.bridge, provider=self.provider, dtype=self.param_dtype
+        )
 
     def _build_megatron_module(self):
         from verl.utils.megatron_utils import McoreModuleWrapperConfig, make_megatron_module

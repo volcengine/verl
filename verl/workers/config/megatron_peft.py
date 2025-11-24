@@ -14,7 +14,7 @@
 """PEFT configuration of Megatron for VERL."""
 
 
-def get_peft_cls(model_config, bridge, provider):
+def get_peft_cls(model_config, bridge, provider, dtype=None):
     """Get PEFT class from model config.
 
     Args:
@@ -39,7 +39,7 @@ def get_peft_cls(model_config, bridge, provider):
 
     from verl.models.mcore.bridge import CanonicalLoRA, DoRA, LoRA, VLMLoRA
 
-    lora_dtype = lora_cfg.get("dtype", None)
+    lora_dtype = lora_cfg.get("dtype", dtype)
     if lora_dtype is not None:
         from verl.utils.torch_dtypes import PrecisionType
 

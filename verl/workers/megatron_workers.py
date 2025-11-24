@@ -221,7 +221,9 @@ class MegatronWorker(Worker):
         # Get PEFT config from model.lora if specified
         from verl.workers.config.megatron_peft import get_peft_cls
 
-        self.peft_cls = get_peft_cls(model_config=self.config.model, bridge=self.bridge, provider=self.provider)
+        self.peft_cls = get_peft_cls(
+            model_config=self.config.model, bridge=self.bridge, provider=self.provider, dtype=dtype
+        )
 
 
 class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
@@ -437,9 +439,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                         if self.vanilla_bridge:
                             self.bridge.load_weights(ref_module, local_model_path)
                         else:
-                            self.bridge.load_hf_weights(
-                                ref_module, local_model_path, allowed_mismatched_params=["output_layer.weight"]
-                            )
+                            self.bridge.load_hf_weights(ref_module, local_model_path)
                     else:
                         load_megatron_gptmodel_weights(
                             self.config, self.hf_config, ref_module, params_dtype=self.dtype, is_value_model=False
@@ -1066,7 +1066,9 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
                     if self.vanilla_bridge:
                         self.bridge.load_weights(critic_module, local_model_path)
                     else:
-                        self.bridge.load_hf_weights(critic_module, local_model_path)
+                        self.bridge.load_hf_weights(
+                            critic_module, local_model_path, allowed_mismatched_params=["output_layer.weight"]
+                        )
                 else:
                     load_megatron_gptmodel_weights(
                         self.config, self.hf_config, critic_module, params_dtype=self.dtype, is_value_model=True
