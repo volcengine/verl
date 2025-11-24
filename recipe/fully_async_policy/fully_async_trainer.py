@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import time
 from datetime import datetime
 from pprint import pprint
@@ -33,6 +34,7 @@ from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.ray_trainer import ResourcePoolManager
 from verl.trainer.ppo.reward import load_reward_manager
 from verl.trainer.ppo.utils import Role, WorkerType, need_critic, need_reference_policy, need_reward_model
+from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
 from verl.utils.debug import marked_timer
 
 
@@ -101,6 +103,7 @@ class FullyAsyncTrainer(FullyAsyncRayPPOTrainer):
         self.total_train_steps = None
         self.progress_bar = None
         self.trigger_parameter_sync_step = config.async_training.trigger_parameter_sync_step
+        self.last_ckpt_version = 0
 
         # required_samples use ppo_mini_batch_size*require_batches as the minimum number of samples.
         self.require_batches = config.async_training.require_batches
@@ -267,7 +270,6 @@ class FullyAsyncTrainer(FullyAsyncRayPPOTrainer):
                     batch, metrics, timing_raw, self.local_trigger_step if self.compute_prox_log_prob else None
                 )
                 self._log_rollout(batch, reward_extra_infos_dict, timing_raw)
-                self._check_save_checkpoint(False, timing_raw)
 
             self._collect_metrics(batch, 0, metrics, timing_raw)
             self.metrics_aggregator.add_step_metrics(
@@ -292,6 +294,7 @@ class FullyAsyncTrainer(FullyAsyncRayPPOTrainer):
                         Validation metrics: {val_data.metrics}"
                     )
                 self.logger.log(data=val_data.timing_raw, step=val_data.param_version)
+            self._check_save_checkpoint(timing_raw)
             self.global_steps += 1
 
         # final parameter sync and validate
@@ -309,10 +312,149 @@ class FullyAsyncTrainer(FullyAsyncRayPPOTrainer):
             pprint(f"[FullyAsyncTrainer] Final validation metrics: {val_data.metrics}")
         self.progress_bar.close()
 
-        self._check_save_checkpoint(True, timing_raw)  # TODO: check checkpoint
+        self._check_save_checkpoint(timing_raw)
+
+    def _check_save_checkpoint(self, timing_raw):
+        if self.current_param_version == self.last_ckpt_version:
+            return
+        # Check if the ESI (Elastic Server Instance)/training plan is close to expiration.
+        esi_close_to_expiration = should_save_ckpt_esi(
+            max_steps_duration=self.max_steps_duration,
+            redundant_time=self.config.trainer.esi_redundant_time,
+        )
+        # Check if the conditions for saving a checkpoint are met.
+        # The conditions include a mandatory condition (1) and
+        # one of the following optional conditions (2/3/4):
+        # 1. The save frequency is set to a positive value.
+        # 2. The current step number is a multiple of the save frequency.
+        # 3. The ESI(Elastic Server Instance)/training plan is close to expiration.
+        if self.config.trainer.save_freq > 0 and (
+            self.current_param_version % self.config.trainer.save_freq == 0 or esi_close_to_expiration
+        ):
+            if esi_close_to_expiration:
+                print("Force saving checkpoint: ESI instance expiration approaching.")
+            with marked_timer("save_checkpoint", timing_raw, color="green"):
+                self._save_checkpoint()
+                self.last_ckpt_version = self.current_param_version
+
+    def _save_checkpoint(self):
+        # Warning: Currently, to align the training process and metrics of colocate,
+        # we use current_param_version instead of global step.
+        # This can be logically aligned with the original self.global_steps of colocate
+        # and is used for metrics and ckpt. which means that the parameter synchronization
+        # from trainer to rollouter will increase by 1 each time.
+
+        # path: given_path + `/global_step_{global_steps}` + `/actor`
+        local_global_step_folder = os.path.join(
+            self.config.trainer.default_local_dir, f"global_step_{self.current_param_version}"
+        )
+
+        print(f"[FullyAsyncTrainer] local_global_step_folder: {local_global_step_folder}")
+        actor_local_path = os.path.join(local_global_step_folder, "actor")
+
+        actor_remote_path = (
+            None
+            if self.config.trainer.default_hdfs_dir is None
+            else os.path.join(
+                self.config.trainer.default_hdfs_dir, f"global_step_{self.current_param_version}", "actor"
+            )
+        )
+
+        remove_previous_ckpt_in_save = self.config.trainer.get("remove_previous_ckpt_in_save", False)
+        if remove_previous_ckpt_in_save:
+            print(
+                "[FullyAsyncTrainer] Warning: remove_previous_ckpt_in_save is deprecated,"
+                + " set max_actor_ckpt_to_keep=1 and max_critic_ckpt_to_keep=1 instead"
+            )
+        max_actor_ckpt_to_keep = (
+            self.config.trainer.get("max_actor_ckpt_to_keep", None) if not remove_previous_ckpt_in_save else 1
+        )
+        max_critic_ckpt_to_keep = (
+            self.config.trainer.get("max_critic_ckpt_to_keep", None) if not remove_previous_ckpt_in_save else 1
+        )
+
+        self.actor_rollout_wg.save_checkpoint(
+            actor_local_path, actor_remote_path, self.current_param_version, max_ckpt_to_keep=max_actor_ckpt_to_keep
+        )
+
+        if self.use_critic:
+            critic_local_path = os.path.join(local_global_step_folder, str(Role.Critic))
+            critic_remote_path = (
+                None
+                if self.config.trainer.default_hdfs_dir is None
+                else os.path.join(
+                    self.config.trainer.default_hdfs_dir, f"global_step_{self.current_param_version}", str(Role.Critic)
+                )
+            )
+            self.critic_wg.save_checkpoint(
+                critic_local_path,
+                critic_remote_path,
+                self.current_param_version,
+                max_ckpt_to_keep=max_critic_ckpt_to_keep,
+            )
+        ray.get(self.param_synchronizer.rollouter_save_checkpoint.remote(local_global_step_folder))
+        # latest checkpointed iteration tracker (for atomic usage)
+        local_latest_checkpointed_iteration = os.path.join(
+            self.config.trainer.default_local_dir, "latest_checkpointed_iteration.txt"
+        )
+        with open(local_latest_checkpointed_iteration, "w") as f:
+            f.write(str(self.current_param_version))
 
     def load_checkpoint(self):
-        return self._load_checkpoint()
+        if self.config.trainer.resume_mode == "disable":
+            # NOTE: while there is no checkpoint to load, we still need to offload the model and optimizer to CPU
+            self.actor_rollout_wg.load_checkpoint(None)
+            return 0
+
+        # load from hdfs
+        if self.config.trainer.default_hdfs_dir is not None:
+            raise NotImplementedError("load from hdfs is not implemented yet")
+        else:
+            checkpoint_folder = self.config.trainer.default_local_dir  # TODO: check path
+            if not os.path.isabs(checkpoint_folder):
+                working_dir = os.getcwd()
+                checkpoint_folder = os.path.join(working_dir, checkpoint_folder)
+            global_step_folder = find_latest_ckpt_path(checkpoint_folder)  # None if no latest
+
+        # find global_step_folder
+        if self.config.trainer.resume_mode == "auto":
+            if global_step_folder is None:
+                print("[FullyAsyncTrainer] Training from scratch")
+                self.actor_rollout_wg.load_checkpoint(None)
+                return 0
+        else:
+            if self.config.trainer.resume_mode == "resume_path":
+                assert isinstance(self.config.trainer.resume_from_path, str), "resume ckpt must be str type"
+                assert "global_step_" in self.config.trainer.resume_from_path, (
+                    "resume ckpt must specify the global_steps"
+                )
+                global_step_folder = self.config.trainer.resume_from_path
+                if not os.path.isabs(global_step_folder):
+                    working_dir = os.getcwd()
+                    global_step_folder = os.path.join(working_dir, global_step_folder)
+        print(f"[FullyAsyncTrainer] Load from checkpoint folder: {global_step_folder}")
+        # set global step
+        self.current_param_version = int(global_step_folder.split("global_step_")[-1])
+        self.global_steps = self.current_param_version * self.trigger_parameter_sync_step + 1
+        self.last_ckpt_version = self.current_param_version
+        print(
+            f"[FullyAsyncTrainer] Setting global step to {self.global_steps}, "
+            f"current_param_version to {self.current_param_version}"
+        )
+        print(f"[FullyAsyncTrainer] Resuming from  {global_step_folder}")
+
+        actor_path = os.path.join(global_step_folder, "actor")
+        critic_path = os.path.join(global_step_folder, str(Role.Critic))
+        # load actor
+        self.actor_rollout_wg.load_checkpoint(
+            actor_path, del_local_after_load=self.config.trainer.del_local_ckpt_after_load
+        )
+        # load critic
+        if self.use_critic:
+            self.critic_wg.load_checkpoint(
+                critic_path, del_local_after_load=self.config.trainer.del_local_ckpt_after_load
+            )
+        return self.current_param_version
 
     def _collect_metrics_from_samples(self, batch, metrics):
         """

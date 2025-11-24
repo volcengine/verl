@@ -14,6 +14,7 @@
 
 
 import torch
+import torch.nn.functional as F
 from tensordict import TensorDict
 
 from verl.trainer.ppo.core_algos import agg_loss, compute_value_loss, get_policy_loss_fn, kl_penalty
@@ -21,7 +22,6 @@ from verl.utils import tensordict_utils as tu
 from verl.utils.dataset.dataset_utils import DatasetPadMode
 from verl.utils.torch_functional import masked_mean, masked_sum
 from verl.workers.config import ActorConfig, CriticConfig
-from verl.workers.roles.utils.padding import no_padding_2_padding
 
 
 def sft_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None):
@@ -53,13 +53,55 @@ def sft_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
     return loss, {"loss": loss.detach().item()}
 
 
-def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None):
-    log_prob = model_output["log_probs"]
-    entropy = model_output.get("entropy", None)
+def _slice_response_from_unpad_output(tensor: torch.Tensor, data: TensorDict) -> torch.Tensor:
+    """Slice response from unpad model output.
 
-    log_prob = no_padding_2_padding(log_prob, data)  # (bsz, response_length)
+    Args:
+        tensor: model output tensor of shape [bsz, 1]
+        data: TensorDict with "prompt_ids", "response_ids", "attention_mask"
+
+    Returns:
+        tensor: sliced response tensor of shape [bsz, max_response_len]
+    """
+    values = tensor.values() if tensor.is_nested else tensor
+    prompt_ids = data["prompts"]
+    response_ids = data["responses"]
+    attention_mask = data["attention_mask"]
+
+    if prompt_ids.is_nested:
+        prompt_lens = prompt_ids.offsets().diff()
+        response_lens = response_ids.offsets().diff()
+        max_response_len = response_ids.offsets().max().item()
+    else:
+        assert not attention_mask.is_nested
+        prompt_lens = attention_mask[:, : prompt_ids.shape[1]].sum(dim=1)
+        response_lens = attention_mask[:, prompt_ids.shape[1] :].sum(dim=1)
+        max_response_len = response_ids.shape[1]
+
+    sequence_lens = prompt_lens + response_lens
+    sequence_offsets = sequence_lens.cumsum(dim=0)
+    assert sequence_offsets[-1].item() == values.shape[0]
+
+    response_list = []
+    for resp_len, seq_offset in zip(response_lens, sequence_offsets, strict=True):
+        pad_size = max_response_len - resp_len
+        # left-shift model output by one token for log_probs/values
+        response_list.append(F.pad(values[seq_offset - resp_len - 1 : seq_offset - 1], (0, pad_size)))
+
+    output = torch.stack(response_list, dim=0)
+    return output
+
+
+def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None):
+    log_prob = _slice_response_from_unpad_output(model_output["log_probs"], data)
+    entropy = model_output.get("entropy", None)
     if entropy is not None:
-        entropy = no_padding_2_padding(entropy, data)  # (bsz, response_length)
+        entropy = _slice_response_from_unpad_output(entropy, data)
+
+    # global batch info for loss aggregation
+    config.global_batch_info["dp_size"] = data["dp_size"]
+    config.global_batch_info["batch_num_tokens"] = data["batch_num_tokens"]
+    config.global_batch_info["global_batch_size"] = data["global_batch_size"]
 
     metrics = {}
 
@@ -67,6 +109,7 @@ def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
     # compute policy loss
     old_log_prob = data["old_log_probs"]
     advantages = data["advantages"]
+    rollout_is_weights = data.get("rollout_is_weights", None)
 
     loss_agg_mode = config.loss_agg_mode
 
@@ -80,14 +123,18 @@ def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
         response_mask=response_mask,
         loss_agg_mode=loss_agg_mode,
         config=config,
+        rollout_is_weights=rollout_is_weights,
     )
+
     metrics.update(pg_metrics)
     metrics["actor/pg_loss"] = pg_loss.detach().item()
     policy_loss = pg_loss
 
     # add entropy loss
     if entropy is not None:
-        entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+        entropy_loss = agg_loss(
+            loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode, **config.global_batch_info
+        )
         entropy_coeff = config.entropy_coeff
         policy_loss -= entropy_coeff * entropy_loss
 
@@ -96,7 +143,9 @@ def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
         ref_log_prob = data["ref_log_prob"]
         # compute kl loss
         kld = kl_penalty(logprob=log_prob, ref_logprob=ref_log_prob, kl_penalty=config.kl_loss_type)
-        kl_loss = agg_loss(loss_mat=kld, loss_mask=response_mask, loss_agg_mode=config.loss_agg_mode)
+        kl_loss = agg_loss(
+            loss_mat=kld, loss_mask=response_mask, loss_agg_mode=config.loss_agg_mode, **config.global_batch_info
+        )
 
         policy_loss += kl_loss * config.kl_loss_coef
         metrics["kl_loss"] = kl_loss.detach().item()
@@ -106,8 +155,7 @@ def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
 
 
 def value_loss(config: CriticConfig, model_output, data: TensorDict, dp_group=None):
-    vpreds = model_output["values"]
-    vpreds = no_padding_2_padding(vpreds, data)  # (bsz, response_length)
+    vpreds = _slice_response_from_unpad_output(model_output["values"], data)  # (bsz, response_length)
 
     values = data["values"]
     returns = data["returns"]

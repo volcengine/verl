@@ -117,14 +117,6 @@ jobs:
         run: |
           pip3 install transformers==4.54.1
           torchrun --nproc_per_node=8 -m pytest tests/models/test_transformers_ulysses.py
-      - name: Running transformers ulysses tests on 8 L20 GPUs + transformers 4.53.2
-        run: |
-          pip3 install transformers==4.53.2
-          torchrun --nproc_per_node=8 -m pytest tests/models/test_transformers_ulysses.py
-      - name: Running transformers ulysses tests on 8 L20 GPUs + transformers 4.52.0
-        run: |
-          pip3 install transformers==4.52.0
-          torchrun --nproc_per_node=8 -m pytest tests/models/test_transformers_ulysses.py
       - name: Run distributed test
         run: |
           bash tests/special_distributed/run_all.sh

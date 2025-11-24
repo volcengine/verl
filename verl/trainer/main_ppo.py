@@ -121,6 +121,25 @@ class TaskRunner:
     def add_actor_rollout_worker(self, config):
         """Add actor rollout worker based on the actor strategy."""
         from verl.single_controller.ray import RayWorkerGroup
+        from verl.trainer.ppo.ray_trainer import Role
+
+        use_legacy_worker_impl = config.trainer.get("use_legacy_worker_impl", "auto")
+
+        # use new model engine implementation
+        if use_legacy_worker_impl == "disable":
+            from verl.workers.engine_workers import ActorRolloutRefWorker
+
+            actor_rollout_cls = ActorRolloutRefWorker
+            ray_worker_group_cls = RayWorkerGroup
+            # NOTE: In new model engine, ref policy and actor rollout are in same ActorRolloutRefWorker,
+            # while in legacy model engine, ref policy is in a separate ActorRolloutRefWorker.
+            if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
+                role = Role.ActorRolloutRef
+            else:
+                role = Role.ActorRollout
+            self.role_worker_mapping[role] = ray.remote(actor_rollout_cls)
+            self.mapping[role] = "global_pool"
+            return actor_rollout_cls, ray_worker_group_cls
 
         if config.actor_rollout_ref.rollout.mode == "sync":
             warnings.warn("spmd rollout mode is deprecated and will be removed in v0.6.2", stacklevel=2)
@@ -148,10 +167,8 @@ class TaskRunner:
         else:
             raise NotImplementedError
 
-        from verl.trainer.ppo.ray_trainer import Role
-
         self.role_worker_mapping[Role.ActorRollout] = ray.remote(actor_rollout_cls)
-
+        self.mapping[Role.ActorRollout] = "global_pool"
         return actor_rollout_cls, ray_worker_group_cls
 
     def add_critic_worker(self, config):
@@ -176,10 +193,10 @@ class TaskRunner:
         from verl.trainer.ppo.ray_trainer import Role
 
         self.role_worker_mapping[Role.Critic] = ray.remote(CriticWorker)
+        self.mapping[Role.Critic] = "global_pool"
 
     def init_resource_pool_mgr(self, config):
         """Initialize resource pool manager."""
-        from verl.trainer.ppo.ray_trainer import Role
 
         global_pool_id = "global_pool"
         resource_pool_spec = {
@@ -195,8 +212,6 @@ class TaskRunner:
             reward_pool = [config.reward_model.n_gpus_per_node] * config.reward_model.nnodes
             resource_pool_spec["reward_pool"] = reward_pool
 
-        self.mapping[Role.ActorRollout] = global_pool_id
-        self.mapping[Role.Critic] = global_pool_id
         from verl.trainer.ppo.ray_trainer import ResourcePoolManager
 
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=self.mapping)
@@ -231,6 +246,12 @@ class TaskRunner:
     def add_ref_policy_worker(self, config, ref_policy_cls):
         """Add reference policy worker if KL loss or KL reward is used."""
         from verl.trainer.ppo.ray_trainer import Role
+
+        # Ref policy has been fused into ActorRolloutRefWorker in new model engine,
+        # we don't need to add a separate ref policy worker goup.
+        use_legacy_worker_impl = config.trainer.get("use_legacy_worker_impl", "auto")
+        if use_legacy_worker_impl == "disable":
+            return
 
         if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
             self.role_worker_mapping[Role.RefPolicy] = ray.remote(ref_policy_cls)

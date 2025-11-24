@@ -105,6 +105,9 @@ class FSDPEngineConfig(BaseConfig):
         dtype (str): Mixed precision training param dtype, default "bfloat16"
     """
 
+    # ulysses_sequence_parallel_size is mutable for backward compatibility
+    _mutable_fields = BaseConfig._mutable_fields | {"ulysses_sequence_parallel_size"}
+
     wrap_policy: dict[str, Any] = field(default_factory=dict)
     param_offload: bool = False
     optimizer_offload: bool = False

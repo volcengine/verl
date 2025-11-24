@@ -11,6 +11,8 @@ defaults:
   - ref@actor_rollout_ref.ref: megatron_ref
   # Rollout model config.
   - rollout@actor_rollout_ref.rollout: rollout
+  # Model config.
+  - model@actor_rollout_ref.model: hf_model
   # Critic model config.
   - critic@critic: megatron_critic
   # Reward model config.
@@ -25,15 +27,8 @@ actor_rollout_ref:
   nccl_timeout: 600 # seconds, default is 10 minutes for torch, you can set it to a larger value if you have long-running operations like 32B or 72B model using megatron
 
   model:
-    path: ~/models/deepseek-llm-7b-chat
-
-    custom_chat_template: null
-
-    external_lib: null
-
     override_config:
       model_config: {}
-
       moe_config:
         freeze_moe_router: False
 
@@ -134,6 +129,10 @@ trainer:
   device: cuda
   # Directory for logging rollout data; no dump if null
   rollout_data_dir: null
+
+  # whether to use legacy worker implementation
+  #  mode: "auto", "enable", or "disable"
+  use_legacy_worker_impl: auto
 
 global_profiler:
   _target_: verl.utils.profiler.ProfilerConfig
