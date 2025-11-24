@@ -785,12 +785,17 @@ def use_original_torch_compile():
     try:
         from mindspeed.patch_utils import MindSpeedPatchesManager
 
+        compile_patch = None
         for patch in MindSpeedPatchesManager.patches_info.values():
             if patch.orig_module_name == "torch" and patch.orig_func_name == "compile":
                 if patch.is_applied():
-                    patch.remove_patch()
-                    yield
-                    patch.apply_patch()
+                    compile_patch = patch
                 break
+        if compile_patch is not None:
+            compile_patch.remove_patch()
+            yield
+            compile_patch.apply_patch()
+        else:
+            yield
     except Exception:
         yield
