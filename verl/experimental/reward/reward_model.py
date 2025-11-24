@@ -16,7 +16,7 @@ import asyncio
 import json
 import logging
 import os
-
+import torch
 import aiohttp
 from openai.types.chat import ChatCompletion
 
@@ -109,15 +109,15 @@ class RewardModelManager:
 
         return asyncio.run(run_all())
 
-    async def chat_complete(self, chat_complete_request: dict):
-        url = f"http://{self.router_address}/v1/chat/completions"
+    async def post_request(self, payload: dict, endpoint: str):
+        url = f"http://{self.router_address}/{endpoint}"
         try:
             timeout = aiohttp.ClientTimeout(total=None)
             session = aiohttp.ClientSession(timeout=timeout)
-            async with session.post(url, json=chat_complete_request) as resp:
+            async with session.post(url, json=payload) as resp:
                 output = await resp.text()
                 output = json.loads(output)
-                return ChatCompletion(**output)
+                return output
         except Exception as e:
             raise e
         finally:
@@ -126,7 +126,7 @@ class RewardModelManager:
     def generate_sequences(self, prompts: DataProto, sampling_params: dict):
         if self.config.rollout.free_cache_engine:
             self.wake_up()
-        chat_complete_requests = [
+        payloads = [
             {
                 "model": self.config.model.path,
                 "messages": list(messages),
@@ -134,8 +134,33 @@ class RewardModelManager:
             }
             for messages in prompts.non_tensor_batch.get("raw_prompt")
         ]
-        tasks = [self.chat_complete(chat_complete_request) for chat_complete_request in chat_complete_requests]
+        tasks = [self.post_request(payload, "v1/chat/completions") for payload in payloads]
         results = self._run_all(tasks)
         if self.config.rollout.free_cache_engine:
             self.sleep()
-        return results
+
+        responses = [{"grm_response": result["choices"][0]["message"]["content"]} for result in results]
+        return responses
+
+    # TODO (dyy): this func is under progress
+    def _preprocess_reward_inputs(self, data: DataProto):
+        rm_inputs = []
+        for i in range(len(data)):
+            data_item = data[i]
+            non_pad_indices = torch.nonzero(data_item.batch["attention_mask"], as_tuple=True)[0]
+            start_idx, end_idx = non_pad_indices[0], non_pad_indices[-1]
+            rm_input = data_item.batch["input_ids"][start_idx : end_idx + 1].tolist()
+            rm_inputs.append(rm_input)
+        return rm_inputs
+
+    def compute_rm_score(self, data: DataProto):
+        rm_data = self._preprocess_reward_inputs(data)
+        payloads = [
+            {
+                "model": self.config.model.path,
+                "input_ids": rm_input,
+            }
+            for rm_input in rm_data
+        ]
+        breakpoint()
+

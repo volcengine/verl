@@ -165,6 +165,25 @@ def extract_pg_from_exist(
     return [pg for _, pg in sorted(unsorted_pgs)]
 
 
+class SubRayResourcePool(RayResourcePool):
+    def __init__(
+        self,
+        start_bundle_idx: int,
+        subgroup_world_size: int,
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.start_bundle_idx = start_bundle_idx
+        self.subgroup_world_size = subgroup_world_size
+
+    def split(self, split_size: int) -> list["SubRayResourcePool"]:
+        ...
+
+    @property
+    def world_size(self):
+        return self.subgroup_world_size
+
+
 def merge_resource_pool(rp1: RayResourcePool, rp2: RayResourcePool) -> RayResourcePool:
     assert rp1.use_gpu == rp2.use_gpu, "Both RayResourcePool must either use_gpu or not"
     assert rp1.max_colocate_count == rp2.max_colocate_count, "Both RayResourcePool must has the same max_colocate_count"
