@@ -421,7 +421,7 @@ class RayPPOTrainer:
             * self.config.trainer.num_global_batch
             * self.config.actor_rollout_ref.rollout.n
         )
-        val_data_size = self.config.data.val_dataset_size * self.config.actor_rollout_ref.rollout.val_kwargs.n
+        val_data_size = self.val_dataset_size * self.config.actor_rollout_ref.rollout.val_kwargs.n
 
         total_storage_size = train_data_size + val_data_size
         self.data_system_storage_units = {}
@@ -487,7 +487,7 @@ class RayPPOTrainer:
             )
         self.train_dataset, self.val_dataset = train_dataset, val_dataset
 
-        self.config.data["val_dataset_size"] = len(val_dataset)
+        self.val_dataset_size = len(val_dataset)
 
         if train_sampler is None:
             train_sampler = create_rl_sampler(self.config.data, self.train_dataset)
