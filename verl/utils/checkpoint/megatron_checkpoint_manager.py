@@ -353,6 +353,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             adapter_ckpt_path = os.path.join(local_path, "adapter_checkpoint")
             if os.path.exists(adapter_ckpt_path):
                 from verl.utils.megatron_peft_utils import load_adapter_checkpoint
+                # TODO: a better format for adapter checkpoint, waiting megatron-bridge support
 
                 load_adapter_checkpoint(
                     self.model,
