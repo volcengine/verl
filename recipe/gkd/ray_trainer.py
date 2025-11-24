@@ -314,7 +314,7 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
         self.rollout_wg.set_actor_weights_info(weights_info)
         from ray.util.collective import collective
 
-        actor_rollout_workers = self.actor_wg.workers[:1] + self.rollout_wg.workers
+        actor_rollout_workers = self.actor_wg.workers + self.rollout_wg.workers
         collective.create_collective_group(
             actor_rollout_workers,
             len(actor_rollout_workers),
