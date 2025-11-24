@@ -2,7 +2,6 @@ set -x
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1 # For megatron communication/computation overlapping
 
-return_raw_chat="False"
 rollout_mode="sync"
 if [ "$rollout_mode" = "async" ]; then
     export VLLM_USE_V1=1

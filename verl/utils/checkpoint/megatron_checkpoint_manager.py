@@ -119,7 +119,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         use_dist_checkpointing: bool = True,
         bridge=None,
         provider=None,
-        peft_config=None,
+        peft_cls=None,
         **kwargs,
     ):
         super().__init__(
@@ -146,7 +146,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         self.bridge = bridge
         self.provider = provider
         self.vanilla_bridge = self.provider is None
-        self.peft_config = peft_config
+        self.peft_cls = peft_cls
         self.rank = torch.distributed.get_rank()
         # Megatron-Bridge is Okay to load/save HF checkpoint for value model as well
         self.use_dist_checkpointing = (
@@ -342,7 +342,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             log_with_rank(f"Loaded sharded model checkpoint from {local_path}", rank=self.rank, logger=logger)
 
         # Skip HF checkpoint loading if PEFT is used
-        elif self.should_load_model and self.use_hf_checkpoint and self.peft_config is None:
+        elif self.should_load_model and self.use_hf_checkpoint and self.peft_cls is None:
             hf_model_path = get_hf_model_checkpoint_path(local_path)
             if self.vanilla_bridge:
                 self.bridge.load_weights(self.model, hf_model_path)
@@ -350,10 +350,11 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 self.bridge.load_hf_weights(self.model, hf_model_path)
             log_with_rank(f"Loaded HF model checkpoint from {hf_model_path} with bridge", rank=self.rank, logger=logger)
         # Load PEFT adapter checkpoint if available
-        if self.should_load_model and self.peft_config is not None:
+        if self.should_load_model and self.peft_cls is not None:
             adapter_ckpt_path = os.path.join(local_path, "adapter_checkpoint")
             if os.path.exists(adapter_ckpt_path):
                 from verl.utils.megatron_peft_utils import load_adapter_checkpoint
+
                 # TODO: a better format for adapter checkpoint, waiting megatron-bridge support
 
                 load_adapter_checkpoint(
@@ -475,7 +476,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
 
         if self.should_save_model:
             # Save adapter-only checkpoint if PEFT is enabled
-            if self.peft_config is not None:
+            if self.peft_cls is not None:
                 from verl.utils.megatron_peft_utils import save_adapter_checkpoint
 
                 adapter_ckpt_path = os.path.join(local_path, "adapter_checkpoint")

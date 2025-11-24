@@ -199,6 +199,7 @@ class MegatronWorker(Worker):
                 provider.variable_seq_lengths = True
                 provider.moe_token_dispatcher_type = "alltoall"
                 provider.moe_router_load_balancing_type = "none"
+                provider.attention_softmax_in_fp32 = True
 
                 # Apply transformer config overrides
                 for key, value in override_transformer_config.items():
@@ -219,9 +220,9 @@ class MegatronWorker(Worker):
         self.tf_config = tf_config
 
         # Get PEFT config from model.lora if specified
-        from verl.workers.config.megatron_peft import get_peft_config
+        from verl.workers.config.megatron_peft import get_peft_cls
 
-        self.peft_config = get_peft_config(model_config=self.config.model, bridge=self.bridge, provider=self.provider)
+        self.peft_cls = get_peft_cls(model_config=self.config.model, bridge=self.bridge, provider=self.provider)
 
 
 class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
@@ -377,7 +378,8 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 provider=self.provider,
                 override_model_config=override_model_config,
                 override_ddp_config=override_ddp_config,
-                peft_config=self.peft_config,
+                peft_cls=self.peft_cls,
+                peft_config=self.config.model.get("lora", None),
             )
             self.tf_config = updated_tf_config
             print(f"actor_module: {len(actor_module)}")
@@ -625,7 +627,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 bridge=self.bridge,
                 provider=self.provider,
                 use_dist_checkpointing=self.config.actor.megatron.use_dist_checkpointing,
-                peft_config=self.peft_config,
+                peft_cls=self.peft_cls,
             )
 
             self.layer_name_mapping = {
@@ -1040,7 +1042,8 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             provider=self.provider,
             override_model_config=override_model_config,
             override_ddp_config=override_ddp_config,
-            peft_config=self.peft_config,
+            peft_cls=self.peft_cls,
+            peft_config=self.config.model.get("lora", None),
         )
         self.tf_config = updated_tf_config
         # note that here critic_module will be a list to be compatible with the construction of interleaved pp (vpp).
@@ -1152,7 +1155,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             bridge=self.bridge,
             provider=self.provider,
             use_dist_checkpointing=self.config.megatron.use_dist_checkpointing,
-            peft_config=self.peft_config,
+            peft_cls=self.peft_cls,
         )
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="critic"))

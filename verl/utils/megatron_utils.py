@@ -178,6 +178,7 @@ def make_megatron_module(
     provider: Any = None,
     override_model_config: dict[str, Any] = None,
     override_ddp_config: dict[str, Any] = None,
+    peft_cls: Any = None,
     peft_config: Any = None,
 ):
     if override_model_config is None:
@@ -206,22 +207,19 @@ def make_megatron_module(
             # 3. The distributed optimizer must only track trainable (adapter) parameters
             # See Megatron-Bridge docs: training/peft.md
 
-            # Register PEFT transformation as pre-wrap hook if peft_config is specified
+            # Register PEFT transformation as pre-wrap hook if peft_cls is specified
             # This must happen BEFORE DDP wrapping to avoid KeyError with frozen parameters
-            if peft_config is not None:
+            if peft_cls is not None:
                 from verl.utils.megatron_peft_utils import load_adapter_checkpoint, print_adapter_info
-                from verl.workers.config.megatron_peft import peft_config_to_bridge
-
-                bridge_peft = peft_config_to_bridge(peft_config)
 
                 def peft_pre_wrap_hook(model):
                     """Pre-wrap hook that applies PEFT transformation."""
                     # Apply PEFT transformation - this will freeze base model and add adapters
                     # The PEFT callable handles both freezing and transformation
-                    transformed_model = bridge_peft(model, training=True)
+                    transformed_model = peft_cls(model, training=True)
 
                     # Set parameters to save (adapter-only checkpointing)
-                    bridge_peft.set_params_to_save(transformed_model)
+                    peft_cls.set_params_to_save(transformed_model)
 
                     # Load adapter weights if adapter_path is specified
                     adapter_path = getattr(peft_config, "adapter_path", None)

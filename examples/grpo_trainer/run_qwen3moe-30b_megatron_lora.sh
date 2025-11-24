@@ -18,14 +18,7 @@ ETP=${ETP:-1}
 ALL_OFFLOAD=${ALL_OFFLOAD:-True}
 
 
-rollout_mode="sync"
 rollout_name="vllm"
-return_raw_chat="False"
-if [ "$rollout_mode" = "async" ]; then
-    export VLLM_USE_V1=1
-    return_raw_chat="True"
-fi
-
 project_name='verl_grpo_example_gsm8k_math'
 exp_name='qwen3_30b_a3b_megatron_lora'
 adv_estimator=grpo
@@ -82,7 +75,6 @@ ROLLOUT=(
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4
     actor_rollout_ref.rollout.log_prob_use_dynamic_bsz=True
     actor_rollout_ref.rollout.name=${rollout_name}
-    actor_rollout_ref.rollout.mode=${rollout_mode}
     actor_rollout_ref.rollout.gpu_memory_utilization=0.25
     actor_rollout_ref.rollout.enforce_eager=True
     actor_rollout_ref.rollout.free_cache_engine=True

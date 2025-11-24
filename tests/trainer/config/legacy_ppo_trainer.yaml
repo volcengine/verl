@@ -190,8 +190,8 @@ actor_rollout_ref:
     # Options for fused kernels. If use_fused_kernels is true, this will be used.
     fused_kernel_options:
 
-      # Implementation backend for fused kernels. Options: "triton" or "torch".
-      impl_backend: torch
+    # Implementation backend for fused kernels. Options: "triton" or "torch".
+    impl_backend: torch
 
     # Whether to enable loading a remote code model
     trust_remote_code: false

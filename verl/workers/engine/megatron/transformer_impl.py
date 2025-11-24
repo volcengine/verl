@@ -152,6 +152,8 @@ class MegatronEngine(BaseEngine):
                 provider.variable_seq_lengths = True
                 provider.moe_token_dispatcher_type = "alltoall"
                 provider.moe_router_load_balancing_type = "none"
+                provider.attention_softmax_in_fp32 = True
+
                 # Apply transformer config overrides
                 for key, value in override_transformer_config.items():
                     setattr(provider, key, value)
@@ -171,9 +173,9 @@ class MegatronEngine(BaseEngine):
                 print(f"TF config: {tf_config}")
         self.tf_config = tf_config
 
-        from verl.workers.config.megatron_peft import get_peft_config
+        from verl.workers.config.megatron_peft import get_peft_cls
 
-        self.peft_config = get_peft_config(model_config=self.model_config, bridge=self.bridge, provider=self.provider)
+        self.peft_cls = get_peft_cls(model_config=self.model_config, bridge=self.bridge, provider=self.provider)
 
     def _build_megatron_module(self):
         from verl.utils.megatron_utils import McoreModuleWrapperConfig, make_megatron_module
@@ -206,7 +208,8 @@ class MegatronEngine(BaseEngine):
             provider=self.provider,
             override_model_config=self.engine_config.override_mcore_model_config,
             override_ddp_config=self.engine_config.override_ddp_config,
-            peft_config=self.peft_config,
+            peft_cls=self.peft_cls,
+            peft_config=self.model_config.get("lora", None),
         )
         self.tf_config = updated_tf_config
         print(f"module: {len(module)}")
