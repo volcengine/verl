@@ -39,7 +39,7 @@ class Actor(Worker):
             world_size = int(os.environ.get("WORLD_SIZE", 1))
             torch.distributed.init_process_group(backend="nccl", world_size=world_size, rank=rank)
 
-        assert torch.distributed.get_world_size() == self.world_size
+        assert torch.distributed.get_world_size() == 4
         assert torch.distributed.get_rank() == self.rank
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
@@ -74,6 +74,5 @@ def test_split_resource_pool():
     actor_output_2 = actor_worker_2.add(data)
     assert actor_output_1.batch["a"].tolist() == [0, 0, 1, 1, 2, 2, 3, 3]
     assert actor_output_2.batch["a"].tolist() == [100, 100, 101, 101, 102, 102, 103, 103]
-    breakpoint()
 
     ray.shutdown()
