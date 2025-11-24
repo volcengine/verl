@@ -16,18 +16,155 @@
 Router Replay Utilities
 Utilities for handling router replay functionality in Megatron models.
 """
-
-import torch
+from typing import Optional
 from copy import deepcopy
+import torch
 
 from megatron.core.tensor_parallel import gather_from_sequence_parallel_region, scatter_to_sequence_parallel_region
 from megatron.core import parallel_state as mpu
 from megatron.core.pipeline_parallel.schedules import get_schedule_table
-# from megatron.core.transformer.transformer_block import get_num_layers_to_build
-# from megatron.core.transformer.transformer_layer import get_transformer_layer_offset
+from megatron.core.transformer.transformer_layer import get_transformer_layer_offset
+from megatron.core.transformer.transformer_config import TransformerConfig
+
 
 from verl.models.mcore.util import postprocess_packed_seqs, preprocess_packed_seqs
 from verl.utils.megatron.router_replay_patch import RouterReplay, RoutingMode
+
+
+# from megatron.core.transformer.transformer_block import get_num_layers_to_build
+def get_num_layers_to_build(
+    config: TransformerConfig, vp_stage: Optional[int] = None, pp_rank: Optional[int] = None
+) -> int:
+    # Note: This code snippet is copied from Megatron-core
+    # Temporary compatibility note: The target functionality is not included in the current version of Megatron-core, so the relevant implementation is directly introduced
+    # Removal condition: This copied code can be deleted after Megatron-core is updated to commit <8c1a3f5df0cbfbe081875592f68c7a382f434c69> or a later version
+    # (This commit already includes the required functionality; please replace it with direct dependency on the corresponding interface of Megatron-core at that time)
+    """
+    Determine the number of transformer layers to build for the current pipeline stage.
+    Args:
+        config (TransformerConfig): Configuration object containing transformer model parameters.
+        vp_stage (Optional[int]): Virtual pipeline stage number.
+        pp_rank (Optional[int]): Pipeline parallel rank.
+
+    Returns:
+        int: The number of layers to be built for the current pipeline stage.
+    """
+    # If we have a custom PP layout, straightforwardly
+    # return the number of decoders in the layout array.
+    if config.pipeline_model_parallel_layout is not None:
+        return config.pipeline_model_parallel_layout.get_num_layers_to_build(
+            layer_type=LayerType.decoder, vp_stage=vp_stage
+        )
+
+    # Fallback for legacy tests.
+    if pp_rank is None:
+        pp_rank = mpu.get_pipeline_model_parallel_rank()
+
+    is_first_pp_stage = pp_rank == 0
+    is_last_pp_stage = pp_rank == config.pipeline_model_parallel_size - 1
+
+    if (
+        config.num_layers_in_first_pipeline_stage is not None
+        or config.num_layers_in_last_pipeline_stage is not None
+    ):
+
+        assert not (
+            config.account_for_embedding_in_pipeline_split
+            or config.account_for_loss_in_pipeline_split
+        ), " \
+        Does not support standalone embedding stage and standalone loss stage with uneven pp"
+        # Number of layers to distribute over rest of pipeline stages
+        layers_to_distribute = config.num_layers
+        # Number of pipeline stages left for distributing transformer layers
+        pipeline_stages_left = config.pipeline_model_parallel_size
+
+        # If the uneven first (last) pipeline stage is enabled, remove the specified number
+        # of layers to calculate the number of layers on each middle pipeline stage.
+        if config.num_layers_in_first_pipeline_stage is not None:
+            layers_to_distribute -= config.num_layers_in_first_pipeline_stage
+            pipeline_stages_left -= 1
+
+        if config.num_layers_in_last_pipeline_stage is not None:
+            layers_to_distribute -= config.num_layers_in_last_pipeline_stage
+            pipeline_stages_left -= 1
+
+        # If pp_size <= 2, we do not have any intermediate pipeline stages, and we do not
+        # need to check if the left over layers are divisible by the left over stages.
+        if pipeline_stages_left > 0:
+            assert (
+                layers_to_distribute % pipeline_stages_left == 0
+            ), "With uneven pipelineing the left over layers must be divisible by left over stages"
+            num_layers_per_pipeline_rank = layers_to_distribute // pipeline_stages_left
+        else:
+            num_layers_per_pipeline_rank = 0
+
+        # If the uneven first (last) pipeline stage is enabled, return the specified number
+        # of layers for all virtual pipeline parallel stages within the first (last) pipeline
+        # parallel stage.
+
+        if is_first_pp_stage and config.num_layers_in_first_pipeline_stage is not None:
+            num_layers_per_pipeline_rank = config.num_layers_in_first_pipeline_stage
+
+        if is_last_pp_stage and config.num_layers_in_last_pipeline_stage is not None:
+            num_layers_per_pipeline_rank = config.num_layers_in_last_pipeline_stage
+    else:
+        # Include the embedding layer and loss layer into pipeline parallelism partition
+        num_layers = config.num_layers
+        if config.account_for_embedding_in_pipeline_split:
+            num_layers += 1
+
+        if config.account_for_loss_in_pipeline_split:
+            num_layers += 1
+
+        assert (
+            num_layers % config.pipeline_model_parallel_size == 0
+        ), "num_layers should be divisible by pipeline_model_parallel_size"
+        num_layers_per_pipeline_rank = num_layers // config.pipeline_model_parallel_size
+
+    vp_size = config.virtual_pipeline_model_parallel_size
+    if vp_size is not None and config.pipeline_model_parallel_size > 1:
+        # Interleaved pipeline parallelism:
+        # Number of layers in each model chunk is the number of layers in the stage,
+        # divided by the number of model chunks in a stage.
+        # With 8 layers, 2 stages, and 4 model chunks, we want an assignment of
+        # layers to stages like (each list is a model chunk):
+        # Stage 0: [0]  [2]  [4]  [6]
+        # Stage 1: [1]  [3]  [5]  [7]
+        # With 8 layers, 2 stages, and 2 virtual stages, we want an assignment of
+        # layers to stages like (each list is a model chunk):
+        # Stage 0: [0, 1]  [4, 5]
+        # Stage 1: [2, 3]  [6, 7]
+
+        assert (
+            num_layers_per_pipeline_rank % vp_size == 0
+        ), f"num_layers_per_pipeline_rank {num_layers_per_pipeline_rank} \
+            should be divisible by vp_size {vp_size}"
+        num_layers_per_virtual_stage = num_layers_per_pipeline_rank // vp_size
+
+        num_layers_to_build = num_layers_per_virtual_stage
+
+    else:
+        # Non-interleaved pipeline parallelism:
+        # Each stage gets a contiguous set of layers.
+        num_layers_to_build = num_layers_per_pipeline_rank
+
+    # The embedding (or loss) layer cannot function as a standalone transformer layer
+    # Reduce the number of layers to construct by 1 on the first (or last) stage if the
+    # embedding (or loss) layer is included in the pipeline parallelism partition and placement.
+    if config.account_for_embedding_in_pipeline_split:
+        if is_vp_first_stage(vp_stage, vp_size) and is_first_pp_stage:
+            num_layers_to_build -= 1
+            assert (
+                num_layers_to_build >= 0
+            ), f"Not enough layers in the first virtual pipeline stage"
+
+    if config.account_for_loss_in_pipeline_split:
+        if is_vp_last_stage(vp_stage, vp_size) and is_last_pp_stage:
+            num_layers_to_build -= 1
+            assert num_layers_to_build >= 0, f"Not enough layers in the last virtual pipeline stage"
+
+    return num_layers_to_build
+
 
 def merge_router_topk_indices(attention_mask, input_ids, mini_layer_topk_idx_list, tf_config, vp_rank=None):
     """
@@ -102,10 +239,8 @@ def set_router_replay_data(layers_topk_idx, attention_mask, tf_config, vp_rank=N
         layers_topk_idx_reshape = layers_topk_idx_rmpad_split.permute(0, 2, 1, 3).squeeze(
             dim=0
         )  # layer_num, dynamic_bs_all, topk
-        # num_layers_to_build = get_num_layers_to_build(tf_config, vp_stage=vp_rank)
-        # offset = get_transformer_layer_offset(tf_config, vp_stage=vp_rank)
-        local_rank,_ = get_current_rank_layer_info(tf_config,vp_rank)
-        offset, _ = local_rank["start"], local_rank["end"]
+        local_rank_info = get_current_rank_layer_info(tf_config,vp_rank)
+        offset, _ = local_rank_info["start"], local_rank_info["end"]
         router_instances_list = RouterReplayHelper.get_micro_batch_router_list(tf_config, vp_rank)
         for i,router in enumerate(router_instances_list):
             router.set_target_indices(layers_topk_idx_reshape[i+offset].to(torch.int64))
@@ -126,7 +261,7 @@ def reorder_and_merge_vpp_layers(
        [bs, max_token_len, layer_num, topk].
 
     Args:
-        t (torch.Tensor): Input tensor of shape [bs*vpp_size, max_token_len, layer_num_per_vpp, topk].
+        micro_batch_tensor_list : the list of Input tensor.
         num_microbatches (int): Number of microbatches per pipeline stage (bs).
         vpp_size (int): Virtual pipeline parallel size (number of model chunks).
         microbatch_group_size_per_vp_stage (int): Number of consecutive microbatches processed per VPP stage.
@@ -139,7 +274,6 @@ def reorder_and_merge_vpp_layers(
         RuntimeError: If the computed output shape is unexpected or the schedule length mismatches.
     """
     # 1) Build schedule table: map each virtual_microbatch_id -> (microbatch_id, model_chunk_id)
-    pp_rank = mpu.get_pipeline_model_parallel_rank()
     schedule_table = get_schedule_table(num_microbatches, vpp_size, microbatch_group_size_per_vp_stage)
     
     # 2) Group by model_chunk_id to build reorder indices so entries of the same chunk become contiguous along dim 0
@@ -155,116 +289,6 @@ def reorder_and_merge_vpp_layers(
     out = torch.cat(mini_tensor_list, dim=2)    
     return out
 
-
-def compute_pipeline_layer_assignment(tf_config):
-    # TODO: Consider using Megatron's official API if available.
-    """
-    Compute the global layer index ranges and counts assigned to each pipeline-parallel rank and
-    (optionally) each virtual pipeline stage.
-
-    The function supports both uniform splitting (equal layers per PP rank) and non-uniform splitting
-    when first/last stage layer counts are provided. If virtual pipeline is enabled, each physical PP
-    rank's layers are further evenly divided into "vp_size" virtual stages.
-
-    Args:
-        tf_config: Configuration object that provides:
-            - num_layers (int): Total number of transformer layers.
-            - pipeline_model_parallel_size (int): Number of pipeline-parallel ranks (PP size).
-            - virtual_pipeline_model_parallel_size (Optional[int]): Virtual pipeline size (VP size).
-            - num_layers_in_first_pipeline_stage (Optional[int]): Layers in the first PP stage.
-            - num_layers_in_last_pipeline_stage (Optional[int]): Layers in the last PP stage.
-
-    Returns:
-        dict[tuple[int, int], dict]: A mapping from (pp_rank, vp_stage) to a dict with keys:
-            - "start" (int): Inclusive start layer index in the global model.
-            - "end" (int): Exclusive end layer index.
-            - "count" (int): Number of layers in the range.
-    """
-    num_layers = tf_config.num_layers
-    pp_size = tf_config.pipeline_model_parallel_size
-    vp_size = tf_config.virtual_pipeline_model_parallel_size
-    first_stage_layers = tf_config.num_layers_in_first_pipeline_stage
-    last_stage_layers = tf_config.num_layers_in_last_pipeline_stage
-
-    assignments = {}
-
-    if pp_size is None or pp_size <= 1:
-        # Single pipeline stage; no splitting required.
-        if vp_size is not None and vp_size > 1:
-            # Virtual pipeline requires even splitting within each physical stage.
-            assert num_layers % vp_size == 0, "num_layers must be divisible by vp_size"
-            per_vp = num_layers // vp_size
-            offset = 0
-            for j in range(vp_size):
-                assignments[(0, j)] = {"start": offset, "end": offset + per_vp, "count": per_vp}
-                offset += per_vp
-        else:
-            assignments[(0, 0)] = {"start": 0, "end": num_layers, "count": num_layers}
-        return assignments
-
-    # Uniform/non-uniform splitting without layout-specific configuration
-    if first_stage_layers is None and last_stage_layers is None:
-        # Evenly split layers across physical PP ranks
-        assert num_layers % pp_size == 0, "num_layers must be divisible by pp_size"
-        per_rank_total = num_layers // pp_size
-        if vp_size is None:
-            # No virtual pipeline
-            for i in range(pp_size):
-                start_i = i * per_rank_total
-                end_i = start_i + per_rank_total
-                assignments[(i, 0)] = {"start": start_i, "end": end_i, "count": per_rank_total}
-        else:
-            # With virtual pipeline: evenly split each physical stage into vp_size sub-stages
-            assert per_rank_total % vp_size == 0, "Layers per rank must be divisible by vp_size"
-            per_vp = per_rank_total // vp_size
-            for i in range(pp_size):
-                base = i * per_rank_total
-                for j in range(vp_size):
-                    start_ij = base + j * per_vp
-                    assignments[(i, j)] = {"start": start_ij, "end": start_ij + per_vp, "count": per_vp}
-        return assignments
-    else:
-        # Non-uniform first/last stage configuration
-        assert first_stage_layers is not None and last_stage_layers is not None, "Both first and last stage layer counts must be provided"
-        assert pp_size >= 2, "Non-uniform splitting requires at least two physical stages"
-        mid_ranks = pp_size - 2
-        remaining = num_layers - first_stage_layers - last_stage_layers
-        if mid_ranks > 0:
-            assert remaining % mid_ranks == 0, "Total layers in middle stages must be evenly distributed across middle ranks"
-            per_mid_total = remaining // mid_ranks
-        else:
-            per_mid_total = 0
-
-        # Compute total layer range for each physical stage
-        start = 0
-        phys_ranges = []  # [(start, end)] for i in [0..pp_size-1]
-        for i in range(pp_size):
-            if i == 0:
-                total_i = first_stage_layers
-            elif i == pp_size - 1:
-                total_i = last_stage_layers
-            else:
-                total_i = per_mid_total
-            phys_ranges.append((start, start + total_i))
-            start += total_i
-
-        # Virtual pipeline splits each physical stage by VP size
-        if vp_size is None:
-            for i in range(pp_size):
-                s, e = phys_ranges[i]
-                assignments[(i, 0)] = {"start": s, "end": e, "count": e - s}
-        else:
-            for i in range(pp_size):
-                s, e = phys_ranges[i]
-                total_i = e - s
-                assert total_i % vp_size == 0, "Layers in a physical stage must be divisible by vp_size"
-                per_vp = total_i // vp_size
-                for j in range(vp_size):
-                    start_ij = s + j * per_vp
-                    assignments[(i, j)] = {"start": start_ij, "end": start_ij + per_vp, "count": per_vp}
-        return assignments
-
-
 def get_current_rank_layer_info(tf_config, vp_rank = None):
     # When vp_rank is None, default to the current VP rank (or 0 if VP is disabled).
     """Return the local layer range/count for the current process and the full assignment table.
@@ -278,16 +302,15 @@ def get_current_rank_layer_info(tf_config, vp_rank = None):
         Tuple[dict, dict]: A tuple of (local_assignment, all_assignments) where local_assignment contains
         keys {"start", "end", "count"} for the current (pp_rank, vp_stage).
     """
-    # num_layers_to_build = get_num_layers_to_build(tf_config, vp_stage=vp_rank)
-    # offset = get_transformer_layer_offset(tf_config, vp_stage=vp_rank)
-    assignments = compute_pipeline_layer_assignment(tf_config)
-    pp_rank = mpu.get_pipeline_model_parallel_rank()
-    vp_size = tf_config.virtual_pipeline_model_parallel_size
     if vp_rank == None:
-        vp_rank = mpu.get_virtual_pipeline_model_parallel_rank() if vp_size is not None else 0
-
-    local = assignments[(pp_rank, vp_rank)]
-    return local, assignments
+        vp_rank = 0
+    num_layers_to_build = get_num_layers_to_build(tf_config, vp_stage=vp_rank)
+    offset = get_transformer_layer_offset(tf_config, vp_stage=vp_rank)
+    local= {}
+    local["start"] = offset
+    local["end"] = offset + num_layers_to_build
+    local["count"] = num_layers_to_build
+    return local
 
 def pp_gather(local_layers_router_map, tf_config):
         # TODO: Consider non-uniform layer allocation cases.
@@ -319,48 +342,24 @@ def pp_gather(local_layers_router_map, tf_config):
             group=pp_group,
             async_op=False,
         )
-        global_router_map = torch.cat(layers_topk_idx_global_list, dim=2).to("cpu")
+        vp_size = tf_config.virtual_pipeline_model_parallel_size
+        if vp_size != None:
+            vpp_router_map_offset = [[] for _ in range(pp_size)]
+            for pp_stage in range(pp_size):
+                vpp_router_map_offset[pp_stage].append(0)
+                for vp_stage in range(vp_size):
+                    num_layers_to_build = get_num_layers_to_build(tf_config, vp_stage, pp_stage)
+                    vpp_router_map_offset[pp_stage].append(num_layers_to_build + vpp_router_map_offset[pp_stage][-1])
+            layers_topk_idx_global = []
+            for vp_stage in range(vp_size):
+                for pp_stage in range(pp_size):
+                    piece = slice(vpp_router_map_offset[pp_stage][vp_stage], vpp_router_map_offset[pp_stage][vp_stage+1])
+                    layers_topk_idx_global.append(layers_topk_idx_global_list[pp_stage][:, :, piece, :])
+            global_router_map = torch.cat(layers_topk_idx_global, dim=2).to("cpu")
+        else:
+            global_router_map = torch.cat(layers_topk_idx_global_list, dim=2).to("cpu")
+        
         return global_router_map
-
-def pp_dispatch(global_layers_router_map, tf_config):
-    """
-    Dispatch a global router map to the current PP rank, returning only the local layer slice.
-
-    If virtual pipeline is disabled, this simply slices the global map according to the local PP range.
-    If virtual pipeline is enabled, the function aggregates the VP stage ranges for the current PP rank
-    by multiplying the per-VP count by vp_size, then slices accordingly.
-
-    Args:
-        global_layers_router_map (torch.Tensor): Global router map of shape [bs, max_seq_len, num_layers, topk].
-        tf_config: Configuration object that includes pipeline_model_parallel_size and optionally
-            virtual_pipeline_model_parallel_size.
-
-    Returns:
-        torch.Tensor: Local router map for the current PP rank of shape
-        [bs, max_seq_len, pp_rank_layers, topk].
-    """
-    pp_size = tf_config.pipeline_model_parallel_size
-    vp_size = tf_config.virtual_pipeline_model_parallel_size
-    if pp_size <= 1:
-        return global_layers_router_map
-    
-    # Enable VPP
-    local_info, all_assignments = get_current_rank_layer_info(tf_config)
-    pp_rank = mpu.get_pipeline_model_parallel_rank()
-    if  vp_size is None or vp_size<=1:
-        sta = local_info["start"]
-        end = local_info["end"]
-    else:
-        local_info = all_assignments[(pp_rank, 0)]
-        count = local_info["count"]
-        sta = local_info["start"]
-        pp_layer_count = count * vp_size
-        end = sta + pp_layer_count
-    local_router_map =  global_layers_router_map[:,:,sta:end,:]
-
-    return local_router_map
-
-
 
 class RouterReplayHelper:
     """Helper class to query router replay state and locate local RouterReplay instances."""
@@ -379,27 +378,23 @@ class RouterReplayHelper:
             tf_config: Configuration object used to compute layer assignments.
             vp_rank (Optional[int]): Explicit virtual pipeline stage to query. If None, the current VP
                 rank from Megatron parallel state is used when available.
-
         Returns:
             list: A contiguous sublist of RouterReplay.router_instances for the local layer range.
         """
-        local, all_assignments = get_current_rank_layer_info(tf_config, vp_rank)
         vp_size = tf_config.virtual_pipeline_model_parallel_size
-        pp_size = tf_config.pipeline_model_parallel_size
-        pp_rank = mpu.get_pipeline_model_parallel_rank()
-        pp_local = deepcopy(local)
-        # Enable VPP
-        if not (pp_size <= 1 or vp_size is None or vp_size<=1):
-            local_t = all_assignments[(pp_rank, 0)]
-            count = local_t["count"]
-            sta = local_t["start"]
-            pp_layer_count = count * vp_size
-
-            pp_local["start"] = sta
-            pp_local["end"] = sta + pp_layer_count
-            pp_local["count"] = pp_layer_count
-        sta, end = local["start"] - pp_local["start"], local["end"] - pp_local["start"]
-        router_instances_list = RouterReplay.router_instances[sta:end]
+        if vp_size != None:
+            vp_rank = 0 if vp_rank == None else vp_rank
+            offset = 0
+            for pre_vp_stage in range(vp_size):
+                if pre_vp_stage == vp_rank:
+                    break
+                num_layers_to_build = get_num_layers_to_build(tf_config, pre_vp_stage)
+                offset += num_layers_to_build
+        else:
+            offset = 0
+        
+        num_layers_to_build = get_num_layers_to_build(tf_config, vp_rank)
+        router_instances_list = RouterReplay.router_instances[offset:offset+num_layers_to_build]
         return router_instances_list
 
     @staticmethod

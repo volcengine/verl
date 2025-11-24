@@ -563,8 +563,11 @@ class MegatronPPOActor(BasePPOActor):
             input_ids = batch["input_ids"]
             attention_mask = batch["attention_mask"].to(bool)
             position_ids = batch["position_ids"]
-            vp_rank = model.module.module.vp_stage
 
+            # model: DistributedDataParallel(
+            # (module): Float16Module(
+            # (module): GPTModel(
+            vp_rank = model.module.module.vp_stage
             multi_modal_inputs = {}
             if "multi_modal_inputs" in batch:
                 from verl.utils.model import extract_multi_modal_inputs
@@ -700,7 +703,7 @@ class MegatronPPOActor(BasePPOActor):
                 # config = self.actor_module[0].module.module.config
                 vp_size = len(self.actor_module)
                 microbatch_group_size_per_vp_stage = self.tf_config.microbatch_group_size_per_vp_stage
-                bs = n_micro_batch#mini_batch.batch["attention_mask"].shape[0]
+                bs = n_micro_batch
                 losses_reduced["mini_layer_topk_idx_tensor"] = reorder_and_merge_vpp_layers(self.mini_layer_topk_idx_list, bs, vp_size, microbatch_group_size_per_vp_stage)
             else:
                 losses_reduced["mini_layer_topk_idx_tensor"] = torch.cat(self.mini_layer_topk_idx_list, dim=0)
