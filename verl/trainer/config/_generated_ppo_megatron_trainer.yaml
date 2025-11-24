@@ -51,8 +51,6 @@ actor_rollout_ref:
         recompute_method: null
         recompute_num_layers: null
         attention_backend: flash
-        variable_seq_lengths: true
-        moe_token_dispatcher_type: alltoall
       override_mcore_model_config: {}
       use_mbridge: false
       vanilla_mbridge: true
@@ -403,8 +401,6 @@ critic:
       recompute_method: null
       recompute_num_layers: null
       attention_backend: flash
-      variable_seq_lengths: true
-      moe_token_dispatcher_type: alltoall
     override_mcore_model_config: {}
     use_mbridge: false
     vanilla_mbridge: true
