@@ -501,6 +501,7 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
             )
             rollout_sample.param_version = self.current_param_version
             rollout_sample.rollout_status = await self.get_statistics()
+            rollout_sample.agent_loop_output_list = []
 
             success = await self.message_queue_client.put_sample(
                 sample=ray.cloudpickle.dumps(rollout_sample),
