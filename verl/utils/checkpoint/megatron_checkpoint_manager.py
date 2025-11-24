@@ -145,11 +145,12 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         self.use_checkpoint_opt_param_scheduler = use_checkpoint_opt_param_scheduler
         self.bridge = bridge
         self.provider = provider
+        self.vanilla_bridge = self.provider is None
         self.peft_config = peft_config
         self.rank = torch.distributed.get_rank()
         # Megatron-Bridge is Okay to load/save HF checkpoint for value model as well
         self.use_dist_checkpointing = (
-            use_dist_checkpointing or not self.bridge or (self.provider is None and self.is_value_model)
+            use_dist_checkpointing or not self.bridge or (self.vanilla_bridge and self.is_value_model)
         )
         self.use_hf_checkpoint = not self.use_dist_checkpointing
 
@@ -343,7 +344,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         # Skip HF checkpoint loading if PEFT is used
         elif self.should_load_model and self.use_hf_checkpoint and self.peft_config is None:
             hf_model_path = get_hf_model_checkpoint_path(local_path)
-            if self.provider is None:
+            if self.vanilla_bridge:
                 self.bridge.load_weights(self.model, hf_model_path)
             else:
                 self.bridge.load_hf_weights(self.model, hf_model_path)
@@ -496,7 +497,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 # Use mbridge to save HF model checkpoint
                 log_with_rank(f"Saving HF model checkpoint to {local_path} with bridge", rank=self.rank, logger=logger)
                 hf_ckpt_path = get_hf_model_checkpoint_path(local_path)
-                if self.provider is None:
+                if self.vanilla_bridge:
                     self.bridge.save_weights(self.model, hf_ckpt_path)
                 else:
                     self.bridge.save_hf_weights(self.model, hf_ckpt_path)
@@ -566,7 +567,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             # wait for everyone to dump to local
             if self.bridge is not None:
                 hf_model_ckpt_path = get_hf_model_checkpoint_path(local_path)
-                if self.provider is None:
+                if self.vanilla_bridge:
                     self.bridge.save_weights(self.model, hf_model_ckpt_path)
                 else:
                     self.bridge.save_hf_weights(self.model, hf_model_ckpt_path)

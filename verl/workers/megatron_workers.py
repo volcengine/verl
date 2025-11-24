@@ -162,8 +162,9 @@ class MegatronWorker(Worker):
             assert megatron_config.use_mbridge, "fp16 mode requires use_mbridge to be True"
 
         self.provider = None
+        self.vanilla_bridge = megatron_config.get("vanilla_mbridge", True)
         if megatron_config.use_mbridge:
-            if megatron_config.get("vanilla_mbridge", True):
+            if self.vanilla_bridge:
                 from verl.models.mcore.mbridge import AutoBridge
 
                 bridge = AutoBridge.from_config(hf_config, dtype=dtype)
@@ -391,7 +392,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 else:
                     if self.bridge is not None:
                         local_model_path = get_hf_model_path(self.config)
-                        if self.provider is None:
+                        if self.vanilla_bridge:
                             self.bridge.load_weights(actor_module, local_model_path)
                         else:
                             self.bridge.load_hf_weights(actor_module, local_model_path)
@@ -432,7 +433,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 else:
                     if self.bridge is not None:
                         local_model_path = get_hf_model_path(self.config)
-                        if self.provider is None:
+                        if self.vanilla_bridge:
                             self.bridge.load_weights(ref_module, local_model_path)
                         else:
                             self.bridge.load_hf_weights(ref_module, local_model_path)
@@ -647,7 +648,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             log_gpu_memory_usage("After load actor params during rollout_mode", logger=logger)
 
         if self.bridge is not None:
-            if self.provider is None:
+            if self.vanilla_bridge:
                 per_tensor_param = self.bridge.export_weights(self.actor.actor_module)
             else:
                 per_tensor_param = self.bridge.export_hf_weights(self.actor.actor_module)
@@ -1058,7 +1059,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             else:
                 if self.bridge is not None:
                     local_model_path = get_hf_model_path(self.config)
-                    if self.provider is None:
+                    if self.vanilla_bridge:
                         self.bridge.load_weights(critic_module, local_model_path)
                     else:
                         self.bridge.load_hf_weights(critic_module, local_model_path)
@@ -1331,7 +1332,7 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
             else:
                 if self.bridge is not None:
                     local_model_path = get_hf_model_path(self.config)
-                    if self.provider is None:
+                    if self.vanilla_bridge:
                         self.bridge.load_weights(reward_model, local_model_path)
                     else:
                         self.bridge.load_hf_weights(reward_model, local_model_path)

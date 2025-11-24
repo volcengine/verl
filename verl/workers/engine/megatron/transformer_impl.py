@@ -117,8 +117,9 @@ class MegatronEngine(BaseEngine):
 
         use_mbridge = self.engine_config.use_mbridge
         self.provider = None
+        self.vanilla_bridge = self.engine_config.vanilla_mbridge
         if use_mbridge:
-            if self.engine_config.vanilla_mbridge:
+            if self.vanilla_bridge:
                 from verl.models.mcore.mbridge import AutoBridge
 
                 bridge = AutoBridge.from_config(self.model_config.hf_config, dtype=self.param_dtype)
@@ -218,7 +219,7 @@ class MegatronEngine(BaseEngine):
             load_mcore_dist_weights(module, self.engine_config.dist_checkpointing_path, is_value_model=is_value_model)
         else:
             if self.bridge is not None:
-                if self.provider is None:
+                if self.vanilla_bridge:
                     self.bridge.load_weights(module, self.model_config.local_path)
                 else:
                     self.bridge.load_hf_weights(module, self.model_config.local_path)
