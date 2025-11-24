@@ -652,6 +652,12 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
     async def rollout_mode(self):
         """Context switch hybridengine to rollout mode."""
+        # Fix for Issue #4229: In async mode, rollout workers don't have FSDP model
+        # Skip FSDP-related operations if model not loaded
+        if not hasattr(self, "actor_module_fsdp") or self.actor_module_fsdp is None:
+            # Async rollout worker: no FSDP model to manage, just return
+            return
+
         aggressive_empty_cache(force_sync=True)
 
         log_gpu_memory_usage("Before load_fsdp_model_to_gpu", logger=logger)
@@ -735,6 +741,16 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
     async def trainer_mode(self):
         """Context switch hybridengine to trainer mode."""
+        # Fix for Issue #4229: In async mode, rollout workers don't have FSDP model
+        # Skip FSDP-related operations if model not loaded
+        if not hasattr(self, "actor_module_fsdp") or self.actor_module_fsdp is None:
+            # Async rollout worker: no FSDP model to manage, just handle rollout cache
+            if self.config.rollout.free_cache_engine:
+                log_gpu_memory_usage("Before rollout offload", logger=logger)
+                await self.rollout.release()
+                log_gpu_memory_usage("After rollout offload", logger=logger)
+            return
+
         if self.config.rollout.free_cache_engine:
             log_gpu_memory_usage("Before rollout offload", logger=logger)
             await self.rollout.release()
@@ -852,18 +868,21 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 checkpoint_config=self.config.actor.checkpoint,
             )
 
+        # Fix for Issue #4229: Only create checkpoint manager if FSDP model exists
+        # In async mode, rollout workers don't load FSDP model, so skip checkpoint manager
         if not self._is_actor and self._is_rollout:
-            # If ActorRolloutRefWorker is initialized as a standalone rollout,
-            # create a checkpoint manager for FSDP model to allow loading FSDP checkpoints for rollout.
+            if hasattr(self, "actor_module_fsdp") and self.actor_module_fsdp is not None:
+                # If ActorRolloutRefWorker is initialized as a standalone rollout,
+                # create a checkpoint manager for FSDP model to allow loading FSDP checkpoints for rollout.
 
-            checkpoint_contents = OmegaConf.create({"load_contents": ["model"], "save_contents": []})
-            self.checkpoint_manager = FSDPCheckpointManager(
-                model=self.actor_module_fsdp,
-                optimizer=None,
-                lr_scheduler=None,
-                processing_class=self.processor if self.processor is not None else self.tokenizer,
-                checkpoint_config=checkpoint_contents,
-            )
+                checkpoint_contents = OmegaConf.create({"load_contents": ["model"], "save_contents": []})
+                self.checkpoint_manager = FSDPCheckpointManager(
+                    model=self.actor_module_fsdp,
+                    optimizer=None,
+                    lr_scheduler=None,
+                    processing_class=self.processor if self.processor is not None else self.tokenizer,
+                    checkpoint_config=checkpoint_contents,
+                )
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @DistProfiler.annotate(color="red", role="actor_update")
