@@ -463,7 +463,7 @@ class RayWorkerGroup(WorkerGroup):
 
             for local_rank in range(local_world_size):
                 rank += 1
-                self.register_single_bundle(
+                self.create_worker(
                     rank=rank,
                     pg_idx=pg_idx,
                     pg=pg,
@@ -499,7 +499,7 @@ class RayWorkerGroup(WorkerGroup):
             assert local_world_size <= pg.bundle_count, f"when generating for {self.name_prefix}, for the "
 
             rank += 1
-            self.register_single_bundle(
+            self.create_worker(
                 rank=rank,
                 pg_idx=pg_idx,
                 pg=pg,
@@ -510,7 +510,7 @@ class RayWorkerGroup(WorkerGroup):
                 detached=detached,
             )
 
-    def register_single_bundle(
+    def create_worker(
         self, rank, pg_idx, pg, local_rank, resource_pool, ray_cls_with_init, worker_env, detached
     ):
         world_size = resource_pool.world_size
