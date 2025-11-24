@@ -111,8 +111,6 @@ jobs:
           clean: true
       - name: Install the current repository
         run: |
-          # TODO Remove this command after new Ascend image built (without any triton-like packages)
-          pip uninstall -y triton triton-ascend
           pip install -r requirements-npu.txt
           pip install -e .
       - name: Check final pip list
