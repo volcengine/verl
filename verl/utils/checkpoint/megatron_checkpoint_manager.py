@@ -577,6 +577,8 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         if self.checkpoint_config.async_save:
             assert async_save_request is not None, "Async save request should not be None when using async save."
             async_save_request.add_finalize_fn(finalize_save_fn)
+            from megatron.core.dist_checkpointing.strategies.base import async_calls
+            async_calls.schedule_async_request(async_save_request)
         else:
             finalize_save_fn()
 
