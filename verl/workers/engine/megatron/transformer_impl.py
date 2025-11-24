@@ -108,12 +108,8 @@ class MegatronEngine(BaseEngine):
             assert self.engine_config.use_mbridge, "fp16 mode requires use_mbridge to be True"
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
 
-        self.engine_config.override_transformer_config = mapping_string_to_attn_backend(
-            self.engine_config.override_transformer_config
-        )
-        tf_config = hf_to_mcore_config(
-            self.model_config.hf_config, self.dtype, **self.engine_config.override_transformer_config
-        )
+        override_transformer_config = mapping_string_to_attn_backend({**self.engine_config.override_transformer_config})
+        tf_config = hf_to_mcore_config(self.model_config.hf_config, self.dtype, **override_transformer_config)
 
         use_mbridge = self.engine_config.use_mbridge
         self.provider = None
@@ -123,7 +119,7 @@ class MegatronEngine(BaseEngine):
                 from verl.models.mcore.mbridge import AutoBridge
 
                 bridge = AutoBridge.from_config(self.model_config.hf_config, dtype=self.param_dtype)
-                bridge.set_extra_args(**self.engine_config.override_transformer_config)
+                bridge.set_extra_args(**override_transformer_config)
                 tf_config = bridge.config
                 tf_config.fp16 = self.param_dtype == torch.float16
                 tf_config.bf16 = self.param_dtype == torch.bfloat16
@@ -157,7 +153,7 @@ class MegatronEngine(BaseEngine):
                 provider.moe_token_dispatcher_type = "alltoall"
                 provider.moe_router_load_balancing_type = "none"
                 # Apply transformer config overrides
-                for key, value in self.engine_config.override_transformer_config.items():
+                for key, value in override_transformer_config.items():
                     setattr(provider, key, value)
 
                 provider.finalize()
