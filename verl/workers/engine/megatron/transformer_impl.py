@@ -616,15 +616,6 @@ class MegatronEngineWithLMHead(MegatronEngine):
             else:
                 logits_bak = logits
 
-            # Create the final labels for next-token prediction.
-            # The `label` tensor starts as a clone of `input_ids`. `torch.roll` is not applied
-            # earlier because `input_ids` is a nested tensor, which is incompatible with the operation.
-            # The `preprocess_packed_seqs_no_padding` function unnests and flattens the tensor
-            # into `input_ids_rmpad` (shape: [1, total_seqlen]).
-            # Now, on this simple, unpadded tensor, we can perform the standard left shift
-            # to align the target token `t+1` with the prediction for token `t`.
-            label = torch.roll(label, shifts=-1, dims=1)
-
             log_probs = vocab_parallel_log_probs_from_logits(logits_bak, label)
             ret["log_probs"] = log_probs
             return ret
@@ -650,8 +641,8 @@ class MegatronEngineWithLMHead(MegatronEngine):
         if loss_function is not None:
             loss, metrics = loss_function(model_output=model_output, data=data, dp_group=self.get_data_parallel_group())
             # scale loss by num_micro_batch because megatron will scale loss
-            # by n_micro_batch and cp size inside pp schedule
-            loss = loss * data["num_micro_batch"] / mpu.get_context_parallel_world_size()
+            # by n_micro_batch inside pp schedule
+            loss = loss * data["num_micro_batch"]
         else:
             assert forward_only, "forward_only must be True when loss_function is None"
             loss = torch.tensor(1.0, device=device)
