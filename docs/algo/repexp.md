@@ -47,7 +47,7 @@ sh recipe/rep_exp/model_merge.sh /path/to/global_step_X/actor # where X is the g
 2. Evaluate the merged model.
 
 ```bash
-sh recipe/rep_exp/eval.sh TASK /path/to/global_step_X/actor/hf #where X is the global step of the checkpoint with the best pass@1 on dev
+sh recipe/rep_exp/eval.sh $TASK /path/to/global_step_X/actor/hf #where X is the global step of the checkpoint with the best pass@1 on dev
 ```
 
 The results should be in a folder named `eval` and saved as a JSON file.
