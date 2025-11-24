@@ -623,18 +623,20 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         log_gpu_memory_usage(f"After building {self.config.rollout.name} rollout", logger=logger)
 
         # Full params
-        if torch.distributed.get_world_size() == 1 and fsdp_version(self.actor_module_fsdp) == 1:
-            FSDP.set_state_dict_type(
-                self.actor_module_fsdp,
-                state_dict_type=StateDictType.FULL_STATE_DICT,
-                state_dict_config=FullStateDictConfig(),
-            )
-        elif fsdp_version(self.actor_module_fsdp) == 1:
-            FSDP.set_state_dict_type(
-                self.actor_module_fsdp,
-                state_dict_type=StateDictType.SHARDED_STATE_DICT,
-                state_dict_config=ShardedStateDictConfig(),
-            )
+        # Fix for Issue #4229: Check if actor_module_fsdp exists (might not in async mode)
+        if hasattr(self, "actor_module_fsdp") and self.actor_module_fsdp is not None:
+            if torch.distributed.get_world_size() == 1 and fsdp_version(self.actor_module_fsdp) == 1:
+                FSDP.set_state_dict_type(
+                    self.actor_module_fsdp,
+                    state_dict_type=StateDictType.FULL_STATE_DICT,
+                    state_dict_config=FullStateDictConfig(),
+                )
+            elif fsdp_version(self.actor_module_fsdp) == 1:
+                FSDP.set_state_dict_type(
+                    self.actor_module_fsdp,
+                    state_dict_type=StateDictType.SHARDED_STATE_DICT,
+                    state_dict_config=ShardedStateDictConfig(),
+                )
 
         # used for LoRA
         self.base_sync_done: bool = "dummy" not in self.config.rollout.load_format
@@ -761,8 +763,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         use_shm = self.config.model.get("use_shm", False)
         use_fused_kernels = self.config.model.get("use_fused_kernels", False)
 
-        if self._is_actor or self._is_rollout:
-            # we need the model for actor and rollout
+        # Fix for Issue #4229: Skip FSDP loading in async mode
+        # In async mode, rollout worker only needs tokenizer/config
+        # Weights are synced from trainer via NCCL broadcast
+        if self._is_actor or (self._is_rollout and self.config.rollout.mode != "async"):
+            # we need the model for actor and rollout (except async rollout)
             if self._is_actor:
                 optim_config = self.config.actor.optim
                 fsdp_config = omega_conf_to_dataclass(self.config.actor.fsdp_config)
