@@ -72,7 +72,7 @@ def need_reference_policy(
     role_worker_mapping: dict[Role, WorkerType],
 ) -> bool:
     """Given a role worker mapping, do we need ref policy."""
-    return Role.RefPolicy in role_worker_mapping
+    return Role.RefPolicy in role_worker_mapping or Role.ActorRolloutRef in role_worker_mapping
 
 
 def need_reward_model(

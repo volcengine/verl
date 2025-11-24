@@ -550,7 +550,7 @@ class FSDPEngine(BaseEngine):
         lr = self.lr_scheduler.get_last_lr()[0]  # only return the first group
         return lr
 
-    def to(self, device: str, model: bool = True, optimizer: bool = True):
+    def to(self, device: str, model: bool = True, optimizer: bool = True, grad: bool = True):
         """
         Move FSDP model and/or optimizer to CPU or GPU with offload support.
         """
@@ -562,14 +562,14 @@ class FSDPEngine(BaseEngine):
 
         assert device in (device_name, "cpu")
         if device == device_name:
-            if not self.engine_config.param_offload:
+            if self.engine_config.param_offload:
                 if model:
                     load_fsdp_model_to_gpu(self.module)
                 if optimizer and self.optimizer is not None:
                     load_fsdp_optimizer(self.optimizer, device)
             gc.collect()
         elif device == "cpu":
-            if not self.engine_config.param_offload:
+            if self.engine_config.param_offload:
                 if model:
                     offload_fsdp_model_to_cpu(self.module)
                 if optimizer and self.optimizer is not None:
@@ -658,7 +658,7 @@ class FSDPEngine(BaseEngine):
                 (name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param)
                 for name, param in params.items()
             )
-        return per_tensor_param
+        return per_tensor_param, peft_config
 
 
 class EngineEvalModeCtx:
