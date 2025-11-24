@@ -197,7 +197,7 @@ def merge_router_topk_indices(attention_mask, input_ids, mini_layer_topk_idx_lis
         # dynamic_bs, layer_num, topk -> 1, dynamic_bs_all, layer_num, topk
         layers_topk_idx = gather_from_sequence_parallel_region(
             layers_topk_idx, tensor_parallel_output_grad=False
-        ).unsqueeze(0)
+        ).unsqueeze(0).contiguous()
 
         batch_size, seq_len = attention_mask.shape[:2]
         _, packed_seq_params = preprocess_packed_seqs(input_ids, attention_mask, pre_process=True)
