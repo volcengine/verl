@@ -37,7 +37,6 @@ data:
 actor_rollout_ref:
   hybrid_engine: False
   nccl_timeout: 600 # seconds, default is 10 minutes for torch, you can set it to a larger value if you have long-running operations like 32B or 72B model using megatron
-  vllm_load_weights_size: 10
   model:
     path: /path/to/MODEL
     custom_chat_template: null
@@ -267,7 +266,7 @@ actor_rollout_ref:
       custom_async_server:
         path: null
         name: null
-
+    update_weights_bucket_megabytes: 512
     # support logging rollout prob for debugging purpose
     calculate_log_probs: False
     # # Nsight system profiler configs

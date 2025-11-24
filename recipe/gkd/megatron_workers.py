@@ -59,9 +59,10 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 class TensorBuffer:
-    def __init__(self, capacity, dtype):
-        self.capacity = capacity
-        self.tensor = torch.empty(capacity, dtype=dtype, device="cuda")
+    def __init__(self, memory_alloc, dtype):
+        dtype_size = torch.tensor([], dtype=dtype).element_size()
+        self.capacity = memory_alloc // dtype_size
+        self.tensor = torch.empty(self.capacity, dtype=dtype, device="cuda")
         self.keys = []
         self.shapes = []
 
@@ -567,7 +568,8 @@ class MegatronOnPolicyDistillActorWorker(ActorRolloutRefWorker):
 
         from ray.util.collective import collective
 
-        tensor_buffer = TensorBuffer(2**31, self.param_dtype)
+        update_weights_bucket_bytes = int(self.config.rollout.update_weights_bucket_megabytes) << 20
+        tensor_buffer = TensorBuffer(update_weights_bucket_bytes, self.param_dtype)
 
         for key, shape, dtype in self._weights_info:
             weight_key, weight = next(params_generator)
@@ -781,7 +783,8 @@ class MegatronOnPolicyDistillRolloutWorker(ActorRolloutRefWorker):
         else:
             raise NotImplementedError(f"Unknown rollout name: {rollout_name}")
 
-        tensor_buffer = TensorBuffer(2**31, self.param_dtype)
+        update_weights_bucket_bytes = int(self.config.rollout.update_weights_bucket_megabytes) << 20
+        tensor_buffer = TensorBuffer(update_weights_bucket_bytes, self.param_dtype)
 
         def group_tensor_generator():
             for key, shape, dtype in self._weights_info:
