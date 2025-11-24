@@ -175,13 +175,9 @@ class MegatronWorker(Worker):
                 from verl.models.mcore.bridge import AutoBridge
 
                 # Use Megatron-Bridge to convert HF config to Megatron config
-                bridge = AutoBridge.from_hf_pretrained(self.local_path, trust_remote_code=True)
+                bridge = AutoBridge.from_hf_pretrained(self.local_path, trust_remote_code=trust_remote_code)
                 # Get Megatron provider and configure it
                 provider = bridge.to_megatron_provider(load_weights=False)
-
-                # Apply transformer config overrides
-                for key, value in override_transformer_config.items():
-                    setattr(provider, key, value)
 
                 # In case of invalid overrides, we need to make sure some critical params are set correctly
                 provider.params_dtype = dtype
@@ -201,6 +197,11 @@ class MegatronWorker(Worker):
                 provider.attention_backend = AttnBackend.flash
                 provider.variable_seq_lengths = True
                 provider.moe_token_dispatcher_type = "alltoall"
+                provider.moe_router_load_balancing_type = "none"
+
+                # Apply transformer config overrides
+                for key, value in override_transformer_config.items():
+                    setattr(provider, key, value)
 
                 provider.finalize()
                 self.provider = provider

@@ -100,12 +100,17 @@ class MegatronEngine(BaseEngine):
 
     def _build_tf_config(self):
         from verl.models.mcore import hf_to_mcore_config
+        from verl.models.mcore.config_converter import mapping_string_to_attn_backend
         from verl.utils.torch_dtypes import PrecisionType
 
         self.param_dtype = PrecisionType.to_dtype(self.engine_config.dtype)
         if self.param_dtype == torch.float16:
             assert self.engine_config.use_mbridge, "fp16 mode requires use_mbridge to be True"
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
+
+        self.engine_config.override_transformer_config = mapping_string_to_attn_backend(
+            self.engine_config.override_transformer_config
+        )
         tf_config = hf_to_mcore_config(
             self.model_config.hf_config, self.dtype, **self.engine_config.override_transformer_config
         )
@@ -125,13 +130,11 @@ class MegatronEngine(BaseEngine):
                 from verl.models.mcore.bridge import AutoBridge
 
                 # Use Megatron-Bridge to convert HF config to Megatron config
-                bridge = AutoBridge.from_hf_pretrained(self.model_config.local_path, trust_remote_code=True)
+                bridge = AutoBridge.from_hf_pretrained(
+                    self.model_config.local_path, trust_remote_code=self.model_config.trust_remote_code
+                )
                 # Get Megatron provider and configure it
                 provider = bridge.to_megatron_provider(load_weights=False)
-
-                # Apply transformer config overrides
-                for key, value in self.engine_config.override_transformer_config.items():
-                    setattr(provider, key, value)
 
                 # In case of invalid overrides, we need to make sure some critical params are set correctly
                 provider.params_dtype = self.param_dtype
@@ -151,6 +154,10 @@ class MegatronEngine(BaseEngine):
                 provider.attention_backend = AttnBackend.flash
                 provider.variable_seq_lengths = True
                 provider.moe_token_dispatcher_type = "alltoall"
+                provider.moe_router_load_balancing_type = "none"
+                # Apply transformer config overrides
+                for key, value in self.engine_config.override_transformer_config.items():
+                    setattr(provider, key, value)
 
                 provider.finalize()
                 self.provider = provider
