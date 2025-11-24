@@ -105,8 +105,6 @@ class RayResourcePool(ResourcePool):
         self.pgs = None
         self.detached = detached
         self.accelerator_type = accelerator_type
-        self.start_boundle_index = 0
-        self.subgroup_world_size = self.world_size
 
     def get_placement_groups(self, strategy="STRICT_PACK", name=None, device_name="cuda"):
         if self.pgs is not None:
@@ -137,32 +135,8 @@ class RayResourcePool(ResourcePool):
 
         ray.get([pg.ready() for pg in pgs])
 
-        self.pgs = sort_placement_group_by_node_ip(pgs)
+        self.pgs = pgs
         return pgs
-
-    def split(self, split_size: int) -> list["RayResourcePool"]:
-        local_world_size = min(self.store[0], self.subgroup_world_size)
-        assert local_world_size % split_size == 0 or split_size % local_world_size == 0
-        assert split_size <= self.subgroup_world_size, (
-            f"split_size {split_size} should be less than or equal to subgroup_world_size {self.subgroup_world_size}"
-        )
-
-        pgs = self.get_placement_groups()
-        split_num = self.subgroup_world_size // split_size
-        split_pgs = []
-        for split_idx in range(split_num):
-            split_resource_pool = RayResourcePool(
-                process_on_nodes=self.store,
-                use_gpu=self.use_gpu,
-                max_colocate_count=self.max_colocate_count,
-                name_prefix=f"{self.name_prefix}_{split_idx}",
-            )
-            split_resource_pool.pgs = pgs
-            split_resource_pool.start_boundle_index = self.start_boundle_index + split_idx * split_size
-            split_resource_pool.subgroup_world_size = split_size
-            split_pgs.append(split_resource_pool)
-
-        return split_pgs
 
 
 def extract_pg_from_exist(
@@ -303,6 +277,8 @@ class RayWorkerGroup(WorkerGroup):
         worker_names=None,
         worker_handles: list[ray.actor.ActorHandle] = None,
         ray_wait_register_center_timeout: int = 300,
+        replica_rank: int = 0,
+        replica_world_size: int = None,
         **kwargs,
     ) -> None:
         """Initialize a RayWorkerGroup.
@@ -340,6 +316,12 @@ class RayWorkerGroup(WorkerGroup):
         if self._is_init_with_detached_workers:
             self._init_with_detached_workers(worker_names=worker_names, worker_handles=worker_handles)
         else:
+            self.replica_rank = replica_rank
+            if replica_world_size is None:
+                self.replica_world_size = resource_pool.world_size
+                assert self.replica_rank == 0, f"only one replica is allowed, but got {self.replica_rank=}"
+            else:
+                self.replica_world_size = replica_world_size
             self._init_with_resource_pool(
                 resource_pool=resource_pool,
                 ray_cls_with_init=ray_cls_with_init,
@@ -400,16 +382,21 @@ class RayWorkerGroup(WorkerGroup):
         if bin_pack:
             strategy = "STRICT_PACK"
         pgs = resource_pool.get_placement_groups(strategy=strategy, device_name=self.device_name)
-        world_size = resource_pool.subgroup_world_size
+        world_size = self.replica_world_size
         self._world_size = world_size
         # cia.add_kwarg("_world_size", world_size)
         num_gpus = 1 / resource_pool.max_colocate_count
 
         rank = -1
         local_world_size = resource_pool.store[0]
+        assert world_size * (self.replica_rank + 1) <= resource_pool.world_size, (
+            f"world_size={world_size} is not enough for"
+            f"replica_rank={self.replica_rank} with replica_world_size={self.replica_world_size}"
+        )
+        pgs = sort_placement_group_by_node_ip(pgs)
         self._get_master_addr_port(pgs[0])
 
-        for curr_rank in range(resource_pool.start_boundle_index, resource_pool.start_boundle_index + world_size):
+        for curr_rank in range(world_size * self.replica_rank, world_size * (self.replica_rank + 1)):
             pg_idx = curr_rank // local_world_size
             pg = pgs[pg_idx]
             local_rank = curr_rank % local_world_size

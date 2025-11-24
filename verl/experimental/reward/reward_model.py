@@ -75,14 +75,7 @@ class RewardModelManager:
             for replica_rank in range(num_replicas)
         ]
         if self.resource_pool:
-            split_resource_pool = self.resource_pool.split(split_size=rollout_world_size)
-            assert len(split_resource_pool) == len(self.rollout_replicas)
-            self._run_all(
-                [
-                    server.init_colocated(resource_pool)
-                    for server, resource_pool in zip(self.rollout_replicas, split_resource_pool, strict=False)
-                ]
-            )
+            self._run_all([server.init_colocated(self.resource_pool) for server in self.rollout_replicas])
         else:
             self._run_all([server.init_standalone() for server in self.rollout_replicas])
 
