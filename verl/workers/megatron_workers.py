@@ -199,7 +199,6 @@ class MegatronWorker(Worker):
                 provider.variable_seq_lengths = True
                 provider.moe_token_dispatcher_type = "alltoall"
                 provider.moe_router_load_balancing_type = "none"
-                provider.attention_softmax_in_fp32 = True
 
                 # Apply transformer config overrides
                 for key, value in override_transformer_config.items():
@@ -438,7 +437,9 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                         if self.vanilla_bridge:
                             self.bridge.load_weights(ref_module, local_model_path)
                         else:
-                            self.bridge.load_hf_weights(ref_module, local_model_path)
+                            self.bridge.load_hf_weights(
+                                ref_module, local_model_path, allowed_mismatched_params=["output_layer.weight"]
+                            )
                     else:
                         load_megatron_gptmodel_weights(
                             self.config, self.hf_config, ref_module, params_dtype=self.dtype, is_value_model=False
@@ -1338,7 +1339,9 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
                     if self.vanilla_bridge:
                         self.bridge.load_weights(reward_model, local_model_path)
                     else:
-                        self.bridge.load_hf_weights(reward_model, local_model_path)
+                        self.bridge.load_hf_weights(
+                            reward_model, local_model_path, allowed_mismatched_params=["output_layer.weight"]
+                        )
                 else:
                     load_megatron_gptmodel_weights(
                         self.config, self.hf_config, reward_model, params_dtype=self.dtype, is_value_model=True

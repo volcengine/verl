@@ -39,7 +39,7 @@ def get_peft_cls(model_config, bridge, provider):
 
     from verl.models.mcore.bridge import CanonicalLoRA, DoRA, LoRA, VLMLoRA
 
-    lora_dtype = lora_cfg.get("dtype", "fp32")
+    lora_dtype = lora_cfg.get("dtype", None)
     if lora_dtype is not None:
         from verl.utils.torch_dtypes import PrecisionType
 

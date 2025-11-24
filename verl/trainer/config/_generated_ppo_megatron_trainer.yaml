@@ -315,7 +315,7 @@ actor_rollout_ref:
       lora_A_init_method: xavier
       lora_B_init_method: zero
       a2a_experimental: false
-      dtype: fp32
+      dtype: null
       adapter_path: null
       freeze_vision_model: true
       freeze_vision_projection: true
@@ -443,7 +443,7 @@ critic:
       lora_A_init_method: xavier
       lora_B_init_method: zero
       a2a_experimental: false
-      dtype: fp32
+      dtype: null
       adapter_path: null
       freeze_vision_model: true
       freeze_vision_projection: true

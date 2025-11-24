@@ -84,8 +84,8 @@ actor_rollout_ref:
       # Enables the experimental All-to-All (A2A) communication strategy. Defaults to False
       a2a_experimental: False
 
-      # Parameter data type for LoRA weights. if null, it will use model's dtype. Default to fp32
-      dtype: fp32
+      # Parameter data type for LoRA weights. Default to null, which will use model's dtype.
+      dtype: null
 
       # Path to pre-trained LoRA adapter weights (null to train from scratch)
       adapter_path: null

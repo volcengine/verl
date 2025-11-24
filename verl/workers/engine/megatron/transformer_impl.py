@@ -152,7 +152,6 @@ class MegatronEngine(BaseEngine):
                 provider.variable_seq_lengths = True
                 provider.moe_token_dispatcher_type = "alltoall"
                 provider.moe_router_load_balancing_type = "none"
-                provider.attention_softmax_in_fp32 = True
 
                 # Apply transformer config overrides
                 for key, value in override_transformer_config.items():
@@ -221,7 +220,12 @@ class MegatronEngine(BaseEngine):
                 if self.vanilla_bridge:
                     self.bridge.load_weights(module, self.model_config.local_path)
                 else:
-                    self.bridge.load_hf_weights(module, self.model_config.local_path)
+                    allowed_mismatched_params = []
+                    if self.engine_config.is_value_model:
+                        allowed_mismatched_params = ["output_layer.weight"]
+                    self.bridge.load_hf_weights(
+                        module, self.model_config.local_path, allowed_mismatched_params=allowed_mismatched_params
+                    )
             else:
                 # (vermouth1992) this is a workaround to be compatible with the old API
                 tmp_config = OmegaConf.create(
