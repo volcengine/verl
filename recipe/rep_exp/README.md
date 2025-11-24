@@ -8,7 +8,10 @@
 
 ## Installation 🔌
 
-Our algorithm doesn't require anything beyond the base verl installation, which you can find [here](https://verl.readthedocs.io/en/latest/start/install.html).
+Besides the base verl installation, which you can find [here](https://verl.readthedocs.io/en/latest/start/install.html), the only package to install is scikit-learn.
+```bash
+pip install scikit-learn
+```
 
 ## Running the Experiments 🚀
 
