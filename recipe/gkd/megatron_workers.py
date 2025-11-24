@@ -761,7 +761,12 @@ class MegatronOnPolicyDistillRolloutWorker(ActorRolloutRefWorker):
             from sglang.srt.weight_sync.utils import update_weights as sgl_update_weights
 
             inference_model = self.rollout._engine
-            loop = asyncio.get_event_loop()
+
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
 
             async def update_weights(inference_engine, params):
                 await sgl_update_weights(
