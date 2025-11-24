@@ -358,7 +358,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             override_model_config,
             override_transformer_config,
             self.config.model.get("trust_remote_code", False),
-            self.config.ref.megatron if self._is_ref else self.config.actor.megatron,
+            self.config.actor.megatron if not self._is_ref else self.config.ref.megatron,
         )
         self.generation_config = get_generation_config(self.local_path)
 

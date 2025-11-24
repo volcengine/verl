@@ -86,6 +86,7 @@ class RolloutReplica(ABC):
     ) -> None:
         self.replica_rank = replica_rank
         self.config = omega_conf_to_dataclass(config)
+        # TODO: make lora config irrelevant to the model engine choice
         # Convert megatron lora config to HFModelConfig
         # If model_config is not an OmegaConf object, convert it first
         if OmegaConf.is_config(model_config):
