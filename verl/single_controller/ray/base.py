@@ -105,8 +105,6 @@ class RayResourcePool(ResourcePool):
         self.pgs = None
         self.detached = detached
         self.accelerator_type = accelerator_type
-        self.start_boundle_index = 0
-        self.subgroup_world_size = self.world_size
 
     def get_placement_groups(self, strategy="STRICT_PACK", name=None, device_name="cuda"):
         if self.pgs is not None:
@@ -137,32 +135,8 @@ class RayResourcePool(ResourcePool):
 
         ray.get([pg.ready() for pg in pgs])
 
-        self.pgs = sort_placement_group_by_node_ip(pgs)
+        self.pgs = pgs
         return pgs
-
-    def split(self, split_size: int) -> list["RayResourcePool"]:
-        local_world_size = min(self.store[0], self.subgroup_world_size)
-        assert local_world_size % split_size == 0 or split_size % local_world_size == 0
-        assert split_size <= self.subgroup_world_size, (
-            f"split_size {split_size} should be less than or equal to subgroup_world_size {self.subgroup_world_size}"
-        )
-
-        pgs = self.get_placement_groups()
-        split_num = self.subgroup_world_size // split_size
-        split_pgs = []
-        for split_idx in range(split_num):
-            split_resource_pool = RayResourcePool(
-                process_on_nodes=self.store,
-                use_gpu=self.use_gpu,
-                max_colocate_count=self.max_colocate_count,
-                name_prefix=f"{self.name_prefix}_{split_idx}",
-            )
-            split_resource_pool.pgs = pgs
-            split_resource_pool.start_boundle_index = self.start_boundle_index + split_idx * split_size
-            split_resource_pool.subgroup_world_size = split_size
-            split_pgs.append(split_resource_pool)
-
-        return split_pgs
 
 
 def extract_pg_from_exist(
@@ -400,75 +374,74 @@ class RayWorkerGroup(WorkerGroup):
         if bin_pack:
             strategy = "STRICT_PACK"
         pgs = resource_pool.get_placement_groups(strategy=strategy, device_name=self.device_name)
-        world_size = resource_pool.subgroup_world_size
+        world_size = resource_pool.world_size
         self._world_size = world_size
         # cia.add_kwarg("_world_size", world_size)
         num_gpus = 1 / resource_pool.max_colocate_count
 
         rank = -1
         local_world_size = resource_pool.store[0]
-        self._get_master_addr_port(pgs[0])
-
-        for curr_rank in range(resource_pool.start_boundle_index, resource_pool.start_boundle_index + world_size):
-            pg_idx = curr_rank // local_world_size
-            pg = pgs[pg_idx]
-            local_rank = curr_rank % local_world_size
+        for pg_idx, pg in enumerate(sort_placement_group_by_node_ip(pgs)):
             assert local_world_size <= pg.bundle_count, f"when generating for {self.name_prefix}, for the "
+            if pg_idx == 0:
+                self._get_master_addr_port(pg)
 
-            rank += 1
-            # we pass in environment variable at option so that Worker can use environment variable to set
-            env_vars = {
-                "WORLD_SIZE": str(world_size),
-                "RANK": str(rank),
-                "WG_PREFIX": self.name_prefix,
-                "WG_BACKEND": "ray",
-                "RAY_LOCAL_WORLD_SIZE": str(local_world_size),
-                "MASTER_ADDR": self._master_addr,
-                "MASTER_PORT": self._master_port,
-            }
-            if worker_env is not None:
-                logging.debug(f"Appending ray class env, origin: {env_vars}, customized env: {worker_env}")
-                conflict_env_vars = set(env_vars.keys()) & set(worker_env.keys())
-                if len(conflict_env_vars) > 0:
-                    logging.error(
-                        f"User customized env vars conflict with system env: {conflict_env_vars} "
-                        f"Overriding may cause unexpected behavior."
+            for local_rank in range(local_world_size):
+                rank += 1
+
+                # we pass in environment variable at option so that Worker can use environment variable to set
+                env_vars = {
+                    "WORLD_SIZE": str(world_size),
+                    "RANK": str(rank),
+                    "WG_PREFIX": self.name_prefix,
+                    "WG_BACKEND": "ray",
+                    "RAY_LOCAL_WORLD_SIZE": str(local_world_size),
+                    "MASTER_ADDR": self._master_addr,
+                    "MASTER_PORT": self._master_port,
+                }
+                if worker_env is not None:
+                    logging.debug(f"Appending ray class env, origin: {env_vars}, customized env: {worker_env}")
+                    conflict_env_vars = set(env_vars.keys()) & set(worker_env.keys())
+                    if len(conflict_env_vars) > 0:
+                        logging.error(
+                            f"User customized env vars conflict with system env: {conflict_env_vars} "
+                            f"Overriding may cause unexpected behavior."
+                        )
+                        raise ValueError(f"Cannot override protected system env: {conflict_env_vars}")
+                    env_vars.update(worker_env)
+                import re
+
+                cia_name = type(ray_cls_with_init.cls).__name__
+                match = re.search(r"ActorClass\(([^)]+)\)", cia_name)  # ray.remote(Obj) -> "ActorClass(Obj)"
+                cia_name = match.group(1) if match else cia_name  # "ActorClass(Obj)" -> "Obj"
+                name = f"{self.name_prefix}{cia_name}_{pg_idx}:{local_rank}"  # e.g. Worker_2:5
+
+                if self.profile_steps and self.device_name == "cuda":
+                    ray_cls_with_init.update_options(
+                        {
+                            "runtime_env": {
+                                "env_vars": env_vars,
+                                "nsight": self.worker_nsight_options,
+                            },
+                            "name": name,
+                        }
                     )
-                    raise ValueError(f"Cannot override protected system env: {conflict_env_vars}")
-                env_vars.update(worker_env)
-            import re
+                else:
+                    ray_cls_with_init.update_options({"runtime_env": {"env_vars": env_vars}, "name": name})
 
-            cia_name = type(ray_cls_with_init.cls).__name__
-            match = re.search(r"ActorClass\(([^)]+)\)", cia_name)  # ray.remote(Obj) -> "ActorClass(Obj)"
-            cia_name = match.group(1) if match else cia_name  # "ActorClass(Obj)" -> "Obj"
-            name = f"{self.name_prefix}{cia_name}_{pg_idx}:{local_rank}"  # e.g. Worker_2:5
+                if detached:
+                    ray_cls_with_init.update_options({"lifetime": "detached"})
 
-            if self.profile_steps and self.device_name == "cuda":
-                ray_cls_with_init.update_options(
-                    {
-                        "runtime_env": {
-                            "env_vars": env_vars,
-                            "nsight": self.worker_nsight_options,
-                        },
-                        "name": name,
-                    }
+                # create a worker
+                worker = ray_cls_with_init(
+                    placement_group=pg,
+                    placement_group_bundle_idx=local_rank,
+                    use_gpu=use_gpu,
+                    num_gpus=num_gpus,
+                    device_name=self.device_name,
                 )
-            else:
-                ray_cls_with_init.update_options({"runtime_env": {"env_vars": env_vars}, "name": name})
-
-            if detached:
-                ray_cls_with_init.update_options({"lifetime": "detached"})
-
-            # create a worker
-            worker = ray_cls_with_init(
-                placement_group=pg,
-                placement_group_bundle_idx=local_rank,
-                use_gpu=use_gpu,
-                num_gpus=num_gpus,
-                device_name=self.device_name,
-            )
-            self._workers.append(worker)
-            self._worker_names.append(name)
+                self._workers.append(worker)
+                self._worker_names.append(name)
 
     @property
     def worker_names(self):
