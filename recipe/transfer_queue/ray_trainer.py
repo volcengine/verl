@@ -416,22 +416,25 @@ class RayPPOTrainer:
 
     def _initialize_data_system(self):
         # 1. initialize TransferQueueStorage
-        train_data_size = (
-            self.config.data.train_batch_size
-            * self.config.trainer.num_global_batch
-            * self.config.actor_rollout_ref.rollout.n
-        )
-        val_data_size = self.val_dataset_size * self.config.actor_rollout_ref.rollout.val_kwargs.n
+        if self.config.transfer_queue.storage_backend == "AsyncSimpleStorageManager":
+            train_data_size = (
+                self.config.data.train_batch_size
+                * self.config.transfer_queue.num_global_batch
+                * self.config.actor_rollout_ref.rollout.n
+            )
+            val_data_size = self.val_dataset_size * self.config.actor_rollout_ref.rollout.val_kwargs.n
 
-        total_storage_size = train_data_size + val_data_size
-        self.data_system_storage_units = {}
-        storage_placement_group = get_placement_group(self.config.trainer.num_data_storage_units, num_cpus_per_actor=1)
-        for storage_unit_rank in range(self.config.trainer.num_data_storage_units):
-            storage_node = SimpleStorageUnit.options(
-                placement_group=storage_placement_group, placement_group_bundle_index=storage_unit_rank
-            ).remote(storage_unit_size=math.ceil(total_storage_size / self.config.trainer.num_data_storage_units))
-            self.data_system_storage_units[storage_unit_rank] = storage_node
-            logging.info(f"SimpleStorageUnit #{storage_unit_rank} has been created.")
+            total_storage_size = train_data_size + val_data_size
+            self.data_system_storage_units = {}
+            storage_placement_group = get_placement_group(self.config.trainer.num_data_storage_units, num_cpus_per_actor=1)
+            for storage_unit_rank in range(self.config.transfer_queue.num_data_storage_units):
+                storage_node = SimpleStorageUnit.options(
+                    placement_group=storage_placement_group, placement_group_bundle_index=storage_unit_rank
+                ).remote(storage_unit_size=math.ceil(total_storage_size / self.config.trainer.num_data_storage_units))
+                self.data_system_storage_units[storage_unit_rank] = storage_node
+                logging.info(f"SimpleStorageUnit #{storage_unit_rank} has been created.")
+        else:
+            raise NotImplementedError("Currently only support AsyncSimpleStorageManager backend in TransferQueue")
 
         # 2. Initialize TransferQueueController (single controller only)
 
@@ -456,9 +459,12 @@ class RayPPOTrainer:
         # Note: Need to generate a new DictConfig with allow_objects=True to preserve ZMQServerInfo instances
         # (which contain socket connection details). Without this flag, OmegaConf would flatten these objects to dicts,
         # breaking the transfer queue client initialization.
-        tq_config = OmegaConf.create({}, flags={"allow_objects": True})
-        tq_config.controller_info = self.data_system_controller_info
-        tq_config.storage_unit_infos = self.data_system_storage_unit_infos
+        tq_config = OmegaConf.create({"transfer_queue"}, flags={"allow_objects": True})
+        tq_config.transfer_queue.controller_info = self.data_system_controller_info
+
+        if self.config.transfer_queue.storage_backend == "AsyncSimpleStorageManager":
+            tq_config.transfer_queue.storage_unit_infos = self.data_system_storage_unit_infos
+
         self.config = OmegaConf.merge(tq_config, self.config)
 
         # 4. create client

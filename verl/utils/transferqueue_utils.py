@@ -49,7 +49,7 @@ def create_transferqueue_client(
 ) -> None:
     global _TRANSFER_QUEUE_CLIENT
     _TRANSFER_QUEUE_CLIENT = AsyncTransferQueueClient(client_id, controller_info)
-    _TRANSFER_QUEUE_CLIENT.initialize_storage_manager(manager_type="AsyncSimpleStorageManager", config=config)
+    _TRANSFER_QUEUE_CLIENT.initialize_storage_manager(manager_type=config.transfer_queue.storage_backend, config=config)
 
 
 def get_transferqueue_client() -> "AsyncTransferQueueClient":
@@ -127,7 +127,7 @@ def _update_batchmeta_with_output(output: DataProto, batchmeta: "BatchMeta") -> 
 
 
 def tqbridge(put_data: bool = True):
-    """ "Creates a decorator for bridging BatchMeta and DataProto.
+    """ Creates a decorator for bridging BatchMeta and DataProto.
 
     This decorator automatically handles conversions between `BatchMeta` and
     `DataProto` in function parameters, and decides whether to sync function
