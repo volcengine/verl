@@ -640,7 +640,7 @@ class AgentLoopWorkerBase:
 
         client_name = get_random_string(length=6)
 
-        self.data_system_client = create_transferqueue_client(
+        self.tq_client = create_transferqueue_client(
             client_id=f"AgentLoopWorker_{client_name}",
             config=self.config.transfer_queue,
         )
