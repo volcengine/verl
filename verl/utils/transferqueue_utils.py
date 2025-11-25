@@ -44,7 +44,7 @@ is_transferqueue_enabled = os.environ.get("TRANSFER_QUEUE_ENABLE", False)
 def create_transferqueue_client(
     client_id: str,
     config,
-) -> AsyncTransferQueueClient:
+) -> "AsyncTransferQueueClient":
     global _TRANSFER_QUEUE_CLIENT
     if _TRANSFER_QUEUE_CLIENT is None:
         _TRANSFER_QUEUE_CLIENT = AsyncTransferQueueClient(client_id, config.controller_info)
