@@ -53,6 +53,7 @@ actor_rollout_ref:
         attention_backend: flash
       override_mcore_model_config: {}
       use_mbridge: false
+      vanilla_mbridge: true
       forward_only: false
       dtype: bfloat16
     _target_: verl.workers.config.McoreActorConfig
@@ -174,6 +175,7 @@ actor_rollout_ref:
       override_transformer_config: ${oc.select:actor_rollout_ref.actor.megatron.override_transformer_config,{}}
       override_mcore_model_config: {}
       use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
+      vanilla_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.vanilla_mbridge,True}
       forward_only: true
       dtype: bfloat16
     _target_: verl.workers.config.McoreActorConfig
@@ -298,6 +300,26 @@ actor_rollout_ref:
     use_fused_kernels: false
     fused_kernel_options:
       impl_backend: torch
+    lora:
+      type: lora
+      rank: 0
+      alpha: 32
+      dropout: 0.0
+      target_modules:
+      - linear_qkv
+      - linear_proj
+      - linear_fc1
+      - linear_fc2
+      exclude_modules: []
+      dropout_position: pre
+      lora_A_init_method: xavier
+      lora_B_init_method: zero
+      a2a_experimental: false
+      dtype: null
+      adapter_path: null
+      freeze_vision_model: true
+      freeze_vision_projection: true
+      freeze_language_model: true
   hybrid_engine: true
   nccl_timeout: 600
 data:
@@ -389,6 +411,7 @@ critic:
       attention_backend: flash
     override_mcore_model_config: {}
     use_mbridge: false
+    vanilla_mbridge: true
     forward_only: false
     dtype: bfloat16
   _target_: verl.workers.config.McoreCriticConfig
@@ -405,6 +428,26 @@ critic:
     external_lib: ${oc.select:actor_rollout_ref.model.external_lib,null}
     trust_remote_code: ${oc.select:actor_rollout_ref.model.trust_remote_code,false}
     _target_: verl.trainer.config.BaseModelConfig
+    lora:
+      type: lora
+      rank: 0
+      alpha: 32
+      dropout: 0.0
+      target_modules:
+      - linear_qkv
+      - linear_proj
+      - linear_fc1
+      - linear_fc2
+      exclude_modules: []
+      dropout_position: pre
+      lora_A_init_method: xavier
+      lora_B_init_method: zero
+      a2a_experimental: false
+      dtype: null
+      adapter_path: null
+      freeze_vision_model: true
+      freeze_vision_projection: true
+      freeze_language_model: true
   ppo_mini_batch_size: ${oc.select:actor_rollout_ref.actor.ppo_mini_batch_size,256}
   ppo_micro_batch_size: null
   ppo_micro_batch_size_per_gpu: ${oc.select:.ppo_micro_batch_size,null}
@@ -499,6 +542,7 @@ reward_model:
     seed: ${oc.select:actor_rollout_ref.actor.megatron.seed,42}
     override_transformer_config: ${oc.select:actor_rollout_ref.actor.megatron.override_transformer_config,{}}
     use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
+    vanilla_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.vanilla_mbridge,True}
     dtype: bfloat16
   load_weight: true
 algorithm:

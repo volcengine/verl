@@ -148,9 +148,6 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         self.running = True
         self.monitor_loop_trigger = True
 
-        # Initialize async locks directly
-        self.lock = asyncio.Lock()
-        self.condition = asyncio.Condition(self.lock)
         # Add dataloader lock
         self.dataloader_lock = asyncio.Lock()
 
@@ -159,6 +156,16 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         self.active_tasks = set()
         self.result_queue = asyncio.Queue()
         self.cancel_queue = asyncio.Queue()
+
+    def _init_async_objects(self):
+        # Initialize asyncio synchronization primitives.
+        # We let asyncio.Condition create the Lock internally to ensure they share the same Event Loop.
+        # This avoids 'ValueError: loop argument must agree with lock' which can occur in Ray environments
+        # where the lock's captured loop (get_running_loop) differs from Condition's default loop check.
+        # Explicitly passing the loop is deprecated/removed in Python 3.10+, so this reverse-initialization
+        # is the most robust workaround.
+        self.condition = asyncio.Condition()
+        self.lock = self.condition._lock
 
     async def set_message_queue_client(self, message_queue_client: MessageQueueClient):
         """Set message queue client"""
@@ -331,6 +338,7 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         1. Ray resource pools from configuration
         2. Worker groups for each role (actor, critic, etc.)
         """
+        self._init_async_objects()
         self._init_resource_pools()
         self._create_worker_classes()
         self._init_worker_groups()
@@ -551,7 +559,19 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
 
         try:
             # Wait for sample feed to complete
-            await self.feed_task
+            # Use asyncio.wait to monitor all tasks. If processor/consumer exits early,
+            # detect it instead of blocking on feed_task (it might be stuck on a full queue).
+            done, pending = await asyncio.wait(
+                [self.feed_task, self.processor_task, self.consumer_task], return_when=asyncio.FIRST_COMPLETED
+            )
+
+            for task in done:
+                if task.exception():
+                    raise task.exception()
+
+            if self.feed_task not in done:
+                raise RuntimeError("Processor or consumer task exited prematurely")
+
             print("[FullyAsyncRollouter] Sample feed completed")
 
             # Wait for streaming to complete

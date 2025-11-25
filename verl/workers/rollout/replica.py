@@ -18,14 +18,14 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Callable, Optional
 
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from pydantic import BaseModel
 from ray.actor import ActorHandle
 
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.trainer.ppo.ray_trainer import RayResourcePool, ResourcePoolManager
 from verl.utils.config import omega_conf_to_dataclass
-from verl.workers.config import RolloutConfig
+from verl.workers.config import HFModelConfig, RolloutConfig
 
 logger = logging.getLogger(__file__)
 
@@ -86,7 +86,18 @@ class RolloutReplica(ABC):
     ) -> None:
         self.replica_rank = replica_rank
         self.config = omega_conf_to_dataclass(config)
-        self.model_config = model_config
+        # TODO: make lora config irrelevant to the model engine choice
+        # Convert megatron lora config to HFModelConfig
+        # If model_config is not an OmegaConf object, convert it first
+        if OmegaConf.is_config(model_config):
+            model_config_dict = OmegaConf.to_container(model_config)
+            model_config_dict.pop("lora", None)
+
+            self.model_config: HFModelConfig = omega_conf_to_dataclass(
+                OmegaConf.create(model_config_dict), dataclass_type=HFModelConfig
+            )
+        else:
+            self.model_config: HFModelConfig = model_config
 
         self.world_size = (
             self.config.tensor_model_parallel_size
@@ -138,8 +149,6 @@ class RolloutReplica(ABC):
             name_prefix=f"rollout_colocate_{self.replica_rank}"
             if not self.is_reward_model
             else f"rollout_reward_colocate_{self.replica_rank}",
-            replica_rank=self.replica_rank,
-            replica_world_size=self.world_size,
         )
         self.workers = worker_group.workers
         await self.launch_servers()

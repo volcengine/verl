@@ -101,6 +101,7 @@ def test_agent_loop_reward_manager():
 
     # 2. init test data
     local_folder = os.path.expanduser("~/data/gsm8k/")
+
     data_files = [os.path.join(local_folder, "train.parquet")]
     tokenizer = AutoTokenizer.from_pretrained(rollout_model_path)
 
