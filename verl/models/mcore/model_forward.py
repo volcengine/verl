@@ -130,7 +130,10 @@ def gptmodel_forward_no_padding(
     )
 
     if post_process and logits_processor is not None:
-        args = {k: preprocess_packed_seqs_no_padding(v, pre_process=True)[0] for k, v in logits_processor_args.items()}
+        args = {
+            k: preprocess_packed_seqs_no_padding(v, pre_process=True, need_roll=(k == "label"))[0]
+            for k, v in logits_processor_args.items()
+        }
         output_dict = logits_processor(output_orig, **args)
         output = {
             k: postprocess_packed_seqs_no_padding(

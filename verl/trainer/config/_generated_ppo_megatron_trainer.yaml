@@ -53,9 +53,11 @@ actor_rollout_ref:
         attention_backend: flash
       override_mcore_model_config: {}
       use_mbridge: false
+      vanilla_mbridge: true
       forward_only: false
       dtype: bfloat16
     _target_: verl.workers.config.McoreActorConfig
+    rollout_n: ${oc.select:actor_rollout_ref.rollout.n,1}
     strategy: megatron
     ppo_mini_batch_size: 256
     ppo_micro_batch_size: null
@@ -77,6 +79,7 @@ actor_rollout_ref:
     clip_ratio_c: 3.0
     loss_agg_mode: token-mean
     entropy_coeff: 0
+    calculate_entropy: false
     use_kl_loss: false
     use_torch_compile: true
     kl_loss_coef: 0.001
@@ -117,9 +120,10 @@ actor_rollout_ref:
           _target_: verl.utils.profiler.config.TorchMemoryToolConfig
           trace_alloc_max_entries: ${oc.select:global_profiler.global_tool_config.torch_memory.trace_alloc_max_entries,100000}
           stack_depth: ${oc.select:global_profiler.global_tool_config.torch_memory.stack_depth,32}
-    data_loader_seed: null
+    data_loader_seed: 42
     load_weight: true
   ref:
+    rollout_n: ${oc.select:actor_rollout_ref.rollout.n,1}
     strategy: megatron
     use_torch_compile: ${oc.select:actor_rollout_ref.actor.use_torch_compile,true}
     log_prob_micro_batch_size: null
@@ -152,16 +156,16 @@ actor_rollout_ref:
           trace_alloc_max_entries: ${oc.select:global_profiler.global_tool_config.torch_memory.trace_alloc_max_entries,100000}
           stack_depth: ${oc.select:global_profiler.global_tool_config.torch_memory.stack_depth,32}
     megatron:
-      _target_: verl.workers.config.MegatronEngineConfig
-      param_offload: false
+      _target_: verl.workers.config.McoreEngineConfig
+      param_offload: ${oc.select:actor_rollout_ref.actor.megatron.param_offload,False}
       grad_offload: false
       optimizer_offload: false
-      tensor_model_parallel_size: 1
-      expert_model_parallel_size: 1
-      expert_tensor_parallel_size: null
-      pipeline_model_parallel_size: 1
-      virtual_pipeline_model_parallel_size: null
-      context_parallel_size: 1
+      tensor_model_parallel_size: ${oc.select:actor_rollout_ref.actor.megatron.tensor_model_parallel_size,1}
+      expert_model_parallel_size: ${oc.select:actor_rollout_ref.actor.megatron.expert_model_parallel_size,1}
+      expert_tensor_parallel_size: ${oc.select:actor_rollout_ref.actor.megatron.expert_tensor_parallel_size,null}
+      pipeline_model_parallel_size: ${oc.select:actor_rollout_ref.actor.megatron.pipeline_model_parallel_size,1}
+      virtual_pipeline_model_parallel_size: ${oc.select:actor_rollout_ref.actor.megatron.virtual_pipeline_model_parallel_size,null}
+      context_parallel_size: ${oc.select:actor_rollout_ref.actor.megatron.context_parallel_size,1}
       sequence_parallel: true
       use_distributed_optimizer: true
       use_dist_checkpointing: false
@@ -172,8 +176,10 @@ actor_rollout_ref:
       override_transformer_config: ${oc.select:actor_rollout_ref.actor.megatron.override_transformer_config,{}}
       override_mcore_model_config: {}
       use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
-      forward_only: false
+      vanilla_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.vanilla_mbridge,True}
+      forward_only: true
       dtype: bfloat16
+    _target_: verl.workers.config.McoreActorConfig
     load_weight: true
   rollout:
     _target_: verl.workers.config.RolloutConfig
@@ -270,19 +276,53 @@ actor_rollout_ref:
     layer_name_map:
       qkv_layer_name: qkv
       gate_proj_layer_name: gate_up
-  hybrid_engine: true
-  nccl_timeout: 600
   model:
+    _target_: verl.workers.config.HFModelConfig
     path: ~/models/deepseek-llm-7b-chat
+    hf_config_path: null
+    tokenizer_path: null
+    use_shm: false
+    trust_remote_code: false
     custom_chat_template: null
     external_lib: null
     override_config:
       model_config: {}
       moe_config:
         freeze_moe_router: false
-    use_fused_kernels: false
-    trust_remote_code: false
+    enable_gradient_checkpointing: true
+    enable_activation_offload: false
     use_remove_padding: false
+    lora_rank: 0
+    lora_alpha: 16
+    target_modules: all-linear
+    exclude_modules: null
+    lora_adapter_path: null
+    use_liger: false
+    use_fused_kernels: false
+    fused_kernel_options:
+      impl_backend: torch
+    lora:
+      type: lora
+      rank: 0
+      alpha: 32
+      dropout: 0.0
+      target_modules:
+      - linear_qkv
+      - linear_proj
+      - linear_fc1
+      - linear_fc2
+      exclude_modules: []
+      dropout_position: pre
+      lora_A_init_method: xavier
+      lora_B_init_method: zero
+      a2a_experimental: false
+      dtype: null
+      adapter_path: null
+      freeze_vision_model: true
+      freeze_vision_projection: true
+      freeze_language_model: true
+  hybrid_engine: true
+  nccl_timeout: 600
 data:
   tokenizer: null
   use_shm: false
@@ -372,6 +412,7 @@ critic:
       attention_backend: flash
     override_mcore_model_config: {}
     use_mbridge: false
+    vanilla_mbridge: true
     forward_only: false
     dtype: bfloat16
   _target_: verl.workers.config.McoreCriticConfig
@@ -388,6 +429,26 @@ critic:
     external_lib: ${oc.select:actor_rollout_ref.model.external_lib,null}
     trust_remote_code: ${oc.select:actor_rollout_ref.model.trust_remote_code,false}
     _target_: verl.trainer.config.BaseModelConfig
+    lora:
+      type: lora
+      rank: 0
+      alpha: 32
+      dropout: 0.0
+      target_modules:
+      - linear_qkv
+      - linear_proj
+      - linear_fc1
+      - linear_fc2
+      exclude_modules: []
+      dropout_position: pre
+      lora_A_init_method: xavier
+      lora_B_init_method: zero
+      a2a_experimental: false
+      dtype: null
+      adapter_path: null
+      freeze_vision_model: true
+      freeze_vision_projection: true
+      freeze_language_model: true
   ppo_mini_batch_size: ${oc.select:actor_rollout_ref.actor.ppo_mini_batch_size,256}
   ppo_micro_batch_size: null
   ppo_micro_batch_size_per_gpu: ${oc.select:.ppo_micro_batch_size,null}
@@ -482,6 +543,7 @@ reward_model:
     seed: ${oc.select:actor_rollout_ref.actor.megatron.seed,42}
     override_transformer_config: ${oc.select:actor_rollout_ref.actor.megatron.override_transformer_config,{}}
     use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
+    vanilla_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.vanilla_mbridge,True}
     dtype: bfloat16
   load_weight: true
 algorithm:
@@ -542,6 +604,7 @@ trainer:
   ray_wait_register_center_timeout: 300
   device: cuda
   rollout_data_dir: null
+  use_legacy_worker_impl: auto
 global_profiler:
   _target_: verl.utils.profiler.ProfilerConfig
   tool: null

@@ -78,20 +78,23 @@ DockerFile镜像构建
 其他三方库说明
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-+--------------+---------------+
-| software     | description   |
-+--------------+---------------+
-| transformers | >=v4.57.1     |
-+--------------+---------------+
-| flash_attn   | not supported |
-+--------------+---------------+
-| liger-kernel | not supported |
-+--------------+---------------+
++---------------+----------------+
+| software      | description    |
++---------------+----------------+
+| transformers  | >=v4.57.1      |
++---------------+----------------+
+| triton-ascend | 3.2.0rc4       |
++---------------+----------------+
+| flash_attn    | not supported  |
++---------------+----------------+
+| liger-kernel  | not supported  |
++---------------+----------------+
 
 1. 支持通过 transformers 使能 --flash_attention_2， transformers 需大于等于 4.57.1版本。
-2. 不支持通过 flash_attn 使能 flash attention 加速。
-3. 不支持 liger-kernel 使能。
-4. 针对 x86 服务器，需要安装 cpu 版本的 torchvision。
+2. 需要安装triton-ascend，保障vLLM正常推理。
+3. 不支持通过 flash_attn 使能 flash attention 加速。
+4. 不支持 liger-kernel 使能。
+5. 针对 x86 服务器，需要安装 cpu 版本的 torchvision。
 
 .. code-block:: bash
 

@@ -71,6 +71,7 @@ class McoreEngineConfig(BaseConfig):
     override_transformer_config: dict[str, Any] = field(default_factory=dict)
     override_mcore_model_config: dict[str, Any] = field(default_factory=dict)
     use_mbridge: bool = False
+    vanilla_mbridge: bool = True
     forward_only: bool = False
     strategy: str = "megatron"
     dtype: str = "bfloat16"  # ["bfloat16", "float16"]
@@ -103,6 +104,9 @@ class FSDPEngineConfig(BaseConfig):
         mixed_precision (Optional[dict[str, Any]]): Mixed precision configuration for FSDP, default None
         dtype (str): Mixed precision training param dtype, default "bfloat16"
     """
+
+    # ulysses_sequence_parallel_size is mutable for backward compatibility
+    _mutable_fields = BaseConfig._mutable_fields | {"ulysses_sequence_parallel_size"}
 
     wrap_policy: dict[str, Any] = field(default_factory=dict)
     param_offload: bool = False

@@ -21,7 +21,7 @@ import aiohttp
 from openai.types.chat import ChatCompletion
 
 from verl import DataProto
-from verl.single_controller.ray.base import RayResourcePool
+from verl.single_controller.ray.base import RayResourcePool, split_resource_pool
 from verl.workers.config import HFModelConfig, RewardModelConfig
 from verl.workers.rollout.replica import get_rollout_replica_class
 
@@ -75,10 +75,16 @@ class RewardModelManager:
             for replica_rank in range(num_replicas)
         ]
         if self.resource_pool:
-            self._run_all([server.init_colocated(self.resource_pool) for server in self.rollout_replicas])
+            split_resource_pools = split_resource_pool(self.resource_pool, split_size=rollout_world_size)
+            assert len(split_resource_pools) == len(self.rollout_replicas)
+            self._run_all(
+                [
+                    server.init_colocated(resource_pool)
+                    for server, resource_pool in zip(self.rollout_replicas, split_resource_pools, strict=False)
+                ]
+            )
         else:
             self._run_all([server.init_standalone() for server in self.rollout_replicas])
-
         self.server_handles = [server._server_handle for server in self.rollout_replicas]
         self.server_addresses = [server._server_address for server in self.rollout_replicas]
 

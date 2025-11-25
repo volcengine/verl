@@ -15,7 +15,7 @@
 The abstract base class defining the interface for model training engines.
 """
 
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Generator, Optional
 
 import torch
 from tensordict import TensorDict
@@ -126,7 +126,14 @@ class BaseEngine:
             outputs = self.forward_backward_batch(data, loss_function, forward_only=True)
         return outputs
 
-    def get_per_tensor_param(self):
+    def get_per_tensor_param(self) -> tuple[Generator[tuple[str, torch.Tensor], None, None], Optional[dict]]:
+        """
+        Get a generator that yields per-tensor parameters and optional peft config.
+
+        Returns:
+            Generator[tuple[str, torch.Tensor]]: A generator that yields tuples of parameter names and tensors.
+            Optional[dict]: Optional peft config.
+        """
         raise NotImplementedError
 
     def get_data_parallel_size(self):
@@ -138,7 +145,7 @@ class BaseEngine:
     def get_data_parallel_group(self):
         raise NotImplementedError
 
-    def to(self, device: str, model: bool = True, optimizer: bool = True):
+    def to(self, device: str, model: bool = True, optimizer: bool = True, grad: bool = True):
         """
         Move model parameters, optimizer states, or both to the specified device.
 
@@ -146,6 +153,7 @@ class BaseEngine:
             device: Target device identifier.
             model: If True, move the model.
             optimizer: If True, move the optimizer states.
+            grad: If True, move the gradient buffer.
         """
         raise NotImplementedError
 

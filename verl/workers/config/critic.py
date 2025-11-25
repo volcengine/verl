@@ -157,14 +157,12 @@ class McoreCriticConfig(CriticConfig):
         nccl_timeout (int): NCCL timeout in seconds for distributed operations.
         megatron (Dict[str, Any]): Megatron-specific parallelism settings.
         load_weight (bool): Whether to load initial weights.
-        data_loader_seed (Optional[int]): Seed for data loader.
     """
 
     strategy: str = "megatron"
     nccl_timeout: int = 600
     megatron: McoreEngineConfig = field(default_factory=McoreEngineConfig)
     load_weight: bool = True
-    data_loader_seed: Optional[int] = None
 
     def validate(self, n_gpus: int, train_batch_size: int):
         """Validate Megatron critic configuration with runtime parameters."""
@@ -180,7 +178,7 @@ class FSDPCriticConfig(CriticConfig):
     Args:
         forward_micro_batch_size (int): Forward-only batch size during inference (global).
         forward_micro_batch_size_per_gpu (int): Forward-only batch size during inference (per GPU).
-        ulysses_sequence_parallel_size (int): Sequence parallelism size for Ulysses-style model parallelism.
+        ulysses_sequence_parallel_size (int): [DEPRECATED] Ulysses sequence parallel size for long sequences.
         grad_clip (float): Gradient clipping for critic updates.
     """
 

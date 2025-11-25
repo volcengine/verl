@@ -77,6 +77,9 @@ override_mcore_model_config: {}
 # oc.select: default val for ref.megatron.use_mbridge
 use_mbridge: False
 
+# oc.select: default val for ref.megatron.vanilla_mbridge
+vanilla_mbridge: True
+
 # whether to use forward only
 forward_only: False
 
