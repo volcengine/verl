@@ -168,7 +168,7 @@ class Worker(WorkerHelper):
 
         create_transferqueue_client(
             client_id=f"worker_{self.rank}",
-            config=config,
+            config=config.transfer_queue,
         )
 
     @classmethod
