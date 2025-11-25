@@ -485,6 +485,8 @@ class RayPRIMETrainer(RayPPOTrainer):
                         old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
                         entropys = old_log_prob.batch["entropys"]
                         response_masks = compute_response_mask(batch)
+                        response_mask_proto = DataProto.from_dict(tensors={"response_mask": response_masks})
+                        batch = batch.union(response_mask_proto)
                         loss_agg_mode = self.config.actor_rollout_ref.actor.loss_agg_mode
                         entropy_agg = agg_loss(loss_mat=entropys, loss_mask=response_masks, loss_agg_mode=loss_agg_mode)
                         old_log_prob_metrics = {"actor/entropy": entropy_agg.detach().item()}
