@@ -18,6 +18,7 @@
 This trainer supports model-agonistic model initialization with huggingface
 """
 
+import asyncio
 import uuid
 from pprint import pprint
 
@@ -25,6 +26,7 @@ import numpy as np
 import ray
 import torch
 from omegaconf import OmegaConf
+from ray.util.collective import collective
 from torch.utils.data import Dataset, Sampler
 from tqdm import tqdm
 
@@ -54,6 +56,7 @@ from verl.utils.metric import (
     reduce_metrics,
 )
 from verl.utils.tracking import ValidationGenerationsLogger
+import time
 
 
 class GenerationBatchFuture:
@@ -273,13 +276,10 @@ class OneStepOffRayTrainer(RayPPOTrainer):
             self.ref_policy_wg = self.all_wg[str(Role.RefPolicy)]
             self.ref_policy_wg.init_model()
 
+        self.rm_wg = None
         if self.use_rm:
             self.rm_wg = self.all_wg[str(Role.RewardModel)]
             self.rm_wg.init_model()
-
-        # we should create rollout at the end so that vllm can have a better estimation of kv cache memory
-        self.actor_rollout_wg = self.all_wg[str(Role.ActorRollout)]
-        self.actor_rollout_wg.init_model()
 
         self.actor_wg = self.all_wg[str(Role.Actor)]
         self.rollout_wg = self.all_wg[str(Role.Rollout)]
@@ -289,34 +289,55 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         weights_info = self.actor_wg.get_actor_weights_info()[0]
         self.rollout_wg.set_actor_weights_info(weights_info)
         self.create_weight_sync_group()
-        self.sync_rollout_weights()
 
     def _init_async_rollout_manager(self):
-        pass
+        # create async rollout manager and request scheduler
+        assert self.config.actor_rollout_ref.rollout.mode == "async"
+        from verl.experimental.agent_loop import AgentLoopManager
+        self.async_rollout_mode = True
+        self.async_rollout_manager = AgentLoopManager(
+            config=self.config, worker_group=self.rollout_wg, rm_wg=self.rm_wg
+        )
+
+        self.sync_rollout_weights()
 
     def create_weight_sync_group(self):
-        master_address = ray.get(self.actor_wg.workers[0]._get_node_ip.remote())
-        master_port = ray.get(self.actor_wg.workers[0]._get_free_port.remote())
-        world_size = len(self.actor_wg.workers + self.rollout_wg.workers)
-        self.actor_wg.create_weight_sync_group(
-            master_address,
-            master_port,
-            0,
-            world_size,
-        )
-        ray.get(
-            self.rollout_wg.create_weight_sync_group(
-                master_address,
-                master_port,
-                len(self.actor_wg.workers),
-                world_size,
-            )
+        # master_address = ray.get(self.actor_wg.workers[0]._get_node_ip.remote())
+        # master_port = ray.get(self.actor_wg.workers[0]._get_free_port.remote())
+        # world_size = len(self.actor_wg.workers + self.rollout_wg.workers)
+        # self.actor_wg.create_weight_sync_group(
+        #     master_address,
+        #     master_port,
+        #     0,
+        #     world_size,
+        # )
+        # ray.get(
+        #     self.rollout_wg.create_weight_sync_group(
+        #         master_address,
+        #         master_port,
+        #         len(self.actor_wg.workers),
+        #         world_size,
+        #     )
+        # )
+
+        from verl.utils.device import get_nccl_backend
+
+        actor_rollout_workers = self.actor_wg.workers + self.rollout_wg.workers
+        collective.create_collective_group(
+            actor_rollout_workers,
+            len(actor_rollout_workers),
+            list(range(0, len(actor_rollout_workers))),
+            backend=get_nccl_backend(),
+            group_name="actor_rollout",
         )
 
     def sync_rollout_weights(self):
-        if not self.hybrid_engine:
-            self.actor_wg.sync_rollout_weights()
-            ray.get(self.rollout_wg.sync_rollout_weights())
+        start_time = time.time()
+        print(f"sync_rollout_weights start")
+        self.actor_wg.sync_rollout_weights()
+        ray.get(self.rollout_wg.sync_rollout_weights())
+        total_time = time.time()
+        print(f"Total sync_rollout_weights time: {total_time - start_time:.4f}s")
 
     def _create_continuous_iterator(self):
         """
@@ -327,7 +348,7 @@ class OneStepOffRayTrainer(RayPPOTrainer):
             for batch_dict in iterator:
                 yield epoch, batch_dict
 
-    def _async_gen_next_batch(self, continuous_iterator):
+    async def _async_gen_next_batch(self, continuous_iterator):
         """
         Call parameter synchronization and asynchronous sequence generation.
         """
@@ -364,7 +385,7 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         self.sync_rollout_weights()
 
         # async generation
-        gen_batch_output = self.rollout_wg.async_generate_sequences(gen_batch)
+        gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
 
         # Launch individual reward computations as each generation completes
         future_reward = None
@@ -416,7 +437,7 @@ class OneStepOffRayTrainer(RayPPOTrainer):
 
         return combined_reward_tensor, combined_extras_dict
 
-    def fit(self):
+    async def fit(self):
         """
         The training loop of PPO.
         The driver process only need to call the compute functions of the worker group through RPC
@@ -461,7 +482,7 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         continuous_iterator = self._create_continuous_iterator()
 
         # Start the first asynchronous generation task.
-        batch_data_future = self._async_gen_next_batch(continuous_iterator)
+        batch_data_future = asyncio.create_task(self._async_gen_next_batch(continuous_iterator))
 
         while batch_data_future is not None:
             do_profile = (
@@ -487,14 +508,14 @@ class OneStepOffRayTrainer(RayPPOTrainer):
             with marked_timer("step", timing_raw):
                 # wait for the previous batch
                 with marked_timer("wait_prev_gen", timing_raw, color="red"):
-                    epoch, batch, gen_batch_output, future_reward = batch_data_future.get()
+                    epoch, batch, gen_batch_output, future_reward = await batch_data_future
                     timing_raw.update(gen_batch_output.meta_info["timing"])
                     gen_batch_output.meta_info.pop("timing", None)
 
-                # asys next generation (with syns weights from actor to rollout)
+                # async next generation (with sync weights from actor to rollout)
                 with marked_timer("sync_rollout_weights", timing_raw, color="purple"):
                     if not is_last_step:
-                        batch_data_future = self._async_gen_next_batch(continuous_iterator)
+                        batch_data_future = asyncio.create_task(self._async_gen_next_batch(continuous_iterator))
 
                 batch.non_tensor_batch["uid"] = np.array(
                     [str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object

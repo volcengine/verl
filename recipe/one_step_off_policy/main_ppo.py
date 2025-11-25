@@ -16,6 +16,7 @@
 Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
 """
 
+import asyncio
 import os
 import socket
 
@@ -208,17 +209,14 @@ class OneStepTaskRunner:
         # Initialize the workers of the trainer.
         trainer.init_workers()
         # Start the training process.
-        trainer.fit()
+        asyncio.run(trainer.fit())
 
 
 @hydra.main(config_path="config", config_name="one_step_off_ppo_trainer", version_base=None)
 def main(config):
-    from verl.trainer.main_ppo import run_ppo
-
-    # Ensure async training config exists
-    if not hasattr(config, "async_training"):
-        raise RuntimeError("must set async_training config")
     from time import time
+
+    from verl.trainer.main_ppo import run_ppo
 
     start_time = time()
     run_ppo(config, task_runner_class=OneStepTaskRunner)

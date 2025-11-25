@@ -4,11 +4,16 @@ project_name='GRPO'
 exp_name='GRPO-Qwen3-0.6b-gsm8k-fsdp2-one-step-off-2-6'
 
 # Paths
-RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
-MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen3-0.6B"}
-CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/ckpts/${project_name}/${exp_name}"}
-TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/gsm8k/train.parquet"}
-TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/gsm8k/test.parquet"}
+#RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
+#MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen3-0.6B"}
+#CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/ckpts/${project_name}/${exp_name}"}
+#TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/gsm8k/train.parquet"}
+#TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/gsm8k/test.parquet"}
+
+MODEL_PATH=/cfs_shtx5_serving_3/mlp/training/docker/user/hadoop-ai-search/deepsearch_files_ssd/LLMbasemodels/huggingface.co/Qwen/Qwen3-0.6B
+CKPTS_DIR=/cfs_shtx5_serving_3/mlp/training/docker/user/hadoop-ai-search/houzhenggang/GRPO-Qwen3-0.6b-gsm8k-fsdp2-one-step-off-2-6
+TRAIN_FILE=/cfs_shtx5_serving_3/mlp/training/docker/user/hadoop-ai-search/houzhenggang/data/gsm8k/train.parquet
+TEST_FILE=/cfs_shtx5_serving_3/mlp/training/docker/user/hadoop-ai-search/houzhenggang/data/gsm8k/test.parquet
 
 NNODES=${NNODES:-1}
 NGPUS_PER_NODE=${NGPUS_PER_NODE:-8}
@@ -16,6 +21,12 @@ NGPUS_PER_NODE=${NGPUS_PER_NODE:-8}
 n_gpus_rollout=2
 n_gpus_training=$((NGPUS_PER_NODE - n_gpus_rollout))
 
+rollout_mode="async"
+rollout_name="vllm" # sglang or vllm
+if [ "$rollout_mode" = "async" ]; then
+    export VLLM_USE_V1=1
+    return_raw_chat="True"
+fi
 
 python3 -m recipe.one_step_off_policy.main_ppo \
     algorithm.adv_estimator=grpo \
@@ -42,7 +53,7 @@ python3 -m recipe.one_step_off_policy.main_ppo \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=32 \
-    actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.n=5 \
@@ -62,4 +73,8 @@ python3 -m recipe.one_step_off_policy.main_ppo \
     trainer.nnodes="${NNODES}" \
     trainer.n_gpus_per_node="${n_gpus_training}" \
     rollout.nnodes="${NNODES}" \
-    rollout.n_gpus_per_node="${n_gpus_rollout}" $@
+    rollout.n_gpus_per_node="${n_gpus_rollout}" \
+    actor_rollout_ref.rollout.mode="${rollout_mode}" \
+    actor_rollout_ref.rollout.name="${rollout_name}" \
+    data.return_raw_chat="${return_raw_chat}" \
+    $@
