@@ -107,9 +107,7 @@ class AsyncLLMServerManager:
         self.gen_batch_size = self.config.data.get("gen_batch_size", self.config.data.train_batch_size)
         self.train_batch_size = self.config.data.train_batch_size
         self.reorder_rollout = not (self.gen_batch_size == self.train_batch_size)
-
-        if self.reorder_rollout:
-            self.ray_tasks = []
+        self.ray_tasks = []
 
     def cancel_tasks(self):
         """

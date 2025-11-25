@@ -1067,7 +1067,7 @@ class RayPPOTrainer:
         for epoch in range(current_epoch, self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
                 train_batch_size = self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n
-                if self.unfinished_queue.qsize() >= train_batch_size:
+                if self.reorder_rollout and self.unfinished_queue.qsize() >= train_batch_size:
                     # When using reordering, some incomplete long-tail requests are generated,
                     # so these requests need to be grouped into an additional batch for inference.
                     unfinished_batch_list = _get_all_from_queue(self.unfinished_queue, max_item=train_batch_size)
@@ -1122,6 +1122,7 @@ class RayPPOTrainer:
         with marked_timer("step", timing_raw):
             # generate a batch
             with marked_timer("gen", timing_raw, color="red"):
+                raw_item = None
                 if not self.async_rollout_mode:
                     gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch_output)
                 else:
