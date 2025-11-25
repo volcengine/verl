@@ -79,10 +79,18 @@ class ResourcePoolManager:
         with each pool managing GPU resources across multiple nodes.
 
         Args:
-            max_colocate_count: Number of processes that can share a GPU.
-                - 1 (default): Each process gets exclusive GPU access (recommended for FSDP)
-                - >1: Multiple processes share GPUs (for Megatron with colocated models)
-                Note: max_colocate_count > 1 requires Ray >= 2.39.0 (PR #48088)
+            max_colocate_count: Maximum number of placement group bundles per resource pool.
+                Each bundle contains 1 full GPU (not fractional). This controls how many
+                different worker groups can colocate in the same resource pool.
+
+                - 1 (default): Single bundle per pool, all workers merged into one group (FSDP)
+                - >1: Multiple bundles per pool, each worker group gets dedicated GPU (Megatron)
+                  Example: max_colocate_count=3 allows Actor (GPU 0), Rollout (GPU 1),
+                  and Reward Model (GPU 2) to colocate, each with dedicated GPU.
+
+                Note: This is NOT fractional GPU sharing (num_gpus=0.1). Each process gets
+                a full GPU via placement group bundles. Requires Ray >= 2.39.0 for correct
+                bundle index assignment (PR #48088).
         """
         # Check Ray version if max_colocate_count > 1
         if self.max_colocate_count > 1:
@@ -95,10 +103,11 @@ class ResourcePoolManager:
                 )
 
         for resource_pool_name, process_on_nodes in self.resource_pool_spec.items():
-            # max_colocate_count means the number of WorkerGroups (i.e. processes) in each RayResourcePool
-            # For FSDP backend, we recommend using max_colocate_count=1 that merge all WorkerGroups into one.
-            # For Megatron backend, we recommend using max_colocate_count>1
-            # that can utilize different WorkerGroup for differnt models
+            # max_colocate_count controls placement group bundles per resource pool.
+            # Each bundle has 1 full GPU (NOT fractional sharing).
+            # FSDP: max_colocate_count=1 merges all workers into single bundle.
+            # Megatron: max_colocate_count>1 allows multiple worker groups with dedicated GPUs
+            # (e.g., Actor on GPU 0, Rollout on GPU 1, RM on GPU 2).
             resource_pool = RayResourcePool(
                 process_on_nodes=process_on_nodes,
                 use_gpu=True,
