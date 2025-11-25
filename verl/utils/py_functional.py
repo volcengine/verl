@@ -176,10 +176,13 @@ def append_to_dict(data: dict, new_data: dict, prefix: str = ""):
         None: The function modifies data in-place.
     """
     for key, val in new_data.items():
-        new_key = f"{prefix}{key}"
+        new_key = f"{prefix}{key}" if not key.startswith(prefix) else key
         if new_key not in data:
             data[new_key] = []
-        data[new_key].append(val)
+        if isinstance(val, list):
+            data[new_key].extend(val)
+        else:
+            data[new_key].append(val)
 
 
 class NestedNamespace(SimpleNamespace):

@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
+
 import torch
 from megatron.core import parallel_state as mpu
 from megatron.core.packed_seq_params import PackedSeqParams
@@ -21,7 +23,7 @@ from verl.utils.model import CausalLMOutputForPPO
 
 
 def preprocess_packed_seqs(
-    input_ids: torch.Tensor, attention_mask: torch.Tensor, pre_process: bool = True
+    input_ids: torch.Tensor, attention_mask: torch.Tensor, pre_process: bool = True, use_fp8_padding=False
 ) -> tuple[torch.Tensor, PackedSeqParams]:
     """
     Preprocess packed sequences
@@ -36,6 +38,10 @@ def preprocess_packed_seqs(
     cp_size = mpu.get_context_parallel_world_size()
     cp_rank = mpu.get_context_parallel_rank()
     align_size = tp_size * cp_size * 2 if cp_size > 1 else tp_size
+    if use_fp8_padding:
+        # if fp8 is enabled, ensure the sequence is padded to multiples of 16 for better performance
+        original_align_size = align_size
+        align_size = math.lcm(16, align_size)
 
     pad_size = (align_size - seqlens_in_batch % align_size) % align_size
     seqlens_in_batch_padded = seqlens_in_batch + pad_size
@@ -44,6 +50,13 @@ def preprocess_packed_seqs(
     cu_seqlens[1:] = torch.cumsum(seqlens_in_batch, dim=0)
     cu_seqlens_padded = torch.zeros(batch_size + 1, dtype=torch.int32, device=input_ids.device)
     cu_seqlens_padded[1:] = torch.cumsum(seqlens_in_batch_padded, dim=0)
+
+    if use_fp8_padding:
+        # make sure all the sequences are padded to multiples of 128 for TE compatibility
+        align_size_last = original_align_size * 128
+        pad_size_last = (align_size_last - cu_seqlens_padded[-1] % align_size_last) % align_size_last
+        cu_seqlens_padded[-1] += pad_size_last
+        seqlens_in_batch_padded[-1] += pad_size_last
 
     # ----------------------------------------------------------------------------
     # Move the index information needed in the subsequent loop to the CPU at once,
@@ -163,7 +176,7 @@ def postprocess_packed_seqs(
 
 
 def preprocess_packed_seqs_no_padding(
-    input_ids: torch.Tensor, pre_process: bool = True
+    input_ids: torch.Tensor, pre_process: bool = True, need_roll: bool = False
 ) -> tuple[torch.Tensor, PackedSeqParams]:
     """
     Preprocess packed sequences
@@ -202,6 +215,8 @@ def preprocess_packed_seqs_no_padding(
     shape[0] = sum(seqlens_in_batch_padded_cpu) // cp_size
     if pre_process:
         input_ids_rmpad = torch.zeros(shape, dtype=input_ids.dtype, device=input_ids.device)
+        if need_roll:
+            saved_roll_dict = {}
         for i in range(batch_size):
             # Use Python int, so no GPU→CPU sync in the loop
             if cp_size <= 1:
@@ -228,6 +243,21 @@ def preprocess_packed_seqs_no_padding(
                 input_ids_rmpad[start_idx + half_seqlen : start_idx + half_seqlen + remain_len] = d[
                     remain_start:remain_end
                 ]
+
+            if need_roll:
+                # Handle roll for cp_size > 1 case
+                saved_roll_dict[start_idx + half_seqlen - 1] = d[(cp_rank + 1) * half_seqlen]
+                if remain_len > 0:
+                    if remain_end == d.shape[0]:
+                        saved_roll_dict[start_idx + half_seqlen + remain_len - 1] = d[0]
+                    else:
+                        saved_roll_dict[start_idx + half_seqlen + remain_len - 1] = d[remain_end]
+
+        if need_roll:
+            input_ids_rmpad = torch.roll(input_ids_rmpad, shifts=-1, dims=0)
+            if len(saved_roll_dict) > 0:
+                for k, v in saved_roll_dict.items():
+                    input_ids_rmpad[k] = v
 
     packed_seq_params = PackedSeqParams(
         qkv_format="thd",
