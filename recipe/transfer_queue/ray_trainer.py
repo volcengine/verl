@@ -426,11 +426,15 @@ class RayPPOTrainer:
 
             total_storage_size = train_data_size + val_data_size
             self.data_system_storage_units = {}
-            storage_placement_group = get_placement_group(self.config.transfer_queue.num_data_storage_units, num_cpus_per_actor=1)
+            storage_placement_group = get_placement_group(
+                self.config.transfer_queue.num_data_storage_units, num_cpus_per_actor=1
+            )
             for storage_unit_rank in range(self.config.transfer_queue.num_data_storage_units):
                 storage_node = SimpleStorageUnit.options(
                     placement_group=storage_placement_group, placement_group_bundle_index=storage_unit_rank
-                ).remote(storage_unit_size=math.ceil(total_storage_size / self.config.transfer_queue.num_data_storage_units))
+                ).remote(
+                    storage_unit_size=math.ceil(total_storage_size / self.config.transfer_queue.num_data_storage_units)
+                )
                 self.data_system_storage_units[storage_unit_rank] = storage_node
                 logging.info(f"SimpleStorageUnit #{storage_unit_rank} has been created.")
         else:
@@ -459,7 +463,7 @@ class RayPPOTrainer:
         # Note: Need to generate a new DictConfig with allow_objects=True to preserve ZMQServerInfo instances
         # (which contain socket connection details). Without this flag, OmegaConf would flatten these objects to dicts,
         # breaking the transfer queue client initialization.
-        tq_config = OmegaConf.create({"transfer_queue":{}}, flags={"allow_objects": True})
+        tq_config = OmegaConf.create({"transfer_queue": {}}, flags={"allow_objects": True})
         tq_config.transfer_queue.controller_info = self.data_system_controller_info
 
         if self.config.transfer_queue.storage_backend == "AsyncSimpleStorageManager":
@@ -1303,9 +1307,7 @@ class RayPPOTrainer:
                     batch_dict, repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True
                 )
                 batch: TensorDict = self.dict_to_tensordict(repeated_batch_dict)
-                asyncio.run(
-                    self.tq_client.async_put(data=batch, partition_id=f"train_{self.global_steps - 1}")
-                )
+                asyncio.run(self.tq_client.async_put(data=batch, partition_id=f"train_{self.global_steps - 1}"))
 
                 gen_meta = asyncio.run(
                     self.tq_client.async_get_meta(
@@ -1379,9 +1381,7 @@ class RayPPOTrainer:
                             )
                         )
 
-                        balanced_idx = self._balance_batch(
-                            attention_mask_meta, self.tq_client, metrics=metrics
-                        )
+                        balanced_idx = self._balance_batch(attention_mask_meta, self.tq_client, metrics=metrics)
                         batch_meta.reorder(balanced_idx)
 
                     # compute global_valid tokens
@@ -1528,9 +1528,7 @@ class RayPPOTrainer:
                         if reward_extra_infos_dict:
                             reward_extra_infos_dict_new = {k: np.array(v) for k, v in reward_extra_infos_dict.items()}
                             reward_extra_infos_td = self.dict_to_tensordict(reward_extra_infos_dict_new)
-                            asyncio.run(
-                                self.tq_client.async_put(data=reward_extra_infos_td, metadata=batch_meta)
-                            )
+                            asyncio.run(self.tq_client.async_put(data=reward_extra_infos_td, metadata=batch_meta))
                             batch_meta.add_fields(reward_extra_infos_td)
 
                         # compute rewards. apply_kl_penalty if available
@@ -1558,9 +1556,7 @@ class RayPPOTrainer:
                                 {"token_level_rewards": token_level_rewards}, batch_size=token_level_rewards.size(0)
                             )
                             asyncio.run(
-                                self.tq_client.async_put(
-                                    data=token_level_rewards_td, metadata=apply_kl_penalty_meta
-                                )
+                                self.tq_client.async_put(data=token_level_rewards_td, metadata=apply_kl_penalty_meta)
                             )
                             apply_kl_penalty_meta.add_fields(token_level_rewards_td)
 
@@ -1581,9 +1577,7 @@ class RayPPOTrainer:
                                 batch_size=data["token_level_scores"].size(0),
                             )
                             asyncio.run(
-                                self.tq_client.async_put(
-                                    data=token_level_rewards_td, metadata=token_level_scores_meta
-                                )
+                                self.tq_client.async_put(data=token_level_rewards_td, metadata=token_level_scores_meta)
                             )
                             batch_meta.add_fields(token_level_rewards_td)
 
@@ -1632,9 +1626,7 @@ class RayPPOTrainer:
                         advantages_td = TensorDict(
                             {"advantages": advantages, "returns": returns}, batch_size=advantages.size(0)
                         )
-                        asyncio.run(
-                            self.tq_client.async_put(data=advantages_td, metadata=compute_advantage_meta)
-                        )
+                        asyncio.run(self.tq_client.async_put(data=advantages_td, metadata=compute_advantage_meta))
                         compute_advantage_meta.add_fields(advantages_td)
 
                         batch_meta = batch_meta.union(compute_advantage_meta)

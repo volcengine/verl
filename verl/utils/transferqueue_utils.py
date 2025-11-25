@@ -25,7 +25,6 @@ try:
     from transfer_queue import (
         AsyncTransferQueueClient,
         BatchMeta,
-        ZMQServerInfo,
     )
 
 except ImportError:
@@ -128,7 +127,7 @@ def _update_batchmeta_with_output(output: DataProto, batchmeta: "BatchMeta") -> 
 
 
 def tqbridge(put_data: bool = True):
-    """ Creates a decorator for bridging BatchMeta and DataProto.
+    """Creates a decorator for bridging BatchMeta and DataProto.
 
     This decorator automatically handles conversions between `BatchMeta` and
     `DataProto` in function parameters, and decides whether to sync function

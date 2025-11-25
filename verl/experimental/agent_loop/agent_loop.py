@@ -633,7 +633,9 @@ class AgentLoopWorkerBase:
             meta_info={"metrics": metrics, "reward_extra_keys": reward_extra_keys},
         )
 
-    def create_transferqueue_client(self,):
+    def create_transferqueue_client(
+        self,
+    ):
         """Create a client for data system (TransferQueue)."""
         from verl.single_controller.ray.base import get_random_string
         from verl.utils.transferqueue_utils import create_transferqueue_client
