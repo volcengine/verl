@@ -160,8 +160,11 @@ class AsyncLLMServerManager:
             self.ray_tasks.append(task)
             output = await task
             return output
+        except ray.exceptions.TaskCancelledError as e:
+            raise asyncio.CancelledError from e
         except Exception as e:
             logger.error(f"server manager got exception: {e}")
+            raise
 
 
 class AgentLoopMetrics(BaseModel):
