@@ -17,6 +17,7 @@ import logging
 import os
 import random
 from abc import ABC, abstractmethod
+from copy import deepcopy
 from typing import Any, Optional
 from uuid import uuid4
 
@@ -27,17 +28,19 @@ import torch
 from cachetools import LRUCache
 from omegaconf import DictConfig, OmegaConf
 from pydantic import BaseModel, ConfigDict
+from ray.util.queue import Queue
 from tensordict import TensorDict
 from transformers import AutoProcessor, AutoTokenizer
 
 from verl.experimental.agent_loop.prometheus_utils import update_prometheus_config
 from verl.experimental.agent_loop.utils import resolve_config_path
 from verl.experimental.reward import RewardManagerWorker
-from verl.protocol import DataProto
+from verl.protocol import DataProto, DataProtoItem
 from verl.single_controller.ray.base import RayWorkerGroup
 from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.fs import copy_to_local
 from verl.utils.model import compute_position_id_with_mask
+from verl.utils.queue_util import QueueMonitor
 from verl.utils.rollout_trace import (
     RolloutTraceConfig,
     rollout_trace_attr,
@@ -48,6 +51,31 @@ from verl.workers.rollout.replica import TokenOutput, get_rollout_replica_class
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
+
+
+def chunk_save(batch: DataProto, chunks: int) -> list[DataProto]:
+    """
+    chunk batch without padding
+    Args:
+        batch: the DataProto to chunk
+        chunks: the number of chunks to split on dim=0
+
+    Returns:
+        List[DataProto]: a list of DataProto after splitting
+    """
+    if len(batch) % chunks == 0:
+        return batch.chunk(chunks)
+    else:
+        chunk_size = len(batch) // chunks
+        remainder = len(batch) % chunks
+        result = []
+        start = 0
+
+        for i in range(chunks):
+            end = start + chunk_size + (1 if i < remainder else 0)
+            result.append(batch[start:end])
+            start = end
+        return result
 
 
 class AsyncLLMServerManager:
@@ -75,6 +103,21 @@ class AsyncLLMServerManager:
 
         # LRU cache to map request_id to server
         self.request_id_to_server = LRUCache(maxsize=max_cache_size)
+
+        self.gen_batch_size = self.config.data.get("gen_batch_size", self.config.data.train_batch_size)
+        self.train_batch_size = self.config.data.train_batch_size
+        self.reorder_rollout = not (self.gen_batch_size == self.train_batch_size)
+        self.ray_tasks = []
+
+    def cancel_tasks(self):
+        """
+        Cancel all ray tasks
+        Returns:
+            no return
+        """
+        for ray_task in self.ray_tasks:
+            ray.cancel(ray_task)
+        self.ray_tasks = []
 
     def _choose_server(self, request_id: str) -> ray.actor.ActorHandle:
         # TODO: implement server pressure awareness load balancing
@@ -106,14 +149,22 @@ class AsyncLLMServerManager:
         Returns:
             TokenOutput: token output
         """
-        server = self._choose_server(request_id)
-        output = await server.generate.remote(
-            request_id=uuid4().hex,  # use new request_id for each turn
-            prompt_ids=prompt_ids,
-            sampling_params=sampling_params,
-            image_data=image_data,
-        )
-        return output
+        try:
+            server = self._choose_server(request_id)
+            task = server.generate.remote(
+                request_id=uuid4().hex,  # use new request_id for each turn
+                prompt_ids=prompt_ids,
+                sampling_params=sampling_params,
+                image_data=image_data,
+            )
+            self.ray_tasks.append(task)
+            output = await task
+            return output
+        except ray.exceptions.TaskCancelledError as e:
+            raise asyncio.CancelledError from e
+        except Exception as e:
+            logger.error(f"server manager got exception: {e}")
+            raise
 
 
 class AgentLoopMetrics(BaseModel):
@@ -253,6 +304,73 @@ def register(agent_name: str):
     return decorator
 
 
+def _postprocess(inputs: list[_InternalAgentLoopOutput]) -> DataProto:
+    """Process the padded outputs from _run_agent_loop and combine them into a batch."""
+    # Convert lists back to tensors and stack them to create a batch.
+    prompt_ids = torch.cat([input.prompt_ids for input in inputs], dim=0)
+    response_ids = torch.cat([input.response_ids for input in inputs], dim=0)
+    response_mask = torch.cat([input.response_mask for input in inputs], dim=0)
+    attention_mask = torch.cat([input.attention_mask for input in inputs], dim=0)
+    input_ids = torch.cat([input.input_ids for input in inputs], dim=0)
+    position_ids = torch.cat([input.position_ids for input in inputs], dim=0)
+    optional_outputs = {}
+    if inputs[0].response_logprobs is not None:
+        optional_outputs["rollout_log_probs"] = torch.cat([input.response_logprobs for input in inputs], dim=0)
+
+    batch = TensorDict(
+        {
+            "prompts": prompt_ids,  # [bsz, prompt_length]
+            "responses": response_ids,  # [bsz, response_length]
+            "response_mask": response_mask,  # [bsz, response_length]
+            "input_ids": input_ids,  # [bsz, prompt_length + response_length]
+            "attention_mask": attention_mask,  # [bsz, prompt_length + response_length]
+            # position_ids: [bsz, 3, prompt_length + response_length] or [bsz, prompt_length + response_length]
+            "position_ids": position_ids,
+            **optional_outputs,
+        },
+        batch_size=len(inputs),
+    )
+
+    scores = [input.reward_score for input in inputs]
+    if all(score is not None for score in scores):
+        prompt_length = prompt_ids.size(1)
+        response_length = attention_mask[:, prompt_length:].sum(dim=1) - 1
+        rm_scores = torch.zeros_like(response_mask, dtype=torch.float32)
+        rm_scores[torch.arange(response_mask.size(0)), response_length] = torch.tensor(scores, dtype=torch.float32)
+        batch["rm_scores"] = rm_scores
+
+    non_tensor_batch = {
+        "__num_turns__": np.array([input.num_turns for input in inputs], dtype=np.int32),
+    }
+
+    # add reward_extra_info to non_tensor_batch
+    reward_extra_infos = [input.extra_fields.get("reward_extra_info", {}) for input in inputs]
+    reward_extra_keys = list(reward_extra_infos[0].keys())
+    for key in reward_extra_keys:
+        non_tensor_batch[key] = np.array([info[key] for info in reward_extra_infos])
+
+    # Add multi_modal_inputs to non_tensor_batch if any samples have them
+    multi_modal_inputs_list = [input.multi_modal_inputs for input in inputs]
+    if any(mmi is not None for mmi in multi_modal_inputs_list):
+        non_tensor_batch["multi_modal_inputs"] = np.array(multi_modal_inputs_list, dtype=object)
+
+    metrics = [input.metrics.model_dump() for input in inputs]
+    # Collect extra fields from all inputs and convert them to np.ndarray
+    extra_fields = {}
+    all_keys = set(key for input_item in inputs for key in input_item.extra_fields)
+    for key in all_keys:
+        temp_arr = np.empty(len(inputs), dtype=object)
+        temp_arr[:] = [input.extra_fields.get(key) for input in inputs]
+        extra_fields[key] = temp_arr
+
+    non_tensor_batch.update(extra_fields)
+    return DataProto(
+        batch=batch,
+        non_tensor_batch=non_tensor_batch,
+        meta_info={"metrics": metrics, "reward_extra_keys": reward_extra_keys},
+    )
+
+
 class AgentLoopWorkerBase:
     """Agent loop worker takes a batch of messages and run each message in an agent loop."""
 
@@ -309,8 +427,39 @@ class AgentLoopWorkerBase:
             trace_config.get("max_samples_per_step_per_worker", None),
         )
 
+        self.gen_batch_size = self.config.data.get("gen_batch_size", self.config.data.train_batch_size)
+        self.train_batch_size = self.config.data.train_batch_size
+        self.reorder_rollout = not (self.gen_batch_size == self.train_batch_size)
+
+        if self.reorder_rollout:
+            self.queue = None
+            self.unfinished_queue = None
+            self.tasks = []
+
+    def set_queue(self, queue: QueueMonitor):
+        """
+            Set queue for agent loop worker.
+        Args:
+            queue: output queue for agent loop worker.
+
+        Returns:
+            no return
+        """
+        self.queue = queue
+
+    def set_unfinished_queue(self, unfinished_queue: Queue):
+        """
+            Set unfinished queue for agent loop worker.
+        Args:
+            unfinished_queue: queue for unfinished request in agent loop worker.
+
+        Returns:
+            no return
+        """
+        self.unfinished_queue = unfinished_queue
+
     @tqbridge()
-    async def generate_sequences(self, batch: DataProto) -> DataProto:
+    async def generate_sequences(self, batch: DataProto):
         """Generate sequences from agent loop.
 
         Args:
@@ -338,7 +487,8 @@ class AgentLoopWorkerBase:
             repetition_penalty=1.0,
             logprobs=config.calculate_log_probs,
         )
-
+        if self.reorder_rollout:
+            raw_batch = deepcopy(batch)
         # override sampling params for validation
         if batch.meta_info.get("validate", False):
             sampling_params["top_p"] = config.val_kwargs.top_p
@@ -374,19 +524,68 @@ class AgentLoopWorkerBase:
             batch.meta_info.get("global_steps", -1), index.tolist(), batch.meta_info.get("validate", False)
         )
 
-        tasks = []
+        if self.reorder_rollout:
+            return await self._reorder_create_task(batch, sampling_params, trajectory_info, traced_indices, raw_batch)
+        else:
+            return await self._base_create_task(batch, sampling_params, trajectory_info, traced_indices)
+
+    async def _reorder_create_task(
+        self,
+        batch: DataProto,
+        sampling_params: dict[str, Any],
+        trajectory_info: list[Any],
+        traced_indices: set[int],
+        raw_batch: DataProto,
+    ) -> None:
+        """
+            create reorder ray task for agent loop worker.
+        Args:
+            batch: batch data
+            sampling_params: generate sampling parameters
+            trajectory_info:
+            raw_batch: raw batch without MetaInfo
+
+        Returns:
+            function has no return plz get output in queue
+        """
+        self.tasks = []
         for i in range(len(batch)):
             trace_this_sample = i in traced_indices
             kwargs = {k: v[i] for k, v in batch.non_tensor_batch.items()}
-            tasks.append(
+            self.tasks.append(
+                asyncio.create_task(
+                    self._run_agent_loop(
+                        sampling_params, trajectory_info[i], trace=trace_this_sample, raw_item=raw_batch[i], **kwargs
+                    )
+                )
+            )
+
+        results = await asyncio.gather(*self.tasks, return_exceptions=True)
+
+        for i, result in enumerate(results):
+            if isinstance(result, asyncio.CancelledError):
+                await self.unfinished_queue.put_async(raw_batch[i])
+
+    async def _base_create_task(
+        self,
+        batch: DataProto,
+        sampling_params: dict[str, Any],
+        trajectory_info: list[Any],
+        traced_indices: set[int],
+    ) -> DataProto:
+        self.tasks = []
+
+        for i in range(len(batch)):
+            trace_this_sample = i in traced_indices
+            kwargs = {k: v[i] for k, v in batch.non_tensor_batch.items()}
+            self.tasks.append(
                 asyncio.create_task(
                     self._run_agent_loop(sampling_params, trajectory_info[i], trace=trace_this_sample, **kwargs)
                 )
             )
-        outputs = await asyncio.gather(*tasks)
+        outputs = await asyncio.gather(*self.tasks)
 
-        output = self._postprocess(outputs)
-
+        output = _postprocess(outputs)
         return output
 
     async def _run_agent_loop(
@@ -396,8 +595,9 @@ class AgentLoopWorkerBase:
         *,
         agent_name: str,
         trace: bool = True,
+        raw_item: DataProtoItem = None,
         **kwargs,
-    ) -> _InternalAgentLoopOutput:
+    ):
         with rollout_trace_attr(
             step=trajectory["step"],
             sample_index=trajectory["sample_index"],
@@ -551,7 +751,7 @@ class AgentLoopWorkerBase:
                 output.reward_score = result["reward_score"]
                 output.extra_fields["reward_extra_info"] = result["reward_extra_info"]
 
-            return _InternalAgentLoopOutput(
+            loop_output = _InternalAgentLoopOutput(
                 prompt_ids=prompt_output["input_ids"],
                 response_ids=response_output["input_ids"],
                 input_ids=input_ids,
@@ -566,72 +766,26 @@ class AgentLoopWorkerBase:
                 metrics=output.metrics,
                 extra_fields=output.extra_fields,
             )
+            if self.reorder_rollout:
+                await self.queue.put.remote(
+                    (
+                        raw_item,
+                        loop_output,
+                    )
+                )
+                return
+            else:
+                return loop_output
 
-    def _postprocess(self, inputs: list[_InternalAgentLoopOutput]) -> DataProto:
-        """Process the padded outputs from _run_agent_loop and combine them into a batch."""
-        # Convert lists back to tensors and stack them to create a batch.
-        prompt_ids = torch.cat([input.prompt_ids for input in inputs], dim=0)
-        response_ids = torch.cat([input.response_ids for input in inputs], dim=0)
-        response_mask = torch.cat([input.response_mask for input in inputs], dim=0)
-        attention_mask = torch.cat([input.attention_mask for input in inputs], dim=0)
-        input_ids = torch.cat([input.input_ids for input in inputs], dim=0)
-        position_ids = torch.cat([input.position_ids for input in inputs], dim=0)
-        optional_outputs = {}
-        if inputs[0].response_logprobs is not None:
-            optional_outputs["rollout_log_probs"] = torch.cat([input.response_logprobs for input in inputs], dim=0)
-
-        batch = TensorDict(
-            {
-                "prompts": prompt_ids,  # [bsz, prompt_length]
-                "responses": response_ids,  # [bsz, response_length]
-                "response_mask": response_mask,  # [bsz, response_length]
-                "input_ids": input_ids,  # [bsz, prompt_length + response_length]
-                "attention_mask": attention_mask,  # [bsz, prompt_length + response_length]
-                # position_ids: [bsz, 3, prompt_length + response_length] or [bsz, prompt_length + response_length]
-                "position_ids": position_ids,
-                **optional_outputs,
-            },
-            batch_size=len(inputs),
-        )
-
-        scores = [input.reward_score for input in inputs]
-        if all(score is not None for score in scores):
-            prompt_length = prompt_ids.size(1)
-            response_length = attention_mask[:, prompt_length:].sum(dim=1) - 1
-            rm_scores = torch.zeros_like(response_mask, dtype=torch.float32)
-            rm_scores[torch.arange(response_mask.size(0)), response_length] = torch.tensor(scores, dtype=torch.float32)
-            batch["rm_scores"] = rm_scores
-
-        non_tensor_batch = {
-            "__num_turns__": np.array([input.num_turns for input in inputs], dtype=np.int32),
-        }
-
-        # add reward_extra_info to non_tensor_batch
-        reward_extra_infos = [input.extra_fields.get("reward_extra_info", {}) for input in inputs]
-        reward_extra_keys = list(reward_extra_infos[0].keys())
-        for key in reward_extra_keys:
-            non_tensor_batch[key] = np.array([info[key] for info in reward_extra_infos])
-
-        # Add multi_modal_inputs to non_tensor_batch if any samples have them
-        multi_modal_inputs_list = [input.multi_modal_inputs for input in inputs]
-        if any(mmi is not None for mmi in multi_modal_inputs_list):
-            non_tensor_batch["multi_modal_inputs"] = np.array(multi_modal_inputs_list, dtype=object)
-
-        metrics = [input.metrics.model_dump() for input in inputs]
-        # Collect extra fields from all inputs and convert them to np.ndarray
-        extra_fields = {}
-        all_keys = set(key for input_item in inputs for key in input_item.extra_fields)
-        for key in all_keys:
-            temp_arr = np.empty(len(inputs), dtype=object)
-            temp_arr[:] = [input.extra_fields.get(key) for input in inputs]
-            extra_fields[key] = temp_arr
-
-        non_tensor_batch.update(extra_fields)
-        return DataProto(
-            batch=batch,
-            non_tensor_batch=non_tensor_batch,
-            meta_info={"metrics": metrics, "reward_extra_keys": reward_extra_keys},
-        )
+    async def cancel_tasks(self):
+        """
+            Cancel all asyncIO tasks and cancel manager ray task
+        Returns:
+            no return
+        """
+        for task in self.tasks:
+            task.cancel()
+        self.server_manager.cancel_tasks()
 
     def create_transferqueue_client(self, controller_info, role):
         """Create a client for data system(transfer queue)."""
@@ -713,9 +867,49 @@ class AgentLoopManager:
         self._initialize_llm_servers()
         self._init_agent_loop_workers()
 
+        self.gen_batch_size = self.config.data.get("gen_batch_size", self.config.data.train_batch_size)
+        self.train_batch_size = self.config.data.train_batch_size
+        self.reorder_rollout = not (self.gen_batch_size == self.train_batch_size)
+        if self.reorder_rollout:
+            self.queue = QueueMonitor.remote(self.train_batch_size * self.config.actor_rollout_ref.rollout.n)
+            for worker in self.agent_loop_workers:
+                ray.get(worker.set_queue.remote(self.queue))
+                ray.get(self.queue.append_worker.remote(worker))
+
         # Initially we're in sleep mode.
         if self.config.actor_rollout_ref.rollout.free_cache_engine:
             self.sleep()
+
+    def get_threshold(self) -> int:
+        """
+            get queue threshold.
+        Returns:
+            int: output queue threshold.
+        """
+        return ray.get(self.queue.get_threshold.remote())
+
+    def set_threshold(self, threshold: int):
+        """
+        set queue threshold.
+        Args:
+            threshold: queue threshold
+
+        Returns:
+            no return
+        """
+        ray.get(self.queue.set_threshold.remote(threshold))
+
+    def set_unfinished_queue(self, unfinished_queue):
+        """
+            set unfinished queue for all worker.
+        Args:
+            unfinished_queue: Queue for unfinished worker.
+
+        Returns:
+
+        """
+        for worker in self.agent_loop_workers:
+            ray.get(worker.set_unfinished_queue.remote(unfinished_queue))
 
     def _initialize_llm_servers(self):
         rollout_world_size = (
@@ -773,6 +967,51 @@ class AgentLoopManager:
                 ).remote(self.config, self.server_handles, self.reward_router_address)
             )
 
+    def _run_reorder_worker_generate_sequences(self, prompts: DataProto) -> tuple[DataProto, list[Any]]:
+        chunkes = chunk_save(prompts, len(self.agent_loop_workers))
+        tasks = [
+            worker.generate_sequences.remote(chunk)
+            for worker, chunk in zip(self.agent_loop_workers, chunkes, strict=True)
+        ]
+        try:
+            ray.get(tasks)
+        except ray.exceptions.TaskCancelledError as e:
+            logger.warning(f"Task cancelled: {e}")
+
+        hybird_out = ray.get(self.queue.clear.remote())
+
+        tasks_outputs = []
+        raw_items = []
+        for raw_item, tasks_output in hybird_out:
+            tasks_outputs.append(tasks_output)
+            raw_items.append(raw_item)
+
+        batch_output = _postprocess(tasks_outputs)
+
+        # calculate performance metrics
+        metrics = [batch_output.meta_info.pop("metrics")]  # List[List[Dict[str, str]]]
+        timing = self._performance_metrics(metrics, batch_output)
+
+        batch_output.meta_info = {"timing": timing, **batch_output.meta_info}
+        return batch_output, raw_items
+
+    def _run_worker_generate_sequences(self, prompts: DataProto) -> DataProto:
+        chunkes = prompts.chunk(len(self.agent_loop_workers))
+        outputs = ray.get(
+            [
+                worker.generate_sequences.remote(chunk)
+                for worker, chunk in zip(self.agent_loop_workers, chunkes, strict=True)
+            ]
+        )
+        output = DataProto.concat(outputs)
+
+        # calculate performance metrics
+        metrics = [output.meta_info.pop("metrics") for output in outputs]  # List[List[Dict[str, str]]]
+        timing = self._performance_metrics(metrics, output)
+
+        output.meta_info = {"timing": timing, **outputs[0].meta_info}
+        return output
+
     def generate_sequences(self, prompts: DataProto) -> DataProto:
         """Split input batch and dispatch to agent loop workers.
 
@@ -789,24 +1028,15 @@ class AgentLoopManager:
         if self.reward_model_manager:
             self.reward_model_manager.wake_up()
 
-        chunkes = prompts.chunk(len(self.agent_loop_workers))
-        outputs = ray.get(
-            [
-                worker.generate_sequences.remote(chunk)
-                for worker, chunk in zip(self.agent_loop_workers, chunkes, strict=True)
-            ]
-        )
-        output = DataProto.concat(outputs)
-        # Fix for Issue #4147: Always call sleep() to ensure proper cleanup
+        if self.reorder_rollout:
+            output = self._run_reorder_worker_generate_sequences(prompts)
+        else:
+            output = self._run_worker_generate_sequences(prompts)
+
         self.sleep()
         if self.reward_model_manager:
             self.reward_model_manager.sleep()
 
-        # calculate performance metrics
-        metrics = [output.meta_info.pop("metrics") for output in outputs]  # List[List[Dict[str, str]]]
-        timing = self._performance_metrics(metrics, output)
-
-        output.meta_info = {"timing": timing, **outputs[0].meta_info}
         return output
 
     def _performance_metrics(self, metrics: list[list[dict[str, str]]], output: DataProto) -> dict[str, float]:
