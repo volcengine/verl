@@ -379,9 +379,8 @@ class RayWorkerGroup(WorkerGroup):
 
         if self._is_init_with_detached_workers:
             self._init_with_detached_workers(worker_names=worker_names, worker_handles=worker_handles)
-        elif not isinstance(resource_pool, SubRayResourcePool):
-            assert isinstance(resource_pool, RayResourcePool)
-            self._init_with_resource_pool(
+        elif isinstance(resource_pool, SubRayResourcePool):
+            self._init_with_subresource_pool(
                 resource_pool=resource_pool,
                 ray_cls_with_init=ray_cls_with_init,
                 bin_pack=bin_pack,
@@ -389,8 +388,7 @@ class RayWorkerGroup(WorkerGroup):
                 worker_env=self.customized_worker_env,
             )
         else:
-            assert isinstance(resource_pool, SubRayResourcePool)
-            self._init_with_subresource_pool(
+            self._init_with_resource_pool(
                 resource_pool=resource_pool,
                 ray_cls_with_init=ray_cls_with_init,
                 bin_pack=bin_pack,
@@ -463,7 +461,7 @@ class RayWorkerGroup(WorkerGroup):
 
             for local_rank in range(local_world_size):
                 rank += 1
-                self.create_worker(
+                self._create_worker(
                     rank=rank,
                     pg_idx=pg_idx,
                     pg=pg,
@@ -499,7 +497,7 @@ class RayWorkerGroup(WorkerGroup):
             assert local_world_size <= pg.bundle_count, f"when generating for {self.name_prefix}, for the "
 
             rank += 1
-            self.create_worker(
+            self._create_worker(
                 rank=rank,
                 pg_idx=pg_idx,
                 pg=pg,
@@ -510,9 +508,7 @@ class RayWorkerGroup(WorkerGroup):
                 detached=detached,
             )
 
-    def create_worker(
-        self, rank, pg_idx, pg, local_rank, resource_pool, ray_cls_with_init, worker_env, detached
-    ):
+    def _create_worker(self, rank, pg_idx, pg, local_rank, resource_pool, ray_cls_with_init, worker_env, detached):
         world_size = resource_pool.world_size
         use_gpu = resource_pool.use_gpu
         local_world_size = resource_pool.store[0]
