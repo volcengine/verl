@@ -200,7 +200,11 @@ def _fused_GPTModel_forward(
         hidden_states = gather_from_sequence_parallel_region(hidden_states)
     logprobs, entropy = linear_cross_entropy(
         hidden_states,
-        model.output_layer.weight,
+        (
+            model.shared_embedding_or_output_weight()
+            if model.share_embeddings_and_output_weights
+            else model.output_layer.weight
+        ),
         labels,
         temperature,
         "none",
