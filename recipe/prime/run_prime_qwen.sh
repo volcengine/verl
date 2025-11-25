@@ -1,12 +1,16 @@
 set -x
 
+# Change to workspace root so Hydra can find the config files
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+cd "$WORKSPACE_ROOT"
 
-gsm8k_train_path=$HOME/data/gsm8k/train.parquet
-gsm8k_test_path=$HOME/data/gsm8k/test.parquet
+gsm8k_train_path=/workspace/verl/recipe/prime/data/gsm8k/train-00000-of-00001.parquet
+gsm8k_test_path=/workspace/verl/recipe/prime/data/gsm8k/test-00000-of-00001.parquet
 
 # download from https://huggingface.co/datasets/PRIME-RL/Eurus-2-RL-Data
-math_train_path=$HOME/data/math/train.parquet
-math_test_path=$HOME/data/math/test.parquet
+math_train_path=/workspace/verl/recipe/prime/data/math/train.parquet
+math_test_path=/workspace/verl/recipe/prime/data/math/test.parquet
 
 train_files="['$gsm8k_train_path', '$math_train_path']"
 test_files="['$gsm8k_test_path', '$math_test_path']"
