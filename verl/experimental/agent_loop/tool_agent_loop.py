@@ -109,7 +109,7 @@ class ToolAgentLoop(AgentLoopBase):
         cls.apply_chat_template_kwargs = config.data.get("apply_chat_template_kwargs", {})
         cls.prompt_length = config.actor_rollout_ref.rollout.prompt_length
         cls.response_length = config.actor_rollout_ref.rollout.response_length
-        cls.system_prompt = initialize_system_prompt(cls.tokenizer, cls.apply_chat_template_kwargs)
+        cls.system_prompt = initialize_system_prompt(cls.tokenizer, **cls.apply_chat_template_kwargs)
 
         # Initialize interactions from config file
         cls.interaction_config_file = config.actor_rollout_ref.rollout.multi_turn.interaction_config_path
