@@ -190,7 +190,7 @@ def merge_router_topk_indices(attention_mask, input_ids, mini_layer_topk_idx_lis
         router_instances_list = RouterReplayHelper.get_micro_batch_router_list(tf_config, vp_rank)
         layers_topk_idx = []
         for router in router_instances_list:
-            layers_topk_idx.append(router.recorded_topk_idx)  # dynamic_bs, topk
+            layers_topk_idx.append(router.recorded_topk_idx.to(torch.uint8))  # dynamic_bs, topk
 
         # layer_num, dynamic_bs, topk  -> dynamic_bs, layer_num, topk
         layers_topk_idx = torch.stack(layers_topk_idx).permute(1, 0, 2).cuda()
@@ -204,7 +204,7 @@ def merge_router_topk_indices(attention_mask, input_ids, mini_layer_topk_idx_lis
         layers_topk_idx = postprocess_packed_seqs(
             layers_topk_idx, packed_seq_params, attention_mask, batch_size, seq_len, post_process=True
         )
-        mini_layer_topk_idx_list.append(layers_topk_idx)
+        mini_layer_topk_idx_list.append(layers_topk_idx.cpu())
 
 
 def set_router_replay_data(layers_topk_idx, attention_mask, tf_config, vp_rank=None):
