@@ -14,7 +14,7 @@
 import numpy as np
 import ray
 from transfer_queue import BatchMeta
-
+import asyncio
 import verl.experimental.agent_loop.agent_loop as agent_loop
 
 
@@ -66,11 +66,11 @@ class AgentLoopManager(agent_loop.AgentLoopManager):
         timing["agent_loop/tool_calls/mean"] = t_tool_calls.mean()
 
 
-        data_system_client = self._create_data_system_client()
+        data_system_client = self._create_transferqueue_client()
         # batch sequence generation is bounded by the slowest sample
         slowest = np.argmax(t_generate_sequences + t_tool_calls)
-        attention_mask = asyncio.run(data_system_client.async_get_data(output[slowest]))
-        prompt_length = output.samples[0].fields["prompts"].shape[1]
+        attention_mask = asyncio.run(data_system_client.async_get_data(output[slowest]))['attention_mask']
+        prompt_length = output.samples[0].fields["prompts"].shape[0]
         timing["agent_loop/slowest/generate_sequences"] = t_generate_sequences[slowest]
         timing["agent_loop/slowest/tool_calls"] = t_tool_calls[slowest]
         timing["agent_loop/slowest/prompt_length"] = attention_mask[:prompt_length].sum().item()
@@ -80,10 +80,10 @@ class AgentLoopManager(agent_loop.AgentLoopManager):
 
     def create_transferqueue_client_for_workers(self):
         ray.get(
-            [worker.create_transferqueue_client.remote(self.config) for worker in self.agent_loop_workers]
+            [worker.create_transferqueue_client.remote() for worker in self.agent_loop_workers]
         )
 
-    def _create_transfer_queue_client(self):
+    def _create_transferqueue_client(self):
         """Create a client for data system (TransferQueue)."""
         from verl.single_controller.ray.base import get_random_string
         from verl.utils.transferqueue_utils import create_transferqueue_client
@@ -92,7 +92,7 @@ class AgentLoopManager(agent_loop.AgentLoopManager):
 
         data_system_client = create_transferqueue_client(
             client_id=f"AgentLoopManager_{client_name}",
-            config=self.config,
+            config=self.config.transfer_queue,
         )
 
         return data_system_client

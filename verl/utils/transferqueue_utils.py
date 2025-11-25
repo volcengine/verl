@@ -47,8 +47,8 @@ def create_transferqueue_client(
     config,
 ) -> None:
     global _TRANSFER_QUEUE_CLIENT
-    _TRANSFER_QUEUE_CLIENT = AsyncTransferQueueClient(client_id, config.transfer_queue.controller_info)
-    _TRANSFER_QUEUE_CLIENT.initialize_storage_manager(manager_type=config.transfer_queue.storage_backend, config=config)
+    _TRANSFER_QUEUE_CLIENT = AsyncTransferQueueClient(client_id, config.controller_info)
+    _TRANSFER_QUEUE_CLIENT.initialize_storage_manager(manager_type=config.storage_backend, config=config)
 
     return _TRANSFER_QUEUE_CLIENT
 

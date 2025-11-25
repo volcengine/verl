@@ -459,7 +459,7 @@ class RayPPOTrainer:
         # Note: Need to generate a new DictConfig with allow_objects=True to preserve ZMQServerInfo instances
         # (which contain socket connection details). Without this flag, OmegaConf would flatten these objects to dicts,
         # breaking the transfer queue client initialization.
-        tq_config = OmegaConf.create({"transfer_queue"}, flags={"allow_objects": True})
+        tq_config = OmegaConf.create({"transfer_queue":{}}, flags={"allow_objects": True})
         tq_config.transfer_queue.controller_info = self.data_system_controller_info
 
         if self.config.transfer_queue.storage_backend == "AsyncSimpleStorageManager":
@@ -470,7 +470,7 @@ class RayPPOTrainer:
         # 4. create client
         create_transferqueue_client(
             client_id="Trainer",
-            config=self.config,
+            config=self.config.transfer_queue,
         )
         data_system_client = get_transferqueue_client()
         return data_system_client
