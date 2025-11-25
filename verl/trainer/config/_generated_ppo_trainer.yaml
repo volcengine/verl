@@ -437,6 +437,7 @@ reward_model:
     path: ~/models/FsfairX-LLaMA3-RM-v0.1
     external_lib: ${actor_rollout_ref.model.external_lib}
     trust_remote_code: false
+    override_config: {}
     use_shm: false
     use_remove_padding: false
     use_fused_kernels: ${actor_rollout_ref.model.use_fused_kernels}

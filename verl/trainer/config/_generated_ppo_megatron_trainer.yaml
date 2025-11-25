@@ -506,6 +506,7 @@ reward_model:
     path: ~/models/FsfairX-LLaMA3-RM-v0.1
     external_lib: ${actor_rollout_ref.model.external_lib}
     trust_remote_code: false
+    override_config: {}
   micro_batch_size: null
   micro_batch_size_per_gpu: null
   max_length: null
