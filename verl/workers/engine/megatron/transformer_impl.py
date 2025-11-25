@@ -100,25 +100,66 @@ class MegatronEngine(BaseEngine):
 
     def _build_tf_config(self):
         from verl.models.mcore import hf_to_mcore_config
+        from verl.models.mcore.config_converter import mapping_string_to_attn_backend
         from verl.utils.torch_dtypes import PrecisionType
 
         self.param_dtype = PrecisionType.to_dtype(self.engine_config.dtype)
         if self.param_dtype == torch.float16:
             assert self.engine_config.use_mbridge, "fp16 mode requires use_mbridge to be True"
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
-        tf_config = hf_to_mcore_config(
-            self.model_config.hf_config, self.dtype, **self.engine_config.override_transformer_config
-        )
+
+        override_transformer_config = mapping_string_to_attn_backend({**self.engine_config.override_transformer_config})
+        tf_config = hf_to_mcore_config(self.model_config.hf_config, self.dtype, **override_transformer_config)
 
         use_mbridge = self.engine_config.use_mbridge
+        self.provider = None
+        self.vanilla_bridge = self.engine_config.vanilla_mbridge
         if use_mbridge:
-            from verl.models.mcore.mbridge import AutoBridge
+            if self.vanilla_bridge:
+                from verl.models.mcore.mbridge import AutoBridge
 
-            bridge = AutoBridge.from_config(self.model_config.hf_config, dtype=self.param_dtype)
-            bridge.set_extra_args(**self.engine_config.override_transformer_config)
-            tf_config = bridge.config
-            tf_config.fp16 = self.param_dtype == torch.float16
-            tf_config.bf16 = self.param_dtype == torch.bfloat16
+                bridge = AutoBridge.from_config(self.model_config.hf_config, dtype=self.param_dtype)
+                bridge.set_extra_args(**override_transformer_config)
+                tf_config = bridge.config
+                tf_config.fp16 = self.param_dtype == torch.float16
+                tf_config.bf16 = self.param_dtype == torch.bfloat16
+            else:
+                from verl.models.mcore.bridge import AutoBridge
+
+                # Use Megatron-Bridge to convert HF config to Megatron config
+                bridge = AutoBridge.from_hf_pretrained(
+                    self.model_config.local_path, trust_remote_code=self.model_config.trust_remote_code
+                )
+                # Get Megatron provider and configure it
+                provider = bridge.to_megatron_provider(load_weights=False)
+
+                # In case of invalid overrides, we need to make sure some critical params are set correctly
+                provider.params_dtype = self.param_dtype
+
+                # Pass distributed info
+                provider.tensor_model_parallel_size = self.engine_config.tensor_model_parallel_size
+                provider.pipeline_model_parallel_size = self.engine_config.pipeline_model_parallel_size
+                provider.expert_model_parallel_size = self.engine_config.expert_model_parallel_size
+                provider.expert_tensor_parallel_size = self.engine_config.expert_tensor_parallel_size
+                provider.virtual_pipeline_model_parallel_size = self.engine_config.virtual_pipeline_model_parallel_size
+                provider.context_parallel_size = self.engine_config.context_parallel_size
+                provider.sequence_parallel = self.engine_config.sequence_parallel
+
+                # Match verl implementation (need variable_seq_lengths)
+                from megatron.core.transformer.enums import AttnBackend
+
+                provider.attention_backend = AttnBackend.flash
+                provider.variable_seq_lengths = True
+                provider.moe_token_dispatcher_type = "alltoall"
+                provider.moe_router_load_balancing_type = "none"
+
+                # Apply transformer config overrides
+                for key, value in override_transformer_config.items():
+                    setattr(provider, key, value)
+
+                provider.finalize()
+                self.provider = provider
+                tf_config = None  # Will be set after model creation
             self.bridge = bridge
         else:
             self.bridge = None
@@ -127,8 +168,15 @@ class MegatronEngine(BaseEngine):
             self.weight_converter = get_mcore_weight_converter(self.model_config.hf_config, self.dtype)
 
         if torch.distributed.get_rank() == 0:
-            print(f"TF config: {tf_config}")
+            if tf_config is not None:
+                print(f"TF config: {tf_config}")
         self.tf_config = tf_config
+
+        from verl.workers.config.megatron_peft import get_peft_cls
+
+        self.peft_cls = get_peft_cls(
+            model_config=self.model_config, bridge=self.bridge, provider=self.provider, dtype=self.param_dtype
+        )
 
     def _build_megatron_module(self):
         from verl.utils.megatron_utils import McoreModuleWrapperConfig, make_megatron_module
@@ -153,21 +201,33 @@ class MegatronEngine(BaseEngine):
             wrap_with_ddp=wrap_with_ddp,
             use_distributed_optimizer=self.engine_config.use_distributed_optimizer,
         )
-        module = make_megatron_module(
+        module, updated_tf_config = make_megatron_module(
             wrap_config=wrap_config,
             tf_config=self.tf_config,
             hf_config=self.model_config.hf_config,
             bridge=self.bridge,
+            provider=self.provider,
             override_model_config=self.engine_config.override_mcore_model_config,
             override_ddp_config=self.engine_config.override_ddp_config,
+            peft_cls=self.peft_cls,
+            peft_config=self.model_config.get("lora", None),
         )
+        self.tf_config = updated_tf_config
         print(f"module: {len(module)}")
 
         if self.engine_config.use_dist_checkpointing:
             load_mcore_dist_weights(module, self.engine_config.dist_checkpointing_path, is_value_model=is_value_model)
         else:
             if self.bridge is not None:
-                self.bridge.load_weights(module, self.model_config.local_path)
+                if self.vanilla_bridge:
+                    self.bridge.load_weights(module, self.model_config.local_path)
+                else:
+                    allowed_mismatched_params = []
+                    if self.engine_config.is_value_model:
+                        allowed_mismatched_params = ["output_layer.weight"]
+                    self.bridge.load_hf_weights(
+                        module, self.model_config.local_path, allowed_mismatched_params=allowed_mismatched_params
+                    )
             else:
                 # (vermouth1992) this is a workaround to be compatible with the old API
                 tmp_config = OmegaConf.create(
@@ -245,6 +305,7 @@ class MegatronEngine(BaseEngine):
             use_distributed_optimizer=self.engine_config.use_distributed_optimizer,
             use_checkpoint_opt_param_scheduler=self.optimizer_config.use_checkpoint_opt_param_scheduler,
             bridge=self.bridge,
+            provider=self.provider,
             use_dist_checkpointing=self.engine_config.use_dist_checkpointing,
         )
 
