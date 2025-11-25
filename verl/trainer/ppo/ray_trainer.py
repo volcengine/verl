@@ -69,7 +69,7 @@ class ResourcePoolManager:
 
     resource_pool_spec: dict[str, list[int]]
     mapping: dict[Role, str]
-    max_colocate_count: int = 1
+    max_colocate_count: int = 3
     resource_pool_dict: dict[str, RayResourcePool] = field(default_factory=dict)
 
     def create_resource_pool(self):
@@ -83,10 +83,10 @@ class ResourcePoolManager:
                 Each bundle contains 1 full GPU (not fractional). This controls how many
                 different worker groups can colocate in the same resource pool.
 
-                - 1 (default): Single bundle per pool, all workers merged into one group (FSDP)
-                - >1: Multiple bundles per pool, each worker group gets dedicated GPU (Megatron)
-                  Example: max_colocate_count=3 allows Actor (GPU 0), Rollout (GPU 1),
-                  and Reward Model (GPU 2) to colocate, each with dedicated GPU.
+                - 1: Single bundle per pool, all workers merged into one group
+                - 3 (default): Three bundles for Actor, Rollout, and Reward Model workers,
+                  each with dedicated GPU (e.g., Actor on GPU 0, Rollout on GPU 1, RM on GPU 2)
+                - >1: Multiple bundles per pool, recommended for Megatron with colocated models
 
                 Note: This is NOT fractional GPU sharing (num_gpus=0.1). Each process gets
                 a full GPU via placement group bundles. Requires Ray >= 2.39.0 for correct
@@ -105,9 +105,9 @@ class ResourcePoolManager:
         for resource_pool_name, process_on_nodes in self.resource_pool_spec.items():
             # max_colocate_count controls placement group bundles per resource pool.
             # Each bundle has 1 full GPU (NOT fractional sharing).
-            # FSDP: max_colocate_count=1 merges all workers into single bundle.
-            # Megatron: max_colocate_count>1 allows multiple worker groups with dedicated GPUs
-            # (e.g., Actor on GPU 0, Rollout on GPU 1, RM on GPU 2).
+            # Default=3: Actor, Rollout, Reward Model each get dedicated GPU.
+            # Set to 1 to merge all workers into single bundle (FSDP backend).
+            # Set >1 for Megatron with colocated models (multiple dedicated GPUs).
             resource_pool = RayResourcePool(
                 process_on_nodes=process_on_nodes,
                 use_gpu=True,
