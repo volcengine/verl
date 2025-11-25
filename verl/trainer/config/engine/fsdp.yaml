@@ -29,7 +29,7 @@ fsdp_size: -1
 forward_prefetch: False
 
 # model dtype of fsdp
-model_dtype: fp32
+model_dtype: bf16
 
 # Whether to use original parameters in fsdp. Only avaiable in fsdp1
 use_orig_params: false
@@ -50,7 +50,7 @@ entropy_checkpointing: false
 forward_only: false
 
 # fsdp or fsdp2
-strategy: fsdp
+strategy: fsdp2
 
 # Mixed precision training param dtype
 dtype: bfloat16 # ["bfloat16", "float16"]

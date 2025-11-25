@@ -117,6 +117,12 @@ def get_sharding_strategy(device_mesh):
         raise NotImplementedError(f"Get device mesh ndim={device_mesh.ndim}, but only support 1 or 2")
     return sharding_strategy
 
+def get_vl_language_model(vl_model_instance):
+    if hasattr(vl_model_instance, "model") and hasattr(vl_model_instance.model, "visual"):
+        return vl_model_instance.model.language_model
+    elif hasattr(vl_model_instance, "visual"):
+        return vl_model_instance.language_model
+    return None
 
 def get_vl_model_vision_tower(vl_model_instance):
     """
@@ -461,12 +467,12 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         mixed_precision_config = fsdp_config.get("mixed_precision", None)
         if mixed_precision_config is not None:
             param_dtype = PrecisionType.to_dtype(mixed_precision_config.get("param_dtype", "bf16"))
-            reduce_dtype = PrecisionType.to_dtype(mixed_precision_config.get("reduce_dtype", "fp32"))
-            buffer_dtype = PrecisionType.to_dtype(mixed_precision_config.get("buffer_dtype", "fp32"))
+            reduce_dtype = PrecisionType.to_dtype(mixed_precision_config.get("reduce_dtype", "bf16"))
+            buffer_dtype = PrecisionType.to_dtype(mixed_precision_config.get("buffer_dtype", "bf16"))
         else:
             param_dtype = PrecisionType.to_dtype(fsdp_config.dtype)
-            reduce_dtype = torch.float32
-            buffer_dtype = torch.float32
+            reduce_dtype = torch.bfloat16
+            buffer_dtype = torch.bfloat16
 
         mixed_precision = MixedPrecision(param_dtype=param_dtype, reduce_dtype=reduce_dtype, buffer_dtype=buffer_dtype)
 
@@ -639,7 +645,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         # used for LoRA
         self.base_sync_done: bool = "dummy" not in self.config.rollout.load_format
         self.layered_summon = self.config.rollout.get("layered_summon", False)
-
+        if self.rank == 0: print("################ Finised create rollout class ###############")
         # 5. switch to trainer mode
         # NOTE: It's critical that hybrid engine in trainer mode initially to load checkpoint.
         # For sync mode, we directly switch to trainer mode here.
@@ -647,6 +653,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         if rollout_config.mode == "sync" and self._is_actor:
             loop = get_event_loop()
             loop.run_until_complete(self.trainer_mode())
+        if self.rank == 0:
+            print("############ Finished building rollout ##################")
 
     async def rollout_mode(self):
         """Context switch hybridengine to rollout mode."""
@@ -734,10 +742,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     async def trainer_mode(self):
         """Context switch hybridengine to trainer mode."""
         if self.config.rollout.free_cache_engine:
+            if self.rank == 0: print("############ Start free cache engine ###############")
             log_gpu_memory_usage("Before rollout offload", logger=logger)
             await self.rollout.release()
             log_gpu_memory_usage("After rollout offload", logger=logger)
-
+        if self.rank == 0:  print("########### start train mode #################")
         self.actor_module_fsdp.train()
 
         # add empty cache after each compute
@@ -789,20 +798,22 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 role="actor",
                 enable_activation_offload=self.config.model.get("enable_activation_offload", False),
             )
-
+            if self.rank == 0 : print("################### Finished building model optimizer ##############")
             # get the original unwrapped module
             if fsdp_version(self.actor_module_fsdp) == 1:
                 self.actor_module = self.actor_module_fsdp._fsdp_wrapped_module
-
             if self._is_offload_param:
+                if self.rank == 0 : print("################### Start offloading params to CPU ####################")
                 offload_fsdp_model_to_cpu(self.actor_module_fsdp)
                 log_gpu_memory_usage("After offload actor model during init", logger=logger)
 
             if self._is_offload_optimizer:
+                if self.rank == 0 : print("#################### Start offload optimizer to CPU #####################")
                 offload_fsdp_optimizer(optimizer=self.actor_optimizer)
                 log_gpu_memory_usage("After offload actor optimizer during init", logger=logger)
 
         if self._is_actor:
+            if self.rank == 0 : print("############# start building data parallel PPO actor")
             actor_cfg = omega_conf_to_dataclass(self.config.actor)
             self.actor = DataParallelPPOActor(
                 config=actor_cfg, actor_module=self.actor_module_fsdp, actor_optimizer=self.actor_optimizer
@@ -838,6 +849,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             self.ref_policy = DataParallelPPOActor(config=self.config.ref, actor_module=self.ref_module_fsdp)
 
         if self._is_actor:
+            if self.rank == 0 : print("############## Start creating checkpoint manager #######################")
             self.flops_counter = FlopsCounter(self.actor_model_config)
             self.checkpoint_manager = FSDPCheckpointManager(
                 model=self.actor_module_fsdp,
@@ -850,7 +862,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         if not self._is_actor and self._is_rollout:
             # If ActorRolloutRefWorker is initialized as a standalone rollout,
             # create a checkpoint manager for FSDP model to allow loading FSDP checkpoints for rollout.
-
+            if self.rank == 0 :  print("################# start creating checkpoint manager for rollout #################")
             checkpoint_contents = OmegaConf.create({"load_contents": ["model"], "save_contents": []})
             self.checkpoint_manager = FSDPCheckpointManager(
                 model=self.actor_module_fsdp,
@@ -1246,7 +1258,7 @@ class CriticWorker(Worker, DistProfilerExtension):
         if self.rank == 0:
             print(f"Critic overriding config {override_config_kwargs}")
 
-        torch_dtype = self.config.model.fsdp_config.get("model_dtype", "fp32")
+        torch_dtype = self.config.model.fsdp_config.get("model_dtype", "bf16")
         torch_dtype = PrecisionType.to_dtype(torch_dtype)
 
         from transformers import AutoConfig
@@ -1340,12 +1352,12 @@ class CriticWorker(Worker, DistProfilerExtension):
         mixed_precision_config = fsdp_config.get("mixed_precision", None)
         if mixed_precision_config is not None:
             param_dtype = PrecisionType.to_dtype(mixed_precision_config.get("param_dtype", "bf16"))
-            reduce_dtype = PrecisionType.to_dtype(mixed_precision_config.get("reduce_dtype", "fp32"))
-            buffer_dtype = PrecisionType.to_dtype(mixed_precision_config.get("buffer_dtype", "fp32"))
+            reduce_dtype = PrecisionType.to_dtype(mixed_precision_config.get("reduce_dtype", "bf16"))
+            buffer_dtype = PrecisionType.to_dtype(mixed_precision_config.get("buffer_dtype", "bf16"))
         else:
             param_dtype = torch.bfloat16
-            reduce_dtype = torch.float32
-            buffer_dtype = torch.float32
+            reduce_dtype = torch.bfloat16
+            buffer_dtype = torch.bfloat16
 
         mixed_precision = MixedPrecision(param_dtype=param_dtype, reduce_dtype=reduce_dtype, buffer_dtype=buffer_dtype)
 

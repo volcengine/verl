@@ -210,9 +210,9 @@ def _get_input_embeds(
         pixel_values = torch.zeros((16, patch_dim), dtype=inputs_embeds.dtype, device=inputs_embeds.device)
         image_grid_thw = torch.tensor([[1, 4, 4]], dtype=torch.long, device=inputs_embeds.device)
         image_embeds, dummy_deepstack_image_embeds = model.visual(pixel_values, grid_thw=image_grid_thw)
-        inputs_embeds += 0.0 * image_embeds.mean()
+        inputs_embeds.data = inputs_embeds + 0.0 * image_embeds.mean()
         for emb in dummy_deepstack_image_embeds or []:
-            inputs_embeds += 0.0 * emb.mean()
+            inputs_embeds.data = inputs_embeds + 0.0 * emb.mean()
 
     if attention_mask is not None:
         attention_mask = attention_mask.to(inputs_embeds.device)

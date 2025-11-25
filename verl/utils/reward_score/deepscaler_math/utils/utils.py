@@ -24,6 +24,12 @@ def calculate_score(number):
     Returns:
         Score between 0 and 1
     """
+    if number < 8192:
+        return 1.
+    
+    else:
+        return 0.1
+    
     if number <= 0:
         return 1.0
     elif number >= 11000:
