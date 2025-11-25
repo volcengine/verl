@@ -426,11 +426,11 @@ class RayPPOTrainer:
 
             total_storage_size = train_data_size + val_data_size
             self.data_system_storage_units = {}
-            storage_placement_group = get_placement_group(self.config.trainer.num_data_storage_units, num_cpus_per_actor=1)
+            storage_placement_group = get_placement_group(self.config.transfer_queue.num_data_storage_units, num_cpus_per_actor=1)
             for storage_unit_rank in range(self.config.transfer_queue.num_data_storage_units):
                 storage_node = SimpleStorageUnit.options(
                     placement_group=storage_placement_group, placement_group_bundle_index=storage_unit_rank
-                ).remote(storage_unit_size=math.ceil(total_storage_size / self.config.trainer.num_data_storage_units))
+                ).remote(storage_unit_size=math.ceil(total_storage_size / self.config.transfer_queue.num_data_storage_units))
                 self.data_system_storage_units[storage_unit_rank] = storage_node
                 logging.info(f"SimpleStorageUnit #{storage_unit_rank} has been created.")
         else:
