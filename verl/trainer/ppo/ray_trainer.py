@@ -373,6 +373,8 @@ class RayPPOTrainer:
         self.train_batch_size = self.config.data.train_batch_size
         self.reorder_rollout = not (self.gen_batch_size == self.train_batch_size)
         if self.reorder_rollout:
+            if "vllm" not in self.config.actor_rollout_ref.rollout.name:
+                raise ValueError("reorder_rollout only supports vllm rollout")
             self.unfinished_queue = Queue()
 
     def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler: Optional[Sampler]):
@@ -1104,8 +1106,6 @@ class RayPPOTrainer:
                 if self.config.global_profiler.profile_continuous_steps
                 else self.curr_step_profile
             )
-            batch: DataProto = DataProto.from_single_dict(batch_dict)
-            batch.meta_info["temperature"] = self.config.actor_rollout_ref.rollout.temperature
 
         # add uid to batch
         batch.non_tensor_batch["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
@@ -1119,6 +1119,7 @@ class RayPPOTrainer:
         gen_batch_output = deepcopy(gen_batch)
 
         is_last_step = self.global_steps >= self.total_training_steps
+
         with marked_timer("step", timing_raw):
             # generate a batch
             with marked_timer("gen", timing_raw, color="red"):
@@ -1166,7 +1167,6 @@ class RayPPOTrainer:
 
                     del rm_scores, gen_baseline_batch, gen_baseline_output
             # repeat to align with repeated responses in rollout
-            batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
             batch = batch.union(gen_batch_output)
 
             if "response_mask" not in batch.batch.keys():
