@@ -948,7 +948,8 @@ class DataProto:
                     return False
                 for key, val_a in a.items():
                     val_b = b[key]
-                    # generate_sequences in different meta_info may be slightly different, ignore it
+                    # generate_sequences in different meta_info may be slightly different;
+                    # allow a 10% tolerance for the generate_sequences field.
                     if key == "generate_sequences" and isinstance(val_a, float) and isinstance(val_b, float):
                         if not math.isclose(val_a, val_b, rel_tol=0.1):
                             return False
