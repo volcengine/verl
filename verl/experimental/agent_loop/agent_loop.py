@@ -1030,7 +1030,6 @@ class AgentLoopManager:
         else:
             output = self._run_worker_generate_sequences(prompts)
 
-
         self.sleep()
         if self.reward_model_manager:
             self.reward_model_manager.sleep()
