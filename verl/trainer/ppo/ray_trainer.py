@@ -18,7 +18,6 @@ PPO Trainer with Ray-based single controller.
 This trainer supports model-agonistic model initialization with huggingface
 """
 
-import asyncio
 import json
 import os
 import uuid
@@ -267,18 +266,17 @@ def _get_all_from_queue(queue, max_item=None) -> list[Any]:
     Args:
         queue: queue to get items from.
         max_item: limit the number of items to return.
-
     Returns:
         list[Any]: list of items.
     """
     items = []
-    while not queue.empty():
+    while True:
         try:
+            if max_item and len(items) >= max_item:
+                break
             item = queue.get_nowait()
             items.append(item)
-        except asyncio.QueueEmpty:
-            break
-        if max_item and len(items) >= max_item:
+        except ray.exceptions.QueueEmpty:
             break
     return items
 
