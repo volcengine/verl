@@ -772,6 +772,44 @@ class AgentLoopManager:
                 ).remote(self.config, self.server_handles, self.reward_router_address)
             )
 
+    async def generate_sequences_async(self, prompts: DataProto) -> DataProto:
+        """Split input batch and dispatch to agent loop workers (async version).
+
+        Args:
+            prompts (DataProto): Input batch.
+
+        Returns:
+            DataProto: Output batch.
+        """
+
+        if self.config.actor_rollout_ref.rollout.free_cache_engine:
+            self.wake_up()
+        if self.reward_model_manager and self.config.reward_model.rollout.free_cache_engine:
+            self.reward_model_manager.wake_up()
+
+        chunkes = prompts.chunk(len(self.agent_loop_workers))
+        # Use asyncio.gather with ray.get wrapped in asyncio.to_thread to avoid blocking
+        import asyncio
+
+        outputs = await asyncio.gather(
+            *[
+                asyncio.to_thread(ray.get, worker.generate_sequences.remote(chunk))
+                for worker, chunk in zip(self.agent_loop_workers, chunkes, strict=True)
+            ]
+        )
+        output = DataProto.concat(outputs)
+        if self.config.actor_rollout_ref.rollout.free_cache_engine:
+            self.sleep()
+        if self.reward_model_manager and self.config.reward_model.rollout.free_cache_engine:
+            self.reward_model_manager.sleep()
+
+        # calculate performance metrics
+        metrics = [output.meta_info.pop("metrics") for output in outputs]  # List[List[Dict[str, str]]]
+        timing = self._performance_metrics(metrics, output)
+
+        output.meta_info = {"timing": timing, **outputs[0].meta_info}
+        return output
+
     def generate_sequences(self, prompts: DataProto) -> DataProto:
         """Split input batch and dispatch to agent loop workers.
 

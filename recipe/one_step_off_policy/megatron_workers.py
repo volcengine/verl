@@ -24,6 +24,7 @@ from recipe.one_step_off_policy.distributed_util import vllm_stateless_init_proc
 from recipe.one_step_off_policy.utils import get_inference_model
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils.device import get_device_name, get_torch_device
+from verl.utils.megatron_utils import load_megatron_model_to_gpu, offload_megatron_model_to_cpu
 from verl.utils.ray_utils import get_event_loop
 from verl.workers.megatron_workers import (
     ActorRolloutRefWorker,
@@ -31,13 +32,6 @@ from verl.workers.megatron_workers import (
     CriticWorker,
     RewardModelWorker,
 )
-from verl.utils.megatron_utils import load_megatron_model_to_gpu, offload_megatron_model_to_cpu
-from verl.workers.config import HFModelConfig, RolloutConfig
-from verl.workers.megatron_workers import ActorRolloutRefWorker as ARRWorker
-from verl.workers.megatron_workers import CriticWorker, RewardModelWorker
-from verl.workers.rollout import get_rollout_class
-
-from .distributed_util import stateless_init_process_group
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))

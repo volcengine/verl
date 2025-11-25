@@ -17,3 +17,8 @@ rollout:
 actor_rollout_ref:
   rollout:
     free_cache_engine: False
+    calculate_log_probs: True
+
+algorithm:
+  rollout_correction:
+    bypass_mode: True

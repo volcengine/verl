@@ -126,7 +126,7 @@ def create_role_worker_mapping(config):
     return role_worker_mapping, ray_worker_group_cls
 
 
-@ray.remote(num_cpus=1)  # please make sure main_task is not scheduled on head
+@ray.remote(num_cpus=10, max_concurrency=100)  # please make sure main_task is not scheduled on head
 class OneStepTaskRunner:
     def run(self, config):
         # Print the initial configuration. `resolve=True` will evaluate symbolic values.
