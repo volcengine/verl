@@ -56,6 +56,7 @@ def get_transferqueue_client() -> "AsyncTransferQueueClient":
     return _TRANSFER_QUEUE_CLIENT
 
 
+# TODO (TQ): verl will make all actor async, so this can be cleanup later.
 def _run_async_in_temp_loop(async_func: Callable[..., Any], *args, **kwargs) -> Any:
     # Use a temporary event loop in a new thread because event
     # loop may already exist in server mode

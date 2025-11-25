@@ -458,7 +458,8 @@ class RayPPOTrainer:
 
         # 3. register controller & storage and prepare necessary information
         self.data_system_controller_info = process_zmq_server_info(self.data_system_controller)
-        self.data_system_storage_unit_infos = process_zmq_server_info(self.data_system_storage_units)
+        if self.config.transfer_queue.storage_backend == "AsyncSimpleStorageManager":
+            self.data_system_storage_unit_infos = process_zmq_server_info(self.data_system_storage_units)
 
         # Note: Need to generate a new DictConfig with allow_objects=True to preserve ZMQServerInfo instances
         # (which contain socket connection details). Without this flag, OmegaConf would flatten these objects to dicts,
