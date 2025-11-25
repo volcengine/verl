@@ -65,19 +65,34 @@ class AgentLoopManager(agent_loop.AgentLoopManager):
         timing["agent_loop/tool_calls/max"] = t_tool_calls.max()
         timing["agent_loop/tool_calls/mean"] = t_tool_calls.mean()
 
-        # TODO (TQ): pass tq info throughout AgentLoop so we can retrieve tensor for these metrics
+
+        data_system_client = self._create_data_system_client()
         # batch sequence generation is bounded by the slowest sample
-        # slowest = np.argmax(t_generate_sequences + t_tool_calls)
-        # attention_mask = output.extra_info.pop("attention_mask_perf")[slowest]
-        # prompt_length = output.extra_info.pop("prompts_perf").shape[1]
-        # timing["agent_loop/slowest/generate_sequences"] = t_generate_sequences[slowest]
-        # timing["agent_loop/slowest/tool_calls"] = t_tool_calls[slowest]
-        # timing["agent_loop/slowest/prompt_length"] = attention_mask[:prompt_length].sum().item()
-        # timing["agent_loop/slowest/response_length"] = attention_mask[prompt_length:].sum().item()
+        slowest = np.argmax(t_generate_sequences + t_tool_calls)
+        attention_mask = asyncio.run(data_system_client.async_get_data(output[slowest]))
+        prompt_length = output.samples[0].fields["prompts"].shape[1]
+        timing["agent_loop/slowest/generate_sequences"] = t_generate_sequences[slowest]
+        timing["agent_loop/slowest/tool_calls"] = t_tool_calls[slowest]
+        timing["agent_loop/slowest/prompt_length"] = attention_mask[:prompt_length].sum().item()
+        timing["agent_loop/slowest/response_length"] = attention_mask[prompt_length:].sum().item()
 
         return timing
 
-    def create_transferqueue_client(self, controller_info, config):
+    def create_transferqueue_client_for_workers(self):
         ray.get(
-            [worker.create_transferqueue_client.remote(controller_info, config) for worker in self.agent_loop_workers]
+            [worker.create_transferqueue_client.remote(self.config) for worker in self.agent_loop_workers]
         )
+
+    def _create_transfer_queue_client(self):
+        """Create a client for data system (TransferQueue)."""
+        from verl.single_controller.ray.base import get_random_string
+        from verl.utils.transferqueue_utils import create_transferqueue_client
+
+        client_name = get_random_string(length=6)
+
+        data_system_client = create_transferqueue_client(
+            client_id=f"AgentLoopManager_{client_name}",
+            config=self.config,
+        )
+
+        return data_system_client

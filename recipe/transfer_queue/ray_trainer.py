@@ -470,7 +470,6 @@ class RayPPOTrainer:
         # 4. create client
         create_transferqueue_client(
             client_id="Trainer",
-            controller_info=self.data_system_controller_info,
             config=self.config,
         )
         data_system_client = get_transferqueue_client()
@@ -960,7 +959,7 @@ class RayPPOTrainer:
 
         # set transferqueue server info for each worker
         for _, wg in all_wg.items():
-            wg.create_transferqueue_client(self.data_system_controller_info, self.config)
+            wg.create_transferqueue_client(self.config)
 
         # create async rollout manager and request scheduler
         self.async_rollout_mode = False
@@ -972,7 +971,9 @@ class RayPPOTrainer:
                 config=self.config, worker_group=self.actor_rollout_wg, rm_wg=self.rm_wg
             )
 
-            self.async_rollout_manager.create_transferqueue_client(self.data_system_controller_info, self.config)
+            # TODO (TQ): when transfer_queue.enable logic fixed, let worker init TransferQueue
+            #            clients by themselves according to config
+            self.async_rollout_manager.create_transferqueue_client_for_workers()
 
     def _save_checkpoint(self):
         from verl.utils.fs import local_mkdir_safe
