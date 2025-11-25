@@ -45,7 +45,6 @@ def test_agent_loop_reward_manager():
     rollout_model_path = os.path.expanduser("~/models/Qwen/Qwen2.5-0.5B-Instruct")
     reward_model_path = os.path.expanduser("~/models/Qwen/Qwen2.5-1.5B-Instruct")
 
-
     # actor_rollout_ref config
     config.data.return_raw_chat = True
     config.data.max_prompt_length = 1024
