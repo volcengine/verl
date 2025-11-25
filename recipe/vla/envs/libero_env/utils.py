@@ -20,7 +20,7 @@ import math
 
 import numpy as np
 
-from verl.envs.action_utils import resize_image
+from recipe.vla.envs.action_utils import resize_image
 
 
 def get_libero_image(obs: dict[str, np.ndarray]) -> np.ndarray:

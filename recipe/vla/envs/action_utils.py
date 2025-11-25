@@ -28,7 +28,7 @@ from PIL import Image, ImageDraw, ImageFont
 def prepare_actions_simplevla(
     raw_chunk_actions,
 ) -> torch.Tensor:
-    from verl.envs.libero_env.utils import invert_gripper_action, normalize_gripper_action
+    from recipe.vla.envs.libero_env.utils import invert_gripper_action, normalize_gripper_action
 
     normalized_action = normalize_gripper_action(raw_chunk_actions, binarize=True)
     inverted_action = invert_gripper_action(normalized_action)

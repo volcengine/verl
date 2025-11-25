@@ -203,9 +203,9 @@ class RobActorRolloutRefWorker(ActorRolloutRefWorker):
         override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
         from transformers import AutoConfig, AutoImageProcessor, AutoModelForVision2Seq, AutoProcessor
 
-        from verl.models.openvla_oft.configuration_prismatic import OpenVLAConfig
-        from verl.models.openvla_oft.modeling_prismatic import OpenVLAForActionPrediction
-        from verl.models.openvla_oft.processing_prismatic import PrismaticImageProcessor, PrismaticProcessor
+        from recipe.vla.models.openvla_oft.configuration_prismatic import OpenVLAConfig
+        from recipe.vla.models.openvla_oft.modeling_prismatic import OpenVLAForActionPrediction
+        from recipe.vla.models.openvla_oft.processing_prismatic import PrismaticImageProcessor, PrismaticProcessor
 
         AutoConfig.register("openvla", OpenVLAConfig)
         AutoImageProcessor.register(OpenVLAConfig, PrismaticImageProcessor)

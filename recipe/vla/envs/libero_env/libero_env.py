@@ -26,17 +26,17 @@ from libero.libero.benchmark import Benchmark, get_benchmark
 from libero.libero.envs import OffScreenRenderEnv
 from omegaconf.omegaconf import OmegaConf
 
-from verl.envs.action_utils import (
+from recipe.vla.envs.action_utils import (
     list_of_dict_to_dict_of_list,
     put_info_on_image,
     save_rollout_video,
     tile_images,
     to_tensor,
 )
-from verl.envs.libero_env.utils import (
+from recipe.vla.envs.libero_env.utils import (
     get_libero_image,
 )
-from verl.envs.libero_env.venv import ReconfigureSubprocEnv
+from recipe.vla.envs.libero_env.venv import ReconfigureSubprocEnv
 
 logger = logging.getLogger(__name__)
 

@@ -19,6 +19,8 @@ import torch
 from omegaconf import DictConfig
 from torch.distributed.device_mesh import init_device_mesh
 
+from recipe.vla.envs.action_utils import prepare_actions
+from recipe.vla.workers.env.env_manager import EnvManager
 from verl import DataProto
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
@@ -26,9 +28,6 @@ from verl.utils.device import (
     get_device_name,
 )
 from verl.utils.distributed import initialize_global_process_group_ray
-
-from .action_utils import prepare_actions
-from .env_manager import EnvManager
 
 
 def put_tensor_cpu(data_dict):
@@ -89,7 +88,7 @@ class EnvWorker(Worker):
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_worker(self):
         if self.cfg.train.simulator_type == "libero":
-            from verl.envs.libero_env.libero_env import LiberoEnv
+            from recipe.vla.envs.libero_env.libero_env import LiberoEnv
 
             for _ in range(self.stage_num):
                 self.simulator_list.append(
@@ -102,7 +101,7 @@ class EnvWorker(Worker):
                 )
 
         elif self.cfg.train.simulator_type == "isaac":
-            from verl.envs.isaac_env.isaac_env import IsaacEnv
+            from recipe.vla.envs.isaac_env.isaac_env import IsaacEnv
 
             for _ in range(self.stage_num):
                 self.simulator_list.append(

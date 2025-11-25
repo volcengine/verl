@@ -29,10 +29,10 @@ from PIL import Image
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.nn.utils.rnn import pad_sequence
 
+from recipe.vla.envs.action_utils import center_crop_image, resize_image
+from recipe.vla.models.openvla_oft.modeling_prismatic import OpenVLAForActionPrediction
+from recipe.vla.models.openvla_oft.processing_prismatic import PrismaticProcessor
 from verl import DataProto
-from verl.envs.action_utils import center_crop_image, resize_image
-from verl.models.openvla_oft.modeling_prismatic import OpenVLAForActionPrediction
-from verl.models.openvla_oft.processing_prismatic import PrismaticProcessor
 from verl.utils.device import get_device_id, get_device_name, get_torch_device
 from verl.workers.rollout.base import BaseRollout
 

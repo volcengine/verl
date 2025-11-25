@@ -21,7 +21,7 @@ import numpy as np
 import omni
 import torch
 
-from verl.envs.action_utils import (
+from recipe.vla.envs.action_utils import (
     put_info_on_image,
     save_rollout_video,
     tile_images,
