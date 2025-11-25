@@ -166,7 +166,6 @@ class AsyncLLMServerManager:
             logger.error(f"server manager got exception: {e}")
 
 
-
 class AgentLoopMetrics(BaseModel):
     """Agent loop performance metrics."""
 
