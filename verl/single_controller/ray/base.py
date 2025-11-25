@@ -143,7 +143,7 @@ class RayResourcePool(ResourcePool):
 class SubRayResourcePool(RayResourcePool):
     def __init__(
         self,
-        placement_groups: PlacementGroup,
+        placement_groups: list[PlacementGroup],
         start_bundle_index: int,
         subgroup_world_size: int,
         **kwargs,
