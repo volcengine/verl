@@ -23,6 +23,6 @@ def initialize_system_prompt(tokenizer, **apply_chat_template_kwargs) -> list[in
         return tokenizer.apply_chat_template(
             [{}], add_generation_prompt=False, tokenize=True, **apply_chat_template_kwargs
         )
-    except (TemplateError, Exception) as e:
+    except TemplateError as e:
         logger.warning(f"Chat template does not support system prompt: {e}")
         return []
