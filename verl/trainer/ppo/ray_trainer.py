@@ -276,7 +276,7 @@ def _get_all_from_queue(queue, max_item=None) -> list[Any]:
                 break
             item = queue.get_nowait()
             items.append(item)
-        except ray.exceptions.QueueEmpty:
+        except ray.util.queue.Empty:
             break
     return items
 
@@ -408,10 +408,11 @@ class RayPPOTrainer:
             collate_fn = default_collate_fn
 
         num_workers = self.config.data["dataloader_num_workers"]
-
+        self.train_batch_size = self.config.data.train_batch_size
+        self.gen_batch_size = self.config.data.get("gen_batch_size", self.train_batch_size)
         self.train_dataloader = StatefulDataLoader(
             dataset=self.train_dataset,
-            batch_size=self.config.data.get("gen_batch_size", self.config.data.train_batch_size),
+            batch_size=self.gen_batch_size,
             num_workers=num_workers,
             drop_last=True,
             collate_fn=collate_fn,
@@ -438,8 +439,8 @@ class RayPPOTrainer:
             f"Size of train dataloader: {len(self.train_dataloader)}, Size of val dataloader: "
             f"{len(self.val_dataloader)}"
         )
-
-        total_training_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
+        self.train_step_per_epoch = len(self.train_dataloader) * self.gen_batch_size // self.train_batch_size
+        total_training_steps = self.train_step_per_epoch * self.config.trainer.total_epochs
 
         if self.config.trainer.total_training_steps is not None:
             total_training_steps = self.config.trainer.total_training_steps
@@ -1032,7 +1033,7 @@ class RayPPOTrainer:
         # load checkpoint before doing anything
         self._load_checkpoint()
 
-        current_epoch = self.global_steps // len(self.train_dataloader)
+        current_epoch = self.global_steps // self.train_step_per_epoch
 
         # perform validation before training
         # currently, we only support validation using the reward_function.
@@ -1065,16 +1066,19 @@ class RayPPOTrainer:
         self.next_step_profile = False
 
         for epoch in range(current_epoch, self.config.trainer.total_epochs):
+            if self.reorder_rollout:
+                _get_all_from_queue(self.unfinished_queue)
             for batch_dict in self.train_dataloader:
-                train_batch_size = self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n
-                if self.reorder_rollout and self.unfinished_queue.qsize() >= train_batch_size:
+                train_batch_size_with_n = self.train_batch_size * self.config.actor_rollout_ref.rollout.n
+                if self.reorder_rollout and self.unfinished_queue.qsize() >= train_batch_size_with_n:
                     # When using reordering, some incomplete long-tail requests are generated,
                     # so these requests need to be grouped into an additional batch for inference.
-                    unfinished_batch_list = _get_all_from_queue(self.unfinished_queue, max_item=train_batch_size)
+                    unfinished_batch_list = _get_all_from_queue(self.unfinished_queue, max_item=train_batch_size_with_n)
                     batch = collate_fn(unfinished_batch_list)
                     self._step(batch, logger, epoch, 1)
 
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
+                batch.meta_info["temperature"] = self.config.actor_rollout_ref.rollout.temperature
                 self._step(batch, logger, epoch, self.config.actor_rollout_ref.rollout.n)
 
     def _step(
