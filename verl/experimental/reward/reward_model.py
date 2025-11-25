@@ -21,7 +21,7 @@ import aiohttp
 from openai.types.chat import ChatCompletion
 
 from verl import DataProto
-from verl.single_controller.ray.base import RayWorkerGroup
+from verl.single_controller.ray.base import RayResourcePool, split_resource_pool
 from verl.workers.config import HFModelConfig, RewardModelConfig
 from verl.workers.rollout.replica import get_rollout_replica_class
 
@@ -32,16 +32,16 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 class RewardModelManager:
     """Reward model manager."""
 
-    def __init__(self, config: RewardModelConfig, worker_group: RayWorkerGroup = None):
+    def __init__(self, config: RewardModelConfig, resource_pool: RayResourcePool = None):
         """
         Initialize the reward model manager.
 
         Args:
             config (RewardModelConfig): Reward model configuration.
-            worker_group (RayWorkerGroup, optional): Worker group. Defaults to None.
+            resource_pool (RayResourcePool, optional): Resource pool. Defaults to None.
         """
         self.config = config
-        self.worker_group = worker_group
+        self.resource_pool = resource_pool
         self._initialize_llm_servers()
         self._initialize_router()
         if self.config.rollout.free_cache_engine:
@@ -50,8 +50,8 @@ class RewardModelManager:
     def _initialize_llm_servers(self):
         rollout_world_size = self.config.rollout.tensor_model_parallel_size
         world_size = (
-            self.worker_group.world_size
-            if self.worker_group  # colocate mode
+            self.resource_pool.world_size
+            if self.resource_pool  # colocate mode
             else self.config.n_gpus_per_node * self.config.nnodes  # standalone mode
         )
         num_replicas = world_size // rollout_world_size
@@ -74,8 +74,15 @@ class RewardModelManager:
             )
             for replica_rank in range(num_replicas)
         ]
-        if self.worker_group:
-            self._run_all([server.init_colocated(self.worker_group) for server in self.rollout_replicas])
+        if self.resource_pool:
+            split_resource_pools = split_resource_pool(self.resource_pool, split_size=rollout_world_size)
+            assert len(split_resource_pools) == len(self.rollout_replicas)
+            self._run_all(
+                [
+                    server.init_colocated(resource_pool)
+                    for server, resource_pool in zip(self.rollout_replicas, split_resource_pools, strict=False)
+                ]
+            )
         else:
             self._run_all([server.init_standalone() for server in self.rollout_replicas])
         self.server_handles = [server._server_handle for server in self.rollout_replicas]
@@ -123,6 +130,8 @@ class RewardModelManager:
             await session.close()
 
     def generate_sequences(self, prompts: DataProto, sampling_params: dict):
+        if self.config.rollout.free_cache_engine:
+            self.wake_up()
         chat_complete_requests = [
             {
                 "model": self.config.model.path,
@@ -133,4 +142,6 @@ class RewardModelManager:
         ]
         tasks = [self.chat_complete(chat_complete_request) for chat_complete_request in chat_complete_requests]
         results = self._run_all(tasks)
+        if self.config.rollout.free_cache_engine:
+            self.sleep()
         return results
