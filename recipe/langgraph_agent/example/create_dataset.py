@@ -210,7 +210,7 @@ def calculate(expression: str) -> float:
     return result
 
 
-def generate_data(total_num_dataset, split):
+def generate_data(total_num_dataset, split, agent_name="math_expression"):
     rl_dataset = {
         "prompt": [],
         "data_source": [],
@@ -260,7 +260,7 @@ def generate_data(total_num_dataset, split):
         rl_dataset["extra_info"].append(
             {"index": idx, "expression": expression, "split": split, "expected_tool_calls": num_tool_calls}
         )
-        rl_dataset["agent_name"].append("math_expression")
+        rl_dataset["agent_name"].append(agent_name)
 
     rl_dataset = pd.DataFrame(data=rl_dataset)
     return rl_dataset
@@ -271,6 +271,7 @@ if __name__ == "__main__":
     parser.add_argument("--train_size", type=int, default=5000, help="Number of training samples")
     parser.add_argument("--test_size", type=int, default=500, help="Number of testing samples")
     parser.add_argument("--output_dir", default="data/math_expression_tool", help="Directory to save the dataset")
+    parser.add_argument("--agent_name", default="math_expression", help="Name of the agent")
     args = parser.parse_args()
 
     # print(calculate("3@2"))          # Output: 5 (3*3 - 2*2)
@@ -278,8 +279,8 @@ if __name__ == "__main__":
     # print(calculate("3*(4@2)"))      # Output: 24 (3 * 8)
     # print(calculate("(5@3)*2"))      # Output: 18 (9 * 2)
 
-    train_dataset = generate_data(total_num_dataset=args.train_size, split="train")
-    test_dataset = generate_data(total_num_dataset=args.test_size, split="test")
+    train_dataset = generate_data(total_num_dataset=args.train_size, split="train", agent_name=args.agent_name)
+    test_dataset = generate_data(total_num_dataset=args.test_size, split="test", agent_name=args.agent_name)
 
     # Make sure the dataset directory exists
     os.makedirs(args.output_dir, exist_ok=True)

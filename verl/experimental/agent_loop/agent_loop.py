@@ -782,9 +782,10 @@ class AgentLoopManager:
             DataProto: Output batch.
         """
 
-        if self.config.actor_rollout_ref.rollout.free_cache_engine:
-            self.wake_up()
-        if self.reward_model_manager and self.config.reward_model.rollout.free_cache_engine:
+        # Fix for Issue #4147: Always call wake_up() to ensure weight sync
+        # The wake_up()/sleep() methods internally check free_cache_engine
+        self.wake_up()
+        if self.reward_model_manager:
             self.reward_model_manager.wake_up()
 
         chunkes = prompts.chunk(len(self.agent_loop_workers))
@@ -795,9 +796,9 @@ class AgentLoopManager:
             ]
         )
         output = DataProto.concat(outputs)
-        if self.config.actor_rollout_ref.rollout.free_cache_engine:
-            self.sleep()
-        if self.reward_model_manager and self.config.reward_model.rollout.free_cache_engine:
+        # Fix for Issue #4147: Always call sleep() to ensure proper cleanup
+        self.sleep()
+        if self.reward_model_manager:
             self.reward_model_manager.sleep()
 
         # calculate performance metrics

@@ -43,7 +43,7 @@ device_name = get_device_name()
 
 class ActorWorker(Worker, DistProfilerExtension):
     """
-    This worker can be instantiated as a standalone actor or a standalone rollout or a standalone reference policy
+    This worker can be instantiated as a standalone actor or a standalone reference policy
     or a hybrid engine based on the config.rollout
     """
 
@@ -108,7 +108,10 @@ class ActorWorker(Worker, DistProfilerExtension):
     def compute_log_prob(self, data: DataProto):
         data.meta_info["use_dynamic_bsz"] = self.config.use_dynamic_bsz
         data.meta_info["use_fused_kernels"] = self.config.use_fused_kernels
-        data.meta_info["calculate_entropy"] = True
+        if "calculate_entropy" not in data.meta_info:
+            data.meta_info["calculate_entropy"] = True
+        calculate_entropy = data.meta_info["calculate_entropy"]
+
         if self.config.use_dynamic_bsz:
             data.meta_info["max_token_len_per_gpu"] = self.config.ppo_infer_max_token_len_per_gpu
         else:
@@ -125,16 +128,16 @@ class ActorWorker(Worker, DistProfilerExtension):
             log_probs = output["log_probs"]
             log_probs = no_padding_2_padding(log_probs, data)  # (bsz, response_length)
 
-            entropy = output["entropy"]
-            if entropy is not None:
-                entropy = no_padding_2_padding(entropy, data)  # (bsz, response_length)
+            tensors = {"old_log_probs": log_probs.float()}
+            if calculate_entropy:
+                entropy = no_padding_2_padding(output["entropy"], data)  # (bsz, response_length)
+                tensors["entropys"] = entropy.float()
 
             # in megatron, only last pp contains valid data and returned to the single controller
-            output = DataProto.from_dict(
-                tensors={"old_log_probs": log_probs.float(), "entropy": entropy.float()},
-            )
+            output = DataProto.from_dict(tensors=tensors)
             output = output.to("cpu")
-        return output
+
+        return output if self.engine.is_mp_src_rank_with_outputs() else None
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @DistProfiler.annotate(color="red", role="actor_update")
@@ -160,7 +163,7 @@ class ActorWorker(Worker, DistProfilerExtension):
             )
             with Timer(name="update_policy", logger=None) as timer:
                 for batch_idx, mini_batch in enumerate(dataloader):
-                    mini_batch.meta_info["global_batch_size"] = self.config.ppo_mini_batch_size
+                    mini_batch.meta_info["global_batch_size"] = self.ppo_mini_batch_size
                     # TODO: make worker API to accept TensorDict as well
                     mini_batch = mini_batch.to_tensordict()
                     mini_batch = left_right_2_no_padding(mini_batch)
