@@ -111,8 +111,6 @@ class DetachSync(AsyncActorRolloutRefWorker):
                     inference_model.load_weights([(key, tensor)])
                 elif rollout_name == "sglang":
                     loop.run_until_complete(self.update_weights(inference_model, [(key, tensor)]))
-        if self._is_actor and self._is_offload_param:
-            offload_fsdp_model_to_cpu(self.actor_module_fsdp)
 
         if self._is_actor and self._is_offload_param:
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)
