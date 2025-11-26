@@ -51,7 +51,7 @@ from verl.utils.device import (
 from verl.utils.distributed import set_numa_affinity
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local
-from verl.utils.megatron.router_replay_patch import RouterReplay, RoutingMode
+from verl.utils.megatron.router_replay_patch import RouterReplay, RoutingMode, apply_router_replay_patch
 from verl.utils.megatron_utils import (
     load_megatron_model_to_gpu,
     load_megatron_optimizer,
@@ -288,6 +288,10 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 mesh_name="actor", dp_rank=mpu.get_data_parallel_rank(), is_collect=is_collect
             )
         only_rollout = self._is_rollout and not self._is_actor
+
+        if self.enable_routing_replay:
+            apply_router_replay_patch()
+
         set_random_seed(seed=self.config.actor.megatron.seed, only_rollout=only_rollout)
 
         if self._is_actor:
