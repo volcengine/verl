@@ -110,6 +110,17 @@ def get_tensordict(tensor_dict: dict[str, torch.Tensor | list], non_tensor_dict:
         if isinstance(val, torch.Tensor) and val.is_nested:
             assert val.is_contiguous(), "Nested tensors must be contiguous. Try setting layout=torch.jagged"
 
+        # Skip validation for NonTensorStack as it's already properly formatted
+        if isinstance(val, NonTensorStack):
+            if batch_size is None:
+                batch_size = len(val)
+            else:
+                assert len(val) == batch_size, (
+                    f"Batch size of NonTensorStack {key} is not consistent with other tensors. "
+                    f"Expected {batch_size}, got {len(val)}"
+                )
+            continue
+
         if isinstance(val, list):
             for v in val:
                 assert not isinstance(v, torch.Tensor), (
