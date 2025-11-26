@@ -21,13 +21,6 @@ NGPUS_PER_NODE=${NGPUS_PER_NODE:-8}
 n_gpus_rollout=2
 n_gpus_training=$((NGPUS_PER_NODE - n_gpus_rollout))
 
-rollout_mode="async"
-rollout_name="vllm" # sglang or vllm
-if [ "$rollout_mode" = "async" ]; then
-    export VLLM_USE_V1=1
-    return_raw_chat="True"
-fi
-
 python3 -m recipe.one_step_off_policy.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files="${TRAIN_FILE}" \
@@ -74,7 +67,4 @@ python3 -m recipe.one_step_off_policy.main_ppo \
     trainer.n_gpus_per_node="${n_gpus_training}" \
     rollout.nnodes="${NNODES}" \
     rollout.n_gpus_per_node="${n_gpus_rollout}" \
-    actor_rollout_ref.rollout.mode="${rollout_mode}" \
-    actor_rollout_ref.rollout.name="${rollout_name}" \
-    data.return_raw_chat="${return_raw_chat}" \
     $@
