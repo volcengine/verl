@@ -112,7 +112,17 @@ def test_fsdp_ckpt(strategy="fsdp"):
     optimizer.zero_grad()
 
     # Save checkpoint after first update
-    temp_dir = tempfile.mkdtemp()
+    # Only rank 0 creates the temp dir, then broadcast to all ranks
+    if rank == 0:
+        temp_dir = tempfile.mkdtemp()
+    else:
+        temp_dir = None
+
+    # Broadcast temp_dir from rank 0 to all ranks
+    temp_dir_list = [temp_dir]
+    torch.distributed.broadcast_object_list(temp_dir_list, src=0)
+    temp_dir = temp_dir_list[0]
+
     checkpoint_path = os.path.join(temp_dir, "checkpoint")
     checkpoint_manager.save_checkpoint(local_path=checkpoint_path, hdfs_path=None, global_step=0)
     saved_state_dict = model.state_dict()
@@ -152,9 +162,10 @@ def test_fsdp_ckpt(strategy="fsdp"):
     torch.testing.assert_close(logits_before_load, logits_after_load, atol=0.0, rtol=0.0)
     print("Checkpoint save/load test passed!")
 
-    # Cleanup
-    shutil.rmtree(temp_dir)
+    # Cleanup - only rank 0 removes the directory
     torch.distributed.barrier()
+    if rank == 0:
+        shutil.rmtree(temp_dir, ignore_errors=True)
     torch.distributed.destroy_process_group()
 
 
@@ -227,7 +238,17 @@ def test_fsdp_dcp_async_save(strategy="fsdp"):
     optimizer.zero_grad()
 
     # Save checkpoint with async_save
-    temp_dir = tempfile.mkdtemp()
+    # Only rank 0 creates the temp dir, then broadcast to all ranks
+    if rank == 0:
+        temp_dir = tempfile.mkdtemp()
+    else:
+        temp_dir = None
+
+    # Broadcast temp_dir from rank 0 to all ranks
+    temp_dir_list = [temp_dir]
+    torch.distributed.broadcast_object_list(temp_dir_list, src=0)
+    temp_dir = temp_dir_list[0]
+
     checkpoint_path = os.path.join(temp_dir, "checkpoint_async")
 
     start_time = time.time()
@@ -288,9 +309,10 @@ def test_fsdp_dcp_async_save(strategy="fsdp"):
     torch.testing.assert_close(logits_before_load, logits_after_load, atol=0.0, rtol=0.0)
     print("DCP async_save checkpoint test passed!")
 
-    # Cleanup
-    shutil.rmtree(temp_dir)
+    # Cleanup - only rank 0 removes the directory
     torch.distributed.barrier()
+    if rank == 0:
+        shutil.rmtree(temp_dir, ignore_errors=True)
     torch.distributed.destroy_process_group()
 
 
