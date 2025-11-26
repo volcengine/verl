@@ -25,9 +25,10 @@ def test_actor_rollout_ref_worker_actor_ref_model():
     os.environ["MASTER_ADDR"] = "127.0.0.1"
     os.environ["MASTER_PORT"] = "8888"
 
-    config_str = """
+    model_path = os.path.expanduser("~/models/Qwen/Qwen2.5-0.5B-Instruct")
+    config_str = f"""
     model:
-      path: Qwen/Qwen2.5-0.5B-Instruct
+      path: {model_path}
     actor:
       _target_: verl.workers.config.FSDPActorConfig
       strategy: fsdp
@@ -45,7 +46,7 @@ def test_actor_rollout_ref_worker_actor_ref_model():
             stack_depth: 32
     ref:
       model:
-        path: Qwen/Qwen2.5-1.5B-Instruct
+        path: {model_path}
       fsdp_config:
         _target_: verl.workers.config.FSDPEngineConfig
         fsdp_size: -1
