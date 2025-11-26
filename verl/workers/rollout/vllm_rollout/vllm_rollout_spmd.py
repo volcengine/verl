@@ -110,6 +110,7 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> list[in
     token_ids = prompt_token_ids[non_pad_index:].tolist()
     return token_ids
 
+
 def pad_first_dim_tail(x: torch.Tensor, M: int, value: float = 0.0, left_pad: bool = True):
     N = x.size(0)
     if M < N:
@@ -121,7 +122,6 @@ def pad_first_dim_tail(x: torch.Tensor, M: int, value: float = 0.0, left_pad: bo
     if left_pad:
         return torch.cat([pad_tensor, x], dim=0)
     return torch.cat([x, pad_tensor], dim=0)
-
 
 
 if is_version_ge(pkg="vllm", minver="0.7.3"):
@@ -425,38 +425,41 @@ class vLLMRollout(BaseRollout):
                         for i, logprob in enumerate(output.outputs[sample_id].logprobs):
                             curr_log_prob.append(logprob[response_ids[i]].logprob)
                         rollout_log_probs.append(curr_log_prob)
-                        
 
             # [prompt_length + response_length, num_layer, num_expert]
             # [pad_prompt_length, num_layer, num_expert]
             # [pad_response_length, num_layer, num_expert]
-            
+
             routed_experts = []
             input_routed_experts = []
             output_routed_experts = []
             if self.config.enable_rollout_routing_replay:
                 # Calculate target length for padding (prompt length + max response length)
                 max_prompt_length = idx.shape[-1]
-                
+
                 for output in outputs:
                     for sample_id in range(len(output.outputs)):
                         routed_expert = output.outputs[sample_id].routed_experts
                         routed_experts.append(routed_expert)
-            
+
                 for i, routed_expert in enumerate(routed_experts):
                     response_length = len(response[i])
                     # Convert numpy array to torch tensor
                     routed_expert_tensor = torch.from_numpy(routed_expert)
                     total_length = routed_expert_tensor.shape[0]
-                    assert total_length >= response_length , f"routed_expert length {total_length} is shorter than response length {response_length}"
+                    assert total_length >= response_length, (
+                        f"routed_expert length {total_length} is shorter than response length {response_length}"
+                    )
                     input_expert = routed_expert_tensor[:-response_length]
                     pad_input_expert = pad_first_dim_tail(input_expert, max_prompt_length, value=-1, left_pad=True)
                     input_routed_experts.append(pad_input_expert)
 
                     output_expert = routed_expert_tensor[-response_length:]
-                    pad_output_expert = pad_first_dim_tail(output_expert, self.config.response_length, value=-1, left_pad=False)
+                    pad_output_expert = pad_first_dim_tail(
+                        output_expert, self.config.response_length, value=-1, left_pad=False
+                    )
                     output_routed_experts.append(pad_output_expert)
-                
+
                 # Convert list of tensors to batch tensor
                 input_routed_experts = torch.stack(input_routed_experts, dim=0)
                 output_routed_experts = torch.stack(output_routed_experts, dim=0)

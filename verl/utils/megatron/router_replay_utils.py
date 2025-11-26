@@ -16,16 +16,16 @@
 Router Replay Utilities
 Utilities for handling router replay functionality in Megatron models.
 """
-from typing import Optional
-from copy import deepcopy
-import torch
 
-from megatron.core.tensor_parallel import gather_from_sequence_parallel_region, scatter_to_sequence_parallel_region
+from typing import Optional
+
+import torch
 from megatron.core import parallel_state as mpu
 from megatron.core.pipeline_parallel.schedules import get_schedule_table
-from megatron.core.transformer.transformer_layer import get_transformer_layer_offset
+from megatron.core.pipeline_parallel.utils import is_vp_first_stage, is_vp_last_stage
+from megatron.core.tensor_parallel import gather_from_sequence_parallel_region, scatter_to_sequence_parallel_region
 from megatron.core.transformer.transformer_config import TransformerConfig
-
+from megatron.core.transformer.transformer_layer import get_transformer_layer_offset
 
 from verl.models.mcore.util import postprocess_packed_seqs, preprocess_packed_seqs
 from verl.utils.megatron.router_replay_patch import RouterReplay, RoutingMode
@@ -35,10 +35,6 @@ from verl.utils.megatron.router_replay_patch import RouterReplay, RoutingMode
 def get_num_layers_to_build(
     config: TransformerConfig, vp_stage: Optional[int] = None, pp_rank: Optional[int] = None
 ) -> int:
-    # Note: This code snippet is copied from Megatron-core
-    # Temporary compatibility note: The target functionality is not included in the current version of Megatron-core, so the relevant implementation is directly introduced
-    # Removal condition: This copied code can be deleted after Megatron-core is updated to commit <8c1a3f5df0cbfbe081875592f68c7a382f434c69> or a later version
-    # (This commit already includes the required functionality; please replace it with direct dependency on the corresponding interface of Megatron-core at that time)
     """
     Determine the number of transformer layers to build for the current pipeline stage.
     Args:
@@ -52,6 +48,8 @@ def get_num_layers_to_build(
     # If we have a custom PP layout, straightforwardly
     # return the number of decoders in the layout array.
     if config.pipeline_model_parallel_layout is not None:
+        from megatron.core.transformer.enums import LayerType
+
         return config.pipeline_model_parallel_layout.get_num_layers_to_build(
             layer_type=LayerType.decoder, vp_stage=vp_stage
         )
@@ -63,16 +61,11 @@ def get_num_layers_to_build(
     is_first_pp_stage = pp_rank == 0
     is_last_pp_stage = pp_rank == config.pipeline_model_parallel_size - 1
 
-    if (
-        config.num_layers_in_first_pipeline_stage is not None
-        or config.num_layers_in_last_pipeline_stage is not None
-    ):
-
-        assert not (
-            config.account_for_embedding_in_pipeline_split
-            or config.account_for_loss_in_pipeline_split
-        ), " \
+    if config.num_layers_in_first_pipeline_stage is not None or config.num_layers_in_last_pipeline_stage is not None:
+        assert not (config.account_for_embedding_in_pipeline_split or config.account_for_loss_in_pipeline_split), (
+            " \
         Does not support standalone embedding stage and standalone loss stage with uneven pp"
+        )
         # Number of layers to distribute over rest of pipeline stages
         layers_to_distribute = config.num_layers
         # Number of pipeline stages left for distributing transformer layers
@@ -91,9 +84,9 @@ def get_num_layers_to_build(
         # If pp_size <= 2, we do not have any intermediate pipeline stages, and we do not
         # need to check if the left over layers are divisible by the left over stages.
         if pipeline_stages_left > 0:
-            assert (
-                layers_to_distribute % pipeline_stages_left == 0
-            ), "With uneven pipelineing the left over layers must be divisible by left over stages"
+            assert layers_to_distribute % pipeline_stages_left == 0, (
+                "With uneven pipelineing the left over layers must be divisible by left over stages"
+            )
             num_layers_per_pipeline_rank = layers_to_distribute // pipeline_stages_left
         else:
             num_layers_per_pipeline_rank = 0
@@ -116,9 +109,9 @@ def get_num_layers_to_build(
         if config.account_for_loss_in_pipeline_split:
             num_layers += 1
 
-        assert (
-            num_layers % config.pipeline_model_parallel_size == 0
-        ), "num_layers should be divisible by pipeline_model_parallel_size"
+        assert num_layers % config.pipeline_model_parallel_size == 0, (
+            "num_layers should be divisible by pipeline_model_parallel_size"
+        )
         num_layers_per_pipeline_rank = num_layers // config.pipeline_model_parallel_size
 
     vp_size = config.virtual_pipeline_model_parallel_size
@@ -135,10 +128,10 @@ def get_num_layers_to_build(
         # Stage 0: [0, 1]  [4, 5]
         # Stage 1: [2, 3]  [6, 7]
 
-        assert (
-            num_layers_per_pipeline_rank % vp_size == 0
-        ), f"num_layers_per_pipeline_rank {num_layers_per_pipeline_rank} \
+        assert num_layers_per_pipeline_rank % vp_size == 0, (
+            f"num_layers_per_pipeline_rank {num_layers_per_pipeline_rank} \
             should be divisible by vp_size {vp_size}"
+        )
         num_layers_per_virtual_stage = num_layers_per_pipeline_rank // vp_size
 
         num_layers_to_build = num_layers_per_virtual_stage
@@ -154,14 +147,12 @@ def get_num_layers_to_build(
     if config.account_for_embedding_in_pipeline_split:
         if is_vp_first_stage(vp_stage, vp_size) and is_first_pp_stage:
             num_layers_to_build -= 1
-            assert (
-                num_layers_to_build >= 0
-            ), f"Not enough layers in the first virtual pipeline stage"
+            assert num_layers_to_build >= 0, "Not enough layers in the first virtual pipeline stage"
 
     if config.account_for_loss_in_pipeline_split:
         if is_vp_last_stage(vp_stage, vp_size) and is_last_pp_stage:
             num_layers_to_build -= 1
-            assert num_layers_to_build >= 0, f"Not enough layers in the last virtual pipeline stage"
+            assert num_layers_to_build >= 0, "Not enough layers in the last virtual pipeline stage"
 
     return num_layers_to_build
 
@@ -195,9 +186,11 @@ def merge_router_topk_indices(attention_mask, input_ids, mini_layer_topk_idx_lis
         # layer_num, dynamic_bs, topk  -> dynamic_bs, layer_num, topk
         layers_topk_idx = torch.stack(layers_topk_idx).permute(1, 0, 2).cuda()
         # dynamic_bs, layer_num, topk -> 1, dynamic_bs_all, layer_num, topk
-        layers_topk_idx = gather_from_sequence_parallel_region(
-            layers_topk_idx, tensor_parallel_output_grad=False
-        ).unsqueeze(0).contiguous()
+        layers_topk_idx = (
+            gather_from_sequence_parallel_region(layers_topk_idx, tensor_parallel_output_grad=False)
+            .unsqueeze(0)
+            .contiguous()
+        )
 
         batch_size, seq_len = attention_mask.shape[:2]
         _, packed_seq_params = preprocess_packed_seqs(input_ids, attention_mask, pre_process=True)
@@ -239,11 +232,12 @@ def set_router_replay_data(layers_topk_idx, attention_mask, tf_config, vp_rank=N
         layers_topk_idx_reshape = layers_topk_idx_rmpad_split.permute(0, 2, 1, 3).squeeze(
             dim=0
         )  # layer_num, dynamic_bs_all, topk
-        local_rank_info = get_current_rank_layer_info(tf_config,vp_rank)
+        local_rank_info = get_current_rank_layer_info(tf_config, vp_rank)
         offset, _ = local_rank_info["start"], local_rank_info["end"]
         router_instances_list = RouterReplayHelper.get_micro_batch_router_list(tf_config, vp_rank)
-        for i,router in enumerate(router_instances_list):
-            router.set_target_indices(layers_topk_idx_reshape[i+offset].to(torch.int64))
+        for i, router in enumerate(router_instances_list):
+            router.set_target_indices(layers_topk_idx_reshape[i + offset].to(torch.int64))
+
 
 def reorder_and_merge_vpp_layers(
     micro_batch_tensor_list,
@@ -275,21 +269,22 @@ def reorder_and_merge_vpp_layers(
     """
     # 1) Build schedule table: map each virtual_microbatch_id -> (microbatch_id, model_chunk_id)
     schedule_table = get_schedule_table(num_microbatches, vpp_size, microbatch_group_size_per_vp_stage)
-    
+
     # 2) Group by model_chunk_id to build reorder indices so entries of the same chunk become contiguous along dim 0
     tensor_by_chunk = [[] for _ in range(vpp_size)]
     mini_tensor_list = []
-    
+
     for vidx, (_mb, chunk_id) in enumerate(schedule_table):
         tensor_by_chunk[chunk_id].append(micro_batch_tensor_list[vidx])
 
     for chunk_id in range(vpp_size):
         mini_tensor_list.append(torch.cat(tensor_by_chunk[chunk_id], dim=0))
-    
-    out = torch.cat(mini_tensor_list, dim=2)    
+
+    out = torch.cat(mini_tensor_list, dim=2)
     return out
 
-def get_current_rank_layer_info(tf_config, vp_rank = None):
+
+def get_current_rank_layer_info(tf_config, vp_rank=None):
     # When vp_rank is None, default to the current VP rank (or 0 if VP is disabled).
     """Return the local layer range/count for the current process and the full assignment table.
 
@@ -302,64 +297,70 @@ def get_current_rank_layer_info(tf_config, vp_rank = None):
         Tuple[dict, dict]: A tuple of (local_assignment, all_assignments) where local_assignment contains
         keys {"start", "end", "count"} for the current (pp_rank, vp_stage).
     """
-    if vp_rank == None:
+    if vp_rank is None:
         vp_rank = 0
     num_layers_to_build = get_num_layers_to_build(tf_config, vp_stage=vp_rank)
     offset = get_transformer_layer_offset(tf_config, vp_stage=vp_rank)
-    local= {}
+    local = {}
     local["start"] = offset
     local["end"] = offset + num_layers_to_build
     local["count"] = num_layers_to_build
     return local
 
+
 def pp_gather(local_layers_router_map, tf_config):
-        # TODO: Consider non-uniform layer allocation cases.
-        """
-        Gather local router maps from all PP ranks into a global router map.
+    # TODO: Consider non-uniform layer allocation cases.
+    """
+    Gather local router maps from all PP ranks into a global router map.
 
-        Args:
-            local_layers_router_map (torch.Tensor): Local router map of shape
-                [bs, max_seq_len, local_num_layers, topk].
-            tf_config: Configuration providing pipeline_model_parallel_size.
+    Args:
+        local_layers_router_map (torch.Tensor): Local router map of shape
+            [bs, max_seq_len, local_num_layers, topk].
+        tf_config: Configuration providing pipeline_model_parallel_size.
 
-        Returns:
-            torch.Tensor: Global router map of shape [bs, max_seq_len, num_layers, topk] placed on CPU.
-        """
-        pp_size = tf_config.pipeline_model_parallel_size
-        if pp_size <= 1:
-            return local_layers_router_map
+    Returns:
+        torch.Tensor: Global router map of shape [bs, max_seq_len, num_layers, topk] placed on CPU.
+    """
+    pp_size = tf_config.pipeline_model_parallel_size
+    if pp_size <= 1:
+        return local_layers_router_map
 
-        pp_group = mpu.get_pipeline_model_parallel_group()
-        world_size = torch.distributed.get_world_size(pp_group)
-        local_layers_router_map = local_layers_router_map.cuda()
-        layers_topk_idx_global_list = [torch.empty(size=local_layers_router_map.shape, \
-                                                    dtype=local_layers_router_map.dtype,   \
-                                                    device=local_layers_router_map.device ) \
-                                                    for _ in range(world_size) ]
-        torch.distributed.all_gather(
-            tensor=local_layers_router_map,
-            tensor_list=layers_topk_idx_global_list,
-            group=pp_group,
-            async_op=False,
+    pp_group = mpu.get_pipeline_model_parallel_group()
+    world_size = torch.distributed.get_world_size(pp_group)
+    local_layers_router_map = local_layers_router_map.cuda()
+    layers_topk_idx_global_list = [
+        torch.empty(
+            size=local_layers_router_map.shape,
+            dtype=local_layers_router_map.dtype,
+            device=local_layers_router_map.device,
         )
-        vp_size = tf_config.virtual_pipeline_model_parallel_size
-        if vp_size != None:
-            vpp_router_map_offset = [[] for _ in range(pp_size)]
-            for pp_stage in range(pp_size):
-                vpp_router_map_offset[pp_stage].append(0)
-                for vp_stage in range(vp_size):
-                    num_layers_to_build = get_num_layers_to_build(tf_config, vp_stage, pp_stage)
-                    vpp_router_map_offset[pp_stage].append(num_layers_to_build + vpp_router_map_offset[pp_stage][-1])
-            layers_topk_idx_global = []
+        for _ in range(world_size)
+    ]
+    torch.distributed.all_gather(
+        tensor=local_layers_router_map,
+        tensor_list=layers_topk_idx_global_list,
+        group=pp_group,
+        async_op=False,
+    )
+    vp_size = tf_config.virtual_pipeline_model_parallel_size
+    if vp_size is not None:
+        vpp_router_map_offset = [[] for _ in range(pp_size)]
+        for pp_stage in range(pp_size):
+            vpp_router_map_offset[pp_stage].append(0)
             for vp_stage in range(vp_size):
-                for pp_stage in range(pp_size):
-                    piece = slice(vpp_router_map_offset[pp_stage][vp_stage], vpp_router_map_offset[pp_stage][vp_stage+1])
-                    layers_topk_idx_global.append(layers_topk_idx_global_list[pp_stage][:, :, piece, :])
-            global_router_map = torch.cat(layers_topk_idx_global, dim=2).to("cpu")
-        else:
-            global_router_map = torch.cat(layers_topk_idx_global_list, dim=2).to("cpu")
-        
-        return global_router_map
+                num_layers_to_build = get_num_layers_to_build(tf_config, vp_stage, pp_stage)
+                vpp_router_map_offset[pp_stage].append(num_layers_to_build + vpp_router_map_offset[pp_stage][-1])
+        layers_topk_idx_global = []
+        for vp_stage in range(vp_size):
+            for pp_stage in range(pp_size):
+                piece = slice(vpp_router_map_offset[pp_stage][vp_stage], vpp_router_map_offset[pp_stage][vp_stage + 1])
+                layers_topk_idx_global.append(layers_topk_idx_global_list[pp_stage][:, :, piece, :])
+        global_router_map = torch.cat(layers_topk_idx_global, dim=2).to("cpu")
+    else:
+        global_router_map = torch.cat(layers_topk_idx_global_list, dim=2).to("cpu")
+
+    return global_router_map
+
 
 class RouterReplayHelper:
     """Helper class to query router replay state and locate local RouterReplay instances."""
@@ -382,8 +383,8 @@ class RouterReplayHelper:
             list: A contiguous sublist of RouterReplay.router_instances for the local layer range.
         """
         vp_size = tf_config.virtual_pipeline_model_parallel_size
-        if vp_size != None:
-            vp_rank = 0 if vp_rank == None else vp_rank
+        if vp_size is not None:
+            vp_rank = 0 if vp_rank is None else vp_rank
             offset = 0
             for pre_vp_stage in range(vp_size):
                 if pre_vp_stage == vp_rank:
@@ -392,9 +393,9 @@ class RouterReplayHelper:
                 offset += num_layers_to_build
         else:
             offset = 0
-        
+
         num_layers_to_build = get_num_layers_to_build(tf_config, vp_rank)
-        router_instances_list = RouterReplay.router_instances[offset:offset+num_layers_to_build]
+        router_instances_list = RouterReplay.router_instances[offset : offset + num_layers_to_build]
         return router_instances_list
 
     @staticmethod
@@ -405,10 +406,7 @@ class RouterReplayHelper:
         RoutingMode.RECORD.
         """
         router_instances_list = RouterReplayHelper.get_micro_batch_router_list(tf_config, vp_rank)
-        return (
-            router_instances_list
-            and router_instances_list[0].routing_mode == RoutingMode.RECORD
-        )
+        return router_instances_list and router_instances_list[0].routing_mode == RoutingMode.RECORD
 
     @staticmethod
     def is_replay_forward_mode(tf_config, vp_rank=None) -> bool:
@@ -418,10 +416,7 @@ class RouterReplayHelper:
         RoutingMode.REPLAY_FORWARD.
         """
         router_instances_list = RouterReplayHelper.get_micro_batch_router_list(tf_config, vp_rank)
-        return (
-            router_instances_list
-            and router_instances_list[0].routing_mode == RoutingMode.REPLAY_FORWARD
-        )
+        return router_instances_list and router_instances_list[0].routing_mode == RoutingMode.REPLAY_FORWARD
 
     @staticmethod
     def is_replay_backward_mode(tf_config, vp_rank=None) -> bool:
@@ -431,10 +426,7 @@ class RouterReplayHelper:
         RoutingMode.REPLAY_BACKWARD.
         """
         router_instances_list = RouterReplayHelper.get_micro_batch_router_list(tf_config, vp_rank)
-        return (
-            router_instances_list
-            and router_instances_list[0].routing_mode == RoutingMode.REPLAY_BACKWARD
-        )
+        return router_instances_list and router_instances_list[0].routing_mode == RoutingMode.REPLAY_BACKWARD
 
     @staticmethod
     def is_r2_or_r3_mode(router_replay) -> bool:

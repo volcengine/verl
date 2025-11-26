@@ -44,9 +44,9 @@ from verl.utils.megatron.router_replay_patch import RouterReplay, RoutingMode
 from verl.utils.megatron.router_replay_utils import (
     RouterReplayHelper,
     merge_router_topk_indices,
-    set_router_replay_data,
     pp_gather,
     reorder_and_merge_vpp_layers,
+    set_router_replay_data,
 )
 from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy, vocab_parallel_log_probs_from_logits
 from verl.utils.megatron_utils import get_model_config
@@ -541,6 +541,7 @@ class MegatronPPOActor(BasePPOActor):
 
             append_to_dict(metrics, stats)
             return policy_loss, [metrics, ret_entropy]
+
         def forward_step(batch_iter, model, return_schedule_plan: bool = False):
             """
             Args:
@@ -586,7 +587,7 @@ class MegatronPPOActor(BasePPOActor):
             label_mask = attention_mask.clone()
             label_mask[:, : -response_length - 1] = False
             label_mask[:, -1] = False
-            
+
             if RouterReplayHelper.is_replay_backward_mode(self.tf_config, vp_rank):
                 router_instance_list = RouterReplayHelper.get_micro_batch_router_list(self.tf_config, vp_rank)
                 for router in router_instance_list:
@@ -659,7 +660,9 @@ class MegatronPPOActor(BasePPOActor):
                 }
 
             if RouterReplayHelper.is_r2_record_mode(self.tf_config, vp_rank):
-                merge_router_topk_indices(attention_mask, input_ids, self.mini_layer_topk_idx_list, self.tf_config, vp_rank)
+                merge_router_topk_indices(
+                    attention_mask, input_ids, self.mini_layer_topk_idx_list, self.tf_config, vp_rank
+                )
 
             if RouterReplayHelper.is_replay_forward_mode(self.tf_config, vp_rank):
                 router_instance_list = RouterReplayHelper.get_micro_batch_router_list(self.tf_config, vp_rank)
@@ -709,11 +712,13 @@ class MegatronPPOActor(BasePPOActor):
                 vp_size = len(self.actor_module)
                 microbatch_group_size_per_vp_stage = self.tf_config.microbatch_group_size_per_vp_stage
                 bs = n_micro_batch
-                losses_reduced["mini_layer_topk_idx_tensor"] = reorder_and_merge_vpp_layers(self.mini_layer_topk_idx_list, bs, vp_size, microbatch_group_size_per_vp_stage)
+                losses_reduced["mini_layer_topk_idx_tensor"] = reorder_and_merge_vpp_layers(
+                    self.mini_layer_topk_idx_list, bs, vp_size, microbatch_group_size_per_vp_stage
+                )
             else:
                 losses_reduced["mini_layer_topk_idx_tensor"] = torch.cat(self.mini_layer_topk_idx_list, dim=0)
             self.mini_layer_topk_idx_list = []
-        
+
         return losses_reduced
 
     @GPUMemoryLogger(role="megatron actor", logger=logger)

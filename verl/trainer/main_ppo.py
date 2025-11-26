@@ -68,7 +68,7 @@ def run_ppo(config, task_runner_class=None) -> None:
             print("config.transfer_queue.enable")
             runtime_env_vars["TRANSFER_QUEUE_ENABLE"] = "1"
 
-        runtime_env_vars["NCCL_DEBUG"] ="ERROR"
+        runtime_env_vars["NCCL_DEBUG"] = "ERROR"
         runtime_env_kwargs["env_vars"] = runtime_env_vars
         runtime_env = OmegaConf.merge(default_runtime_env, runtime_env_kwargs)
         ray_init_kwargs = OmegaConf.create({**ray_init_kwargs, "runtime_env": runtime_env})
