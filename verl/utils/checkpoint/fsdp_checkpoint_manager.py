@@ -103,23 +103,34 @@ def unflatten_fsdp_checkpoint(flat_state_dict, model):
     params_from_flat = 0
     
     # Iterate in order, handling shared parameters
-    for name, param in base_model.named_parameters():
-        # Remove FSDP wrapper prefix if present to match checkpoint keys
-        clean_name = name.replace('_fsdp_wrapped_module.', '')
-        
+    # Use remove_duplicate=False to handle tied weights (e.g. embeddings) generically
+    for name, param in base_model.named_parameters(remove_duplicate=False):
         # Check if this parameter is already in the checkpoint
-        if clean_name in existing_keys:
-            # It's already loaded, just copy it to new_state_dict (use clean_name as key)
+        # The checkpoint keys might have a prefix (e.g. _fsdp_wrapped_module.) if saved from FSDP
+        # but we are iterating the unwrapped base_model.
+        # We try to find the key in existing_keys using the clean name or potential prefixed names.
+        key_in_checkpoint = None
+        if name in existing_keys:
+            key_in_checkpoint = name
+        elif f"_fsdp_wrapped_module.{name}" in existing_keys:
+            # Some checkpoints saved under FSDP or DataParallel may prepend "_fsdp_wrapped_module." or "module."
+            # We check all possible variants to ensure compatibility.
+            key_in_checkpoint = f"_fsdp_wrapped_module.{name}"
+        elif f"module.{name}" in existing_keys:
+             key_in_checkpoint = f"module.{name}"
+
+        if key_in_checkpoint:
+            # It's already loaded, just copy it to new_state_dict
             # We must add it to seen_params so shared params work correctly
             if param not in seen_params:
-                seen_params[param] = flat_state_dict[clean_name]
-            new_state_dict[clean_name] = flat_state_dict[clean_name]
+                seen_params[param] = flat_state_dict[key_in_checkpoint]
+            new_state_dict[name] = flat_state_dict[key_in_checkpoint]
             params_from_existing += 1
             continue
 
         if param in seen_params:
             # Shared parameter (e.g., tied embeddings), reuse the already extracted tensor
-            new_state_dict[clean_name] = seen_params[param]
+            new_state_dict[name] = seen_params[param]
         else:
             # New parameter, extract from flat_param
             numel = param.numel()
@@ -127,7 +138,7 @@ def unflatten_fsdp_checkpoint(flat_state_dict, model):
             
             if offset + numel > flat_param.numel():
                 log_with_rank(
-                    f"Warning: Cannot unflatten parameter {clean_name}, insufficient data in flat_param. "
+                    f"Warning: Cannot unflatten parameter {name}, insufficient data in flat_param. "
                     f"Offset: {offset}, Needed: {numel}, Available: {flat_param.numel()}. "
                     f"This may indicate the parameter is stored elsewhere or in a different format.",
                     rank=torch.distributed.get_rank() if torch.distributed.is_initialized() else 0,
@@ -139,7 +150,7 @@ def unflatten_fsdp_checkpoint(flat_state_dict, model):
             param_flat = flat_param[offset:offset + numel]
             reconstructed_param = param_flat.reshape(shape)
             
-            new_state_dict[clean_name] = reconstructed_param
+            new_state_dict[name] = reconstructed_param
             seen_params[param] = reconstructed_param
             offset += numel
             params_from_flat += 1
@@ -148,16 +159,6 @@ def unflatten_fsdp_checkpoint(flat_state_dict, model):
     for k, v in flat_state_dict.items():
         if k != "_flat_param" and k not in new_state_dict:
             new_state_dict[k] = v
-    
-    # Handle tied embeddings: lm_head.weight and embed_tokens.weight are the same
-    # PyTorch's named_parameters() only returns one of them, but FSDP may expect both
-    if 'model.language_model.embed_tokens.weight' in new_state_dict and 'lm_head.weight' not in new_state_dict:
-        new_state_dict['lm_head.weight'] = new_state_dict['model.language_model.embed_tokens.weight']
-        log_with_rank(
-            f"Added tied embedding: lm_head.weight -> model.language_model.embed_tokens.weight",
-            rank=torch.distributed.get_rank() if torch.distributed.is_initialized() else 0,
-            logger=logger
-        )
     
     log_with_rank(
         f"Successfully converted checkpoint: {params_from_flat} params from _flat_param, "
