@@ -22,6 +22,7 @@ import random
 import numpy as np
 import pytest
 import torch
+from tensordict.tensorclass import NonTensorData, NonTensorStack
 
 from verl.utils import tensordict_utils as tu
 
@@ -700,6 +701,29 @@ def test_assign_non_tensor_stack_with_complex_nested():
     assert dict(td["raw_prompt"][0][0]) == {"content": "Question 1", "role": "user"}
     assert len(td["raw_prompt"][1]) == 2
     assert dict(td["raw_prompt"][1][0]) == {"content": "Question 2", "role": "user"}
+
+
+def test_assign_non_tensor_handles_wrappers():
+    td = tu.get_tensordict({"obs": torch.randn(3, 4)}, non_tensor_dict={})
+
+    meta = {"top_p": 0.8}
+    tu.assign_non_tensor(td, **meta)
+    assert td["top_p"] == 0.8
+
+    wrapped = NonTensorData(0.3)
+    stack = NonTensorStack.from_list([NonTensorData(1.0), NonTensorData(2.0), NonTensorData(3.0)])
+    tu.assign_non_tensor(td, wrapped=wrapped, stack=stack)
+
+    assert td["wrapped"] == 0.3
+    assert td["stack"] == [1.0, 2.0, 3.0]
+
+
+def test_assign_non_tensor_stack_batch_size_check():
+    td = tu.get_tensordict({"obs": torch.randn(3, 4)}, non_tensor_dict={})
+    stack = NonTensorStack.from_list([NonTensorData(1.0), NonTensorData(2.0)])
+
+    with pytest.raises(RuntimeError):
+        tu.assign_non_tensor(td, stack=stack)
 
 
 def test_assign_non_tensor_with_auto_detection():
