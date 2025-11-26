@@ -47,7 +47,7 @@ from verl.utils.fsdp_utils import (
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.profiler import log_gpu_memory_usage
-from verl.workers.fsdp_workers import ActorRolloutRefWorker
+from verl.workers.fsdp_workers import AsyncActorRolloutRefWorker
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 logger = logging.getLogger(__file__)
@@ -76,7 +76,7 @@ def get_sharding_strategy(device_mesh):
     return sharding_strategy
 
 
-class SPINRolloutRefWorker(ActorRolloutRefWorker):
+class SPINRolloutRefWorker(AsyncActorRolloutRefWorker):
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
         from recipe.spin.dp_actor import SPINDataParallelPPOActor as DataParallelPPOActor
