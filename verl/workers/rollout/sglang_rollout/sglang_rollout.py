@@ -363,7 +363,7 @@ class SGLangRollout(BaseRollout):
             self.config.max_model_len = self.config.prompt_length + self.config.response_length
         assert (
             self.config.max_model_len >= self.config.prompt_length + self.config.response_length
-        ), f"""max_model_len should be greater than total sequence length (prompt_length + response_length): 
+        ), f"""max_model_len should be greater than total sequence length (prompt_length + response_length):
             {self.config.max_model_len} >= {self.config.prompt_length} + {self.config.response_length}"""
         max_position_embeddings = None
         if hasattr(model_hf_config, "max_position_embeddings"):
@@ -1218,8 +1218,8 @@ class SGLangRollout(BaseRollout):
                 == req.attention_mask.shape[-1]
                 == req.position_ids.shape[-1]
                 == req.loss_mask.shape[-1]
-            ), f"""Request {req.request_id} has different length of 
-                {req.input_ids.shape[-1]=}, {req.attention_mask.shape[-1]=}, 
+            ), f"""Request {req.request_id} has different length of
+                {req.input_ids.shape[-1]=}, {req.attention_mask.shape[-1]=},
                 {req.position_ids.shape[-1]=}, {req.loss_mask.shape[-1]=}"""
             error_message_lines = [
                 f"""Request {req.request_id} has input_ids length {req.input_ids.shape[-1]}
@@ -1237,7 +1237,7 @@ class SGLangRollout(BaseRollout):
             response_ids.append(req.response_ids.to(tgt_device).squeeze(0))
             if req.response_ids.shape[-1] > self.config.response_length:
                 logger.warning(
-                    f"""{req.request_id=} has response_ids length {req.response_ids.shape[-1]} 
+                    f"""{req.request_id=} has response_ids length {req.response_ids.shape[-1]}
                     greater than max_response_len {self.config.response_length},\n{req=}"""
                 )
             prompt_attention_mask.append(req.prompt_attention_mask.to(tgt_device).squeeze(0))
@@ -1486,10 +1486,10 @@ class SGLangRollout(BaseRollout):
                 tokenization_sanity_check_mode=self.config.multi_turn.tokenization_sanity_check_mode,
                 processing_class=self.processing_class,
             )
-            error_message = f"""Request {req.request_id} has mismatched lengths: 
-            input_ids={req.input_ids.shape[-1]}, 
-            attention_mask={req.attention_mask.shape[-1]}, 
-            position_ids={req.position_ids.shape[-1]}, 
+            error_message = f"""Request {req.request_id} has mismatched lengths:
+            input_ids={req.input_ids.shape[-1]},
+            attention_mask={req.attention_mask.shape[-1]},
+            position_ids={req.position_ids.shape[-1]},
             loss_mask={req.loss_mask.shape[-1]}"""
             assert (
                 req.input_ids.shape[-1]
@@ -1555,6 +1555,15 @@ class ServerAdapter(BaseRollout):
         model_config: HFModelConfig,
         device_mesh: DeviceMesh,
     ):
+        if config.get("quantization", None) == "fp8":
+            FP8_BLOCK_QUANT_KWARGS = {
+                "activation_scheme": "dynamic",
+                "fmt": "e4m3",
+                "quant_method": "fp8",
+                "weight_block_size": [128, 128],
+            }
+            fp8_block_quant_kwargs = dict(FP8_BLOCK_QUANT_KWARGS)
+            model_config.hf_config.quantization_config = fp8_block_quant_kwargs
         super().__init__(config, model_config, device_mesh)
         self._engine: AsyncHttpServerAdapter = None
 
@@ -1615,6 +1624,17 @@ class ServerAdapter(BaseRollout):
             await self._init_server_adapter()
 
         update_weights_bucket_bytes = int(self.config.update_weights_bucket_megabytes) << 20
+        if self.config.get("quantization", None) == "fp8":
+            from verl.utils.sglang.sglang_fp8_utils import quant_weights_by_name
+
+            weights = quant_weights_by_name(
+                weights,
+                self.model_config.hf_config.quantization_config,
+                dtype=self.model_config.hf_config.dtype,
+            )
+        else:
+            weights = weights
+
         for params_batch in get_named_tensor_buckets(weights, update_weights_bucket_bytes):
             await sgl_update_weights(
                 engine=self._engine,
