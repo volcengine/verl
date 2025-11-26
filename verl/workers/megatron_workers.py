@@ -362,7 +362,10 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             self.config.model.get("trust_remote_code", False),
             self.config.actor.megatron if not self._is_ref else self.config.ref.megatron,
         )
-        self.generation_config = get_generation_config(self.local_path)
+        self.generation_config = get_generation_config(
+            self.local_path,
+            self.config.model.get("trust_remote_code", False),
+        )
 
         if self._is_actor or self._is_rollout:
             wrap_config = McoreModuleWrapperConfig(
