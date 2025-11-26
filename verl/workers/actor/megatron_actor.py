@@ -221,6 +221,11 @@ class MegatronPPOActor(BasePPOActor):
         entropys = torch.Tensor()
         if recompute_old_log_prob:
             select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
+
+            if self.enable_routing_replay and self.config.router_replay.mode == "R3":
+                assert "layers_topk_idx" in data.batch.keys(), "layers_topk_idx must be in data.batch.keys()"
+                select_keys.append("layers_topk_idx")
+
             batch = data.select(batch_keys=select_keys).batch
             input_ids = batch["input_ids"]
             batch_size = input_ids.size(0)

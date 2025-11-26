@@ -845,6 +845,9 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         if self.enable_routing_replay and self.config.actor.router_replay.mode == "R2":
             RouterReplay.set_global_routing_mode(RoutingMode.RECORD)
 
+        if self.enable_routing_replay and self.config.actor.router_replay.mode == "R3":
+            RouterReplay.set_global_routing_mode(RoutingMode.REPLAY_FORWARD)
+
         output, entropys, layers_topk_idx = self.actor.compute_log_prob(data=data, calculate_entropy=True)
         output = DataProto.from_dict(
             tensors={"old_log_probs": output, "entropys": entropys},
@@ -852,6 +855,8 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         )
         if self.config.actor.router_replay.mode == "R2":
             output.batch["layers_topk_idx"] = layers_topk_idx
+
+        if self.config.actor.router_replay.mode in ["R2", "R3"]:
             RouterReplay.clear_global_indices()
             RouterReplay.clear_global_routing_mode()
 
