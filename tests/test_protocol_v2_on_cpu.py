@@ -45,10 +45,10 @@ def test_union_tensor_dict():
         # conflict in tensor values
         tu.union_tensor_dict(data1, data_with_copied_obs)
 
-    data1 = tu.assign_non_tensor_dict(data1, meta_info1)
+    data1 = tu.assign_non_tensor(data1, **meta_info1)
     tu.union_tensor_dict(data1, data2)  # works ok
 
-    data2 = tu.assign_non_tensor_dict(data2, meta_info2)
+    data2 = tu.assign_non_tensor(data2, **meta_info2)
 
     with pytest.raises(AssertionError):
         # conflict in NonTensorData

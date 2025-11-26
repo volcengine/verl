@@ -20,13 +20,6 @@ from tensordict import TensorDict
 from tensordict.tensorclass import NonTensorData, NonTensorStack
 
 
-# TODO(petersh6): remove this function after verifying it's not used
-def assign_non_tensor_dict(tensor_dict: TensorDict, non_tensor_dict: dict):
-    for key, val in non_tensor_dict.items():
-        assign_non_tensor_data(tensor_dict=tensor_dict, key=key, val=val)
-    return tensor_dict
-
-
 def assign_non_tensor_data(tensor_dict: TensorDict, key, val):
     tensor_dict[key] = NonTensorData(val)
 
