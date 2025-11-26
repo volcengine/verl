@@ -458,6 +458,10 @@ class vLLMHttpServerBase:
     async def wait_for_requests_to_drain(self):
         await self.engine.wait_for_requests_to_drain()
 
+    async def reset_prefix_cache(self):
+        if self.node_rank == 0:
+            await self.engine.reset_prefix_cache()
+
 
 @ray.remote(num_cpus=1)
 class vLLMHttpServer(vLLMHttpServerBase):
@@ -575,6 +579,10 @@ class vLLMReplica(RolloutReplica):
         """Sleep each rollout server."""
         # Drain DP engines for safe sleep.
         await self.servers[0].wait_for_requests_to_drain.remote()
+        await asyncio.gather(*[server.sleep.remote() for server in self.servers])
+
+    async def reset_prefix_cache(self):
+        """reset kv cache in each rollout server."""
         await asyncio.gather(*[server.sleep.remote() for server in self.servers])
 
 

@@ -19,7 +19,6 @@ This trainer supports model-agonistic model initialization with huggingface
 """
 
 import asyncio
-import time
 import uuid
 from pprint import pprint
 
@@ -33,6 +32,7 @@ from tqdm import tqdm
 
 from recipe.one_step_off_policy.utils import need_critic
 from verl import DataProto
+from verl.experimental.dataset.sampler import AbstractCurriculumSampler
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.ppo import core_algos
@@ -52,6 +52,7 @@ from verl.trainer.ppo.ray_trainer import (
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.trainer.ppo.utils import Role, WorkerType, need_reference_policy, need_reward_model
 from verl.utils import omega_conf_to_dataclass
+from verl.utils.checkpoint.checkpoint_manager import should_save_ckpt_esi
 from verl.utils.debug import marked_timer
 from verl.utils.metric import (
     reduce_metrics,
@@ -251,37 +252,10 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         self.actor_rollout_wg = self.actor_wg
         weights_info = self.actor_wg.get_actor_weights_info()[0]
         self.rollout_wg.set_actor_weights_info(weights_info)
-        self.create_weight_sync_group()
+        self._create_weight_sync_group()
 
-    def _init_async_rollout_manager(self):
-        # create async rollout manager and request scheduler
-        assert self.config.actor_rollout_ref.rollout.mode == "async"
-        from verl.experimental.agent_loop import AgentLoopManager
-
-        self.async_rollout_mode = True
-        self.async_rollout_manager = AgentLoopManager(
-            config=self.config, worker_group=self.rollout_wg, rm_wg=self.rm_wg
-        )
-
-    def create_weight_sync_group(self):
-        # master_address = ray.get(self.actor_wg.workers[0]._get_node_ip.remote())
-        # master_port = ray.get(self.actor_wg.workers[0]._get_free_port.remote())
-        # world_size = len(self.actor_wg.workers + self.rollout_wg.workers)
-        # self.actor_wg.create_weight_sync_group(
-        #     master_address,
-        #     master_port,
-        #     0,
-        #     world_size,
-        # )
-        # ray.get(
-        #     self.rollout_wg.create_weight_sync_group(
-        #         master_address,
-        #         master_port,
-        #         len(self.actor_wg.workers),
-        #         world_size,
-        #     )
-        # )
-
+    def _create_weight_sync_group(self):
+        # TODO: NPU support
         from verl.utils.device import get_nccl_backend
 
         actor_rollout_workers = self.actor_wg.workers + self.rollout_wg.workers
@@ -293,7 +267,18 @@ class OneStepOffRayTrainer(RayPPOTrainer):
             group_name="actor_rollout",
         )
 
-    def sync_rollout_weights(self):
+    def _init_async_rollout_manager(self):
+        # create async rollout manager and request scheduler
+        assert self.config.actor_rollout_ref.rollout.mode == "async"
+        from recipe.one_step_off_policy.agent_loop import OneStepOffAgentLoopManager
+
+        self.async_rollout_mode = True
+        self.async_rollout_manager = OneStepOffAgentLoopManager(
+            config=self.config, worker_group=self.rollout_wg, rm_wg=self.rm_wg
+        )
+
+    async def sync_rollout_weights(self):
+        await self.async_rollout_manager.reset_prefix_cache()
         self.actor_wg.sync_rollout_weights()
         ray.get(self.rollout_wg.sync_rollout_weights())
 
@@ -334,9 +319,8 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         gen_batch_output = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
 
         # async generation
-        start_time = time.time()
-        gen_batch_output = await self.async_rollout_manager.generate_sequences_async(gen_batch_output)
-        print(f"generate_sequences_async time: {time.time() - start_time:.6f}")
+        with marked_timer("generate_async", timing_raw, color="purple"):
+            gen_batch_output = await self.async_rollout_manager.generate_sequences_async(gen_batch_output)
 
         # repeat to align with repeated responses in rollout
         batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
@@ -428,7 +412,7 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         self._load_checkpoint()
 
         # after load checkpoint sync rollout weights
-        self.sync_rollout_weights()
+        await self.sync_rollout_weights()
 
         # perform validation before training
         # currently, we only support validation using the reward_function.
@@ -446,6 +430,14 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         # we start from step 1
         self.global_steps += 1
         last_val_metrics = None
+        self.max_steps_duration = 0
+
+        prev_step_profile = False
+        curr_step_profile = (
+            self.global_steps in self.config.global_profiler.steps
+            if self.config.global_profiler.steps is not None
+            else False
+        )
 
         # across epoch iterator
         continuous_iterator = self._create_continuous_iterator()
@@ -474,8 +466,14 @@ class OneStepOffRayTrainer(RayPPOTrainer):
             timing_raw = {}
             is_last_step = self.global_steps >= self.total_training_steps
 
+            with marked_timer("start_profile", timing_raw):
+                self._start_profiling(
+                    not prev_step_profile and curr_step_profile
+                    if self.config.global_profiler.profile_continuous_steps
+                    else curr_step_profile
+                )
+
             with marked_timer("step", timing_raw):
-                start_time = time.time()
                 # wait for the previous batch
                 with marked_timer("gen", timing_raw, color="red"):
                     _metrics, _timing_raw, epoch, batch, future_reward = await batch_data_future
@@ -483,18 +481,15 @@ class OneStepOffRayTrainer(RayPPOTrainer):
                     timing_raw.update(_timing_raw)
                     metrics.update(_metrics)
                     batch.meta_info.pop("timing", None)
-                print(f"gen time: {time.time() - start_time}")
 
                 # sync weights from actor to rollout
                 with marked_timer("sync_rollout_weights", timing_raw, color="purple"):
-                    self.sync_rollout_weights()
+                    await self.sync_rollout_weights()
 
                 # async next generation
-                start_time = time.time()
                 if not is_last_step:
                     batch_data_future = asyncio.create_task(self._async_gen_next_batch(continuous_iterator))
                     await asyncio.sleep(0)
-                print(f"create_task time: {time.time() - start_time}")
 
                 with marked_timer("reward", timing_raw, color="yellow"):
                     # compute reward model score

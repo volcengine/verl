@@ -21,7 +21,6 @@ import torch.distributed
 from omegaconf import DictConfig
 
 from recipe.one_step_off_policy.distributed_util import vllm_stateless_init_process_group
-from recipe.one_step_off_policy.utils import get_inference_model
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils.device import get_device_name, get_torch_device
 from verl.utils.megatron_utils import load_megatron_model_to_gpu, offload_megatron_model_to_cpu
@@ -71,7 +70,7 @@ class DetachSync(AsyncActorRolloutRefWorker):
             if rollout_name == "vllm":
                 from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 
-                inference_model = get_inference_model(self.rollout)
+                inference_model = self.rollout.inference_engine.worker.model_runner.model
                 patch_vllm_moe_model_weight_loader(inference_model)
             elif rollout_name == "sglang":
                 inference_model = self.rollout._engine
@@ -91,7 +90,11 @@ class DetachSync(AsyncActorRolloutRefWorker):
                 tensor.copy_(weight)
 
             if rollout_name == "vllm":
-                self._weight_sync_group.broadcast(tensor, src=0, stream=get_torch_device().current_stream())
+                # self._weight_sync_group.broadcast(tensor, src=0, stream=get_torch_device().current_stream())
+
+                from ray.util.collective import collective
+
+                collective.broadcast(tensor, src_rank=0, group_name="actor_rollout")
             elif rollout_name == "sglang":
                 from ray.util.collective import collective
 
