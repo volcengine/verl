@@ -20,6 +20,7 @@ from tensordict import TensorDict
 from tensordict.tensorclass import NonTensorData, NonTensorStack
 
 
+# TODO(petersh6): remove this function after verifying it's not used
 def assign_non_tensor_dict(tensor_dict: TensorDict, non_tensor_dict: dict):
     for key, val in non_tensor_dict.items():
         assign_non_tensor_data(tensor_dict=tensor_dict, key=key, val=val)
@@ -30,9 +31,61 @@ def assign_non_tensor_data(tensor_dict: TensorDict, key, val):
     tensor_dict[key] = NonTensorData(val)
 
 
+def assign_non_tensor_stack(tensor_dict: TensorDict, key, val: list):
+    """Assign a list with potentially nested structures (lists, dicts, etc.) to TensorDict.
+
+    This function handles complex nested data structures like:
+    - Lists of lists: [[], [0.5, 0.8], [0.9]]
+    - Lists of dicts: [{"acc": 1.0}, {"acc": 0.0}]
+    - Lists of lists of dicts: [[{"content": "...", "role": "user"}]]
+
+    These structures are wrapped in NonTensorStack so TensorDict can handle them correctly.
+
+    Args:
+        tensor_dict: The TensorDict to assign to
+        key: The key to assign the value under
+        val: A list containing potentially nested structures
+
+    Example:
+        >>> td = TensorDict({}, batch_size=[])
+        >>> turn_scores = [[], [0.5, 0.8], [0.9]]
+        >>> assign_non_tensor_stack(td, "turn_scores", turn_scores)
+        >>> # Now td["turn_scores"] contains the nested data
+    """
+    # Convert list to NonTensorStack to handle nested structures
+    # This wraps each item in NonTensorData to preserve complex objects
+    # TODO(petersh6): can convert back to val directly if we are not accessing .data from the NonTensorStack
+    tensor_dict[key] = NonTensorStack.from_list([NonTensorData(item) for item in val])
+
+
 def assign_non_tensor(tensordict: TensorDict, **kwargs):
+    """Assign non-tensor data to a TensorDict.
+
+    Automatically detects if the value is a list with nested structures and uses
+    the appropriate assignment method (NonTensorData for simple values,
+    NonTensorStack for lists with nested structures).
+
+    Args:
+        tensordict: The TensorDict to assign to
+        **kwargs: Key-value pairs where values can be:
+            - Simple values (stored as NonTensorData)
+            - Lists with nested structures (stored as NonTensorStack)
+
+    Example:
+        >>> td = TensorDict({"obs": torch.randn(3, 4)}, batch_size=[3])
+        >>> assign_non_tensor(
+        ...     td,
+        ...     metadata="experiment_1",  # Simple value
+        ...     turn_scores=[[], [0.5, 0.8], [0.9]]  # Nested list
+        ... )
+    """
     for key, val in kwargs.items():
-        assign_non_tensor_data(tensor_dict=tensordict, key=key, val=val)
+        if isinstance(val, list):
+            # For lists, use NonTensorStack
+            assign_non_tensor_stack(tensor_dict=tensordict, key=key, val=val)
+        else:
+            # For non-list values, use NonTensorData
+            assign_non_tensor_data(tensor_dict=tensordict, key=key, val=val)
     return tensordict
 
 
@@ -92,14 +145,29 @@ def concat_tensordict(data: list[TensorDict]) -> TensorDict:
 
 
 def get_tensordict(tensor_dict: dict[str, torch.Tensor | list], non_tensor_dict: dict = None) -> TensorDict:
-    """
+    """Create a TensorDict from tensors and non-tensor data.
+
+    Automatically handles nested structures in lists by converting them to NonTensorStack.
+    This enables support for:
+    - Lists of lists: [[], [0.5, 0.8], [0.9]]
+    - Lists of dicts: [{"acc": 1.0}, {"acc": 0.0}]
+    - Lists of lists of dicts: [[{"content": "...", "role": "user"}]]
 
     Args:
-        data_dict:
-        meta_info:
+        tensor_dict: Dictionary of tensors and lists to include in the TensorDict
+        non_tensor_dict: Dictionary of metadata to store as NonTensorData
 
     Returns:
+        TensorDict with proper handling of nested structures
 
+    Example:
+        >>> td = get_tensordict(
+        ...     tensor_dict={
+        ...         "obs": torch.randn(3, 4),
+        ...         "turn_scores": [[], [0.5, 0.8], [0.9]]  # Nested list
+        ...     },
+        ...     non_tensor_dict={"experiment": "test"}
+        ... )
     """
     if non_tensor_dict is None:
         non_tensor_dict = {}
@@ -127,6 +195,9 @@ def get_tensordict(tensor_dict: dict[str, torch.Tensor | list], non_tensor_dict:
                     "Passing a list makes the data NonTensorStack, "
                     "which doesn't support torch.Tensor. Please convert to numpy first"
                 )
+            # Convert to NonTensorStack to handle nested structures
+            assign_non_tensor_stack(tensor_dict=tensor_dict, key=key, val=val)
+
         assert isinstance(val, torch.Tensor | list)
 
         if batch_size is None:
