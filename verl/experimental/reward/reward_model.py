@@ -32,7 +32,11 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 class RewardModelManager:
     """Reward model manager."""
 
-    def __init__(self, config: RewardModelConfig, resource_pool: RayResourcePool = None):
+    def __init__(
+        self,
+        config: RewardModelConfig,
+        resource_pool: RayResourcePool = None,
+    ):
         """
         Initialize the reward model manager.
 
@@ -80,7 +84,7 @@ class RewardModelManager:
             self._run_all(
                 [
                     server.init_colocated(resource_pool)
-                    for server, resource_pool in zip(self.rollout_replicas, split_resource_pools, strict=False)
+                    for server, resource_pool in zip(self.rollout_replicas, split_resource_pools, strict=True)
                 ]
             )
         else:
@@ -148,15 +152,22 @@ class RewardModelManager:
         responses = [{"grm_response": result["choices"][0]["message"]["content"]} for result in results]
         return responses
 
-    # TODO (dyy): this func is under progress
     def _preprocess_reward_inputs(self, data: DataProto):
         rm_inputs = []
         for i in range(len(data)):
             data_item = data[i]
-            non_pad_indices = torch.nonzero(data_item.batch["attention_mask"], as_tuple=True)[0]
-            start_idx, end_idx = non_pad_indices[0], non_pad_indices[-1]
-            rm_input = data_item.batch["input_ids"][start_idx : end_idx + 1].tolist()
-            rm_inputs.append(rm_input)
+            assert "raw_prompt" in data_item.non_tensor_batch
+
+            # extract raw prompt
+            chat: list = list(data_item.non_tensor_batch["raw_prompt"])
+
+            # extract response
+            response_ids = data_item.batch["responses"]
+            response_length = response_ids.shape[-1]
+            valid_response_length = data_item.batch["attention_mask"][-response_length:].sum()
+            valid_response_ids = response_ids[:valid_response_length]
+            rollout_response = src_tokenizer.decode(valid_response_ids, skip_special_tokens=True)
+            
         return rm_inputs
 
     def compute_rm_score(self, data: DataProto):

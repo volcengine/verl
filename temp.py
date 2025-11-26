@@ -9,7 +9,7 @@ import requests
 payloads = {
     "input": ["This product was excellent and exceeded my expectations"],
     "model": "/home/tiger/models/Skywork/Skywork-Reward-V2-Llama-3.2-1B",
-    "use_activation": False,
+    "activation": False,
     "add_special_tokens": False,
 }
 response = requests.post("http://localhost:8000/classify", json=payloads)
@@ -22,7 +22,7 @@ print(probs)
 payloads = {
     "input": ["This product was excellent and exceeded my expectations"],
     "model": "/home/tiger/models/Skywork/Skywork-Reward-V2-Llama-3.2-1B",
-    "use_activation": False,
+    "activation": False,
     "add_special_tokens": True,
 }
 response = requests.post("http://localhost:8000/classify", json=payloads)
@@ -30,3 +30,14 @@ outputs = response.json()
 probs = [x["probs"] for x in outputs["data"]]
 print(probs)
 # [[0.9249725937843323]]
+
+
+payloads = {
+    "prompt": "This product was excellent and exceeded my expectations",
+    "model": "/home/tiger/models/Skywork/Skywork-Reward-V2-Llama-3.2-1B",
+    "activation": False,
+    "add_special_tokens": True,
+}
+response = requests.post("http://localhost:8000/tokenize", json=payloads)
+outputs = response.json()
+print(outputs)

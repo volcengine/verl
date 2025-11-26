@@ -50,3 +50,6 @@ class RewardManagerWorker:
 
     async def compute_score(self, data: DataProto) -> DataProto:
         return await self.reward_loop.run_single(data)
+
+    async def compute_scores_disrm(self, data: DataProto) -> DataProto:
+        return await self.reward_loop.run_single(data)
