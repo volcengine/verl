@@ -191,7 +191,7 @@ def get_tensordict(tensor_dict: dict[str, torch.Tensor | list], non_tensor_dict:
                     "which doesn't support torch.Tensor. Please convert to numpy first"
                 )
             # Convert to NonTensorStack to handle nested structures
-            assign_non_tensor_stack(tensor_dict=tensor_dict, key=key, val=val)
+            tensor_dict[key] = NonTensorStack.from_list([NonTensorData(item) for item in val])
 
         assert isinstance(val, torch.Tensor | list)
 
