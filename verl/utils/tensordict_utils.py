@@ -167,6 +167,7 @@ def get_tensordict(tensor_dict: dict[str, torch.Tensor | list], non_tensor_dict:
         ...     non_tensor_dict={"experiment": "test"}
         ... )
     """
+    tensor_dict = tensor_dict.copy()
     if non_tensor_dict is None:
         non_tensor_dict = {}
 
