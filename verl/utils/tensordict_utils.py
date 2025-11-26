@@ -73,7 +73,9 @@ def assign_non_tensor(tensordict: TensorDict, **kwargs):
         ... )
     """
     for key, val in kwargs.items():
-        if isinstance(val, list):
+        if isinstance(val, (NonTensorData | NonTensorStack)):
+            tensordict[key] = val
+        elif isinstance(val, list):
             # For lists, use NonTensorStack
             assign_non_tensor_stack(tensor_dict=tensordict, key=key, val=val)
         else:
