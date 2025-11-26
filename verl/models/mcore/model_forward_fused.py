@@ -198,9 +198,17 @@ def _fused_GPTModel_forward(
 
     if model.config.sequence_parallel:
         hidden_states = gather_from_sequence_parallel_region(hidden_states)
+
+    # Get the output weight - use embedding weight if output_layer is None or weight is shared
+    if hasattr(model, "output_layer") and model.output_layer is not None and model.output_layer.weight is not None:
+        output_weight = model.output_layer.weight
+    else:
+        # When embeddings are tied, use the embedding weight
+        output_weight = model.embedding.word_embeddings.weight
+
     logprobs, entropy = linear_cross_entropy(
         hidden_states,
-        model.output_layer.weight,
+        output_weight,
         labels,
         temperature,
         "none",

@@ -85,7 +85,12 @@ def init_random_model(hf_model_path, new_config_path, output_path, trust_remote_
     config_dict.update(new_config_dict)
     new_confg = config.from_dict(config_dict)
     print(f"new_config: {new_confg}")
-    model = AutoModelForCausalLM.from_pretrained(hf_model_path, config=new_confg, trust_remote_code=trust_remote_code)
+    if trust_remote_code:
+        model = AutoModelForCausalLM.from_pretrained(
+            hf_model_path, config=new_confg, trust_remote_code=trust_remote_code
+        )
+    else:
+        model = AutoModelForCausalLM.from_config(new_confg)
     model.save_pretrained(output_path)
     tokenizer.save_pretrained(output_path)
     new_confg.save_pretrained(output_path)

@@ -18,10 +18,11 @@ import os
 
 import torch
 import torch.distributed
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 from recipe.one_step_off_policy.distributed_util import vllm_stateless_init_process_group
 from verl.single_controller.base.decorator import Dispatch, register
+
 from verl.utils.device import get_device_name, get_torch_device
 from verl.utils.megatron_utils import load_megatron_model_to_gpu, offload_megatron_model_to_cpu
 from verl.utils.ray_utils import get_event_loop

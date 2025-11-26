@@ -43,6 +43,7 @@ actor_rollout_ref:
       strategy: fsdp
       dtype: bfloat16
     _target_: verl.workers.config.FSDPActorConfig
+    rollout_n: ${oc.select:actor_rollout_ref.rollout.n,1}
     strategy: fsdp
     ppo_mini_batch_size: 256
     ppo_micro_batch_size: null
@@ -64,6 +65,7 @@ actor_rollout_ref:
     clip_ratio_c: 3.0
     loss_agg_mode: token-mean
     entropy_coeff: 0
+    calculate_entropy: false
     use_kl_loss: false
     use_torch_compile: true
     kl_loss_coef: 0.001
@@ -110,6 +112,7 @@ actor_rollout_ref:
     entropy_checkpointing: false
     use_remove_padding: ${oc.select:actor_rollout_ref.model.use_remove_padding,false}
   ref:
+    rollout_n: ${oc.select:actor_rollout_ref.rollout.n,1}
     strategy: ${actor_rollout_ref.actor.strategy}
     use_torch_compile: ${oc.select:actor_rollout_ref.actor.use_torch_compile,true}
     log_prob_micro_batch_size: null
@@ -157,10 +160,10 @@ actor_rollout_ref:
       entropy_from_logits_with_chunking: false
       use_torch_compile: true
       entropy_checkpointing: false
-      forward_only: false
+      forward_only: true
       strategy: fsdp
       dtype: bfloat16
-    model: null
+    _target_: verl.workers.config.FSDPActorConfig
     ulysses_sequence_parallel_size: ${oc.select:actor_rollout_ref.actor.ulysses_sequence_parallel_size,1}
     entropy_from_logits_with_chunking: false
     entropy_checkpointing: false
