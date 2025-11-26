@@ -59,11 +59,14 @@ class DAPORewardLoopManager(RewardLoopManagerBase):
         response_str = await self.loop.run_in_executor(
             None, lambda: self.tokenizer.decode(valid_response_ids, skip_special_tokens=True)
         )
-        extra_reward_kwargs = {}
-        if self.reward_router_address is not None:
-            extra_reward_kwargs["reward_router_address"] = self.reward_router_address
-        if self.reward_model_tokenizer is not None:
-            extra_reward_kwargs["reward_model_tokenizer"] = self.reward_model_tokenizer
+        extra_reward_kwargs = (
+            {
+                "reward_router_address": self.reward_router_address,
+                "reward_model_tokenizer": self.reward_model_tokenizer,
+            }
+            if self.reward_router_address is not None
+            else {}
+        )
         if self.is_async_reward_score:
             result = await self.compute_score(
                 data_source=data_source,
