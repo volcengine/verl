@@ -21,6 +21,7 @@ from tensordict.tensorclass import NonTensorData, NonTensorStack
 
 
 def assign_non_tensor_data(tensor_dict: TensorDict, key, val):
+    assert isinstance(tensor_dict, TensorDict), "input dict must be a TensorDict"
     tensor_dict[key] = NonTensorData(val)
 
 
@@ -48,10 +49,11 @@ def assign_non_tensor_stack(tensor_dict: TensorDict, key, val: list):
     # Convert list to NonTensorStack to handle nested structures
     # This wraps each item in NonTensorData to preserve complex objects
     # TODO(petersh6): can convert back to val directly if we are not accessing .data from the NonTensorStack
+    assert isinstance(tensor_dict, TensorDict), "input dict must be a TensorDict"
     tensor_dict[key] = NonTensorStack.from_list([NonTensorData(item) for item in val])
 
 
-def assign_non_tensor(tensordict: TensorDict, **kwargs):
+def assign_non_tensor(tensor_dict: TensorDict, **kwargs):
     """Assign non-tensor data to a TensorDict.
 
     Automatically detects if the value is a list with nested structures and uses
@@ -59,7 +61,7 @@ def assign_non_tensor(tensordict: TensorDict, **kwargs):
     NonTensorStack for lists with nested structures).
 
     Args:
-        tensordict: The TensorDict to assign to
+        tensor_dict: The TensorDict to assign to
         **kwargs: Key-value pairs where values can be:
             - Simple values (stored as NonTensorData)
             - Lists with nested structures (stored as NonTensorStack)
@@ -67,21 +69,22 @@ def assign_non_tensor(tensordict: TensorDict, **kwargs):
     Example:
         >>> td = TensorDict({"obs": torch.randn(3, 4)}, batch_size=[3])
         >>> assign_non_tensor(
-        ...     td,
+        ...     tensor_dict=td,
         ...     metadata="experiment_1",  # Simple value
         ...     turn_scores=[[], [0.5, 0.8], [0.9]]  # Nested list
         ... )
     """
+    assert isinstance(tensor_dict, TensorDict), "input dict must be a TensorDict"
     for key, val in kwargs.items():
         if isinstance(val, (NonTensorData | NonTensorStack)):
-            tensordict[key] = val
+            tensor_dict[key] = val
         elif isinstance(val, list):
             # For lists, use NonTensorStack
-            assign_non_tensor_stack(tensor_dict=tensordict, key=key, val=val)
+            assign_non_tensor_stack(tensor_dict=tensor_dict, key=key, val=val)
         else:
             # For non-list values, use NonTensorData
-            assign_non_tensor_data(tensor_dict=tensordict, key=key, val=val)
-    return tensordict
+            assign_non_tensor_data(tensor_dict=tensor_dict, key=key, val=val)
+    return tensor_dict
 
 
 def unwrap_non_tensor_data(data):
