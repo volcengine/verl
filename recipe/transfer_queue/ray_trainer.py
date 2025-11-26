@@ -269,7 +269,7 @@ def compute_advantage(
             gamma=gamma,
             lam=lam,
         )
-        # TODO: (TQ) adapt core_algos.compute_pf_ppo_reweight_data function to support transfer queue
+        # TODO (TQ): adapt core_algos.compute_pf_ppo_reweight_data function to support transfer queue
         if config.get("use_pf_ppo", False):
             data = core_algos.compute_pf_ppo_reweight_data(
                 data,
@@ -1312,7 +1312,7 @@ class RayPPOTrainer:
 
                 gen_meta = asyncio.run(
                     self.tq_client.async_get_meta(
-                        data_fields=list(batch.keys()),  # TODO: (TQ) Get metadata by specified fields
+                        data_fields=list(batch.keys()),  # TODO (TQ): Get metadata by specified fields
                         task_name="generate_sequences",
                         **base_get_meta_kwargs,
                     )
@@ -1332,7 +1332,7 @@ class RayPPOTrainer:
                         timing_raw.update(gen_output_meta.extra_info["timing"])
                         gen_output_meta.extra_info.pop("timing", None)
 
-                    # TODO: (TQ) support transfer queue
+                    # TODO (TQ): support transfer queue
                     # if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                     #     if self.reward_fn is None:
                     #         raise ValueError("A reward_fn is required for REMAX advantage estimation.")
@@ -1817,7 +1817,7 @@ class RayPPOTrainer:
 
                 # this is experimental and may be changed/removed in the future in favor of a general-purpose one
                 if isinstance(self.train_dataloader.sampler, AbstractCurriculumSampler):
-                    # TODO: (TQ) support transfer queue
+                    # TODO (TQ) :support transfer queue
                     self.train_dataloader.sampler.update(batch=batch)
 
                 asyncio.run(self.tq_client.async_clear(partition_id=f"train_{self.global_steps - 1}"))
@@ -1844,5 +1844,5 @@ class RayPPOTrainer:
                 # in favor of a general-purpose data buffer pool
                 if hasattr(self.train_dataset, "on_batch_end"):
                     # The dataset may be changed after each training batch
-                    # TODO: (TQ) support transfer queue
+                    # TODO (TQ): support transfer queue
                     self.train_dataset.on_batch_end(batch=batch)
