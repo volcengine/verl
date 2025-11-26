@@ -95,11 +95,15 @@ class ResourcePoolManager:
         # Check Ray version if max_colocate_count > 1
         if self.max_colocate_count > 1:
             from packaging.version import parse as parse_version
+            import warnings
             if parse_version(ray.__version__) < parse_version("2.39.0"):
-                raise ValueError(
-                    f"max_colocate_count > 1 requires Ray >= 2.39.0, "
-                    f"but found Ray {ray.__version__}. "
-                    f"Please upgrade: pip install 'ray[default]>=2.39.0'"
+                warnings.warn(
+                    f"max_colocate_count > 1 requires Ray >= 2.39.0 for correct "
+                    f"placement_group_bundle_index support, but found Ray {ray.__version__}. "
+                    f"This may cause GPU OOM or incorrect resource allocation if the bug is not fixed. "
+                    f"Consider upgrading: pip install 'ray[default]>=2.39.0'",
+                    UserWarning,
+                    stacklevel=2
                 )
 
         for resource_pool_name, process_on_nodes in self.resource_pool_spec.items():
