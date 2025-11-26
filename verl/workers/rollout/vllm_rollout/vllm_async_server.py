@@ -583,7 +583,7 @@ class vLLMReplica(RolloutReplica):
 
     async def reset_prefix_cache(self):
         """reset kv cache in each rollout server."""
-        await asyncio.gather(*[server.sleep.remote() for server in self.servers])
+        await asyncio.gather(*[server.reset_prefix_cache.remote() for server in self.servers])
 
 
 def _qwen2_5_vl_dedup_image_tokens(prompt_ids: list[int], processor):
