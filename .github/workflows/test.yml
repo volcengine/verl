@@ -1,0 +1,64 @@
+name: Test ARM64 Runner
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test-runner:
+    runs-on: linux-aarch64-a2-1
+    name: Test ARM64 Runner Functionality
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Display system information
+        run: |
+          echo "=== System Information ==="
+          uname -a
+          echo "=== CPU Architecture ==="
+          lscpu | grep Architecture
+          echo "=== Memory Info ==="
+          free -h
+          echo "=== Disk Space ==="
+          df -h
+          
+      - name: Test basic commands
+        run: |
+          echo "Testing basic Linux commands..."
+          pwd
+          ls -la
+          whoami
+          date
+          
+      - name: Create and test file operations
+        run: |
+          echo "Testing file operations..."
+          mkdir -p test-dir
+          cd test-dir
+          echo "Hello from ARM64 runner!" > test.txt
+          cat test.txt
+          ls -la
+          
+      - name: Test network connectivity
+        run: |
+          echo "Testing network connectivity..."
+          ping -c 3 github.com || true
+          curl -I https://github.com || true
+          
+      - name: Test NPU capabilities (if applicable)
+        run: |
+          echo "Checking for NPU devices..."
+          if command -v npu-smi &> /dev/null; then
+            echo "NPU-SMI found, testing..."
+            npu-smi info || echo "NPU info command failed"
+          else
+            echo "NPU-SMI not available, skipping NPU tests"
+          fi
+          
+      - name: Success message
+        run: |
+          echo "✅ Runner test completed successfully!"
+          echo "Runner: linux-aarch64-a2-1"
+          echo "Status: ✅ Operational"
