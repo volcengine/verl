@@ -184,23 +184,51 @@ def extract_pg_from_exist(
     return [pg for _, pg in sorted(unsorted_pgs)]
 
 
-class SubRayResourcePool(RayResourcePool):
-    def __init__(
-        self,
-        start_bundle_idx: int,
-        subgroup_world_size: int,
-        **kwargs,
-    ) -> None:
-        super().__init__(**kwargs)
-        self.start_bundle_idx = start_bundle_idx
-        self.subgroup_world_size = subgroup_world_size
+# split a RayResourcePool or SubRayResourcePool into multiple SubRayResourcePool
+def split_resource_pool(
+    resource_pool: RayResourcePool | SubRayResourcePool, split_size: int | list[int]
+) -> list[SubRayResourcePool]:
+    """
+    Split a RayResourcePool into multiple SubRayResourcePool.
+    resouce_pool can also be a SubRayResourcePool (have been splited) for multiple-time spliting.
 
-    def split(self, split_size: int) -> list["SubRayResourcePool"]:
-        ...
+    Args:
+        resource_pool (RayResourcePool | SubRayResourcePool): The resource pool to split.
+        split_size (int | list[int]): The size of each split. If int, all splits will have the same size.
+            If list[int], each element in the list represents the size of a split.
 
-    @property
-    def world_size(self):
-        return self.subgroup_world_size
+    Returns:
+        list[SubRayResourcePool]: A list of SubRayResourcePool after splitting.
+    """
+    # convert split_size to list[int]
+    if isinstance(split_size, int):
+        assert resource_pool.world_size % split_size == 0, "split_size must be a divisor of world_size"
+        num_replica = resource_pool.world_size // split_size
+        split_size_list = [split_size] * num_replica
+    else:
+        split_size_list = split_size
+
+    assert sum(split_size_list) == resource_pool.world_size, "split_size must sum up to world_size"
+
+    # judge if this resource pool has been splited
+    if isinstance(resource_pool, SubRayResourcePool):
+        start_bundle_idx_list = np.cumsum([resource_pool.start_bundle_index] + split_size_list[:-1])
+    else:
+        start_bundle_idx_list = np.cumsum([0] + split_size_list[:-1])
+
+    split_resource_pools = [
+        SubRayResourcePool(
+            process_on_nodes=resource_pool.store,
+            use_gpu=resource_pool.use_gpu,
+            name_prefix=f"{resource_pool.name_prefix}_split_{split_idx}",
+            max_colocate_count=resource_pool.max_colocate_count,
+            placement_groups=resource_pool.pgs,
+            start_bundle_index=start_bundle_idx_list[split_idx],
+            subgroup_world_size=split_size_list[split_idx],
+        )
+        for split_idx in range(len(split_size_list))
+    ]
+    return split_resource_pools
 
 
 def merge_resource_pool(rp1: RayResourcePool, rp2: RayResourcePool) -> RayResourcePool:
