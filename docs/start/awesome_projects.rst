@@ -1,70 +1,70 @@
 Awesome Projects Built with ``verl``
 ====================================
 
-- [TinyZero](https://github.com/Jiayi-Pan/TinyZero): a reproduction of **DeepSeek R1 Zero** recipe for reasoning tasks ![GitHub Repo stars](https://img.shields.io/github/stars/Jiayi-Pan/TinyZero)
-- [SkyThought](https://github.com/NovaSky-AI/SkyThought): RL training for Sky-T1-7B by NovaSky AI team. ![GitHub Repo stars](https://img.shields.io/github/stars/NovaSky-AI/SkyThought)
-- [simpleRL-reason](https://github.com/hkust-nlp/simpleRL-reason): SimpleRL-Zoo: Investigating and Taming Zero Reinforcement Learning for Open Base Models in the Wild ![GitHub Repo stars](https://img.shields.io/github/stars/hkust-nlp/simpleRL-reason)
-- [Easy-R1](https://github.com/hiyouga/EasyR1): **Multi-modal** RL training framework ![GitHub Repo stars](https://img.shields.io/github/stars/hiyouga/EasyR1)
-- [OpenManus-RL](https://github.com/OpenManus/OpenManus-RL): LLM Agents RL tuning framework for multiple agent environments. ![GitHub Repo stars](https://img.shields.io/github/stars/OpenManus/OpenManus-RL)
-- [rllm](https://github.com/agentica-project/rllm): async RL training with [verl-pipeline](https://github.com/agentica-project/verl-pipeline) ![GitHub Repo stars](https://img.shields.io/github/stars/agentica-project/rllm)
-- [RAGEN](https://github.com/ZihanWang314/ragen): a general-purpose reasoning **agent** training framework ![GitHub Repo stars](https://img.shields.io/github/stars/ZihanWang314/ragen)
-- [Search-R1](https://github.com/PeterGriffinJin/Search-R1): RL with reasoning and **searching (tool-call)** interleaved LLMs ![GitHub Repo stars](https://img.shields.io/github/stars/PeterGriffinJin/Search-R1)
-- [ReSearch](https://github.com/Agent-RL/ReSearch): Learning to **Re**ason with **Search** for LLMs via Reinforcement Learning ![GitHub Repo stars](https://img.shields.io/github/stars/Agent-RL/ReSearch)
-- [Skywork-OR1](https://github.com/SkyworkAI/Skywork-OR1): Skywork open reaonser series ![GitHub Repo stars](https://img.shields.io/github/stars/SkyworkAI/Skywork-OR1)
-- [ToRL](https://github.com/GAIR-NLP/ToRL): Scaling tool-integrated RL ![GitHub Repo stars](https://img.shields.io/github/stars/GAIR-NLP/ToRL)
-- [Absolute Zero Reasoner](https://github.com/LeapLabTHU/Absolute-Zero-Reasoner): [A no human curated data self-play framework for reasoning](https://arxiv.org/abs/2505.03335) ![GitHub Repo stars](https://img.shields.io/github/stars/LeapLabTHU/Absolute-Zero-Reasoner)
-- [verl-agent](https://github.com/langfengQ/verl-agent): A scalable training framework for **long-horizon LLM/VLM agents**, along with a new algorithm **GiGPO** ![GitHub Repo stars](https://img.shields.io/github/stars/langfengQ/verl-agent)
-- [RL-Factory](https://github.com/Simple-Efficient/RL-Factory): An easy and efficient RL post-training framework for Agentic Learning ![GitHub Repo stars](https://img.shields.io/github/stars/Simple-Efficient/RL-Factory)
-- [ReTool](https://retool-rl.github.io/): ReTool: reinforcement learning for strategic tool use in LLMs. Code release is in progress...
-- [verl-tool](https://github.com/TIGER-AI-Lab/verl-tool): An unified and easy-to-extend tool-agent training framework based on verl![GitHub Repo stars](https://img.shields.io/github/stars/TIGER-AI-Lab/verl-tool)
-- [PRIME](https://github.com/PRIME-RL/PRIME): Process reinforcement through implicit rewards ![GitHub Repo stars](https://img.shields.io/github/stars/PRIME-RL/PRIME)
-- [MemAgent](https://github.com/BytedTsinghua-SIA/MemAgent): MemAgent: Reshaping Long-Context LLM with Multi-Conv RL based Memory Agent ![GitHub Repo stars](https://img.shields.io/github/stars/BytedTsinghua-SIA/MemAgent)
-- [POLARIS](https://github.com/ChenxinAn-fdu/POLARIS): A Post-training recipe for scaling RL on Advanced Reasoning models ![GitHub Repo stars](https://img.shields.io/github/stars/ChenxinAn-fdu/POLARIS)
-- [GUI-R1](https://github.com/ritzz-ai/GUI-R1): **GUI-R1**: A Generalist R1-style Vision-Language Action Model For **GUI Agents** ![GitHub Repo stars](https://img.shields.io/github/stars/ritzz-ai/GUI-R1)
-- [DeepRetrieval](https://github.com/pat-jj/DeepRetrieval): RL Training of **Search Agent** with **Search/Retrieval Outcome** ![GitHub Repo stars](https://img.shields.io/github/stars/pat-jj/DeepRetrieval)
-- [Code-R1](https://github.com/ganler/code-r1): Reproducing R1 for **Code** with Reliable Rewards ![GitHub Repo stars](https://img.shields.io/github/stars/ganler/code-r1)
-- [DeepResearcher](https://github.com/GAIR-NLP/DeepResearcher): Scaling deep research via reinforcement learning in real-world environments ![GitHub Repo stars](https://img.shields.io/github/stars/GAIR-NLP/DeepResearcher)
-- [VAGEN](https://github.com/RAGEN-AI/VAGEN): Training VLM agents with multi-turn reinforcement learning ![GitHub Repo stars](https://img.shields.io/github/stars/RAGEN-AI/VAGEN)
-- [RM-R1](https://arxiv.org/abs/2505.02387): RL training of reasoning reward models ![GitHub Repo stars](https://img.shields.io/github/stars/RM-R1-UIUC/RM-R1)
-- [LUFFY](https://arxiv.org/pdf/2504.14945): Learning to Reason under Off-Policy Guidance![GitHub Repo stars](https://img.shields.io/github/stars/ElliottYan/LUFFY)
-- [DeepMath](https://github.com/zwhe99/DeepMath): DeepMath-103K data and series models for math reasoning![GitHub Repo stars](https://img.shields.io/github/stars/zwhe99/DeepMath)
-- [PACS](https://github.com/ritzz-ai/PACS): Implicit Actor Critic Coupling via a Supervised Learning Framework for RLVR ![GitHub Repo stars](https://img.shields.io/github/stars/ritzz-ai/PACS)
-- [Entropy Mechanism of RL](https://github.com/PRIME-RL/Entropy-Mechanism-of-RL): The Entropy Mechanism of Reinforcement Learning for Large Language Model Reasoning![GitHub Repo stars](https://img.shields.io/github/stars/PRIME-RL/Entropy-Mechanism-of-RL)
-- [LLaSA-TTS-GRPO](https://github.com/channel-io/ch-tts-llasa-rl-grpo): TTS fine-tuning with GRPO optimization based on LLASA models ![GitHub Repo stars](https://img.shields.io/github/stars/channel-io/ch-tts-llasa-rl-grpo)
-- [PF-PPO](https://arxiv.org/abs/2409.06957): Policy Filtration for PPO based on the reliability of reward signals for more efficient and robust RLHF.
-- [RACRO](https://github.com/gyhdog99/RACRO2): Build multi-modal reasoning models via decoupling it into query-conditioned captioning and text-only reasoning ![GitHub Repo stars](https://img.shields.io/github/stars/gyhdog99/RACRO2)
-- [Agent Lightning](https://github.com/microsoft/agent-lightning): A flexible and extensible framework that enables seamless agent optimization for any existing agent framework. ![GitHub Repo stars](https://img.shields.io/github/stars/microsoft/agent-lightning)
-- [VTool-R1](https://github.com/VTOOL-R1/vtool-r1): VLMs Learn to Think with Images via Reinforcement Learning on Multimodal Tool Use. ![GitHub Repo stars](https://img.shields.io/github/stars/VTOOL-R1/vtool-r1)
-- [Kimina-Prover-RL](https://github.com/project-numina/kimina-prover-rl/tree/main/recipe/kimina_prover_rl): Training pipeline for formal theorem proving, based on a paradigm inspired by DeepSeek-R1.
-- [RL-PLUS](https://github.com/YihongDong/RL-PLUS): Countering Capability Boundary Collapse of LLMs in Reinforcement Learning with Hybrid-policy Optimization.
-- [rStar2-Agent](https://github.com/microsoft/rStar): Using reinforcement learning with multi-step tool-calling for math tasks, rStar2-Agent-14B reaches frontier-level math reasoning in just 510 RL training steps ![GitHub Repo stars](https://img.shields.io/github/stars/microsoft/rStar)
-- [Vision-SR1](https://github.com/zli12321/Vision-SR1): Self-Rewarding Vision-Language Model via Reasoning Decomposition ![GitHub Repo stars](https://img.shields.io/github/stars/zli12321/Vision-SR1)
-- [SimpleVLA-RL](https://github.com/PRIME-RL/SimpleVLA-RL): SimpleVLA-RL: A Simple yet Effective Vision-Language Action Model for Reinforcement Learning ![GitHub Repo stars](https://img.shields.io/github/stars/PRIME-RL/SimpleVLA-RL)
-- [Table-R1](https://github.com/Table-R1/Table-R1): Table-R1: Inference-Time Scaling for Table Reasoning ![GitHub Repo stars](https://img.shields.io/github/stars/Table-R1/Table-R1)
-- [Revisual-R1](https://github.com/CSfufu/Revisual-R1): Revisual-R1: Advancing Multimodal Reasoning From Optimized Cold Start to Staged Reinforcement Learning ![GitHub Repo stars](https://img.shields.io/github/stars/CSfufu/Revisual-R1)
-- [ARES](https://github.com/shawn0728/ARES): ARES: Multimodal Adaptive Reasoning via Difficulty-Aware Token-Level Entropy Shaping ![GitHub Repo stars](https://img.shields.io/github/stars/shawn0728/ARES)
-- [Meta-Bandit-LLM](https://github.com/sanxing-chen/meta-bandit-llm): Meta-Bandit-LLM: Long-horizon multiturn interactive training for meta-bandit agents ![GitHub Repo stars](https://img.shields.io/github/stars/sanxing-chen/meta-bandit-llm)
-- [PokeeResearch](https://github.com/Pokee-AI/PokeeResearchOSS): PokeeResearch: State-of-the-art 7B DeepResearch Agent that leverages web search and content reading capabilities to answer complex questions using the most up-to-date information available online. ![Github Repo Stars](https://img.shields.io/github/stars/Pokee-AI/PokeeResearchOSS)
-- [Search Self-play](https://github.com/Alibaba-Quark/SSP): Pushing the Frontier of Agent Capability without Supervision ![GitHub Repo stars](https://img.shields.io/github/stars/Alibaba-Quark/SSP)
-- [FlowRL](https://github.com/Xuekai-Zhu/FlowRL): Matching reward distributions via **flow balance** for diverse exploration and generalizable reasoning ![GitHub Repo stars](https://img.shields.io/github/stars/Xuekai-Zhu/FlowRL)
-- [Logic-RL](https://github.com/Unakar/Logic-RL): a reproduction of DeepSeek R1 Zero on 2K Tiny Logic Puzzle Dataset. ![GitHub Repo stars](https://img.shields.io/github/stars/Unakar/Logic-RL)
-- [Seed-Coder](https://github.com/ByteDance-Seed/Seed-Coder): RL training of Seed-Coder boosts performance on competitive programming ![GitHub Repo stars](https://img.shields.io/github/stars/ByteDance-Seed/Seed-Coder)
-- [all-hands/openhands-lm-32b-v0.1](https://www.all-hands.dev/blog/introducing-openhands-lm-32b----a-strong-open-coding-agent-model): A strong, open coding agent model, trained with [multi-turn fine-tuning](https://github.com/volcengine/verl/pull/195)
-- [s3](https://github.com/pat-jj/s3) **Efficient Yet Effective** Search Agent Training via RL ![GitHub Repo stars](https://img.shields.io/github/stars/pat-jj/s3)
-- [Rec-R1](https://arxiv.org/pdf/2503.24289): Bridging Generative Large Language Models and Recommendation Systems via Reinforcement Learning
-- [Explore RL Data Scaling](https://arxiv.org/abs/2503.22230): Exploring Data Scaling Trends and Effects in Reinforcement Learning from Human Feedback
-- [FIRE](https://arxiv.org/abs/2410.21236): Flaming-hot initiation with regular execution sampling for large language models
-- [DQO](https://arxiv.org/abs/2410.09302): Enhancing multi-Step reasoning abilities of language models through direct Q-function optimization
-- [ProRL](https://arxiv.org/abs/2505.24864): Prolonged Reinforcement Learning Expands Reasoning Boundaries in Large Language Models
-- [cognition-engineering](https://github.com/gair-nlp/cognition-engineering): Test time scaling drives cognition engineering. ![GitHub Repo stars](https://img.shields.io/github/stars/gair-nlp/cognition-engineering)
-- [Trust Region Preference Approximation](https://github.com/XueruiSu/Trust-Region-Preference-Approximation): A simple and stable **reinforcement learning algorithm** for LLM reasoning. ![GitHub Repo stars](https://img.shields.io/github/stars/XueruiSu/Trust-Region-Preference-Approximation)
-- [AdaRFT](https://github.com/uscnlp-lime/verl): Efficient Reinforcement Finetuning via **Adaptive Curriculum Learning** ![GitHub Repo stars](https://img.shields.io/github/stars/uscnlp-lime/verl)
-- [critic-rl](https://github.com/HKUNLP/critic-rl): LLM critics for code generation ![GitHub Repo stars](https://img.shields.io/github/stars/HKUNLP/critic-rl)
-- [self-rewarding-reasoning-LLM](https://arxiv.org/pdf/2502.19613): self-rewarding and correction with **generative reward models** ![GitHub Repo stars](https://img.shields.io/github/stars/RLHFlow/Self-rewarding-reasoning-LLM)
-- [DeepEnlighten](https://github.com/DolbyUUU/DeepEnlighten): Reproduce R1 with **social reasoning** tasks and analyze key findings ![GitHub Repo stars](https://img.shields.io/github/stars/DolbyUUU/DeepEnlighten)
-- [MetaSpatial](https://github.com/PzySeere/MetaSpatial): Reinforcing **3D Spatial Reasoning** in **VLMs** for the **Metaverse** ![GitHub Repo stars](https://img.shields.io/github/stars/PzySeere/MetaSpatial)
-- [PURE](https://github.com/CJReinforce/PURE): **Credit assignment** is the key to successful reinforcement fine-tuning using **process reward model** ![GitHub Repo stars](https://img.shields.io/github/stars/CJReinforce/PURE)
-- [cognitive-behaviors](https://github.com/kanishkg/cognitive-behaviors): Cognitive Behaviors that Enable Self-Improving Reasoners, or, Four Habits of Highly Effective STaRs ![GitHub Repo stars](https://img.shields.io/github/stars/kanishkg/cognitive-behaviors)
-- [deepscaler](https://github.com/agentica-project/rllm/tree/deepscaler): iterative context scaling with GRPO ![GitHub Repo stars](https://img.shields.io/github/stars/agentica-project/deepscaler)
-- [DAPO](https://dapo-sia.github.io/): the fully open source SOTA RL algorithm that beats DeepSeek-R1-zero-32B ![GitHub Repo stars](https://img.shields.io/github/stars/volcengine/verl)
-- [NoisyRollout](https://github.com/NUS-TRAIL/NoisyRollout): Reinforcing Visual Reasoning with Data Augmentation ![GitHub Repo stars](https://img.shields.io/github/stars/NUS-TRAIL/NoisyRollout)
+- `TinyZero <https://github.com/Jiayi-Pan/TinyZero>`_: a reproduction of **DeepSeek R1 Zero*- recipe for reasoning tasks
+- `SkyThought <https://github.com/NovaSky-AI/SkyThought>`_: RL training for Sky-T1-7B by NovaSky AI team.
+- `simpleRL-reason <https://github.com/hkust-nlp/simpleRL-reason>`_: SimpleRL-Zoo: Investigating and Taming Zero Reinforcement Learning for Open Base Models in the Wild
+- `Easy-R1 <https://github.com/hiyouga/EasyR1>`_: **Multi-modal*- RL training framework
+- `OpenManus-RL <https://github.com/OpenManus/OpenManus-RL>`_: LLM Agents RL tuning framework for multiple agent environments.
+- `rllm <https://github.com/agentica-project/rllm>`_: async RL training with `verl-pipeline <https://github.com/agentica-project/verl-pipeline>`_
+- `RAGEN <https://github.com/ZihanWang314/ragen>`_: a general-purpose reasoning **agent*- training framework
+- `Search-R1 <https://github.com/PeterGriffinJin/Search-R1>`_: RL with reasoning and **searching (tool-call)*- interleaved LLMs
+- `ReSearch <https://github.com/Agent-RL/ReSearch>`_: Learning to **Re**ason with **Search*- for LLMs via Reinforcement Learning
+- `Skywork-OR1 <https://github.com/SkyworkAI/Skywork-OR1>`_: Skywork open reaonser series
+- `ToRL <https://github.com/GAIR-NLP/ToRL>`_: Scaling tool-integrated RL
+- `Absolute Zero Reasoner <https://github.com/LeapLabTHU/Absolute-Zero-Reasoner>`_: `A no human curated data self-play framework for reasoning <https://arxiv.org/abs/2505.03335>`_
+- `verl-agent <https://github.com/langfengQ/verl-agent>`_: A scalable training framework for **long-horizon LLM/VLM agents**, along with a new algorithm **GiGPO**
+- `RL-Factory <https://github.com/Simple-Efficient/RL-Factory>`_: An easy and efficient RL post-training framework for Agentic Learning
+- `ReTool <https://retool-rl.github.io/>`_: ReTool: reinforcement learning for strategic tool use in LLMs. Code release is in progress...
+- `verl-tool <https://github.com/TIGER-AI-Lab/verl-tool>`_: An unified and easy-to-extend tool-agent training framework based on verl
+- `PRIME <https://github.com/PRIME-RL/PRIME>`_: Process reinforcement through implicit rewards
+- `MemAgent <https://github.com/BytedTsinghua-SIA/MemAgent>`_: MemAgent: Reshaping Long-Context LLM with Multi-Conv RL based Memory Agent
+- `POLARIS <https://github.com/ChenxinAn-fdu/POLARIS>`_: A Post-training recipe for scaling RL on Advanced Reasoning models
+- `GUI-R1 <https://github.com/ritzz-ai/GUI-R1>`_: **GUI-R1**: A Generalist R1-style Vision-Language Action Model For **GUI Agents**
+- `DeepRetrieval <https://github.com/pat-jj/DeepRetrieval>`_: RL Training of **Search Agent*- with **Search/Retrieval Outcome**
+- `Code-R1 <https://github.com/ganler/code-r1>`_: Reproducing R1 for **Code*- with Reliable Rewards
+- `DeepResearcher <https://github.com/GAIR-NLP/DeepResearcher>`_: Scaling deep research via reinforcement learning in real-world environments
+- `VAGEN <https://github.com/RAGEN-AI/VAGEN>`_: Training VLM agents with multi-turn reinforcement learning
+- `RM-R1 <https://arxiv.org/abs/2505.02387>`_: RL training of reasoning reward models
+- `LUFFY <https://arxiv.org/pdf/2504.14945>`_: Learning to Reason under Off-Policy Guidance
+- `DeepMath <https://github.com/zwhe99/DeepMath>`_: DeepMath-103K data and series models for math reasoning
+- `PACS <https://github.com/ritzz-ai/PACS>`_: Implicit Actor Critic Coupling via a Supervised Learning Framework for RLVR
+- `Entropy Mechanism of RL <https://github.com/PRIME-RL/Entropy-Mechanism-of-RL>`_: The Entropy Mechanism of Reinforcement Learning for Large Language Model Reasoning
+- `LLaSA-TTS-GRPO <https://github.com/channel-io/ch-tts-llasa-rl-grpo>`_: TTS fine-tuning with GRPO optimization based on LLASA models
+- `PF-PPO <https://arxiv.org/abs/2409.06957>`_: Policy Filtration for PPO based on the reliability of reward signals for more efficient and robust RLHF.
+- `RACRO <https://github.com/gyhdog99/RACRO2>`_: Build multi-modal reasoning models via decoupling it into query-conditioned captioning and text-only reasoning
+- `Agent Lightning <https://github.com/microsoft/agent-lightning>`_: A flexible and extensible framework that enables seamless agent optimization for any existing agent framework.
+- `VTool-R1 <https://github.com/VTOOL-R1/vtool-r1>`_: VLMs Learn to Think with Images via Reinforcement Learning on Multimodal Tool Use.
+- `Kimina-Prover-RL <https://github.com/project-numina/kimina-prover-rl/tree/main/recipe/kimina_prover_rl>`_: Training pipeline for formal theorem proving, based on a paradigm inspired by DeepSeek-R1.
+- `RL-PLUS <https://github.com/YihongDong/RL-PLUS>`_: Countering Capability Boundary Collapse of LLMs in Reinforcement Learning with Hybrid-policy Optimization.
+- `rStar2-Agent <https://github.com/microsoft/rStar>`_: Using reinforcement learning with multi-step tool-calling for math tasks, rStar2-Agent-14B reaches frontier-level math reasoning in just 510 RL training steps
+- `Vision-SR1 <https://github.com/zli12321/Vision-SR1>`_: Self-Rewarding Vision-Language Model via Reasoning Decomposition
+- `SimpleVLA-RL <https://github.com/PRIME-RL/SimpleVLA-RL>`_: SimpleVLA-RL: A Simple yet Effective Vision-Language Action Model for Reinforcement Learning
+- `Table-R1 <https://github.com/Table-R1/Table-R1>`_: Table-R1: Inference-Time Scaling for Table Reasoning
+- `Revisual-R1 <https://github.com/CSfufu/Revisual-R1>`_: Revisual-R1: Advancing Multimodal Reasoning From Optimized Cold Start to Staged Reinforcement Learning
+- `ARES <https://github.com/shawn0728/ARES>`_: ARES: Multimodal Adaptive Reasoning via Difficulty-Aware Token-Level Entropy Shaping
+- `Meta-Bandit-LLM <https://github.com/sanxing-chen/meta-bandit-llm>`_: Meta-Bandit-LLM: Long-horizon multiturn interactive training for meta-bandit agents
+- `PokeeResearch <https://github.com/Pokee-AI/PokeeResearchOSS>`_: PokeeResearch: State-of-the-art 7B DeepResearch Agent that leverages web search and content reading capabilities to answer complex questions using the most up-to-date information available online.
+- `Search Self-play <https://github.com/Alibaba-Quark/SSP>`_: Pushing the Frontier of Agent Capability without Supervision
+- `FlowRL <https://github.com/Xuekai-Zhu/FlowRL>`_: Matching reward distributions via **flow balance*- for diverse exploration and generalizable reasoning
+- `Logic-RL <https://github.com/Unakar/Logic-RL>`_: a reproduction of DeepSeek R1 Zero on 2K Tiny Logic Puzzle Dataset.
+- `Seed-Coder <https://github.com/ByteDance-Seed/Seed-Coder>`_: RL training of Seed-Coder boosts performance on competitive programming
+- `all-hands/openhands-lm-32b-v0.1 <https://www.all-hands.dev/blog/introducing-openhands-lm-32b----a-strong-open-coding-agent-model>`_: A strong, open coding agent model, trained with `multi-turn fine-tuning <https://github.com/volcengine/verl/pull/195>`_
+- `s3 <https://github.com/pat-jj/s3>`_ **Efficient Yet Effective*- Search Agent Training via RL
+- `Rec-R1 <https://arxiv.org/pdf/2503.24289>`_: Bridging Generative Large Language Models and Recommendation Systems via Reinforcement Learning
+- `Explore RL Data Scaling <https://arxiv.org/abs/2503.22230>`_: Exploring Data Scaling Trends and Effects in Reinforcement Learning from Human Feedback
+- `FIRE <https://arxiv.org/abs/2410.21236>`_: Flaming-hot initiation with regular execution sampling for large language models
+- `DQO <https://arxiv.org/abs/2410.09302>`_: Enhancing multi-Step reasoning abilities of language models through direct Q-function optimization
+- `ProRL <https://arxiv.org/abs/2505.24864>`_: Prolonged Reinforcement Learning Expands Reasoning Boundaries in Large Language Models
+- `cognition-engineering <https://github.com/gair-nlp/cognition-engineering>`_: Test time scaling drives cognition engineering.
+- `Trust Region Preference Approximation <https://github.com/XueruiSu/Trust-Region-Preference-Approximation>`_: A simple and stable **reinforcement learning algorithm*- for LLM reasoning.
+- `AdaRFT <https://github.com/uscnlp-lime/verl>`_: Efficient Reinforcement Finetuning via **Adaptive Curriculum Learning**
+- `critic-rl <https://github.com/HKUNLP/critic-rl>`_: LLM critics for code generation
+- `self-rewarding-reasoning-LLM <https://arxiv.org/pdf/2502.19613>`_: self-rewarding and correction with **generative reward models**
+- `DeepEnlighten <https://github.com/DolbyUUU/DeepEnlighten>`_: Reproduce R1 with **social reasoning*- tasks and analyze key findings
+- `MetaSpatial <https://github.com/PzySeere/MetaSpatial>`_: Reinforcing **3D Spatial Reasoning*- in **VLMs*- for the **Metaverse**
+- `PURE <https://github.com/CJReinforce/PURE>`_: **Credit assignment*- is the key to successful reinforcement fine-tuning using **process reward model**
+- `cognitive-behaviors <https://github.com/kanishkg/cognitive-behaviors>`_: Cognitive Behaviors that Enable Self-Improving Reasoners, or, Four Habits of Highly Effective STaRs
+- `deepscaler <https://github.com/agentica-project/rllm/tree/deepscaler>`_: iterative context scaling with GRPO
+- `DAPO <https://dapo-sia.github.io/>`_: the fully open source SOTA RL algorithm that beats DeepSeek-R1-zero-32B
+- `NoisyRollout <https://github.com/NUS-TRAIL/NoisyRollout>`_: Reinforcing Visual Reasoning with Data Augmentation
