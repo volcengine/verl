@@ -87,7 +87,9 @@ def model_forward_gen(vision_model: bool = False):
             output_orig = model(**input_args)
             if post_process and logits_processor is not None:
                 args = {
-                    k: preprocess_packed_seqs(v, attention_mask, pre_process=sp, use_fp8_padding=use_fp8_padding)[0]
+                    k: preprocess_packed_seqs(
+                        v, attention_mask, pre_process=pre_process, use_fp8_padding=use_fp8_padding
+                    )[0]
                     for k, v in logits_processor_args.items()
                 }
                 output_dict = logits_processor(output_orig, **args)
