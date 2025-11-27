@@ -24,4 +24,3 @@ fastapi
 latex2sympy2_extended
 math_verify
 tensorboard
-uvloop==0.21.0
