@@ -202,7 +202,7 @@ verl is inspired by the design of Nemo-Aligner, Deepspeed-chat and OpenRLHF. The
 
 ## Awesome Projects Built with `verl`
 
-Welcome to [register your awesome project build with `verl`](docs/awesome_projects.md) for other developers' reference!
+Welcome to [register your awesome project build with `verl`](docs/start/awesome_projects.md) for other developers' reference!
 
 ## Contribution Guide
 
