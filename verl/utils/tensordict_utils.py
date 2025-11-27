@@ -359,17 +359,18 @@ def get_keys(tensordict: TensorDict, keys: Iterable[str]) -> TensorDict:
 
 
 def pop(tensordict: TensorDict, key: str, default=None) -> Any:
-    if key not in tensordict.keys():
+    _sentinel = object()
+    output = tensordict.pop(key, _sentinel)
+    if output is _sentinel:
         return default
 
-    output = tensordict.get(key)
     if isinstance(output, torch.Tensor):
-        return tensordict.pop(key)
+        return output
     elif isinstance(output, NonTensorStack):
-        return tensordict.pop(key).tolist()
+        return output.tolist()
     else:
         assert isinstance(output, NonTensorData)
-        return tensordict.pop(key).data
+        return output.data
 
 
 def pop_keys(tensordict: TensorDict, keys: Iterable[str]) -> TensorDict:
