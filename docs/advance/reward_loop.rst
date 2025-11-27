@@ -104,7 +104,7 @@ A user-defined reward function may look like the following:
 
       return {"score": score}
 
-Runable examples are provided in the ``recipe/fapo`` directory for reference.
+Runable examples are provided in `recipe/fapo` directory for reference.
 
 Reward Models and Router
 ------------------------

@@ -25,9 +25,6 @@ from pathlib import Path
 # directory or file path must contain keyword ".cuda" or "cuda"
 CUDA_KEYWORD_CHECK_WHITELIST = [
     "verl/utils/device.py",
-    "recipe/prime/prime_ray_trainer.py",  # appear in default device_name
-    "recipe/spin/spin_trainer.py",  # appear in default device_name
-    "recipe/sppo/sppo_ray_trainer.py",  # appear in default device_name
     "recipe/one_step_off_policy/ray_trainer.py",  # appear in default device_name
     "recipe/transfer_queue/ray_trainer.py",  # appear in default device_name
     "verl/utils/profiler/nvtx_profile.py",  # appear in NsightSystemsProfiler

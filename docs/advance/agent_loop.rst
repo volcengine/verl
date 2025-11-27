@@ -234,5 +234,5 @@ Next
 ----
 
 - :doc:`Agentic RL Training<../start/agentic_rl>`: Quick start agentic RL training with gsm8k dataset.
-- `LangGraph MathExpression <https://github.com/volcengine/verl/tree/main/recipe/langgraph_agent/example>`_: Demonstrate how to use LangGraph to build agent loop.
-- `Retool <https://github.com/volcengine/verl/tree/main/recipe/retool>`_: End-to-end retool paper reproduction using tool agent.
+- `LangGraph MathExpression <https://github.com/verl-project/verl-recipe/tree/main/langgraph_agent/example>`_: Demonstrate how to use LangGraph to build agent loop.
+- `Retool <https://github.com/verl-project/verl-recipe/tree/main/retool>`_: End-to-end retool paper reproduction using tool agent.

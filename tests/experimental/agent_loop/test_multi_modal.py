@@ -125,7 +125,7 @@ def test_multimodal_tool_agent(init_config):
         ignore_reinit_error=True,
     )
 
-    # Add custom chat template to enable tool calling support (same as recipe/deepeyes)
+    # Add custom chat template to enable tool calling support (same as verl-recipe/legacy/deepeyes)
     template_path = os.path.join(os.path.dirname(__file__), "qwen_vl_tool_chat_template.jinja2")
     with open(template_path, encoding="utf-8") as f:
         custom_chat_template = f.read()

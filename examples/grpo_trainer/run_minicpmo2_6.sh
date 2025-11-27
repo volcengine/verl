@@ -1,5 +1,7 @@
 set -x
 
+MINICPMO_DIR="../verl-recipe/legacy/minicpmo"
+
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=$HOME/data/geo3k/train.parquet \
@@ -11,7 +13,7 @@ python3 -m verl.trainer.main_ppo \
     data.truncation='error' \
     data.image_key=images \
     data.trust_remote_code=True \
-    data.custom_cls.path=recipe/minicpmo/rl_dataset.py \
+    data.custom_cls.path=${MINICPMO_DIR}/rl_dataset.py \
     data.custom_cls.name=RLHFDataset \
     actor_rollout_ref.model.path=openbmb/MiniCPM-o-2_6 \
     actor_rollout_ref.model.trust_remote_code=True \

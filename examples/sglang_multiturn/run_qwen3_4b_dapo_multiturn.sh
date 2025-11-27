@@ -3,6 +3,7 @@ set -x
 ulimit -n 65535
 
 PROJECT_DIR="$(pwd)"
+RETOOL_DIR="$PROJECT_DIR/../verl-${RETOOL_DIR}"
 CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
 
 pip install --upgrade "huggingface-hub>=0.34.0"
@@ -34,10 +35,10 @@ hf download \
 #huggingface-cli download JoeYing/ReTool-SFT --repo-type dataset --local-dir ./ReTool-SFT
 
 # Step 2: Preprocess the data for SFT
-#python3 recipe/retool/retool_sft_preprocess.py
+#python3 ${RETOOL_DIR}/retool_sft_preprocess.py
 
 # Step 3: Run SFT training
-#bash recipe/retool/run_qwen2-32b_sft.sh
+#bash ${RETOOL_DIR}/run_qwen2-32b_sft.sh
 
 # having trouble setup? see https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/verl/multi-turn/release_log/latest_sglang.md for more details.
 
@@ -54,9 +55,9 @@ python3 -m verl.trainer.main_ppo \
     data.max_response_length=16384 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
-    data.custom_cls.path=$PROJECT_DIR/recipe/retool/retool.py \
+    data.custom_cls.path=${RETOOL_DIR}/retool.py \
     data.custom_cls.name=CustomRLHFDataset \
-    custom_reward_function.path=$PROJECT_DIR/recipe/retool/retool.py \
+    custom_reward_function.path=${RETOOL_DIR}/retool.py \
     custom_reward_function.name=compute_score \
     actor_rollout_ref.model.path=font-info/qwen3-4b-sft-SGLang-RL \
     actor_rollout_ref.model.use_remove_padding=True \
@@ -82,7 +83,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.multi_turn.enable=True \
     actor_rollout_ref.rollout.multi_turn.max_user_turns=16 \
     actor_rollout_ref.rollout.multi_turn.max_assistant_turns=16 \
-    actor_rollout_ref.rollout.multi_turn.tool_config_path=$PROJECT_DIR/recipe/retool/sandbox_fusion_tool_config.yaml \
+    actor_rollout_ref.rollout.multi_turn.tool_config_path=${RETOOL_DIR}/sandbox_fusion_tool_config.yaml \
     actor_rollout_ref.rollout.multi_turn.format=hermes \
     actor_rollout_ref.rollout.n=8 \
     actor_rollout_ref.rollout.val_kwargs.top_p=0.6 \
