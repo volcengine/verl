@@ -13,6 +13,18 @@
 
 ---
 
+### BibTeX Citation
+
+```bibtex
+@online{liu-li-2025-rl-collapse,
+  title = {When Speed Kills Stability: Demystifying {RL} Collapse from the Training-Inference Mismatch},
+  author = {Liu, Jiacai and Li, Yingru and Fu, Yuqian and Wang, Jiawei and Liu, Qian and Shen, Yu},
+  year = {2025},
+  month = sep,
+  url = {https://richardli.xyz/rl-collapse}
+}
+```
+
 ## Abstract
 
 This document provides the definitive mathematical formulations for rollout correction methods in `verl`, following the natural progression from **REINFORCE** to **PPO** to **Decoupled PPO**.

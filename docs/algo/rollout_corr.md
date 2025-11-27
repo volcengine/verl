@@ -21,12 +21,12 @@ This document provides a comprehensive overview of the Rollout Correction implem
 ### BibTeX Citation
 
 ```bibtex
-@misc{liu-li-2025,
-  title = {When Speed Kills Stability: Demystifying RL Collapse from the Training-Inference Mismatch},
-  url = {https://yingru.notion.site/When-Speed-Kills-Stability-Demystifying-RL-Collapse-from-the-Training-Inference-Mismatch-271211a558b7808d8b12d403fd15edda},
-  author = {Jiacai Liu and Yingru Li and Yuqian Fu and Jiawei Wang and Qian Liu and Yu Shen},
+@online{liu-li-2025-rl-collapse,
+  title = {When Speed Kills Stability: Demystifying {RL} Collapse from the Training-Inference Mismatch},
+  author = {Liu, Jiacai and Li, Yingru and Fu, Yuqian and Wang, Jiawei and Liu, Qian and Shen, Yu},
   year = {2025},
   month = sep,
+  url = {https://richardli.xyz/rl-collapse}
 }
 ```
 
@@ -401,7 +401,7 @@ algorithm:
     rollout_is_threshold: 2.0
     rollout_rs: sequence
     rollout_rs_threshold: 2.0
-    rollout_rs_threshold_lower: 0.5  # Reciprocal of threshold
+    rollout_rs_threshold_lower: 0  # Reciprocal of threshold
     bypass_mode: false  # Decoupled mode
 ```
 
