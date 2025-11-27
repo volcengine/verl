@@ -601,6 +601,7 @@ class MegatronPPOActor(BasePPOActor):
                     multi_modal_inputs=multi_modal_inputs,
                     logits_processor=logits_processor,
                     logits_processor_args=logits_processor_args,
+                    data_format="thd" if self.config.megatron.thd_format else "bshd",
                 )
 
             if forward_only:

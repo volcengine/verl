@@ -67,6 +67,9 @@ megatron:
   # Whether to use mbridge instead of Megatron-Bridge
   vanilla_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.vanilla_mbridge,True}
 
+  # whether to use thd format (sequence packing), if not, use bshd format, padding the input_ids to the longest sequence length
+  thd_format: ${oc.select:actor_rollout_ref.actor.megatron.thd_format,True}
+
   dtype: bfloat16
 
 # Whether to load weights (default True)
