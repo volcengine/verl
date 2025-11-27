@@ -352,9 +352,9 @@ def test_pop():
     # NonTensorData
     assert tu.pop(dataset1, key="2") == 2
     # NonTensorStack
-    assert tu.pop(dataset1, key="labels") == ['a', ['b'], []]
+    assert tu.pop(dataset1, key="labels") == ["a", ["b"], []]
     # Tensor
-    assert torch.all(torch.eq(tu.pop(dataset1, key='obs'), obs)).item()
+    assert torch.all(torch.eq(tu.pop(dataset1, key="obs"), obs)).item()
 
 
 def test_get():
@@ -368,9 +368,9 @@ def test_get():
 
     assert popped_dataset.batch_size[0] == 3
 
-    assert torch.all(torch.eq(popped_dataset['obs'], dataset['obs'])).item()
+    assert torch.all(torch.eq(popped_dataset["obs"], dataset["obs"])).item()
 
-    assert popped_dataset['2'] == dataset['2']
+    assert popped_dataset["2"] == dataset["2"]
 
     # test pop non-exist key
     with pytest.raises(KeyError):
@@ -380,12 +380,11 @@ def test_get():
     # NonTensorData
     assert tu.get(dataset, key="2") == 2
     # NonTensorStack
-    assert tu.get(dataset, key="labels") == ['a', ['b'], []]
+    assert tu.get(dataset, key="labels") == ["a", ["b"], []]
     # Tensor
-    assert torch.all(torch.eq(tu.get(dataset, key='obs'), obs)).item()
+    assert torch.all(torch.eq(tu.get(dataset, key="obs"), obs)).item()
     # Non-exist key
     assert tu.get(dataset, key="3", default=3) == 3
-
 
 
 def test_repeat():

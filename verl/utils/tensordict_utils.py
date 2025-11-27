@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import logging
-from typing import Iterator, Iterable, Any
+from typing import Any, Iterable
 
 import torch
 from tensordict import TensorDict
@@ -324,7 +324,6 @@ def assert_tensordict_eq(tensordict1: TensorDict, tensordict2: TensorDict):
                 assert torch.all(torch.eq(val, val2)).item()
         else:
             assert val == val2
-
 
 
 def get(tensordict: TensorDict, key: str, default=None) -> Any:
