@@ -18,6 +18,7 @@ import os
 import ray
 from omegaconf import DictConfig
 
+from recipe.one_step_off_policy.vllm_rollout.vllm_async_server import OneStepOffLLMReplica
 from verl.experimental.agent_loop.agent_loop import (
     AgentLoopManager,
 )
@@ -26,8 +27,6 @@ from verl.single_controller.ray import RayResourcePool, RayWorkerGroup
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
-
-from recipe.one_step_off_policy.vllm_rollout.vllm_async_server import OneStepOffLLMReplica
 
 
 class OneStepOffAgentLoopManager(AgentLoopManager):
