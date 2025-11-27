@@ -49,6 +49,7 @@ jobs:
           
       - name: Test NPU capabilities (if applicable)
         run: |
+          npu-smi info
           echo "Checking for NPU devices..."
           if command -v npu-smi &> /dev/null; then
             echo "NPU-SMI found, testing..."
