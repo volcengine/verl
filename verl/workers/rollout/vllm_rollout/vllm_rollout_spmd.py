@@ -450,20 +450,33 @@ class vLLMRollout(BaseRollout):
                     assert total_length >= response_length, (
                         f"routed_expert length {total_length} is shorter than response length {response_length}"
                     )
-                    input_expert = routed_expert_tensor[:-response_length]
-                    pad_input_expert = pad_first_dim_tail(input_expert, max_prompt_length, value=-1, left_pad=True)
+                    input_len = len(vllm_inputs[i]["prompt_token_ids"])
+                    input_expert = routed_expert_tensor[:input_len]
+
+                    pad_input_expert = pad_first_dim_tail(input_expert, max_prompt_length, value=0, left_pad=True)
                     input_routed_experts.append(pad_input_expert)
 
-                    output_expert = routed_expert_tensor[-response_length:]
-                    pad_output_expert = pad_first_dim_tail(
-                        output_expert, self.config.response_length, value=-1, left_pad=False
-                    )
-                    output_routed_experts.append(pad_output_expert)
-
+                    output_expert = routed_expert_tensor[input_len:]
+                    output_routed_experts.append(output_expert)
                 # Convert list of tensors to batch tensor
                 input_routed_experts = torch.stack(input_routed_experts, dim=0)
-                output_routed_experts = torch.stack(output_routed_experts, dim=0)
-
+                def pad_3d_list_to_length(routed_experts, pad_token_id, max_length=None):
+                    """
+                    pad a 3D list (e.g. all layer expert_idx) to a 3D tensor.
+                    """
+                    len_list = [sub_response.shape[0] for sub_response in routed_experts]
+                    # response_length = max(len(sub_list.shape[0]) for sub_list in routed_experts)
+                    response_length = max(len_list)
+                    target_length = max_length if max_length is not None and max_length > response_length else response_length
+                    new_sub_resposne_list = []
+                    for sub_response in routed_experts:
+                        pad_shape = (target_length - sub_response.shape[0], *sub_response.shape[1:])
+                        pad_tensor = torch.full(pad_shape, pad_token_id, dtype=sub_response.dtype, device=sub_response.device)
+                        new_sub_response = torch.concat([sub_response,pad_tensor],dim=0)
+                        new_sub_resposne_list.append(new_sub_response)
+                    tensor = torch.stack(new_sub_resposne_list,dim=0)
+                    return tensor
+                output_routed_experts = pad_3d_list_to_length(output_routed_experts, 0, max_length=self.config.response_length)
                 router_output = torch.cat([input_routed_experts, output_routed_experts], dim=1)
 
             response = pad_2d_list_to_length(response, self.pad_token_id, max_length=self.config.response_length).to(
