@@ -1118,6 +1118,8 @@ class DataProto:
         tensor_batch = self.batch.to_dict()
         non_tensor_batch = self.non_tensor_batch
 
+        from tensordict.tensorclass import NonTensorData, NonTensorStack
+
         from verl.utils import tensordict_utils as tu
 
         common_keys = set(tensor_batch.keys()) & set(non_tensor_batch.keys())
@@ -1125,7 +1127,8 @@ class DataProto:
 
         for key, val in non_tensor_batch.items():
             assert isinstance(val, np.ndarray)
-            tensor_batch[key] = val.tolist()
+            # Convert to NonTensorStack instead of plain list to handle nested structures
+            tensor_batch[key] = NonTensorStack.from_list([NonTensorData(item) for item in val])
         output = tu.get_tensordict(tensor_dict=tensor_batch, non_tensor_dict=self.meta_info)
         return output
 

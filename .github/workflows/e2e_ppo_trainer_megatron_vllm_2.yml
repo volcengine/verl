@@ -155,20 +155,33 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install --no-deps -e .[test]
-          pip3 install mbridge
-          pip3 install transformers==$TRANSFORMERS_VERSION
+          pip3 install git+https://github.com/NVIDIA-NeMo/Megatron-Bridge.git@af21db0 --no-deps --no-build-isolation
+          pip3 install git+https://github.com/NVIDIA/Megatron-LM.git@3cbe5c6 --no-deps --no-build-isolation
+          pip3 install "nvidia-modelopt[torch]>=0.37.0" transformers==4.57.1
       - name: Prepare GSM8K dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
-      - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (DeepSeek)
+      - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron-Bridge (Qwen3-30B-A3B-Instruct-2507)
         run: |
           ray stop --force
           ADV_ESTIMATOR=grpo USE_DUMMY_MODEL=True DUMMY_MODEL_CONFIG_PATH=tests/special_e2e/ppo_trainer/expert_parallel/qwen2moe_minimal.json \
           PPO_MAX_TOKEN_LEN=1024 FWD_MAX_TOKEN_LEN=1024 \
           MAX_PROMPT_LENGTH=512 MAX_RESPONSE_LENGTH=512 \
-          MODEL_ID=Qwen/Qwen1.5-MoE-A2.7B-Chat USE_MBRIDGE=True \
+          MODEL_ID=Qwen/Qwen3-30B-A3B-Instruct-2507 USE_MBRIDGE=True VANILLA_MBRIDGE=False VALUE_VANILLA_MBRIDGE=False \
           COMMON_PP=2 COMMON_VPP=null COMMON_CP=1 COMMON_TP=4 COMMON_EP=4 COMMON_ETP=1 INFER_TP=8 \
           USE_DIST_CKPT=True ALL_OFFLOAD=True SKIP_SAVE_HF_MODEL=1 bash tests/special_e2e/run_ppo_trainer_megatron.sh
+      - name: clean up
+        run: |
+          rm -rf checkpoints
+      - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron-Bridge LoRA (Qwen3-30B-A3B-Instruct-2507)
+        run: |
+          ray stop --force
+          ADV_ESTIMATOR=grpo USE_DUMMY_MODEL=True DUMMY_MODEL_CONFIG_PATH=tests/special_e2e/ppo_trainer/expert_parallel/qwen2moe_minimal.json \
+          PPO_MAX_TOKEN_LEN=1024 FWD_MAX_TOKEN_LEN=1024 \
+          MAX_PROMPT_LENGTH=512 MAX_RESPONSE_LENGTH=512 LORA_RANK=8 CRITIC_LORA_RANK=8 \
+          MODEL_ID=Qwen/Qwen3-30B-A3B-Instruct-2507 USE_MBRIDGE=True VANILLA_MBRIDGE=False VALUE_VANILLA_MBRIDGE=False \
+          COMMON_PP=2 COMMON_VPP=null COMMON_CP=1 COMMON_TP=4 COMMON_EP=2 COMMON_ETP=1 INFER_TP=8 \
+          USE_DIST_CKPT=False ALL_OFFLOAD=True SKIP_SAVE_HF_MODEL=1 bash tests/special_e2e/run_ppo_trainer_megatron.sh
       - name: clean up
         run: |
           rm -rf checkpoints
@@ -405,7 +418,6 @@ jobs:
       [
         setup,
         e2e_ppo_trainer_megatron-deepseek-override-transformer-config,
-        e2e_ppo_trainer_megatron-moe-expert-parallel,
         e2e_ppo_trainer_megatron-qwen2_5vl-3b,
         e2e_ppo_trainer_vllm,
         e2e_ppo_trainer_vllm_vlm

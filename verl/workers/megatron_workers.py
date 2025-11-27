@@ -109,7 +109,7 @@ class MegatronWorker(Worker):
         override_model_config,
         override_transformer_config,
         trust_remote_code=False,
-        use_mbridge=False,
+        megatron_config=None,
     ):
         from transformers import AutoConfig
 
@@ -159,23 +159,71 @@ class MegatronWorker(Worker):
         fp16 = dtype == torch.float16
         bf16 = dtype == torch.bfloat16
         if fp16:
-            assert use_mbridge, "fp16 mode requires use_mbridge to be True"
-        if use_mbridge:
-            from verl.models.mcore.mbridge import AutoBridge
+            assert megatron_config.use_mbridge, "fp16 mode requires use_mbridge to be True"
 
-            bridge = AutoBridge.from_config(hf_config, dtype=dtype)
-            bridge.set_extra_args(**override_transformer_config)
-            tf_config = bridge.config
-            tf_config.fp16 = fp16
-            tf_config.bf16 = bf16
+        self.provider = None
+        self.vanilla_bridge = megatron_config.get("vanilla_mbridge", True)
+        if megatron_config.use_mbridge:
+            if self.vanilla_bridge:
+                from verl.models.mcore.mbridge import AutoBridge
+
+                bridge = AutoBridge.from_config(hf_config, dtype=dtype)
+                bridge.set_extra_args(**override_transformer_config)
+                tf_config = bridge.config
+                tf_config.fp16 = fp16
+                tf_config.bf16 = bf16
+            else:
+                from verl.models.mcore.bridge import AutoBridge
+
+                # Use Megatron-Bridge to convert HF config to Megatron config
+                bridge = AutoBridge.from_hf_pretrained(self.local_path, trust_remote_code=trust_remote_code)
+                # Get Megatron provider and configure it
+                provider = bridge.to_megatron_provider(load_weights=False)
+
+                # In case of invalid overrides, we need to make sure some critical params are set correctly
+                provider.params_dtype = dtype
+
+                # Pass distributed info
+                provider.tensor_model_parallel_size = megatron_config.tensor_model_parallel_size
+                provider.pipeline_model_parallel_size = megatron_config.pipeline_model_parallel_size
+                provider.expert_model_parallel_size = megatron_config.expert_model_parallel_size
+                provider.expert_tensor_parallel_size = megatron_config.expert_tensor_parallel_size
+                provider.virtual_pipeline_model_parallel_size = megatron_config.virtual_pipeline_model_parallel_size
+                provider.context_parallel_size = megatron_config.context_parallel_size
+                provider.sequence_parallel = megatron_config.sequence_parallel
+
+                # Match verl implementation (need variable_seq_lengths)
+                from megatron.core.transformer.enums import AttnBackend
+
+                provider.attention_backend = AttnBackend.flash
+                provider.variable_seq_lengths = True
+                provider.moe_token_dispatcher_type = "alltoall"
+                provider.moe_router_load_balancing_type = "none"
+
+                # Apply transformer config overrides
+                for key, value in override_transformer_config.items():
+                    setattr(provider, key, value)
+
+                provider.finalize()
+                self.provider = provider
+                tf_config = None  # Will be set after model creation
             self.bridge = bridge
         else:
             tf_config = hf_to_mcore_config(hf_config, dtype, **override_transformer_config)
             self.bridge = None
 
-        print(f"TF config: {tf_config}")
+        if torch.distributed.get_rank() == 0:
+            if tf_config is not None:
+                print(f"TF config: {tf_config}")
         self.hf_config = hf_config
         self.tf_config = tf_config
+
+        # Get PEFT config from model.lora if specified
+        from verl.workers.config.megatron_peft import get_peft_cls
+
+        self.peft_cls = get_peft_cls(
+            model_config=self.config.model, bridge=self.bridge, provider=self.provider, dtype=dtype
+        )
 
 
 class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
@@ -312,9 +360,12 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             override_model_config,
             override_transformer_config,
             self.config.model.get("trust_remote_code", False),
-            self.config.actor.megatron.use_mbridge,
+            self.config.actor.megatron if not self._is_ref else self.config.ref.megatron,
         )
-        self.generation_config = get_generation_config(self.local_path)
+        self.generation_config = get_generation_config(
+            self.local_path,
+            self.config.model.get("trust_remote_code", False),
+        )
 
         if self._is_actor or self._is_rollout:
             wrap_config = McoreModuleWrapperConfig(
@@ -323,14 +374,18 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 wrap_with_ddp=True,
                 use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer,
             )
-            actor_module = make_megatron_module(
+            actor_module, updated_tf_config = make_megatron_module(
                 wrap_config=wrap_config,
                 tf_config=self.tf_config,
                 hf_config=self.hf_config,
                 bridge=self.bridge,
+                provider=self.provider,
                 override_model_config=override_model_config,
                 override_ddp_config=override_ddp_config,
+                peft_cls=self.peft_cls,
+                peft_config=self.config.model.get("lora", None),
             )
+            self.tf_config = updated_tf_config
             print(f"actor_module: {len(actor_module)}")
             if self.config.actor.load_weight:
                 if self.config.actor.megatron.use_dist_checkpointing:
@@ -343,7 +398,10 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 else:
                     if self.bridge is not None:
                         local_model_path = get_hf_model_path(self.config)
-                        self.bridge.load_weights(actor_module, local_model_path)
+                        if self.vanilla_bridge:
+                            self.bridge.load_weights(actor_module, local_model_path)
+                        else:
+                            self.bridge.load_hf_weights(actor_module, local_model_path)
                     else:
                         load_megatron_gptmodel_weights(
                             self.config, self.hf_config, actor_module, params_dtype=self.dtype, is_value_model=False
@@ -359,13 +417,15 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 wrap_with_ddp=False,
                 use_distributed_optimizer=self.config.ref.megatron.use_distributed_optimizer,
             )
-            ref_module = make_megatron_module(
+            ref_module, updated_tf_config = make_megatron_module(
                 wrap_config=wrap_config,
                 tf_config=self.tf_config,
                 hf_config=self.hf_config,
                 bridge=self.bridge,
+                provider=self.provider,
                 override_model_config=override_model_config,
             )
+            self.tf_config = updated_tf_config
             if self.config.ref.load_weight:  # should align with the actor:
                 assert self.config.actor.load_weight == self.config.ref.load_weight
                 print("load ref weight start")
@@ -379,7 +439,10 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 else:
                     if self.bridge is not None:
                         local_model_path = get_hf_model_path(self.config)
-                        self.bridge.load_weights(ref_module, local_model_path)
+                        if self.vanilla_bridge:
+                            self.bridge.load_weights(ref_module, local_model_path)
+                        else:
+                            self.bridge.load_hf_weights(ref_module, local_model_path)
                     else:
                         load_megatron_gptmodel_weights(
                             self.config, self.hf_config, ref_module, params_dtype=self.dtype, is_value_model=False
@@ -410,7 +473,14 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         # 1. parse rollout and huggingface model config
         rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
-        model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model, dataclass_type=HFModelConfig)
+
+        # Convert megatron lora config to HFModelConfig
+        model_config_dict = OmegaConf.to_container(self.config.model)
+        model_config_dict.pop("lora", None)
+
+        model_config: HFModelConfig = omega_conf_to_dataclass(
+            OmegaConf.create(model_config_dict), dataclass_type=HFModelConfig
+        )
 
         # 2. build rollout device mesh
         infer_tp = self.config.rollout.tensor_model_parallel_size * self.config.rollout.data_parallel_size
@@ -559,7 +629,9 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer,
                 use_checkpoint_opt_param_scheduler=self.config.actor.optim.use_checkpoint_opt_param_scheduler,
                 bridge=self.bridge,
+                provider=self.provider,
                 use_dist_checkpointing=self.config.actor.megatron.use_dist_checkpointing,
+                peft_cls=self.peft_cls,
             )
 
             self.layer_name_mapping = {
@@ -582,7 +654,10 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             log_gpu_memory_usage("After load actor params during rollout_mode", logger=logger)
 
         if self.bridge is not None:
-            per_tensor_param = self.bridge.export_weights(self.actor.actor_module)
+            if self.vanilla_bridge:
+                per_tensor_param = self.bridge.export_weights(self.actor.actor_module)
+            else:
+                per_tensor_param = self.bridge.export_hf_weights(self.actor.actor_module)
         else:
             per_tensor_param = per_tensor_generator(
                 self.actor.actor_module,
@@ -954,7 +1029,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             override_model_config,
             override_transformer_config,
             self.config.model.get("trust_remote_code", False),
-            self.config.megatron.use_mbridge,
+            self.config.megatron,
         )
 
         wrap_config = McoreModuleWrapperConfig(
@@ -963,14 +1038,18 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             wrap_with_ddp=True,
             use_distributed_optimizer=self.config.megatron.use_distributed_optimizer,
         )
-        critic_module = make_megatron_module(
+        critic_module, updated_tf_config = make_megatron_module(
             wrap_config=wrap_config,
             tf_config=self.tf_config,
             hf_config=self.hf_config,
             bridge=self.bridge,
+            provider=self.provider,
             override_model_config=override_model_config,
             override_ddp_config=override_ddp_config,
+            peft_cls=self.peft_cls,
+            peft_config=self.config.model.get("lora", None),
         )
+        self.tf_config = updated_tf_config
         # note that here critic_module will be a list to be compatible with the construction of interleaved pp (vpp).
         # but here, we do not use pp (vpp) yet. For simplicity, we remove the list
         # critic_module = nn.ModuleList(critic_module)
@@ -987,7 +1066,12 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             else:
                 if self.bridge is not None:
                     local_model_path = get_hf_model_path(self.config)
-                    self.bridge.load_weights(critic_module, local_model_path)
+                    if self.vanilla_bridge:
+                        self.bridge.load_weights(critic_module, local_model_path)
+                    else:
+                        self.bridge.load_hf_weights(
+                            critic_module, local_model_path, allowed_mismatched_params=["output_layer.weight"]
+                        )
                 else:
                     load_megatron_gptmodel_weights(
                         self.config, self.hf_config, critic_module, params_dtype=self.dtype, is_value_model=True
@@ -1075,7 +1159,9 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             use_distributed_optimizer=self.config.megatron.use_distributed_optimizer,
             use_checkpoint_opt_param_scheduler=self.config.optim.use_checkpoint_opt_param_scheduler,
             bridge=self.bridge,
+            provider=self.provider,
             use_dist_checkpointing=self.config.megatron.use_dist_checkpointing,
+            peft_cls=self.peft_cls,
         )
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="critic"))
@@ -1225,7 +1311,7 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
             override_model_config,
             override_transformer_config,
             self.config.model.get("trust_remote_code", False),
-            self.config.megatron.use_mbridge,
+            self.config.megatron,
         )
 
         wrap_config = McoreModuleWrapperConfig(
@@ -1234,13 +1320,15 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
             wrap_with_ddp=False,
             use_distributed_optimizer=self.config.megatron.use_distributed_optimizer,
         )
-        reward_model = make_megatron_module(
+        reward_model, updated_tf_config = make_megatron_module(
             wrap_config=wrap_config,
             tf_config=self.tf_config,
             hf_config=self.hf_config,
             bridge=self.bridge,
+            provider=self.provider,
             override_model_config=override_model_config,
         )
+        self.tf_config = updated_tf_config
 
         if self.config.load_weight:
             if self.config.megatron.use_dist_checkpointing:
@@ -1253,7 +1341,12 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
             else:
                 if self.bridge is not None:
                     local_model_path = get_hf_model_path(self.config)
-                    self.bridge.load_weights(reward_model, local_model_path)
+                    if self.vanilla_bridge:
+                        self.bridge.load_weights(reward_model, local_model_path)
+                    else:
+                        self.bridge.load_hf_weights(
+                            reward_model, local_model_path, allowed_mismatched_params=["output_layer.weight"]
+                        )
                 else:
                     load_megatron_gptmodel_weights(
                         self.config, self.hf_config, reward_model, params_dtype=self.dtype, is_value_model=True

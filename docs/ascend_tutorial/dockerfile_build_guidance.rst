@@ -19,19 +19,20 @@ Atlas 800T A3
 组件版本信息
 ----------------
 
-=========== ============
+================= ============
 组件        版本
-=========== ============
-基础镜像    Ubuntu 22.04
-Python      3.11
-CANN        8.3.RC1
-torch       2.7.1
-torch_npu   2.7.1
-vLLM        0.11.0
-vLLM-ascend 0.11.0rc1
-Megatron-LM v0.12.1
-MindSpeed   (f2b0977e)
-=========== ============
+================= ============
+基础镜像            Ubuntu 22.04
+Python             3.11
+CANN               8.3.RC1
+torch              2.7.1
+torch_npu          2.7.1
+vLLM               0.11.0
+vLLM-ascend        0.11.0rc1
+Megatron-LM        v0.12.1
+MindSpeed          (f2b0977e)
+triton-ascend      3.2.0rc4
+================= ============
 
 Dockerfile构建镜像脚本
 ---------------------------

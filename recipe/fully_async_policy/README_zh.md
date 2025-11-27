@@ -341,33 +341,34 @@ python -m recipe.fully_async_policy.fully_async_main \
 
 ### 30B模型模式实验
 
-TODO: 30B 的实验，还在完善中。
+我们在 Qwen3-30B-A3B-Base 模型上通过`async stream pipeline with staleness samples` 策略，相比于 colocate 方案取得了 1.7 倍的性能提升。值得说明的是，这距离异步方式所能带来的性能提升上限还有很大空间。首先，对比实验中使用的最大响应长度仅为 8k，这远低于此前实验的 20k 序列长度，因此 rollout 的长尾效应并不明显。其次，我们采用了极为倾斜的资源分配方案，rollout 使用了 96 张 GPU，而 trainer 仅使用了 32 张 GPU，这并不是最优的配置。在实验过程中，我们观察到当前的 verl 实现存在一些限制，比如要求数据必须能被 GPU 数量整除，这使得资源调整的灵活性受到影响。此外，随着异步训练和部署的加速，性能差距也在逐渐缩小。因此，未来我们将重点关注如何实现更灵活的资源分配和动态调整资源。
 
-* 机器: H20
-* 模型：Qwen2.5-32B
-* rollout长度：max_response_length FSDP2: 20K tokens;
-* 算法：DAPO
-* engine: vllm+FSDP2
+* 机器：H20
+* 模型：Qwen3-30B-A3B-Base
+* rollout长度：max_response_length : 8K tokens;
+* 算法： GRPO
+* 数据集： TRAIN_FILE: dapo-math-17k.parquet TEST_FILE: aime-2024.parquet
+* Engine: vllm+Megatron
 * rollout.n: 16
-* ppo_mini_batch_size: 32
+* ppo_mini_batch_size: 128
 * test_freq: 20
 
-* colacate sync:
-    * step:200
+* colocate sync:
+    * step:400
     * train_batch_size: 512
 
 * fully_async_policy
-    * total_rollout_steps: 512*200
-    * trigger_parameter_sync_step: 512/32 = 16
-    * staleness_threshold: 0
-    * partial_rollout: False
+    * total_rollout_steps: 512*400
+    * trigger_parameter_sync_step: 512/128 = 4
+    * staleness_threshold: 0.5
+    * partial_rollout: True
 
-| training mode      | Resource allocation | mode                                         | step | generate_sequences | old_log_prob | update_actor | total time | acc/best@32/mean |
-|--------------------|---------------------|----------------------------------------------|------|--------------------|--------------|--------------|------------|------------------|
-| colocate sync      | 128                 |                                              |      |                    |              |              |            |                  |
-| fully_async_policy | 64:64               | stream off policy pipeline                   |      |                    |              |              |            |                  |
-| fully_async_policy | 64:64               | async stream pipeline with staleness samples |      |                    |              |              |            |                  |
-| fully_async_policy | 64:64               | async stream pipeline with partial rollout   |      |                    |              |              |            |                  |
+| Training Mode        | Resource Allocation | Step    | Gen    | Old Log Prob | Ref    | Update Actor | Total Time 100 Step | Total Time 200 Step | Total Time 300 Step | Total Time 400 Step | Acc/Mean@1                 |
+|----------------------|--------------------|---------|--------|--------------|--------|--------------|---------------------|---------------------|---------------------|---------------------|-----------------------------|
+| Colocate Sync        | 128                | 497.89  | 348.05 | 28.73        | 20.86  | 86.27        | 13h 36m             | 1d 3h 48m           | 1d 19h 4m           | 2d 11h 39m          | max: 0.3500<br>last: 0.3208 |
+| Fully Async Policy   | 96:32              | 282.75  | 22.06  | \            | 50.05  | 206.63       | 6h 45m (2.01x)      | 14h 48m (1.88x)     | 1d 0h 9m (1.78x)    | 1d 10h 41m (1.72x)  | max: 0.3813<br>last: 0.3448 |
+
+> source data: https://wandb.ai/hou-zg-meituan/fully-async-policy-30B?nw=nwuserhouzg
 
 ## 多轮工具调用
 参考 **recipe/retool** 和 **ToolAgentLoop**，我们为 **fully_async_policy** 实现了支持partial rollout的多轮工具调用循环 **AsyncPartialToolAgentLoop**。

@@ -106,3 +106,8 @@ class ParameterSynchronizer:
         if self.wait_last_resume:
             ray.get(self.wait_last_resume)
         print(f"[ParameterSynchronizer] Wait last validate cost: {time.time() - start_time:.2f} seconds")
+
+    def rollouter_save_checkpoint(self, local_global_step_folder: str):
+        """Trigger rollout to save checkpoint(dataloader)"""
+        print(f"[ParameterSynchronizer] Triggering checkpoint save at {local_global_step_folder} ...")
+        return ray.get(self.rollouter.save_checkpoint.remote(local_global_step_folder))
