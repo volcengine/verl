@@ -131,7 +131,7 @@ class OneStepOffRayTrainer(RayPPOTrainer):
 
     async def _validate(self):
         # Reset prefix cache using async method
-        await self.async_rollout_manager.reset_prefix_cache()
+        await self.async_rollout_manager.clear_kv_cache()
         self.actor_rollout_wg = self.rollout_wg
         ret = super()._validate()
         self.actor_rollout_wg = self.actor_wg
@@ -286,7 +286,7 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         )
 
     async def sync_rollout_weights(self):
-        await self.async_rollout_manager.reset_prefix_cache()
+        await self.async_rollout_manager.clear_kv_cache()
         self.actor_wg.sync_rollout_weights()
         ray.get(self.rollout_wg.sync_rollout_weights())
 

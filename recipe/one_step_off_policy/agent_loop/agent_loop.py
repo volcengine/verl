@@ -16,26 +16,15 @@ import logging
 import os
 
 import ray
-from omegaconf import DictConfig
 
-from recipe.one_step_off_policy.vllm_rollout.vllm_async_server import OneStepOffLLMReplica
-from verl.experimental.agent_loop.agent_loop import (
-    AgentLoopManager,
-)
+from verl.experimental.agent_loop.agent_loop import AgentLoopManager
 from verl.protocol import DataProto
-from verl.single_controller.ray import RayResourcePool, RayWorkerGroup
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 class OneStepOffAgentLoopManager(AgentLoopManager):
-    def __init__(
-        self, config: DictConfig, worker_group: RayWorkerGroup = None, rm_resource_pool: RayResourcePool = None
-    ):
-        self.rollout_replica_class = OneStepOffLLMReplica
-        super().__init__(config, worker_group, rm_resource_pool)
-
     def generate_sequences(self, prompts: DataProto) -> DataProto:
         """Split input batch and dispatch to agent loop workers.
 
@@ -92,5 +81,5 @@ class OneStepOffAgentLoopManager(AgentLoopManager):
         output.meta_info = {"timing": timing, **outputs[0].meta_info}
         return output
 
-    async def reset_prefix_cache(self):
-        await asyncio.gather(*[replica.reset_prefix_cache() for replica in self.rollout_replicas])
+    async def clear_kv_cache(self):
+        await asyncio.gather(*[replica.clear_kv_cache() for replica in self.rollout_replicas])

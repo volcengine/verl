@@ -307,6 +307,9 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
         self._worker_index = (self._worker_index + 1) % len(self.agent_loop_workers)
         return worker
 
+    async def clear_kv_cache(self):
+        await asyncio.gather(*[replica.clear_kv_cache() for replica in self.rollout_replicas])
+
     async def cancel(self):
         worker_cancel_tasks = [worker.cancel_agent_loops.remote() for worker in self.agent_loop_workers]
         rollout_cancel_tasks = [replica.cancel() for replica in self.rollout_replicas]
@@ -316,12 +319,3 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
         rollout_resume_tasks = [replica.resume() for replica in self.rollout_replicas]
         worker_resume_tasks = [worker.resume_agent_loops.remote() for worker in self.agent_loop_workers]
         await asyncio.gather(*rollout_resume_tasks, *worker_resume_tasks)
-
-    async def wake_up(self):
-        await asyncio.gather(*[replica.wake_up() for replica in self.rollout_replicas])
-
-    async def sleep(self):
-        await asyncio.gather(*[replica.sleep() for replica in self.rollout_replicas])
-
-    async def reset_prefix_cache(self):
-        await asyncio.gather(*[replica.reset_prefix_cache() for replica in self.rollout_replicas])
