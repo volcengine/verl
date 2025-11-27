@@ -341,6 +341,8 @@ def test_pop():
     assert popped_dataset.batch_size[0] == 3
 
     assert popped_dataset.keys() == {"obs", "2"}
+    assert torch.all(torch.eq(popped_dataset["obs"], obs)).item()
+    assert popped_dataset["2"] == 2
 
     assert dataset.keys() == {"act", "1", "labels"}
 
