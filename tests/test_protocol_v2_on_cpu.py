@@ -579,7 +579,7 @@ def test_dataproto_no_batch():
     selected = data.select("labels")
 
     assert selected["labels"] == labels
-    pop_data = tu.pop(data, keys=["labels"])
+    pop_data = tu.pop_keys(data, keys=["labels"])
     assert pop_data["labels"] == labels
     assert "labels" not in data
 
