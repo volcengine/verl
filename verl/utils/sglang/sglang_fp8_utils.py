@@ -21,35 +21,35 @@ logger = logging.getLogger(__name__)
 
 
 def should_quantize_param(param_name: str) -> bool:
-    """根据参数名判断是否应该量化为 FP8
+    """Determine whether to quantize to FP8 based on parameter name
 
-    量化规则：
-    - 必须以 .weight 结尾（排除 bias）
-    - 排除 embedding 层
-    - 排除 normalization 层
-    - 排除输出层（lm_head）
+    Quantization rules:
+    - Must end with .weight (exclude bias)
+    - Exclude embedding layers
+    - Exclude normalization layers
+    - Exclude output layer (lm_head)
     """
-    # 必须是权重参数
+    # Must be a weight parameter
     if not param_name.endswith(".weight"):
         return False
 
-    # 排除的层类型
+    # Layer types to exclude
     exclude_patterns = [
-        "embed_tokens",  # Embedding 层
-        "lm_head",  # 输出层
+        "embed_tokens",  # Embedding layer
+        "lm_head",  # Output layer
         "layernorm",  # LayerNorm
-        "norm",  # 各种 Norm 层
-        "ln_",  # LayerNorm 变体
+        "norm",  # Various Norm layers
+        "ln_",  # LayerNorm variants
         "embeddings",  # Embeddings
     ]
 
-    # 检查是否匹配排除模式
+    # Check if matches exclude patterns
     param_lower = param_name.lower()
     for pattern in exclude_patterns:
         if pattern in param_lower:
             return False
 
-    # 包含的层类型（Linear 层）
+    # Layer types to include (Linear layers)
     include_patterns = [
         "q_proj",  # Query projection
         "k_proj",  # Key projection
@@ -64,19 +64,19 @@ def should_quantize_param(param_name: str) -> bool:
         "mlp",  # MLP layers
     ]
 
-    # 检查是否匹配包含模式
+    # Check if matches include patterns
     for pattern in include_patterns:
         if pattern in param_lower:
             logger.info(f"Will quantize FP8: {param_name}")
             return True
 
-    # 默认不量化
+    # Do not quantize by default
     logger.debug(f"Skip quantization: {param_name}")
     return False
 
 
 def quant_weights_by_name(weights, quant_config, dtype=torch.bfloat16, vllm_version="0.11.0"):
-    """基于参数名的 FP8 量化
+    """FP8 quantization based on parameter name
 
     Args:
         weights: Generator of (name, tensor) pairs
@@ -90,8 +90,6 @@ def quant_weights_by_name(weights, quant_config, dtype=torch.bfloat16, vllm_vers
     from verl.utils.sglang.sglang_fp8_utils import scaled_fp8_blockwise
 
     weights_quantized = []
-    quantized_count = 0
-    skipped_count = 0
 
     if isinstance(quant_config, dict):
         weight_block_size = quant_config.get("weight_block_size")
@@ -102,16 +100,15 @@ def quant_weights_by_name(weights, quant_config, dtype=torch.bfloat16, vllm_vers
         raise ValueError("weight_block_size not found in quant_config")
 
     for k, v in weights:
-        # 判断是否需要量化
+        # Check if quantization is needed
         if not should_quantize_param(k):
             weights_quantized.append((k, v))
-            skipped_count += 1
             continue
 
-        # 量化为 FP8
+        # Quantize to FP8
         try:
             if weight_block_size is not None:
-                print(f"Quantizing to FP8 blockwise: {k}")
+                logger.debug(f"Quantizing to FP8 blockwise: {k}")
                 param_lp, param_scale = scaled_fp8_blockwise(
                     v.to(dtype),
                     weight_block_size=weight_block_size,
@@ -119,18 +116,15 @@ def quant_weights_by_name(weights, quant_config, dtype=torch.bfloat16, vllm_vers
                 param_scale = param_scale.squeeze(-1)
                 weights_quantized.append([k, param_lp])
                 weights_quantized.append([k + "_scale_inv", param_scale])
-                quantized_count += 1
             else:
                 raise ValueError(
                     "Only blockwise quantization is supported. Please set weight_block_size in quant_config"
                 )
         except Exception as e:
             logger.error(f"Failed to quantize {k}: {e}")
-            # 如果量化失败，使用原始权重
+            # If quantization fails, use original weights
             weights_quantized.append((k, v))
-            skipped_count += 1
 
-    print(f"FP8 quantization complete: {quantized_count} quantized, {skipped_count} skipped")
     return weights_quantized
 
 
@@ -185,3 +179,4 @@ def scaled_fp8_blockwise(
 
     # Convert to target format, but still in original precision container
     return fp_data, descale_fp
+

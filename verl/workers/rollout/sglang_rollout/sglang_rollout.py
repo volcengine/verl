@@ -1626,7 +1626,7 @@ class ServerAdapter(BaseRollout):
         update_weights_bucket_bytes = int(self.config.update_weights_bucket_megabytes) << 20
         if self.config.get("quantization", None) == "fp8":
             from verl.utils.sglang.sglang_fp8_utils import quant_weights_by_name
-
+            logger.info(f"Convert bf16 weights to fp8 format before loading")
             weights = quant_weights_by_name(
                 weights,
                 self.model_config.hf_config.quantization_config,
