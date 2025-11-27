@@ -129,21 +129,6 @@ class OneStepOffRayTrainer(RayPPOTrainer):
 
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
 
-    def _run_async_sync(self, coro):
-        """Run an async coroutine in a sync context, handling both async and sync environments."""
-        import asyncio
-        import concurrent.futures
-
-        try:
-            # Check if we're in an async context
-            loop = asyncio.get_running_loop()
-            # If we have a running loop, run in a thread to avoid blocking
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                return asyncio.run_coroutine_threadsafe(coro, loop).result()
-        except RuntimeError:
-            # No running loop, we can use asyncio.run() directly
-            return asyncio.run(coro)
-
     async def _validate(self):
         # Reset prefix cache using async method
         await self.async_rollout_manager.reset_prefix_cache()

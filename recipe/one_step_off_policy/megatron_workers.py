@@ -144,6 +144,7 @@ class DetachActorWorker(DetachSync):
         )
         return generator
 
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def get_actor_weights_info(self):
         assert self._is_actor
         if hasattr(self, "_weights_info"):
