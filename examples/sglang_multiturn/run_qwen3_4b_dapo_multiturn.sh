@@ -3,7 +3,7 @@ set -x
 ulimit -n 65535
 
 PROJECT_DIR="$(pwd)"
-RETOOL_DIR="$PROJECT_DIR/../verl-${RETOOL_DIR}"
+RETOOL_DIR="../verl-recipe/retool"
 CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
 
 pip install --upgrade "huggingface-hub>=0.34.0"
