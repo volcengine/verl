@@ -22,7 +22,8 @@ from openai.types.chat import ChatCompletion
 
 from verl import DataProto
 from verl.single_controller.ray.base import RayResourcePool, split_resource_pool
-from verl.workers.config import HFModelConfig, RewardModelConfig
+from verl.utils import omega_conf_to_dataclass
+from verl.workers.config import RewardModelConfig
 from verl.workers.rollout.replica import get_rollout_replica_class
 
 logger = logging.getLogger(__file__)
@@ -32,7 +33,7 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 class RewardModelManager:
     """Reward model manager."""
 
-    def __init__(self, config: RewardModelConfig, resource_pool: RayResourcePool = None):
+    def __init__(self, config: RewardModelConfig, resource_pool: RayResourcePool = None, reward_model_name: str = None):
         """
         Initialize the reward model manager.
 
@@ -42,6 +43,7 @@ class RewardModelManager:
         """
         self.config = config
         self.resource_pool = resource_pool
+        self.reward_model_name = reward_model_name
         self._initialize_llm_servers()
         self._initialize_router()
         if self.config.rollout.free_cache_engine:
@@ -58,11 +60,7 @@ class RewardModelManager:
 
         rollout_replica_class = get_rollout_replica_class(self.config.rollout.name)
         rollout_config = self.config.rollout
-        model_config = HFModelConfig(
-            path=self.config.model.path,
-            external_lib=self.config.model.external_lib,
-            trust_remote_code=self.config.model.trust_remote_code,
-        )
+        model_config = omega_conf_to_dataclass(self.config.model)
         self.tokenizer = model_config.get_processor()
         self.rollout_replicas = [
             rollout_replica_class(
@@ -71,6 +69,7 @@ class RewardModelManager:
                 model_config=model_config,
                 gpus_per_node=self.config.n_gpus_per_node,
                 is_reward_model=True,
+                reward_model_name=self.reward_model_name,
             )
             for replica_rank in range(num_replicas)
         ]

@@ -2,10 +2,11 @@ Reward Loop
 ===========
 
 .. _yyding: https://yyding1.github.io
+.. _alek6kun: https://github.com/alek6kun
 
-Author: `Yuyang Ding <https://yyding1.github.io>`_
+Authors: `Yuyang Ding <https://yyding1.github.io>`_, `Alexis Limozin <https://github.com/alek6kun>`_
 
-Last updated: 10/23/2025.
+Last updated: 11/23/2025.
 
 .. warning::
    Reward Loop is ready for use, but the API may change in future releaes.
@@ -42,6 +43,7 @@ This asynchronous design enables the Reward Loop to handle multiple reward compu
                   extra_info=extra_info,
                   reward_router_address=self.reward_router_address,
                   reward_model_tokenizer=self.reward_model_tokenizer,
+                  reward_model_path=self.reward_model_config.get("model", {}).get("path", None),
             )
          else:
             result = await self.loop.run_in_executor(
@@ -53,6 +55,7 @@ This asynchronous design enables the Reward Loop to handle multiple reward compu
                      extra_info=extra_info,
                      reward_router_address=self.reward_router_address,
                      reward_model_tokenizer=self.reward_model_tokenizer,
+                     reward_model_path=self.reward_model_config.get("model", {}).get("path", None),
                   ),
             )
          # ... (reward postprocessing)
@@ -78,6 +81,7 @@ A user-defined reward function may look like the following:
       extra_info: dict,
       reward_router_address: str,
       reward_model_tokenizer: PreTrainedTokenizer,
+      reward_model_path: str,
    ):
       """Compute the reward score."""
 
@@ -85,7 +89,7 @@ A user-defined reward function may look like the following:
       grm_prompt = GRM_PROMPT_TEMPLATE.format(problem=extra_info["question"], solution=solution_str)
       messages = [{"role": "user", "content": grm_prompt}]
       sampling_params = {"temperature": 0.7, "top_p": 0.8, "max_tokens": 4096}
-      chat_complete_request = {"messages": messages, **sampling_params}
+      chat_complete_request = {"messages": messages, "model": reward_model_path, **sampling_params}
 
       # Step 2: Send async request to the reward model
       # here, chat_complete sends async http request to the router address
@@ -109,11 +113,11 @@ Runable examples are provided in the ``recipe/fapo`` directory for reference.
 Reward Models and Router
 ------------------------
 
-To support flexible and scalable reward model computation, RewardLoop implement a reward router that coordinates requests among multiple reward model servers.
+To support flexible and scalable reward model computation, RewardLoop implement a reward router that coordinates requests among multiple reward model replicas with their own servers.
 
-Each reward model runs as an independent server and is registered with the router.
+Each reward model replica runs as an independent server and is registered with its router.
 This router will forward the requests to the registered reward servers with load balancing and return the results.
-This design allows us to expose a single unified router address to user-defined reward functions, enabling them to access various reward models seamlessly through the same interface.
+This design allows us to expose a single unified router address to user-defined reward functions, enabling them to access various reward model replicas seamlessly through the same interface.
 
 RewardModelManager
 ~~~~~~~~~~~~~~~~~~
@@ -127,7 +131,7 @@ RewardModelManager
    class RewardModelManager:
       """Reward model manager."""
 
-      def __init__(self, config: RewardModelConfig, worker_group: RayWorkerGroup = None):
+      def __init__(self, config: RewardModelConfig, worker_group: RayWorkerGroup = None, reward_model_name: str = None):
          """
          Initialize the reward model manager.
 
@@ -137,6 +141,7 @@ RewardModelManager
          """
          self.config = config
          self.worker_group = worker_group
+         self.reward_model_name = reward_model_name
          self._initialize_llm_servers()
          self._initialize_router()
          if self.config.rollout.free_cache_engine:

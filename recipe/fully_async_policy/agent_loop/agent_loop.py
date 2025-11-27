@@ -79,7 +79,10 @@ class FullyAsyncLLMServerManager(AsyncLLMServerManager):
 @ray.remote
 class FullyAsyncAgentLoopWorker(AgentLoopWorkerBase):
     def __init__(
-        self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], reward_router_address: str = None
+        self,
+        config: DictConfig,
+        server_handles: list[ray.actor.ActorHandle],
+        reward_router_address: dict[str, str] = None,
     ):
         self.server_manager = FullyAsyncLLMServerManager(config, server_handles)
         super().__init__(config, server_handles, reward_router_address)
@@ -233,8 +236,10 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
         if self.config.reward_model.enable and self.config.reward_model.enable_resource_pool:
             from verl.experimental.reward import RewardModelManager
 
-            self.reward_model_manager = RewardModelManager(self.config.reward_model, self.rm_wg)
-            self.reward_router_address = self.reward_model_manager.get_router_address()
+            for name, model_config in self.config.reward_model.reward_models.items():
+                manager = RewardModelManager(model_config, self.rm_wg, name)
+                self.reward_model_manager[name] = manager
+                self.reward_router_address[name] = manager.get_router_address()
 
         await self._initialize_llm_servers_async()
         self._init_agent_loop_workers()

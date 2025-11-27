@@ -35,6 +35,7 @@ def launch_router_process(
 ) -> str:
     router_ip = ray.util.get_node_ip_address().strip("[]")
     router_port, _ = get_free_port(router_ip)
+    prometheus_port, _ = get_free_port("localhost")
     router_address = (
         f"[{router_ip}]:{router_port}" if is_valid_ipv6_address(router_ip) else f"{router_ip}:{router_port}"
     )
@@ -45,6 +46,7 @@ def launch_router_process(
         balance_abs_threshold=0,
         log_level="warn",
         request_timeout_secs=request_timeout,
+        prometheus_port=prometheus_port,
     )
     router_process = multiprocessing.Process(target=launch_router, args=(router_args,))
     router_process.daemon = True

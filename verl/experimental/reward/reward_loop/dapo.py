@@ -24,15 +24,27 @@ from verl.utils.reward_score import default_compute_score
 class DAPORewardLoopManager(RewardLoopManagerBase):
     """Reward loop for DAPO."""
 
-    def __init__(self, config, tokenizer, compute_score=None, reward_router_address=None, reward_model_tokenizer=None):
+    def __init__(
+        self,
+        config,
+        tokenizer,
+        compute_score=None,
+        reward_router_address=None,
+        reward_model_tokenizer=None,
+        reward_model_name=None,
+    ):
         super().__init__(config, tokenizer)
         self.compute_score = compute_score or default_compute_score
         self.is_async_reward_score = inspect.iscoroutinefunction(self.compute_score)
+        if config.reward_model.enable:
+            self.reward_model_config = config.reward_model.reward_models[reward_model_name]
+        else:
+            self.reward_model_config = config.reward_model
 
         # DAPO Reward Config
-        overlong_buffer_cfg = config.reward_model.get("reward_kwargs", {}).get("overlong_buffer_cfg", None)
+        overlong_buffer_cfg = self.reward_model_config.get("reward_kwargs", {}).get("overlong_buffer_cfg", None)
         self.overlong_buffer_cfg = overlong_buffer_cfg
-        self.max_resp_len = config.reward_model.get("reward_kwargs", {}).get("max_resp_len", None)
+        self.max_resp_len = self.reward_model_config.get("reward_kwargs", {}).get("max_resp_len", None)
         self.reward_router_address = reward_router_address
         self.reward_model_tokenizer = reward_model_tokenizer
 
@@ -67,6 +79,7 @@ class DAPORewardLoopManager(RewardLoopManagerBase):
                 extra_info=extra_info,
                 reward_router_address=self.reward_router_address,
                 reward_model_tokenizer=self.reward_model_tokenizer,
+                reward_model_path=self.reward_model_config.get("model", {}).get("path", None),
             )
         else:
             result = await self.loop.run_in_executor(
@@ -78,6 +91,7 @@ class DAPORewardLoopManager(RewardLoopManagerBase):
                     extra_info=extra_info,
                     reward_router_address=self.reward_router_address,
                     reward_model_tokenizer=self.reward_model_tokenizer,
+                    reward_model_path=self.reward_model_config.get("model", {}).get("path", None),
                 ),
             )
 

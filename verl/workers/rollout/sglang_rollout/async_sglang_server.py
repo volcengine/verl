@@ -294,7 +294,7 @@ class SGLangReplica(RolloutReplica):
             name = (
                 f"sglang_server_{self.replica_rank}_{node_rank}"
                 if not self.is_reward_model
-                else f"sglang_server_reward_{self.replica_rank}_{node_rank}"
+                else f"sglang_server_reward_{self.replica_rank}_{node_rank}_{self.reward_model_name}"
             )
             server = SGLangHttpServer.options(
                 scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
