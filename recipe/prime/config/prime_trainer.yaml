@@ -23,6 +23,7 @@ actor_rollout_ref:
   rollout:
     # number of responses (i.e. num sample times)
     n: 4
+    mode: sync
   actor:
     entropy_coeff: 0.001
 
