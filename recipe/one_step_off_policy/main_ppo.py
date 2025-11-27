@@ -96,7 +96,6 @@ def create_role_worker_mapping(config):
     elif config.actor_rollout_ref.actor.strategy == "megatron":
         assert config.critic.strategy == "megatron"
         from recipe.one_step_off_policy.megatron_worker import CriticWorker, DetachActorWorker, DetachAsyncRolloutWorker
-
         from verl.single_controller.ray import RayWorkerGroup
 
         ray_worker_group_cls = RayWorkerGroup

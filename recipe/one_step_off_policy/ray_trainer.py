@@ -129,7 +129,24 @@ class OneStepOffRayTrainer(RayPPOTrainer):
 
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
 
-    def _validate(self):
+    def _run_async_sync(self, coro):
+        """Run an async coroutine in a sync context, handling both async and sync environments."""
+        import asyncio
+        import concurrent.futures
+
+        try:
+            # Check if we're in an async context
+            loop = asyncio.get_running_loop()
+            # If we have a running loop, run in a thread to avoid blocking
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                return asyncio.run_coroutine_threadsafe(coro, loop).result()
+        except RuntimeError:
+            # No running loop, we can use asyncio.run() directly
+            return asyncio.run(coro)
+
+    async def _validate(self):
+        # Reset prefix cache using async method
+        await self.async_rollout_manager.reset_prefix_cache()
         self.actor_rollout_wg = self.rollout_wg
         ret = super()._validate()
         self.actor_rollout_wg = self.actor_wg
@@ -273,8 +290,14 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         from recipe.one_step_off_policy.agent_loop import OneStepOffAgentLoopManager
 
         self.async_rollout_mode = True
+
+        if self.config.reward_model.enable and self.config.reward_model.enable_resource_pool:
+            rm_resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)
+        else:
+            rm_resource_pool = None
+
         self.async_rollout_manager = OneStepOffAgentLoopManager(
-            config=self.config, worker_group=self.rollout_wg, rm_wg=self.rm_wg
+            config=self.config, worker_group=self.rollout_wg, rm_resource_pool=rm_resource_pool
         )
 
     async def sync_rollout_weights(self):
@@ -417,7 +440,7 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         # perform validation before training
         # currently, we only support validation using the reward_function.
         if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
-            val_metrics = self._validate()
+            val_metrics = await self._validate()
             assert val_metrics, f"{val_metrics=}"
             pprint(f"Initial validation metrics: {val_metrics}")
             logger.log(data=val_metrics, step=self.global_steps)
@@ -632,7 +655,7 @@ class OneStepOffRayTrainer(RayPPOTrainer):
                 and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
             ):
                 with marked_timer("testing", timing_raw, color="green"):
-                    val_metrics: dict = self._validate()
+                    val_metrics: dict = await self._validate()
                     if is_last_step:
                         last_val_metrics = val_metrics
                 metrics.update(val_metrics)

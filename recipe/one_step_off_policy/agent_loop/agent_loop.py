@@ -16,17 +16,54 @@ import logging
 import os
 
 import ray
+from omegaconf import DictConfig
 
 from verl.experimental.agent_loop.agent_loop import (
     AgentLoopManager,
 )
 from verl.protocol import DataProto
+from verl.single_controller.ray import RayResourcePool, RayWorkerGroup
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
+from recipe.one_step_off_policy.vllm_rollout.vllm_async_server import OneStepOffLLMReplica
+
 
 class OneStepOffAgentLoopManager(AgentLoopManager):
+    def __init__(
+        self, config: DictConfig, worker_group: RayWorkerGroup = None, rm_resource_pool: RayResourcePool = None
+    ):
+        self.rollout_replica_class = OneStepOffLLMReplica
+        super().__init__(config, worker_group, rm_resource_pool)
+
+    def generate_sequences(self, prompts: DataProto) -> DataProto:
+        """Split input batch and dispatch to agent loop workers.
+
+        Args:
+            prompts (DataProto): Input batch.
+
+        Returns:
+            DataProto: Output batch.
+        """
+        # remove wake_up()/sleep() methods internally check
+
+        chunkes = prompts.chunk(len(self.agent_loop_workers))
+        outputs = ray.get(
+            [
+                worker.generate_sequences.remote(chunk)
+                for worker, chunk in zip(self.agent_loop_workers, chunkes, strict=True)
+            ]
+        )
+        output = DataProto.concat(outputs)
+
+        # calculate performance metrics
+        metrics = [output.meta_info.pop("metrics") for output in outputs]  # List[List[Dict[str, str]]]
+        timing = self._performance_metrics(metrics, output)
+
+        output.meta_info = {"timing": timing, **outputs[0].meta_info}
+        return output
+
     async def generate_sequences_async(self, prompts: DataProto) -> DataProto:
         """Split input batch and dispatch to agent loop workers (async version).
 
@@ -36,11 +73,6 @@ class OneStepOffAgentLoopManager(AgentLoopManager):
         Returns:
             DataProto: Output batch.
         """
-
-        if self.config.actor_rollout_ref.rollout.free_cache_engine:
-            self.wake_up()
-        if self.reward_model_manager and self.config.reward_model.rollout.free_cache_engine:
-            self.reward_model_manager.wake_up()
 
         chunkes = prompts.chunk(len(self.agent_loop_workers))
         # Use asyncio.gather with ray.get wrapped in asyncio.to_thread to avoid blocking
@@ -53,10 +85,6 @@ class OneStepOffAgentLoopManager(AgentLoopManager):
             ]
         )
         output = DataProto.concat(outputs)
-        if self.config.actor_rollout_ref.rollout.free_cache_engine:
-            self.sleep()
-        if self.reward_model_manager and self.config.reward_model.rollout.free_cache_engine:
-            self.reward_model_manager.sleep()
 
         # calculate performance metrics
         metrics = [output.meta_info.pop("metrics") for output in outputs]  # List[List[Dict[str, str]]]
