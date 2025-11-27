@@ -177,6 +177,34 @@ class RayPRIMETrainer(RayPPOTrainer):
 
         self.use_critic = False
 
+    def init_workers(self):
+        """Initialize workers for PRIME with async rollout support.
+        
+        PRIME uses AsyncActorRolloutRefWorker which provides async rollout
+        capabilities without requiring AgentLoopManager. The parent class
+        tries to create AgentLoopManager when rollout.mode == "async", but
+        that's only needed for agent-loop-based async,
+        not for PRIME's simple async worker rollout.
+        """
+        # Temporarily disable async mode to prevent AgentLoopManager creation
+        # PRIME's AsyncActorRolloutRefWorker handles async internally
+        original_mode = self.config.actor_rollout_ref.rollout.get("mode", "async")
+        with open_dict(self.config):
+            self.config.actor_rollout_ref.rollout.mode = "sync"
+        
+        try:
+            # Call parent's init_workers which sets up all the worker groups
+            super().init_workers()
+        finally:
+            # Restore the original async mode
+            with open_dict(self.config):
+                self.config.actor_rollout_ref.rollout.mode = original_mode
+        
+        # PRIME uses AsyncActorRolloutRefWorker which handles async directly
+        # The async mode is handled by the worker class, not AgentLoopManager
+        self.async_rollout_mode = False
+        self.async_rollout_manager = None
+
     def _create_dataloader(self, *args, **kwargs):
         from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 
