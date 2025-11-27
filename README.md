@@ -222,6 +222,6 @@ Founded in 2023, ByteDance Seed Team is dedicated to crafting the industry's mos
   <a href="https://www.zhihu.com/org/dou-bao-da-mo-xing-tuan-dui/">
     <img src="https://img.shields.io/badge/zhihu-%230084FF?style=for-the-badge&logo=zhihu&logoColor=white"></a>
 
-## </div>
+</div>
 
 We are HIRING! Send us an [email](mailto:the.verl.project@gmail.com) if you are interested in internship/FTE opportunities in RL for agents.
