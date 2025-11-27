@@ -328,17 +328,64 @@ def test_chunk_concat():
 
 
 def test_pop():
-    obs = torch.randn(100, 10)
-    act = torch.randn(100, 3)
-    dataset = tu.get_tensordict({"obs": obs, "act": act}, non_tensor_dict={"2": 2, "1": 1})
+    obs = torch.randn(3, 10)
+    act = torch.randn(3, 3)
+    labels = ["a", ["b"], []]
+    dataset = tu.get_tensordict({"obs": obs, "act": act, "labels": labels}, non_tensor_dict={"2": 2, "1": 1})
 
-    poped_dataset = tu.pop(dataset, keys=["obs", "2"])
+    dataset1 = copy.deepcopy(dataset)
 
-    assert poped_dataset.batch_size[0] == 100
+    # test pop keys
+    popped_dataset = tu.pop_keys(dataset, keys=["obs", "2"])
 
-    assert poped_dataset.keys() == {"obs", "2"}
+    assert popped_dataset.batch_size[0] == 3
 
-    assert dataset.keys() == {"act", "1"}
+    assert popped_dataset.keys() == {"obs", "2"}
+
+    assert dataset.keys() == {"act", "1", "labels"}
+
+    # test pop non-exist key
+    with pytest.raises(KeyError):
+        tu.pop_keys(dataset, keys=["obs", "2"])
+
+    # test single pop
+    # NonTensorData
+    assert tu.pop(dataset1, key="2") == 2
+    # NonTensorStack
+    assert tu.pop(dataset1, key="labels") == ['a', ['b'], []]
+    # Tensor
+    assert torch.all(torch.eq(tu.pop(dataset1, key='obs'), obs)).item()
+
+
+def test_get():
+    obs = torch.randn(3, 10)
+    act = torch.randn(3, 3)
+    labels = ["a", ["b"], []]
+    dataset = tu.get_tensordict({"obs": obs, "act": act, "labels": labels}, non_tensor_dict={"2": 2, "1": 1})
+
+    # test pop keys
+    popped_dataset = tu.get_keys(dataset, keys=["obs", "2"])
+
+    assert popped_dataset.batch_size[0] == 3
+
+    assert torch.all(torch.eq(popped_dataset['obs'], dataset['obs'])).item()
+
+    assert popped_dataset['2'] == dataset['2']
+
+    # test pop non-exist key
+    with pytest.raises(KeyError):
+        tu.get_keys(dataset, keys=["obs", "3"])
+
+    # test single pop
+    # NonTensorData
+    assert tu.get(dataset, key="2") == 2
+    # NonTensorStack
+    assert tu.get(dataset, key="labels") == ['a', ['b'], []]
+    # Tensor
+    assert torch.all(torch.eq(tu.get(dataset, key='obs'), obs)).item()
+    # Non-exist key
+    assert tu.get(dataset, key="3", default=3) == 3
+
 
 
 def test_repeat():

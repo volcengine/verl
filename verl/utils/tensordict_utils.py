@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import logging
-from typing import Iterator
+from typing import Iterator, Iterable, Any
 
 import torch
 from tensordict import TensorDict
@@ -256,7 +256,8 @@ def union_tensor_dict(tensor_dict1: TensorDict, tensor_dict2: TensorDict) -> Ten
     )
     for key in tensor_dict2.keys():
         if key not in tensor_dict1.keys():
-            tensor_dict1[key] = tensor_dict2[key]
+            # Note that there is a difference between tensor_dict2[key] and tensor_dict2.get(key)
+            tensor_dict1[key] = tensor_dict2.get(key)
         else:
             if isinstance(tensor_dict2[key], torch.Tensor):
                 assert tensor_dict1[key].equal(tensor_dict2[key]), (
@@ -325,10 +326,59 @@ def assert_tensordict_eq(tensordict1: TensorDict, tensordict2: TensorDict):
             assert val == val2
 
 
-def pop(tensordict: TensorDict, keys: Iterator[str]) -> TensorDict:
+
+def get(tensordict: TensorDict, key: str, default=None) -> Any:
+    if key not in tensordict:
+        return default
+
+    output = tensordict.get(key)
+    if isinstance(output, torch.Tensor):
+        return output
+    elif isinstance(output, NonTensorStack):
+        return output.tolist()
+    else:
+        assert isinstance(output, NonTensorData)
+        return output.data
+
+
+def get_keys(tensordict: TensorDict, keys: Iterable[str]) -> TensorDict:
     tensor_output = {}
     non_tensor_output = {}
     for key in keys:
+        if key not in tensordict.keys():
+            raise KeyError(f"key {key} not in tensordict")
+        output = tensordict.get(key)
+        if isinstance(output, torch.Tensor):
+            tensor_output[key] = output
+        elif isinstance(output, NonTensorStack):
+            tensor_output[key] = output.tolist()
+        else:
+            assert isinstance(output, NonTensorData)
+            non_tensor_output[key] = output.data
+
+    return get_tensordict(tensor_output, non_tensor_output)
+
+
+def pop(tensordict: TensorDict, key: str, default=None) -> Any:
+    if key not in tensordict.keys():
+        return default
+
+    output = tensordict.get(key)
+    if isinstance(output, torch.Tensor):
+        return tensordict.pop(key)
+    elif isinstance(output, NonTensorStack):
+        return tensordict.pop(key).tolist()
+    else:
+        assert isinstance(output, NonTensorData)
+        return tensordict.pop(key).data
+
+
+def pop_keys(tensordict: TensorDict, keys: Iterable[str]) -> TensorDict:
+    tensor_output = {}
+    non_tensor_output = {}
+    for key in keys:
+        if key not in tensordict.keys():
+            raise KeyError(f"key {key} not in tensordict")
         output = tensordict.get(key)
         if isinstance(output, torch.Tensor):
             tensor_output[key] = tensordict.pop(key)
