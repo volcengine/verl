@@ -27,7 +27,7 @@ from verl.utils.device import (
     get_device_name,
     get_torch_device,
 )
-from verl.utils.megatron_utils import per_tensor_generator
+from verl.utils.megatron_utils import load_megatron_model_to_gpu, offload_megatron_model_to_cpu, per_tensor_generator
 from verl.workers.megatron_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
 
 logger = logging.getLogger(__file__)
@@ -67,7 +67,8 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
     def sync_rollout_weights(self):
         assert (self._is_actor or self._is_rollout) and not self.config.hybrid_engine
         assert hasattr(self, "_weights_info") and self._weights_info is not None
-
+        if self._is_actor and self._is_offload_param:
+            load_megatron_model_to_gpu(self.actor_module)
         params_generator = self._get_actor_params_generator() if self._is_actor else None
         if self._is_rollout:
             inference_model = get_inference_model(self.rollout)
@@ -89,6 +90,8 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
             collective.broadcast(tensor, src_rank=0, group_name="actor_rollout")
             if self._is_rollout:
                 inference_model.load_weights([(key, tensor)])
+        if self._is_actor and self._is_offload_param:
+            offload_megatron_model_to_cpu(self.actor_module)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def save_model_to_cpu(self, n):
@@ -128,13 +131,17 @@ class DetachActorWorker(DetachNcclSync):
         assert self._is_actor
         if hasattr(self, "_weights_info"):
             return self._weights_info
-
+        if self._is_offload_param:
+            load_megatron_model_to_gpu(self.actor_module)
         params_generator = self._get_actor_params_generator()
         ret = []
         for key, tensor in params_generator:
             ret.append((key, tensor.size(), tensor.dtype))
 
         self._weights_info = ret
+        # Here, we only call this function at the beginning,
+        # and immediately afterwards we call sync_rollout_weights.
+        # So we no longer call offload in this.
         return ret
 
 

@@ -179,7 +179,7 @@ class CriticWorker(Worker, DistProfilerExtension):
             )
             with Timer(name="update_policy", logger=None) as timer:
                 for batch_idx, mini_batch in enumerate(dataloader):
-                    mini_batch.meta_info["global_batch_size"] = self.config.ppo_mini_batch_size
+                    mini_batch.meta_info["global_batch_size"] = self.ppo_mini_batch_size
                     # TODO: make worker API to accept TensorDict as well
                     mini_batch = mini_batch.to_tensordict()
                     mini_batch = left_right_2_no_padding(mini_batch)

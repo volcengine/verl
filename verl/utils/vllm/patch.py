@@ -53,6 +53,13 @@ except ImportError:
     pass
 
 try:
+    from vllm.model_executor.models.qwen3_next import Qwen3NextForCausalLM
+
+    SUPPORTED_MOE_MODELS.append(Qwen3NextForCausalLM)
+except ImportError:
+    pass
+
+try:
     from vllm.model_executor.models.kimi_vl import KimiVLForConditionalGeneration
 
     SUPPORTED_MOE_MODELS.append(KimiVLForConditionalGeneration)

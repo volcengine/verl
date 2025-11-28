@@ -405,15 +405,23 @@ def compute_rollout_correction_weights(
     # Apply batch normalization if requested
     if rollout_is_batch_normalize:
         # Compute mean based on aggregation level
+        mask_float = response_mask.to(dtype=rollout_is_weights.dtype)
         if rollout_is == "token":
             # Token-level: normalize over all token weights
-            weights_mean = verl_F.masked_mean(rollout_is_weights, response_mask)
+            if torch.distributed.is_available() and torch.distributed.is_initialized():
+                weights_mean = verl_F.distributed_masked_mean(rollout_is_weights, mask_float)
+            else:
+                weights_mean = verl_F.masked_mean(rollout_is_weights, response_mask)
         elif rollout_is == "sequence":
             # Sequence-level: normalize over sequence weights (one weight per sequence)
             # For each sequence, compute mean over valid tokens (they all have the same weight)
             # then average across sequences
-            seq_weights_mean = verl_F.masked_mean(rollout_is_weights, response_mask, axis=-1)  # (batch_size,)
-            weights_mean = seq_weights_mean.mean()
+            seq_weights = verl_F.masked_mean(rollout_is_weights, response_mask, axis=-1)  # (batch_size,)
+            seq_mask = (response_mask.sum(dim=-1) > 0).to(dtype=rollout_is_weights.dtype)
+            if torch.distributed.is_available() and torch.distributed.is_initialized():
+                weights_mean = verl_F.distributed_masked_mean(seq_weights, seq_mask)
+            else:
+                weights_mean = (seq_weights * seq_mask).sum() / seq_mask.sum().clamp_min(1e-8)
         else:
             raise ValueError(f"Unsupported rollout_is: {rollout_is}")
 
@@ -927,6 +935,8 @@ def apply_rollout_correction(
     Note:
         The implementation is copied from szrlee <szrlee@gmail.com>.
     """
+    from omegaconf import open_dict
+
     if "rollout_log_probs" not in batch.batch:
         raise ValueError(
             "bypass_mode=True requires rollout_log_probs in batch. "
@@ -936,8 +946,9 @@ def apply_rollout_correction(
     # Use rollout log probs as old log probs (zero-cost substitution)
     batch.batch["old_log_probs"] = batch.batch["rollout_log_probs"]
 
-    # Always pass rollout_correction config to actor for metrics computation
-    policy_loss_config["rollout_correction"] = rollout_corr_config
+    with open_dict(policy_loss_config):
+        # Always pass rollout_correction config to actor for metrics computation
+        policy_loss_config["rollout_correction"] = rollout_corr_config
 
     # Check if policy gradient loss mode is enabled
     use_policy_gradient = rollout_corr_config.get("use_policy_gradient", False)

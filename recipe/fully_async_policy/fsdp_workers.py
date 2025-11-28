@@ -29,6 +29,8 @@ from verl.utils.device import (
 )
 from verl.utils.fsdp_utils import (
     fsdp_version,
+    load_fsdp_model_to_gpu,
+    offload_fsdp_model_to_cpu,
 )
 from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
 
@@ -70,6 +72,8 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
         assert (self._is_actor or self._is_rollout) and not self.config.hybrid_engine
         assert hasattr(self, "_weights_info") and self._weights_info is not None
 
+        if self._is_actor and self._is_offload_param:
+            load_fsdp_model_to_gpu(self.actor_module_fsdp)
         params = self._get_actor_params() if self._is_actor else None
         if self._is_rollout:
             inference_model = get_inference_model(self.rollout)
@@ -91,6 +95,9 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
             collective.broadcast(tensor, src_rank=0, group_name="actor_rollout")
             if self._is_rollout:
                 inference_model.load_weights([(key, tensor)])
+
+        if self._is_actor and self._is_offload_param:
+            offload_fsdp_model_to_cpu(self.actor_module_fsdp)
         get_torch_device().empty_cache()
 
 
