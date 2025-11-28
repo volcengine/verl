@@ -23,7 +23,7 @@ from ray.util.collective import collective
 
 from recipe.one_step_off_policy.distributed_util import vllm_stateless_init_process_group
 from verl.single_controller.base.decorator import Dispatch, register
-from verl.utils.device import get_device_name, get_torch_device
+from verl.utils.device import get_torch_device
 from verl.utils.megatron_utils import load_megatron_model_to_gpu, offload_megatron_model_to_cpu
 from verl.utils.ray_utils import get_event_loop
 from verl.workers.megatron_workers import (
@@ -36,7 +36,6 @@ from verl.workers.megatron_workers import (
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
-device_name = get_device_name()
 
 __all__ = ["DetachActorWorker", "DetachAsyncRolloutWorker", "CriticWorker", "RewardModelWorker"]
 
@@ -96,7 +95,6 @@ class DetachSync(AsyncActorRolloutRefWorker):
                 if rollout_name == "vllm":
                     inference_model.load_weights([(key, tensor)])
                 elif rollout_name == "sglang":
-
                     # first_rank_in_node = self._tp_rank % tp_size_per_node == 0，
                     # Only the first rank within each node (i.e., the local rank is 0) initializes the engine;
                     # engines for other ranks are set to None.

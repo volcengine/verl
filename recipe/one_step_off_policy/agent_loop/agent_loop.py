@@ -25,33 +25,6 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 class OneStepOffAgentLoopManager(AgentLoopManager):
-    def generate_sequences(self, prompts: DataProto) -> DataProto:
-        """Split input batch and dispatch to agent loop workers.
-
-        Args:
-            prompts (DataProto): Input batch.
-
-        Returns:
-            DataProto: Output batch.
-        """
-        # remove wake_up()/sleep() methods internally check
-
-        chunkes = prompts.chunk(len(self.agent_loop_workers))
-        outputs = ray.get(
-            [
-                worker.generate_sequences.remote(chunk)
-                for worker, chunk in zip(self.agent_loop_workers, chunkes, strict=True)
-            ]
-        )
-        output = DataProto.concat(outputs)
-
-        # calculate performance metrics
-        metrics = [output.meta_info.pop("metrics") for output in outputs]  # List[List[Dict[str, str]]]
-        timing = self._performance_metrics(metrics, output)
-
-        output.meta_info = {"timing": timing, **outputs[0].meta_info}
-        return output
-
     async def generate_sequences_async(self, prompts: DataProto) -> DataProto:
         """Split input batch and dispatch to agent loop workers (async version).
 
@@ -80,6 +53,12 @@ class OneStepOffAgentLoopManager(AgentLoopManager):
 
         output.meta_info = {"timing": timing, **outputs[0].meta_info}
         return output
+
+    async def wake_up(self):
+        await asyncio.gather(*[replica.wake_up() for replica in self.rollout_replicas])
+
+    async def sleep(self):
+        await asyncio.gather(*[replica.sleep() for replica in self.rollout_replicas])
 
     async def clear_kv_cache(self):
         await asyncio.gather(*[replica.clear_kv_cache() for replica in self.rollout_replicas])
