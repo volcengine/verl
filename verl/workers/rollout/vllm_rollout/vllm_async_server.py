@@ -406,7 +406,6 @@ class vLLMHttpServerBase:
             if hasattr(SamplingParams(), str(k)) and k != "seed":
                 sampling_params[k] = self.config.get(k)
         sampling_params["n"] = 1  # already repeat in ray_trainer
-        print(f"sampling_params: {sampling_params}")
         sampling_params = SamplingParams(max_tokens=max_tokens, **sampling_params)
 
         prompt_ids = _qwen2_5_vl_dedup_image_tokens(prompt_ids, self.model_config.processor)
