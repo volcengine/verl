@@ -207,7 +207,7 @@ class RolloutConfig(BaseConfig):
 
     # vLLM allowed_token_ids: If provided, the engine will construct a logits processor
     # which only retains scores for the given token ids. Defaults to None.
-    allowed_token_ids: Optional[list] = None
+    allowed_token_ids: Optional[list[int]] = None
 
     def __post_init__(self):
         """Validate the rollout config"""
