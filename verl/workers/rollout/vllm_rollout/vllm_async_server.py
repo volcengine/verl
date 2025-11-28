@@ -43,8 +43,9 @@ from vllm.v1.executor.abstract import Executor
 
 # Try to import MultiprocExecutor from vLLM
 try:
-    from vllm.v1.executor.multiproc_executor import MultiprocExecutor
+    from vllm.v1.executor.multiproc_executor import WorkerProc, MultiprocExecutor
 except ImportError:
+    WorkerProc = None
     MultiprocExecutor = None
 
 from verl.single_controller.ray import RayClassWithInitArgs
@@ -71,6 +72,82 @@ if MultiprocExecutor is None:
         "MultiprocExecutor not found. This refactoring requires vLLM v1 with MultiprocExecutor support. "
         "Please ensure vLLM v1 is properly installed."
     )
+
+
+class vLLMWorkerProc(WorkerProc):
+    READY_STR = "READY"
+
+    def __init__(
+        self,
+        vllm_config: VllmConfig,
+        local_rank: int,
+        rank: int,
+        distributed_init_method: str,
+        input_shm_handle: Handle,
+        shared_worker_lock: LockType,
+    ):
+        self.rank = rank
+        wrapper = WorkerWrapperBase(vllm_config=vllm_config, rpc_rank=rank)
+        all_kwargs: list[dict] = [
+            {} for _ in range(vllm_config.parallel_config.world_size)
+        ]
+        # TODO: inspect what is_driver_worker used for in vLLM
+        is_driver_worker = rank % vllm_config.parallel_config.tensor_parallel_size == 0
+        all_kwargs[rank] = {
+            "vllm_config": vllm_config,
+            "local_rank": local_rank,
+            "rank": rank,
+            "distributed_init_method": distributed_init_method,
+            "is_driver_worker": is_driver_worker,
+            "shared_worker_lock": shared_worker_lock,
+        }
+        if self.lora_config:
+            lora_dtype = getattr(torch, self.config.dtype)
+            vllm_config.lora_config = LoRAConfig(lora_dtype=lora_dtype, **self.lora_config)
+        if self.config.quantization is not None:
+            if self.config.quantization == "fp8":
+                # Apply vllm fp8 patches
+                # Will remove the patch after vllm support on-the-fly quant for rollout natively.
+                apply_vllm_fp8_patches()
+            else:
+                raise ValueError(f"Currently only support fp8 quantization, got: {self.config.quantization}")
+        wrapper.init_worker(all_kwargs)
+        self.worker = wrapper
+
+        # Initialize MessageQueue for receiving SchedulerOutput
+        self.rpc_broadcast_mq = MessageQueue.create_from_handle(
+            input_shm_handle, self.worker.rank
+        )
+
+        # Initializes a message queue for sending the model output
+        self.worker_response_mq = MessageQueue(1, 1)
+
+        scheduler_config = vllm_config.scheduler_config
+        self.use_async_scheduling = scheduler_config.async_scheduling
+        if self.use_async_scheduling:
+            self.async_output_queue: queue.Queue = queue.Queue()
+            self.async_output_copy_thread = Thread(
+                target=self.async_output_busy_loop,
+                daemon=True,
+                name="WorkerAsyncOutputCopy",
+            )
+            self.async_output_copy_thread.start()
+
+        # Initialize device
+        self.worker.init_device()
+
+        # Set process title and log prefix
+        self.setup_proc_title_and_log_prefix(
+            enable_ep=vllm_config.parallel_config.enable_expert_parallel
+        )
+
+        # Load model
+        self.worker.load_model()
+        _monkey_patch_compute_logits(self.worker.model_runner.model, len(self.tokenizer))
+
+        # Enable environment variable cache (e.g. assume no more
+        # environment variable overrides after this point)
+        enable_envs_cache()
 
 
 class vLLMMultiprocExecutor(MultiprocExecutor):
