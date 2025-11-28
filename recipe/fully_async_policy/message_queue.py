@@ -51,8 +51,9 @@ class MessageQueue:
         self.running = True
 
         # async safe
-        self._lock = asyncio.Lock()
-        self._consumer_condition = asyncio.Condition(self._lock)
+        # Initialize lazily to bind to the correct event loop inside Ray workers
+        self._lock: asyncio.Lock | None = None
+        self._consumer_condition: asyncio.Condition | None = None
 
         # statistic message
         self.total_produced = 0
@@ -63,6 +64,13 @@ class MessageQueue:
             f"[MessageQueue] initialized with max_queue_size={max_queue_size},"
             f"staleness_threshold={self.staleness_threshold}"
         )
+
+    def _ensure_async_objects(self):
+        """Create asyncio primitives on the current loop to avoid loop mismatch errors."""
+        if self._consumer_condition is None:
+            # Create Condition first then reuse its lock to ensure both share the same loop
+            self._consumer_condition = asyncio.Condition()
+            self._lock = self._consumer_condition._lock
 
     async def put_sample(self, sample: Any, param_version: int) -> bool:
         """
@@ -75,6 +83,7 @@ class MessageQueue:
         Returns:
             bool: Whether the sample was successfully put into the queue
         """
+        self._ensure_async_objects()
         async with self._lock:
             # If queue is full, remove the oldest sample (rarely happens)
             is_drop = False
@@ -102,6 +111,7 @@ class MessageQueue:
         Returns:
             Any: Single sample data or None if queue is closed
         """
+        self._ensure_async_objects()
         async with self._lock:
             while len(self.queue) == 0 and self.running:
                 await self._consumer_condition.wait()
@@ -117,6 +127,7 @@ class MessageQueue:
 
     async def update_param_version(self, version: int):
         """Update current parameter version"""
+        self._ensure_async_objects()
         async with self._lock:
             old_version = self.current_param_version
             self.current_param_version = version
@@ -124,11 +135,13 @@ class MessageQueue:
 
     async def get_queue_size(self) -> int:
         """Get current queue length"""
+        self._ensure_async_objects()
         async with self._lock:
             return len(self.queue)
 
     async def get_statistics(self) -> dict[str, Any]:
         """Get queue statistics"""
+        self._ensure_async_objects()
         async with self._lock:
             return {
                 "queue_size": len(self.queue),
@@ -142,6 +155,7 @@ class MessageQueue:
 
     async def clear_queue(self):
         """Clear the queue"""
+        self._ensure_async_objects()
         async with self._lock:
             cleared_count = len(self.queue)
             self.queue.clear()
@@ -149,6 +163,7 @@ class MessageQueue:
 
     async def shutdown(self):
         """Shutdown the message queue"""
+        self._ensure_async_objects()
         async with self._lock:
             self.running = False
             # Notify all waiting coroutines so they can exit
@@ -157,6 +172,7 @@ class MessageQueue:
 
     async def get_memory_usage(self) -> dict:
         """Get memory usage statistics"""
+        self._ensure_async_objects()
         async with self._lock:
             # Estimate memory usage of samples in queue
             import sys
@@ -188,10 +204,12 @@ class MessageQueue:
             }
 
     async def put_validate(self, data):
+        self._ensure_async_objects()
         async with self._lock:
             self.val_queue.append(data)
 
     async def get_validate(self):
+        self._ensure_async_objects()
         async with self._lock:
             if self.val_queue:
                 return self.val_queue.popleft()
