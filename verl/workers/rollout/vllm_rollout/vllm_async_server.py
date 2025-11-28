@@ -183,6 +183,16 @@ class vLLMHttpServerBase:
             self._master_address = None
             self._master_port = None
 
+        # supporting adding any sampling params from the config file
+        sampling_params = {}
+        sampling_params_fields = dir(SamplingParams)
+        for k in config.keys():
+            if k in sampling_params_fields and k != "seed":
+                sampling_params[k] = config.get(k)
+        sampling_params["n"] = 1  # already repeat in ray_trainer
+        logger.info(f"sampling_params from config: {sampling_params}")
+        self.sampling_params = sampling_params
+
     def get_master_address(self):
         """Get master address and port for data parallel."""
         return self._master_address, self._master_port
@@ -397,10 +407,13 @@ class vLLMHttpServerBase:
     ) -> TokenOutput:
         """Generate sequence with token-in-token-out."""
         # TODO(@wuxibin): switch to `/generate` http endpoint once multi-modal support ready.
-        max_tokens = self.config.max_model_len - len(prompt_ids)
+        sampling_params["max_tokens"] = self.config.max_model_len - len(prompt_ids)
         sampling_params["logprobs"] = 0 if sampling_params.pop("logprobs", False) else None
         sampling_params.setdefault("repetition_penalty", self.config.get("repetition_penalty", 1.0))
-        sampling_params = SamplingParams(max_tokens=max_tokens, **sampling_params)
+
+        # Merge default sampling params with request-specific overrides
+        sampling_params = SamplingParams(**{**self.sampling_params, **sampling_params})
+
         prompt_ids = _qwen2_5_vl_dedup_image_tokens(prompt_ids, self.model_config.processor)
         prompt = TokensPrompt(
             prompt_token_ids=prompt_ids, multi_modal_data={"image": image_data} if image_data else None
