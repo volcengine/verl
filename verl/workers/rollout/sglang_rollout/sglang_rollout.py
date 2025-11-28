@@ -431,7 +431,7 @@ class SGLangRollout(BaseRollout):
         max_running_requests = self.config.get("max_num_seqs", None)
 
         try:
-            is_server_mode = self.config.sglang_rollout_mode == "server"
+            is_server_mode = self.config.sglang_engine_mode == "server"
         except Exception:
             is_server_mode = False
         effective_first = first_rank_in_node or is_server_mode
