@@ -459,6 +459,7 @@ critic:
   shuffle: ${oc.select:actor_rollout_ref.actor.shuffle,false}
   cliprange_value: 0.5
   loss_agg_mode: ${oc.select:actor_rollout_ref.actor.loss_agg_mode,token-mean}
+  freeze_vision_tower: false
   checkpoint:
     _target_: verl.trainer.config.CheckpointConfig
     save_contents:
