@@ -205,6 +205,10 @@ class RolloutConfig(BaseConfig):
 
     quantization: Optional[str] = None
 
+    # vLLM allowed_token_ids: If provided, the engine will construct a logits processor
+    # which only retains scores for the given token ids. Defaults to None.
+    allowed_token_ids: Optional[list] = None
+
     def __post_init__(self):
         """Validate the rollout config"""
         if self.expert_parallel_size > 1:

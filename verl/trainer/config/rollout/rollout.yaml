@@ -320,3 +320,7 @@ prometheus:
   # Specify served_model_name to avoid displaying overly long model paths in Grafana
   served_model_name: ${oc.select:actor_rollout_ref.model.path,null}
 
+# vLLM allowed_token_ids: If provided, the engine will construct a logits processor
+# which only retains scores for the given token ids. Defaults to null (no restriction).
+allowed_token_ids: null
+
