@@ -129,9 +129,7 @@ class OneStepOffRayTrainer(RayPPOTrainer):
 
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
 
-    async def _validate(self):
-        # Reset prefix cache using async method
-        await self.async_rollout_manager.clear_kv_cache()
+    def _validate(self):
         self.actor_rollout_wg = self.rollout_wg
         ret = super()._validate()
         self.actor_rollout_wg = self.actor_wg
@@ -261,10 +259,13 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         from verl.utils.device import get_nccl_backend
 
         actor_rollout_workers = self.actor_wg.workers + self.rollout_wg.workers
+        n_workers = len(actor_rollout_workers)
+
+        # Create Ray collective group for fallback communication
         collective.create_collective_group(
             actor_rollout_workers,
-            len(actor_rollout_workers),
-            list(range(0, len(actor_rollout_workers))),
+            n_workers,
+            list(range(0, n_workers)),
             backend=get_nccl_backend(),
             group_name="actor_rollout",
         )
@@ -285,8 +286,7 @@ class OneStepOffRayTrainer(RayPPOTrainer):
             config=self.config, worker_group=self.rollout_wg, rm_resource_pool=rm_resource_pool
         )
 
-    async def sync_rollout_weights(self):
-        await self.async_rollout_manager.clear_kv_cache()
+    def sync_rollout_weights(self):
         self.actor_wg.sync_rollout_weights()
         ray.get(self.rollout_wg.sync_rollout_weights())
 
@@ -420,12 +420,13 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         self._load_checkpoint()
 
         # after load checkpoint sync rollout weights
-        await self.sync_rollout_weights()
+        self.sync_rollout_weights()
+        await self.async_rollout_manager.clear_kv_cache()
 
         # perform validation before training
         # currently, we only support validation using the reward_function.
         if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
-            val_metrics = await self._validate()
+            val_metrics = self._validate()
             assert val_metrics, f"{val_metrics=}"
             pprint(f"Initial validation metrics: {val_metrics}")
             logger.log(data=val_metrics, step=self.global_steps)
@@ -492,7 +493,8 @@ class OneStepOffRayTrainer(RayPPOTrainer):
 
                 # sync weights from actor to rollout
                 with marked_timer("sync_rollout_weights", timing_raw, color="purple"):
-                    await self.sync_rollout_weights()
+                    self.sync_rollout_weights()
+                    await self.async_rollout_manager.clear_kv_cache()
 
                 # async next generation
                 if not is_last_step:
@@ -640,7 +642,7 @@ class OneStepOffRayTrainer(RayPPOTrainer):
                 and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
             ):
                 with marked_timer("testing", timing_raw, color="green"):
-                    val_metrics: dict = await self._validate()
+                    val_metrics: dict = self._validate()
                     if is_last_step:
                         last_val_metrics = val_metrics
                 metrics.update(val_metrics)

@@ -19,6 +19,7 @@ import os
 import torch
 import torch.distributed
 from omegaconf import DictConfig
+from ray.util.collective import collective
 
 from recipe.one_step_off_policy.distributed_util import vllm_stateless_init_process_group
 from verl.single_controller.base.decorator import Dispatch, register
@@ -89,22 +90,19 @@ class DetachSync(AsyncActorRolloutRefWorker):
             if self._is_actor and torch.distributed.get_rank() == 0:
                 tensor.copy_(weight)
 
-            if rollout_name == "vllm":
-                # self._weight_sync_group.broadcast(tensor, src=0, stream=get_torch_device().current_stream())
-
-                from ray.util.collective import collective
-
-                collective.broadcast(tensor, src_rank=0, group_name="actor_rollout")
-            elif rollout_name == "sglang":
-                from ray.util.collective import collective
-
-                collective.broadcast(tensor, src_rank=0, group_name="actor_rollout")
+            collective.broadcast(tensor, src_rank=0, group_name="actor_rollout")
 
             if self._is_rollout:
                 if rollout_name == "vllm":
                     inference_model.load_weights([(key, tensor)])
                 elif rollout_name == "sglang":
-                    loop.run_until_complete(self.update_weights(inference_model, [(key, tensor)]))
+
+                    # first_rank_in_node = self._tp_rank % tp_size_per_node == 0，
+                    # Only the first rank within each node (i.e., the local rank is 0) initializes the engine;
+                    # engines for other ranks are set to None.
+
+                    if inference_model is not None:
+                        loop.run_until_complete(self.update_weights(inference_model, [(key, tensor)]))
 
         if self._is_actor and self._is_offload_param:
             offload_megatron_model_to_cpu(self.actor_module)
