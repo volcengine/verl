@@ -1,0 +1,91 @@
+# Default component overrides to mirror the PPO trainer structure.
+defaults:
+  - actor@actor_rollout_ref.actor: dp_actor
+  - data@data: legacy_data
+  - rollout@actor_rollout_ref.rollout: rollout
+  - model@actor_rollout_ref.model: hf_model
+  - reward_model@reward_model: dp_reward_model
+  - _self_
+
+# Entry point used by Hydra (matches verl.trainer.main_multiturn_eval:run_multiturn_evaluation).
+_target_: verl.trainer.main_multiturn_eval.run_multiturn_evaluation
+
+# Actor/rollout configuration tweaks for evaluation.
+actor_rollout_ref:
+  hybrid_engine: true
+  actor:
+    ppo_mini_batch_size: 256
+    # This parameter is required for validation but not used during evaluation.
+    ppo_micro_batch_size_per_gpu: 32
+    # This parameter is required for validation but not used during evaluation.
+    ppo_infer_micro_batch_size_per_gpu: 32
+    # This parameter is required for validation but not used during evaluation.
+    ppo_max_token_len_per_gpu: 16384
+    # This parameter is required for validation but not used during evaluation.
+    ppo_infer_max_token_len_per_gpu: 16384
+    # This parameter is required for validation but not used during evaluation.
+
+  rollout:
+    mode: async
+    name: vllm
+
+    multi_turn:
+      enable: true
+      tool_config_path: null
+      interaction_config_path: null
+
+    agent:
+      num_workers: 8
+
+# Checkpoint configuration for loading trained models.
+# If checkpoint_dir is provided, it will load the model from checkpoint instead of model_path.
+# checkpoint_dir should point to the directory containing global_step_* subdirectories.
+# You can specify a specific checkpoint by setting checkpoint_dir to the full path of a global_step_* folder,
+# or set it to the parent directory to automatically load the latest checkpoint.
+checkpoint_dir: null
+
+# Dataset overrides for offline evaluation.
+data:
+  eval_files: ${data.val_files}
+  shuffle: false
+  return_raw_chat: true
+  need_tools_kwargs: true
+  eval_batch_size: 64
+  dataloader_num_workers: 0
+
+# Reward model configuration (kept for parity with PPO).
+reward_model:
+  enable: false
+  enable_resource_pool: false
+
+# Evaluation-specific runtime knobs.
+evaluation:
+  max_batches: null
+  max_samples: null
+
+# Output file paths for evaluation artifacts.
+output:
+  path: ./eval_results
+  scores_path: evaluation_scores.json
+  trace_path: evaluation_trace.json
+
+# Minimal trainer section supplying tracing metadata and cluster topology.
+trainer:
+  project_name: verl_multiturn_eval
+  experiment_name: gsm8k_multiturn_eval
+  nnodes: 1
+  n_gpus_per_node: 8
+  use_legacy_worker_impl: auto
+
+# Optional custom reward hook (same schema as PPO trainer).
+custom_reward_function:
+  path: null
+  name: compute_score
+
+# Ray initialization arguments (merged with PPO defaults at runtime).
+ray_kwargs:
+  ray_init:
+    num_cpus: 8
+    num_gpus: ${trainer.n_gpus_per_node}
+    runtime_env: {}
+  timeline_json_file: null
