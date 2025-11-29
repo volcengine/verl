@@ -105,11 +105,9 @@ def get_rollout_class(rollout_name: str, mode: str) -> type[BaseRollout]:
         module_name, class_name = fqdn.rsplit(".", 1)
         rollout_module = importlib.import_module(module_name)
         from recipe.partial_rollout.vllm_rollout_spmd import vLLMRolloutPatch
-        #from verl.workers.rollout.vllm_rollout.vllm_rollout_spmd import vLLMRollout
         rollout_module_class = getattr(rollout_module, class_name)
         for name, attr in rollout_module_class.__dict__.items():
             if name =="__init__":
-                print("name1 :",name)
                 attr = MethodType(vLLMRolloutPatch.__init__,rollout_module_class)
                 setattr(rollout_module_class,name,attr)
             if name == "generate_sequences":
