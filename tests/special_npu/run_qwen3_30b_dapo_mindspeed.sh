@@ -4,7 +4,7 @@ set -xeuo pipefail
 export VLLM_ASCEND_ENABLE_NZ=0
 
 MODEL_ID=${MODEL_ID:-Qwen/Qwen3-30B-A3B-Instruct-2507}
-MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
+MODEL_PATH=${MODEL_PATH:-${HOME}/.cache/models/${MODEL_ID}}
 USE_DIST_CKPT=${USE_DIST_CKPT:-False}
 DIST_CKPT_PATH=${DIST_CKPT_PATH:-${HOME}/dist_ckpt/qwen3_30b_dapo_mindspeed}
 
@@ -73,12 +73,12 @@ python3 -m recipe.dapo.main_dapo \
     algorithm.filter_groups.enable=False \
     algorithm.filter_groups.max_num_gen_batches=10 \
     algorithm.filter_groups.metric=acc \
-    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=16 \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
-    actor_rollout_ref.rollout.n=8 \
+    actor_rollout_ref.rollout.n=2 \
     actor_rollout_ref.rollout.temperature=1.0 \
     actor_rollout_ref.rollout.top_p=1.0 \
     actor_rollout_ref.rollout.top_k=-1 \
@@ -96,8 +96,8 @@ python3 -m recipe.dapo.main_dapo \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
     actor_rollout_ref.model.path="${MODEL_PATH}" \
     actor_rollout_ref.actor.optim.lr=1e-6 \
-    actor_rollout_ref.actor.ppo_mini_batch_size=16 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=16 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=8 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.rollout.log_prob_use_dynamic_bsz=True \
     actor_rollout_ref.ref.log_prob_use_dynamic_bsz=True \
     actor_rollout_ref.actor.megatron.pipeline_model_parallel_size=2 \
@@ -108,7 +108,7 @@ python3 -m recipe.dapo.main_dapo \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.actor.loss_agg_mode="token-mean" \
     actor_rollout_ref.ref.strategy=megatron \
-    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=16 \
+    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.ref.megatron.pipeline_model_parallel_size=2 \
     actor_rollout_ref.ref.megatron.tensor_model_parallel_size=2 \
     actor_rollout_ref.ref.megatron.expert_model_parallel_size=2 \
@@ -119,12 +119,12 @@ python3 -m recipe.dapo.main_dapo \
     trainer.logger=['console'] \
     trainer.project_name='verl_gsm8k_example' \
     trainer.experiment_name='qwen3_30b_a3b_cut_gsm8k_mindspeed' \
-    trainer.n_gpus_per_node=16 \
+    trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
     trainer.test_freq=-1 \
     trainer.total_epochs=1 \
-    trainer.total_training_steps=2 \
+    trainer.total_training_steps=1 \
     trainer.device=npu \
     actor_rollout_ref.actor.use_torch_compile=False \
     actor_rollout_ref.ref.use_torch_compile=False \

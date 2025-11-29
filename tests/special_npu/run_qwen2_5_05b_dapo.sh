@@ -2,10 +2,10 @@
 set -xeuo pipefail
 export VLLM_ASCEND_ENABLE_NZ=0
 
-NUM_GPUS=${NUM_GPUS:-16}
+NUM_GPUS=${NUM_GPUS:-8}
 
 MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B-Instruct}
-MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
+MODEL_PATH=${MODEL_PATH:-${HOME}/.cache/models/${MODEL_ID}}
 
 adv_estimator=grpo
 
@@ -25,19 +25,15 @@ overlong_penalty_factor=1.0
 
 loss_agg_mode="token-mean"
 
-enable_filter_groups=True
+enable_filter_groups=False
 filter_groups_metric=seq_reward
 max_num_gen_batches=10
 
-train_traj_micro_bsz_per_gpu=2 # b
-n_resp_per_prompt=4 # g
+train_traj_micro_bsz_per_gpu=1 # b
+n_resp_per_prompt=2 # g
 
-train_traj_micro_bsz=$((train_traj_micro_bsz_per_gpu * NUM_GPUS)) # b * n
-train_traj_mini_bsz=$((train_traj_micro_bsz * 2)) # 2 * b * n
-train_prompt_mini_bsz=$((train_traj_mini_bsz * n_resp_per_prompt)) # 2 * b * n / g
-train_prompt_bsz=$((train_prompt_mini_bsz * 2)) # 4 * b * n / g
-
-gen_prompt_bsz=$((train_prompt_bsz * 4))
+train_traj_micro_bsz=$((train_traj_micro_bsz_per_gpu * NUM_GPUS))
+train_prompt_mini_bsz=$((train_traj_micro_bsz * n_resp_per_prompt * 2))
 
 exp_name="$(basename "${MODEL_ID,,}")-dapo-minimal"
 
@@ -58,8 +54,7 @@ python3 -m recipe.dapo.main_dapo \
     reward_model.overlong_buffer.len=${overlong_buffer_len} \
     reward_model.overlong_buffer.penalty_factor=${overlong_penalty_factor} \
     actor_rollout_ref.actor.loss_agg_mode=${loss_agg_mode} \
-    data.train_batch_size=${train_prompt_bsz} \
-    data.gen_batch_size=${gen_prompt_bsz} \
+    data.gen_batch_size=${train_prompt_mini_bsz} \
     algorithm.filter_groups.enable=${enable_filter_groups} \
     algorithm.filter_groups.metric=${filter_groups_metric} \
     algorithm.filter_groups.max_num_gen_batches=${max_num_gen_batches} \
@@ -96,5 +91,5 @@ python3 -m recipe.dapo.main_dapo \
     trainer.total_epochs=1 \
     trainer.resume_mode=disable \
     trainer.val_before_train=False \
-    trainer.total_training_steps=2 \
+    trainer.total_training_steps=1 \
     trainer.device=npu $@
