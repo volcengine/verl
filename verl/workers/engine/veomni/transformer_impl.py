@@ -30,18 +30,14 @@ import verl.utils.torch_functional as verl_F
 from verl.trainer.config import CheckpointConfig
 from verl.utils import tensordict_utils as tu
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
-from verl.utils.dataset.dataset_utils import DatasetPadMode
 from verl.utils.device import (
     get_device_id,
-    get_device_name,
 )
-from verl.utils.torch_functional import logprobs_from_logits
-from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad, ulysses_pad_and_slice_inputs
 from verl.workers.config import HFModelConfig, VeOmniEngineConfig, VeOmniOptimizerConfig
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 from ..base import EngineRegistry
-from ..fsdp.transformer_impl import FSDPEngine
+from ..fsdp.transformer_impl import FSDPEngine, FSDPEngineWithLMHead
 from ..utils import postprocess_batch_func, prepare_micro_batches
 
 logger = logging.getLogger(__file__)
@@ -96,6 +92,8 @@ class VeOmniEngine(FSDPEngine):
         self._is_lora = self.model_config.lora_rank > 0
 
         self.use_ulysses_sp = parallel_state.get_parallel_state().sp_enabled
+        self.ulysses_sequence_parallel_size = self.engine_config.ulysses_parallel_size
+
         if self.use_ulysses_sp:
             self.ulysses_sharding_manager = FSDPUlyssesShardingManager(parallel_state.get_parallel_state().device_mesh)
         else:
@@ -218,6 +216,14 @@ class VeOmniEngine(FSDPEngine):
         """
         tu.assign_non_tensor(data, sp_size=parallel_state.get_parallel_state().ulysses_size)
 
+        # compute num_tokens in global batch for loss normalization
+        batch_num_tokens = data["loss_mask"].sum().to(get_device_id())
+        torch.distributed.all_reduce(
+            batch_num_tokens, op=torch.distributed.ReduceOp.SUM, group=self.get_data_parallel_group()
+        )
+        tu.assign_non_tensor(data, batch_num_tokens=batch_num_tokens.item())
+        tu.assign_non_tensor(data, dp_size=self.get_data_parallel_size())
+
         micro_batches, indices = prepare_micro_batches(
             data=data, dp_group=self.get_data_parallel_group(), same_micro_num_in_dp=True
         )
@@ -226,25 +232,14 @@ class VeOmniEngine(FSDPEngine):
 
         for micro_batch in micro_batches:
             with self.model_fwd_context:
-                loss, meta_info = self.forward_step(
-                    micro_batch, loss_function=loss_function, forward_only=forward_only, mbs_len=len(micro_batches)
-                )
+                loss, meta_info = self.forward_step(micro_batch, loss_function=loss_function, forward_only=forward_only)
             if not forward_only:
-                global_bsz = data["global_batch_size"]
-                local_micro_bsz = micro_batch.batch_size[0]
-                # metrics contain the output, loss is dummy
-                loss_scale_factor = local_micro_bsz / (global_bsz / self.get_data_parallel_size())
-                # scale loss
-                loss = loss * loss_scale_factor
                 with self.model_bwd_context:
                     loss.backward()
 
             output_lst.append(meta_info)
 
         return postprocess_batch_func(output_lst=output_lst, indices=indices, data=data)
-
-    def get_per_tensor_param(self):
-        raise NotImplementedError
 
     def get_data_parallel_rank(self):
         if parallel_state.get_parallel_state().ulysses_size > 1:
@@ -261,17 +256,6 @@ class VeOmniEngine(FSDPEngine):
         else:
             return torch.distributed.group.WORLD
 
-    def to(self, device: str, model: bool = True, optimizer: bool = True):
-        """
-        Move model parameters, optimizer states, or both to the specified device.
-
-        Args:
-            device: Target device identifier.
-            model: If True, move the model.
-            optimizer: If True, move the optimizer states.
-        """
-        raise NotImplementedError
-
     def is_mp_src_rank_with_outputs(self):
         """
         Whether the current rank is the first rank in model parallel group that contains model outputs
@@ -283,259 +267,6 @@ class VeOmniEngine(FSDPEngine):
         return is_collect
 
 
-@EngineRegistry.register(model_type="language_model", backend=["veomni"], device=["cuda", "npu"])
-class VeOmniEngineWithLMHead(VeOmniEngine):
-    def prepare_model_inputs(self, micro_batch: TensorDict):
-        use_remove_padding = tu.get_non_tensor_data(data=micro_batch, key="use_remove_padding", default=True)
-        pad_mode = tu.get_non_tensor_data(data=micro_batch, key="pad_mode", default=DatasetPadMode.NO_PADDING)
-        use_fused_kernels = tu.get_non_tensor_data(data=micro_batch, key="use_fused_kernels", default=False)
-        temperature = micro_batch["temperature"]
-
-        assert pad_mode == DatasetPadMode.NO_PADDING, f"pad_mode {pad_mode} not supported"
-
-        multi_modal_inputs = {}
-        if "multi_modal_inputs" in micro_batch.keys():
-            from verl.utils.model import extract_multi_modal_inputs
-
-            multi_modal_inputs = extract_multi_modal_inputs(micro_batch["multi_modal_inputs"])
-
-        input_ids = micro_batch["input_ids"]
-        position_ids = micro_batch["position_ids"]
-
-        if position_ids.dim() == 3:  # qwen2vl mrope
-            position_ids = position_ids.transpose(0, 1)  # (bsz, 3, seqlen) -> (3, bsz, seqlen)
-
-        # args used to get outputs
-        output_args = {}
-
-        if use_remove_padding:
-            if pad_mode == DatasetPadMode.NO_PADDING:
-                input_ids_rmpad = input_ids.values().unsqueeze(0)  # (1, total_nnz)
-                position_ids_rmpad = position_ids.values().unsqueeze(0)  # (1, total_nnz)
-            else:
-                raise NotImplementedError(f"pad_mode {pad_mode} not implemented")
-
-            # for compute the log_prob
-            input_ids_rmpad_rolled = torch.roll(input_ids_rmpad, shifts=-1, dims=1)  # (1, total_nnz)
-
-            # pad and slice the inputs if sp > 1
-            if self.use_ulysses_sp:
-                is_vlm_model = hasattr(getattr(self.module, "module", self.module).config, "vision_config")
-                if is_vlm_model:
-                    # vlm model's inputs will be sliced after embedding
-                    input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad(
-                        input_ids_rmpad,
-                        position_ids_rmpad=position_ids_rmpad,
-                        sp_size=self.engine_config.ulysses_parallel_size,
-                    )
-                else:
-                    input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(
-                        input_ids_rmpad,
-                        position_ids_rmpad=position_ids_rmpad,
-                        sp_size=self.engine_config.ulysses_parallel_size,
-                        skip_position_ids_rmpad=True,
-                    )
-                input_ids_rmpad_rolled, _, _ = ulysses_pad_and_slice_inputs(
-                    input_ids_rmpad_rolled,
-                    position_ids_rmpad=None,
-                    sp_size=self.engine_config.ulysses_parallel_size,
-                )
-
-                output_args["pad_size"] = pad_size
-
-            input_ids_rmpad_rolled = input_ids_rmpad_rolled.squeeze(0)  # ((total_nnz / sp) + pad)
-            output_args["input_ids_rmpad_rolled"] = input_ids_rmpad_rolled
-
-            # only pass input_ids and position_ids to enable flash_attn_varlen
-
-            model_inputs = {
-                "input_ids": input_ids_rmpad,
-                "attention_mask": None,
-                "position_ids": position_ids_rmpad,
-            }
-
-        else:
-            if pad_mode == DatasetPadMode.NO_PADDING:
-                input_ids = micro_batch["input_ids"]
-                position_ids = micro_batch["position_ids"]
-                loss_mask = micro_batch["loss_mask"]
-
-                pad_token_id = tu.get_non_tensor_data(data=micro_batch, key="pad_token_id", default=0)
-                batch_size = micro_batch.batch_size[0]
-                seq_len_effective = input_ids.offsets().diff()
-                max_seq_len = max(seq_len_effective)
-
-                input_ids_rmpad_rolled = torch.roll(input_ids.values(), shifts=-1, dims=0)
-                output_args["input_ids_rmpad_rolled"] = input_ids_rmpad_rolled
-
-                input_ids = torch.nested.to_padded_tensor(
-                    input_ids, padding=pad_token_id, output_size=(batch_size, max_seq_len)
-                )
-
-                position_ids = torch.nested.to_padded_tensor(
-                    position_ids, padding=0, output_size=(batch_size, max_seq_len)
-                )
-
-                attention_mask_list = [torch.ones_like(t, dtype=torch.int32) for t in loss_mask]
-                attention_mask = torch.nested.as_nested_tensor(attention_mask_list, layout=torch.jagged)
-                attention_mask = torch.nested.to_padded_tensor(
-                    attention_mask, padding=0, output_size=(batch_size, max_seq_len)
-                )
-
-                model_inputs = {
-                    "input_ids": input_ids,
-                    "attention_mask": attention_mask,
-                    "position_ids": position_ids,
-                }
-            else:
-                raise NotImplementedError(f"pad_mode {pad_mode} not implemented")
-
-        extra_args = {}
-        if use_fused_kernels:
-            extra_args["temperature"] = temperature
-            extra_args["return_dict"] = True
-
-        model_inputs.update(multi_modal_inputs)
-        model_inputs.update(extra_args)
-
-        return model_inputs, output_args
-
-    # Need Fix
-    def prepare_model_outputs(self, output, output_args, micro_batch: TensorDict):
-        use_remove_padding = tu.get_non_tensor_data(data=micro_batch, key="use_remove_padding", default=True)
-        pad_mode = tu.get_non_tensor_data(data=micro_batch, key="pad_mode", default=DatasetPadMode.NO_PADDING)
-        use_fused_kernels = tu.get_non_tensor_data(data=micro_batch, key="use_fused_kernels", default=False)
-        temperature = micro_batch["temperature"]
-        calculate_entropy = tu.get_non_tensor_data(data=micro_batch, key="calculate_entropy", default=False)
-
-        model_output = {}
-
-        input_ids = micro_batch["input_ids"]
-        if use_remove_padding:
-            input_ids_rmpad_rolled = output_args["input_ids_rmpad_rolled"]
-
-            if use_fused_kernels:
-                log_probs = output.log_probs.squeeze(0)  # (total_nnz,)
-                entropy_rmpad = output.entropy.squeeze(0)  # (total_nnz,)
-            else:
-                logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
-                logits_rmpad.div_(temperature)
-
-                # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
-                inplace_backward = True
-                if calculate_entropy:
-                    inplace_backward = False
-                log_probs = logprobs_from_logits(
-                    logits=logits_rmpad,
-                    labels=input_ids_rmpad_rolled,
-                    inplace_backward=inplace_backward,
-                )
-
-                # compute entropy
-                if calculate_entropy:
-                    if not self.engine_config.entropy_checkpointing:
-                        entropy_rmpad = self.compute_entropy_from_logits(logits_rmpad)  # ((total_nnz / sp) + pad)
-                    else:
-                        entropy_rmpad = torch.utils.checkpoint.checkpoint(
-                            self.compute_entropy_from_logits, logits_rmpad
-                        )
-
-            # gather log_prob if sp > 1
-            if self.use_ulysses_sp:
-                pad_size = output_args["pad_size"]
-
-                # gather and unpad for the ulysses sp
-                log_probs = gather_outputs_and_unpad(
-                    log_probs,
-                    gather_dim=0,
-                    unpad_dim=0,
-                    padding_size=pad_size,
-                )
-                if calculate_entropy:
-                    entropy_rmpad = gather_outputs_and_unpad(
-                        entropy_rmpad,
-                        gather_dim=0,
-                        unpad_dim=0,
-                        padding_size=pad_size,
-                    )
-
-            if pad_mode == DatasetPadMode.NO_PADDING:
-                cu_seqlens = input_ids.offsets()
-                # (bsz, j1), for each sample, is the length of each sample: [real_prompt length + real_response length]
-                log_probs = torch.nested.nested_tensor_from_jagged(log_probs, cu_seqlens)
-                if calculate_entropy:
-                    entropy = torch.nested.nested_tensor_from_jagged(entropy_rmpad, cu_seqlens)
-            else:
-                raise NotImplementedError(f"pad_mode {pad_mode} not implemented")
-
-        else:  # not using rmpad and no ulysses sp
-            response_length = tu.get_non_tensor_data(data=micro_batch, key="max_response_length", default=1024)
-            if use_fused_kernels:
-                log_probs = output.log_probs[:, -response_length - 1 : -1]
-                entropy = output.entropy[:, -response_length - 1 : -1]  # (bsz, response_length)
-
-            else:
-                logits = output.logits
-                logits.div_(temperature)
-
-                if calculate_entropy:
-                    if not self.engine_config.entropy_checkpointing:
-                        entropy = verl_F.entropy_from_logits(logits)
-                    else:
-                        entropy = torch.utils.checkpoint.checkpoint(verl_F.entropy_from_logits, logits)
-
-                if pad_mode == DatasetPadMode.NO_PADDING:
-                    cu_seqlens = input_ids.offsets()
-                    seq_lengths = cu_seqlens.diff()
-                    starts = torch.zeros_like(seq_lengths, dtype=torch.int64)
-                    logits = torch.nested.narrow(logits, 1, starts, seq_lengths, layout=torch.jagged)
-                    logits_rmpad = torch.cat([t for t in logits.unbind()])
-                    input_ids_rmpad_rolled = output_args["input_ids_rmpad_rolled"]
-                    log_probs = logprobs_from_logits(logits=logits_rmpad, labels=input_ids_rmpad_rolled)
-                    # (bsz, j1), for each sample, length of each sample: [real_prompt_length + real_response_length]
-                    log_probs = torch.nested.nested_tensor_from_jagged(log_probs, cu_seqlens)
-                    if calculate_entropy:
-                        entropy = torch.nested.narrow(entropy, 1, starts, seq_lengths, layout=torch.jagged)
-                        entropy_rmpad = torch.cat([t for t in entropy.unbind()])
-                        entropy = torch.nested.nested_tensor_from_jagged(entropy_rmpad, cu_seqlens)
-                else:
-                    raise NotImplementedError(f"pad_mode {pad_mode} not implemented")
-
-        model_output["log_probs"] = log_probs
-        if calculate_entropy:
-            model_output["entropy"] = entropy
-
-        return model_output
-
-    def forward_step(self, micro_batch: TensorDict, loss_function, forward_only, mbs_len):
-        device_name = get_device_name()
-        # actually, we should avoid assigning like this...
-        micro_batch = micro_batch.to(get_device_id())
-        model_inputs, output_args = self.prepare_model_inputs(micro_batch=micro_batch)
-
-        with torch.autocast(device_type=device_name, dtype=torch.bfloat16):
-            raw_output = self.module(
-                **model_inputs,
-                use_cache=False,
-            )  # prevent model thinks we are generating
-
-            model_output = self.prepare_model_outputs(
-                output=raw_output, output_args=output_args, micro_batch=micro_batch
-            )
-
-            if loss_function is not None:
-                loss, metrics = loss_function(
-                    model_output=model_output, data=micro_batch, dp_group=self.get_data_parallel_group()
-                )
-            else:
-                assert forward_only, "forward_only must be True when loss_function is None"
-                loss = torch.tensor(1.0, device=device_name)
-                metrics = {}
-
-            output = {
-                "model_output": model_output,
-                "loss": loss,
-                "metrics": metrics,
-            }
-
-            return loss, output
+@EngineRegistry.register(model_type="language_model", backend=["veomni"], device=["cuda"])
+class VeOmniEngineWithLMHead(VeOmniEngine, FSDPEngineWithLMHead):
+    pass
