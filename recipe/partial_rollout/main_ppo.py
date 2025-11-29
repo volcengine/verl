@@ -1,3 +1,4 @@
+# Copyright (c) 2025 Huawei Technologies Co., Ltd. All Rights Reserved.
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -32,11 +33,7 @@ from verl.utils.config import validate_config
 from verl.utils.device import is_cuda_available
 from verl.utils.import_utils import load_extern_type
 
-
-
 from .patch_manager import apply_partialrollout_patch
-
-
 
 
 @hydra.main(config_path="config", config_name="partial_rollout_trainer", version_base=None)
@@ -46,9 +43,8 @@ def main(config):
     Args:
         config_dict: Hydra configuration dictionary containing training parameters.
     """
-    
+
     run_ppo(config)
-    
 
 
 # Define a function to run the PPO-like training process
@@ -88,10 +84,10 @@ def run_ppo(config, task_runner_class=None) -> None:
     # Create a remote instance of the TaskRunner class, and
     # Execute the `run` method of the TaskRunner instance remotely and wait for it to complete
     if (
-            is_cuda_available
-            and config.global_profiler.tool == "nsys"
-            and config.global_profiler.get("steps") is not None
-            and len(config.global_profiler.get("steps", [])) > 0
+        is_cuda_available
+        and config.global_profiler.tool == "nsys"
+        and config.global_profiler.get("steps") is not None
+        and len(config.global_profiler.get("steps", [])) > 0
     ):
         from verl.utils.import_utils import is_nvtx_available
 
@@ -247,8 +243,13 @@ class TaskRunner:
     def add_aggregator_worker(self, config):
         """Add aggregator worker for partial rollout."""
         from verl.trainer.ppo.ray_trainer import Role
-        if config.actor_rollout_ref.rollout.partial_rollout_mode == "async" and config.actor_rollout_ref.rollout.partial_rollout_max_split > 0:
+
+        if (
+            config.actor_rollout_ref.rollout.partial_rollout_mode == "async"
+            and config.actor_rollout_ref.rollout.partial_rollout_max_split > 0
+        ):
             from recipe.partial_rollout.ray_trainer import AggregatorActor
+
             self.role_worker_mapping[Role.Aggregator] = ray.remote(AggregatorActor)
 
     def run(self, config):
@@ -263,6 +264,7 @@ class TaskRunner:
         """
         # Print the initial configuration. `resolve=True` will evaluate symbolic values.
         from pprint import pprint
+
         apply_partialrollout_patch()
         from omegaconf import OmegaConf
 

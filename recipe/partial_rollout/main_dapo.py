@@ -1,3 +1,4 @@
+# Copyright (c) 2025 Huawei Technologies Co., Ltd. All Rights Reserved.
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,26 +23,27 @@ import hydra
 import ray
 from omegaconf import OmegaConf
 
+from recipe.dapo.dapo_ray_trainer import RayDAPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
 from verl.utils.device import is_cuda_available
 
-from recipe.dapo.dapo_ray_trainer import RayDAPOTrainer
-
 from .patch_manager import apply_partialrollout_patch
-
-
 
 
 @hydra.main(config_path="config", config_name="partial_rollout_trainer", version_base=None)
 def main(config):
     run_ppo(config)
-    
+
 
 def run_ppo(config) -> None:
     if not ray.is_initialized():
         # this is for local ray cluster
         default_runtime_env = {
-            "env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN", "VLLM_LOGGING_LEVEL": "WARN","RAY_DEBUG": "1"}
+            "env_vars": {
+                "TOKENIZERS_PARALLELISM": "true",
+                "NCCL_DEBUG": "WARN",
+                "VLLM_LOGGING_LEVEL": "WARN",
+            }
         }
         ray_init_kwargs = config.ray_kwargs.get("ray_init", {})
         runtime_env_kwargs = ray_init_kwargs.get("runtime_env", {})
@@ -74,6 +76,7 @@ class TaskRunner:
     def run(self, config):
         # print initial config
         from pprint import pprint
+
         apply_partialrollout_patch()
         from omegaconf import OmegaConf
 
@@ -158,9 +161,12 @@ class TaskRunner:
             max_resp_len=config.data.max_response_length,
             overlong_buffer_cfg=config.reward_model.overlong_buffer,
         )
-        if getattr(config.actor_rollout_ref.rollout, "partial_rollout_mode", None) == "async" and getattr(
-                config.actor_rollout_ref.rollout, "partial_rollout_max_split", -1) > 0:
+        if (
+            getattr(config.actor_rollout_ref.rollout, "partial_rollout_mode", None) == "async"
+            and getattr(config.actor_rollout_ref.rollout, "partial_rollout_max_split", -1) > 0
+        ):
             from recipe.partial_rollout.ray_trainer import AggregatorActor
+
             role_worker_mapping[Role.Aggregator] = ray.remote(AggregatorActor)
         # Note that we always use function-based RM for validation
         val_reward_fn = load_reward_manager(

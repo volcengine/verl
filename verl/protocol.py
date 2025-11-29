@@ -522,9 +522,8 @@ class DataProto:
         # Split into two DataProtos
         first_proto = data_proto.select_idxs(filter_mask)
         second_proto = data_proto.select_idxs(inverse_mask)
-        return first_proto, second_proto 
-    
-    
+        return first_proto, second_proto
+
     @classmethod
     def from_dict(
         cls,

@@ -27,12 +27,10 @@ When working with Megatron:
 - After inference, all the parameters that doesn't belong to this pp rank is freed.
 """
 
+import copy
 import logging
 import os
 import uuid
-import copy
-
-
 
 import numpy as np
 import ray
@@ -42,10 +40,9 @@ from omegaconf import ListConfig
 from tensordict import TensorDict
 from torch.distributed.device_mesh import DeviceMesh
 from vllm import LLM, SamplingParams
-from vllm.config import CompilationConfig, LoRAConfig
-from vllm.lora.request import LoRARequest
-from vllm.model_executor.model_loader.utils import process_weights_after_loading
+from vllm.config import CompilationConfig
 from vllm.distributed import parallel_state as vpu
+from vllm.lora.request import LoRARequest
 
 try:
     # https://github.com/vllm-project/vllm/commit/96b9aa5aa076e64c68765232aec343e4d0006e2a
@@ -61,8 +58,7 @@ try:
     from vllm.worker.worker_base import WorkerWrapperBase
 except ModuleNotFoundError:
     # https://github.com/vllm-project/vllm/commit/6a113d9aed8221a9c234535958e70e34ab6cac5b
-    from vllm.v1.worker.worker_base import WorkerWrapperBase
-
+    pass
 
 
 from verl import DataProto
@@ -71,27 +67,23 @@ from verl.utils.model import get_lora_rank_from_adapter
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
 from verl.workers.config import HFModelConfig, RolloutConfig
-
-from verl.workers.rollout.vllm_rollout.vllm_rollout_spmd import _pre_process_inputs
 from verl.workers.rollout.vllm_rollout.utils import (
     get_vllm_max_lora_rank,
 )
-from verl.workers.rollout.vllm_rollout.vllm_rollout_spmd import vLLMRollout
+from verl.workers.rollout.vllm_rollout.vllm_rollout_spmd import _pre_process_inputs, vLLMRollout
+
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-
-
 class vLLMRolloutPatch(vLLMRollout):
-    
     def __init__(
         self,
         config: RolloutConfig,
         model_config: HFModelConfig,
         device_mesh: DeviceMesh,
-):
-        super(vLLMRollout,self).__init__(self,config, model_config, device_mesh)
+    ):
+        super(vLLMRollout, self).__init__(self, config, model_config, device_mesh)
         if config.layered_summon:
             self.sleep_level = 1
         else:
@@ -130,11 +122,11 @@ class vLLMRolloutPatch(vLLMRollout):
             if hasattr(model_hf_config, "max_position_embeddings"):
                 max_position_embeddings = model_hf_config.max_position_embeddings
             elif hasattr(model_hf_config, "llm_config") and hasattr(
-                    model_hf_config.llm_config, "max_position_embeddings"
+                model_hf_config.llm_config, "max_position_embeddings"
             ):
                 max_position_embeddings = model_hf_config.llm_config.max_position_embeddings
             elif hasattr(model_hf_config, "text_config") and hasattr(
-                    model_hf_config.text_config, "max_position_embeddings"
+                model_hf_config.text_config, "max_position_embeddings"
             ):
                 max_position_embeddings = model_hf_config.text_config.max_position_embeddings
             if max_position_embeddings is None:
@@ -149,12 +141,12 @@ class vLLMRolloutPatch(vLLMRollout):
             rope_scaling_factor = rope_scaling_config.get("factor", 1.0)
 
             assert (
-                    model_hf_config.max_position_embeddings * rope_scaling_factor
-                    >= config.prompt_length + config.response_length
+                model_hf_config.max_position_embeddings * rope_scaling_factor
+                >= config.prompt_length + config.response_length
             ), (
-                    "model context length should be greater than total sequence length, "
-                    + f"got rope_scaling_factor={rope_scaling_factor} and "
-                    + f"max_position_embeddings={model_hf_config.max_position_embeddings}"
+                "model context length should be greater than total sequence length, "
+                + f"got rope_scaling_factor={rope_scaling_factor} and "
+                + f"max_position_embeddings={model_hf_config.max_position_embeddings}"
             )
 
         max_model_len = int(config.max_model_len or config.prompt_length + config.response_length)
@@ -296,8 +288,10 @@ class vLLMRolloutPatch(vLLMRollout):
             ):
                 vllm_inputs.append({"prompt_token_ids": raw_prompt_ids, "multi_modal_data": multi_modal_data})
         else:
-            vllm_inputs = [{"prompt_token_ids": raw_prompt_ids_ + raw_response_ids_} for
-                        raw_prompt_ids_, raw_response_ids_ in zip(raw_prompt_ids, raw_response_ids)]
+            vllm_inputs = [
+                {"prompt_token_ids": raw_prompt_ids_ + raw_response_ids_}
+                for raw_prompt_ids_, raw_response_ids_ in zip(raw_prompt_ids, raw_response_ids, strict=False)
+            ]
 
         need_response_length = [self.config.response_length - len(response) for response in raw_response_ids]
 
@@ -345,8 +339,7 @@ class vLLMRolloutPatch(vLLMRollout):
                 ] * batch_size
 
         # users can customize different sampling_params at different run
-        with self.update_sampling_params(self,**kwargs):
-
+        with self.update_sampling_params(self, **kwargs):
             if self.config.partial_rollout_mode == "sync" or self.config.partial_rollout_max_split == -1:
                 outputs = self.inference_engine.generate(
                     prompts=vllm_inputs,  # because we have already convert it to prompt token id
@@ -360,7 +353,8 @@ class vLLMRolloutPatch(vLLMRollout):
                     prompts=new_vllm_inputs,  # because we have already convert it to prompt token id
                     sampling_params=self.sampling_params,
                     need_response_length=need_response_length,
-                    age_list=age_list)
+                    age_list=age_list,
+                )
                 reverse_index = {j: k for k, j in enumerate(index_list)}
                 outputs = [outputs_sorted[reverse_index[j]] for j in range(len(index_list))]
 
@@ -434,8 +428,6 @@ class vLLMRolloutPatch(vLLMRollout):
 
         return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
 
-
-    
     def async_generate_sequences(self, prompts: list, **kwargs):
         engine = self.inference_engine.llm_engine
         is_pipeline_last_stage = vpu.get_pipeline_model_parallel_group().is_last_rank
@@ -453,11 +445,7 @@ class vLLMRolloutPatch(vLLMRollout):
 
             sampling_params = copy.deepcopy(self.sampling_params)
             sampling_params.max_tokens = need_response_length[i]
-            engine.add_request(
-                request_id=request_id,
-                prompt=prompt_token_ids,
-                params=sampling_params
-            )
+            engine.add_request(request_id=request_id, prompt=prompt_token_ids, params=sampling_params)
         count = 0
         t = 0
         while engine.has_unfinished_requests():
@@ -472,8 +460,9 @@ class vLLMRolloutPatch(vLLMRollout):
             for output in step_outputs:
                 if output.finished or stop_signal:
                     if age_list is not None:
-                        aged_prompt = age_list[
-                                        int(output.request_id.split("_")[1])] == self.config.partial_rollout_max_split
+                        aged_prompt = (
+                            age_list[int(output.request_id.split("_")[1])] == self.config.partial_rollout_max_split
+                        )
                         if aged_prompt:
                             count += 1
                     output_list.append(output)

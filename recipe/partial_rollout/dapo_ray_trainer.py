@@ -1,5 +1,21 @@
-
-
+# Copyright (c) 2025 Huawei Technologies Co., Ltd. All Rights Reserved.
+# Copyright 2024 Bytedance Ltd. and/or its affiliates
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""
+FSDP PPO Trainer with Ray-based single controller.
+This trainer supports model-agonistic model initialization with huggingface
+"""
 
 import os
 import uuid
@@ -13,14 +29,11 @@ import torch
 from tqdm import tqdm
 
 from verl import DataProto
-from verl.trainer.ppo.core_algos import agg_loss
 from verl.trainer.ppo.metric_utils import compute_data_metrics, compute_throughout_metrics, compute_timing_metrics
 from verl.trainer.ppo.ray_trainer import (
     AdvantageEstimator,
-    RayPPOTrainer,
     apply_kl_penalty,
     compute_advantage,
-    compute_response_mask,
 )
 from verl.trainer.ppo.reward import compute_reward
 from verl.utils.metric import reduce_metrics
@@ -101,14 +114,17 @@ def dapo_ray_trainer_fit(self):
                 )
 
             new_batch: DataProto = DataProto.from_single_dict(batch_dict)
-            new_batch.non_tensor_batch["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(new_batch.batch))],
-                                                         dtype=object)
+            new_batch.non_tensor_batch["uid"] = np.array(
+                [str(uuid.uuid4()) for _ in range(len(new_batch.batch))], dtype=object
+            )
             # repeat to align with repeated responses in rollout
-            new_batch = new_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n,
-                                         interleave=True)  # gen_prompt_bsz * n
+            new_batch = new_batch.repeat(
+                repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True
+            )  # gen_prompt_bsz * n
             new_batch.non_tensor_batch["age"] = np.ones(len(new_batch.batch), dtype=int)
-            new_batch.non_tensor_batch["raw_response_ids"] = np.fromiter(([] for _ in range(len(new_batch.batch))),
-                                                                         dtype=object)
+            new_batch.non_tensor_batch["raw_response_ids"] = np.fromiter(
+                ([] for _ in range(len(new_batch.batch))), dtype=object
+            )
             new_batch = DataProto.concat([partial_batch, new_batch]) if partial_batch is not None else new_batch
 
             num_gen_batches += 1
@@ -142,47 +158,49 @@ def dapo_ray_trainer_fit(self):
                     timing_raw.update(gen_batch_output.meta_info["timing"])
                     gen_batch_output.meta_info.pop("timing", None)
                 with marked_timer("filter", timing_raw):
-
                     new_batch = new_batch.union(gen_batch_output)
 
                     finished_mask = new_batch.non_tensor_batch.pop("finished")
 
                     if self.config.actor_rollout_ref.rollout.partial_rollout_mode == "sync":
-                        finished_mask = (new_batch.non_tensor_batch[
-                                             "age"] == self.config.algorithm.partial_rollout_max_split) | finished_mask
+                        finished_mask = (
+                            new_batch.non_tensor_batch["age"] == self.config.algorithm.partial_rollout_max_split
+                        ) | finished_mask
                     if self.config.actor_rollout_ref.rollout.partial_rollout_mode == "async":
-                        finished_mask = ([len(response) >= self.config.actor_rollout_ref.rollout.response_length
-                                          for response in
-                                          gen_batch_output.non_tensor_batch['raw_response_ids']]) | finished_mask
+                        finished_mask = (
+                            [
+                                len(response) >= self.config.actor_rollout_ref.rollout.response_length
+                                for response in gen_batch_output.non_tensor_batch["raw_response_ids"]
+                            ]
+                        ) | finished_mask
 
-                    staged_out, partial_batch = DataProto.split_data(new_batch,
-                                                                     finished_mask)
+                    staged_out, partial_batch = DataProto.split_data(new_batch, finished_mask)
 
-                    raw_prompt_ids = staged_out.non_tensor_batch['raw_prompt_ids']
-                    raw_response_ids = staged_out.non_tensor_batch['raw_response_ids']
+                    raw_prompt_ids = staged_out.non_tensor_batch["raw_prompt_ids"]
+                    raw_response_ids = staged_out.non_tensor_batch["raw_response_ids"]
+                    print(f"staged_out raw_prompt_ids :{len(raw_prompt_ids)} -- {[len(i) for i in raw_prompt_ids]} ")
                     print(
-                        f"staged_out raw_prompt_ids :{len(raw_prompt_ids)} -- {[len(i) for i in raw_prompt_ids]} ")
-                    print(
-                        f"staged_out raw_response_ids :{len(raw_response_ids)} -- {[len(i) for i in raw_response_ids]}")
+                        f"staged_out raw_response_ids :{len(raw_response_ids)} -- {[len(i) for i in raw_response_ids]}"
+                    )
 
                     staged_out.non_tensor_batch.pop("raw_prompt_ids")  # TODO ?
                     staged_out.non_tensor_batch.pop("raw_response_ids")
 
                     if len(partial_batch.batch) > 0:
-
-                        raw_prompt_ids = partial_batch.non_tensor_batch['raw_prompt_ids']
-                        raw_response_ids = partial_batch.non_tensor_batch['raw_response_ids']
-                        # device = torch.distributed.get_rank()
+                        raw_prompt_ids = partial_batch.non_tensor_batch["raw_prompt_ids"]
+                        raw_response_ids = partial_batch.non_tensor_batch["raw_response_ids"]
+                        # TODO  Remove print
                         print(
-                            f"partial_batch :raw_prompt_ids :{len(raw_prompt_ids)} -- {[len(i) for i in raw_prompt_ids]} ")
+                            f"partial_batch :raw_prompt_ids :{len(raw_prompt_ids)} -- {[len(i) for i in raw_prompt_ids]} "
+                        )
                         print(
-                            f"partial_batch :raw_response_ids :{len(raw_response_ids)} -- {[len(i) for i in raw_response_ids]}")
+                            f"partial_batch :raw_response_ids :{len(raw_response_ids)} -- {[len(i) for i in raw_response_ids]}"
+                        )
 
                         # breakpoint()
                         for key in ("input_ids", "attention_mask", "position_ids"):
                             tmp = partial_batch.batch.pop(key, None)
-                            partial_batch.batch[key] = tmp[:,
-                                                       : self.config.data.max_prompt_length]  # TODO ?
+                            partial_batch.batch[key] = tmp[:, : self.config.data.max_prompt_length]  # TODO ?
 
                         for key in ("prompts", "responses", "rollout_log_probs"):
                             # we don't support rollout_log_probs in this feature branch yet
@@ -193,8 +211,9 @@ def dapo_ray_trainer_fit(self):
 
                     # note that we no longer ensure the order of samples in staged_batch
 
-                    staged_batch = DataProto.concat(
-                        [staged_batch, staged_out]) if staged_batch is not None else staged_out
+                    staged_batch = (
+                        DataProto.concat([staged_batch, staged_out]) if staged_batch is not None else staged_out
+                    )
 
                     # prompts whose number of finished rollout is enough can be trained on
                     # while filtering, we ensure sample number is divisible by n_gpus_per_node and as large as possible
@@ -205,11 +224,11 @@ def dapo_ray_trainer_fit(self):
 
                     for uid in staged_batch.non_tensor_batch["uid"]:
                         id2count[uid] += 1
-                    assert not id2count or max(
-                        id2count.values()) <= required_rollouts, "max number of responses exceeds rollout n"
+                    assert not id2count or max(id2count.values()) <= required_rollouts, (
+                        "max number of responses exceeds rollout n"
+                    )
 
-                    complete_uids = [uid for uid, count in id2count.items() if
-                                     count == required_rollouts]
+                    complete_uids = [uid for uid, count in id2count.items() if count == required_rollouts]
 
                     total_complete_samples = len(complete_uids) * required_rollouts
                     max_usable_groups = (total_complete_samples // divisor) * divisor // required_rollouts
@@ -225,8 +244,7 @@ def dapo_ray_trainer_fit(self):
                         if uid in selected_uids:
                             can_train_mask[i] = True
 
-                    new_batch, staged_batch = DataProto.split_data(staged_batch,
-                                                                   can_train_mask)
+                    new_batch, staged_batch = DataProto.split_data(staged_batch, can_train_mask)
 
                 if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                     with marked_timer("gen_max", timing_raw, "red"):
@@ -272,18 +290,14 @@ def dapo_ray_trainer_fit(self):
                     new_batch.batch["token_level_scores"] = reward_tensor
 
                     if reward_extra_infos_dict:
-                        new_batch.non_tensor_batch.update(
-                            {k: np.array(v) for k, v in reward_extra_infos_dict.items()}
-                        )
+                        new_batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
 
                     # compute rewards. apply_kl_penalty if available
                     if self.config.algorithm.use_kl_in_reward:
                         new_batch, kl_metrics = apply_kl_penalty(
                             new_batch, kl_ctrl=self.kl_ctrl_in_reward, kl_penalty=self.config.algorithm.kl_penalty
                         )
-                        metrics.update(
-                            kl_metrics
-                        )  # TODO: This will be cleared if we use multiple genenration batches
+                        metrics.update(kl_metrics)  # TODO: This will be cleared if we use multiple genenration batches
                     else:
                         new_batch.batch["token_level_rewards"] = new_batch.batch["token_level_scores"]
 
@@ -305,7 +319,7 @@ def dapo_ray_trainer_fit(self):
                     # Collect the sequence reward for each trajectory
                     prompt_uid2metric_vals = defaultdict(list)
                     for uid, metric_val in zip(
-                            new_batch.non_tensor_batch["uid"], new_batch.non_tensor_batch[metric_name], strict=True
+                        new_batch.non_tensor_batch["uid"], new_batch.non_tensor_batch[metric_name], strict=True
                     ):
                         prompt_uid2metric_vals[uid].append(metric_val)
 
@@ -414,9 +428,9 @@ def dapo_ray_trainer_fit(self):
 
             # validate
             if (
-                    self.val_reward_fn is not None
-                    and self.config.trainer.test_freq > 0
-                    and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
+                self.val_reward_fn is not None
+                and self.config.trainer.test_freq > 0
+                and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
             ):
                 with marked_timer("testing", timing_raw, "green"):
                     val_metrics: dict = self._validate()
@@ -425,7 +439,7 @@ def dapo_ray_trainer_fit(self):
                 metrics.update(val_metrics)
 
             if self.config.trainer.save_freq > 0 and (
-                    is_last_step or self.global_steps % self.config.trainer.save_freq == 0
+                is_last_step or self.global_steps % self.config.trainer.save_freq == 0
             ):
                 with marked_timer("save_checkpoint", timing_raw, "green"):
                     self._save_checkpoint()

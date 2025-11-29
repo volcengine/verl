@@ -204,7 +204,7 @@ class RolloutConfig(BaseConfig):
     skip_tokenizer_init: bool = False
 
     quantization: Optional[str] = None
-    
+
     partial_rollout_mode: str = "async"
 
     rollout_threshold_rate: float = 0.8
