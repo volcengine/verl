@@ -403,7 +403,7 @@ def ray_trainer_fit(self):
                     finished_mask = batch.non_tensor_batch.pop("finished")
                     if self.config.actor_rollout_ref.rollout.partial_rollout_mode == "sync":
                         finished_mask = (batch.non_tensor_batch[
-                                             "age"] == self.config.algorithm.partial_rollout_max_split) | finished_mask
+                                             "age"] == self.config.actor_rollout_ref.rollout.partial_rollout_max_split) | finished_mask
                     if self.config.actor_rollout_ref.rollout.partial_rollout_mode == "async":
                         finished_mask = ([len(response) >= self.config.actor_rollout_ref.rollout.response_length
                                           for response in
