@@ -74,7 +74,7 @@ class SFTTrainer:
 
         self.device_name = self.config.trainer.device
 
-        from verl.workers.roles.utils.losses import sft_loss
+        from verl.workers.utils.losses import sft_loss
 
         self.loss_fn = partial(sft_loss, config=None)
 
