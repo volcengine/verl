@@ -13,14 +13,9 @@
 # limitations under the License.
 
 import asyncio
-import json
 import logging
 import os
-import torch
-import aiohttp
-from openai.types.chat import ChatCompletion
 
-from verl import DataProto
 from verl.single_controller.ray.base import RayResourcePool, split_resource_pool
 from verl.workers.config import HFModelConfig, RewardModelConfig
 from verl.workers.rollout.replica import get_rollout_replica_class
@@ -116,56 +111,6 @@ class RewardModelManager:
 
     def _run_all(self, tasks: list[asyncio.Task]):
         async def run_all():
-            return await asyncio.gather(*tasks)
+            await asyncio.gather(*tasks)
 
-        return asyncio.run(run_all())
-
-
-    def generate_sequences(self, prompts: DataProto, sampling_params: dict):
-        if self.config.rollout.free_cache_engine:
-            self.wake_up()
-        payloads = [
-            {
-                "model": self.config.model.path,
-                "messages": list(messages),
-                **sampling_params,
-            }
-            for messages in prompts.non_tensor_batch.get("raw_prompt")
-        ]
-        tasks = [self.post_request(payload, "v1/chat/completions") for payload in payloads]
-        results = self._run_all(tasks)
-        if self.config.rollout.free_cache_engine:
-            self.sleep()
-
-        responses = [{"grm_response": result["choices"][0]["message"]["content"]} for result in results]
-        return responses
-
-    def _preprocess_reward_inputs(self, data: DataProto):
-        rm_inputs = []
-        for i in range(len(data)):
-            data_item = data[i]
-            assert "raw_prompt" in data_item.non_tensor_batch
-
-            # extract raw prompt
-            chat: list = list(data_item.non_tensor_batch["raw_prompt"])
-
-            # extract response
-            response_ids = data_item.batch["responses"]
-            response_length = response_ids.shape[-1]
-            valid_response_length = data_item.batch["attention_mask"][-response_length:].sum()
-            valid_response_ids = response_ids[:valid_response_length]
-            rollout_response = src_tokenizer.decode(valid_response_ids, skip_special_tokens=True)
-            
-        return rm_inputs
-
-    def compute_rm_score(self, data: DataProto):
-        rm_data = self._preprocess_reward_inputs(data)
-        payloads = [
-            {
-                "model": self.config.model.path,
-                "input_ids": rm_input,
-            }
-            for rm_input in rm_data
-        ]
-        breakpoint()
-
+        asyncio.run(run_all())

@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import os
 
 import ray
@@ -118,9 +119,11 @@ def test_reward_model_manager():
         config = compose("rm_config")
 
     rollout_model_name = os.path.expanduser("~/models/deepseek-llm-7b-chat")
-    reward_model_name = os.path.expanduser("~/models/Skywork/Skywork-Reward-V2-Llama-3.2-1B")
+    reward_model_name = os.path.expanduser("~/models/Qwen/Qwen2.5-1.5B-Instruct")
 
     config.actor_rollout_ref.model.path = rollout_model_name
+    config.custom_reward_function.path = "tests/experimental/reward/reward_fn.py"
+    config.custom_reward_function.name = "compute_score_gsm8k"
     config.reward_model.reward_manager = "dapo"
     config.reward_model.enable = True
     config.reward_model.enable_resource_pool = True
@@ -147,7 +150,7 @@ def test_reward_model_manager():
     for idx, (conv, output) in enumerate(zip(convs, outputs, strict=True)):
         print(f"Problem {idx}:\n{conv[0]['content']}\n")
         print(f"AI Solution {idx}:\n{conv[1]['content']}\n")
-        print(f"DisRM Score {idx}:\n{output.batch['rm_scores'].sum(dim=-1).item()}\n")
+        print(f"GRM Response {idx}:\n{output.non_tensor_batch['genrm_response']}\n")
         print("=" * 50 + "\n")
 
     ray.shutdown()

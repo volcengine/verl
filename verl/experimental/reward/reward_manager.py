@@ -13,21 +13,24 @@
 # limitations under the License.
 
 import asyncio
+import json
 import logging
 import os
+
 import aiohttp
-import json
-
+import numpy as np
 import ray
+import torch
 from omegaconf import DictConfig
+from tensordict import TensorDict
 
-from verl.experimental.reward.reward_loop import get_reward_loop_manager_cls
 from verl.protocol import DataProto
+from verl.single_controller.ray.base import RayResourcePool
 from verl.trainer.ppo.reward import get_custom_reward_fn
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_to_local
-from verl.single_controller.ray.base import RayResourcePool, RayWorkerGroup
 
+from .reward_loop import get_reward_loop_manager_cls
 from .reward_model import RewardModelManager
 
 logger = logging.getLogger(__file__)
@@ -72,8 +75,17 @@ class RewardLoopWorker:
             self.config, self.input_tokenizer, self.reward_fn, self.reward_router_address, self.reward_model_tokenizer
         )
 
-    async def compute_score(self, data: DataProto) -> DataProto:
-        if self.config.get("custom_reward_function", None) is not None:
+    async def compute_score_batch(self, data: DataProto) -> list[dict]:
+        tasks = []
+        for i in range(len(data)):
+            tasks.append(asyncio.create_task(self.compute_score(data[i : i + 1])))
+        outputs = await asyncio.gather(*tasks)
+        return outputs
+
+    async def compute_score(self, data: DataProto) -> dict:
+        assert len(data) == 1, "RewardLoopWorker only support single data item"
+        if self.config.custom_reward_function.path is not None:
+            # directly use user-customized reward function
             return await self.reward_loop.run_single(data)
         else:
             if self.config.reward_model.enable:
@@ -83,8 +95,9 @@ class RewardLoopWorker:
             else:
                 return await self.reward_loop.run_single(data)
 
+    # TODO (dyy): add retry, timeout, ...
     async def _post_request(self, payload: dict, endpoint: str):
-        url = f"http://{self.router_address}/{endpoint}"
+        url = f"http://{self.reward_router_address}/{endpoint}"
         try:
             timeout = aiohttp.ClientTimeout(total=None)
             session = aiohttp.ClientSession(timeout=timeout)
@@ -97,8 +110,54 @@ class RewardLoopWorker:
         finally:
             await session.close()
 
-    async def compute_score_disrm(self, data: DataProto) -> DataProto:
-        return await self.reward_loop.run_single(data)
+    async def _preprocess_reward_inputs(self, data: DataProto) -> str:
+        assert len(data) == 1, "RewardLoopWorker only support single data item"
+        data_item = data[0]
+        assert "raw_prompt" in data_item.non_tensor_batch
+
+        # extract raw prompt
+        chat: list = list(data_item.non_tensor_batch["raw_prompt"])
+
+        # extract response
+        response_ids = data_item.batch["responses"]
+        response_length = response_ids.shape[-1]
+        valid_response_length = data_item.batch["attention_mask"][-response_length:].sum()
+        valid_response_ids = response_ids[:valid_response_length]
+
+        # decode
+        rollout_response = self.input_tokenizer.decode(valid_response_ids)
+        # remove bos and eos
+        rollout_response = rollout_response.replace(self.input_tokenizer.eos_token, "")
+
+        chat.append({"role": "assistant", "content": rollout_response})
+
+        rm_prompt = self.reward_model_tokenizer.apply_chat_template(
+            chat,
+            add_generation_prompt=False,
+            tokenize=False,
+        )
+        return rm_prompt
+
+    async def compute_score_disrm(self, data: DataProto) -> dict:
+        disrm_prompt = await self._preprocess_reward_inputs(data)
+        engine_name = self.config.reward_model.rollout.name
+        model_name = self.config.reward_model.model.path
+        if engine_name == "vllm":
+            payloads = {
+                "model": model_name,
+                "input": disrm_prompt,
+                # TODO (dyy): the api has been changed to "use_activation" in the latest vllm version
+                "activation": False,
+                "add_special_tokens": False,
+            }
+            output = await self._post_request(payloads, "classify")
+            rm_score = output["data"][-1]["probs"][-1]
+        elif engine_name == "sglang":
+            pass
+        else:
+            raise NotImplementedError(f"RewardLoopManager does not support {engine_name}")
+
+        return {"reward_score": rm_score}
 
 
 class RewardLoopManager:
@@ -107,10 +166,10 @@ class RewardLoopManager:
     This class will create reward loop workers and manage them.
     RewardLoopManager will deprecate fsdp/megatron RewardModelWorker in the future.
     """
+
     def __init__(self, config: DictConfig, rm_resource_pool: RayResourcePool = None):
         self.config = config
         if self.config.reward_model.enable:
-            assert self.config.reward_model.enable_resource_pool is False, "Standalone Reward Model should not initalized with this class."
             self.reward_model_manager = RewardModelManager(config.reward_model, rm_resource_pool)
             self.reward_router_address = self.reward_model_manager.get_router_address()
         else:
@@ -131,28 +190,48 @@ class RewardLoopManager:
                 RewardLoopWorker.options(
                     name=f"reward_loop_worker_{i}",
                     scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
-                        node_id=node_id, soft=True,
-                    )
+                        node_id=node_id,
+                        soft=True,
+                    ),
                 ).remote(self.config, self.reward_router_address)
             )
 
     # this func is used to replace the legacy fsdp/megatron RewardModelWorker.compute_rm_score
-    def compute_rm_score(self, data: DataProto):
+    def compute_rm_score(self, data: DataProto) -> DataProto:
         if self.reward_model_manager is not None:
             self.reward_model_manager.wake_up()
 
         chunks = data.chunk(len(self.reward_loop_workers))
         outputs = ray.get(
             [
-                worker.compute_score.remote(chunk)
+                worker.compute_score_batch.remote(chunk)
                 for worker, chunk in zip(self.reward_loop_workers, chunks, strict=True)
             ]
         )
-        output = DataProto.cat(outputs)
+        outputs_flat = [item for sublist in outputs for item in sublist]
+
+        # compute rm score
+        scores = [item["reward_score"] for item in outputs_flat]
+        prompt_length = data.batch["prompts"].size(1)
+        valid_response_length = data.batch["attention_mask"][:, prompt_length:].sum(dim=1)
+        rm_scores = torch.zeros_like(data.batch["responses"], dtype=torch.float32)
+        rm_scores[torch.arange(rm_scores.size(0)), valid_response_length - 1] = torch.tensor(
+            scores, dtype=torch.float32
+        )
+        batch = TensorDict({"rm_scores": rm_scores}, batch_size=len(data))
+
+        reward_extra_infos = [output.get("reward_extra_info", {}) for output in outputs_flat]
+        reward_extra_keys = list(reward_extra_infos[0].keys())
+        non_tensor_batch = {}
+        for key in reward_extra_keys:
+            non_tensor_batch[key] = np.array([info[key] for info in reward_extra_infos])
 
         if self.reward_model_manager is not None:
             self.reward_model_manager.sleep()
-        return output
+
+        return DataProto(
+            batch=batch, non_tensor_batch=non_tensor_batch, meta_info={"reward_extra_keys": reward_extra_keys}
+        )
 
     def _run_all(self, tasks: list[asyncio.Task]):
         async def run_all():
