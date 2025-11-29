@@ -248,7 +248,7 @@ class TaskRunner:
         """Add aggregator worker for partial rollout."""
         from verl.trainer.ppo.ray_trainer import Role
         if config.actor_rollout_ref.rollout.partial_rollout_mode == "async" and config.actor_rollout_ref.rollout.partial_rollout_max_split > 0:
-            from verl.trainer.ppo.ray_trainer import AggregatorActor
+            from recipe.partial_rollout.ray_trainer import AggregatorActor
             self.role_worker_mapping[Role.Aggregator] = ray.remote(AggregatorActor)
 
     def run(self, config):
