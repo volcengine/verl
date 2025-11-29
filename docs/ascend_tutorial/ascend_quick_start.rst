@@ -45,7 +45,6 @@ vllm & vllm-ascend
     # vllm
     git clone -b v0.11.0 --depth 1 https://github.com/vllm-project/vllm.git
     cd vllm
-    pip install -r requirements-build.txt
 
     # for Atlas 200T A2 Box16
     VLLM_TARGET_DEVICE=empty pip install -e . --extra-index https://download.pytorch.org/whl/cpu/
