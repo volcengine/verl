@@ -143,17 +143,24 @@ class RewardLoopWorker:
         engine_name = self.config.reward_model.rollout.name
         model_name = self.config.reward_model.model.path
         if engine_name == "vllm":
+            # TODO (dyy): the "activation" has been changed to "use_activation" in vllm 0.11.2
             payloads = {
                 "model": model_name,
                 "input": disrm_prompt,
-                # TODO (dyy): the api has been changed to "use_activation" in the latest vllm version
                 "activation": False,
                 "add_special_tokens": False,
             }
             output = await self._post_request(payloads, "classify")
             rm_score = output["data"][-1]["probs"][-1]
         elif engine_name == "sglang":
-            pass
+            # TODO (dyy): current sglang router (v0.2.3) cannot dispatch "classify" method
+            # will switch to "classify" when supported
+            payloads = {
+                "model": model_name,
+                "input": disrm_prompt,
+            }
+            output = await self._post_request(payloads, "v1/embeddings")
+            rm_score = output["data"][-1]["embedding"][-1]
         else:
             raise NotImplementedError(f"RewardLoopManager does not support {engine_name}")
 
