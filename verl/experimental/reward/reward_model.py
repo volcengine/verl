@@ -48,6 +48,7 @@ class RewardModelManager:
         self.resource_pool = resource_pool
         self._initialize_llm_servers()
         self._initialize_router()
+        assert self.config.rollout.skip_tokenizer_init is False, "Reward model should not skip tokenizer init."
         if self.config.rollout.free_cache_engine:
             self.sleep()
 
@@ -119,19 +120,6 @@ class RewardModelManager:
 
         return asyncio.run(run_all())
 
-    async def post_request(self, payload: dict, endpoint: str):
-        url = f"http://{self.router_address}/{endpoint}"
-        try:
-            timeout = aiohttp.ClientTimeout(total=None)
-            session = aiohttp.ClientSession(timeout=timeout)
-            async with session.post(url, json=payload) as resp:
-                output = await resp.text()
-                output = json.loads(output)
-                return output
-        except Exception as e:
-            raise e
-        finally:
-            await session.close()
 
     def generate_sequences(self, prompts: DataProto, sampling_params: dict):
         if self.config.rollout.free_cache_engine:
