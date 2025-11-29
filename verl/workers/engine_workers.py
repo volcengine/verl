@@ -39,7 +39,8 @@ from verl.utils.profiler import DistProfiler, DistProfilerExtension, log_gpu_mem
 from verl.utils.py_functional import append_to_dict
 from verl.workers.config import ActorConfig, CriticConfig, HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout, get_rollout_class
-from verl.workers.utils import left_right_2_no_padding, no_padding_2_padding, ppo_loss, value_loss
+from verl.workers.utils.losses import ppo_loss, value_loss
+from verl.workers.utils.padding import left_right_2_no_padding, no_padding_2_padding
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
