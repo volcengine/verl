@@ -204,6 +204,12 @@ class RolloutConfig(BaseConfig):
     skip_tokenizer_init: bool = False
 
     quantization: Optional[str] = None
+    
+    partial_rollout_mode: str = "async"
+
+    rollout_threshold_rate: float = 0.8
+
+    partial_rollout_max_split: int = -1
 
     def __post_init__(self):
         """Validate the rollout config"""
