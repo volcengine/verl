@@ -331,7 +331,7 @@ config = RolloutCorrectionConfig.decoupled_token_is(threshold=2.0)
 
 **Components:**
 - **Operating Mode**: Decoupled (3 policies)
-- **Loss**: PPO with clipping
+- **Loss**: PPO with clipping (only for the second drift correction)
 - **IS Aggregation**: Token-level
 - **RS**: None (can be added separately)
 
@@ -365,7 +365,7 @@ config = RolloutCorrectionConfig.decoupled_seq_is(threshold=2.0)
 
 **Components:**
 - **Operating Mode**: Decoupled (3 policies)
-- **Loss**: PPO with clipping
+- **Loss**: PPO with clipping (only for the second drift correction)
 - **IS Aggregation**: Sequence-level (Seq-TIS)
 - **RS**: None (can be added separately)
 
@@ -399,7 +399,7 @@ config = RolloutCorrectionConfig.decoupled_seq_is_rs(is_threshold=2.0, rs_thresh
 
 **Components:**
 - **Operating Mode**: Decoupled (3 policies)
-- **Loss**: PPO with clipping
+- **Loss**: PPO with clipping (only for the second drift correction)
 - **IS Aggregation**: Sequence-level (Seq-TIS)
 - **RS**: Sequence-level rejection (Seq-MIS)
 
@@ -411,7 +411,7 @@ algorithm:
     rollout_is_threshold: 2.0
     rollout_rs: sequence
     rollout_rs_threshold: 2.0
-    rollout_rs_threshold_lower: 0  # Reciprocal of threshold
+    rollout_rs_threshold_lower: 0
     bypass_mode: false  # Decoupled mode
 ```
 
@@ -437,7 +437,7 @@ config = RolloutCorrectionConfig.decoupled_geo_rs(rs_threshold=1.001, veto_thres
 
 **Components:**
 - **Operating Mode**: Decoupled (3 policies)
-- **Loss**: PPO with clipping
+- **Loss**: PPO with clipping (only for the second drift correction)
 - **IS Aggregation**: None (pure rejection)
 - **RS**: Geometric-level rejection (Geo-RS)
 - **Veto**: Enabled
@@ -486,8 +486,8 @@ config = RolloutCorrectionConfig.geo_rs_seq_tis(
 ```
 
 **Components:**
-- **Operating Mode**: Decoupled (3 policies) - can also be used with bypass
-- **Loss**: PPO with clipping (or policy gradient with `use_policy_gradient=True`)
+- **Operating Mode**: Decoupled (3 policies)
+- **Loss**: PPO with clipping (only for the second drift correction)
 - **IS Aggregation**: Sequence-level (Seq-TIS) for debiasing
 - **RS**: Geometric-level rejection (Geo-RS) for length-invariant filtering
 - **Veto**: Enabled
@@ -502,7 +502,7 @@ algorithm:
     rollout_rs_threshold: 1.001
     rollout_rs_threshold_lower: 0.999
     rollout_token_veto_threshold: 1e-4
-    bypass_mode: false  # Can be true for bypass mode
+    bypass_mode: false  # Decoupled mode
 ```
 
 **Properties:**
