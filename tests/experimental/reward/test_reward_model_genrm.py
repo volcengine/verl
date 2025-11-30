@@ -118,7 +118,7 @@ def test_reward_model_manager():
     with initialize_config_dir(config_dir=os.path.abspath("recipe/fapo/config")):
         config = compose("rm_config")
 
-    rollout_model_name = os.path.expanduser("~/models/deepseek-llm-7b-chat")
+    rollout_model_name = os.path.expanduser("~/models/Qwen/Qwen2.5-0.5B-Instruct")
     reward_model_name = os.path.expanduser("~/models/Qwen/Qwen2.5-1.5B-Instruct")
 
     config.actor_rollout_ref.model.path = rollout_model_name
