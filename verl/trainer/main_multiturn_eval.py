@@ -194,12 +194,14 @@ def _maybe_patch_device_mesh() -> str:
     return "patched"
 
 
-def _patch_device_mesh_on_workers(actor_rollout_wg: RayWorkerGroup):
+def _patch_device_mesh_on_workers(actor_rollout_wg: RayWorkerGroup, extra_group_names: Optional[List[str]] = None):
     """Apply the DeviceMesh compatibility patch inside all rollout workers."""
     try:
         import ray
     except Exception:  # pragma: no cover - defensive
         return
+
+    extra_group_names = extra_group_names or []
 
     def _register_device_mesh_process_groups(worker_container):
         """Register simple named process groups (fsdp/ddp/sp etc.) to default WORLD group."""
@@ -224,7 +226,12 @@ def _patch_device_mesh_on_workers(actor_rollout_wg: RayWorkerGroup):
             for mesh in meshes:
                 if mesh is None:
                     continue
-                names = getattr(mesh, "mesh_dim_names", None) or getattr(mesh, "_dim_group_names", None)
+                names = getattr(mesh, "mesh_dim_names", None) or getattr(mesh, "_dim_group_names", None) or []
+                names = list(names) if names else []
+                # Merge extra group names (e.g., infer_tp for sglang) to ensure registration.
+                for extra_name in extra_group_names:
+                    if extra_name and extra_name not in names:
+                        names.append(extra_name)
                 if not names:
                     names = ["fsdp"]
                 for name in names:
@@ -274,7 +281,7 @@ def _apply_rollout_backend_patches(config: DictConfig, actor_rollout_wg: RayWork
     """
     rollout_name = str(config.actor_rollout_ref.rollout.get("name", "")).lower()
     if rollout_name == "sglang":
-        _patch_device_mesh_on_workers(actor_rollout_wg)
+        _patch_device_mesh_on_workers(actor_rollout_wg, extra_group_names=["infer_tp"])
         _maybe_patch_device_mesh()
     elif rollout_name == "vllm":
         # vllm uses FSDP checkpoint loading on workers; ensure worker classes see the patch too.
