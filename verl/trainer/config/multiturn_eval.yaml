@@ -35,6 +35,7 @@ actor_rollout_ref:
       interaction_config_path: null
 
     agent:
+      default_agent_loop: tool_agent
       num_workers: 8
 
 # Checkpoint configuration for loading trained models.
