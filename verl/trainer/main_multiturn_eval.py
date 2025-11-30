@@ -92,8 +92,20 @@ def load_tokenizer_and_processor(config: DictConfig):
 
     tokenizer = hf_tokenizer(tokenizer_path, trust_remote_code=trust_remote_code)
     processor = None
-    if model_cfg.get("use_processor", False):
-        processor = hf_processor(tokenizer_path, trust_remote_code=trust_remote_code, use_fast=True)
+    # For multi-modal models, try to auto-enable processor when not explicitly requested.
+    # Text-only models may not ship a processor; we ignore failures unless the user forced it on.
+    use_processor_cfg = model_cfg.get("use_processor", None)
+    if use_processor_cfg is not False:
+        try:
+            processor = hf_processor(tokenizer_path, trust_remote_code=trust_remote_code, use_fast=True)
+            if use_processor_cfg is None:
+                # Make downstream components aware that processor is available.
+                model_cfg.use_processor = True
+        except Exception as e:
+            if use_processor_cfg:
+                # Explicitly requested but failed to load -> surface the error.
+                raise
+            logger.info("Processor not found for model %s, running in text-only mode. (%s)", tokenizer_path, e)
 
     chat_template = model_cfg.get("custom_chat_template") or model_cfg.get("chat_template")
     if chat_template:
