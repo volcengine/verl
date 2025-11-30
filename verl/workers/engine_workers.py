@@ -42,8 +42,86 @@ from verl.workers.rollout.base import BaseRollout, get_rollout_class
 from verl.workers.utils.losses import ppo_loss, value_loss
 from verl.workers.utils.padding import left_right_2_no_padding, no_padding_2_padding
 
+from tensordict import TensorDict
+
+from verl.utils import tensordict_utils as tu
+
+import torch
+
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
+
+
+class TrainerWorker(Worker, DistProfilerExtension):
+    """
+    TrainerWorker provides a Tinker-like API (https://thinkingmachines.ai/tinker/) as a RayWorkerGroup
+    to a single controller. Currently, we only provide more coarse grained APIs,
+    and do not provide exact APIs as Tinker does. But this can be added in the future.
+    """
+
+    def __int__(self, model_config, engine_config, optimizer_config, checkpoint_config):
+        self.model_config = model_config
+        self.engine_config = engine_config
+        self.optimizer_config = optimizer_config
+        self.checkpoint_config = checkpoint_config
+        self.loss_fn = None
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def set_loss_fn(self, loss_fn):
+        self.loss_fn = loss_fn
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def init_model(self):
+        from verl.workers.engine import BaseEngine, EngineRegistry
+        self.engine: BaseEngine = EngineRegistry.new(
+            model_type="language_model",
+            backend=self.config.strategy,
+            model_config=self.model_config,
+            engine_config=self.engine_config,
+            optimizer_config=self.optimizer_config,
+            checkpoint_config=self.checkpoint_config,
+        )
+
+        # build dispatch info
+        self._register_dispatch_collect_info(
+            mesh_name="train",
+            dp_rank=self.engine.get_data_parallel_rank(),
+            is_collect=self.engine.is_mp_src_rank_with_outputs(),
+        )
+
+        self.flops_counter = FlopsCounter(self.model_config.hf_config)
+
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False)
+    def train_batch(self, data: TensorDict) -> TensorDict:
+        assert self.loss_fn is not None, "loss function can't be None in training"
+        # global_token_num should be a list of number of tokens of each seq in this batch
+        global_token_num = tu.get(data, key='global_token_num')
+        assert global_token_num is not None
+
+        with self.engine.train_mode(), Timer(name="update_policy", logger=None) as timer:
+            output = self.engine.train_batch(data, self.loss_fn)
+        delta_time = timer.last
+
+        # update lr scheduler
+        if update_lr_scheduler:
+            self.engine.lr_scheduler_step()
+
+        metrics = output['metrics']
+        # performance all reduce in dp group to ensure that it's correct
+
+        # compute mfu
+        estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_token_num, delta_time)
+        metrics["train/mfu"] = estimated_flops / promised_flops / torch.distributed.get_world_size()
+        # compute memory
+        metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024 ** 3)
+        metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024 ** 3)
+        metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024 ** 3)
+
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"))
+    def infer_batch(self, data: TensorDict) -> TensorDict:
+        # add mfu calculator
+        with self.engine.eval_mode():
+            output = self.engine.infer_batch(data)
 
 
 class ActorWorker(Worker, DistProfilerExtension):
@@ -543,11 +621,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
     async def generate(
-        self,
-        prompt_ids: list[int],
-        sampling_params: dict[str, Any],
-        request_id: str,
-        image_data: Optional[list[Any]] = None,
+            self,
+            prompt_ids: list[int],
+            sampling_params: dict[str, Any],
+            request_id: str,
+            image_data: Optional[list[Any]] = None,
     ) -> list[int]:
         ret = await self.rollout.generate(prompt_ids, sampling_params, request_id, image_data=image_data)
         return ret
