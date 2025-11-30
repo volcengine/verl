@@ -156,7 +156,9 @@ def _maybe_patch_device_mesh() -> str:
     Torch 2.8.0 DeviceMesh does not expose `_dim_group_names`, but
     FSDP2 sharded load path in torch.distributed assumes it exists.
     Add a lightweight compatibility property so checkpoint loading
-    does not crash on AttributeError.
+    does not crash on AttributeError. Some backends (e.g., sglang)
+    also assign to this field when creating sub-meshes, so we expose
+    a setter backed by a private attribute.
     """
     try:
         from torch.distributed.device_mesh import DeviceMesh
@@ -166,7 +168,11 @@ def _maybe_patch_device_mesh() -> str:
     if hasattr(DeviceMesh, "_dim_group_names"):
         return "skip:already_patched"
 
-    def _dim_group_names(self):
+    _BACKING_ATTR = "_dim_group_names_backing"
+
+    def _dim_group_names_getter(self):
+        if hasattr(self, _BACKING_ATTR):
+            return getattr(self, _BACKING_ATTR)
         infos = getattr(self, "_dim_group_infos", None)
         if infos is not None:
             names = []
@@ -181,7 +187,10 @@ def _maybe_patch_device_mesh() -> str:
         mesh_dims = getattr(self, "mesh_dim_names", None)
         return list(mesh_dims) if mesh_dims is not None else []
 
-    DeviceMesh._dim_group_names = property(_dim_group_names)
+    def _dim_group_names_setter(self, value):
+        setattr(self, _BACKING_ATTR, value)
+
+    DeviceMesh._dim_group_names = property(_dim_group_names_getter, _dim_group_names_setter)
     return "patched"
 
 
@@ -253,6 +262,24 @@ def _patch_device_mesh_on_workers(actor_rollout_wg: RayWorkerGroup):
         ]
     )
     logger.warning("DeviceMesh patch/register results: %s", patch_results)
+
+
+def _apply_rollout_backend_patches(config: DictConfig, actor_rollout_wg: RayWorkerGroup):
+    """
+    Apply backend-specific distributed patches based on rollout engine.
+    vllm: only local compatibility patch (no worker registration).
+    sglang: apply worker-side patch + registration since sub-mesh names
+            (e.g., infer_tp) must be registered.
+    default: safe local patch only.
+    """
+    rollout_name = str(config.actor_rollout_ref.rollout.get("name", "")).lower()
+    if rollout_name == "sglang":
+        _patch_device_mesh_on_workers(actor_rollout_wg)
+        _maybe_patch_device_mesh()
+    elif rollout_name == "vllm":
+        _maybe_patch_device_mesh()
+    else:
+        _maybe_patch_device_mesh()
 
 
 def prepare_generation_batch(batch: DataProto, async_mode: bool) -> DataProto:
@@ -715,15 +742,16 @@ def run_multiturn_evaluation(config: DictConfig):
     _, dataloader = create_eval_dataloader(config, tokenizer, processor)
     agent_handle, actor_rollout_wg, reward_wg = initialize_worker_groups(config)
 
-    # Patch DeviceMesh on workers to avoid torch 2.8.0 AttributeError when loading FSDP2 sharded checkpoints.
-    _patch_device_mesh_on_workers(actor_rollout_wg)
-    _maybe_patch_device_mesh()
+    # Backend-specific distributed patches (e.g., sglang needs DeviceMesh group registration)
+    _apply_rollout_backend_patches(config, actor_rollout_wg)
 
     # Load checkpoint if checkpoint_dir is specified
     # Note: checkpoint_dir and model.path are NOT mutually exclusive:
     # - model.path is still needed for tokenizer/processor loading
     # - checkpoint_dir is used to load model weights (overrides initial weights from model.path)
     load_checkpoint_if_needed(config, actor_rollout_wg)
+    # Patch again after checkpoint load in case distributed state was initialized lazily.
+    _apply_rollout_backend_patches(config, actor_rollout_wg)
 
     reward_kwargs = config.reward_model.get("reward_kwargs", {})
     reward_fn = load_reward_manager(config, tokenizer, num_examine=1, **reward_kwargs)
