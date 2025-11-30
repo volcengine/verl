@@ -57,6 +57,8 @@ data:
 reward_model:
   enable: false
   enable_resource_pool: false
+  use_dynamic_bsz: true
+  forward_max_token_len_per_gpu: 16384
 
 # Evaluation-specific runtime knobs.
 evaluation:
