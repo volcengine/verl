@@ -12,7 +12,7 @@ CONFIG_PATH="$PROJECT_DIR/verl/trainer/config"
 python3 -m verl.trainer.main_multiturn_eval \
     --config-path="$CONFIG_PATH" \
     --config-name='multiturn_eval' \
-    data.eval_files=$HOME/minhoucheng/data/gsm8k/test.parquet \
+    data.eval_files=$HOME/minhoucheng/data/gsm8k_w_tool/test.parquet \
     data.eval_batch_size=64 \
     data.max_prompt_length=1024 \
     data.max_response_length=1024 \
@@ -38,7 +38,6 @@ python3 -m verl.trainer.main_multiturn_eval \
     evaluation.max_batches=null \
     evaluation.max_samples=null \
     output.path=./eval_results \
-    output.scores_path=evaluation_scores.parquet \
-    output.trace_path=evaluation_trace.json \
+    output.scores_path=evaluation_scores.json \
     $@
 
