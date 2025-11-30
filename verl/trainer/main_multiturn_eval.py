@@ -277,6 +277,8 @@ def _apply_rollout_backend_patches(config: DictConfig, actor_rollout_wg: RayWork
         _patch_device_mesh_on_workers(actor_rollout_wg)
         _maybe_patch_device_mesh()
     elif rollout_name == "vllm":
+        # vllm uses FSDP checkpoint loading on workers; ensure worker classes see the patch too.
+        _patch_device_mesh_on_workers(actor_rollout_wg)
         _maybe_patch_device_mesh()
     else:
         _maybe_patch_device_mesh()
