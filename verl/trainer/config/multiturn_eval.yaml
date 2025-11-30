@@ -69,7 +69,6 @@ evaluation:
 output:
   path: ./eval_results
   scores_path: evaluation_scores.json
-  trace_path: evaluation_trace.json
 
 # Minimal trainer section supplying tracing metadata and cluster topology.
 trainer:

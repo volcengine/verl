@@ -602,6 +602,7 @@ def collect_sample_records(
 
 
 def aggregate_summary(turn_scores: List[float], generation_times: List[float], reward_times: List[float]) -> Dict[str, Any]:
+    """You can add more metrics here."""
     total_samples = len(turn_scores)
     return {
         "total_samples": total_samples,
@@ -655,26 +656,15 @@ def append_results_to_file(records: List[Dict[str, Any]], scores_path: Path, is_
                 json.dump(existing_records, f, indent=2, ensure_ascii=False)
 
 
-def save_summary_and_trace(metrics: Dict[str, Any], trace_records: List[Dict[str, Any]], config: DictConfig):
-    """Save evaluation summary and trace (sample records) at the end of evaluation.
+def save_summary(metrics: Dict[str, Any], config: DictConfig):
+    """Save evaluation summary at the end of evaluation.
     
     Args:
         metrics: Summary metrics dictionary
-        trace_records: Sample records for trace (first 100)
         config: Configuration object
     """
     output_dir = Path(config.output.path)
     output_dir.mkdir(parents=True, exist_ok=True)
-
-    if config.output.get("trace_path") and trace_records:
-        trace_path = output_dir / config.output.trace_path
-        trace_payload = {
-            "config": OmegaConf.to_container(config, resolve=True),
-            "records": trace_records,
-        }
-        with open(trace_path, "w", encoding="utf-8") as f:
-            json.dump(trace_payload, f, indent=2, ensure_ascii=False)
-        logger.info("Saved evaluation trace to %s", trace_path)
 
     summary_path = output_dir / "evaluation_summary.json"
     with open(summary_path, "w", encoding="utf-8") as f:
@@ -724,7 +714,6 @@ def run_multiturn_evaluation(config: DictConfig):
     turn_scores: List[float] = []
     generation_times: List[float] = []
     reward_times: List[float] = []
-    trace_records: List[Dict[str, Any]] = []  # Keep first 100 for trace
     
     consumed_samples = 0
     progress = tqdm(total=len(dataloader), desc="Batches", disable=len(dataloader) == 0)
@@ -768,10 +757,6 @@ def run_multiturn_evaluation(config: DictConfig):
                 if is_first_batch:
                     logger.info("Started writing results to %s", scores_path)
             
-            # Keep first 100 records for trace
-            if len(trace_records) < 100:
-                trace_records.extend(sample_records[:100 - len(trace_records)])
-            
             # Only keep metrics in memory
             turn_scores.extend(scores)
             generation_times.extend([per_sample_gen_time] * len(scores))
@@ -788,7 +773,7 @@ def run_multiturn_evaluation(config: DictConfig):
         logger.info("Finished writing all results to %s", scores_path)
 
     summary_metrics = aggregate_summary(turn_scores, generation_times, reward_times)
-    save_summary_and_trace(summary_metrics, trace_records, config)
+    save_summary(summary_metrics, config)
     logger.info("Multi-turn evaluation completed!")
     logger.info("Summary metrics: %s", json.dumps(summary_metrics, indent=2))
 
