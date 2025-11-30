@@ -18,13 +18,16 @@ from functools import partial
 from typing import Any, Optional
 
 import psutil
+import torch
 from codetiming import Timer
 from omegaconf import DictConfig, open_dict
+from tensordict import TensorDict
 from torch.distributed.device_mesh import init_device_mesh
 
 from verl import DataProto
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
+from verl.utils import tensordict_utils as tu
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.device import (
     get_device_id,
@@ -41,12 +44,6 @@ from verl.workers.config import ActorConfig, CriticConfig, HFModelConfig, Rollou
 from verl.workers.rollout.base import BaseRollout, get_rollout_class
 from verl.workers.utils.losses import ppo_loss, value_loss
 from verl.workers.utils.padding import left_right_2_no_padding, no_padding_2_padding
-
-from tensordict import TensorDict
-
-from verl.utils import tensordict_utils as tu
-
-import torch
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -73,6 +70,7 @@ class TrainerWorker(Worker, DistProfilerExtension):
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
         from verl.workers.engine import BaseEngine, EngineRegistry
+
         self.engine: BaseEngine = EngineRegistry.new(
             model_type="language_model",
             backend=self.config.strategy,
@@ -95,7 +93,7 @@ class TrainerWorker(Worker, DistProfilerExtension):
     def train_batch(self, data: TensorDict) -> TensorDict:
         assert self.loss_fn is not None, "loss function can't be None in training"
         # global_token_num should be a list of number of tokens of each seq in this batch
-        global_token_num = tu.get(data, key='global_token_num')
+        global_token_num = tu.get(data, key="global_token_num")
         assert global_token_num is not None
 
         with self.engine.train_mode(), Timer(name="update_policy", logger=None) as timer:
@@ -106,16 +104,16 @@ class TrainerWorker(Worker, DistProfilerExtension):
         if update_lr_scheduler:
             self.engine.lr_scheduler_step()
 
-        metrics = output['metrics']
+        metrics = output["metrics"]
         # performance all reduce in dp group to ensure that it's correct
 
         # compute mfu
         estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_token_num, delta_time)
         metrics["train/mfu"] = estimated_flops / promised_flops / torch.distributed.get_world_size()
         # compute memory
-        metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024 ** 3)
-        metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024 ** 3)
-        metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024 ** 3)
+        metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024**3)
+        metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024**3)
+        metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024**3)
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"))
     def infer_batch(self, data: TensorDict) -> TensorDict:
@@ -621,11 +619,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
     async def generate(
-            self,
-            prompt_ids: list[int],
-            sampling_params: dict[str, Any],
-            request_id: str,
-            image_data: Optional[list[Any]] = None,
+        self,
+        prompt_ids: list[int],
+        sampling_params: dict[str, Any],
+        request_id: str,
+        image_data: Optional[list[Any]] = None,
     ) -> list[int]:
         ret = await self.rollout.generate(prompt_ids, sampling_params, request_id, image_data=image_data)
         return ret
