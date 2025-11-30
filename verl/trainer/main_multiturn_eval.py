@@ -281,7 +281,7 @@ def _apply_rollout_backend_patches(config: DictConfig, actor_rollout_wg: RayWork
     """
     rollout_name = str(config.actor_rollout_ref.rollout.get("name", "")).lower()
     if rollout_name == "sglang":
-        _patch_device_mesh_on_workers(actor_rollout_wg, extra_group_names=["infer_tp"])
+        _patch_device_mesh_on_workers(actor_rollout_wg, extra_group_names=["infer_tp", "tp"])
         _maybe_patch_device_mesh()
     elif rollout_name == "vllm":
         # vllm uses FSDP checkpoint loading on workers; ensure worker classes see the patch too.
