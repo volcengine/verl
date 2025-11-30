@@ -604,7 +604,7 @@ def collect_sample_records(
             "sample_id": sample_id,
             "prompt": prompts[idx],
             "response": responses[idx],
-            "turn_score": reward_scores[idx],
+            "sample_score": reward_scores[idx],
             "num_turns": int(num_turns[idx]) if len(num_turns) else 0,
             "generation_time": generation_time,
         }
