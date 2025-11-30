@@ -511,7 +511,8 @@ def run_generation_step(
     if async_mode:
         output_padded = agent_handle.generate_sequences(prompts=gen_batch_padded)
     else:
-        output_padded = agent_handle.generate_sequences(data=gen_batch_padded)
+        # sglang sync path uses a decorator that expects the batch as the first positional arg.
+        output_padded = agent_handle.generate_sequences(gen_batch_padded)
     generation_time = time.time() - start
     timing = output_padded.meta_info.pop("timing", None)
     if timing:
