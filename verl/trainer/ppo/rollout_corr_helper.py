@@ -61,7 +61,7 @@ tracking metrics to diagnose and correct off-policy issues.
 
 
 ## References
-- "When Speed Kills Stability" (LLM training stability analysis): https://yingru.notion.site/When-Speed-Kills-Stability-271211a558b7808d8b12d403fd15edda
+- "When Speed Kills Stability: Demystifying RL Collapse from the Training-Inference Mismatch": https://richardli.xyz/rl-collapse
 - Off-policy RL (theoretical basis for IS): https://fengyao.notion.site/off-policy-rl
 """
 
