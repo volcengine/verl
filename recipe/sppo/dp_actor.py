@@ -145,7 +145,12 @@ class DataParallelSPPOActor(DataParallelPPOActor):
                     )
 
                     if entropy_coeff != 0:
-                        entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+                        entropy_loss = agg_loss(
+                            loss_mat=entropy,
+                            loss_mask=response_mask,
+                            loss_agg_mode=loss_agg_mode,
+                            loss_scale_factor=self.config.loss_scale_factor,
+                        )
 
                         # compute policy loss
                         policy_loss = pg_loss - entropy_loss * entropy_coeff
@@ -159,7 +164,10 @@ class DataParallelSPPOActor(DataParallelPPOActor):
                             logprob=log_prob, ref_logprob=ref_log_prob, kl_penalty=self.config.kl_loss_type
                         )
                         kl_loss = agg_loss(
-                            loss_mat=kld, loss_mask=response_mask, loss_agg_mode=self.config.loss_agg_mode
+                            loss_mat=kld,
+                            loss_mask=response_mask,
+                            loss_agg_mode=self.config.loss_agg_mode,
+                            loss_scale_factor=self.config.loss_scale_factor,
                         )
 
                         policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef

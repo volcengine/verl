@@ -78,6 +78,7 @@ actor_rollout_ref:
       ppo_kl_coef: 0.1
     clip_ratio_c: 3.0
     loss_agg_mode: token-mean
+    loss_scale_factor: null
     entropy_coeff: 0
     calculate_entropy: false
     use_kl_loss: false
