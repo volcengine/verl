@@ -601,17 +601,50 @@ def collect_sample_records(
     return records
 
 
-def aggregate_summary(turn_scores: List[float], generation_times: List[float], reward_times: List[float]) -> Dict[str, Any]:
+def compute_response_lengths(responses, pad_token_id: Optional[int], eos_token_id: Optional[int]) -> List[int]:
+    """Compute per-response lengths using EOS/pad cutoffs when available."""
+    if responses is None:
+        return []
+    responses_np = responses.cpu().numpy() if hasattr(responses, "cpu") else np.array(responses)
+    lengths: List[int] = []
+    for row in responses_np:
+        row_list = row.tolist()
+        cutoffs = []
+        if pad_token_id is not None:
+            try:
+                cutoffs.append(int(row_list.index(pad_token_id)))
+            except ValueError:
+                pass
+        if eos_token_id is not None:
+            try:
+                cutoffs.append(int(row_list.index(eos_token_id) + 1))
+            except ValueError:
+                pass
+        length = min(cutoffs) if cutoffs else len(row_list)
+        lengths.append(max(length, 0))
+    return lengths
+
+
+def aggregate_summary(
+    sample_scores: List[float],
+    generation_times: List[float],
+    reward_times: List[float],
+    response_lengths: List[int],
+) -> Dict[str, Any]:
     """You can add more metrics here."""
-    total_samples = len(turn_scores)
+    total_samples = len(sample_scores)
     return {
         "total_samples": total_samples,
-        "mean_turn_score": float(np.mean(turn_scores)) if turn_scores else 0.0,
-        "std_turn_score": float(np.std(turn_scores)) if turn_scores else 0.0,
+        "mean_sample_score": float(np.mean(sample_scores)) if sample_scores else 0.0,
+        "std_sample_score": float(np.std(sample_scores)) if sample_scores else 0.0,
         "total_generation_time": float(sum(generation_times)),
         "total_reward_time": float(sum(reward_times)),
         "avg_generation_time_per_sample": float(np.mean(generation_times)) if generation_times else 0.0,
         "avg_reward_time_per_sample": float(np.mean(reward_times)) if reward_times else 0.0,
+        "mean_response_length": float(np.mean(response_lengths)) if response_lengths else 0.0,
+        "std_response_length": float(np.std(response_lengths)) if response_lengths else 0.0,
+        "max_response_length": int(np.max(response_lengths)) if response_lengths else 0,
+        "min_response_length": int(np.min(response_lengths)) if response_lengths else 0,
     }
 
 
@@ -711,9 +744,10 @@ def run_multiturn_evaluation(config: DictConfig):
             logger.info("Removed existing scores file: %s", scores_path)
 
     # Keep only metrics in memory, not full records
-    turn_scores: List[float] = []
+    sample_scores: List[float] = []
     generation_times: List[float] = []
     reward_times: List[float] = []
+    response_lengths: List[int] = []
     
     consumed_samples = 0
     progress = tqdm(total=len(dataloader), desc="Batches", disable=len(dataloader) == 0)
@@ -758,9 +792,16 @@ def run_multiturn_evaluation(config: DictConfig):
                     logger.info("Started writing results to %s", scores_path)
             
             # Only keep metrics in memory
-            turn_scores.extend(scores)
+            sample_scores.extend(scores)
             generation_times.extend([per_sample_gen_time] * len(scores))
             reward_times.extend([per_sample_reward_time] * len(scores))
+            lengths = compute_response_lengths(
+                responses=combined_batch.batch.get("responses"),
+                pad_token_id=tokenizer.pad_token_id,
+                eos_token_id=tokenizer.eos_token_id,
+            )
+            if lengths:
+                response_lengths.extend(lengths)
 
             consumed_samples += len(scores)
             if max_samples is not None and consumed_samples >= max_samples:
@@ -772,7 +813,7 @@ def run_multiturn_evaluation(config: DictConfig):
     if scores_path:
         logger.info("Finished writing all results to %s", scores_path)
 
-    summary_metrics = aggregate_summary(turn_scores, generation_times, reward_times)
+    summary_metrics = aggregate_summary(sample_scores, generation_times, reward_times, response_lengths)
     save_summary(summary_metrics, config)
     logger.info("Multi-turn evaluation completed!")
     logger.info("Summary metrics: %s", json.dumps(summary_metrics, indent=2))
