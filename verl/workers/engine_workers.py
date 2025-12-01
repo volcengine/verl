@@ -75,7 +75,6 @@ class TrainingWorker(Worker):
 
         initialize_global_process_group_ray(timeout_second=None)
 
-
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def set_loss_fn(self, loss_fn):
         self.loss_fn = loss_fn
@@ -83,6 +82,7 @@ class TrainingWorker(Worker):
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def build_engine(self):
         from verl.workers.engine import BaseEngine, EngineRegistry
+
         self.engine: BaseEngine = EngineRegistry.new(
             model_type=self.config.model_type,
             backend=self.engine_config.strategy,
@@ -125,37 +125,37 @@ class TrainingWorker(Worker):
         # metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024 ** 3)
         # metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024 ** 3)
 
-        metrics: dict = output.pop('metrics')
+        metrics: dict = output.pop("metrics")
         # perform all gather in dp group to ensure that it's correct.
         # Here each metric in metrics can be a list (micro-batch metrics) or a singleton
         # we should always sum the loss of each micro-batch as we scale by global_bsz/global_token
-        loss = torch.sum(torch.tensor(output.pop('loss'), device=self.device_name))
+        loss = torch.sum(torch.tensor(output.pop("loss"), device=self.device_name))
         torch.distributed.all_reduce(
             loss, op=torch.distributed.ReduceOp.AVG, group=self.engine.get_data_parallel_group()
         )
         loss = loss.item()
 
         # For grad_norm, we do not perform all reduce because it is already been done when clipping grad
-        grad_norm = metrics.pop('grad_norm', None)
-        lr = metrics.pop('lr', None)
+        grad_norm = metrics.pop("grad_norm", None)
+        lr = metrics.pop("lr", None)
 
         # For other metrics, we perform all gather in dp group
         final_metrics = allgather_dict_into_dict(data=metrics, group=self.engine.get_data_parallel_group())
-        final_metrics['loss'] = loss
+        final_metrics["loss"] = loss
         if grad_norm is not None:
-            final_metrics['grad_norm'] = grad_norm
+            final_metrics["grad_norm"] = grad_norm
         if lr is not None:
-            final_metrics['lr'] = lr
+            final_metrics["lr"] = lr
         # compute mfu
         if global_token_num is not None:
             estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_token_num, delta_time)
             final_metrics["mfu"] = estimated_flops / promised_flops / torch.distributed.get_world_size()
             if forward_only:
-                final_metrics["mfu"] /= 3.
+                final_metrics["mfu"] /= 3.0
         # model outputs
-        model_output = output.pop('model_output', {})
+        model_output = output.pop("model_output", {})
         # We only return final_metrics
-        final_output = tu.get_tensordict(tensor_dict=model_output, non_tensor_dict={'metrics': final_metrics})
+        final_output = tu.get_tensordict(tensor_dict=model_output, non_tensor_dict={"metrics": final_metrics})
         return final_output
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False)
@@ -167,12 +167,12 @@ class TrainingWorker(Worker):
         with self.engine.train_mode(), Timer(name="train_batch", logger=None) as timer:
             output = self.engine.train_batch(data, loss_function=self.loss_fn)
             # we don't need model_output in training. Maybe we change out mind later
-            output.pop('model_output')
+            output.pop("model_output")
             # containing loss, model_output and metrics
             # for training, we only care about loss and metrics
         delta_time = timer.last
 
-        update_lr_scheduler = tu.get(data, key='update_lr_scheduler', default=False)
+        update_lr_scheduler = tu.get(data, key="update_lr_scheduler", default=False)
         # update lr scheduler
         if update_lr_scheduler:
             lr = self.engine.lr_scheduler_step()
@@ -181,9 +181,10 @@ class TrainingWorker(Worker):
 
         if self.engine.is_mp_src_rank_with_outputs():
             if lr is not None:
-                output['metrics']['lr'] = lr
-            final_output = self._postprocess_output(output, global_token_num=global_token_num, delta_time=delta_time,
-                                                    forward_only=False)
+                output["metrics"]["lr"] = lr
+            final_output = self._postprocess_output(
+                output, global_token_num=global_token_num, delta_time=delta_time, forward_only=False
+            )
         else:
             final_output = None
         return final_output
@@ -198,8 +199,9 @@ class TrainingWorker(Worker):
         delta_time = timer.last
 
         if self.engine.is_mp_src_rank_with_outputs():
-            final_output = self._postprocess_output(output, global_token_num=global_token_num, delta_time=delta_time,
-                                                    forward_only=True)
+            final_output = self._postprocess_output(
+                output, global_token_num=global_token_num, delta_time=delta_time, forward_only=True
+            )
         else:
             final_output = None
         return final_output
@@ -348,9 +350,9 @@ class ActorWorker(Worker, DistProfilerExtension):
             global_num_tokens = data.meta_info["global_token_num"]
             estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
             metrics["perf/mfu/actor"] = estimated_flops * self.config.ppo_epochs / promised_flops / self.world_size
-            metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024 ** 3)
-            metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024 ** 3)
-            metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024 ** 3)
+            metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024**3)
+            metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024**3)
+            metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024**3)
 
             lr = self.engine.lr_scheduler_step()
             metrics["actor/lr"] = lr
@@ -517,9 +519,9 @@ class CriticWorker(Worker, DistProfilerExtension):
             global_num_tokens = data.meta_info["global_token_num"]
             estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
             metrics["perf/mfu/critic"] = estimated_flops * self.config.ppo_epochs / promised_flops / self.world_size
-            metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024 ** 3)
-            metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024 ** 3)
-            metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024 ** 3)
+            metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024**3)
+            metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024**3)
+            metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024**3)
 
             lr = self.engine.lr_scheduler_step()
             metrics["critic/lr"] = lr
@@ -710,11 +712,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
     async def generate(
-            self,
-            prompt_ids: list[int],
-            sampling_params: dict[str, Any],
-            request_id: str,
-            image_data: Optional[list[Any]] = None,
+        self,
+        prompt_ids: list[int],
+        sampling_params: dict[str, Any],
+        request_id: str,
+        image_data: Optional[list[Any]] = None,
     ) -> list[int]:
         ret = await self.rollout.generate(prompt_ids, sampling_params, request_id, image_data=image_data)
         return ret

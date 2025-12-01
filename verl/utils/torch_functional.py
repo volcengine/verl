@@ -322,6 +322,7 @@ def allgather_dict_into_dict(data: dict, group=None) -> dict:
             final_metrics[key].append(val)
     return final_metrics
 
+
 def split_dict_tensor_into_batches(tensors: TensorDict, batch_size) -> list[TensorDict]:
     assert tensors.batch_size[0] % batch_size == 0, (
         f"input data batch size: {tensors.batch_size[0]}, split batch size: {batch_size}"

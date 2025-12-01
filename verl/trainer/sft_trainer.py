@@ -24,7 +24,6 @@ import logging
 import hydra
 import torch
 import torch.distributed
-from codetiming import Timer
 from omegaconf import OmegaConf
 from torch.utils.data import DistributedSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
@@ -36,10 +35,8 @@ from verl.utils.dataset.dataset_utils import SFTTensorCollator
 from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
 from verl.utils.device import get_device_name, is_cuda_available, is_npu_available
 from verl.utils.distributed import destroy_global_process_group
-from verl.utils.flops_counter import FlopsCounter
 from verl.utils.logger import log_with_rank
 from verl.utils.tracking import Tracking
-
 from verl.workers.engine_workers import TrainingWorker
 
 if is_cuda_available:
@@ -104,24 +101,24 @@ class SFTTrainer:
         self.checkpoint_config = omega_conf_to_dataclass(self.config.checkpoint)
 
     def _build_engine(self):
-        from verl.workers.engine_workers import TrainingWorker, TrainingWorkerConfig
+        from verl.workers.engine_workers import TrainingWorkerConfig
         from verl.workers.utils.losses import sft_loss
 
         self.loss_fn = partial(sft_loss, config=None)
 
-        config = TrainingWorkerConfig(model_type="language_model",
-                                      model_config=self.model_config,
-                                      engine_config=self.engine_config,
-                                      optimizer_config=self.optimizer_config,
-                                      checkpoint_config=self.checkpoint_config)
+        config = TrainingWorkerConfig(
+            model_type="language_model",
+            model_config=self.model_config,
+            engine_config=self.engine_config,
+            optimizer_config=self.optimizer_config,
+            checkpoint_config=self.checkpoint_config,
+        )
 
         self.training_client = TrainingWorker(config=config)
         self.training_client.build_engine()
         self.training_client.set_loss_fn(loss_fn=self.loss_fn)
         # Note that in SPMD world, this abstraction has to break
         self.engine = self.training_client.engine
-
-
 
     def _init_engine(self):
         # patch optimizer config
@@ -207,7 +204,6 @@ class SFTTrainer:
         else:
             self.val_dataloader = None
 
-
     def _get_batch_seqlens(self, data):
         # mean over dp group
         is_nested = data["input_ids"].is_nested
@@ -232,7 +228,6 @@ class SFTTrainer:
 
         batch_seqlens = output_tensor.tolist()
         return batch_seqlens
-
 
     def fit(self):
         is_logging = self.engine.is_mp_src_rank_with_outputs() and self.engine.get_data_parallel_rank() == 0
@@ -300,21 +295,22 @@ class SFTTrainer:
                 data = tu.get_tensordict(tensor_dict=data, non_tensor_dict=meta_info)
                 batch_seqlens = self._get_batch_seqlens(data=data)
 
-                tu.assign_non_tensor(data, update_lr_scheduler=True,
-                                     global_token_num=batch_seqlens)
+                tu.assign_non_tensor(data, update_lr_scheduler=True, global_token_num=batch_seqlens)
 
                 # train for on batch
                 output = self.training_client.train_batch(data=data)
 
                 if self.engine.is_mp_src_rank_with_outputs():
-                    metrics = tu.get(output, 'metrics')
+                    metrics = tu.get(output, "metrics")
 
                     # TODO: we can actual accumulate metrics for N steps and perform aggregate metrics
                     metrics["train/loss"] = metrics.pop("loss")
                     metrics["train/grad_norm"] = metrics.pop("grad_norm")
-                    metrics["train/lr"] = metrics.pop('lr')
-                    metrics["train/mfu"] = metrics.pop('mfu')
-                    metrics["train/global_tokens"] = torch.sum(torch.tensor(batch_seqlens, device=self.device_name)).item()
+                    metrics["train/lr"] = metrics.pop("lr")
+                    metrics["train/mfu"] = metrics.pop("mfu")
+                    metrics["train/global_tokens"] = torch.sum(
+                        torch.tensor(batch_seqlens, device=self.device_name)
+                    ).item()
                     total_tokens += metrics["train/global_tokens"]
                     metrics["train/total_tokens(B)"] = total_tokens / 1e9
 
@@ -332,8 +328,8 @@ class SFTTrainer:
                     for val_data in self.val_dataloader:
                         val_data = tu.get_tensordict(tensor_dict=val_data, non_tensor_dict=meta_info)
                         output = self.training_client.infer_batch(val_data)
-                        metrics = tu.get(output, 'metrics')
-                        val_losses.append(metrics['loss'])
+                        metrics = tu.get(output, "metrics")
+                        val_losses.append(metrics["loss"])
 
                     if self.engine.is_mp_src_rank_with_outputs():
                         val_loss = torch.mean(torch.tensor(val_losses, device=self.device_name))
