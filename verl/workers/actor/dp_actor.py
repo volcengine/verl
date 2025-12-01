@@ -113,6 +113,7 @@ class DataParallelPPOActor(BasePPOActor):
             )
             if can_use_pg and "response_mask" in micro_batch and "uid" in micro_batch:
                 from verl.trainer.ppo.prefix_grouper_utils import build_pg_from_micro_batch, pg_forward
+
                 pad_token_id = micro_batch.get("pad_token_id", 0)
 
                 (
@@ -152,7 +153,7 @@ class DataParallelPPOActor(BasePPOActor):
                     )
 
                 # Zero out padding positions
-                padding_mask = (suffix_mask_from_pg == 0)
+                padding_mask = suffix_mask_from_pg == 0
                 log_probs = log_probs.masked_fill(padding_mask, 0.0)
                 if entropy is not None:
                     entropy = entropy.masked_fill(padding_mask, 0.0)
@@ -162,11 +163,11 @@ class DataParallelPPOActor(BasePPOActor):
                 if log_probs.size(1) != target_response_length:
                     batch_size = log_probs.size(0)
                     current_len = log_probs.size(1)
-                    
+
                     full_log_probs = log_probs.new_zeros(batch_size, target_response_length)
                     full_log_probs[:, :current_len] = log_probs
                     log_probs = full_log_probs
-                    
+
                     if entropy is not None:
                         full_entropy = entropy.new_zeros(batch_size, target_response_length)
                         full_entropy[:, :current_len] = entropy

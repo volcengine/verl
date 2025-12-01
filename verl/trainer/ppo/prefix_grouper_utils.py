@@ -1,7 +1,8 @@
 from __future__ import annotations
+
 import torch
-from typing import List
 from prefix_grouper import PrefixGrouper
+
 from verl.utils.torch_functional import logprobs_from_logits
 
 
@@ -10,21 +11,21 @@ def build_position_ids_for_prefix_grouper(prefix_grouper: PrefixGrouper) -> torc
     num_samples = len(prefix_grouper.group_info)
     max_len = prefix_grouper.padding_mask.size(1)
     device = prefix_grouper.padding_mask.device
-    
+
     position_ids = torch.zeros(num_samples, max_len, dtype=torch.long, device=device)
-    
+
     for i, group in enumerate(prefix_grouper.group_info):
         prefix_len = group.prefix_len
-        
+
         position_ids[i, :prefix_len] = torch.arange(prefix_len, device=device)
         cur_pos = prefix_len
         for suffix_len in group.suffix_lens:
             if suffix_len > 0:
-                position_ids[i, cur_pos:cur_pos + suffix_len] = torch.arange(
+                position_ids[i, cur_pos : cur_pos + suffix_len] = torch.arange(
                     prefix_len, prefix_len + suffix_len, device=device
                 )
                 cur_pos += suffix_len
-    
+
     return position_ids
 
 
@@ -44,7 +45,7 @@ def build_pg_from_micro_batch(
     group_sizes = []
     cur = 1
     for i in range(1, bs):
-        if uids[i] == uids[i-1]:
+        if uids[i] == uids[i - 1]:
             cur += 1
         else:
             group_sizes.append(cur)
@@ -69,12 +70,10 @@ def build_pg_from_micro_batch(
         device=prompts.device,
     )
 
-    concat_input_ids = prefix_grouper.concat_input(
-        prefix_ids, prefix_mask, responses, response_mask
-    )
+    concat_input_ids = prefix_grouper.concat_input(prefix_ids, prefix_mask, responses, response_mask)
 
     attention_mask = prefix_grouper.padding_mask
-    
+
     position_ids = build_position_ids_for_prefix_grouper(prefix_grouper)
 
     return (
@@ -110,9 +109,8 @@ def pg_forward(
         prefix_grouper=prefix_grouper,
     ).logits
 
-    prefix_out, prefix_mask, suffix_out_raw, suffix_mask_raw = (
-        prefix_grouper.split_output(
-            logits, include_prefix_last=include_prefix_last)
+    prefix_out, prefix_mask, suffix_out_raw, suffix_mask_raw = prefix_grouper.split_output(
+        logits, include_prefix_last=include_prefix_last
     )
 
     completion_ids_right = prefix_grouper.convert_padding(

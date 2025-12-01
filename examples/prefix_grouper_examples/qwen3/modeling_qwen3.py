@@ -19,11 +19,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Callable, Optional, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Optional
 
 import torch
 from torch import nn
-
 from transformers.activations import ACT2FN
 from transformers.cache_utils import Cache, DynamicCache
 from transformers.generation import GenerationMixin
@@ -43,6 +42,7 @@ from transformers.processing_utils import Unpack
 from transformers.utils import TransformersKwargs, auto_docstring, can_return_tuple
 from transformers.utils.deprecation import deprecate_kwarg
 from transformers.utils.generic import check_model_inputs
+
 if TYPE_CHECKING:
     try:
         from prefix_grouper import PrefixGrouper
@@ -487,7 +487,7 @@ class Qwen3ForCausalLM(Qwen3PreTrainedModel, GenerationMixin):
         labels: Optional[torch.LongTensor] = None,
         use_cache: Optional[bool] = None,
         cache_position: Optional[torch.LongTensor] = None,
-        logits_to_keep: Union[int, torch.Tensor] = 0,
+        logits_to_keep: int | torch.Tensor = 0,
         **kwargs: Unpack[TransformersKwargs],
     ) -> CausalLMOutputWithPast:
         r"""

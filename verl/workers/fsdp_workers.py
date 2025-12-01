@@ -836,7 +836,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             with open_dict(self.config.ref):
                 self.config.ref.use_remove_padding = use_remove_padding
                 self.config.ref.use_fused_kernels = use_fused_kernels
-                use_prefix_grouper = hasattr(self.config, "actor") and self.config.actor.get("use_prefix_grouper", False)
+                use_prefix_grouper = hasattr(self.config, "actor") and self.config.actor.get(
+                    "use_prefix_grouper", False
+                )
                 if use_prefix_grouper:
                     self.config.ref.use_prefix_grouper = use_prefix_grouper
             self.ref_policy = DataParallelPPOActor(config=self.config.ref, actor_module=self.ref_module_fsdp)
