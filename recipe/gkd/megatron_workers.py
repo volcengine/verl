@@ -452,23 +452,26 @@ class MegatronOnPolicyDistillActorWorker(ActorRolloutRefWorker):
 
     def _get_actor_params_generator(self):
         assert self._is_actor
-        # from verl.utils.megatron_utils import per_tensor_generator
-        from megatron_utils import per_tensor_generator
+        if self.bridge is not None:
+            generator = self.bridge.export_weights(self.actor.actor_module)
+        else:
+            # from verl.utils.megatron_utils import per_tensor_generator
+            from megatron_utils import per_tensor_generator
 
-        from verl.models.mcore import get_mcore_weight_converter
+            from verl.models.mcore import get_mcore_weight_converter
 
-        layer_name_mapping = {
-            "qkv_layer_name": "self_attention.linear_qkv.",
-            "gate_proj_layer_name": "linear_fc1.",
-        }
-        weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
-        generator = per_tensor_generator(
-            self.actor.actor_module,
-            self.actor_model_config,
-            weight_converter,
-            self.tf_config,
-            layer_name_mapping,
-        )
+            layer_name_mapping = {
+                "qkv_layer_name": "self_attention.linear_qkv.",
+                "gate_proj_layer_name": "linear_fc1.",
+            }
+            weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
+            generator = per_tensor_generator(
+                self.actor.actor_module,
+                self.actor_model_config,
+                weight_converter,
+                self.tf_config,
+                layer_name_mapping,
+            )
         return generator
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
@@ -580,7 +583,7 @@ class MegatronOnPolicyDistillActorWorker(ActorRolloutRefWorker):
             except AssertionError:
                 if not key.endswith("e_score_correction_bias"):
                     raise
-                weight = weight.to(dtype)
+                # weight = weight.to(dtype)
 
             if shape.numel() > tensor_buffer.capacity:
                 collective.broadcast(weight, src_rank=0, group_name="actor_rollout")
