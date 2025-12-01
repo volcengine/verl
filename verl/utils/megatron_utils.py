@@ -192,7 +192,10 @@ def make_megatron_module(
         else:
             from verl.models.mcore.bridge import freeze_moe_router, make_value_model
 
-            value_model_hook = make_value_model(hf_config.hidden_size, provider.sequence_parallel)
+            hidden_size = (
+                hf_config.text_config.hidden_size if hasattr(hf_config, "text_config") else hf_config.hidden_size
+            )
+            value_model_hook = make_value_model(hidden_size, provider.sequence_parallel)
 
         post_model_creation_callbacks = []
         if wrap_config.is_value_model:
