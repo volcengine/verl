@@ -44,6 +44,8 @@ reward_model:
       optimizer_offload: ${actor_rollout_ref.actor.fsdp_config.optimizer_offload}
     update: before # ``before`` for double-forward, ``after`` for single-forward
     optim:
+      optimizer: AdamW
+      optimizer_impl: torch.optim
       lr: 1e-6
       lr_warmup_steps: -1 # Prioritized. Negative values mean delegating to lr_warmup_steps_ratio.
       lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime

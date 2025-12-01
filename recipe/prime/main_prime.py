@@ -71,19 +71,25 @@ def main_task(config, compute_score=None):
     OmegaConf.resolve(config)
 
     # define worker classes
+    rollout_mode = config.actor_rollout_ref.get("rollout", {}).get("mode", "sync")
+
     if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
         assert config.critic.strategy in {"fsdp", "fsdp2"}
         from verl.single_controller.ray import RayWorkerGroup
-        from verl.workers.fsdp_workers import ActorRolloutRefWorker
+        from verl.workers.fsdp_workers import ActorRolloutRefWorker as FSDPActorWorker
+        from verl.workers.fsdp_workers import AsyncActorRolloutRefWorker as AsyncFSDPActorWorker
 
         ray_worker_group_cls = RayWorkerGroup
+        actor_worker_cls = AsyncFSDPActorWorker if rollout_mode == "async" else FSDPActorWorker
 
     elif config.actor_rollout_ref.actor.strategy == "megatron":
         assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
         from verl.single_controller.ray import RayWorkerGroup
-        from verl.workers.megatron_workers import ActorRolloutRefWorker
+        from verl.workers.megatron_workers import ActorRolloutRefWorker as MegatronActorWorker
+        from verl.workers.megatron_workers import AsyncActorRolloutRefWorker as AsyncMegatronActorWorker
 
         ray_worker_group_cls = RayWorkerGroup
+        actor_worker_cls = AsyncMegatronActorWorker if rollout_mode == "async" else MegatronActorWorker
 
     else:
         raise NotImplementedError
@@ -91,7 +97,7 @@ def main_task(config, compute_score=None):
     from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
 
     role_worker_mapping = {
-        Role.ActorRollout: ray.remote(ActorRolloutRefWorker),
+        Role.ActorRollout: ray.remote(actor_worker_cls),
     }
 
     global_pool_id = "global_pool"
@@ -104,7 +110,7 @@ def main_task(config, compute_score=None):
 
     # use reference model
     if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
-        role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
+        role_worker_mapping[Role.RefPolicy] = ray.remote(actor_worker_cls)
         mapping[Role.RefPolicy] = global_pool_id
 
     if config.reward_model.enable:

@@ -16,6 +16,7 @@ Implement a multiprocess PPOCritic
 """
 
 import itertools
+import logging
 
 import torch
 import torch.distributed
@@ -31,6 +32,9 @@ from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad_and_slice_inputs
 
 from .prime_core_algos import compute_ce_dpo_loss_rm, compute_detach_dpo_loss_rm
+
+logger = logging.getLogger(__name__)
+
 
 __all__ = ["DataParallelPRIMERewardModel"]
 
@@ -81,6 +85,7 @@ class DataParallelPRIMERewardModel:
                 )
 
             input_ids_rmpad_rolled = input_ids_rmpad_rolled.squeeze(0)
+
             output = self.reward_module(
                 input_ids=input_ids_rmpad,
                 attention_mask=None,
@@ -89,12 +94,18 @@ class DataParallelPRIMERewardModel:
                 return_dict=self.use_fused_kernels,
             )
 
+            if isinstance(output, (tuple | list)):
+                logits = output[0]
+                log_probs = output[1] if len(output) > 1 else None
+            else:
+                logits = output.logits
+                log_probs = getattr(output, "log_probs", None)
+
             if self.use_fused_kernels:
-                rm_log_labels = output.log_probs.squeeze(0)  # (total_nnz,)
-                rm_log_labels = rm_log_labels.to(torch.float32)
+                rm_log_labels = log_probs.squeeze(0).to(torch.float32)
 
             else:
-                rm_output_logits = output.logits.squeeze(0)
+                rm_output_logits = logits.squeeze(0)
                 rm_log_labels = verl_F.logprobs_from_logits(
                     logits=rm_output_logits,
                     labels=input_ids_rmpad_rolled,
@@ -117,18 +128,22 @@ class DataParallelPRIMERewardModel:
                 return_dict=self.use_fused_kernels,
             )
 
-            if self.use_fused_kernels:
-                rm_log_labels = output.log_probs[:, :-1]  # (bsz, seq_length)
-                rm_log_labels = rm_log_labels.to(torch.float32)
+            if isinstance(output, (tuple | list)):
+                logits = output[0]
+                log_probs = output[1] if len(output) > 1 else None
+            else:
+                logits = output.logits
+                log_probs = getattr(output, "log_probs", None)
+
+            if self.use_fused_kernels and log_probs is not None:
+                rm_log_labels = log_probs[:, :-1].to(torch.float32)
 
             else:
-                rm_output_logits = output.logits
-                rm_log_prob = torch.nn.functional.log_softmax(
-                    rm_output_logits[:, :-1, :], dim=-1
-                )  # (batch_size, seq_length, vocab_size)
-                rm_log_labels = rm_log_prob.gather(dim=-1, index=micro_batch["input_ids"][:, 1:].unsqueeze(-1)).squeeze(
-                    -1
-                )  # (batch, seq_length)
+                rm_log_prob = torch.nn.functional.log_softmax(logits[:, :-1, :], dim=-1)
+                rm_log_labels = rm_log_prob.gather(
+                    dim=-1,
+                    index=micro_batch["input_ids"][:, 1:].unsqueeze(-1),
+                ).squeeze(-1)
 
         if self.ref_module is not None:
             # do not have to pad again
