@@ -72,7 +72,7 @@ class McoreEngineConfig(BaseConfig):
     override_mcore_model_config: dict[str, Any] = field(default_factory=dict)
     use_mbridge: bool = False
     vanilla_mbridge: bool = True
-    thd_format: bool = True
+    use_remove_padding: bool = True
     forward_only: bool = False
     strategy: str = "megatron"
     dtype: str = "bfloat16"  # ["bfloat16", "float16"]

@@ -81,7 +81,7 @@ use_mbridge: False
 vanilla_mbridge: True
 
 # whether to use thd format (sequence packing), if not, use bshd format, padding the input_ids to the longest sequence length
-thd_format: True
+use_remove_padding: True
 
 # whether to use forward only
 forward_only: False

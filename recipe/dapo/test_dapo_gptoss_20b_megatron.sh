@@ -52,7 +52,7 @@ GPT_OSS_CONFIG=(
     # when bshd format is used, we need to pad the input_ids to the longest sequence length
     # so we recommend to disable dynamic batch size and set micro batch size to 1 to avoid paddings
     # but it is ok to try with micro_batch_size>1
-    actor_rollout_ref.actor.megatron.thd_format=False
+    actor_rollout_ref.actor.megatron.use_remove_padding=False
 )
 use_dynamic_bsz=False # recommended but not necessary
 
