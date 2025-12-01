@@ -16,6 +16,8 @@
 import os
 from functools import partial
 
+from tensordict.tensorclass import NonTensorData
+
 os.environ["NCCL_DEBUG"] = "WARN"
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
@@ -293,6 +295,8 @@ class SFTTrainer:
                 # construct tensordict
                 data = tu.get_tensordict(tensor_dict=data, non_tensor_dict=meta_info)
                 batch_seqlens = self._get_batch_seqlens(data=data)
+                # this is necessary. Otherwise, it is interpreted as NonTensorStack
+                batch_seqlens = NonTensorData(batch_seqlens)
 
                 tu.assign_non_tensor(data, update_lr_scheduler=True, global_token_num=batch_seqlens)
 
