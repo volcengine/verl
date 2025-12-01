@@ -12,7 +12,7 @@ CONFIG_PATH="$PROJECT_DIR/verl/trainer/config"
 python3 -m verl.trainer.main_multiturn_eval \
     --config-path="$CONFIG_PATH" \
     --config-name='multiturn_eval' \
-    data.eval_files=$HOME/minhoucheng/data/gsm8k_w_tool/test.parquet \
+    data.eval_files=$HOME/data/gsm8k_w_tool/test.parquet \
     data.eval_batch_size=64 \
     data.max_prompt_length=1024 \
     data.max_response_length=1024 \
@@ -20,7 +20,7 @@ python3 -m verl.trainer.main_multiturn_eval \
     data.truncation='error' \
     data.return_raw_chat=True \
     data.need_tools_kwargs=True \
-    actor_rollout_ref.model.path=$HOME/minhoucheng/Qwen/Qwen3-1.7B \
+    actor_rollout_ref.model.path=$HOME/Qwen/Qwen3-1.7B \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=vllm \
@@ -34,7 +34,7 @@ python3 -m verl.trainer.main_multiturn_eval \
     trainer.nnodes=1 \
     reward_model.enable=False \
     reward_model.enable_resource_pool=False \
-    checkpoint_dir=$HOME/minhoucheng/checkpoint/vllm_multiturn_async_gsm8k_code_interpreter_n8 \
+    checkpoint_dir=$HOME/checkpoint/vllm_multiturn_async_gsm8k_code_interpreter_n8 \
     evaluation.max_batches=null \
     evaluation.max_samples=null \
     output.path=./eval_results \

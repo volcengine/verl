@@ -120,6 +120,7 @@ verl is fast with:
    advance/ppo_lora.rst
    sglang_multiturn/multiturn.rst
    sglang_multiturn/interaction_system.rst
+   sglang_multiturn/multiturn_eval.rst
    advance/placement
    advance/dpo_extension
    examples/sandbox_fusion_example
