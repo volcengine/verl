@@ -35,6 +35,7 @@ from sglang.srt.managers.io_struct import (
     ResumeMemoryOccupationReqInput,
 )
 from sglang.srt.managers.tokenizer_manager import ServerStatus
+from sglang.srt.sampling.sampling_params import SamplingParams
 
 from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
@@ -107,6 +108,22 @@ class SGLangHttpServer:
         else:
             self._master_address = None
             self._master_port = None
+
+        # supporting adding any sampling params from the config file
+        sampling_params = dict(
+            n=1,
+            max_new_tokens=self.config.response_length,
+            presence_penalty=0.0,
+            frequency_penalty=0.0,
+            repetition_penalty=self.config.get("repetition_penalty", 1.0),
+        )
+        sampling_params_template = SamplingParams()
+        for k in self.config.keys():
+            if hasattr(sampling_params_template, str(k)) or "stop" in str(k):
+                sampling_params[k] = self.config.get(k)
+        sampling_params["n"] = 1  # already repeat in ray_trainer
+        logger.info(f"sampling_params from config: {sampling_params}")
+        self.sampling_params = sampling_params
 
     def get_master_address(self):
         """Get master address and port for init NCCL process group."""
@@ -232,6 +249,9 @@ class SGLangHttpServer:
         max_new_tokens = min(self.config.response_length, self.config.max_model_len - len(prompt_ids) - 1)
         sampling_params["max_new_tokens"] = max_new_tokens
         return_logprob = sampling_params.pop("logprobs", False)
+
+        # Merge default sampling params with request-specific overrides
+        sampling_params = {**self.sampling_params, **sampling_params}
 
         request = GenerateReqInput(
             rid=request_id,
