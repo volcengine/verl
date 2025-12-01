@@ -40,7 +40,8 @@ from verl.utils.flops_counter import FlopsCounter
 from verl.utils.memory_utils import aggressive_empty_cache
 from verl.utils.profiler import DistProfiler, DistProfilerExtension, log_gpu_memory_usage
 from verl.utils.py_functional import append_to_dict
-from verl.workers.config import ActorConfig, CriticConfig, HFModelConfig, RolloutConfig
+from verl.utils.torch_functional import allgather_dict_into_dict
+from verl.workers.config import ActorConfig, CriticConfig, HFModelConfig, RolloutConfig, TrainingWorkerConfig
 from verl.workers.rollout.base import BaseRollout, get_rollout_class
 from verl.workers.utils.losses import ppo_loss, value_loss
 from verl.workers.utils.padding import left_right_2_no_padding, no_padding_2_padding
@@ -49,31 +50,41 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-class TrainerWorker(Worker, DistProfilerExtension):
+class TrainingWorker(Worker, DistProfilerExtension):
     """
-    TrainerWorker provides a Tinker-like API (https://thinkingmachines.ai/tinker/) as a RayWorkerGroup
+    TrainingWorker provides a Tinker-like API (https://thinkingmachines.ai/tinker/) as a RayWorkerGroup
     to a single controller. Currently, we only provide more coarse grained APIs,
     and do not provide exact APIs as Tinker does. But this can be added in the future.
     """
 
-    def __int__(self, model_config, engine_config, optimizer_config, checkpoint_config):
-        self.model_config = model_config
-        self.engine_config = engine_config
-        self.optimizer_config = optimizer_config
-        self.checkpoint_config = checkpoint_config
-        self.loss_fn = None
+    def __int__(self, config: TrainingWorkerConfig):
+        Worker.__init__(self)
+        self.config = config
+        self.model_config = self.config.model_config
+        self.engine_config = self.config.engine_config
+        self.optimizer_config = self.config.optimizer_config
+        self.checkpoint_config = self.config.checkpoint_config
+        self.device_name = get_device_name()
+
+        self.profiler_config = self.config.profiler
+        tool_config = self.profiler_config.tool_config
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=self.rank, config=self.profiler_config, tool_config=tool_config)
+        )
+
+        initialize_global_process_group_ray(timeout_second=None)
+
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def set_loss_fn(self, loss_fn):
         self.loss_fn = loss_fn
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def init_model(self):
+    def build_engine(self):
         from verl.workers.engine import BaseEngine, EngineRegistry
-
         self.engine: BaseEngine = EngineRegistry.new(
-            model_type="language_model",
-            backend=self.config.strategy,
+            model_type=self.config.model_type,
+            backend=self.config.backend,
             model_config=self.model_config,
             engine_config=self.engine_config,
             optimizer_config=self.optimizer_config,
@@ -89,37 +100,112 @@ class TrainerWorker(Worker, DistProfilerExtension):
 
         self.flops_counter = FlopsCounter(self.model_config.hf_config)
 
+        self.loss_fn = None
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def reset(self):
+        """
+        Reset the model engine to the initial state. If the engine is not initialized,
+        we init. Otherwise, reload ckpt and reset states
+        """
+        self.engine.initialize()
+
+    def _postprocess_output(self, output, *, global_token_num, delta_time, forward_only):
+        """
+
+        Args:
+            output: a dictionary containing loss, model_outputs and metrics
+
+        Returns:
+
+        """
+        # TODO: whether to log memory
+        # metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024 ** 3)
+        # metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024 ** 3)
+        # metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024 ** 3)
+
+        metrics: dict = output.pop('metrics')
+        # perform all gather in dp group to ensure that it's correct.
+        # Here each metric in metrics can be a list (micro-batch metrics) or a singleton
+        # we should always sum the loss of each micro-batch as we scale by global_bsz/global_token
+        loss = torch.sum(torch.tensor(output.pop('loss'), device=self.device_name))
+        torch.distributed.all_reduce(
+            loss, op=torch.distributed.ReduceOp.AVG, group=self.engine.get_data_parallel_group()
+        )
+        loss = loss.item()
+
+        # For grad_norm, we do not perform all reduce because it is already been done when clipping grad
+        grad_norm = metrics.pop('grad_norm', None)
+
+        # For other metrics, we perform all gather in dp group
+        final_metrics = allgather_dict_into_dict(data=metrics, group=self.engine.get_data_parallel_group())
+        final_metrics['loss'] = loss
+        if grad_norm is not None:
+            final_metrics['grad_norm'] = grad_norm
+        # compute mfu
+        estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_token_num, delta_time)
+        final_metrics["mfu"] = estimated_flops / promised_flops / torch.distributed.get_world_size()
+        if forward_only:
+            final_metrics["mfu"] /= 3.
+        # model outputs
+        model_output = output['model_out']
+        # We only return final_metrics
+        final_output = tu.get_tensordict(tensor_dict=model_output, non_tensor_dict={'metrics': final_metrics})
+        return final_output
+
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False)
     def train_batch(self, data: TensorDict) -> TensorDict:
-        assert self.loss_fn is not None, "loss function can't be None in training"
+        assert self.loss_fn is not None, "loss function can't be None when calling train_batch"
         # global_token_num should be a list of number of tokens of each seq in this batch
         global_token_num = tu.get(data, key="global_token_num")
         assert global_token_num is not None
 
-        with self.engine.train_mode(), Timer(name="update_policy", logger=None) as timer:
+        with self.engine.train_mode(), Timer(name="train_batch", logger=None) as timer:
             output = self.engine.train_batch(data, self.loss_fn)
+            # containing loss, model_output and metrics
+            # for training, we only care about loss and metrics
         delta_time = timer.last
 
+        update_lr_scheduler = tu.get(data, key='update_lr_scheduler', default=False)
         # update lr scheduler
         if update_lr_scheduler:
-            self.engine.lr_scheduler_step()
+            lr = self.engine.lr_scheduler_step()
+        else:
+            lr = None
 
-        metrics = output["metrics"]
-        # performance all reduce in dp group to ensure that it's correct
+        if self.engine.is_mp_src_rank_with_outputs():
+            final_output = self._postprocess_output(output, global_token_num=global_token_num, delta_time=delta_time,
+                                                    forward_only=False)
+            if lr is not None:
+                tu.assign_non_tensor(final_output, lr=lr)
+        else:
+            final_output = None
+        return final_output
 
-        # compute mfu
-        estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_token_num, delta_time)
-        metrics["train/mfu"] = estimated_flops / promised_flops / torch.distributed.get_world_size()
-        # compute memory
-        metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024**3)
-        metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024**3)
-        metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024**3)
-
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"))
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False)
     def infer_batch(self, data: TensorDict) -> TensorDict:
         # add mfu calculator
-        with self.engine.eval_mode():
+        global_token_num = tu.get(data, key="global_token_num")
+        assert global_token_num is not None
+
+        with self.engine.eval_mode(), Timer(name="train_batch", logger=None) as timer:
             output = self.engine.infer_batch(data)
+        delta_time = timer.last
+
+        if self.engine.is_mp_src_rank_with_outputs():
+            final_output = self._postprocess_output(output, global_token_num=global_token_num, delta_time=delta_time,
+                                                    forward_only=True)
+        else:
+            final_output = None
+        return final_output
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
+        return self.engine.save_checkpoint(local_path, hdfs_path, global_step, max_ckpt_to_keep)
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=False):
+        return self.engine.load_checkpoint(local_path, hdfs_path, del_local_after_load)
 
 
 class ActorWorker(Worker, DistProfilerExtension):
@@ -257,9 +343,9 @@ class ActorWorker(Worker, DistProfilerExtension):
             global_num_tokens = data.meta_info["global_token_num"]
             estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
             metrics["perf/mfu/actor"] = estimated_flops * self.config.ppo_epochs / promised_flops / self.world_size
-            metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024**3)
-            metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024**3)
-            metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024**3)
+            metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024 ** 3)
+            metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024 ** 3)
+            metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024 ** 3)
 
             lr = self.engine.lr_scheduler_step()
             metrics["actor/lr"] = lr
@@ -426,9 +512,9 @@ class CriticWorker(Worker, DistProfilerExtension):
             global_num_tokens = data.meta_info["global_token_num"]
             estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
             metrics["perf/mfu/critic"] = estimated_flops * self.config.ppo_epochs / promised_flops / self.world_size
-            metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024**3)
-            metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024**3)
-            metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024**3)
+            metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024 ** 3)
+            metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024 ** 3)
+            metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024 ** 3)
 
             lr = self.engine.lr_scheduler_step()
             metrics["critic/lr"] = lr
@@ -619,11 +705,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
     async def generate(
-        self,
-        prompt_ids: list[int],
-        sampling_params: dict[str, Any],
-        request_id: str,
-        image_data: Optional[list[Any]] = None,
+            self,
+            prompt_ids: list[int],
+            sampling_params: dict[str, Any],
+            request_id: str,
+            image_data: Optional[list[Any]] = None,
     ) -> list[int]:
         ret = await self.rollout.generate(prompt_ids, sampling_params, request_id, image_data=image_data)
         return ret

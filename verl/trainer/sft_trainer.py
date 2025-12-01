@@ -40,6 +40,8 @@ from verl.utils.flops_counter import FlopsCounter
 from verl.utils.logger import log_with_rank
 from verl.utils.tracking import Tracking
 
+from verl.workers.engine_workers import TrainingWorker
+
 if is_cuda_available:
     pass
 elif is_npu_available:
@@ -108,6 +110,11 @@ class SFTTrainer:
         self.checkpoint_config = omega_conf_to_dataclass(self.config.checkpoint)
 
     def _build_engine(self):
+        from verl.workers.engine_workers import TrainingWorker, TrainingWorkerConfig
+
+        self.training_client = TrainingWorker()
+
+
         from verl.workers.engine import BaseEngine, EngineRegistry
 
         self.engine: BaseEngine = EngineRegistry.new(
@@ -276,7 +283,7 @@ class SFTTrainer:
                 if self.engine.is_mp_src_rank_with_outputs():
                     metrics = output["metrics"]
 
-                    loss = torch.sum(torch.tensor(metrics["loss"], device=self.device_name))
+                    loss = torch.sum(torch.tensor(output["loss"], device=self.device_name))
 
                     # mean over dp group
                     is_nested = data["input_ids"].is_nested
@@ -335,7 +342,8 @@ class SFTTrainer:
                             val_data = tu.get_tensordict(tensor_dict=val_data, non_tensor_dict=meta_info)
                             output = self.engine.infer_batch(data=val_data, loss_function=self.loss_fn)
                             if self.engine.is_mp_src_rank_with_outputs():
-                                val_losses.extend(output["metrics"]["loss"])
+                                loss = torch.sum(torch.tensor(output["loss"], device=self.device_name))
+                                val_losses.append(loss)
 
                     if self.engine.is_mp_src_rank_with_outputs():
                         val_loss = torch.mean(torch.tensor(val_losses, device=self.device_name))
