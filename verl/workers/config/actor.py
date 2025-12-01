@@ -71,6 +71,8 @@ class ActorConfig(BaseConfig):
         policy_loss (PolicyLossConfig): Configuration for policy loss computation.
         clip_ratio_c (float): Clipping ratio for critic loss.
         loss_agg_mode (str): Loss aggregation mode. Options: 'token-mean', 'sample-mean'.
+        loss_scale_factor (Optional[int]): Scale factor for 'seq-mean-token-sum-norm' loss aggregation mode.
+            If None, uses response_length. Set to a constant to ensure consistent normalization.
         entropy_coeff (float): Entropy coefficient for regularization.
         use_kl_loss (bool): Whether to use KL divergence loss.
         use_torch_compile (bool): Whether to use torch.compile for optimization.
@@ -108,6 +110,7 @@ class ActorConfig(BaseConfig):
     policy_loss: PolicyLossConfig = field(default_factory=PolicyLossConfig)
     clip_ratio_c: float = 3.0
     loss_agg_mode: str = "token-mean"
+    loss_scale_factor: Optional[int] = None
     entropy_coeff: float = 0
     calculate_entropy: bool = False
     use_kl_loss: bool = False

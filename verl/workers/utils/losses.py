@@ -102,6 +102,7 @@ def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
     config.global_batch_info["dp_size"] = data["dp_size"]
     config.global_batch_info["batch_num_tokens"] = data["batch_num_tokens"]
     config.global_batch_info["global_batch_size"] = data["global_batch_size"]
+    config.global_batch_info["loss_scale_factor"] = config.loss_scale_factor
 
     metrics = {}
 
