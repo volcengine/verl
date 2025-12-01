@@ -331,8 +331,10 @@ class SFTTrainer:
                     for val_data in self.val_dataloader:
                         val_data = tu.get_tensordict(tensor_dict=val_data, non_tensor_dict=meta_info)
                         output = self.training_client.infer_batch(val_data)
-                        metrics = tu.get(output, "metrics")
-                        val_losses.append(metrics["loss"])
+
+                        if self.engine.is_mp_src_rank_with_outputs():
+                            metrics = tu.get(output, "metrics")
+                            val_losses.append(metrics["loss"])
 
                     if self.engine.is_mp_src_rank_with_outputs():
                         val_loss = torch.mean(torch.tensor(val_losses, device=self.device_name))
