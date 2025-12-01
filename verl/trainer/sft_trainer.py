@@ -219,7 +219,6 @@ class SFTTrainer:
             device=self.device_name,
         )  # (global_bsz,)
 
-
         torch.distributed.all_gather_into_tensor(
             output_tensor=output_tensor,
             input_tensor=batch_seqlens,
