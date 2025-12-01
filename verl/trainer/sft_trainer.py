@@ -213,12 +213,12 @@ class SFTTrainer:
             batch_seqlens: torch.Tensor = data["attention_mask"].sum(dim=-1)
         batch_seqlens = batch_seqlens.to(self.device_name)  # (global_bsz // dp)
 
-        output_tensor = torch.randint(
-            0,
-            100,
+        output_tensor = torch.empty(
             (batch_seqlens.shape[0] * self.engine.get_data_parallel_size(),),
+            dtype=batch_seqlens.dtype,
             device=self.device_name,
         )  # (global_bsz,)
+
 
         torch.distributed.all_gather_into_tensor(
             output_tensor=output_tensor,
