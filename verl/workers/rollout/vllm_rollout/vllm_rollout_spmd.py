@@ -460,6 +460,7 @@ class vLLMRollout(BaseRollout):
                     output_routed_experts.append(output_expert)
                 # Convert list of tensors to batch tensor
                 input_routed_experts = torch.stack(input_routed_experts, dim=0)
+
                 def pad_3d_list_to_length(routed_experts, pad_token_id, max_length=None):
                     """
                     pad a 3D list (e.g. all layer expert_idx) to a 3D tensor.
@@ -467,17 +468,24 @@ class vLLMRollout(BaseRollout):
                     len_list = [sub_response.shape[0] for sub_response in routed_experts]
                     # response_length = max(len(sub_list.shape[0]) for sub_list in routed_experts)
                     response_length = max(len_list)
-                    target_length = max_length if max_length is not None and max_length > response_length else response_length
+                    target_length = (
+                        max_length if max_length is not None and max_length > response_length else response_length
+                    )
                     new_sub_resposne_list = []
                     for sub_response in routed_experts:
                         pad_shape = (target_length - sub_response.shape[0], *sub_response.shape[1:])
-                        pad_tensor = torch.full(pad_shape, pad_token_id, dtype=sub_response.dtype, device=sub_response.device)
-                        new_sub_response = torch.concat([sub_response,pad_tensor],dim=0)
+                        pad_tensor = torch.full(
+                            pad_shape, pad_token_id, dtype=sub_response.dtype, device=sub_response.device
+                        )
+                        new_sub_response = torch.concat([sub_response, pad_tensor], dim=0)
                         new_sub_resposne_list.append(new_sub_response)
-                    tensor = torch.stack(new_sub_resposne_list,dim=0)
+                    tensor = torch.stack(new_sub_resposne_list, dim=0)
                     return tensor
-                output_routed_experts = pad_3d_list_to_length(output_routed_experts, 0, max_length=self.config.response_length)
-                router_output = torch.cat([input_routed_experts, output_routed_experts], dim=1)
+
+                output_routed_experts = pad_3d_list_to_length(
+                    output_routed_experts, 0, max_length=self.config.response_length
+                )
+                routed_experts = torch.cat([input_routed_experts, output_routed_experts], dim=1)
 
             response = pad_2d_list_to_length(response, self.pad_token_id, max_length=self.config.response_length).to(
                 idx.device
@@ -523,7 +531,7 @@ class vLLMRollout(BaseRollout):
             batch["rollout_log_probs"] = rollout_log_probs
 
         if self.config.enable_rollout_routing_replay:
-            batch["layers_topk_idx"] = router_output
+            batch["routed_experts"] = routed_experts
 
         return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
 

@@ -223,8 +223,8 @@ class MegatronPPOActor(BasePPOActor):
             select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
 
             if self.enable_routing_replay and self.config.router_replay.mode == "R3":
-                assert "layers_topk_idx" in data.batch.keys(), "layers_topk_idx must be in data.batch.keys()"
-                select_keys.append("layers_topk_idx")
+                assert "routed_experts" in data.batch.keys(), "routed_experts must be in data.batch.keys()"
+                select_keys.append("routed_experts")
 
             batch = data.select(batch_keys=select_keys).batch
             input_ids = batch["input_ids"]
@@ -355,7 +355,7 @@ class MegatronPPOActor(BasePPOActor):
         self.has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
         # router replay
         if self.enable_routing_replay:
-            select_keys.append("layers_topk_idx")
+            select_keys.append("routed_experts")
         if self.has_multi_modal_inputs:
             data = data.select(select_keys, ["multi_modal_inputs"])
         else:
@@ -594,7 +594,7 @@ class MegatronPPOActor(BasePPOActor):
                     router.set_routing_mode(RoutingMode.REPLAY_FORWARD)
 
             if RouterReplayHelper.is_replay_forward_mode(self.tf_config, vp_rank):
-                layers_topk_idx = batch["layers_topk_idx"]
+                layers_topk_idx = batch["routed_experts"]
                 set_router_replay_data(layers_topk_idx, attention_mask, self.tf_config, vp_rank)
 
             from verl.models.mcore import get_mcore_forward_fn, get_mcore_forward_fused_fn

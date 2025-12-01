@@ -857,7 +857,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             meta_info={"temperature": self.config.rollout.temperature},
         )
         if self.config.actor.router_replay.mode == "R2":
-            output.batch["layers_topk_idx"] = layers_topk_idx
+            output.batch["routed_experts"] = layers_topk_idx
 
         if self.config.actor.router_replay.mode in ["R2", "R3"]:
             RouterReplay.clear_global_indices()
