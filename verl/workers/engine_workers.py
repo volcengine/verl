@@ -50,14 +50,14 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-class TrainingWorker(Worker, DistProfilerExtension):
+class TrainingWorker(Worker):
     """
     TrainingWorker provides a Tinker-like API (https://thinkingmachines.ai/tinker/) as a RayWorkerGroup
     to a single controller. Currently, we only provide more coarse grained APIs,
     and do not provide exact APIs as Tinker does. But this can be added in the future.
     """
 
-    def __int__(self, config: TrainingWorkerConfig):
+    def __init__(self, config: TrainingWorkerConfig):
         Worker.__init__(self)
         self.config = config
         self.model_config = self.config.model_config
@@ -66,11 +66,12 @@ class TrainingWorker(Worker, DistProfilerExtension):
         self.checkpoint_config = self.config.checkpoint_config
         self.device_name = get_device_name()
 
-        self.profiler_config = self.config.profiler
-        tool_config = self.profiler_config.tool_config
-        DistProfilerExtension.__init__(
-            self, DistProfiler(rank=self.rank, config=self.profiler_config, tool_config=tool_config)
-        )
+        # TODO: add DistProfilerExtension
+        # self.profiler_config = self.config.profiler_config
+        # tool_config = self.profiler_config.tool_config
+        # DistProfilerExtension.__init__(
+        #     self, DistProfiler(rank=self.rank, config=self.profiler_config, tool_config=tool_config)
+        # )
 
         initialize_global_process_group_ray(timeout_second=None)
 
@@ -84,7 +85,7 @@ class TrainingWorker(Worker, DistProfilerExtension):
         from verl.workers.engine import BaseEngine, EngineRegistry
         self.engine: BaseEngine = EngineRegistry.new(
             model_type=self.config.model_type,
-            backend=self.config.backend,
+            backend=self.engine_config.strategy,
             model_config=self.model_config,
             engine_config=self.engine_config,
             optimizer_config=self.optimizer_config,
@@ -136,19 +137,23 @@ class TrainingWorker(Worker, DistProfilerExtension):
 
         # For grad_norm, we do not perform all reduce because it is already been done when clipping grad
         grad_norm = metrics.pop('grad_norm', None)
+        lr = metrics.pop('lr', None)
 
         # For other metrics, we perform all gather in dp group
         final_metrics = allgather_dict_into_dict(data=metrics, group=self.engine.get_data_parallel_group())
         final_metrics['loss'] = loss
         if grad_norm is not None:
             final_metrics['grad_norm'] = grad_norm
+        if lr is not None:
+            final_metrics['lr'] = lr
         # compute mfu
-        estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_token_num, delta_time)
-        final_metrics["mfu"] = estimated_flops / promised_flops / torch.distributed.get_world_size()
-        if forward_only:
-            final_metrics["mfu"] /= 3.
+        if global_token_num is not None:
+            estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_token_num, delta_time)
+            final_metrics["mfu"] = estimated_flops / promised_flops / torch.distributed.get_world_size()
+            if forward_only:
+                final_metrics["mfu"] /= 3.
         # model outputs
-        model_output = output['model_out']
+        model_output = output.pop('model_output', {})
         # We only return final_metrics
         final_output = tu.get_tensordict(tensor_dict=model_output, non_tensor_dict={'metrics': final_metrics})
         return final_output
@@ -158,10 +163,11 @@ class TrainingWorker(Worker, DistProfilerExtension):
         assert self.loss_fn is not None, "loss function can't be None when calling train_batch"
         # global_token_num should be a list of number of tokens of each seq in this batch
         global_token_num = tu.get(data, key="global_token_num")
-        assert global_token_num is not None
 
         with self.engine.train_mode(), Timer(name="train_batch", logger=None) as timer:
-            output = self.engine.train_batch(data, self.loss_fn)
+            output = self.engine.train_batch(data, loss_function=self.loss_fn)
+            # we don't need model_output in training. Maybe we change out mind later
+            output.pop('model_output')
             # containing loss, model_output and metrics
             # for training, we only care about loss and metrics
         delta_time = timer.last
@@ -174,10 +180,10 @@ class TrainingWorker(Worker, DistProfilerExtension):
             lr = None
 
         if self.engine.is_mp_src_rank_with_outputs():
+            if lr is not None:
+                output['metrics']['lr'] = lr
             final_output = self._postprocess_output(output, global_token_num=global_token_num, delta_time=delta_time,
                                                     forward_only=False)
-            if lr is not None:
-                tu.assign_non_tensor(final_output, lr=lr)
         else:
             final_output = None
         return final_output
@@ -186,10 +192,9 @@ class TrainingWorker(Worker, DistProfilerExtension):
     def infer_batch(self, data: TensorDict) -> TensorDict:
         # add mfu calculator
         global_token_num = tu.get(data, key="global_token_num")
-        assert global_token_num is not None
 
-        with self.engine.eval_mode(), Timer(name="train_batch", logger=None) as timer:
-            output = self.engine.infer_batch(data)
+        with self.engine.eval_mode(), Timer(name="eval_batch", logger=None) as timer:
+            output = self.engine.infer_batch(data, loss_function=self.loss_fn)
         delta_time = timer.last
 
         if self.engine.is_mp_src_rank_with_outputs():

@@ -139,7 +139,6 @@ class FSDPEngineConfig(EngineConfig):
 @dataclass
 class TrainingWorkerConfig(BaseConfig):
     model_type: str = None  # model type (language_model/value_model)
-    backend: str = None  # engine backend (fsdp/megatron)
     model_config: HFModelConfig = None
     engine_config: EngineConfig = None
     optimizer_config: OptimizerConfig = None
