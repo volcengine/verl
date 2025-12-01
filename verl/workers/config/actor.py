@@ -72,6 +72,8 @@ class ActorConfig(BaseConfig):
         clip_ratio_c (float): Clipping ratio for critic loss.
         loss_agg_mode (str): Loss aggregation mode. Options: 'token-mean', 'sample-mean'.
         entropy_coeff (float): Entropy coefficient for regularization.
+        tau_pos (float): Positive tau for SAPO smoothing (>= 1.0 keeps rewards stable).
+        tau_neg (float): Negative tau for SAPO smoothing (> tau_pos for asymmetry).
         use_kl_loss (bool): Whether to use KL divergence loss.
         use_torch_compile (bool): Whether to use torch.compile for optimization.
         kl_loss_coef (float): KL divergence loss coefficient.
@@ -109,6 +111,8 @@ class ActorConfig(BaseConfig):
     clip_ratio_c: float = 3.0
     loss_agg_mode: str = "token-mean"
     entropy_coeff: float = 0
+    tau_pos: float = 1.0
+    tau_neg: float = 1.05
     calculate_entropy: bool = False
     use_kl_loss: bool = False
     use_torch_compile: bool = True
