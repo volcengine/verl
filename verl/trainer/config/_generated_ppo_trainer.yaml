@@ -323,6 +323,9 @@ data:
   datagen:
     path: null
     name: null
+  databuffer:
+    enable: false
+    keep_filtered: false
   apply_chat_template_kwargs: {}
 critic:
   optim:

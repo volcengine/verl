@@ -18,7 +18,7 @@ This trainer supports model-agonistic model initialization with huggingface
 
 import os
 import uuid
-from collections import defaultdict
+from collections import defaultdict, deque
 from copy import deepcopy
 from pprint import pprint
 
@@ -40,6 +40,266 @@ from verl.trainer.ppo.reward import compute_reward
 from verl.utils.metric import reduce_metrics
 from verl.utils.profiler import marked_timer
 from verl.utils.rollout_skip import RolloutSkip
+
+
+class DataBuffer:
+    """Buffer to manage sample-level data conservation using original batch format"""
+
+    def __init__(self):
+        self.buffer = deque()  # Store DataProto objects
+        self.stats = {
+            "total_samples_buffered": 0,
+            "total_samples_reused": 0,
+        }
+
+    def get_samples(self, num_needed):
+        """Get samples from buffer, return as DataProto"""
+
+        if len(self.buffer) == 0:
+            return None
+
+        collected_samples = []
+        samples_collected = 0
+
+        while samples_collected < num_needed and len(self.buffer) > 0:
+            buffered_data = self.buffer.popleft()
+            samples_in_data = len(buffered_data)
+
+            if samples_collected + samples_in_data <= num_needed:
+                # Use entire buffered data
+                collected_samples.append(buffered_data)
+                samples_collected += samples_in_data
+                self.stats["total_samples_reused"] += samples_in_data
+            else:
+                # Take partial data and put remainder back
+                samples_to_take = num_needed - samples_collected
+                used_data = buffered_data[:samples_to_take]
+                remainder_data = buffered_data[samples_to_take:]
+
+                collected_samples.append(used_data)
+                self.buffer.appendleft(remainder_data)  # Put remainder back at front
+                samples_collected += samples_to_take
+                self.stats["total_samples_reused"] += samples_to_take
+                break
+
+        if collected_samples:
+            result = DataProto.concat(collected_samples)
+            return result
+
+        return None
+
+    def get_samples_excluding(self, num_needed, exclude_uids):
+        """Get up to num_needed samples excluding any whose uid is in exclude_uids."""
+        if len(self.buffer) == 0 or num_needed <= 0:
+            return None
+
+        collected = []
+        reused = 0
+        remaining_needed = num_needed
+
+        while remaining_needed > 0 and self.buffer:
+            dp = self.buffer.popleft()
+            uids = dp.non_tensor_batch.get("uid", None)
+            if uids is None:
+                # No UID info; treat all as keep
+                keep_indices = list(range(len(dp)))
+            else:
+                uid_list = uids.tolist() if hasattr(uids, "tolist") else list(uids)
+                keep_indices = [i for i, uid in enumerate(uid_list) if uid not in exclude_uids]
+
+            if not keep_indices:
+                # All items excluded; drop this chunk permanently
+                continue
+
+            kept_dp = dp[keep_indices]
+            kept_len = len(kept_dp)
+
+            if kept_len <= remaining_needed:
+                collected.append(kept_dp)
+                reused += kept_len
+                remaining_needed -= kept_len
+            else:
+                used = kept_dp[:remaining_needed]
+                remainder = kept_dp[remaining_needed:]
+                # Put the remainder back to the front for future calls
+                self.buffer.appendleft(remainder)
+                collected.append(used)
+                reused += len(used)
+                remaining_needed = 0
+                break
+
+        if collected:
+            result = DataProto.concat(collected) if len(collected) > 1 else collected[0]
+            self.stats["total_samples_reused"] += reused
+            return result
+
+        return None
+
+    def size(self):
+        total = sum(len(data) for data in self.buffer)
+        return total
+
+    def get_stats(self):
+        return self.stats.copy()
+
+
+class SmartDataLoader:
+    """
+    DataLoader wrapper that handles sample-level buffering using DataProto operations
+
+    """
+
+    def __init__(self, dataloader, config):
+        self.config = config
+        self.dataloader = dataloader
+        self.dataloader_iter = iter(dataloader)
+        self.dataloader_exhausted = False
+        self.reached_epoch_end = False  # mark that we hit StopIteration (before refresh)
+
+        # Always initialize buffers to prevent AttributeErrors.
+        self.unused_buffer = DataBuffer()
+        self.filtered_buffer = DataBuffer() if self.config.keep_filtered else None
+        self.data_history = set()  # track seen data UIDs
+        self.current_batch_remainder = None
+
+        if self.config.enable:
+            print("DEBUG: SmartDataLoader initialized")
+
+    def _refresh_dataloader_iter(self):
+        """Reset dataloader iterator when exhausted"""
+        self.dataloader_iter = iter(self.dataloader)
+        self.reached_epoch_end = False
+
+    def _get_fresh_batch(self, allow_refresh=False):
+        """
+        Try to get a fresh batch.
+        - If StopIteration occurs and allow_refresh is False: do NOT refresh; mark reached_epoch_end and return None.
+        - If allow_refresh is True: attempt a refresh once; if still empty, mark dataloader_exhausted and return None.
+        """
+        if self.dataloader_exhausted:
+            return None
+
+        try:
+            batch_dict = next(self.dataloader_iter)
+        except StopIteration:
+            self.reached_epoch_end = True
+            if not allow_refresh:
+                return None
+            # Attempt a single refresh
+            self._refresh_dataloader_iter()
+            try:
+                batch_dict = next(self.dataloader_iter)
+            except StopIteration:
+                print("DEBUG: Dataloader exhausted permanently after refresh")
+                self.dataloader_exhausted = True
+                return None
+
+        data_proto = DataProto.from_single_dict(batch_dict)
+        trajectory_uids = [str(uuid.uuid4()) for _ in range(len(data_proto))]
+        data_proto.non_tensor_batch["uid"] = np.array(trajectory_uids, dtype=object)
+        return data_proto
+
+    def get_batch_for_generation(self, batch_size):
+        """
+        Get exactly batch_size samples for generation.
+        Loads data in the following order:
+        1) Primary buffer (unused trimmed samples from previous calls)
+        2) Data from the dataloader
+        3) Filtered buffer (filtered-out samples)
+            - Will only be used once per epoch before refreshing dataloader
+        """
+
+        if not self.config.enable:
+            return self._get_fresh_batch(allow_refresh=True)
+
+        collected_data = []
+        samples_needed = batch_size
+
+        # 1) First, try primary buffer
+        buffered_data = self.unused_buffer.get_samples(samples_needed)
+        if buffered_data is not None:
+            collected_data.append(buffered_data)
+            samples_needed -= len(buffered_data)
+
+        # 2) Use remainder if available
+        if self.current_batch_remainder is not None and samples_needed > 0:
+            remainder_size = len(self.current_batch_remainder)
+            samples_to_take = min(samples_needed, remainder_size)
+
+            if samples_to_take == remainder_size:
+                # Use entire remainder
+                collected_data.append(self.current_batch_remainder)
+                self.current_batch_remainder = None
+                samples_needed -= samples_to_take
+            else:
+                # Use part of remainder
+                used_part = self.current_batch_remainder[:samples_to_take]
+                self.current_batch_remainder = self.current_batch_remainder[samples_to_take:]
+                collected_data.append(used_part)
+                samples_needed -= samples_to_take
+
+        # 3) Pull fresh data; on epoch end, prefer filtered buffer before refresh
+        while samples_needed > 0 and not self.dataloader_exhausted:
+            fresh_data = self._get_fresh_batch(allow_refresh=False)
+            if fresh_data is None:
+                # Hit end of epoch; first consume from filtered buffer excluding seen UIDs
+                if self.filtered_buffer is not None:
+                    filtered_data = self.filtered_buffer.get_samples_excluding(samples_needed, self.data_history)
+                    if filtered_data is not None:
+                        collected_data.append(filtered_data)
+                        # ensures that the filtered data is only used once per epoch. Discards after second failure
+                        self.data_history.update(sample.non_tensor_batch["uid"] for sample in filtered_data)
+                        samples_needed -= len(filtered_data)
+
+                # If still need more, now refresh and try to get fresh data
+                if samples_needed > 0:
+                    fresh_data = self._get_fresh_batch(allow_refresh=True)
+                    if fresh_data is None:
+                        # Permanently exhausted; break to final fallback below
+                        break
+
+            if fresh_data is not None and samples_needed > 0:
+                fresh_size = len(fresh_data)
+                if samples_needed >= fresh_size:
+                    collected_data.append(fresh_data)
+                    samples_needed -= fresh_size
+                else:
+                    used_part = fresh_data[:samples_needed]
+                    self.current_batch_remainder = fresh_data[samples_needed:]
+                    collected_data.append(used_part)
+                    samples_needed = 0
+
+        if not collected_data:
+            print("No data available (primary buffer empty, no remainder, dataloader empty, filtered buffer empty)")
+            return None
+
+        result = collected_data[0] if len(collected_data) == 1 else DataProto.concat(collected_data)
+        return result
+
+    def return_unused_samples(self, returning_batch):
+        """Return unused samples to buffer based on returning_batch directly. Returns to the FRONT of the deque"""
+        if returning_batch is None or len(returning_batch) == 0:
+            return
+        self.unused_buffer.buffer.appendleft(returning_batch)
+        self.unused_buffer.stats["total_samples_buffered"] += len(returning_batch)
+
+    def return_filtered_samples(self, filtered_batch):
+        """Return filtered-out originals to the filtered buffer. Adds to the BACK of the deque"""
+        if filtered_batch is None or len(filtered_batch) == 0:
+            return
+        self.filtered_buffer.buffer.append(filtered_batch)
+        self.filtered_buffer.stats["total_samples_buffered"] += len(filtered_batch)
+
+    def get_stats(self):
+        if self.config.keep_filtered:
+            return {
+                "unused_buffer": self.unused_buffer.get_stats(),
+                "filtered_buffer": self.filtered_buffer.get_stats(),
+            }
+        else:
+            return {
+                "unused_buffer": self.unused_buffer.get_stats(),
+            }
 
 
 class RayDAPOTrainer(RayPPOTrainer):
@@ -96,6 +356,8 @@ class RayDAPOTrainer(RayPPOTrainer):
 
         # load checkpoint before doing anything
         self._load_checkpoint()
+        # create smart_dataloader
+        self.smart_dataloader = SmartDataLoader(self.train_dataloader, self.config.data.databuffer)
 
         # perform validation before training
         # currently, we only support validation using the reward_function.
@@ -132,7 +394,15 @@ class RayDAPOTrainer(RayPPOTrainer):
         num_prompt_in_batch = 0
         num_gen_batches = 0
         for epoch in range(self.config.trainer.total_epochs):
-            for batch_dict in self.train_dataloader:
+            while True:
+                original_data_proto = self.smart_dataloader.get_batch_for_generation(
+                    self.config.data.train_batch_size,
+                )
+
+                if original_data_proto is None:
+                    print("DEBUG: SmartDataLoader returned None, ending epoch")
+                    break  # End of epoch
+
                 metrics = {}
 
                 with marked_timer("start_profile", timing_raw):
@@ -142,7 +412,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                         else curr_step_profile
                     )
 
-                new_batch: DataProto = DataProto.from_single_dict(batch_dict)
+                new_batch: DataProto = deepcopy(original_data_proto)
                 num_gen_batches += 1
                 gen_batch = self._get_gen_batch(new_batch)
                 gen_batch_output = gen_batch.repeat(
@@ -182,9 +452,7 @@ class RayDAPOTrainer(RayPPOTrainer):
 
                             del rm_scores, gen_baseline_batch, gen_baseline_output
 
-                    new_batch.non_tensor_batch["uid"] = np.array(
-                        [str(uuid.uuid4()) for _ in range(len(new_batch.batch))], dtype=object
-                    )
+                    # The new_batch already has UIDs from SmartDataLoader
                     # repeat to align with repeated responses in rollout
                     new_batch = new_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     new_batch = new_batch.union(gen_batch_output)
@@ -262,6 +530,18 @@ class RayDAPOTrainer(RayPPOTrainer):
                             if traj_from_prompt_uid in kept_prompt_uids:
                                 kept_traj_idxs.append(idx)
 
+                        # Return filtered-out originals to filtered buffer
+                        if self.config.data.databuffer.get("keep_filtered", False):
+                            filtered_prompt_uids = set(prompt_uid2metric_vals.keys()) - set(kept_prompt_uids)
+                            if filtered_prompt_uids:
+                                filtered_indices = [
+                                    i
+                                    for i, uid in enumerate(original_data_proto.non_tensor_batch["uid"])
+                                    if uid in filtered_prompt_uids
+                                ]
+                                filtered_original_subset = original_data_proto[filtered_indices]
+                                self.smart_dataloader.return_filtered_samples(filtered_original_subset)
+
                         new_batch = new_batch[kept_traj_idxs]
                         batch = new_batch if batch is None else DataProto.concat([batch, new_batch])
 
@@ -283,7 +563,51 @@ class RayDAPOTrainer(RayPPOTrainer):
                         else:
                             # Align the batch
                             traj_bsz = self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n
-                            batch = batch[:traj_bsz]
+                            if len(batch) > traj_bsz:
+                                returning_batch = batch[traj_bsz:]  # These are the samples being trimmed off
+                                batch = batch[:traj_bsz]  # Keep only what we need for training
+                                batch.meta_info["global_steps"] = self.global_steps
+
+                                # Use UIDs to select directly from original_data_proto and buffer those originals.
+                                returning_uids = set(returning_batch.non_tensor_batch["uid"])
+                                print(f"Returning {len(returning_uids)} trimmed samples to buffer")
+
+                                # Indices in the original (non-repeated, non-unioned) data that match the trimmed UIDs
+                                returning_indices = [
+                                    i
+                                    for i, uid in enumerate(original_data_proto.non_tensor_batch["uid"])
+                                    if uid in returning_uids
+                                ]
+
+                                if returning_indices:
+                                    returning_original_subset = original_data_proto[returning_indices]
+                                    # Put the untouched original samples back into the buffer; no gen_batch needed
+                                    self.smart_dataloader.return_unused_samples(returning_original_subset)
+                            else:
+                                print("DEBUG: No samples to return (batch size exactly matches required size)")
+
+                            # Log smart dataloader statistics
+                            dl_stats = self.smart_dataloader.get_stats()
+                            total_samples_buffered = dl_stats["unused_buffer"]["total_samples_buffered"]
+                            total_samples_reused = dl_stats["unused_buffer"]["total_samples_reused"]
+                            metrics.update(
+                                {
+                                    "data_con/buffer_size": self.smart_dataloader.unused_buffer.size(),
+                                    "data_con/total_samples_buffered": total_samples_buffered,
+                                    "data_con/total_samples_reused": total_samples_reused,
+                                }
+                            )
+
+                            if self.config.data.databuffer.get("keep_filtered", False):
+                                total_samples_buffered = dl_stats["filtered_buffer"]["total_samples_buffered"]
+                                total_samples_reused = dl_stats["filtered_buffer"]["total_samples_reused"]
+                                metrics.update(
+                                    {
+                                        "data_con/filtered_buffer_size": self.smart_dataloader.filtered_buffer.size(),
+                                        "data_con/filtered_total_samples_buffered": total_samples_buffered,
+                                        "data_con/filtered_total_samples_reused": total_samples_reused,
+                                    }
+                                )
 
                     # === Updating ===
                     # Balance the number of valid tokens across DP ranks.
