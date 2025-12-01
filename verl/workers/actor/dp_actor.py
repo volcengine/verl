@@ -39,11 +39,6 @@ from verl.utils.torch_functional import logprobs_from_logits
 from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad, ulysses_pad_and_slice_inputs
 from verl.workers.actor import BasePPOActor
 from verl.workers.config import ActorConfig
-from verl.trainer.ppo.prefix_grouper_utils import (
-    build_pg_from_micro_batch,
-    pg_forward,
-    sort_batch_by_uid,
-)
 
 __all__ = ["DataParallelPPOActor"]
 
@@ -77,6 +72,7 @@ class DataParallelPPOActor(BasePPOActor):
         self.ulysses_sequence_parallel_size = self.config.ulysses_sequence_parallel_size
         self.use_ulysses_sp = self.ulysses_sequence_parallel_size > 1
         self.use_prefix_grouper = self.config.get("use_prefix_grouper", False)
+        self.use_dynamic_bsz = self.config.get("use_dynamic_bsz", False)
         if torch.distributed.get_rank() == 0:
             print(f"{role} use_prefix_grouper={self.use_prefix_grouper}")
 
@@ -107,19 +103,17 @@ class DataParallelPPOActor(BasePPOActor):
             entropy: # (bs, response_len)
             log_probs: # (bs, response_len)
         """
+        # PrefixGrouper path for shared-prefix optimization
         if self.use_prefix_grouper:
-            # 使用 PrefixGrouper 路径；当前仅支持非 rmpad / 非 Ulysses / 非 fused kernels / 非 dynamic_bsz
-            # 条件不满足时自动回退到普通路径
             can_use_pg = (
                 not self.use_remove_padding
                 and not self.use_ulysses_sp
                 and not self.use_fused_kernels
-                and not self.config.get("use_dynamic_bsz", False)  # PrefixGrouper 不支持 dynamic_bsz
-                and isinstance(micro_batch, DataProto)
+                and not self.use_dynamic_bsz
             )
-            if can_use_pg and "response_mask" in micro_batch.batch.keys():
-                pad_token_id = micro_batch.meta_info.get("pad_token_id", 0)
-                micro_batch = sort_batch_by_uid(micro_batch)
+            if can_use_pg and "response_mask" in micro_batch and "uid" in micro_batch:
+                from verl.trainer.ppo.prefix_grouper_utils import build_pg_from_micro_batch, pg_forward
+                pad_token_id = micro_batch.get("pad_token_id", 0)
 
                 (
                     prefix_grouper,
@@ -157,14 +151,13 @@ class DataParallelPPOActor(BasePPOActor):
                         entropy_fn=entropy_fn,
                     )
 
-                # PG 路径：确保 padding 位置的 log_probs 和 entropy 为 0
-                # 这样 agg_loss 使用 response_mask 聚合时才能正确计算
+                # Zero out padding positions
                 padding_mask = (suffix_mask_from_pg == 0)
                 log_probs = log_probs.masked_fill(padding_mask, 0.0)
                 if entropy is not None:
                     entropy = entropy.masked_fill(padding_mask, 0.0)
 
-                # 如果长度不一致，还需要 pad 回 target_response_length
+                # Pad to target response length if needed
                 target_response_length = responses.size(1)
                 if log_probs.size(1) != target_response_length:
                     batch_size = log_probs.size(0)
@@ -415,20 +408,12 @@ class DataParallelPPOActor(BasePPOActor):
         use_dynamic_bsz = data.meta_info["use_dynamic_bsz"]
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
 
-        # 选择需要的 tensor key；在 PG 模式下尽量保留 prompts/response_mask 以便构造 PrefixGrouper
-        base_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
-        extra_keys = []
+        select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
+        non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
         if self.use_prefix_grouper:
-            batch_keys = data.batch.keys()
-            if "prompts" in batch_keys:
-                extra_keys.append("prompts")
-            if "response_mask" in batch_keys:
-                extra_keys.append("response_mask")
-        select_keys = base_keys + extra_keys
-
-        non_tensor_select_keys = []
-        if self.use_prefix_grouper and "uid" in data.non_tensor_batch.keys():
-            non_tensor_select_keys.append("uid")
+            select_keys += [k for k in ["prompts", "response_mask"] if k in data.batch]
+            if "uid" in data.non_tensor_batch:
+                non_tensor_select_keys.append("uid")
 
         data = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
 
@@ -442,16 +427,11 @@ class DataParallelPPOActor(BasePPOActor):
         entropy_lst = []
         for micro_batch in micro_batches:
             micro_batch = micro_batch.to(get_device_id())
+            model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch}
             with torch.no_grad():
-                if self.use_prefix_grouper:
-                    entropy, log_probs = self._forward_micro_batch(
-                        micro_batch, temperature=temperature, calculate_entropy=calculate_entropy
-                    )
-                else:
-                    model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch}
-                    entropy, log_probs = self._forward_micro_batch(
-                        model_inputs, temperature=temperature, calculate_entropy=calculate_entropy
-                    )
+                entropy, log_probs = self._forward_micro_batch(
+                    model_inputs, temperature=temperature, calculate_entropy=calculate_entropy
+                )
             log_probs_lst.append(log_probs)
             if calculate_entropy:
                 entropy_lst.append(entropy)
@@ -545,14 +525,9 @@ class DataParallelPPOActor(BasePPOActor):
 
                     # all return: (bsz, response_length)
                     calculate_entropy = entropy_coeff != 0
-                    if self.use_prefix_grouper:
-                        entropy, log_prob = self._forward_micro_batch(
-                            micro_batch, temperature=temperature, calculate_entropy=calculate_entropy
-                        )
-                    else:
-                        entropy, log_prob = self._forward_micro_batch(
-                            model_inputs, temperature=temperature, calculate_entropy=calculate_entropy
-                        )
+                    entropy, log_prob = self._forward_micro_batch(
+                        model_inputs, temperature=temperature, calculate_entropy=calculate_entropy
+                    )
 
                     # for fully_async_policy recipe
                     if hasattr(self.config, "use_rollout_log_probs") and self.config.use_rollout_log_probs:

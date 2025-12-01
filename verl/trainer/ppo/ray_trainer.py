@@ -343,6 +343,16 @@ class RayPPOTrainer:
         if self.config.algorithm.use_kl_in_reward:
             self.kl_ctrl_in_reward = core_algos.get_kl_controller(self.config.algorithm.kl_ctrl)
 
+        # PrefixGrouper requires data to be sorted by uid, which is incompatible with balance_batch
+        if (
+            self.config.actor_rollout_ref.actor.get("use_prefix_grouper", False)
+            and self.config.trainer.get("balance_batch", False)
+        ):
+            raise ValueError(
+                "use_prefix_grouper=True is incompatible with balance_batch=True. "
+                "PrefixGrouper requires data to be sorted by uid, but balance_batch reorders data."
+            )
+
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
 
     def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler: Optional[Sampler]):
