@@ -166,8 +166,6 @@ class TrainingWorker(Worker):
 
         with self.engine.train_mode(), Timer(name="train_batch", logger=None) as timer:
             output = self.engine.train_batch(data, loss_function=self.loss_fn)
-            # we don't need model_output in training. Maybe we change out mind later
-            output.pop("model_output")
             # containing loss, model_output and metrics
             # for training, we only care about loss and metrics
         delta_time = timer.last
@@ -180,6 +178,8 @@ class TrainingWorker(Worker):
             lr = None
 
         if self.engine.is_mp_src_rank_with_outputs():
+            # we don't need model_output in training. Maybe we change out mind later
+            output.pop("model_output")
             if lr is not None:
                 output["metrics"]["lr"] = lr
             final_output = self._postprocess_output(
