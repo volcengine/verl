@@ -832,11 +832,15 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 use_liger=self.config.model.get("use_liger", False),
                 role="ref",
             )[0]
-            OmegaConf.set_struct(self.config.ref, True)
-            with open_dict(self.config.ref):
-                self.config.ref.use_remove_padding = use_remove_padding
-                self.config.ref.use_fused_kernels = use_fused_kernels
-            self.ref_policy = DataParallelPPOActor(config=self.config.ref, actor_module=self.ref_module_fsdp)
+            # 将 ref 配置转为可变字典，添加必要字段后重建
+            ref_config_dict = OmegaConf.to_container(self.config.ref, resolve=True)
+            ref_config_dict["use_remove_padding"] = use_remove_padding
+            ref_config_dict["use_fused_kernels"] = use_fused_kernels
+            # 同步 PrefixGrouper 配置，确保 ref 和 actor 使用相同的 forward 路径
+            if hasattr(self.config, "actor") and self.config.actor.get("use_prefix_grouper", False):
+                ref_config_dict["use_prefix_grouper"] = self.config.actor.use_prefix_grouper
+            ref_config = OmegaConf.create(ref_config_dict)
+            self.ref_policy = DataParallelPPOActor(config=ref_config, actor_module=self.ref_module_fsdp)
 
         if self._is_actor:
             self.flops_counter = FlopsCounter(self.actor_model_config)
@@ -872,7 +876,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         with self.ulysses_sharding_manager:
             data = data.to("cpu")  # data will to device with each micro batch on actor.update_policy
-
+            data.meta_info.setdefault("pad_token_id", self.tokenizer.pad_token_id)
             # perform training
             with Timer(name="update_policy", logger=None) as timer:
                 metrics = self.actor.update_policy(data=data)
@@ -973,6 +977,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         data.meta_info["max_token_len"] = self.config.rollout.log_prob_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = self.config.rollout.log_prob_use_dynamic_bsz
         data.meta_info["temperature"] = self.config.rollout.temperature
+        # 供 PrefixGrouper 使用
+        data.meta_info.setdefault("pad_token_id", self.tokenizer.pad_token_id)
         # perform recompute log_prob
         with self.ulysses_sharding_manager:
             with adapter_ctx:
@@ -1014,6 +1020,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         data.meta_info["temperature"] = self.config.rollout.temperature
         data.meta_info["max_token_len"] = self.config.ref.log_prob_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = self.config.ref.log_prob_use_dynamic_bsz
+        data.meta_info.setdefault("pad_token_id", self.tokenizer.pad_token_id)
         with self.ulysses_sharding_manager:
             data = data.to("cpu")  # data will to device with each micro batch on ref.compute_log_prob
             output, _ = self.ref_policy.compute_log_prob(data=data, calculate_entropy=False)
