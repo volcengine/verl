@@ -24,8 +24,10 @@ import numpy as np
 import ray
 import vllm.entrypoints.cli.serve
 import zmq
+import torch
 from ray.actor import ActorHandle
 from vllm import SamplingParams
+from vllm.config import LoRAConfig
 from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.entrypoints.openai.api_server import (
     build_app,
@@ -41,13 +43,6 @@ from vllm.v1.engine.core import EngineCoreProc
 from vllm.v1.engine.utils import CoreEngineProcManager
 from vllm.v1.executor.abstract import Executor
 
-# Try to import MultiprocExecutor from vLLM
-try:
-    from vllm.v1.executor.multiproc_executor import WorkerProc, MultiprocExecutor
-except ImportError:
-    WorkerProc = None
-    MultiprocExecutor = None
-
 from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches
@@ -61,302 +56,10 @@ from verl.workers.rollout.vllm_rollout.utils import (
     VLLM_LORA_PATH,
     get_vllm_max_lora_rank,
 )
+from verl.workers.rollout.vllm_rollout.vllm_multiproc_executor import vLLMMultiprocExecutor
 
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
-
-
-# Check if MultiprocExecutor is available, otherwise raise an error
-if MultiprocExecutor is None:
-    raise ImportError(
-        "MultiprocExecutor not found. This refactoring requires vLLM v1 with MultiprocExecutor support. "
-        "Please ensure vLLM v1 is properly installed."
-    )
-
-
-class vLLMWorkerProc(WorkerProc):
-    READY_STR = "READY"
-
-    def __init__(
-        self,
-        vllm_config: VllmConfig,
-        local_rank: int,
-        rank: int,
-        distributed_init_method: str,
-        input_shm_handle: Handle,
-        shared_worker_lock: LockType,
-    ):
-        self.rank = rank
-        wrapper = WorkerWrapperBase(vllm_config=vllm_config, rpc_rank=rank)
-        all_kwargs: list[dict] = [
-            {} for _ in range(vllm_config.parallel_config.world_size)
-        ]
-        # TODO: inspect what is_driver_worker used for in vLLM
-        is_driver_worker = rank % vllm_config.parallel_config.tensor_parallel_size == 0
-        all_kwargs[rank] = {
-            "vllm_config": vllm_config,
-            "local_rank": local_rank,
-            "rank": rank,
-            "distributed_init_method": distributed_init_method,
-            "is_driver_worker": is_driver_worker,
-            "shared_worker_lock": shared_worker_lock,
-        }
-        if self.lora_config:
-            lora_dtype = getattr(torch, self.config.dtype)
-            vllm_config.lora_config = LoRAConfig(lora_dtype=lora_dtype, **self.lora_config)
-        if self.config.quantization is not None:
-            if self.config.quantization == "fp8":
-                # Apply vllm fp8 patches
-                # Will remove the patch after vllm support on-the-fly quant for rollout natively.
-                apply_vllm_fp8_patches()
-            else:
-                raise ValueError(f"Currently only support fp8 quantization, got: {self.config.quantization}")
-        wrapper.init_worker(all_kwargs)
-        self.worker = wrapper
-
-        # Initialize MessageQueue for receiving SchedulerOutput
-        self.rpc_broadcast_mq = MessageQueue.create_from_handle(
-            input_shm_handle, self.worker.rank
-        )
-
-        # Initializes a message queue for sending the model output
-        self.worker_response_mq = MessageQueue(1, 1)
-
-        scheduler_config = vllm_config.scheduler_config
-        self.use_async_scheduling = scheduler_config.async_scheduling
-        if self.use_async_scheduling:
-            self.async_output_queue: queue.Queue = queue.Queue()
-            self.async_output_copy_thread = Thread(
-                target=self.async_output_busy_loop,
-                daemon=True,
-                name="WorkerAsyncOutputCopy",
-            )
-            self.async_output_copy_thread.start()
-
-        # Initialize device
-        self.worker.init_device()
-
-        # Set process title and log prefix
-        self.setup_proc_title_and_log_prefix(
-            enable_ep=vllm_config.parallel_config.enable_expert_parallel
-        )
-
-        # Load model
-        self.worker.load_model()
-        _monkey_patch_compute_logits(self.worker.model_runner.model, len(self.tokenizer))
-
-        # Enable environment variable cache (e.g. assume no more
-        # environment variable overrides after this point)
-        enable_envs_cache()
-
-
-class vLLMMultiprocExecutor(MultiprocExecutor):
-    """
-    vLLM multiproc executor specialized for verl.
-    Inherits from MultiprocExecutor and adds ZMQ server functionality
-    for communicating with training workers.
-    """
-
-    uses_ray: bool = False
-
-    def __init__(self, vllm_config):
-        super().__init__(vllm_config)
-        self.zmq_context = None
-        self.zmq_socket = None
-        self.zmq_thread = None
-        self.zmq_is_running = False
-        self.executor_zmq_address = None
-
-    def _init_executor(self) -> None:
-        """Override _init_executor to add ZMQ server functionality."""
-        # Call parent class initialization first to set up workers
-        super()._init_executor()
-
-        # Get worker count from environment variable and override world_size
-        worker_count = self._get_worker_count()
-        if worker_count <= 0:
-            raise ValueError("VERL_VLLM_WORKER_COUNT environment variable not set or invalid")
-
-        self.world_size = worker_count
-
-        # Initialize ZMQ server to communicate with training workers
-        self._init_zmq_server()
-        self._start_zmq_server()
-
-    def _get_worker_count(self) -> int:
-        """
-        Get worker count from VERL_VLLM_WORKER_COUNT environment variable.
-        This environment variable is set in vLLMHttpServerBase.run_server().
-        """
-        count_str = os.environ.get("VERL_VLLM_WORKER_COUNT", "")
-        try:
-            return int(count_str)
-        except ValueError:
-            return 0
-
-    def _handle_zmq_request(self, request: dict) -> dict:
-        """Handle ZMQ requests from vLLMAsyncRollout."""
-        method = request.get("method")
-        args = request.get("args", ())
-        kwargs = request.get("kwargs", {})
-
-        try:
-            # Use collective_rpc to distribute the method call to workers
-            results = self.collective_rpc(method, *args, **kwargs)
-            return {"status": "success", "result": results}
-
-        except Exception as e:
-            logger.error(f"Error handling ZMQ request {method}: {e}")
-            return {"status": "error", "error": str(e)}
-
-    def _init_zmq_server(self):
-        """Initialize ZMQ server."""
-        # Read ZMQ address from environment variable (set by vLLMHttpServerBase)
-        self.executor_zmq_address = os.environ.get("VERL_VLLM_EXECUTOR_ZMQ_ADDRESS")
-        if not self.executor_zmq_address:
-            raise ValueError("VERL_VLLM_EXECUTOR_ZMQ_ADDRESS environment variable not set")
-
-        logger.info(f"vLLMMultiprocExecutor ZMQ server will bind to: {self.executor_zmq_address}")
-
-    def _start_zmq_server(self):
-        """Start ZMQ server."""
-        import threading
-
-        if self.zmq_is_running:
-            return
-
-        self.zmq_context = zmq.Context()
-        self.zmq_socket = self.zmq_context.socket(zmq.REP)
-
-        # Bind to address
-        self.zmq_socket.bind(self.executor_zmq_address)
-        logger.info(f"vLLMMultiprocExecutor ZMQ server bound to: {self.executor_zmq_address}")
-
-        # Start service thread
-        self.zmq_is_running = True
-        self.zmq_thread = threading.Thread(
-            target=self._zmq_service_loop,
-            daemon=True,
-            name="vLLMMultiprocExecutor-ZMQ"
-        )
-        self.zmq_thread.start()
-        logger.info("vLLMMultiprocExecutor ZMQ server started")
-
-    def _zmq_service_loop(self):
-        """ZMQ service loop to handle requests from vLLMAsyncRollout."""
-        while self.zmq_is_running:
-            try:
-                message = self.zmq_socket.recv()
-                request = pickle.loads(message)
-
-                response = self._handle_zmq_request(request)
-
-                self.zmq_socket.send(pickle.dumps(response))
-
-            except zmq.Again:
-                continue
-            except zmq.ZMQError as e:
-                if e.errno == zmq.ETERM:
-                    logger.info("vLLMMultiprocExecutor ZMQ context terminated")
-                    break
-                logger.error(f"ZMQ error in vLLMMultiprocExecutor: {e}")
-            except Exception as e:
-                logger.exception(f"Error in ZMQ service loop: {e}")
-
-    def _shutdown_zmq_server(self):
-        """Shutdown ZMQ server."""
-        if self.zmq_is_running:
-            self.zmq_is_running = False
-
-            if self.zmq_socket:
-                self.zmq_socket.close()
-                self.zmq_socket = None
-
-            if self.zmq_context:
-                self.zmq_context.term()
-                self.zmq_context = None
-
-            if self.zmq_thread and self.zmq_thread.is_alive():
-                self.zmq_thread.join(timeout=5)
-                if self.zmq_thread.is_alive():
-                    logger.warning("ZMQ thread did not terminate cleanly")
-
-            logger.info("ZMQ server shutdown complete")
-
-    def shutdown(self):
-        """Override shutdown to ensure ZMQ server is properly closed."""
-        # First shutdown ZMQ server
-        self._shutdown_zmq_server()
-
-        # Call parent class shutdown
-        super().shutdown()
-
-    def check_health(self):
-        """Check executor health."""
-        return
-
-
-# Keep ExternalZeroMQDistributedExecutor for backward compatibility
-class ExternalZeroMQDistributedExecutor(Executor):
-    """An executor that engines are launched by external ray actors."""
-
-    uses_ray: bool = False
-
-    def _init_executor(self) -> None:
-        dp_rank_local = self.vllm_config.parallel_config.data_parallel_rank_local
-        tp_size = self.vllm_config.parallel_config.tensor_parallel_size
-
-        addresses = os.environ["VERL_VLLM_ZMQ_ADDRESSES"].split(",")
-        addresses = addresses[dp_rank_local * tp_size : (dp_rank_local + 1) * tp_size]
-        self.context = zmq.Context()
-        self.sockets = []
-        for address in addresses:
-            socket = self.context.socket(zmq.REQ)
-            if address.startswith("tcp://["):
-                socket.setsockopt(zmq.IPV6, 1)
-            socket.connect(address)
-            self.sockets.append(socket)
-
-        kwargs = dict(
-            vllm_config=self.vllm_config,
-            local_rank=None,
-            rank=None,
-            distributed_init_method="env://",
-            is_driver_worker=True,
-        )
-        self.collective_rpc("init_worker", args=([kwargs],))
-        self.collective_rpc("init_device")
-        self.collective_rpc("load_model")
-
-    def collective_rpc(
-        self,
-        method: str | Callable,
-        timeout: Optional[float] = None,
-        args: tuple = (),
-        kwargs: Optional[dict[str, Any]] = None,
-        **kwargs_extra: Any,
-    ) -> list[Any]:
-        if isinstance(method, str):
-            sent_method = method
-        else:
-            sent_method = pickle.dumps(method)
-        del method
-
-        message = pickle.dumps((sent_method, args, kwargs or {}))
-        for socket in self.sockets:
-            socket.send(message, zmq.DONTWAIT)
-
-        outputs = []
-        for socket in self.sockets:
-            outputs.append(pickle.loads(socket.recv()))
-
-        for output in outputs:
-            if isinstance(output, Exception):
-                raise output
-        return outputs
-
-    def check_health(self):
-        return
 
 
 class vLLMHttpServerBase:
@@ -391,6 +94,13 @@ class vLLMHttpServerBase:
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
+        self.lora_config = (
+            {"max_loras": 1, "max_lora_rank": get_vllm_max_lora_rank(self.model_config.lora_rank)}
+            if self.model_config.lora_rank > 0
+            else {}
+        )
+        self.tokenizer = self.model_config.tokenizer
+
         self.config.max_model_len = self.config.prompt_length + self.config.response_length
         self.rollout_mode = rollout_mode
         self.workers = workers
@@ -483,6 +193,8 @@ class vLLMHttpServerBase:
                 # Apply vllm fp8 patches
                 # Will remove the patch after vllm support on-the-fly quant for rollout natively.
                 apply_vllm_fp8_patches()
+                # for subprocesses patching
+                os.environ["VERL_VLLM_FP8_QUANT_ENABLED"] = "1"
             else:
                 raise ValueError(f"Currently only support fp8 quantization, got: {quantization}")
         args = {
@@ -621,6 +333,10 @@ class vLLMHttpServerBase:
         usage_context = UsageContext.OPENAI_API_SERVER
         vllm_config = engine_args.create_engine_config(usage_context=usage_context)
         vllm_config.parallel_config.data_parallel_master_port = self._dp_master_port
+        # TODO(jianjunzhong): need here? lora-related args have been set in launch_server
+        if self.lora_config:
+            lora_dtype = getattr(torch, self.config.dtype)
+            vllm_config.lora_config = LoRAConfig(lora_dtype=lora_dtype, **self.lora_config)
 
         engine_client = AsyncLLM.from_vllm_config(
             vllm_config=vllm_config,
@@ -803,6 +519,12 @@ class vLLMReplica(RolloutReplica):
         if self.config.data_parallel_size == 1:
             nnodes = 1
             gpus_per_node = self.world_size
+        
+        env_vars = {"VERL_N_GPUS_PER_NODE": self.n_gpus_per_node}
+        if self.n_gpus_per_node > self.world_size:
+            env_vars.update({
+                "VERL_VLLM_MULTIPROC_RANK_OFFSET": self.replica_rank * self.world_size % self.n_gpus_per_node
+            })
 
         # create server actor in each node with node affinity
         for node_rank in range(nnodes):
@@ -819,6 +541,7 @@ class vLLMReplica(RolloutReplica):
                     soft=False,
                 ),
                 name=name,
+                runtime_env={"env_vars": env_vars},
             ).remote(
                 config=self.config,
                 model_config=self.model_config,
