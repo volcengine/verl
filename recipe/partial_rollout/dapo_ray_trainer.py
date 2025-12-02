@@ -176,10 +176,8 @@ def dapo_ray_trainer_fit(self):
 
                     staged_out, partial_batch = DataProto.split_data(new_batch, finished_mask)
 
-                    raw_prompt_ids = staged_out.non_tensor_batch["raw_prompt_ids"]
-                    raw_response_ids = staged_out.non_tensor_batch["raw_response_ids"]
 
-                    staged_out.non_tensor_batch.pop("raw_prompt_ids")  # TODO ?
+                    staged_out.non_tensor_batch.pop("raw_prompt_ids")
                     staged_out.non_tensor_batch.pop("raw_response_ids")
 
                     if len(partial_batch.batch) > 0:
