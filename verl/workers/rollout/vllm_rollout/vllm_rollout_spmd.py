@@ -426,10 +426,6 @@ class vLLMRollout(BaseRollout):
                             curr_log_prob.append(logprob[response_ids[i]].logprob)
                         rollout_log_probs.append(curr_log_prob)
 
-            # [prompt_length + response_length, num_layer, num_expert]
-            # [pad_prompt_length, num_layer, num_expert]
-            # [pad_response_length, num_layer, num_expert]
-
             routed_experts = []
             input_routed_experts = []
             output_routed_experts = []

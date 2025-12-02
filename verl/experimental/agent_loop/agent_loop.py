@@ -509,7 +509,7 @@ class AgentLoopWorkerBase:
                 )
 
             routed_experts[:, start_pos:end_pos] = experts_tensor.unsqueeze(0)
-    
+
         # Handle multi-modal inputs and position_ids calculation
         # Only support Qwen2VLImageProcessor for multi-modal processing currently
         # TODO: support other multi-modal inputs

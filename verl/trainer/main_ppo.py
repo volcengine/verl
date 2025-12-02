@@ -62,14 +62,13 @@ def run_ppo(config, task_runner_class=None) -> None:
         default_runtime_env = get_ppo_ray_runtime_env()
         ray_init_kwargs = config.ray_kwargs.get("ray_init", {})
         runtime_env_kwargs = ray_init_kwargs.get("runtime_env", {})
-        runtime_env_vars = runtime_env_kwargs.get("env_vars", {})
+
         if config.transfer_queue.enable:
             # Add runtime environment variables for transfer queue
-            print("config.transfer_queue.enable")
+            runtime_env_vars = runtime_env_kwargs.get("env_vars", {})
             runtime_env_vars["TRANSFER_QUEUE_ENABLE"] = "1"
+            runtime_env_kwargs["env_vars"] = runtime_env_vars
 
-        runtime_env_vars["NCCL_DEBUG"] = "ERROR"
-        runtime_env_kwargs["env_vars"] = runtime_env_vars
         runtime_env = OmegaConf.merge(default_runtime_env, runtime_env_kwargs)
         ray_init_kwargs = OmegaConf.create({**ray_init_kwargs, "runtime_env": runtime_env})
         print(f"ray init kwargs: {ray_init_kwargs}")
