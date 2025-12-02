@@ -84,12 +84,12 @@ class ModuleConfig(BaseConfig):
     """Configuration for external Python module, which can be loaded, executed (and optionally, ``import``ed).
 
     Args:
-        path (str): Path to the module file to load and execute.
-        name (str): Name of the module to ``import``. Format: ``"import.path.to.module"``.
+        path (str, optional): Path to the module file to load and execute.
+        name (str, optional): Name of the module to ``import``. Format: ``"import.path.to.module"``.
             If ``None``, the module won't be added to ``sys.modules``, thus can not be ``import``ed as ``name``.
     """
 
-    path: str
+    path: Optional[str] = None
     name: Optional[str] = None
 
 
@@ -111,4 +111,4 @@ class RewardManagerConfig(BaseConfig):
 
     source: str = "register"
     name: str = "naive"
-    module: Optional[ModuleConfig] = None
+    module: Optional[ModuleConfig] = field(default_factory=ModuleConfig)
