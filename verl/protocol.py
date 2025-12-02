@@ -499,6 +499,31 @@ class DataProto:
 
         return cls.from_dict(tensors=tensors, non_tensors=non_tensors, meta_info=meta_info, auto_padding=auto_padding)
 
+    @staticmethod
+    def split_data(data_proto: "DataProto", filter_mask) -> tuple["DataProto", "DataProto"]:
+        """
+        Split a DataProto into two based on a boolean mask.
+        Args:
+            data_proto: The DataProto to split
+            filter_mask: Boolean tensor/array where True values go to the first DataProto
+        Returns:
+            Tuple[DataProto, DataProto]: First DataProto with items where mask is True,
+                                        Second DataProto with items where mask is False
+        """
+        # Convert to tensor if it's a list or numpy array
+        if isinstance(filter_mask, list):
+            filter_mask = torch.tensor(filter_mask, dtype=torch.bool)
+        elif isinstance(filter_mask, np.ndarray):
+            filter_mask = torch.from_numpy(filter_mask)
+
+        # Create inverse mask
+        inverse_mask = ~filter_mask
+
+        # Split into two DataProtos
+        first_proto = data_proto.select_idxs(filter_mask)
+        second_proto = data_proto.select_idxs(inverse_mask)
+        return first_proto, second_proto
+
     @classmethod
     def from_dict(
         cls,

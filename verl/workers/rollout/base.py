@@ -14,6 +14,7 @@
 
 import importlib
 from abc import ABC, abstractmethod
+from types import MethodType
 from typing import Generator
 
 import torch
@@ -96,8 +97,27 @@ def get_rollout_class(rollout_name: str, mode: str) -> type[BaseRollout]:
     Returns:
         The rollout class.
     """
-    assert (rollout_name, mode) in _ROLLOUT_REGISTRY, f"Rollout {rollout_name} with mode {mode} not found"
-    fqdn = _ROLLOUT_REGISTRY[(rollout_name, mode)]
-    module_name, class_name = fqdn.rsplit(".", 1)
-    rollout_module = importlib.import_module(module_name)
-    return getattr(rollout_module, class_name)
+
+    if rollout_name == "vllm" and mode == "partial_rollout":
+        fqdn = _ROLLOUT_REGISTRY[("vllm", "sync")]
+        module_name, class_name = fqdn.rsplit(".", 1)
+        rollout_module = importlib.import_module(module_name)
+        from recipe.partial_rollout.vllm_rollout_spmd import vLLMRolloutPatch
+
+        rollout_module_class = getattr(rollout_module, class_name)
+        for name, attr in rollout_module_class.__dict__.items():
+            if name == "__init__":
+                attr = MethodType(vLLMRolloutPatch.__init__, rollout_module_class)
+                setattr(rollout_module_class, name, attr)
+            if name == "generate_sequences":
+                attr = MethodType(vLLMRolloutPatch.vllmrollout_generate_sequences, rollout_module_class)
+                setattr(rollout_module_class, name, attr)
+        attr = MethodType(vLLMRolloutPatch.async_generate_sequences, rollout_module_class)
+        rollout_module_class.async_generate_sequences = attr
+        return rollout_module_class
+    else:
+        assert (rollout_name, mode) in _ROLLOUT_REGISTRY, f"Rollout {rollout_name} with mode {mode} not found"
+        fqdn = _ROLLOUT_REGISTRY[(rollout_name, mode)]
+        module_name, class_name = fqdn.rsplit(".", 1)
+        rollout_module = importlib.import_module(module_name)
+        return getattr(rollout_module, class_name)
