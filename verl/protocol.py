@@ -387,7 +387,11 @@ class DataProto:
 
     def __getstate__(self):
         if version.parse(tensordict.__version__) >= version.parse("0.5.0") and self.batch is not None:
-            batch = self.batch.contiguous().consolidate()
+            # Check if batch is empty to avoid torch.cat error in consolidate
+            if len(self.batch.keys()) > 0:
+                batch = self.batch.contiguous().consolidate()
+            else:
+                batch = self.batch
         else:
             batch = self.batch
 
