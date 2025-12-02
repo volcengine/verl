@@ -701,6 +701,25 @@ def test_concat_tensordict():
     tu.assert_tensordict_eq(tensordict1, tensordict1_copy)
     tu.assert_tensordict_eq(tensordict2, tensordict2_copy)
 
+    # test concat tensordict with only NonTensorStack and NonTensorData
+    tensordict1 = tu.get_tensordict(tensor_dict={"labels": ["a", "b"]}, non_tensor_dict={"temp": 1.0})
+    tensordict2 = tu.get_tensordict(tensor_dict={"labels": ["c", "d"]}, non_tensor_dict={"temp": 2.0})
+
+    output = tu.concat_tensordict([tensordict1, tensordict2])
+
+    assert output["labels"] == ["a", "b", "c", "d"]
+    assert output["temp"] == 1.0
+
+    assert output.batch_size[0] == 4
+
+    # test concat tensordict with only NonTensorData
+    tensordict1 = tu.get_tensordict(tensor_dict={}, non_tensor_dict={"temp": 1.0})
+    tensordict2 = tu.get_tensordict(tensor_dict={}, non_tensor_dict={"temp": 2.0})
+
+    output = tu.concat_tensordict([tensordict1, tensordict2])
+    assert len(output.batch_size) == 0
+    assert output["temp"] == 1.0
+
 
 def test_assign_non_tensor_stack_with_nested_lists():
     """Test assign_non_tensor_stack with lists of lists."""
