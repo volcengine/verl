@@ -13,6 +13,7 @@
 # limitations under the License.
 import argparse
 import asyncio
+import getpass
 import json
 import logging
 import os
@@ -22,9 +23,10 @@ from typing import Any, Callable, Optional
 import cloudpickle as pickle
 import numpy as np
 import ray
+import torch
 import vllm.entrypoints.cli.serve
 import zmq
-import torch
+from filelock import FileLock
 from ray.actor import ActorHandle
 from vllm import SamplingParams
 from vllm.config import LoRAConfig
@@ -141,19 +143,24 @@ class vLLMHttpServerBase:
         return self._server_address, self._server_port
 
     def _generate_executor_zmq_address(self) -> str:
-        """
-        Generate Executor ZMQ IPC address.
-        In separate training/inference scenarios, training and inference may not share GPUs,
-        so we use TCP protocol.
-        """
-        import zmq
+        tensor_parallel_size = self.config.tensor_model_parallel_size
+        # single node: ipc, multi nodes: tcp
+        local_world_size = int(os.environ["VERL_N_GPUS_PER_NODE"])
+        socket_type = "ipc" if tensor_parallel_size <= local_world_size else "tcp"
 
-        ip = ray.util.get_node_ip_address().strip("[]")
-        port, sock = get_free_port(ip)
-        if is_valid_ipv6_address(ip):
-            address = f"tcp://[{ip}]:{port}"
-        else:
-            address = f"tcp://{ip}:{port}"
+        # File lock to prevent multiple workers listen to same port
+        with FileLock(f"/tmp/verl_vllm_zmq_{getpass.getuser()}.lock"):
+            if socket_type == "ipc":
+                pid = os.getpid()
+                address = f"ipc:///tmp/verl_vllm_zmq_{pid}_{getpass.getuser()}.ipc"
+            else:
+                ip = ray.util.get_node_ip_address().strip("[]")
+                port, sock = get_free_port(ip)
+                if is_valid_ipv6_address(ip):
+                    address = f"tcp://[{ip}]:{port}"
+                else:
+                    address = f"tcp://{ip}:{port}"
+
         return address
 
     async def launch_server(self, master_address: str = None, master_port: int = None):
@@ -295,16 +302,11 @@ class vLLMHttpServerBase:
 
         # 2. setup distributed executor backend
 
-        # Set Executor backend to vLLMMultiprocExecutor
         distributed_executor_backend = vLLMMultiprocExecutor if len(self.workers) > 0 else None
         server_args.distributed_executor_backend = distributed_executor_backend
 
-        # Generate Executor ZMQ IPC address and set environment variable
         executor_zmq_address = self._generate_executor_zmq_address()
         os.environ["VERL_VLLM_EXECUTOR_ZMQ_ADDRESS"] = executor_zmq_address
-
-        # Set worker count environment variable
-        os.environ["VERL_VLLM_WORKER_COUNT"] = str(len(self.workers))
 
         # Pass Executor ZMQ address to all training workers
         ray.get([worker.set_executor_zmq_address.remote(executor_zmq_address) for worker in self.workers])
