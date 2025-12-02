@@ -328,7 +328,10 @@ reward_manager:
   _target_: verl.trainer.config.config.RewardManagerConfig
   source: register
   name: ${reward_model.reward_manager,naive}
-  module: null
+  module:
+    _target_: verl.trainer.config.config.ModuleConfig
+    path: null
+    name: custom_reward_manager
 critic:
   optim:
     _target_: verl.workers.config.FSDPOptimizerConfig
