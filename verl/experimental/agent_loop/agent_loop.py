@@ -32,7 +32,7 @@ from transformers import AutoProcessor, AutoTokenizer
 
 from verl.experimental.agent_loop.prometheus_utils import update_prometheus_config
 from verl.experimental.agent_loop.utils import resolve_config_path
-from verl.experimental.reward import RewardManagerWorker
+from verl.experimental.reward import RewardLoopWorker
 from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayResourcePool, RayWorkerGroup
 from verl.utils import hf_processor, hf_tokenizer
@@ -293,7 +293,7 @@ class AgentLoopWorkerBase:
                 self.processor.chat_template = self.config.actor_rollout_ref.model.custom_chat_template
             self.tokenizer.chat_template = self.config.actor_rollout_ref.model.custom_chat_template
 
-        self.reward_manager_worker = RewardManagerWorker.options(
+        self.reward_manager_worker = RewardLoopWorker.options(
             scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
                 node_id=ray.get_runtime_context().get_node_id(),
                 soft=False,

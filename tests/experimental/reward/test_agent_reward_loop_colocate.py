@@ -19,7 +19,7 @@ from torchdata.stateful_dataloader import StatefulDataLoader
 from transformers import AutoTokenizer
 
 from verl.experimental.agent_loop import AgentLoopManager
-from verl.experimental.reward.reward_model import RewardModelManager
+from verl.experimental.reward import RewardLoopManager
 from verl.protocol import DataProto
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.trainer.main_ppo import create_rl_sampler
@@ -97,7 +97,7 @@ def test_agent_loop_reward_manager():
     actor_rollout_wg.init_model()
 
     agent_loop_manager = AgentLoopManager(config, worker_group=actor_rollout_wg)
-    reward_model_manager = RewardModelManager(config.reward_model, resource_pool=resource_pool)
+    reward_loop_manager = RewardLoopManager(config, rm_resource_pool=resource_pool)
 
     # 2. init test data
     local_folder = os.path.expanduser("~/data/gsm8k/")
@@ -126,11 +126,31 @@ def test_agent_loop_reward_manager():
     # 3. generate responses
     batch_dict = next(iter(dataloader))
     batch = DataProto.from_single_dict(batch_dict)
-    gen_batch = agent_loop_manager.generate_sequences(prompts=batch)
-    sampling_params = {"temperature": 0.0, "top_p": 1.0, "max_tokens": 1024}
-    genrm_outputs = reward_model_manager.generate_sequences(gen_batch, sampling_params=sampling_params)
 
-    print(genrm_outputs[0])
+    def _get_gen_batch(batch: DataProto) -> DataProto:
+        reward_model_keys = set({"data_source", "reward_model", "extra_info", "uid"}) & batch.non_tensor_batch.keys()
+
+        # pop those keys for generation
+        batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
+        non_tensor_batch_keys_to_pop = set(batch.non_tensor_batch.keys()) - reward_model_keys
+        gen_batch = batch.pop(
+            batch_keys=batch_keys_to_pop,
+            non_tensor_batch_keys=list(non_tensor_batch_keys_to_pop),
+        )
+
+        # For agent loop, we need reward model keys to compute score.
+        gen_batch.non_tensor_batch.update(batch.non_tensor_batch)
+
+        return gen_batch
+
+    gen_batch = _get_gen_batch(batch)
+    gen_batch = agent_loop_manager.generate_sequences(gen_batch)
+
+    batch = batch.union(gen_batch)
+    rm_outputs = reward_loop_manager.compute_rm_score(batch)
+
+    for output in rm_outputs[:5]:
+        print(output.non_tensor_batch)
 
     print("done")
 
