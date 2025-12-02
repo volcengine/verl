@@ -61,6 +61,15 @@ class WorkerHelper:
             sock.bind(("", 0))
             return sock.getsockname()[1]
 
+    @staticmethod
+    def _get_reusable_free_port():
+        listen_sock: socket.socket = socket.socket()
+        listen_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        listen_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        listen_sock.bind(("", 0))
+        _, port, *_ = listen_sock.getsockname()
+        return port
+
     def get_availale_master_addr_port(self):
         warnings.warn(
             "This function is deprecated due to typo in name; Please use `get_available_master_addr_port` instead",
@@ -70,6 +79,9 @@ class WorkerHelper:
 
     def get_available_master_addr_port(self):
         return self._get_node_ip().strip("[]"), str(self._get_free_port())
+
+    def get_available_master_addr_reusable_port(self):
+        return self._get_node_ip().strip("[]"), str(self._get_reusable_free_port())
 
 
 # we assume that in each WorkerGroup, there is a Master Worker
