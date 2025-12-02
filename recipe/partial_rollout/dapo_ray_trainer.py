@@ -178,10 +178,6 @@ def dapo_ray_trainer_fit(self):
 
                     raw_prompt_ids = staged_out.non_tensor_batch["raw_prompt_ids"]
                     raw_response_ids = staged_out.non_tensor_batch["raw_response_ids"]
-                    print(f"staged_out raw_prompt_ids :{len(raw_prompt_ids)} -- {[len(i) for i in raw_prompt_ids]} ")
-                    print(
-                        f"staged_out raw_response_ids :{len(raw_response_ids)} -- {[len(i) for i in raw_response_ids]}"
-                    )
 
                     staged_out.non_tensor_batch.pop("raw_prompt_ids")  # TODO ?
                     staged_out.non_tensor_batch.pop("raw_response_ids")
@@ -189,13 +185,6 @@ def dapo_ray_trainer_fit(self):
                     if len(partial_batch.batch) > 0:
                         raw_prompt_ids = partial_batch.non_tensor_batch["raw_prompt_ids"]
                         raw_response_ids = partial_batch.non_tensor_batch["raw_response_ids"]
-                        # TODO  Remove print
-                        print(
-                            f"partial_batch :raw_prompt_ids :{len(raw_prompt_ids)} -- {[len(i) for i in raw_prompt_ids]} "
-                        )
-                        print(
-                            f"partial_batch :raw_response_ids :{len(raw_response_ids)} -- {[len(i) for i in raw_response_ids]}"
-                        )
 
                         # breakpoint()
                         for key in ("input_ids", "attention_mask", "position_ids"):

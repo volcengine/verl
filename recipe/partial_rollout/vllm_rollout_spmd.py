@@ -474,5 +474,4 @@ class vLLMRolloutPatch(vLLMRollout):
                 if stop_signal:
                     engine.abort_request([request_id])
         output_list.sort(key=lambda x: int(x.request_id.split("_")[1]))
-        print(f"output_list : {len(output_list)}")
         return output_list
