@@ -514,6 +514,15 @@ class OneStepOffRayTrainer(RayPPOTrainer):
                     else:
                         reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
 
+                # await asyncio.sleep(0) ensures:
+                # Asynchronous tasks can start executing immediately
+                # The event loop can handle other pending coroutines
+                # Prevents computations in a certain phase from blocking the entire asynchronous workflow
+                #
+                # The purpose here is to ensure that after triggering self.async_rollout_manager.generate_sequences_async(gen_batch_output),
+                # the subsequent relevant logic can proceed in a timely manner
+                await asyncio.sleep(0)
+
                 # Operating Mode Selection:
                 # - Bypass mode: Sets old_log_probs = rollout_log_probs (2 policies: π_rollout, π_θ)
                 # - Decoupled mode: Recomputes old_log_probs as proximal anchor (3 policies: π_rollout, π_old, π_θ)
@@ -546,6 +555,7 @@ class OneStepOffRayTrainer(RayPPOTrainer):
                             metrics.update(calculate_debug_metrics(batch))
 
                 assert "old_log_probs" in batch.batch, f'"old_log_prob" not in {batch.batch.keys()=}'
+                await asyncio.sleep(0)
 
                 if self.use_reference_policy:
                     # compute reference log_prob
@@ -555,12 +565,14 @@ class OneStepOffRayTrainer(RayPPOTrainer):
                         else:
                             ref_log_prob = self.actor_rollout_wg.compute_ref_log_prob(batch)
                         batch = batch.union(ref_log_prob)
+                await asyncio.sleep(0)
 
                 # compute values
                 if self.use_critic:
                     with marked_timer("values", timing_raw, color="cyan"):
                         values = self.critic_wg.compute_values(batch)
                         batch = batch.union(values)
+                await asyncio.sleep(0)
 
                 with marked_timer("adv", timing_raw, color="brown"):
                     # we combine with rule-based rm
@@ -610,6 +622,7 @@ class OneStepOffRayTrainer(RayPPOTrainer):
                         norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
                         config=self.config.algorithm,
                     )
+                await asyncio.sleep(0)
 
                 # update critic
                 if self.use_critic:
@@ -617,6 +630,7 @@ class OneStepOffRayTrainer(RayPPOTrainer):
                         critic_output = self.critic_wg.update_critic(batch)
                     critic_output_metrics = reduce_metrics(critic_output.meta_info["metrics"])
                     metrics.update(critic_output_metrics)
+                await asyncio.sleep(0)
 
                 # implement critic warmup
                 if self.config.trainer.critic_warmup <= self.global_steps:
@@ -629,12 +643,14 @@ class OneStepOffRayTrainer(RayPPOTrainer):
                         actor_output = self.actor_rollout_wg.update_actor(batch)
                     actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
                     metrics.update(actor_output_metrics)
+                await asyncio.sleep(0)
 
                 # Log rollout generations if enabled
                 rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)
                 if rollout_data_dir:
                     self._log_rollout_data(batch, reward_extra_infos_dict, timing_raw, rollout_data_dir)
 
+            await asyncio.sleep(0)
             # validate
             if (
                 self.val_reward_fn is not None
@@ -646,6 +662,7 @@ class OneStepOffRayTrainer(RayPPOTrainer):
                     if is_last_step:
                         last_val_metrics = val_metrics
                 metrics.update(val_metrics)
+            await asyncio.sleep(0)
 
             # Check if the ESI (Elastic Server Instance)/training plan is close to expiration.
             esi_close_to_expiration = should_save_ckpt_esi(
