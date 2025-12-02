@@ -178,7 +178,7 @@ class TaskRunner:
             if use_legacy_worker_impl in ["auto", "enable"]:
                 from verl.workers.fsdp_workers import CriticWorker
             elif use_legacy_worker_impl == "disable":
-                from verl.workers.roles import CriticWorker
+                from verl.workers.engine_workers import CriticWorker
 
                 print("Using new worker implementation")
             else:
@@ -223,17 +223,17 @@ class TaskRunner:
 
         if config.reward_model.enable:
             use_legacy_worker_impl = config.trainer.get("use_legacy_worker_impl", "auto")
-            if use_legacy_worker_impl in ["auto", "enable"]:
+            if use_legacy_worker_impl in ["auto", "enable", "disable"]:
                 if config.reward_model.strategy in {"fsdp", "fsdp2"}:
                     from verl.workers.fsdp_workers import RewardModelWorker
                 elif config.reward_model.strategy == "megatron":
                     from verl.workers.megatron_workers import RewardModelWorker
                 else:
                     raise NotImplementedError
-            elif use_legacy_worker_impl == "disable":
-                from verl.workers.roles import RewardModelWorker
-
-                print("Using new worker implementation")
+            # elif use_legacy_worker_impl == "disable":
+            #     from verl.workers.engine_workers import RewardModelWorker
+            #
+            #     print("Using new worker implementation")
             else:
                 raise ValueError(f"Invalid use_legacy_worker_impl: {use_legacy_worker_impl}")
 
@@ -248,7 +248,7 @@ class TaskRunner:
         from verl.trainer.ppo.ray_trainer import Role
 
         # Ref policy has been fused into ActorRolloutRefWorker in new model engine,
-        # we don't need to add a separate ref policy worker goup.
+        # we don't need to add a separate ref policy worker group.
         use_legacy_worker_impl = config.trainer.get("use_legacy_worker_impl", "auto")
         if use_legacy_worker_impl == "disable":
             return

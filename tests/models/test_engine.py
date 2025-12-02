@@ -40,8 +40,8 @@ from verl.workers.config import (
     McoreEngineConfig,
     McoreOptimizerConfig,
 )
-from verl.workers.roles import ActorWorker, CriticWorker
-from verl.workers.roles.utils.losses import ppo_loss
+from verl.workers.engine_workers import ActorWorker, CriticWorker
+from verl.workers.utils.losses import ppo_loss
 
 
 @pytest.mark.parametrize("strategy", ["megatron", "fsdp", "fsdp2"])
