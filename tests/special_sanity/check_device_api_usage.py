@@ -40,6 +40,7 @@ CUDA_KEYWORD_CHECK_WHITELIST = [
     "verl/third_party/torch/distributed/_state_dict_utils.py",  # torch monkey patch fixes
     "verl/third_party/torch/distributed/checkpoint/state_dict.py",  # torch monkey patch fixes
     "verl/workers/engine/base.py",  # appear in default device_name
+    "verl/workers/engine/utils.py",  # appear in enable_full_determinism
     "verl/workers/engine/fsdp/transformer_impl.py",  # appear in default device_name
     "verl/workers/rollout/vllm_rollout/vllm_async_server.py",  # appear in config.cudagraph_capture_sizes
     "verl/workers/rollout/sglang_rollout/async_sglang_server.py",  # manually set CUDA_VISIBLE_DEVICES

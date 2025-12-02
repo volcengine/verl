@@ -35,6 +35,8 @@ actor_rollout_ref:
       forward_prefetch: false
       model_dtype: fp32
       use_orig_params: false
+      seed: 42
+      full_determinism: false
       ulysses_sequence_parallel_size: 1
       entropy_from_logits_with_chunking: false
       use_torch_compile: true
@@ -157,6 +159,8 @@ actor_rollout_ref:
       forward_prefetch: false
       model_dtype: fp32
       use_orig_params: false
+      seed: 42
+      full_determinism: false
       ulysses_sequence_parallel_size: 1
       entropy_from_logits_with_chunking: false
       use_torch_compile: true
@@ -356,6 +360,8 @@ critic:
       forward_prefetch: false
       model_dtype: fp32
       use_orig_params: false
+      seed: 42
+      full_determinism: false
       ulysses_sequence_parallel_size: 1
       entropy_from_logits_with_chunking: false
       use_torch_compile: true

@@ -31,7 +31,10 @@ from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpoint
 from verl.utils.dataset.dataset_utils import DatasetPadMode
 from verl.utils.device import get_device_id, get_device_name
 from verl.utils.megatron.pipeline_parallel import make_batch_generator
-from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy, vocab_parallel_log_probs_from_logits
+from verl.utils.megatron.tensor_parallel import (
+    vocab_parallel_entropy,
+    vocab_parallel_log_probs_from_logits,
+)
 from verl.utils.megatron_utils import (
     load_megatron_model_to_gpu,
     load_megatron_optimizer,
@@ -44,7 +47,10 @@ from verl.utils.model import load_mcore_dist_weights, load_megatron_gptmodel_wei
 from verl.workers.config import HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
 
 from ..base import BaseEngine, EngineRegistry
-from ..utils import postprocess_batch_func, prepare_micro_batches
+from ..utils import (
+    postprocess_batch_func,
+    prepare_micro_batches,
+)
 from .utils import set_random_seed
 
 logger = logging.getLogger(__file__)
@@ -179,7 +185,10 @@ class MegatronEngine(BaseEngine):
         )
 
     def _build_megatron_module(self):
-        from verl.utils.megatron_utils import McoreModuleWrapperConfig, make_megatron_module
+        from verl.utils.megatron_utils import (
+            McoreModuleWrapperConfig,
+            make_megatron_module,
+        )
         from verl.utils.model import print_model_size
 
         # TODO: add more cases
@@ -248,7 +257,10 @@ class MegatronEngine(BaseEngine):
         return module
 
     def _build_optimizer(self):
-        from verl.utils.megatron.optimizer import get_megatron_optimizer, init_megatron_optim_config
+        from verl.utils.megatron.optimizer import (
+            get_megatron_optimizer,
+            init_megatron_optim_config,
+        )
 
         optim_config_megatron = init_megatron_optim_config(self.optimizer_config, self.param_dtype == torch.float16)
         optimizer = get_megatron_optimizer(model=self.module, config=optim_config_megatron)
