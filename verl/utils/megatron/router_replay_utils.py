@@ -28,7 +28,7 @@ from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.transformer.transformer_layer import get_transformer_layer_offset
 
 from verl.models.mcore.util import postprocess_packed_seqs, preprocess_packed_seqs
-from verl.utils.megatron.router_replay_patch import RouterReplay, RoutingMode
+from verl.utils.megatron.router_replay_patch import RouterReplay, RouterReplayAction
 
 
 # from megatron.core.transformer.transformer_block import get_num_layers_to_build
@@ -399,36 +399,36 @@ class RouterReplayHelper:
         return router_instances_list
 
     @staticmethod
-    def is_r2_record_mode(tf_config, vp_rank=None) -> bool:
-        """Return True if the current mode is RECORD (R2) for the local router instances.
+    def is_r2_record_action(tf_config, vp_rank=None) -> bool:
+        """Return True if the current router_replay_action is RECORD (R2) for the local router instances.
 
-        This inspects the first local RouterReplay instance's routing_mode and compares it to
-        RoutingMode.RECORD.
+        This inspects the first local RouterReplay instance's router_replay_action and compares it to
+        RouterReplayAction.RECORD.
         """
         router_instances_list = RouterReplayHelper.get_micro_batch_router_list(tf_config, vp_rank)
-        return router_instances_list and router_instances_list[0].routing_mode == RoutingMode.RECORD
+        return router_instances_list and router_instances_list[0].router_replay_action == RouterReplayAction.RECORD
 
     @staticmethod
-    def is_replay_forward_mode(tf_config, vp_rank=None) -> bool:
-        """Return True if the current mode is REPLAY_FORWARD for the local router instances.
+    def is_replay_forward_action(tf_config, vp_rank=None) -> bool:
+        """Return True if the current router_replay_action is REPLAY_FORWARD for the local router instances.
 
-        This inspects the first local RouterReplay instance's routing_mode and compares it to
-        RoutingMode.REPLAY_FORWARD.
+        This inspects the first local RouterReplay instance's router_replay_action and compares it to
+        RouterReplayAction.REPLAY_FORWARD.
         """
         router_instances_list = RouterReplayHelper.get_micro_batch_router_list(tf_config, vp_rank)
-        return router_instances_list and router_instances_list[0].routing_mode == RoutingMode.REPLAY_FORWARD
+        return (
+            router_instances_list and router_instances_list[0].router_replay_action == RouterReplayAction.REPLAY_FORWARD
+        )
 
     @staticmethod
-    def is_replay_backward_mode(tf_config, vp_rank=None) -> bool:
-        """Return True if the current mode is REPLAY_BACKWARD for the local router instances.
+    def is_replay_backward_action(tf_config, vp_rank=None) -> bool:
+        """Return True if the current router_replay_action is REPLAY_BACKWARD for the local router instances.
 
-        This inspects the first local RouterReplay instance's routing_mode and compares it to
-        RoutingMode.REPLAY_BACKWARD.
+        This inspects the first local RouterReplay instance's router_replay_action and compares it to
+        RouterReplayAction.REPLAY_BACKWARD.
         """
         router_instances_list = RouterReplayHelper.get_micro_batch_router_list(tf_config, vp_rank)
-        return router_instances_list and router_instances_list[0].routing_mode == RoutingMode.REPLAY_BACKWARD
-
-    @staticmethod
-    def is_r2_or_r3_mode(router_replay) -> bool:
-        """Return True if the router replay mode string is either "R2" or "R3"."""
-        return router_replay.mode in ["R2", "R3"]
+        return (
+            router_instances_list
+            and router_instances_list[0].router_replay_action == RouterReplayAction.REPLAY_BACKWARD
+        )

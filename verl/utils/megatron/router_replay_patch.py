@@ -22,13 +22,13 @@ from megatron.core.transformer.moe.moe_utils import (
 from megatron.core.transformer.moe.router import TopKRouter
 from megatron.core.transformer.transformer_config import TransformerConfig
 
+# https://github.com/THUDM/slime/blob/main/slime/utils/routing_replay.py
 
-class RoutingMode(Enum):
-    NONE = "none"
+
+class RouterReplayAction(Enum):
     RECORD = "record"
     REPLAY_FORWARD = "replay_forward"
     REPLAY_BACKWARD = "replay_backward"
-    FALLTHROUGH = "fallthrough"
 
 
 class RouterReplay:
@@ -75,7 +75,7 @@ class RouterReplay:
         """Initializes a RouterReplay instance for a specific layer."""
         self.target_topk_idx = None  # For replay
         self.recorded_topk_idx = None  # For recording
-        self.routing_mode = None  # Routing mode for this layer
+        self.router_replay_action = None  # Router replay action for this layer
         self.replay_backward_list = []  # List of tensors for backward pass replay
         RouterReplay.router_instances.append(self)
 
@@ -98,25 +98,25 @@ class RouterReplay:
         self.target_topk_idx = None
         self.replay_backward_list = []
 
-    def set_routing_mode(self, routing_mode: RoutingMode):
-        """Sets the routing mode for this layer."""
-        self.routing_mode = routing_mode
+    def set_router_replay_action(self, router_replay_action: RouterReplayAction):
+        """Sets the router replay action for this layer."""
+        self.router_replay_action = router_replay_action
 
-    def clear_routing_mode(self):
-        """Clears the routing mode for this layer."""
-        self.routing_mode = None
-
-    @staticmethod
-    def set_global_routing_mode(routing_mode: RoutingMode):
-        """Sets the routing mode for all router instances."""
-        for router in RouterReplay.router_instances:
-            router.set_routing_mode(routing_mode)
+    def clear_router_replay_action(self):
+        """Clears the router replay action for this layer."""
+        self.router_replay_action = None
 
     @staticmethod
-    def clear_global_routing_mode():
-        """Clears the routing mode for all router instances."""
+    def set_global_router_replay_action(router_replay_action: RouterReplayAction):
+        """Sets the router replay action for all router instances."""
         for router in RouterReplay.router_instances:
-            router.clear_routing_mode()
+            router.set_router_replay_action(router_replay_action)
+
+    @staticmethod
+    def clear_global_router_replay_action():
+        """Clears the router replay action for all router instances."""
+        for router in RouterReplay.router_instances:
+            router.clear_router_replay_action()
 
 
 def _patched_topk_routing_with_score_function(
@@ -152,18 +152,18 @@ def _patched_topk_routing_with_score_function(
     def compute_topk(scores, topk, num_groups=None, group_topk=None):
         # Default behavior if no replay is active
 
-        routing_action = router_replay.routing_mode.value if router_replay is not None else None
+        routing_action = router_replay.router_replay_action if router_replay is not None else None
 
-        if routing_action is None or routing_action == "fallthrough":
+        if routing_action is None:
             return _compute_topk(scores, topk, num_groups=num_groups, group_topk=group_topk)
 
-        if routing_action == "record":
+        if routing_action == RouterReplayAction.RECORD:
             probs, top_indices = _compute_topk(scores, topk, num_groups=num_groups, group_topk=group_topk)
             if router_replay is not None:
                 router_replay.record_indices(top_indices)
             return probs, top_indices
 
-        elif routing_action == "replay_forward":
+        elif routing_action == RouterReplayAction.REPLAY_FORWARD:
             if router_replay is None or router_replay.target_topk_idx is None:
                 # Fallback if replay data is not available
                 return _compute_topk(scores, topk, num_groups=num_groups, group_topk=group_topk)
@@ -175,7 +175,7 @@ def _patched_topk_routing_with_score_function(
             # Gather the scores for the replayed indices to get the probabilities
             probs = scores.gather(1, top_indices)
             return probs, top_indices
-        elif routing_action == "replay_backward":
+        elif routing_action == RouterReplayAction.REPLAY_BACKWARD:
             if router_replay is None or not router_replay.replay_backward_list:
                 # Fallback if replay data is not available
                 return _compute_topk(scores, topk, num_groups=num_groups, group_topk=group_topk)

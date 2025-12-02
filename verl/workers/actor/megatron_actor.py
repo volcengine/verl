@@ -40,7 +40,7 @@ from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, get_policy_loss_fn, kl_penalty
 from verl.utils.device import get_device_id, get_torch_device
 from verl.utils.megatron.pipeline_parallel import make_batch_generator
-from verl.utils.megatron.router_replay_patch import RouterReplay, RoutingMode
+from verl.utils.megatron.router_replay_patch import RouterReplay, RouterReplayAction
 from verl.utils.megatron.router_replay_utils import (
     RouterReplayHelper,
     merge_router_topk_indices,
@@ -49,7 +49,7 @@ from verl.utils.megatron.router_replay_utils import (
     set_router_replay_data,
 )
 from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy, vocab_parallel_log_probs_from_logits
-from verl.utils.megatron_utils import get_model_config
+from verl.utils.megatron_utils import get_model_config, unwrap_model
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.profiler.profile import Profiler
 from verl.utils.py_functional import append_to_dict
@@ -293,7 +293,7 @@ class MegatronPPOActor(BasePPOActor):
                     entropys = entropys.to("cpu")
                 layers_topk_idx = None
 
-                if RouterReplayHelper.is_r2_record_mode(self.tf_config):
+                if RouterReplayHelper.is_r2_record_action(self.tf_config):
                     # (bs, max_seq_len/response_len,local_layer_num,topk)
                     layers_topk_idx = output["mini_layer_topk_idx_tensor"].to(torch.uint8)
                     if use_dynamic_bsz:
@@ -570,10 +570,8 @@ class MegatronPPOActor(BasePPOActor):
             attention_mask = batch["attention_mask"].to(bool)
             position_ids = batch["position_ids"]
 
-            # model: DistributedDataParallel(
-            # (module): Float16Module(
-            # (module): GPTModel(
-            vp_rank = model.module.module.vp_stage
+            vp_rank = unwrap_model(model).vp_stage
+
             multi_modal_inputs = {}
             if "multi_modal_inputs" in batch:
                 from verl.utils.model import extract_multi_modal_inputs
@@ -588,12 +586,12 @@ class MegatronPPOActor(BasePPOActor):
             label_mask[:, : -response_length - 1] = False
             label_mask[:, -1] = False
 
-            if RouterReplayHelper.is_replay_backward_mode(self.tf_config, vp_rank):
+            if RouterReplayHelper.is_replay_backward_action(self.tf_config, vp_rank):
                 router_instance_list = RouterReplayHelper.get_micro_batch_router_list(self.tf_config, vp_rank)
                 for router in router_instance_list:
-                    router.set_routing_mode(RoutingMode.REPLAY_FORWARD)
+                    router.set_router_replay_action(RouterReplayAction.REPLAY_FORWARD)
 
-            if RouterReplayHelper.is_replay_forward_mode(self.tf_config, vp_rank):
+            if RouterReplayHelper.is_replay_forward_action(self.tf_config, vp_rank):
                 layers_topk_idx = batch["routed_experts"]
                 set_router_replay_data(layers_topk_idx, attention_mask, self.tf_config, vp_rank)
 
@@ -659,15 +657,15 @@ class MegatronPPOActor(BasePPOActor):
                     "clip_ratio_c": clip_ratio_c,
                 }
 
-            if RouterReplayHelper.is_r2_record_mode(self.tf_config, vp_rank):
+            if RouterReplayHelper.is_r2_record_action(self.tf_config, vp_rank):
                 merge_router_topk_indices(
                     attention_mask, input_ids, self.mini_layer_topk_idx_list, self.tf_config, vp_rank
                 )
 
-            if RouterReplayHelper.is_replay_forward_mode(self.tf_config, vp_rank):
+            if RouterReplayHelper.is_replay_forward_action(self.tf_config, vp_rank):
                 router_instance_list = RouterReplayHelper.get_micro_batch_router_list(self.tf_config, vp_rank)
                 for router in router_instance_list:
-                    router.set_routing_mode(RoutingMode.REPLAY_BACKWARD)
+                    router.set_router_replay_action(RouterReplayAction.REPLAY_BACKWARD)
 
             return output, partial(loss_func, data=batch, meta_info=meta_info)
 
@@ -706,7 +704,7 @@ class MegatronPPOActor(BasePPOActor):
         losses_reduced = {"output": losses_reduced}
         if use_dynamic_bsz:
             losses_reduced["indices"] = indices
-        if RouterReplayHelper.is_r2_record_mode(self.tf_config):
+        if RouterReplayHelper.is_r2_record_action(self.tf_config):
             if self.tf_config.virtual_pipeline_model_parallel_size is not None:
                 # config = self.actor_module[0].module.module.config
                 vp_size = len(self.actor_module)
@@ -739,7 +737,7 @@ class MegatronPPOActor(BasePPOActor):
             self.prof.start()
         for data in dataloader:
             if self.config.router_replay.mode in ["R2", "R3"]:
-                RouterReplay.set_global_routing_mode(RoutingMode.REPLAY_FORWARD)
+                RouterReplay.set_global_router_replay_action(RouterReplayAction.REPLAY_FORWARD)
             self.actor_optimizer.zero_grad()
             # use use_contiguous_buffers_in_local_ddp and no overlap_dp_param_comm
             for chunk in self.actor_module:
@@ -780,7 +778,7 @@ class MegatronPPOActor(BasePPOActor):
                 self.prof.step()
 
             if self.config.router_replay.mode in ["R2", "R3"]:
-                RouterReplay.clear_global_routing_mode()
+                RouterReplay.clear_global_router_replay_action()
                 RouterReplay.clear_global_indices()
 
         # add empty cache after each compute
