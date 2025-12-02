@@ -27,9 +27,8 @@ import zmq
 from vllm import envs
 from vllm.config import VllmConfig
 from vllm.distributed.device_communicators.shm_broadcast import Handle, MessageQueue
-from vllm.envs import enable_envs_cache
 from vllm.utils import get_mp_context
-from vllm.utils.network_utils import (
+from vllm.utils import (
     get_distributed_init_method,
     get_loopback_ip,
     get_open_port,
@@ -73,7 +72,6 @@ class vLLMWorkerProc(WorkerProc):
         local_rank: int,
         rank: int,
         distributed_init_method: str,
-        is_driver_worker: bool,
         input_shm_handle: Handle,
         shared_worker_lock: LockType,
     ):
@@ -86,21 +84,22 @@ class vLLMWorkerProc(WorkerProc):
             "local_rank": local_rank,
             "rank": rank,
             "distributed_init_method": distributed_init_method,
-            "is_driver_worker": is_driver_worker,
-            "shared_worker_lock": shared_worker_lock,
+            "is_driver_worker": True,
         }
         if os.environ.get("VERL_VLLM_FP8_QUANT_ENABLED", "0") == "1":
             apply_vllm_fp8_patches()
-
-        wrapper = WorkerWrapperBase(vllm_config=vllm_config)
+        rank_offset = int(os.environ.get("VERL_VLLM_MULTIPROC_RANK_OFFSET", "0"))
+        wrapper = WorkerWrapperBase(vllm_config=vllm_config, rpc_rank=local_rank - rank_offset)
         wrapper.init_worker(all_kwargs)
         self.worker = wrapper
 
         self.rpc_broadcast_mq = MessageQueue.create_from_handle(
             input_shm_handle, self.worker.rank)
-
-        # Initializes a message queue for sending the model output
         self.worker_response_mq = MessageQueue(1, 1)
+
+        self.mm_receiver_cache = None
+
+        self.worker.init_device()
 
         self.setup_proc_title_and_log_prefix(
             enable_ep=vllm_config.parallel_config.enable_expert_parallel)
@@ -262,12 +261,12 @@ class vLLMMultiprocExecutor(MultiprocExecutor):
     uses_ray: bool = False
 
     def __init__(self, vllm_config):
-        super().__init__(vllm_config)
         self.zmq_context = None
         self.zmq_socket = None
         self.zmq_thread = None
         self.zmq_is_running = False
         self.executor_zmq_address = None
+        super().__init__(vllm_config)
 
     def _init_executor(self) -> None:
         # Call self.shutdown at exit to clean up
@@ -277,6 +276,7 @@ class vLLMMultiprocExecutor(MultiprocExecutor):
         self.shutdown_event = threading.Event()
         self.failure_callback: FailureCallback | None = None
 
+        self.world_size = self.parallel_config.world_size
         tensor_parallel_size = self.parallel_config.tensor_parallel_size
         rank_offset = int(os.environ.get("VERL_VLLM_MULTIPROC_RANK_OFFSET", "0"))
 
