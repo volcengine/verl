@@ -1203,3 +1203,32 @@ def test_serialize_deserialize_tensordict_with_device():
         assert torch.allclose(original_tensor.cpu(), reconstructed_tensor.cpu())
         assert original_tensor.shape == reconstructed_tensor.shape
         assert original_tensor.dtype == reconstructed_tensor.dtype
+
+
+def test_serialize_dataproto_with_empty_tensordict():
+    """Tests that serializing a DataProto with an empty TensorDict does not crash.
+
+    This test verifies the fix for the torch.cat error that occurs when calling
+    consolidate() on an empty TensorDict during serialization.
+    """
+    import pickle
+
+    # This test requires tensordict >= 0.5.0 to trigger the code path
+    if parse_version(tensordict.__version__) < parse_version("0.5.0"):
+        pytest.skip("Test requires tensordict>=0.5.0")
+
+    # Create a DataProto with an empty TensorDict but with a batch size
+    empty_td = TensorDict({}, batch_size=[10])
+    data = DataProto(batch=empty_td)
+
+    # This would crash before the fix with:
+    # RuntimeError: torch.cat(): expected a non-empty list of Tensors
+    try:
+        serialized_data = pickle.dumps(data)
+    except Exception as e:
+        pytest.fail(f"Serializing DataProto with empty TensorDict failed with: {e}")
+
+    # Verify deserialization works as expected
+    deserialized_data = pickle.loads(serialized_data)
+    assert len(deserialized_data.batch.keys()) == 0
+    assert deserialized_data.batch.batch_size == torch.Size([10])
