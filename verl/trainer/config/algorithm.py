@@ -139,8 +139,8 @@ class RolloutCorrectionConfig(BaseConfig):
         config = RolloutCorrectionConfig.decoupled_token_is()  # Token-TIS
         config = RolloutCorrectionConfig.decoupled_seq_is()  # Seq-TIS
         config = RolloutCorrectionConfig.decoupled_seq_is_rs()  # Seq-MIS
-        config = RolloutCorrectionConfig.decoupled_geo_rs()  # Geo-RS (length-invariant)
-        config = RolloutCorrectionConfig.geo_rs_seq_tis()  # Geo-RS-Seq-TIS (ultimate for reasoning/agents)
+        config = RolloutCorrectionConfig.decoupled_geo_rs()  # Geo-RS
+        config = RolloutCorrectionConfig.geo_rs_seq_tis()  # Geo-RS-Seq-TIS
 
         # Bypass PPO mode (2 policies: π_rollout = π_old, π_θ)
         # No IS correction needed since π_old = π_rollout
@@ -150,7 +150,7 @@ class RolloutCorrectionConfig(BaseConfig):
         # IS weights computed on-the-fly as π_θ / π_rollout
         config = RolloutCorrectionConfig.pg_is()  # Seq-TIS + PG
         config = RolloutCorrectionConfig.pg_rs()  # Geo-RS + PG
-        config = RolloutCorrectionConfig.pg_geo_rs_seq_tis()  # Geo-RS-Seq-TIS + PG (ultimate in bypass)
+        config = RolloutCorrectionConfig.pg_geo_rs_seq_tis()  # Geo-RS-Seq-TIS + PG
 
     Reference:
         Liu, Li, Fu, Wang, Liu, Shen (2025)
@@ -310,7 +310,7 @@ class RolloutCorrectionConfig(BaseConfig):
         Skips old_log_prob computation for faster execution.
 
         Solves the "Length Trap" problem where standard IS estimators penalize long sequences.
-        Recommended for reasoning models (CoT) and agents with long action sequences.
+        Suitable for reasoning models (CoT) and agents with long action sequences.
 
         Args:
             rs_threshold (float): Geometric RS threshold (upper). Default: 1.001 (±0.1%)
@@ -342,10 +342,10 @@ class RolloutCorrectionConfig(BaseConfig):
         """Geometric RS with Sequence-level Truncated IS (Geo-RS-Seq-TIS).
 
         Combines the Geometric Filter (length-invariant validity check) with
-        Clipped Sequence Weight (debiasing) for the best of both worlds.
+        Clipped Sequence Weight (debiasing).
 
-        This is the recommended estimator for reasoning models (CoT, o1-style) and
-        agents that need to think for many steps without collapsing.
+        Suitable for reasoning models (CoT, o1-style) and agents that need to
+        think for many steps without collapsing.
 
         Args:
             is_threshold (float): Upper threshold for sequence IS weights. Default: 2.0
@@ -376,11 +376,11 @@ class RolloutCorrectionConfig(BaseConfig):
     ) -> "RolloutCorrectionConfig":
         """Policy Gradient with Geo-RS-Seq-TIS (Bypass mode).
 
-        Combines geometric rejection (length-invariant) with sequence-level IS
+        Combines geometric rejection with sequence-level IS
         in bypass mode with policy gradient loss (no PPO clipping).
 
-        This is the recommended estimator for reasoning models (CoT, o1-style) and
-        agents when you want bypass mode efficiency.
+        Suitable for reasoning models (CoT, o1-style) and agents when you want
+        bypass mode efficiency.
 
         Args:
             is_threshold (float): Upper threshold for sequence IS weights. Default: 2.0

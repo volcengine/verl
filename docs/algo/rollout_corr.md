@@ -119,8 +119,8 @@ from verl.trainer.config.algorithm import RolloutCorrectionConfig
 config = RolloutCorrectionConfig.decoupled_token_is()   # Token-TIS
 config = RolloutCorrectionConfig.decoupled_seq_is()     # Seq-TIS
 config = RolloutCorrectionConfig.decoupled_seq_is_rs()  # Seq-MIS
-config = RolloutCorrectionConfig.decoupled_geo_rs()     # Geo-RS (length-invariant)
-config = RolloutCorrectionConfig.geo_rs_seq_tis()       # Geo-RS-Seq-TIS (ultimate for reasoning/agents)
+config = RolloutCorrectionConfig.decoupled_geo_rs()     # Geo-RS
+config = RolloutCorrectionConfig.geo_rs_seq_tis()       # Geo-RS-Seq-TIS
 
 # === Bypass PPO mode (2 policies: π_rollout = π_old, π_θ) - fast ===
 # No IS correction needed since π_old = π_rollout
@@ -130,7 +130,7 @@ config = RolloutCorrectionConfig.ppo_is_bypass()        # PPO with rollout as an
 # IS weights computed on-the-fly as π_θ / π_rollout
 config = RolloutCorrectionConfig.pg_is()                # Seq-TIS + PG
 config = RolloutCorrectionConfig.pg_rs()                # Geo-RS + PG
-config = RolloutCorrectionConfig.pg_geo_rs_seq_tis()    # Geo-RS-Seq-TIS + PG (ultimate in bypass)
+config = RolloutCorrectionConfig.pg_geo_rs_seq_tis()    # Geo-RS-Seq-TIS + PG
 
 # === Other ===
 config = RolloutCorrectionConfig.disabled()             # Metrics only (no correction)
@@ -290,13 +290,13 @@ This section provides detailed guidance on choosing and using the verified prese
 | `decoupled_seq_is()` | Seq-TIS | Decoupled | sequence | - | Sequence-level IS weights |
 | `decoupled_seq_is_rs()` | Seq-MIS | Decoupled | sequence | sequence | Sequence IS + sequence RS |
 | `decoupled_geo_rs()` | Geo-RS | Decoupled | - | geometric + veto | Geometric RS + veto, no IS weights |
-| `geo_rs_seq_tis()` | Geo-RS-Seq-TIS | Decoupled | sequence | geometric + veto | **Ultimate**: Geometric filter + clipped weight |
+| `geo_rs_seq_tis()` | Geo-RS-Seq-TIS | Decoupled | sequence | geometric + veto | Geometric filter + clipped weight |
 | **Bypass PPO Mode** (2 policies: π_rollout = π_old, π_θ) |
 | `ppo_is_bypass()` | - | Bypass PPO | - | - | PPO with rollout as anchor (no IS correction needed) |
 | **Bypass PG Mode** (2 policies: π_rollout, π_θ; IS = π_θ/π_rollout) |
 | `pg_is()` | Seq-TIS | Bypass PG | sequence | - | Policy gradient with IS |
 | `pg_rs()` | Geo-RS | Bypass PG | - | geometric + veto | Policy gradient with Geo-RS |
-| `pg_geo_rs_seq_tis()` | Geo-RS-Seq-TIS | Bypass PG | sequence | geometric + veto | **Ultimate in bypass**: PG + Geo filter + seq IS |
+| `pg_geo_rs_seq_tis()` | Geo-RS-Seq-TIS | Bypass PG | sequence | geometric + veto | PG + Geo filter + seq IS |
 | **Other** |
 | `disabled()` | - | - | - | - | Metrics only, no correction |
 
@@ -474,7 +474,7 @@ A threshold of 1.001 rejects sequences with average per-token deviation > 0.1%.
 
 ### 5. Geo-RS with Sequence IS (`geo_rs_seq_tis`)
 
-**Also known as: Geo-RS-Seq-TIS (the "Ultimate" estimator)**
+**Also known as: Geo-RS-Seq-TIS**
 
 **Configuration:**
 ```python
@@ -507,7 +507,7 @@ algorithm:
 
 **Properties:**
 - Combines **Geometric Filter** (length-invariant validity) with **Clipped Sequence Weight** (correct debiasing)
-- Best for reasoning models (CoT, o1-style) and agents with long action sequences
+- Suitable for reasoning models (CoT, o1-style) and agents with long action sequences
 - Solves the Length Trap while maintaining IS correction for bias reduction
 
 **Theory:** See [rollout_corr_math.md §3.3.3](rollout_corr_math.md#333-geometric-aggregation-geo-rs)
@@ -626,7 +626,7 @@ algorithm:
 
 ### 9. Policy Gradient with Geo-RS-Seq-TIS (`pg_geo_rs_seq_tis`)
 
-**Also known as: The "Ultimate" estimator in bypass mode**
+**Also known as: Geo-RS-Seq-TIS in bypass mode**
 
 **Configuration:**
 ```python
@@ -661,7 +661,7 @@ algorithm:
 **Properties:**
 - Combines geometric filter + clipped sequence weight with policy gradient loss
 - Skips `actor.compute_log_prob()` forward pass (bypass mode)
-- Recommended for reasoning models (CoT, o1-style) when you want bypass mode efficiency
+- Suitable for reasoning models (CoT, o1-style) when you want bypass mode efficiency
 - No PPO clipping - relies on IS/RS for stability
 
 **Theory:** See [rollout_corr_math.md §3.3.3](rollout_corr_math.md#333-geometric-aggregation-geo-rs)
