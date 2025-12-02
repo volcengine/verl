@@ -23,16 +23,17 @@ from typing import TYPE_CHECKING, Any, Optional
 
 import ray
 import torch
-from omegaconf import DictConfig
 
-from verl import DataProto
 from verl.utils.reward_score import default_compute_score
 from verl.utils.transferqueue_utils import tqbridge
-from verl.workers.reward_manager import get_reward_manager_cls
-from verl.workers.reward_manager.abstract import AbstractRewardManager, RawRewardFn
 
 if TYPE_CHECKING:
+    from omegaconf import DictConfig
+
+    from verl import DataProto
     from verl.experimental.reward.reward_loop.base import RewardLoopManagerBase
+    from verl.trainer.config.config import ModuleConfig, RewardManagerConfig
+    from verl.workers.reward_manager.abstract import AbstractRewardManager, RawRewardFn
 else:
     try:
         from verl.experimental.reward.reward_loop.base import RewardLoopManagerBase
@@ -136,16 +137,18 @@ def load_reward_manager(
     compute_score = get_custom_reward_fn(config)
     final_compute_score = compute_score
 
-    # The list of pre-defined reward managers are defined in `verl/workers/reward_manager/`:
-    # naive: NaiveRewardManager
-    # prime: PrimeRewardManager
-    # batch: BatchRewardManager
-    # dapo: DAPORewardManager
-    # Note(haibin.lin): For custom reward managers, please make sure they are imported and
-    # registered via `verl.workers.reward_manager.register`
-    # By default reward_manager is set to naive (NaiveRewardManager)
-    reward_manager_name = config.reward_model.get("reward_manager", "naive")
-    reward_manager_cls = get_reward_manager_cls(reward_manager_name)
+    reward_manager_cfg: RewardManagerConfig = config.reward_manager
+    if reward_manager_cfg.source == "register":
+        from verl.workers.reward_manager import get_reward_manager_cls
+
+        reward_manager_cls = get_reward_manager_cls(reward_manager_cfg.name)
+    elif reward_manager_cfg.source == "importlib":
+        from verl.utils.import_utils import load_extern_object
+
+        module_cfg: ModuleConfig | None = reward_manager_cfg.module
+        assert module_cfg is not None, f"Module config is required when {reward_manager_cfg.source=}"
+        reward_manager_cls_name = reward_manager_cfg.name
+        reward_manager_cls = load_extern_object(module_path=module_cfg.path, object_name=reward_manager_cls_name)
 
     if compute_score is None:
         sandbox_config = config.reward_model.get("sandbox_fusion")

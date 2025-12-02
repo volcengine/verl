@@ -77,3 +77,38 @@ class BaseModelConfig(BaseConfig):
     external_lib: Optional[str] = None
     trust_remote_code: bool = False
     lora: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ModuleConfig(BaseConfig):
+    """Configuration for external Python module, which can be loaded, executed (and optionally, ``import``ed).
+
+    Args:
+        path (str): Path to the module file to load and execute.
+        name (str): Name of the module to ``import``. Format: ``"import.path.to.module"``.
+            If ``None``, the module won't be added to ``sys.modules``, thus can not be ``import``ed as ``name``.
+    """
+
+    path: str
+    name: Optional[str] = None
+
+
+@dataclass
+class RewardManagerConfig(BaseConfig):
+    """Configuration for reward manager.
+
+        A reward manager defines the mechanism of computing rule-based reward and handling different reward sources.
+
+    Args:
+        source (str): Source of the reward manager. Options: ``"register"``, ``"importlib"``. Default: ``"register"``.
+        name (str, optional):
+            - When ``source`` is ``"register"``, the name is used in `get_reward_manager_cls(name)``.
+                See ``verl/experimental/reward/reward_manager.py`` for options. Default: ``"naive"``.
+            - When ``source`` is ``"importlib"``, the name is used in ``getattr(module, name)``,
+                e.g., ``"DAPORewardManager"``.
+        module (ModuleConfig, optional): Optional configuration for the external module defining the reward manager,
+    """
+
+    source: str = "register"
+    name: str = "naive"
+    module: Optional[ModuleConfig] = None

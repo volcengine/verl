@@ -1,0 +1,5 @@
+# See `verl/trainer/config/config.py:RewardManagerConfig` for more details.
+_target_: verl.trainer.config.config.RewardManagerConfig
+source: register
+name: ${reward_model.reward_manager,naive}
+module: null
