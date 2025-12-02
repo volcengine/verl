@@ -83,6 +83,7 @@ class McoreEngineConfig(EngineConfig):
     override_mcore_model_config: dict[str, Any] = field(default_factory=dict)
     use_mbridge: bool = False
     vanilla_mbridge: bool = True
+    use_remove_padding: bool = True
     strategy: str = "megatron"
 
     def __post_init__(self) -> None:
