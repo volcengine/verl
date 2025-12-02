@@ -149,7 +149,9 @@ def load_reward_manager(
         module_cfg: ModuleConfig | None = reward_manager_cfg.module
         assert module_cfg is not None, f"Module config is required when {reward_manager_cfg.source=}"
         reward_manager_cls_name = reward_manager_cfg.name
-        reward_manager_cls = load_extern_object(module_path=module_cfg.path, object_name=reward_manager_cls_name)
+        reward_manager_cls = load_extern_object(
+            module_path=module_cfg.path, object_name=reward_manager_cls_name, module_name=module_cfg.name
+        )
 
     if compute_score is None:
         sandbox_config = config.reward_model.get("sandbox_fusion")
