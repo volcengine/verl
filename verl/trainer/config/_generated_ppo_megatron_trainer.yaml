@@ -369,7 +369,7 @@ data:
 reward_manager:
   _target_: verl.trainer.config.config.RewardManagerConfig
   source: register
-  name: ${reward_model.reward_manager,naive}
+  name: ${oc.select:reward_model.reward_manager,naive}
   module:
     _target_: verl.trainer.config.config.ModuleConfig
     path: null
