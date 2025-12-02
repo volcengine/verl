@@ -79,6 +79,7 @@ class vLLMWorkerProc(WorkerProc):
     ):
         self.rank = rank
         self.mm_receiver_cache = None
+        self.use_async_scheduling = False
 
         all_kwargs: list[dict] = [
             {} for _ in range(vllm_config.parallel_config.world_size)
