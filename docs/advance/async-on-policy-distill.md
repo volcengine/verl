@@ -122,7 +122,6 @@ Driver (TaskRunner)
 | Section | Purpose | Notable Keys |
 |---------|---------|-------------|
 | actor_rollout_ref.teacher | Teacher server | server_ip, server_port, n_server_workers |
-| actor_rollout_ref.vllm_load_weights_size | vLLM weights load | - |
 | trainer | Global training control | total_epochs, save_freq, scheduler (one_step_off | two_step_off), n_gpus_per_node, nnodes |
 | rollout | Resource split for rollout | n_gpus_per_node, nnodes |
 
@@ -216,7 +215,7 @@ Interpretation Tips:
 
 - High `wait_prev_teacher` → scale `n_server_workers` and allocate more teacher GPUs or reduce per-request batch size, or just use `two_step_off`.
 - High `wait_prev_gen` with uniform lengths → allocate more rollout GPUs.
-- Spikes in `sync_rollout_weights` → check NCCL env / network congestion and try to modify `actor_rollout_ref.vllm_load_weights_size`.
+- High `sync_rollout_weights` → check NCCL env / network congestion and try to modify `actor_rollout_ref.rollout.update_weights_bucket_megabytes`.
 
 ## 9. Extensibility Notes
 
