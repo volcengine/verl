@@ -50,7 +50,7 @@ def sft_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
         response_mask = data["response_mask"].to(bool)
         loss = -masked_sum(log_prob, response_mask) / batch_num_tokens * dp_size
 
-    return loss, {"loss": loss.detach().item()}
+    return loss, {}
 
 
 def _slice_response_from_unpad_output(tensor: torch.Tensor, data: TensorDict) -> torch.Tensor:
@@ -102,6 +102,7 @@ def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
     config.global_batch_info["dp_size"] = data["dp_size"]
     config.global_batch_info["batch_num_tokens"] = data["batch_num_tokens"]
     config.global_batch_info["global_batch_size"] = data["global_batch_size"]
+    config.global_batch_info["loss_scale_factor"] = config.loss_scale_factor
 
     metrics = {}
 

@@ -64,7 +64,9 @@ actor_rollout_ref:
       ppo_kl_coef: 0.1
     clip_ratio_c: 3.0
     loss_agg_mode: token-mean
+    loss_scale_factor: null
     entropy_coeff: 0
+    calculate_entropy: false
     use_kl_loss: false
     use_torch_compile: true
     kl_loss_coef: 0.001
@@ -436,6 +438,7 @@ reward_model:
     path: ~/models/FsfairX-LLaMA3-RM-v0.1
     external_lib: ${actor_rollout_ref.model.external_lib}
     trust_remote_code: false
+    override_config: {}
     use_shm: false
     use_remove_padding: false
     use_fused_kernels: ${actor_rollout_ref.model.use_fused_kernels}

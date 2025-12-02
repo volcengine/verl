@@ -3,7 +3,7 @@ set -x
 mkdir -p ./save_ckpts
 
 MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B-Instruct}
-MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
+MODEL_PATH=${MODEL_PATH:-${HOME}/.cache/models/${MODEL_ID}}
 
 torchrun --standalone --nnodes=1 --nproc_per_node=8 \
      -m verl.trainer.fsdp_sft_trainer \

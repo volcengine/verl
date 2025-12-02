@@ -63,7 +63,5 @@ python3 -m recipe.transfer_queue.main_ppo \
     trainer.total_epochs=15 \
     trainer.total_training_steps=2 \
     trainer.val_before_train=False \
-    +trainer.num_global_batch=1 \
-    +trainer.num_data_storage_units=8 \
     2>&1 | tee "$log_file"
 echo "Finished, log is saved in: $log_file"

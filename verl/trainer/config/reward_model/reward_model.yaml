@@ -34,6 +34,9 @@ model:
   # Whether to enable loading a remote code model, default to False
   trust_remote_code: False
 
+  # override hf config
+  override_config: {}
+
 # [Deprecated] Global micro batch size
 # will be deprecated, use micro_batch_size_per_gpu
 micro_batch_size: null

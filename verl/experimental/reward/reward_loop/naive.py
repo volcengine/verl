@@ -54,14 +54,22 @@ class NaiveRewardLoopManager(RewardLoopManagerBase):
         response_str = await self.loop.run_in_executor(
             None, lambda: self.tokenizer.decode(valid_response_ids, skip_special_tokens=True)
         )
+
+        extra_reward_kwargs = (
+            {
+                "reward_router_address": self.reward_router_address,
+                "reward_model_tokenizer": self.reward_model_tokenizer,
+            }
+            if self.reward_router_address is not None
+            else {}
+        )
         if self.is_async_reward_score:
             result = await self.compute_score(
                 data_source=data_source,
                 solution_str=response_str,
                 ground_truth=ground_truth,
                 extra_info=extra_info,
-                reward_router_address=self.reward_router_address,
-                reward_model_tokenizer=self.reward_model_tokenizer,
+                **extra_reward_kwargs,
             )
         else:
             result = await self.loop.run_in_executor(
@@ -71,8 +79,7 @@ class NaiveRewardLoopManager(RewardLoopManagerBase):
                     solution_str=response_str,
                     ground_truth=ground_truth,
                     extra_info=extra_info,
-                    reward_router_address=self.reward_router_address,
-                    reward_model_tokenizer=self.reward_model_tokenizer,
+                    **extra_reward_kwargs,
                 ),
             )
 

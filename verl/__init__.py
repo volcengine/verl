@@ -52,6 +52,26 @@ if os.getenv("VERL_USE_MODELSCOPE", "False").lower() == "true":
     patch_hub()
 
 if is_npu_available:
+    # Workaround for torch-npu's lack of support for creating nested tensors from NPU tensors.
+    #
+    # ```
+    # >>> a, b = torch.arange(3).npu(), torch.arange(5).npu() + 3
+    # >>> nt = torch.nested.nested_tensor([a, b], layout=torch.jagged)
+    # ```
+    # throws "not supported in npu" on Ascend NPU.
+    # See https://github.com/Ascend/pytorch/blob/294cdf5335439b359991cecc042957458a8d38ae/torch_npu/utils/npu_intercept.py#L109
+    # for details.
+
+    import torch
+
+    try:
+        if hasattr(torch.nested.nested_tensor, "__wrapped__"):
+            torch.nested.nested_tensor = torch.nested.nested_tensor.__wrapped__
+        if hasattr(torch.nested.as_nested_tensor, "__wrapped__"):
+            torch.nested.as_nested_tensor = torch.nested.as_nested_tensor.__wrapped__
+    except AttributeError:
+        pass
+
     from .models.transformers import npu_patch as npu_patch
 
     package_name = "transformers"
