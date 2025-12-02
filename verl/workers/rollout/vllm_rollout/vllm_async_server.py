@@ -277,7 +277,7 @@ class vLLMHttpServerBase:
                 # Use json.dumps for dict to ensure valid JSON format
                 server_args.append(json.dumps(v) if isinstance(v, dict) else str(v))
 
-        # Pass worker_extension_cls parameter
+        # pass worker_extension_cls parameter for cuda-ipc based weights updating
         server_args.extend([
             "--worker_extension_cls",
             "verl.workers.rollout.vllm_rollout.utils.vLLMColocateWorkerExtension"
@@ -301,22 +301,18 @@ class vLLMHttpServerBase:
             cmds[server_args.subparser].validate(server_args)
 
         # 2. setup distributed executor backend
-
         distributed_executor_backend = vLLMMultiprocExecutor if len(self.workers) > 0 else None
         server_args.distributed_executor_backend = distributed_executor_backend
 
+        # 3. generate and set executor zmq address for communicating between training worker and executor
         executor_zmq_address = self._generate_executor_zmq_address()
         os.environ["VERL_VLLM_EXECUTOR_ZMQ_ADDRESS"] = executor_zmq_address
-
-        # Pass Executor ZMQ address to all training workers
         ray.get([worker.set_executor_zmq_address.remote(executor_zmq_address) for worker in self.workers])
 
-        # Get ZMQ handles from all training workers
+        # 4. get and set zmq handles for cuda-ipc based weights updating
         zmq_handles = {}
         for worker in self.workers:
             zmq_handles.update(ray.get(worker.get_update_weights_zmq_handle.remote()))
-
-        # Set the obtained ZMQ handles
         ray.get([worker.set_update_weights_zmq_handles.remote(zmq_handles) for worker in self.workers])
 
         logger.info(
@@ -324,7 +320,7 @@ class vLLMHttpServerBase:
             f"get worker zmq handles: {zmq_handles}"
         )
 
-        # 3. launch server
+        # 5. launch server
         if self.node_rank == 0:
             await self.run_server(server_args)
         else:
