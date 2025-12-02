@@ -114,8 +114,12 @@ def load_module(module_path: str, module_name: Optional[str] = None) -> object:
         if not os.path.exists(module_path):
             raise FileNotFoundError(f"Custom module file not found: {module_path=}")
 
-        module_name = os.path.splitext(os.path.basename(module_path))[0]
-        spec = importlib.util.spec_from_file_location(module_name, module_path)
+        # Use the provided module_name for the spec, or derive a unique name to avoid collisions.
+        spec_name = module_name or f"custom_module_{hash(os.path.abspath(module_path))}"
+        spec = importlib.util.spec_from_file_location(spec_name, module_path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Could not load module from {module_path=}")
+
         module = importlib.util.module_from_spec(spec)
         try:
             spec.loader.exec_module(module)
@@ -125,9 +129,11 @@ def load_module(module_path: str, module_name: Optional[str] = None) -> object:
         if module_name is not None:
             import sys
 
-            assert module_name not in sys.modules, (
-                f"Module name already in `sys.modules`: {module_name=}, {sys.modules.keys()=}"
-            )
+            # Avoid overwriting an existing module with a different object.
+            if module_name in sys.modules and sys.modules[module_name] is not module:
+                raise RuntimeError(
+                    f"Module name '{module_name}' already in `sys.modules` and points to a different module."
+                )
             sys.modules[module_name] = module
 
     return module
