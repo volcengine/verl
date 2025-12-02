@@ -12,11 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from concurrent.futures import ThreadPoolExecutor
 import logging
 import os
 import pickle
 import signal
 import threading
+from typing import Optional
 import weakref
 from multiprocessing.synchronize import Lock as LockType
 from threading import Thread
@@ -76,6 +78,8 @@ class vLLMWorkerProc(WorkerProc):
         shared_worker_lock: LockType,
     ):
         self.rank = rank
+        self.mm_receiver_cache = None
+
         all_kwargs: list[dict] = [
             {} for _ in range(vllm_config.parallel_config.world_size)
         ]
@@ -96,8 +100,6 @@ class vLLMWorkerProc(WorkerProc):
         self.rpc_broadcast_mq = MessageQueue.create_from_handle(
             input_shm_handle, self.worker.rank)
         self.worker_response_mq = MessageQueue(1, 1)
-
-        self.mm_receiver_cache = None
 
         self.worker.init_device()
 
@@ -274,7 +276,8 @@ class vLLMMultiprocExecutor(MultiprocExecutor):
         self._finalizer = weakref.finalize(self, self.shutdown)
         self.is_failed = False
         self.shutdown_event = threading.Event()
-        self.failure_callback: FailureCallback | None = None
+        self.failure_callback: Optional[FailureCallback] = None
+        self.io_thread_pool: Optional[ThreadPoolExecutor] = None
 
         self.world_size = self.parallel_config.world_size
         tensor_parallel_size = self.parallel_config.tensor_parallel_size
