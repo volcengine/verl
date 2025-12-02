@@ -59,6 +59,11 @@ class TrainingWorker(Worker):
 
     def __init__(self, config: TrainingWorkerConfig):
         Worker.__init__(self)
+
+        from verl.workers.engine import BaseEngine, EngineRegistry
+
+        initialize_global_process_group_ray(timeout_second=None)
+
         self.config = config
         self.model_config = self.config.model_config
         self.engine_config = self.config.engine_config
@@ -72,16 +77,6 @@ class TrainingWorker(Worker):
         # DistProfilerExtension.__init__(
         #     self, DistProfiler(rank=self.rank, config=self.profiler_config, tool_config=tool_config)
         # )
-
-        initialize_global_process_group_ray(timeout_second=None)
-
-    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def set_loss_fn(self, loss_fn):
-        self.loss_fn = loss_fn
-
-    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def build_engine(self):
-        from verl.workers.engine import BaseEngine, EngineRegistry
 
         self.engine: BaseEngine = EngineRegistry.new(
             model_type=self.config.model_type,
@@ -104,10 +99,14 @@ class TrainingWorker(Worker):
         self.loss_fn = None
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def set_loss_fn(self, loss_fn):
+        self.loss_fn = loss_fn
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def reset(self):
         """
         Reset the model engine to the initial state. If the engine is not initialized,
-        we init. Otherwise, reload ckpt and reset states
+        we initialize it. Otherwise, reload ckpt and reset states
         """
         self.engine.initialize()
 

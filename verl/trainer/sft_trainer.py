@@ -117,7 +117,6 @@ class SFTTrainer:
         )
 
         self.training_client = TrainingWorker(config=config)
-        self.training_client.build_engine()
         self.training_client.set_loss_fn(loss_fn=self.loss_fn)
         # Note that in SPMD world, this abstraction has to break
         self.engine = self.training_client.engine
