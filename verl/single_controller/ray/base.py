@@ -431,7 +431,7 @@ class RayWorkerGroup(WorkerGroup):
 
     def _get_master_addr_port(self, pg):
         """Get master addr and port for this worker group"""
-        if self._master_addr is None or self._master_port is None:
+        if self._master_addr is None and self._master_port is None:
             self._master_addr, self._master_port = ray.get(
                 get_master_addr_port.options(
                     scheduling_strategy=PlacementGroupSchedulingStrategy(
@@ -439,8 +439,13 @@ class RayWorkerGroup(WorkerGroup):
                     ),
                 ).remote()
             )
-        else:
+        elif self._master_addr is not None and self._master_port is not None:
             logger.debug(f"{self._master_addr=} {self._master_port=}")
+        else:
+            raise ValueError(
+                "Both 'master_addr' and 'master_port' must be provided if you intend to manually specify them, "
+                "or neither should be provided to use Ray's default assignment."
+            )
 
     def _init_with_resource_pool(self, resource_pool, ray_cls_with_init, bin_pack, detached, worker_env=None):
         """Initialize the worker group by creating new workers from a resource pool.
