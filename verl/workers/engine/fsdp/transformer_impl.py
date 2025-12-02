@@ -963,7 +963,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
             output = {
                 "model_output": model_output,
-                "loss": loss,
+                "loss": loss.detach().item(),
                 "metrics": metrics,
             }
 
