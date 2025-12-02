@@ -86,7 +86,8 @@ class ModuleConfig(BaseConfig):
     Args:
         path (str, optional): Path to the module file to load and execute.
         name (str, optional): Name of the module to ``import``. Format: ``"import.path.to.module"``.
-            If ``None``, the module won't be added to ``sys.modules``, thus can not be ``import``ed as ``name``.
+            If ``None``, the module will be loaded with a hased name and
+                will not be added to ``sys.modules``, thus can not be ``import``ed as ``name``.
     """
 
     path: Optional[str] = None
