@@ -101,7 +101,6 @@ class vLLMHttpServerBase:
             if self.model_config.lora_rank > 0
             else {}
         )
-        self.tokenizer = self.model_config.tokenizer
 
         self.config.max_model_len = self.config.prompt_length + self.config.response_length
         self.rollout_mode = rollout_mode
@@ -518,10 +517,14 @@ class vLLMReplica(RolloutReplica):
             nnodes = 1
             gpus_per_node = self.world_size
         
-        env_vars = {"VERL_N_GPUS_PER_NODE": self.n_gpus_per_node}
+        env_vars = {
+            "VERL_N_GPUS_PER_NODE": str(self.n_gpus_per_node),
+            "RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "1",
+            "VERL_VLLM_VOCAB_SIZE": str(len(self.model_config.tokenizer))
+        }
         if self.n_gpus_per_node > self.world_size:
             env_vars.update({
-                "VERL_VLLM_MULTIPROC_RANK_OFFSET": self.replica_rank * self.world_size % self.n_gpus_per_node
+                "VERL_VLLM_MULTIPROC_RANK_OFFSET": str(self.replica_rank * self.world_size % self.n_gpus_per_node)
             })
 
         # create server actor in each node with node affinity
