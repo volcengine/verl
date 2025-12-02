@@ -68,3 +68,6 @@ trainer:
   # Path to resume training from (used when resume_mode is "resume_path" or "auto")
   resume_from_path: null  
   device: cuda
+
+  nnodes: 1
+  n_gpus_per_node: 1

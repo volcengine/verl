@@ -47,6 +47,10 @@ BACKEND=megatron TP_SIZE=2 PP_SIZE=2 VPP_SIZE=2 CP_SIZE=1 NUM_GPUS=8 bash tests/
 echo "run with tp2 pp2 vpp2 cp2 num_gpus8"
 BACKEND=megatron TP_SIZE=2 PP_SIZE=2 VPP_SIZE=2 CP_SIZE=2 NUM_GPUS=8 bash tests/special_e2e/sft/run_sft_engine_gsm8k.sh
 
+# test with cp in ray
+echo "run with tp2 pp2 vpp2 cp2 num_gpus8 mode=ray"
+BACKEND=megatron TP_SIZE=2 PP_SIZE=2 VPP_SIZE=2 CP_SIZE=2 NUM_GPUS=8 mode=ray bash tests/special_e2e/sft/run_sft_engine_gsm8k.sh
+
 python3 tests/special_e2e/sft/compare_sft_engine_results.py
 
 rm -rf ~/verl/test/log

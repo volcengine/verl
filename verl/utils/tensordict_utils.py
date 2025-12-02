@@ -111,6 +111,13 @@ def concat_nested_tensors(tensors: list[torch.Tensor]) -> torch.Tensor:
     return tensor
 
 
+def concat_tensordict_with_none_bsz(data: list[TensorDict]):
+    for d in data:
+        assert len(d.batch_size) == 0
+    # directly return the first meta info
+    return data[0]
+
+
 def concat_tensordict(data: list[TensorDict]) -> TensorDict:
     """Concatenates tensordicts into a single tensordict on dim zero. Support nested tensor"""
     assert len(data) > 0, "Must have at least one tensordict"
@@ -119,6 +126,9 @@ def concat_tensordict(data: list[TensorDict]) -> TensorDict:
     nested_tensor_keys = {key for key, value in data[0].items() if isinstance(value, torch.Tensor) and value.is_nested}
 
     if not nested_tensor_keys:
+        if len(data[0].batch_size) == 0:
+            return concat_tensordict_with_none_bsz(data)
+        # if batch size is None (only contain NonTensorData)
         return TensorDict.cat(data, dim=0)
 
     # Create a list of tensordicts containing only non-nested tensors for concatenation
