@@ -561,7 +561,6 @@ class vLLMAsyncRollout(BaseRollout):
         self.device_uuid = current_platform.get_device_uuid(0)
         self.zmq_context = zmq.Context()
         self.zmq_address_counter = 0
-        self.zmq_handle: dict[str, str] = None
         self.zmq_handles: dict[str, str] = None
 
     def _init_zmq_client(self):
@@ -642,7 +641,7 @@ class vLLMAsyncRollout(BaseRollout):
     async def _update_weights_per_tensor(self, weights: Generator[tuple[str, torch.Tensor], None, None]):
         """Update weights per tensor via ZMQ."""
         s = self.zmq_context.socket(zmq.REQ)
-        s.bind(self.zmq_handle)
+        s.bind(self.zmq_address)
 
         for name, p in weights:
             handle = reduce_tensor(p)

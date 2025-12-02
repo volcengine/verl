@@ -12,6 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import gc
+from dataclasses import asdict
+from typing import Callable
+
+import torch
+import zmq
+from vllm.model_executor.model_loader.utils import process_weights_after_loading
+from vllm.lora.request import LoRARequest
+
+from verl.utils.vllm.utils import rebuild_ipc
+
+
 # magic numbers that ensure we are using the same LoRA adapter during the rollout and training process
 VLLM_LORA_INT_ID = 123
 VLLM_LORA_NAME = "123"
@@ -46,10 +58,6 @@ class vLLMColocateWorkerExtension:
 
     def update_weights_per_tensor_from_ipc(self, zmq_handles: dict[str, str]):
         """Update weights per tensor from IPC handles."""
-        from vllm.model_executor.model_loader.utils import process_weights_after_loading
-        from verl.utils.vllm.utils import rebuild_ipc
-        import gc
-        import zmq
 
         assert self.device is not None
         if not hasattr(self, "_zmq_ctx") or self._zmq_ctx is None:
@@ -93,12 +101,6 @@ class vLLMColocateWorkerExtension:
 
     def update_lora_weights_per_tensor_from_ipc(self, peft_config: dict, zmq_handles: dict[str, str]):
         """Update LoRA weights per tensor from IPC handles."""
-        from vllm.model_executor.model_loader.utils import process_weights_after_loading
-        from verl.utils.vllm.utils import rebuild_ipc
-        from dataclasses import asdict
-        from vllm.lora.request import LoRARequest
-        import gc
-        import zmq
 
         assert self.device is not None
         if not hasattr(self, "_zmq_ctx") or self._zmq_ctx is None:
