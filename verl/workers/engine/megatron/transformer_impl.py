@@ -703,10 +703,11 @@ class MegatronEngineWithLMHead(MegatronEngine):
             loss, metrics = loss_function(model_output=model_output, data=data, dp_group=self.get_data_parallel_group())
             # scale loss by num_micro_batch because megatron will scale loss
             # by n_micro_batch inside pp schedule
-            loss = loss * data["num_micro_batch"]
+            scaled_loss = loss * data["num_micro_batch"]
         else:
             assert forward_only, "forward_only must be True when loss_function is None"
             loss = torch.tensor(1.0, device=device)
+            scaled_loss = loss
             metrics = {}
 
         output = {
@@ -716,7 +717,7 @@ class MegatronEngineWithLMHead(MegatronEngine):
         }
 
         # return loss and stats
-        return loss, output
+        return scaled_loss, output
 
 
 @EngineRegistry.register(model_type="value_model", backend="megatron")
