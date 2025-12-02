@@ -519,7 +519,8 @@ class OneStepOffRayTrainer(RayPPOTrainer):
                 # The event loop can handle other pending coroutines
                 # Prevents computations in a certain phase from blocking the entire asynchronous workflow
                 #
-                # The purpose here is to ensure that after triggering self.async_rollout_manager.generate_sequences_async(gen_batch_output),
+                # The purpose here is to ensure that after triggering
+                # `self.async_rollout_manager.generate_sequences_async(gen_batch_output)`,
                 # the subsequent relevant logic can proceed in a timely manner
                 await asyncio.sleep(0)
 
