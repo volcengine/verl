@@ -546,8 +546,8 @@ class vLLMAsyncRollout(BaseRollout):
         rank = int(os.environ["RANK"])
         local_world_size = int(os.environ["RAY_LOCAL_WORLD_SIZE"])
         rollout_world_size = self.config.tensor_model_parallel_size * self.config.data_parallel_size
-        self.rollout_rank = rank % rollout_world_size
-        self.local_rank = self.rollout_rank % local_world_size
+        rollout_rank = rank % rollout_world_size
+        self.local_rank = rollout_rank % local_world_size
 
         if config.layered_summon or (config.expert_parallel_size > 1 and not _check_vllm_version_for_sleep_level()):
             logger.warning("Setting the sleep level to 1 may cause a memory overflow.")
@@ -558,7 +558,7 @@ class vLLMAsyncRollout(BaseRollout):
         # Attributes related to weight updates
         from vllm.platforms import current_platform
 
-        self.device_uuid = current_platform.get_device_uuid(self.local_rank)
+        self.device_uuid = current_platform.get_device_uuid(0)
         self.zmq_context = zmq.Context()
         self.zmq_address_counter = 0
         self.zmq_handle: dict[str, str] = None

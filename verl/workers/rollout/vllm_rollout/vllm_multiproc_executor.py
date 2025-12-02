@@ -348,7 +348,7 @@ class vLLMMultiprocExecutor(MultiprocExecutor):
 
         try:
             # Use collective_rpc to distribute the method call to workers
-            results = self.collective_rpc(method, *args, **kwargs)
+            results = self.collective_rpc(method=method, args=args, kwargs=kwargs)
             return {"status": "success", "result": results}
 
         except Exception as e:
