@@ -358,7 +358,6 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
             non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
         )
         gen_batch.meta_info["global_steps"] = self.global_steps
-        gen_batch.meta_info["sampling_params"] = {"top_p": self.config.actor_rollout_ref.rollout.temperature}
         # sync weights from actor to rollout
         if sync_before_generation:
             self.sync_rollout_weights()
