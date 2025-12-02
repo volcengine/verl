@@ -884,6 +884,12 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             offload_megatron_model_to_cpu(self.actor_module)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def async_calls_finalize_fn_exec(self, blocking=False):
+        from megatron.core.dist_checkpointing.strategies.base import async_calls
+
+        async_calls.maybe_finalize_async_calls(blocking=blocking)
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def start_profile(self, **kwargs) -> None:
         """Start profiling for the current rank in the current training step."""
         self.profiler.start(**kwargs)

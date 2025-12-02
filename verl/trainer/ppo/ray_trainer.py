@@ -843,6 +843,15 @@ class RayPPOTrainer:
         torch.save(dataloader_state_dict, dataloader_local_path)
 
         # latest checkpointed iteration tracker (for atomic usage)
+        if (
+            hasattr(self.config.actor_rollout_ref.actor.checkpoint, "async_save")
+            and self.config.actor_rollout_ref.actor.checkpoint.async_save
+        ) or (
+            "async_save" in self.config.actor_rollout_ref.actor.checkpoint
+            and self.config.actor_rollout_ref.actor.checkpoint["async_save"]
+        ):
+            print("skip write latest_checkpointed_iteration.txt when async_save is True")
+            return
         local_latest_checkpointed_iteration = os.path.join(
             self.config.trainer.default_local_dir, "latest_checkpointed_iteration.txt"
         )
@@ -1022,6 +1031,8 @@ class RayPPOTrainer:
 
         for epoch in range(current_epoch, self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
+                if hasattr(self.actor_rollout_wg, "async_calls_finalize_fn_exec"):
+                    self.actor_rollout_wg.async_calls_finalize_fn_exec(blocking=False)
                 metrics = {}
                 timing_raw = {}
 
@@ -1325,6 +1336,8 @@ class RayPPOTrainer:
                     )
 
                 if is_last_step:
+                    if hasattr(self.actor_rollout_wg, "async_calls_finalize_fn_exec"):
+                        self.actor_rollout_wg.async_calls_finalize_fn_exec(blocking=True)
                     pprint(f"Final validation metrics: {last_val_metrics}")
                     progress_bar.close()
                     return
