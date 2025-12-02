@@ -387,7 +387,11 @@ class DataProto:
 
     def __getstate__(self):
         if version.parse(tensordict.__version__) >= version.parse("0.5.0") and self.batch is not None:
-            batch = self.batch.contiguous().consolidate()
+            # Check if batch is empty to avoid torch.cat error in consolidate
+            if len(self.batch.keys()) > 0:
+                batch = self.batch.contiguous().consolidate()
+            else:
+                batch = self.batch
         else:
             batch = self.batch
 
@@ -1118,8 +1122,6 @@ class DataProto:
         tensor_batch = self.batch.to_dict()
         non_tensor_batch = self.non_tensor_batch
 
-        from tensordict.tensorclass import NonTensorData, NonTensorStack
-
         from verl.utils import tensordict_utils as tu
 
         common_keys = set(tensor_batch.keys()) & set(non_tensor_batch.keys())
@@ -1127,8 +1129,7 @@ class DataProto:
 
         for key, val in non_tensor_batch.items():
             assert isinstance(val, np.ndarray)
-            # Convert to NonTensorStack instead of plain list to handle nested structures
-            tensor_batch[key] = NonTensorStack.from_list([NonTensorData(item) for item in val])
+            tensor_batch[key] = val.tolist()
         output = tu.get_tensordict(tensor_dict=tensor_batch, non_tensor_dict=self.meta_info)
         return output
 
