@@ -707,6 +707,7 @@ class MegatronEngineWithLMHead(MegatronEngine):
         else:
             assert forward_only, "forward_only must be True when loss_function is None"
             loss = torch.tensor(1.0, device=device)
+            scaled_loss = loss
             metrics = {}
 
         output = {
