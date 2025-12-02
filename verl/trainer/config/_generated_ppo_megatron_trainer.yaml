@@ -54,6 +54,7 @@ actor_rollout_ref:
       override_mcore_model_config: {}
       use_mbridge: false
       vanilla_mbridge: true
+      use_remove_padding: true
       forward_only: false
       dtype: bfloat16
     _target_: verl.workers.config.McoreActorConfig
@@ -78,6 +79,7 @@ actor_rollout_ref:
       ppo_kl_coef: 0.1
     clip_ratio_c: 3.0
     loss_agg_mode: token-mean
+    loss_scale_factor: null
     entropy_coeff: 0
     calculate_entropy: false
     use_kl_loss: false
@@ -177,6 +179,7 @@ actor_rollout_ref:
       override_mcore_model_config: {}
       use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
       vanilla_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.vanilla_mbridge,True}
+      use_remove_padding: ${oc.select:actor_rollout_ref.actor.megatron.use_remove_padding,True}
       forward_only: true
       dtype: bfloat16
     _target_: verl.workers.config.McoreActorConfig
@@ -413,6 +416,7 @@ critic:
     override_mcore_model_config: {}
     use_mbridge: false
     vanilla_mbridge: true
+    use_remove_padding: true
     forward_only: false
     dtype: bfloat16
   _target_: verl.workers.config.McoreCriticConfig
@@ -545,6 +549,7 @@ reward_model:
     override_transformer_config: ${oc.select:actor_rollout_ref.actor.megatron.override_transformer_config,{}}
     use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
     vanilla_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.vanilla_mbridge,True}
+    use_remove_padding: ${oc.select:actor_rollout_ref.actor.megatron.use_remove_padding,True}
     dtype: bfloat16
   load_weight: true
 algorithm:

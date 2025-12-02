@@ -801,3 +801,27 @@ def distributed_masked_mean(local_tensor, local_mask):
 
     global_mean = local_sum / local_num
     return global_mean
+
+
+@contextmanager
+def use_original_torch_compile():
+    """torch.compile might be replaced by mindspeed on NPU, this contextmanager
+    can revert torch.compile temporarily.
+    """
+    try:
+        from mindspeed.patch_utils import MindSpeedPatchesManager
+
+        compile_patch = None
+        for patch in MindSpeedPatchesManager.patches_info.values():
+            if patch.orig_module_name == "torch" and patch.orig_func_name == "compile":
+                if patch.is_applied():
+                    compile_patch = patch
+                break
+        if compile_patch is not None:
+            compile_patch.remove_patch()
+            yield
+            compile_patch.apply_patch()
+        else:
+            yield
+    except Exception:
+        yield

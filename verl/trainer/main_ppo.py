@@ -248,7 +248,7 @@ class TaskRunner:
         from verl.trainer.ppo.ray_trainer import Role
 
         # Ref policy has been fused into ActorRolloutRefWorker in new model engine,
-        # we don't need to add a separate ref policy worker goup.
+        # we don't need to add a separate ref policy worker group.
         use_legacy_worker_impl = config.trainer.get("use_legacy_worker_impl", "auto")
         if use_legacy_worker_impl == "disable":
             return

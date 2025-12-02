@@ -109,7 +109,6 @@ class MegatronEngine(BaseEngine):
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
 
         override_transformer_config = mapping_string_to_attn_backend({**self.engine_config.override_transformer_config})
-        tf_config = hf_to_mcore_config(self.model_config.hf_config, self.dtype, **override_transformer_config)
 
         use_mbridge = self.engine_config.use_mbridge
         self.provider = None
@@ -163,6 +162,7 @@ class MegatronEngine(BaseEngine):
             self.bridge = bridge
         else:
             self.bridge = None
+            tf_config = hf_to_mcore_config(self.model_config.hf_config, self.dtype, **override_transformer_config)
 
         if not self.bridge:
             self.weight_converter = get_mcore_weight_converter(self.model_config.hf_config, self.dtype)
@@ -666,12 +666,13 @@ class MegatronEngineWithLMHead(MegatronEngine):
             ret = {}
             if calculate_entropy:
                 logits_bak = logits.clone()
-                if torch.distributed.get_rank() == 0:
-                    logger.warning_once(
-                        "For memory-efficient computation, enable fused kernels via "
-                        "`actor_rollout_ref.model.use_fused_kernels=True`. "
-                        "The current `clone()` operation ensures correctness but increases memory usage."
-                    )
+                # # disable the hint until the fused_kernel is optimized for triton>=3.3
+                # if torch.distributed.get_rank() == 0:
+                #     logger.warning_once(
+                #         "For memory-efficient computation, enable fused kernels via "
+                #         "`actor_rollout_ref.model.use_fused_kernels=True`. "
+                #         "The current `clone()` operation ensures correctness but increases memory usage."
+                #     )
                 entropy = vocab_parallel_entropy(logits)
                 ret["entropy"] = entropy
             else:
@@ -689,6 +690,7 @@ class MegatronEngineWithLMHead(MegatronEngine):
             multi_modal_inputs,
             logits_processor=logits_processor,
             logits_processor_args=logits_processor_args,
+            data_format="thd" if self.engine_config.use_remove_padding else "bshd",
         )
 
         return output, partial(postprocess_micro_batch_func, data=batch)

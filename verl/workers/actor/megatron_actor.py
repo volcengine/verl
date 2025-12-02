@@ -578,11 +578,12 @@ class MegatronPPOActor(BasePPOActor):
                     ret = {}
                     if calculate_entropy:
                         logits_bak = logits.clone()
-                        logger.warning_once(
-                            "For memory-efficient computation, enable fused kernels via "
-                            "`actor_rollout_ref.model.use_fused_kernels=True`. "
-                            "The current `clone()` operation ensures correctness but increases memory usage."
-                        )
+                        # # disable the hint until the fused_kernel is optimized for triton>=3.3
+                        # logger.warning_once(
+                        #     "For memory-efficient computation, enable fused kernels via "
+                        #     "`actor_rollout_ref.model.use_fused_kernels=True`. "
+                        #     "The current `clone()` operation ensures correctness but increases memory usage."
+                        # )
                         entropy = vocab_parallel_entropy(logits)
                         ret["entropy"] = entropy
                     else:
@@ -601,6 +602,7 @@ class MegatronPPOActor(BasePPOActor):
                     multi_modal_inputs=multi_modal_inputs,
                     logits_processor=logits_processor,
                     logits_processor_args=logits_processor_args,
+                    data_format="thd" if self.config.megatron.use_remove_padding else "bshd",
                 )
 
             if forward_only:
