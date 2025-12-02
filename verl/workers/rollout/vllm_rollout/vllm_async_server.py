@@ -49,7 +49,6 @@ from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutpu
 from verl.workers.rollout.utils import (
     get_free_port,
     is_valid_ipv6_address,
-    run_unvicorn,
 )
 from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
 from verl.workers.rollout.vllm_rollout.utils import (
@@ -364,7 +363,7 @@ class vLLMHttpServerBase:
             logger.info(f"Initializing a V1 LLM engine with config: {vllm_config}")
 
         self.engine = engine_client
-        self._server_port, self._server_task = await run_unvicorn(app, args, self._server_address)
+        self._server_port, self._server_task = await run_uvicorn(app, args, self._server_address)
 
     async def run_headless(self, args: argparse.Namespace):
         # Create the EngineConfig.
