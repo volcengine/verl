@@ -113,3 +113,7 @@ class RewardManagerConfig(BaseConfig):
     source: str = "register"
     name: str = "naive"
     module: Optional[ModuleConfig] = field(default_factory=ModuleConfig)
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.source in {"register", "importlib"}, f"Unknown reward manager source: {self.source=}"
