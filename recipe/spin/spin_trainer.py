@@ -36,7 +36,7 @@ from verl import DataProto
 from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 from verl.single_controller.ray.base import create_colocated_worker_cls
-from verl.trainer.ppo.metric_utils import compute_throughout_metrics, compute_timing_metrics, process_validation_metrics
+from verl.trainer.ppo.metric_utils import compute_throughput_metrics, compute_timing_metrics, process_validation_metrics
 from verl.trainer.ppo.utils import Role, WorkerType, need_reference_policy, need_reward_model
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.metric import reduce_metrics
@@ -1228,7 +1228,7 @@ class RaySPINTrainer:
                     metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
                     n_gpus = self.resource_pool_manager.get_n_gpus()
                     if "step" in timing_raw:
-                        metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
+                        metrics.update(compute_throughput_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
                     else:
                         print(
                             f"Warning: 'step' key missing from timing_raw at step {self.global_steps}. "

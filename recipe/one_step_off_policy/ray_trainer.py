@@ -36,7 +36,7 @@ from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import agg_loss
 from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
-    compute_throughout_metrics,
+    compute_throughput_metrics,
     compute_timing_metrics,
 )
 from verl.trainer.ppo.ray_trainer import (
@@ -668,7 +668,7 @@ class OneStepOffRayTrainer(RayPPOTrainer):
             metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
             # TODO: implement actual tflpo and theoretical tflpo
             n_gpus = self.resource_pool_manager.get_n_gpus()
-            metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
+            metrics.update(compute_throughput_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
 
             # TODO: make a canonical logger that supports various backend
             logger.log(data=metrics, step=self.global_steps)

@@ -35,7 +35,7 @@ from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.ppo.core_algos import AdvantageEstimator, agg_loss
 from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
-    compute_throughout_metrics,
+    compute_throughput_metrics,
     compute_timing_metrics,
 )
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer, apply_kl_penalty, compute_advantage, compute_response_mask
@@ -524,7 +524,7 @@ class FullyAsyncRayPPOTrainer(RayPPOTrainer):
         metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
         # TODO: implement actual tflpo and theoretical tflpo
         n_gpus = self.resource_pool_manager.get_n_gpus()
-        metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
+        metrics.update(compute_throughput_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
 
     def _post_batch_processing(self, batch: DataProto):
         # this is experimental and may be changed/removed in the future in favor of a general-purpose one

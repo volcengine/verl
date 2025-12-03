@@ -60,7 +60,7 @@ from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import AdvantageEstimator, agg_loss
 from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
-    compute_throughout_metrics,
+    compute_throughput_metrics,
     compute_timing_metrics,
     process_validation_metrics,
 )
@@ -315,8 +315,8 @@ def compute_timing_metrics_decorated(batch, timing_raw: dict[str, float]) -> dic
 
 
 @tqbridge(put_data=False)
-def compute_throughout_metrics_decorated(batch, timing_raw: dict[str, float], n_gpus: int) -> dict[str, Any]:
-    return compute_throughout_metrics(batch, timing_raw, n_gpus)
+def compute_throughput_metrics_decorated(batch, timing_raw: dict[str, float], n_gpus: int) -> dict[str, Any]:
+    return compute_throughput_metrics(batch, timing_raw, n_gpus)
 
 
 @tqbridge(put_data=False)
@@ -1815,15 +1815,15 @@ class RayPPOTrainer:
                     compute_timing_metrics_decorated(batch=compute_timing_metrics_meta, timing_raw=timing_raw)
                 )
 
-                compute_throughout_metrics_meta = BatchMeta(
+                compute_throughput_metrics_meta = BatchMeta(
                     samples=[],
                     extra_info={"global_token_num": batch_meta.get_extra_info("global_token_num")},
                 )
                 # TODO: implement actual tflpo and theoretical tflpo
                 n_gpus = self.resource_pool_manager.get_n_gpus()
                 metrics.update(
-                    compute_throughout_metrics_decorated(
-                        batch=compute_throughout_metrics_meta, timing_raw=timing_raw, n_gpus=n_gpus
+                    compute_throughput_metrics_decorated(
+                        batch=compute_throughput_metrics_meta, timing_raw=timing_raw, n_gpus=n_gpus
                     )
                 )
 
