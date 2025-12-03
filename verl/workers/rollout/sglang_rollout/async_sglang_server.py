@@ -44,6 +44,7 @@ from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.device import (
     get_visible_devices_keyword,
 )
+from verl.utils.profiler.profile import DistProfiler
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
 from verl.workers.rollout.sglang_rollout.sglang_rollout import ServerAdapter, _set_envs_and_config
@@ -108,6 +109,15 @@ class SGLangHttpServer:
         # used for http server
         self._server_address = ray.util.get_node_ip_address().strip("[]")
         self._server_port = None
+
+        # used for sglang server profiler
+        profiler_config = self.config.profiler
+        if profiler_config is not None and profiler_config.tool in ["torch", "npu"]:
+            tool_config = omega_conf_to_dataclass((profiler_config.tool_config or {}).get(profiler_config.tool))
+        else:
+            logger.warning(f"agent loop only support torch and npu profiler, got {profiler_config.tool}")
+            tool_config = None
+        self.profiler_controller = DistProfiler(self.replica_rank, config=profiler_config, tool_config=tool_config)
 
         # used for NCCL process group
         if self.node_rank == 0:
@@ -376,6 +386,21 @@ class SGLangHttpServer:
 
         return TokenOutput(token_ids=token_ids, log_probs=log_probs, routed_experts=routed_experts)
 
+    async def start_profile(self, **kwargs):
+        if (
+            self.profiler_controller.check_enable()
+            and self.profiler_controller.check_this_rank()
+            and self.profiler_controller.is_discrete_mode()
+        ):
+            await self.tokenizer_manager.start_profile(**kwargs)
+
+    async def stop_profile(self):
+        if (
+            self.profiler_controller.check_enable()
+            and self.profiler_controller.check_this_rank()
+            and self.profiler_controller.is_discrete_mode()
+        ):
+            await self.tokenizer_manager.stop_profile()
 
 _rollout_worker_actor_cls = ray.remote(ServerAdapter)
 
