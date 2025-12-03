@@ -139,6 +139,7 @@ def load_reward_manager(
     final_compute_score = compute_score
 
     reward_manager_cfg: RewardManagerConfig = config.reward_manager
+    reward_manager_cls: type[AbstractRewardManager]
     if reward_manager_cfg.source == "register":
         from verl.workers.reward_manager import get_reward_manager_cls
 
@@ -147,7 +148,9 @@ def load_reward_manager(
         from verl.utils.import_utils import load_extern_object
 
         module_cfg: ModuleConfig | None = reward_manager_cfg.module
-        assert module_cfg is not None, f"Module config is required when {reward_manager_cfg.source=}"
+        assert module_cfg is not None and module_cfg.path is not None, (
+            f"Module path is required when {reward_manager_cfg.source=}, but got {module_cfg=}"
+        )
         reward_manager_cls_name = reward_manager_cfg.name
         reward_manager_cls = load_extern_object(
             module_path=module_cfg.path, object_name=reward_manager_cls_name, module_name=module_cfg.name
