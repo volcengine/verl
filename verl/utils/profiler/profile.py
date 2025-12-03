@@ -183,6 +183,8 @@ class DistProfiler:
     - torch_memory: Torch CUDA memory snapshot dump
     """
 
+    _this_step = False
+
     def __init__(
         self, rank: int, config: Optional[ProfilerConfig] = None, tool_config: Optional[object] = None, **kwargs
     ):
@@ -192,6 +194,7 @@ class DistProfiler:
 
         self._impl = None
         self._tool = getattr(config, "tool", None)
+        self._enable = config.enable
 
         # Normalize rank selection
         self._this_rank = False
@@ -201,7 +204,7 @@ class DistProfiler:
             self._this_rank = rank in config.ranks
         else:
             # default rank 0 if enabled but ranks unspecified
-            self._this_rank = (rank == 0) if config.enable else False
+            self._this_rank = (rank == 0) if self._enable else False
 
         # Lazy import to avoid circular deps
         if self._tool == "nsys":
@@ -221,11 +224,26 @@ class DistProfiler:
             # Fallback to a no-op impl
             self._impl = _NoOpProfiler()
 
-    def start(self, **kwargs):
-        return getattr(self._impl, "start", lambda **_: None)(**kwargs)
+    def check_enable(self):
+        return self._enable and self._this_rank and DistProfiler._this_step
 
-    def stop(self):
-        return getattr(self._impl, "stop", lambda: None)()
+    def start_e2e_profiler(self, **kwargs):
+        DistProfiler._this_step = True
+        if self.check_enable():
+            return getattr(self._impl, "start_e2e_profiler", lambda **_: None)(**kwargs)
+
+    def stop_e2e_profiler(self):
+        if self.check_enable():
+            DistProfiler._this_step = False
+            return getattr(self._impl, "stop_e2e_profiler", lambda: None)()
+
+    def start_capture_profiler(self, **kwargs):
+        if self.check_enable():
+            return getattr(self._impl, "start_capture_profiler", lambda **_: None)(**kwargs)
+
+    def stop_capture_profiler(self):
+        if self.check_enable():
+            return getattr(self._impl, "stop_capture_profiler", lambda: None)()
 
     @classmethod
     def annotate(
@@ -240,7 +258,7 @@ class DistProfiler:
             @functools.wraps(func)
             def wrapper(self_instance, *args, **kwargs_inner):
                 profiler = getattr(self_instance, "profiler", None)
-                if not profiler:
+                if not profiler or not profiler.check_enable():
                     return func(self_instance, *args, **kwargs_inner)
 
                 impl = profiler._impl
@@ -361,11 +379,11 @@ class DistProfilerExtension:
     from verl.single_controller.base.decorator import Dispatch, register
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def start_profile(self, **kwargs) -> None:
+    def start_e2e_profiler(self, **kwargs) -> None:
         """Start profiling for the current rank in the current training step."""
-        self.profiler.start(**kwargs)
+        self.profiler.start_e2e_profiler(**kwargs)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def stop_profile(self) -> None:
+    def stop_e2e_profiler(self) -> None:
         """Stop profiling for the current rank in the current training step."""
-        self.profiler.stop()
+        self.profiler.stop_e2e_profiler()

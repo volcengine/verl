@@ -1111,16 +1111,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             offload_fsdp_optimizer(self.actor_optimizer)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def start_profile(self, **kwargs) -> None:
-        """Start profiling for the current rank in the current training step."""
-        self.profiler.start(**kwargs)
-
-    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def stop_profile(self) -> None:
-        """Stop profiling for the current rank in the current training step."""
-        self.profiler.stop()
-
-    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def dump_memory_snapshot(self, tag: str = "manual", sub_dir: str = None) -> None:
         """Manually trigger a CUDA memory snapshot dump on all ranks."""
         # Memory snapshot is now handled by the profiler system
@@ -1942,6 +1932,16 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
     async def sleep(self):
         await self.trainer_mode()
         return True
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
+    async def start_async_rollout_profile(self, **kwargs):
+        """Start an async rollout profiling segment."""
+        await self.rollout.start_async_rollout_profile(**kwargs)
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
+    async def stop_async_rollout_profile(self):
+        """Stop the async rollout profiling segment."""
+        await self.rollout.stop_async_rollout_profile()
 
     # ============================ vLLM related ============================
 

@@ -57,6 +57,8 @@ from verl.third_party.vllm import VLLM_SLEEP_LEVEL, get_version
 from verl.utils.device import is_npu_available
 from verl.utils.distributed import initialize_global_process_group_ray
 from verl.utils.ray_utils import ray_noset_visible_devices
+from verl.utils.profiler import DistProfiler, DistProfilerExtension
+from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.vllm import TensorLoRARequest, VLLMHijack, is_version_ge
 from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches, is_fp8_model, load_quanted_weights
 from verl.workers.config import HFModelConfig, RolloutConfig
@@ -108,7 +110,7 @@ def _monkey_patch_compute_logits(model, vocab_size: int):
     model.compute_logits = MethodType(compute_logits, model)
 
 
-class vLLMAsyncRollout(BaseRollout):
+class vLLMAsyncRollout(BaseRollout, DistProfilerExtension):
     """vLLMAsyncRollout is a thin wrapper of WorkerWrapperBase, which is engine in single worker process."""
 
     def __init__(
@@ -126,7 +128,16 @@ class vLLMAsyncRollout(BaseRollout):
             if self.model_config.lora_rank > 0
             else {}
         )
-
+        # vLLMAsyncRollout currently lacks performance data in the rollout stage under discrete mode.
+        # Add profiler configuration here to collect performance data during this stage.
+        profiler_config = self.config.profiler
+        if profiler_config is not None and profiler_config.tool in ["npu", "nsys", "torch", "torch_memory"]:
+            tool_config = omega_conf_to_dataclass((profiler_config.tool_config or {}).get(profiler_config.tool))
+        else:
+            tool_config = None
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=int(os.environ["RANK"]), config=profiler_config, tool_config=tool_config)
+        )
         if config.layered_summon or (config.expert_parallel_size > 1 and not _check_vllm_version_for_sleep_level()):
             logger.warning("Setting the sleep level to 1 may cause a memory overflow.")
             self.sleep_level = 1
@@ -265,6 +276,14 @@ class vLLMAsyncRollout(BaseRollout):
     def generate_sequences(self, prompts: DataProto) -> DataProto:
         """Batch generate sequences in sync mode."""
         raise NotImplementedError
+
+    async def start_async_rollout_profile(self, **kwargs):
+        """Start an async rollout profiling segment."""
+        self.profiler.start_capture_profiler(**kwargs)
+
+    async def stop_async_rollout_profile(self):
+        """Stop the async rollout profiling segment."""
+        self.profiler.stop_capture_profiler()
 
     # ==================== server mode public methods ====================
 
