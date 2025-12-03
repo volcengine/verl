@@ -34,6 +34,7 @@ import os
 import time
 import uuid
 import gc
+import threading
 from contextlib import contextmanager
 from dataclasses import asdict
 from types import MethodType
@@ -578,34 +579,51 @@ class vLLMAsyncRollout(BaseRollout):
         self.zmq_client_socket.setsockopt(zmq.SNDTIMEO, int(self.request_timeout * 1000))
 
     def _execute_method(self, method: str, non_block: bool = False, *args, **kwargs) -> Any:
-        """Execute method on vLLMMultiprocExecutor via ZMQ."""
+        """Execute method on vLLMMultiprocExecutor via ZMQ.
+
+        Args:
+            method: The method name to execute on the executor.
+            non_block: If True, execute the method in a new thread and return immediately.
+            *args: Positional arguments for the method.
+            **kwargs: Keyword arguments for the method.
+
+        Returns:
+            The result of the method execution, or None if non_block=True.
+        """
         if self.local_rank != 0:
             return None
 
         if not self.zmq_client_socket:
             raise RuntimeError("ZMQ client not initialized")
 
-        request = {
-            "method": method,
-            "non_block": non_block,
-            "args": args,
-            "kwargs": kwargs,
-            "request_id": str(uuid.uuid4()),
-        }
+        def _do_execute():
+            request = {
+                "method": method,
+                "args": args,
+                "kwargs": kwargs,
+                "request_id": str(uuid.uuid4()),
+            }
 
-        message = pickle.dumps(request)
-        self.zmq_client_socket.send(message)
+            message = pickle.dumps(request)
+            self.zmq_client_socket.send(message)
 
-        try:
-            response_message = self.zmq_client_socket.recv()
-            response = pickle.loads(response_message)
-        except zmq.Again:
-            raise TimeoutError(f"ZMQ request timeout after {self.request_timeout} seconds")
+            try:
+                response_message = self.zmq_client_socket.recv()
+                response = pickle.loads(response_message)
+            except zmq.Again:
+                raise TimeoutError(f"ZMQ request timeout after {self.request_timeout} seconds")
 
-        if response.get("status") == "error":
-            raise RuntimeError(f"vLLMMultiprocExecutor method failed: {response.get('error')}")
+            if response.get("status") == "error":
+                raise RuntimeError(f"vLLMMultiprocExecutor method failed: {response.get('error')}")
 
-        return response.get("result")
+            return response.get("result")
+
+        if non_block:
+            thread = threading.Thread(target=_do_execute, daemon=True)
+            thread.start()
+            return None
+        else:
+            return _do_execute()
 
     async def resume(self, tags: list[str]):
         """Resume rollout weights or kv cache in GPU memory.
