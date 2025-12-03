@@ -73,6 +73,12 @@ def test_load_extern_object_nonexistent_type():
         load_extern_object(TEST_MODULE_PATH, "NonExistentType")
 
 
+def test_load_extern_object_none_path():
+    """Test behavior when file path is None"""
+    with pytest.raises(AttributeError):
+        load_extern_object(None, "SomeType")
+
+
 def test_load_extern_object_invalid_module():
     """Test behavior when module has syntax errors"""
     # Create a temporary file with syntax errors
