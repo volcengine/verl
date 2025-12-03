@@ -216,6 +216,14 @@ class RolloutReplica(ABC):
         """reset kv cache in each rollout server."""
         await asyncio.gather(*[server.clear_kv_cache.remote() for server in self.servers])
 
+    async def start_profile(self, **kwargs):
+        """Start profiling on all workers."""
+        await asyncio.gather(*[worker.start_capture_profile.remote(**kwargs) for worker in self.workers])
+
+    async def stop_profile(self):
+        """Stop profiling on all workers."""
+        await asyncio.gather(*[worker.stop_capture_profile.remote() for worker in self.workers])
+
 
 class RolloutReplicaRegistry:
     """Factory for managing rollout replica implementations."""

@@ -227,6 +227,12 @@ class DistProfiler:
     def stop(self):
         return getattr(self._impl, "stop", lambda: None)()
 
+    def capture_start(self, **kwargs):
+        return getattr(self._impl, "capture_start", lambda **_: None)(**kwargs)
+
+    def capture_stop(self):
+        return getattr(self._impl, "capture_stop", lambda: None)()
+
     @classmethod
     def annotate(
         cls,
