@@ -342,7 +342,7 @@ def patch_qwen3_vl_moe_sparse_moe_block_forward():
     Monkey patch to fix a bug in transformers 4.57.3 where Qwen3VLMoeTextSparseMoeBlock.forward
     incorrectly uses torch.zeros_like(hidden_states) instead of torch.zeros_like(router_logits)
     when creating router_weights (line 148 in modeling_qwen3_vl_moe.py).
-    
+
     This is a minimal fix that only changes the problematic line while keeping the rest of the
     original implementation intact.
     """

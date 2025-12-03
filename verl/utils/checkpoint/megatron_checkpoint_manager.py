@@ -379,6 +379,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             )
             optimizer_state_dict = state_dict["optimizer"]
             self.optimizer.load_state_dict(optimizer_state_dict)
+            self.optimizer.reload_model_params()
             log_with_rank(f"Loaded optimizer checkpoint from {local_path}", rank=self.rank, logger=logger)
             if self.use_checkpoint_opt_param_scheduler:
                 assert "lr_scheduler" in state_dict, (
