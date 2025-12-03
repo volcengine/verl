@@ -157,7 +157,7 @@ class TrainingWorker(Worker):
         final_output = tu.get_tensordict(tensor_dict=model_output, non_tensor_dict={"metrics": final_metrics})
         return final_output
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=True)
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False)
     def train_batch(self, data: TensorDict) -> TensorDict:
         assert self.loss_fn is not None, "loss function can't be None when calling train_batch"
         # global_token_num should be a list of number of tokens of each seq in this batch
@@ -188,7 +188,7 @@ class TrainingWorker(Worker):
             final_output = None
         return final_output
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=True)
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False)
     def infer_batch(self, data: TensorDict) -> TensorDict:
         # add mfu calculator
         global_token_num = tu.get(data, key="global_token_num")

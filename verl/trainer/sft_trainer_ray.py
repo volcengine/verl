@@ -272,6 +272,7 @@ class SFTTrainer:
 
                 # train for on batch
                 output = self.training_client.train_batch(data)
+                output = output.get()
 
                 metrics = tu.get(output, "metrics")
 
@@ -296,6 +297,7 @@ class SFTTrainer:
                     for val_data in self.val_dataloader:
                         val_data = tu.get_tensordict(tensor_dict=val_data, non_tensor_dict=meta_info)
                         output = self.training_client.infer_batch(val_data)
+                        output = output.get()
                         metrics = tu.get(output, "metrics")
                         val_losses.append(metrics["loss"])
 
