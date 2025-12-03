@@ -237,8 +237,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
     def __init__(self, config: DictConfig, role: str, **kwargs):
         Worker.__init__(self)
         self.config = config
-        self.router_replay = self.config.actor.router_replay
-        self.enable_routing_replay = self.router_replay.mode != "disabled"
         if repatch is not None:
             # NPU MindSpeed patch, will be refactored with MindSpeedEngine.
             repatch(self.config.actor.megatron.get("override_transformer_config", {}))
@@ -288,6 +286,11 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 mesh_name="actor", dp_rank=mpu.get_data_parallel_rank(), is_collect=is_collect
             )
         only_rollout = self._is_rollout and not self._is_actor
+
+        self.enable_routing_replay = False
+        if self._is_actor:
+            self.router_replay = self.config.actor.router_replay
+            self.enable_routing_replay = self.router_replay.mode != "disabled"
 
         if self.enable_routing_replay:
             apply_router_replay_patch()
@@ -547,8 +550,8 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             override_transformer_config = OmegaConf.to_container(
                 OmegaConf.create(self.config.actor.megatron.get("override_transformer_config", {}))
             )
-            # if self.enable_routing_replay:
-            #     override_transformer_config["enable_routing_replay"] = True
+            if self.enable_routing_replay:
+                override_transformer_config["enable_routing_replay"] = True
             override_ddp_config = OmegaConf.to_container(
                 OmegaConf.create(self.config.actor.megatron.get("override_ddp_config", {}))
             )
@@ -822,7 +825,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         data.meta_info["max_token_len"] = self.config.ref.log_prob_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = self.config.ref.log_prob_use_dynamic_bsz
         data.meta_info["temperature"] = self.config.rollout.temperature
-        output, _ = self.ref_policy.compute_log_prob(data=data, calculate_entropy=False)
+        output, _, _ = self.ref_policy.compute_log_prob(data=data, calculate_entropy=False)
         output = DataProto.from_dict(tensors={"ref_log_prob": output})
         output = output.to("cpu")
         if self._ref_is_offload_param:

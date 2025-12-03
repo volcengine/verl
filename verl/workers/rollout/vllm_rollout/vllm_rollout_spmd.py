@@ -249,7 +249,9 @@ class vLLMRollout(BaseRollout):
             else:
                 logger.warning(f"cudagraph_capture_sizes must be a list, but got {cudagraph_capture_sizes}")
 
-        router_replay_args = {"enable_return_routed_experts": config.enable_rollout_routing_replay}
+        router_replay_args = {}
+        if config.enable_rollout_routing_replay:
+            router_replay_args = {"enable_return_routed_experts": config.enable_rollout_routing_replay}
 
         self.inference_engine = LLM(
             model=model_path,
