@@ -37,8 +37,7 @@ import gc
 import threading
 from contextlib import contextmanager
 from dataclasses import asdict
-from types import MethodType
-from typing import Any, Generator, Callable
+from typing import Any, Generator
 
 import cloudpickle as pickle
 import numpy as np
@@ -47,13 +46,12 @@ import torch
 import torch.distributed
 import zmq
 import zmq.asyncio
-from filelock import FileLock
 from omegaconf import ListConfig
 from tensordict import TensorDict
 from torch.distributed.device_mesh import DeviceMesh
 from torch.multiprocessing.reductions import reduce_tensor
 from vllm import LLM, SamplingParams
-from vllm.config import CompilationConfig, LoRAConfig
+from vllm.config import CompilationConfig
 from vllm.lora.request import LoRARequest
 from vllm.model_executor.model_loader.utils import process_weights_after_loading
 
@@ -509,23 +507,6 @@ class vLLMRollout(BaseRollout):
             vllm_config = self.inference_engine.llm_engine.vllm_config.model_config
             device = next(model.parameters()).device
             process_weights_after_loading(model, vllm_config, device)
-
-
-# https://github.com/vllm-project/vllm/issues/13175
-def _monkey_patch_compute_logits(model, vocab_size: int):
-    original_compute_logits = model.compute_logits
-
-    def compute_logits(
-        self,
-        *args,
-        **kwargs,
-    ) -> torch.Tensor:
-        logits = original_compute_logits(*args, **kwargs)
-        logits[..., vocab_size:] = float("-inf")
-        return logits
-
-    model.compute_logits = MethodType(compute_logits, model)
-
 
 class vLLMAsyncRollout(BaseRollout):
     """

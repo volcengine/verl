@@ -518,8 +518,8 @@ class vLLMReplica(RolloutReplica):
             gpus_per_node = self.world_size
         
         env_vars = {
-            "VERL_N_GPUS_PER_NODE": str(self.n_gpus_per_node),
             "RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "1",
+            "VERL_N_GPUS_PER_NODE": str(self.n_gpus_per_node),
             "VERL_VLLM_VOCAB_SIZE": str(len(self.model_config.tokenizer))
         }
         if self.n_gpus_per_node > self.world_size:
