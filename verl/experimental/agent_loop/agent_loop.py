@@ -819,6 +819,7 @@ class AgentLoopManager:
 
         # Fix for Issue #4147: Always call wake_up() to ensure weight sync
         # The wake_up()/sleep() methods internally check free_cache_engine
+        self.start_profile(role="rollout_generate")
         self.wake_up()
         if self.reward_model_manager:
             self.reward_model_manager.wake_up()
@@ -841,6 +842,7 @@ class AgentLoopManager:
         timing = self._performance_metrics(metrics, output)
 
         output.meta_info = {"timing": timing, **outputs[0].meta_info}
+        self.stop_profile()
         return output
 
     def _performance_metrics(self, metrics: list[list[dict[str, str]]], output: DataProto) -> dict[str, float]:
@@ -876,6 +878,14 @@ class AgentLoopManager:
     def clear_kv_cache(self):
         """Clear all rollout kv cache, but don`t sleep."""
         self._run_all([replica.clear_kv_cache() for replica in self.rollout_replicas])
+
+    def start_profile(self, **kwargs):
+        """Start profiling on all rollout replicas."""
+        self._run_all([replica.start_profile(**kwargs) for replica in self.rollout_replicas])
+
+    def stop_profile(self):
+        """Stop profiling on all rollout replicas."""
+        self._run_all([replica.stop_profile() for replica in self.rollout_replicas])
 
     def _run_all(self, tasks: list[asyncio.Task]):
         async def run_all():

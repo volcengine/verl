@@ -325,3 +325,9 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
 
     async def clear_kv_cache(self):
         await asyncio.gather(*[replica.clear_kv_cache() for replica in self.rollout_replicas])
+
+    async def start_profile(self, **kwargs):
+        await asyncio.gather(*[replica.start_profile(**kwargs) for replica in self.rollout_replicas])
+
+    async def stop_profile(self):
+        await asyncio.gather(*[replica.stop_profile() for replica in self.rollout_replicas])
