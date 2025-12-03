@@ -45,6 +45,7 @@ from vllm.v1.executor.abstract import Executor
 
 from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
+from verl.utils.profiler.profile import DistProfiler
 from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
@@ -211,6 +212,16 @@ class vLLMHttpServerBase:
         # used for http server
         self._server_address = ray.util.get_node_ip_address().strip("[]")
         self._server_port = None
+
+        # used for vllm profiler
+        profiler_config = self.config.profiler
+        if profiler_config is not None and profiler_config.tool in ["torch", "npu"]:
+            tool_config = omega_conf_to_dataclass((profiler_config.tool_config or {}).get(profiler_config.tool))
+        else:
+            logger.warning(f"agent loop only support torch and npu profiler, got {profiler_config.tool}")
+            tool_config = None
+        self.profiler_extension = DistProfiler(self.replica_rank, config=profiler_config, tool_config=tool_config)
+        self.profiler_dir = os.environ.pop("VLLM_TORCH_PROFILER_DIR", None)
 
         # used for data parallel: --data-parallel-address, --data-parallel-rpc-port
         if self.node_rank == 0:
@@ -567,6 +578,14 @@ class vLLMHttpServerBase:
                 await self.engine.sleep(level=1)
         elif self.rollout_mode == RolloutMode.STANDALONE:
             logger.info("skip sleep in standalone mode")
+
+    async def start_profiler(self, **kwargs):
+        if self.profiler_dir and self.profiler_extension.check_enable() and self.profiler_extension.check_this_rank():
+            await self.engine.start_profile(**kwargs)
+
+    async def stop_profiler(self):
+        if self.profiler_dir and self.profiler_extension.check_enable() and self.profiler_extension.check_this_rank():
+            await self.engine.stop_profile()
 
     async def clear_kv_cache(self):
         if self.node_rank == 0:

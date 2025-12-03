@@ -1065,24 +1065,34 @@ class RayPPOTrainer:
     def _start_profiling(self, do_profile: bool) -> None:
         """Start profiling for all worker groups if profiling is enabled."""
         if do_profile:
-            self.actor_rollout_wg.start_profile(role="e2e", profile_step=self.global_steps)
+            self.async_rollout_manager.enable_profiler_this_step()
+            self.actor_rollout_wg.enable_profiler_this_step()
+            self.actor_rollout_wg.start_profiler(role="e2e", profile_step=self.global_steps)
             if self.use_reference_policy:
-                self.ref_policy_wg.start_profile(profile_step=self.global_steps)
+                self.ref_policy_wg.enable_profiler_this_step()
+                self.ref_policy_wg.start_profiler(profile_step=self.global_steps)
             if self.use_critic:
-                self.critic_wg.start_profile(profile_step=self.global_steps)
+                self.critic_wg.enable_profiler_this_step()
+                self.critic_wg.start_profiler(profile_step=self.global_steps)
             if self.use_rm and not self.use_reward_loop:
-                self.rm_wg.start_profile(profile_step=self.global_steps)
+                self.rm_wg.enable_profiler_this_step()
+                self.rm_wg.start_profiler(profile_step=self.global_steps)
 
     def _stop_profiling(self, do_profile: bool) -> None:
         """Stop profiling for all worker groups if profiling is enabled."""
         if do_profile:
-            self.actor_rollout_wg.stop_profile()
+            self.async_rollout_manager.disable_profiler_this_step()
+            self.actor_rollout_wg.disable_profiler_this_step()
+            self.actor_rollout_wg.stop_profiler()
             if self.use_reference_policy:
-                self.ref_policy_wg.stop_profile()
+                self.ref_policy_wg.disable_profiler_this_step()
+                self.ref_policy_wg.stop_profiler()
             if self.use_critic:
-                self.critic_wg.stop_profile()
+                self.critic_wg.disable_profiler_this_step()
+                self.critic_wg.stop_profiler()
             if self.use_rm and not self.use_reward_loop:
-                self.rm_wg.stop_profile()
+                self.rm_wg.disable_profiler_this_step()
+                self.rm_wg.stop_profiler()
 
     def _get_dp_size(self, worker_group, role: str) -> int:
         """Get data parallel size from worker group dispatch info.

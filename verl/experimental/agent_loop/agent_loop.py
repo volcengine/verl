@@ -855,6 +855,7 @@ class AgentLoopManager:
         self.worker_group = worker_group
         self.reward_model_manager = None
         self.reward_router_address = None
+        self._profiler_this_step = False
         if self.config.reward_model.enable and self.config.reward_model.enable_resource_pool:
             from verl.experimental.reward_loop import RewardModelManager
 
@@ -942,6 +943,8 @@ class AgentLoopManager:
 
         # Fix for Issue #4147: Always call wake_up() to ensure weight sync
         # The wake_up()/sleep() methods internally check free_cache_engine
+        if self._profiler_this_step:
+            self.start_profiler()
         self.wake_up()
         if self.reward_model_manager:
             self.reward_model_manager.wake_up()
@@ -964,6 +967,8 @@ class AgentLoopManager:
         timing = self._performance_metrics(metrics, output)
 
         output.meta_info = {"timing": timing, **outputs[0].meta_info}
+        if self._profiler_this_step:
+            self.stop_profiler()
         return output
 
     def _performance_metrics(self, metrics: list[list[dict[str, str]]], output: DataProto) -> dict[str, float]:
@@ -999,6 +1004,20 @@ class AgentLoopManager:
     def clear_kv_cache(self):
         """Clear all rollout kv cache, but don`t sleep."""
         self._run_all([replica.clear_kv_cache() for replica in self.rollout_replicas])
+
+    def start_profiler(self, **kwargs):
+        """Start profiling on all rollout replicas."""
+        self._run_all([replica.start_profiler(**kwargs) for replica in self.rollout_replicas])
+
+    def stop_profiler(self):
+        """Stop profiling on all rollout replicas."""
+        self._run_all([replica.stop_profiler() for replica in self.rollout_replicas])
+
+    def enable_profiler_this_step(self):
+        self._profiler_this_step = True
+
+    def disable_profiler_this_step(self):
+        self._profiler_this_step = False
 
     def _run_all(self, tasks: list[asyncio.Task]):
         async def run_all():

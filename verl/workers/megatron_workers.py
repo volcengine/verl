@@ -921,16 +921,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         async_calls.maybe_finalize_async_calls(blocking=blocking)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def start_profile(self, **kwargs) -> None:
-        """Start profiling for the current rank in the current training step."""
-        self.profiler.start(**kwargs)
-
-    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def stop_profile(self) -> None:
-        """Stop profiling for the current rank in the current training step."""
-        self.profiler.stop()
-
-    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def dump_memory_snapshot(self, tag: str = "manual", sub_dir: str = None) -> None:
         """Manually trigger a CUDA memory snapshot dump on all ranks."""
         # Memory snapshot is now handled by the profiler system
