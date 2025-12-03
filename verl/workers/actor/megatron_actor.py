@@ -570,7 +570,11 @@ class MegatronPPOActor(BasePPOActor):
             attention_mask = batch["attention_mask"].to(bool)
             position_ids = batch["position_ids"]
 
-            vp_rank = unwrap_model(model).vp_stage
+            unwrapped_model = unwrap_model(model)
+            if hasattr(unwrapped_model, "vp_stage"):
+                vp_rank = unwrapped_model.vp_stage
+            else:
+                vp_rank = 0
 
             multi_modal_inputs = {}
             if "multi_modal_inputs" in batch:

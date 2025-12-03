@@ -28,7 +28,10 @@ from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.transformer.transformer_layer import get_transformer_layer_offset
 
 from verl.models.mcore.util import postprocess_packed_seqs, preprocess_packed_seqs
+from verl.utils.device import get_device_name
 from verl.utils.megatron.router_replay_patch import RouterReplay, RouterReplayAction
+
+device_name = get_device_name()
 
 
 # from megatron.core.transformer.transformer_block import get_num_layers_to_build
@@ -184,7 +187,7 @@ def merge_router_topk_indices(attention_mask, input_ids, mini_layer_topk_idx_lis
             layers_topk_idx.append(router.recorded_topk_idx.to(torch.uint8))  # dynamic_bs, topk
 
         # layer_num, dynamic_bs, topk  -> dynamic_bs, layer_num, topk
-        layers_topk_idx = torch.stack(layers_topk_idx).permute(1, 0, 2).cuda()
+        layers_topk_idx = torch.stack(layers_topk_idx).permute(1, 0, 2).to(device_name)
         # dynamic_bs, layer_num, topk -> 1, dynamic_bs_all, layer_num, topk
         layers_topk_idx = (
             gather_from_sequence_parallel_region(layers_topk_idx, tensor_parallel_output_grad=False)
@@ -225,7 +228,7 @@ def set_router_replay_data(layers_topk_idx, attention_mask, tf_config, vp_rank=N
 
         # 1, dynamic_bs_split, layer_num, topk
         layers_topk_idx_rmpad_split = scatter_to_sequence_parallel_region(
-            layers_topk_idx_rmpad.cuda().squeeze(dim=0)
+            layers_topk_idx_rmpad.to(device_name).squeeze(dim=0)
         ).unsqueeze(dim=0)
 
         # dynamic_bs_split, layer_num, topk -> layer_num, dynamic_bs_split, topk
@@ -327,7 +330,7 @@ def pp_gather(local_layers_router_map, tf_config):
 
     pp_group = mpu.get_pipeline_model_parallel_group()
     world_size = torch.distributed.get_world_size(pp_group)
-    local_layers_router_map = local_layers_router_map.cuda()
+    local_layers_router_map = local_layers_router_map.to(device_name)
     layers_topk_idx_global_list = [
         torch.empty(
             size=local_layers_router_map.shape,
