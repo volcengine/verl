@@ -563,6 +563,7 @@ class vLLMAsyncRollout(BaseRollout):
         self.zmq_context = zmq.Context()
         self.zmq_address_counter = 0
         self.zmq_handles: dict[str, str] = None
+        self._execute_lock = threading.Lock()  # Lock for synchronizing _execute_method calls
 
     def _init_zmq_client(self):
         """Initialize ZMQ client connection (only for local_rank=0 instance)."""
@@ -597,26 +598,30 @@ class vLLMAsyncRollout(BaseRollout):
             raise RuntimeError("ZMQ client not initialized")
 
         def _do_execute():
-            request = {
-                "method": method,
-                "args": args,
-                "kwargs": kwargs,
-                "request_id": str(uuid.uuid4()),
-            }
+            # Use lock to ensure only one send-recv pair executes at a time.
+            # ZMQ REQ/REP pattern requires strict send-recv-send-recv ordering;
+            # concurrent access would violate this and cause errors.
+            with self._execute_lock:
+                request = {
+                    "method": method,
+                    "args": args,
+                    "kwargs": kwargs,
+                    "request_id": str(uuid.uuid4()),
+                }
 
-            message = pickle.dumps(request)
-            self.zmq_client_socket.send(message)
+                message = pickle.dumps(request)
+                self.zmq_client_socket.send(message)
 
-            try:
-                response_message = self.zmq_client_socket.recv()
-                response = pickle.loads(response_message)
-            except zmq.Again:
-                raise TimeoutError(f"ZMQ request timeout after {self.request_timeout} seconds")
+                try:
+                    response_message = self.zmq_client_socket.recv()
+                    response = pickle.loads(response_message)
+                except zmq.Again:
+                    raise TimeoutError(f"ZMQ request timeout after {self.request_timeout} seconds")
 
-            if response.get("status") == "error":
-                raise RuntimeError(f"vLLMMultiprocExecutor method failed: {response.get('error')}")
+                if response.get("status") == "error":
+                    raise RuntimeError(f"vLLMMultiprocExecutor method failed: {response.get('error')}")
 
-            return response.get("result")
+                return response.get("result")
 
         if non_block:
             thread = threading.Thread(target=_do_execute, daemon=True)
