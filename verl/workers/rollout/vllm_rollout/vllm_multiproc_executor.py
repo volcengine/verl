@@ -343,12 +343,18 @@ class vLLMMultiprocExecutor(MultiprocExecutor):
     def _handle_zmq_request(self, request: dict) -> dict:
         """Handle ZMQ requests from vLLMAsyncRollout."""
         method = request.get("method")
+        non_block = request.get("non_block")
         args = request.get("args", ())
         kwargs = request.get("kwargs", {})
 
         try:
             # Use collective_rpc to distribute the method call to workers
-            results = self.collective_rpc(method=method, args=args, kwargs=kwargs)
+            results = self.collective_rpc(
+                method=method, 
+                non_block=non_block, 
+                args=args, 
+                kwargs=kwargs
+            )
             return {"status": "success", "result": results}
 
         except Exception as e:

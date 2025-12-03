@@ -577,7 +577,7 @@ class vLLMAsyncRollout(BaseRollout):
         self.zmq_client_socket.setsockopt(zmq.RCVTIMEO, int(self.request_timeout * 1000))
         self.zmq_client_socket.setsockopt(zmq.SNDTIMEO, int(self.request_timeout * 1000))
 
-    def _execute_method(self, method: str, *args, **kwargs) -> Any:
+    def _execute_method(self, method: str, non_block: bool = False, *args, **kwargs) -> Any:
         """Execute method on vLLMMultiprocExecutor via ZMQ."""
         if self.local_rank != 0:
             return None
@@ -587,6 +587,7 @@ class vLLMAsyncRollout(BaseRollout):
 
         request = {
             "method": method,
+            "non_block": non_block,
             "args": args,
             "kwargs": kwargs,
             "request_id": str(uuid.uuid4()),
@@ -628,12 +629,14 @@ class vLLMAsyncRollout(BaseRollout):
         if peft_config and base_sync_done:
             self._execute_method(
                 "update_lora_weights_per_tensor_from_ipc",
+                non_block=True,
                 peft_config=peft_config,
                 zmq_handles=self.zmq_handles,
             )
         else:
             self._execute_method(
                 "update_weights_per_tensor_from_ipc",
+                non_block=True,
                 zmq_handles=self.zmq_handles,
             )
         await self._update_weights_per_tensor(weights)
