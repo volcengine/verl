@@ -20,7 +20,7 @@ import os
 import sys
 import warnings
 from functools import partial
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import ray
 import torch
@@ -152,8 +152,11 @@ def load_reward_manager(
             f"Module path is required when {reward_manager_cfg.source=}, but got {module_cfg=}"
         )
         reward_manager_cls_name = reward_manager_cfg.name
-        reward_manager_cls = load_extern_object(
-            module_path=module_cfg.path, object_name=reward_manager_cls_name, module_name=module_cfg.name
+        reward_manager_cls = cast(
+            type[AbstractRewardManager],
+            load_extern_object(
+                module_path=module_cfg.path, object_name=reward_manager_cls_name, module_name=module_cfg.name
+            ),
         )
 
     if compute_score is None:
