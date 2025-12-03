@@ -20,6 +20,7 @@ import torch
 from torch.distributed.device_mesh import DeviceMesh
 
 from verl import DataProto
+from verl.utils.config import omega_conf_to_dataclass
 from verl.workers.config import HFModelConfig, RolloutConfig
 
 __all__ = ["BaseRollout"]
@@ -34,8 +35,8 @@ class BaseRollout(ABC):
         model_config: HFModelConfig,
         device_mesh: DeviceMesh,
     ):
-        self.config = config
-        self.model_config = model_config
+        self.config = omega_conf_to_dataclass(config)
+        self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
         self.device_mesh = device_mesh
 
     @abstractmethod

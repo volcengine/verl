@@ -114,7 +114,7 @@ class MultiTurnSFTDataset(Dataset):
             print(f"selected {self.max_samples} random samples out of {total}")
 
         # Extract messages list from dataframe
-        self.messages = self.dataframe[self.messages_key].apply(series_to_item).tolist()
+        self.messages = self.dataframe[self.messages_key].apply(convert_nested_value_to_list_recursive).tolist()
 
         # Extract tools list from dataframe
         if self.tools_key in self.dataframe.columns:

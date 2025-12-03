@@ -19,7 +19,7 @@ import os
 import sys
 import warnings
 from functools import partial
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import ray
 import torch
@@ -30,6 +30,14 @@ from verl.utils.reward_score import default_compute_score
 from verl.utils.transferqueue_utils import tqbridge
 from verl.workers.reward_manager import get_reward_manager_cls
 from verl.workers.reward_manager.abstract import AbstractRewardManager, RawRewardFn
+
+if TYPE_CHECKING:
+    from verl.experimental.reward.reward_loop.base import RewardLoopManagerBase
+else:
+    try:
+        from verl.experimental.reward.reward_loop.base import RewardLoopManagerBase
+    except ImportError:
+        RewardLoopManagerBase = None  # type: ignore[assignment,misc]
 
 
 def _call_with_kwargs(raw_fn, extra_kwargs, *args, **kwargs):
@@ -157,13 +165,25 @@ def load_reward_manager(
             final_compute_score = default_compute_score
 
     # Instantiate and return the reward manager with the specified parameters
-    return reward_manager_cls(
-        tokenizer=tokenizer,
-        num_examine=num_examine,
-        compute_score=final_compute_score,
-        reward_fn_key=config.data.reward_fn_key,
-        **reward_kwargs,
-    )
+    # RewardLoopManagerBase subclasses (like RateLimitedRewardLoopManager) don't accept num_examine
+    # while AbstractRewardManager subclasses (like NaiveRewardManager) do
+    if RewardLoopManagerBase is not None and issubclass(reward_manager_cls, RewardLoopManagerBase):
+        # RewardLoopManagerBase-based managers use a different signature
+        return reward_manager_cls(
+            config=config,
+            tokenizer=tokenizer,
+            compute_score=final_compute_score,
+            **reward_kwargs,
+        )
+    else:
+        # Traditional AbstractRewardManager-based managers
+        return reward_manager_cls(
+            tokenizer=tokenizer,
+            num_examine=num_examine,
+            compute_score=final_compute_score,
+            reward_fn_key=config.data.reward_fn_key,
+            **reward_kwargs,
+        )
 
 
 @tqbridge(put_data=False)

@@ -78,6 +78,8 @@ verl is fast with:
    algo/opo.md
    algo/baseline.md
    algo/gpg.md
+   algo/rollout_corr.md
+   algo/rollout_corr_math.md
 
 .. toctree::
    :maxdepth: 1
@@ -123,12 +125,13 @@ verl is fast with:
    examples/sandbox_fusion_example
    advance/rollout_trace.rst
    advance/rollout_skip.rst
-   advance/rollout_is.md
    advance/one_step_off
    advance/agent_loop
    advance/reward_loop
    advance/fully_async
    data/transfer_queue.md
+   advance/grafana_prometheus.md
+   advance/fp8.md
 
 .. toctree::
    :maxdepth: 1
@@ -137,6 +140,7 @@ verl is fast with:
    amd_tutorial/amd_build_dockerfile_page.rst
    amd_tutorial/amd_vllm_page.rst
    ascend_tutorial/ascend_quick_start.rst
+   ascend_tutorial/ascend_consistency.rst
    ascend_tutorial/ascend_profiling_zh.rst
    ascend_tutorial/ascend_profiling_en.rst
    ascend_tutorial/dockerfile_build_guidance.rst

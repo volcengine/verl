@@ -20,7 +20,7 @@ Refer to the table below to reproduce RL training from different pre-trained che
 | NVIDIA GPU  | google/gemma-2-2b-it             | hf checkpoint     | 23.9         | [Huggingface](https://huggingface.co/google/gemma-2-2b-it#benchmark-results) |
 | NVIDIA GPU  | google/gemma-2-2b-it             | SFT               | 52.06        | [command and logs](https://github.com/eric-haibin-lin/verl-data/blob/experiments/gsm8k/gemma-2-2b-it-sft-0.411.log) |
 | NVIDIA GPU  | google/gemma-2-2b-it             | SFT + PPO         | 64.02        | [command and logs](https://github.com/eric-haibin-lin/verl-data/blob/experiments/gsm8k/gemma-2-2b-it-ppo-bsz512_4-prompt1024-resp-512-0.640.log), [wandb](https://api.wandb.ai/links/verl-team/h7ux8602) |
-| NVIDIA GPU  | Qwen/Qwen2.5-0.5B-Instruct       | hf checkpoint     | 36.4         | [Qwen blog](https://qwenlm.github.io/blog/qwen2.5-llm/) |
+| NVIDIA GPU  | Qwen/Qwen2.5-0.5B-Instruct       | hf checkpoint     | 49.6         | [Qwen blog](https://qwen.ai/blog?id=qwen2.5-llm) |
 | NVIDIA GPU  | Qwen/Qwen2.5-0.5B-Instruct       | PPO               | 56.7         | [command and log](https://github.com/eric-haibin-lin/verl-data/blob/experiments/gsm8k/Qwen2.5-0.5B-bsz256_2-prompt1024-resp512-0.567.log) |
 | NVIDIA GPU  | Qwen/Qwen2.5-0.5B-Instruct       | PRIME             | 58.7         | [script](https://github.com/volcengine/verl/blob/main/recipe/prime/run_prime_qwen.sh), [wandb](https://api.wandb.ai/links/zefan-wang-thu-tsinghua-university/rxd1btvb) |
 | NVIDIA GPU  | Qwen/Qwen2.5-0.5B-Instruct       | GRPO-LoRA         | 54.3         | [command and logs](https://github.com/eric-haibin-lin/verl-data/blob/experiments/gsm8k/Qwen2.5-0.5B-bsz64_2-prompt512-resp1024-lorarank32-score0.543.log)|
@@ -33,7 +33,7 @@ Refer to the table below to reproduce RL training from different pre-trained che
 | NVIDIA GPU  | Qwen/Qwen2.5-7B-Instruct         | ReMax             | 97           | [script](https://github.com/eric-haibin-lin/verl/blob/main/examples/remax_trainer/run_qwen2.5-3b_seq_balance.sh), [wandb](https://wandb.ai/liziniu1997/verl_remax_example_gsm8k/runs/vxl10pln) |
 | NVIDIA GPU  | Qwen/Qwen2.5-7B-Instruct         | SPPO              | 65.6 (MATH)  | [SPPO script](https://github.com/volcengine/verl/tree/main/recipe/sppo/README.md) |
 | NVIDIA GPU  | Qwen/Qwen2.5-7B-Instruct         | GRPO-LoRA         | 93.4         | [command and logs](https://github.com/eric-haibin-lin/verl-data/blob/experiments/gsm8k/Qwen2.5-7B-bsz64_8-prompt512-resp1024-lorarank32-score0.934.log)|
-| NVIDIA GPU  | Mixtral-8x22B-Instruct-v0.1      | Instruct model    | 83.7         | [Qwen Blog](https://qwenlm.github.io/blog/qwen2.5-llm/) |
+| NVIDIA GPU  | Mixtral-8x22B-Instruct-v0.1      | Instruct model    | 83.7         | [Qwen Blog](https://qwen.ai/blog?id=qwen2.5-llm) |
 | NVIDIA GPU  | Mixtral-8x22B-Instruct-v0.1      | RLOO (Megatron)   | 92.3         | [wandb](https://api.wandb.ai/links/ppo_dev/sbuiuf2d) |
 | NVIDIA GPU  | Qwen/Qwen2.5-7B-Instruct         | SPIN              | 92           | [script](https://github.com/volcengine/verl/tree/main/recipe/spin/README.md) |
 | NVIDIA GPU  | Qwen/Qwen2-7B-Instruct           | GPG               | 88           | [log](https://github.com/diqiuzhuanzhuan/verldata/blob/main/run_logs/qwen2-7b_math.log), [wandb](https://wandb.ai/diqiuzhuanzhuan/verl_gpg_example_gsm8k_math/runs/ab86c4va) |

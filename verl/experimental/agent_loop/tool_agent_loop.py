@@ -27,6 +27,7 @@ from verl.interactions.base import BaseInteraction
 from verl.interactions.utils.interaction_registry import initialize_interactions_from_config
 from verl.tools.schemas import ToolResponse
 from verl.tools.utils.tool_registry import initialize_tools_from_config
+from verl.utils.chat_template import initialize_system_prompt
 from verl.utils.profiler import simple_timer
 from verl.utils.rollout_trace import rollout_trace_op
 
@@ -76,6 +77,9 @@ class AgentData:
         # Temporary state for tool calls
         self.tool_calls: list[FunctionCall] = []
 
+        # Extra fields for dynamic addition
+        self.extra_fields: dict[str, Any] = {}
+
 
 @register("tool_agent")
 class ToolAgentLoop(AgentLoopBase):
@@ -105,9 +109,8 @@ class ToolAgentLoop(AgentLoopBase):
         cls.apply_chat_template_kwargs = config.data.get("apply_chat_template_kwargs", {})
         cls.prompt_length = config.actor_rollout_ref.rollout.prompt_length
         cls.response_length = config.actor_rollout_ref.rollout.response_length
-        cls.system_prompt = tokenizer.apply_chat_template(
-            [{}], add_generation_prompt=False, tokenize=True, **cls.apply_chat_template_kwargs
-        )
+        cls.system_prompt = initialize_system_prompt(cls.tokenizer, **cls.apply_chat_template_kwargs)
+
         # Initialize interactions from config file
         cls.interaction_config_file = config.actor_rollout_ref.rollout.multi_turn.interaction_config_path
         if cls.interaction_config_file:
@@ -299,22 +302,15 @@ class ToolAgentLoop(AgentLoopBase):
 
             # Handle image data
             if tool_response.image:
-                if agent_data.image_data is None:
-                    agent_data.image_data = []
-                elif not isinstance(agent_data.image_data, list):
-                    agent_data.image_data = [agent_data.image_data]
-
                 # Add new image data
                 if isinstance(tool_response.image, list):
                     # Ensure all elements in the list are valid image objects
                     for img in tool_response.image:
                         if img is not None:  # Add a check to ensure the image is not None
-                            agent_data.image_data.append(img)
                             new_images_this_turn.append(img)  # Using local variable
                 else:
                     # Ensure the image is not None
                     if tool_response.image is not None:
-                        agent_data.image_data.append(tool_response.image)
                         new_images_this_turn.append(tool_response.image)  # Using local variable
 
             # Handle video data
@@ -367,6 +363,15 @@ class ToolAgentLoop(AgentLoopBase):
         if len(agent_data.response_mask) + len(response_ids) >= self.response_length:
             return AgentState.TERMINATED
         # Update prompt_ids and response_mask
+
+        if new_images_this_turn:
+            if agent_data.image_data is None:
+                agent_data.image_data = []
+            elif not isinstance(agent_data.image_data, list):
+                agent_data.image_data = [agent_data.image_data]
+            for img in new_images_this_turn:
+                agent_data.image_data.append(img)
+
         agent_data.prompt_ids += response_ids
         agent_data.response_mask += [0] * len(response_ids)
         if agent_data.response_logprobs:

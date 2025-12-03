@@ -175,24 +175,102 @@ def make_megatron_module(
     tf_config: TransformerConfig,
     hf_config: PretrainedConfig,
     bridge: Any = None,
+    provider: Any = None,
     override_model_config: dict[str, Any] = None,
     override_ddp_config: dict[str, Any] = None,
+    peft_cls: Any = None,
+    peft_config: Any = None,
 ):
     if override_model_config is None:
         override_model_config = {}
 
     if bridge is not None:
-        from verl.models.mcore.mbridge import freeze_moe_router, make_value_model
+        if provider is None:
+            from verl.models.mcore.mbridge import freeze_moe_router, make_value_model
+
+            value_model_hook = make_value_model
+        else:
+            from verl.models.mcore.bridge import freeze_moe_router, make_value_model
+
+            value_model_hook = make_value_model(hf_config.hidden_size, provider.sequence_parallel)
 
         post_model_creation_callbacks = []
         if wrap_config.is_value_model:
-            post_model_creation_callbacks.append(make_value_model)
+            post_model_creation_callbacks.append(value_model_hook)
         if override_model_config.get("moe_config", {}).get("freeze_moe_router", False):
             post_model_creation_callbacks.append(freeze_moe_router)
-        return bridge.get_model(
-            post_model_creation_callbacks=post_model_creation_callbacks,
-            wrap_with_ddp=wrap_config.wrap_with_ddp,
-        )
+        if provider is not None:
+            # When using PEFT with Megatron-Bridge, we must apply PEFT transformation
+            # BEFORE wrapping the model in DDP. This is required because:
+            # 1. PEFT freezes base model parameters (requires_grad=False)
+            # 2. DDP must be aware of which parameters are trainable when building gradient buckets
+            # 3. The distributed optimizer must only track trainable (adapter) parameters
+            # See Megatron-Bridge docs: training/peft.md
+
+            # Register PEFT transformation as pre-wrap hook if peft_cls is specified
+            # This must happen BEFORE DDP wrapping to avoid KeyError with frozen parameters
+            if peft_cls is not None:
+                from verl.utils.megatron_peft_utils import load_adapter_checkpoint, print_adapter_info
+
+                def peft_pre_wrap_hook(model):
+                    """Pre-wrap hook that applies PEFT transformation."""
+                    # Apply PEFT transformation - this will freeze base model and add adapters
+                    # The PEFT callable handles both freezing and transformation
+                    transformed_model = peft_cls(model, training=True)
+
+                    # Set parameters to save (adapter-only checkpointing)
+                    peft_cls.set_params_to_save(transformed_model)
+
+                    # Load adapter weights if adapter_path is specified
+                    adapter_path = getattr(peft_config, "adapter_path", None)
+                    if adapter_path is not None and adapter_path:
+                        print(f"Loading adapter weights from: {adapter_path}")
+                        load_adapter_checkpoint(transformed_model, adapter_path)
+
+                    # Print PEFT statistics
+                    if torch.distributed.get_rank() == 0:
+                        print_adapter_info(transformed_model)
+
+                    return transformed_model
+
+                provider.register_pre_wrap_hook(peft_pre_wrap_hook)
+
+            # Register post-creation callbacks (make_value_model, freeze_moe_router) as pre-wrap hooks
+            for callback in post_model_creation_callbacks:
+                provider.register_pre_wrap_hook(callback)
+
+            # Create DDP config if needed
+            ddp_config = None
+            if wrap_config.wrap_with_ddp:
+                from megatron.bridge.training.config import DistributedDataParallelConfig
+
+                ddp_config_dict = {
+                    "use_distributed_optimizer": wrap_config.use_distributed_optimizer,
+                }
+                # Apply any DDP config overrides
+                if override_ddp_config is not None:
+                    ddp_config_dict.update(override_ddp_config)
+
+                ddp_config = DistributedDataParallelConfig(**ddp_config_dict)
+                ddp_config.finalize()
+
+            # Now call provide_distributed_model with all hooks registered
+            # Hooks will be applied automatically before DDP wrapping
+            model = provider.provide_distributed_model(
+                wrap_with_ddp=wrap_config.wrap_with_ddp,
+                ddp_config=ddp_config,
+            )
+
+            # Extract TransformerConfig from the created model
+            tf_config = get_model_config(model[0] if isinstance(model, list) else model)
+        else:
+            model = bridge.get_model(
+                post_model_creation_callbacks=post_model_creation_callbacks,
+                wrap_with_ddp=wrap_config.wrap_with_ddp,
+                fp16=tf_config.fp16,
+                bf16=tf_config.bf16,
+                ddp_config=override_ddp_config,
+            )
     else:
 
         def megatron_model_provider(pre_process, post_process, vp_stage=None):
@@ -211,12 +289,13 @@ def make_megatron_module(
             parallel_model.to(get_device_name())
             return parallel_model
 
-        return get_model(
+        model = get_model(
             megatron_model_provider,
             wrap_with_ddp=wrap_config.wrap_with_ddp,
             use_distributed_optimizer=wrap_config.use_distributed_optimizer,
             override_ddp_config=override_ddp_config,
         )
+    return model, tf_config
 
 
 ALL_MODULE_WRAPPER_CLASSNAMES = (DDP, Float16Module)
@@ -1100,3 +1179,41 @@ def get_transformer_layer_offset(pipeline_rank, vp_stage, config: TransformerCon
     else:
         offset = 0
     return offset
+
+
+def register_megatron_training_hooks(model: list[torch.nn.Module], optimizer):
+    from megatron.core.distributed import finalize_model_grads
+    from megatron.core.utils import get_model_config
+
+    try:
+        from megatron.core.distributed.fsdp.mcore_fsdp_adapter import FullyShardedDataParallel as megatron_FSDP
+    except ImportError:
+        megatron_FSDP = DDP
+
+    # register some callbacks for megatron training, following https://github.com/NVIDIA/Megatron-LM/blob/core_v0.15.0rc7/megatron/training/training.py#L2039-L2057
+    for one_model in model:
+        config = get_model_config(one_model)
+        config.grad_scale_func = optimizer.scale_loss
+        config.finalize_model_grads_func = finalize_model_grads
+
+        overlap_param_gather = getattr(optimizer.config, "overlap_param_gather", False)
+        overlap_grad_reduce = getattr(one_model.ddp_config, "overlap_grad_reduce", False)
+        align_grad_reduce = True  # default to True, seldom to be false
+        align_param_gather = getattr(one_model.ddp_config, "align_param_gather", False)
+
+        if isinstance(model[0], megatron_FSDP | DDP) and overlap_grad_reduce:
+            assert config.no_sync_func is None, (
+                "When overlap_grad_reduce is True, config.no_sync_func must be None; "
+                "a custom no_sync_func is not supported when overlapping grad-reduce"
+            )
+            config.no_sync_func = [model_chunk.no_sync for model_chunk in model]
+            if len(model) == 1:
+                config.no_sync_func = config.no_sync_func[0]
+            if align_grad_reduce:
+                config.grad_sync_func = [model_chunk.start_grad_sync for model_chunk in model]
+                if len(model) == 1:
+                    config.grad_sync_func = config.grad_sync_func[0]
+        if overlap_param_gather and align_param_gather:
+            config.param_sync_func = [model_chunk.start_param_sync for model_chunk in model]
+            if len(model) == 1:
+                config.param_sync_func = config.param_sync_func[0]

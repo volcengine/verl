@@ -7,6 +7,9 @@
 # Target class for this configuration
 _target_: verl.workers.config.ActorConfig
 
+# Number of rollouts per update (mirrors actor rollout_n)
+rollout_n: ${oc.select:actor_rollout_ref.rollout.n,1}
+
 # the abstract actor configs
 # fsdp, fsdp2 or megatron. must be set.
 strategy: ???
@@ -71,11 +74,18 @@ policy_loss:
 # Constant C in Dual-clip PPO; clips when advantage < 0 and ratio > C
 clip_ratio_c: 3.0
 
-# Loss aggregation mode: "token-mean", "seq-mean-token-sum", or "seq-mean-token-mean"
+# Loss aggregation mode: "token-mean", "seq-mean-token-sum", "seq-mean-token-mean", or "seq-mean-token-sum-norm"
 loss_agg_mode: token-mean
+
+# Scale factor for "seq-mean-token-sum-norm" loss aggregation mode.
+# If null, uses response_length. Set to a constant to ensure consistent normalization.
+loss_scale_factor: null
 
 # Entropy regularization coefficient in PPO loss
 entropy_coeff: 0
+
+# When true, the actor forward will request entropy from the model
+calculate_entropy: false
 
 # Whether to use KL loss instead of KL reward penalty. True for GRPO
 use_kl_loss: false

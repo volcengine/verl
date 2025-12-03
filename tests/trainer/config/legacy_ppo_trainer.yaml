@@ -57,7 +57,7 @@ data:
   return_raw_input_ids: False
 
   # Whether to return the original chat (prompt) without applying chat template.
-  return_raw_chat: False
+  return_raw_chat: True
 
   # Whether to return the full prompt with chat template.
   return_full_prompt: False
@@ -254,8 +254,12 @@ actor_rollout_ref:
     # Constant C in Dual-clip PPO; clips when advantage < 0 and ratio > C
     clip_ratio_c: 3.0
 
-    # Loss aggregation mode: "token-mean", "seq-mean-token-sum", or "seq-mean-token-mean"
+    # Loss aggregation mode: "token-mean", "seq-mean-token-sum", "seq-mean-token-mean", or "seq-mean-token-sum-norm"
     loss_agg_mode: token-mean
+
+    # Scale factor for "seq-mean-token-sum-norm" loss aggregation mode.
+    # If null, uses response_length. Set to a constant to ensure consistent normalization.
+    loss_scale_factor: null
 
     # Entropy regularization coefficient in PPO loss
     entropy_coeff: 0
@@ -411,7 +415,7 @@ actor_rollout_ref:
     name: vllm
 
     # sync: LLM, async: AsyncLLM
-    mode: sync
+    mode: async
 
     # Sampling temperature for rollout.
     temperature: 1.0
