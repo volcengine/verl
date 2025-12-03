@@ -154,9 +154,7 @@ def load_reward_manager(
         reward_manager_cls_name = reward_manager_cfg.name
         reward_manager_cls = cast(
             type[AbstractRewardManager],
-            load_extern_object(
-                module_path=module_cfg.path, object_name=reward_manager_cls_name, module_name=module_cfg.name
-            ),
+            load_extern_object(module_path=module_cfg.path, object_name=reward_manager_cls_name),
         )
 
     if compute_score is None:
