@@ -128,7 +128,7 @@ python -m recipe.one_step_off_policy.main_ppo \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
     trainer.val_before_train=True \
-    trainer.test_freq=10 \
+    trainer.test_freq=20 \
     trainer.save_freq=-1 \
     trainer.total_epochs=10 \
     trainer.total_training_steps=400 \
