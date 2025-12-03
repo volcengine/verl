@@ -847,7 +847,13 @@ class RayPPOTrainer:
         # create async rollout manager and request scheduler
         self.async_rollout_mode = False
         if self.config.actor_rollout_ref.rollout.mode == "async":
-            from verl.experimental.agent_loop import AgentLoopManager
+            # Support custom AgentLoopManager via config
+            manager_class = self.config.actor_rollout_ref.rollout.get("agent", {}).get("agent_loop_manager_class")
+            if manager_class:
+                module_path, class_name = manager_class.rsplit(".", 1)
+                exec(f"from {module_path} import {class_name} as AgentLoopManager")
+            else:
+                from verl.experimental.agent_loop import AgentLoopManager
 
             self.async_rollout_mode = True
             if self.config.reward_model.enable and self.config.reward_model.enable_resource_pool:
