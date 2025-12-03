@@ -8,11 +8,9 @@ echo "Using $NNODES nodes for training..."
 # ------------------------------------- Setup xp params ---------------------------------------
 project_name='RL-GSPO'
 
-adv_estimator=grpo
 loss_mode=gspo
 loss_agg_mode="seq-mean-token-mean"
 MODEL_PATH=Qwen/Qwen2.5-3B-Instruct
-offload=false # it's a small model, offloading will just slow-down training
 rollout_engine=vllm
 rollout_mode=sync # can be async to speedup large scale xps
 gpu_memory_utilization=0.6
@@ -105,7 +103,6 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=${actor_ppo_max_token_len} \
     actor_rollout_ref.ref.log_prob_max_token_len_per_gpu=${infer_ppo_max_token_len} \
     actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=${infer_ppo_max_token_len} \
-    actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.name=${rollout_engine} \
     actor_rollout_ref.rollout.mode=${rollout_mode} \
     actor_rollout_ref.model.path="${MODEL_PATH}" \
