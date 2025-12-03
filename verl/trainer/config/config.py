@@ -116,4 +116,14 @@ class RewardManagerConfig(BaseConfig):
 
     def __post_init__(self):
         super().__post_init__()
-        assert self.source in {"register", "importlib"}, f"Unknown reward manager source: {self.source=}"
+        if self.source == "register":
+            from verl.workers.reward_manager.registry import REWARD_MANAGER_REGISTRY
+
+            assert self.name in REWARD_MANAGER_REGISTRY, (
+                f"Reward manager is not registered: {self.name=} ,{REWARD_MANAGER_REGISTRY.keys()=}"
+            )
+        elif self.source == "importlib":
+            # NOTE: The existence is not checked since it depends on which machine the config is initialized on.
+            assert self.module is not None and self.module.path is not None, (
+                "When source is importlib, module.path should be set."
+            )
