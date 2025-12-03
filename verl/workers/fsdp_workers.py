@@ -598,6 +598,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         )
         rollout_name = self.config.rollout.name
 
+        self.rollout_device_mesh = rollout_device_mesh
+
         if rollout_name == "hf":
             self._register_dispatch_collect_info("rollout", dp_rank=self.rank, is_collect=True)
         else:

@@ -127,10 +127,6 @@ class vLLMHttpServerForPartial(vLLMHttpServerBase):
         async with self.lock:
             self.paused = False
 
-    async def reset_prefix_cache(self):
-        async with self.lock:
-            await self.engine.reset_prefix_cache()
-
 
 class FullyAsyncvLLMReplica(vLLMReplica):
     def __init__(
@@ -151,7 +147,3 @@ class FullyAsyncvLLMReplica(vLLMReplica):
     async def resume(self):
         """Resume each rollout server."""
         await asyncio.gather(*[server.resume.remote() for server in self.servers])
-
-    async def reset_prefix_cache(self):
-        """reset kv cache in each rollout server."""
-        await asyncio.gather(*[server.reset_prefix_cache.remote() for server in self.servers])

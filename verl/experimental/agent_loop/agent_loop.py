@@ -847,6 +847,10 @@ class AgentLoopManager:
         """Sleep all rollout replica instances."""
         self._run_all([replica.sleep() for replica in self.rollout_replicas])
 
+    def clear_kv_cache(self):
+        """Clear all rollout kv cache, but don`t sleep."""
+        self._run_all([replica.clear_kv_cache() for replica in self.rollout_replicas])
+
     def _run_all(self, tasks: list[asyncio.Task]):
         async def run_all():
             await asyncio.gather(*tasks)
