@@ -357,20 +357,18 @@ def patch_qwen3_vl_moe_sparse_moe_block_forward():
 
     @functools.wraps(original_forward)
     def patched_forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        # Replicate the original forward logic exactly, with only the bug fix applied
         batch_size = hidden_states.shape[0]
         hidden_states = hidden_states.reshape(-1, self.hidden_size)
         router_logits = self.gate(hidden_states)
         routing_weights = torch.nn.functional.softmax(router_logits, dim=-1, dtype=torch.float)
         routing_weights, router_indices = torch.topk(routing_weights, self.top_k, dim=-1)
         routing_weights = routing_weights / routing_weights.sum(dim=-1, keepdim=True)
-        routing_weights = routing_weights.to(router_logits.dtype)
         # BUG FIX: Original code incorrectly uses hidden_states here, should use router_logits
-        # Original (buggy): router_weights = torch.zeros_like(hidden_states).scatter_(...)
+        routing_weights = routing_weights.to(router_logits.dtype)
         router_weights = torch.zeros_like(router_logits).scatter_(1, router_indices, routing_weights)
         hidden_states = hidden_states.reshape(batch_size, -1, self.hidden_size)
         routed_out = self.experts(hidden_states, router_weights, router_indices)
-        return routed_out, router_logits
+        return routed_out
 
     # Apply the patch
     Qwen3VLMoeTextSparseMoeBlock.forward = patched_forward
