@@ -64,6 +64,9 @@ offload=True
 
 # gen
 rollout_name=vllm # vllm or sglang
+if [ "$rollout_name" = "vllm" ]; then
+    export VLLM_USE_V1=1
+fi
 gen_tp=1
 gen_dp=4
 gen_ep=4
