@@ -134,6 +134,8 @@ class AgentLoopOutput(BaseModel):
     """Response mask, 1 for LLM generated token, 0 for tool response token."""
     response_logprobs: Optional[list[float]] = None
     """Log probabilities for the response tokens."""
+    routed_experts: Optional[Any] = None
+    """Routed experts for the total tokens."""
     multi_modal_data: Optional[dict[str, Any]] = None
     """Multi-modal data for multi-modal tools."""
     reward_score: Optional[float] = None
@@ -165,6 +167,8 @@ class _InternalAgentLoopOutput(AgentLoopOutput):
     """Padded attention mask."""
     response_logprobs: Optional[torch.Tensor] = None
     """Padded log probabilities for the response tokens."""
+    routed_experts: Optional[torch.Tensor] = None
+    """Padded routed experts for the total tokens."""
     multi_modal_inputs: Optional[dict[str, torch.Tensor]] = None
     """Multi-modal inputs for processors (e.g., pixel_values, image_grid_thw)."""
     extra_fields: dict[str, Any] = {}
@@ -487,6 +491,25 @@ class AgentLoopWorkerBase:
         attention_mask = torch.cat([prompt_output["attention_mask"], response_output["attention_mask"]], dim=1)
         input_ids = torch.cat([prompt_output["input_ids"], response_output["input_ids"]], dim=1)
 
+        routed_experts = None
+        if output.routed_experts is not None:
+            total_length = input_ids.shape[1]
+            length, layer_num, topk_num = output.routed_experts.shape
+            experts_tensor = torch.from_numpy(output.routed_experts)
+            routed_experts = torch.zeros(1, total_length, layer_num, topk_num, dtype=experts_tensor.dtype)
+
+            # Calculate start position: left padding means original prompt starts at the end
+            start_pos = prompt_output["input_ids"].shape[1] - len(output.prompt_ids)
+            end_pos = min(start_pos + length, total_length)
+
+            # Add boundary checks for robustness
+            if start_pos < 0 or end_pos > total_length:
+                raise ValueError(
+                    f"Invalid position range: start_pos={start_pos}, end_pos={end_pos}, total_length={total_length}"
+                )
+
+            routed_experts[:, start_pos:end_pos] = experts_tensor.unsqueeze(0)
+
         # Handle multi-modal inputs and position_ids calculation
         # Only support Qwen2VLImageProcessor for multi-modal processing currently
         # TODO: support other multi-modal inputs
@@ -560,6 +583,7 @@ class AgentLoopWorkerBase:
             response_mask=response_mask,
             attention_mask=attention_mask,
             response_logprobs=response_logprobs,
+            routed_experts=routed_experts,
             multi_modal_inputs=multi_modal_inputs,
             multi_modal_data=output.multi_modal_data,
             reward_score=output.reward_score,
@@ -580,6 +604,8 @@ class AgentLoopWorkerBase:
         optional_outputs = {}
         if inputs[0].response_logprobs is not None:
             optional_outputs["rollout_log_probs"] = torch.cat([input.response_logprobs for input in inputs], dim=0)
+        if inputs[0].routed_experts is not None:
+            optional_outputs["routed_experts"] = torch.cat([input.routed_experts for input in inputs], dim=0)
 
         batch = TensorDict(
             {

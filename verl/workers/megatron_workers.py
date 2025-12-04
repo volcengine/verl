@@ -51,6 +51,7 @@ from verl.utils.device import (
 from verl.utils.distributed import set_numa_affinity
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local
+from verl.utils.megatron.router_replay_patch import RouterReplay, RouterReplayAction, apply_router_replay_patch
 from verl.utils.megatron_utils import (
     load_megatron_model_to_gpu,
     load_megatron_optimizer,
@@ -285,6 +286,15 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 mesh_name="actor", dp_rank=mpu.get_data_parallel_rank(), is_collect=is_collect
             )
         only_rollout = self._is_rollout and not self._is_actor
+
+        self.enable_routing_replay = False
+        if self._is_actor:
+            self.router_replay = self.config.actor.router_replay
+            self.enable_routing_replay = self.router_replay.mode != "disabled"
+
+        if self.enable_routing_replay:
+            apply_router_replay_patch()
+
         set_random_seed(seed=self.config.actor.megatron.seed, only_rollout=only_rollout)
 
         if self._is_actor:
@@ -540,6 +550,8 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             override_transformer_config = OmegaConf.to_container(
                 OmegaConf.create(self.config.actor.megatron.get("override_transformer_config", {}))
             )
+            if self.enable_routing_replay:
+                override_transformer_config["enable_routing_replay"] = True
             override_ddp_config = OmegaConf.to_container(
                 OmegaConf.create(self.config.actor.megatron.get("override_ddp_config", {}))
             )
@@ -585,6 +597,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 actor_module=self.actor_module,
                 actor_optimizer=self.actor_optimizer,
             )
+            print(f"routing replay layers: {len(RouterReplay.router_instances)}")
             log_gpu_memory_usage("After MegatronPPOActor init", logger=logger)
 
         if self._is_rollout:
@@ -812,7 +825,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         data.meta_info["max_token_len"] = self.config.ref.log_prob_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = self.config.ref.log_prob_use_dynamic_bsz
         data.meta_info["temperature"] = self.config.rollout.temperature
-        output, _ = self.ref_policy.compute_log_prob(data=data, calculate_entropy=False)
+        output, _, _ = self.ref_policy.compute_log_prob(data=data, calculate_entropy=False)
         output = DataProto.from_dict(tensors={"ref_log_prob": output})
         output = output.to("cpu")
         if self._ref_is_offload_param:
@@ -834,11 +847,25 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         data.meta_info["max_token_len"] = self.config.rollout.log_prob_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = self.config.rollout.log_prob_use_dynamic_bsz
         data.meta_info["temperature"] = self.config.rollout.temperature
-        output, entropys = self.actor.compute_log_prob(data=data, calculate_entropy=True)
+
+        if self.enable_routing_replay and self.config.actor.router_replay.mode == "R2":
+            RouterReplay.set_global_router_replay_action(RouterReplayAction.RECORD)
+
+        if self.enable_routing_replay and self.config.actor.router_replay.mode == "R3":
+            RouterReplay.set_global_router_replay_action(RouterReplayAction.REPLAY_FORWARD)
+
+        output, entropys, layers_topk_idx = self.actor.compute_log_prob(data=data, calculate_entropy=True)
         output = DataProto.from_dict(
             tensors={"old_log_probs": output, "entropys": entropys},
             meta_info={"temperature": self.config.rollout.temperature},
         )
+        if self.config.actor.router_replay.mode == "R2":
+            output.batch["routed_experts"] = layers_topk_idx
+
+        if self.config.actor.router_replay.mode in ["R2", "R3"]:
+            RouterReplay.clear_global_indices()
+            RouterReplay.clear_global_router_replay_action()
+
         output = output.to("cpu")
         # clear kv cache
         if self._is_offload_param:
