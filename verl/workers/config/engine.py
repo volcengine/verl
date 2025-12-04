@@ -181,6 +181,7 @@ class FSDPEngineConfig(EngineConfig):
         assert self.strategy in ["fsdp", "fsdp2"], f"strategy {self.strategy} not supported"
 
 
+@dataclass
 class VeOmniEngineConfig(EngineConfig):
     """Configuration for FSDP (Fully Sharded Data Parallel).
 
