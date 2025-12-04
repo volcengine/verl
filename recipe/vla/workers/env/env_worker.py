@@ -163,7 +163,7 @@ class EnvWorker(Worker):
         state_ids = self.simulator_list[0].get_all_state_ids()
         return state_ids
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="env"))
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="env"), blocking=False)
     def reset_envs_to_state_ids(self, data: DataProto):
         """Reset environments to specified state IDs.
 
