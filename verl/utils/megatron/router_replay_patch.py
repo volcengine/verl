@@ -11,14 +11,20 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import warnings
 from enum import Enum
 
 import torch
-from megatron.core.transformer.moe.moe_utils import (
-    apply_router_token_dropping,
-    compute_routing_scores_for_aux_loss,
-    group_limited_topk,
-)
+
+try:
+    from megatron.core.transformer.moe.moe_utils import (
+        apply_router_token_dropping,
+        compute_routing_scores_for_aux_loss,
+        group_limited_topk,
+    )
+except ImportError:
+    warnings.warn("NPU not support router replay for now.", stacklevel=2)
+    pass
 from megatron.core.transformer.moe.router import TopKRouter
 from megatron.core.transformer.transformer_config import TransformerConfig
 
