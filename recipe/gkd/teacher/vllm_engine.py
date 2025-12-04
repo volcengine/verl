@@ -212,7 +212,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Test vLLM logprob")
     parser.add_argument("model_dir", help="Model directory")
     parser.add_argument("--tp-size", type=int, default=1, help="TP size")
-    parser.add_argument("--batch-size", "-b", type=int, default=64, help="Test bactch size")
+    parser.add_argument("--batch-size", "-b", type=int, default=64, help="Test batch size")
     parser.add_argument("--seq-len", "-s", type=int, default=3840, help="Test sequence length")
     parser.add_argument("--token-file", "-t", type=str, help="Input token file")
     args = parser.parse_args()

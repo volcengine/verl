@@ -148,9 +148,9 @@ Improves utilization under variable sequence lengths.
 
 ### 7.1 Launch Teacher Server
 
-Before training process, you should have a teacher server to provide logp infomation.
+Before training process, you should have a teacher server to provide logp information.
 
-We provide a toy teacher server example with vLLM. It needs `telnel` to check proxy status, and `python` command to run. So if you have not installed `telnet`, you can just delete these code in `start_server.sh`. And some OS use `python3` rather than `python`, so you also need to modify it. Also you can change the port of teacher if you meet port conflict.
+We provide a toy teacher server example with vLLM. It needs `telnet` to check proxy status, and `python` command to run. So if you have not installed `telnet`, you can just delete these code in `start_server.sh`. And some OS use `python3` rather than `python`, so you also need to modify it. Also you can change the port of teacher if you meet port conflict.
 
 There are 3 arguments can be set for vllm backend `--tp-size`, `--n-logprobs` and `--ckpt-path` in `start_server.sh` / `worker.py`. You should set before you start server.
 
