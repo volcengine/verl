@@ -1,14 +1,15 @@
 # FP8 rollout for verl
 
-Last updated: 11/19/2025
+Last updated: 12/4/2025
 
-This document introduces FP8 rollout with vllm inference backend in verl.
+This document introduces FP8 rollout in verl.
 
 
-We monkey patch several vLLM functions to enable FP8 rollout for reinforcement learning.
-1. **load_weights**: A custom `load_weights` function to quantize the on-the-fly model weights from a higher-precision format to FP8.
-2. **process weights after loading**: Replace `vllm.model_executor.layers.quantization.fp8.Fp8LinearMethod.process_weights_after_loading`
-function to handle model weights loading after quantization.
+We monkey patch several vLLM functions to enable FP8 rollout for reinforcement learning:
+
+1. **Quantize weights**: Quantize model weights on-the-fly from higher-precision formats to FP8.
+2. **Process weights after loading**: For vLLM, we replace the `vllm.model_executor.layers.quantization.fp8.Fp8LinearMethod.process_weights_after_loading` function to handle weight processing after quantization. For SGLang, this patch is not needed as it natively supports loading quantized weights.
+
 
 ## Support Matrix
 - FP8 blockwise quantization for rollout
@@ -16,7 +17,7 @@ function to handle model weights loading after quantization.
 which is 1x128 quantization for activations and 128x128 quantization for model weights
 - Dense models and MoE models
 - Async rollout interfaces
-- vLLM 0.10.x & vLLM 0.11
+- vLLM 0.10.x & vLLM 0.11 & SGlang 0.5.5
 - FSDP and Megatron training backends
 
 ## Experiments and Outcomes
@@ -104,8 +105,3 @@ Or it can be enabled by command line:
 - `actor_rollout_ref.rollout.quantization=fp8`
 
 Please refer to `recipe/dapo/run_dapo_qwen3_moe_30b_vllm_fp8_rollout.sh`
-
-## Plans
-
-- will open another PR to support FP8 rollout in SGLang
-- further to enable FP8 training in megatron

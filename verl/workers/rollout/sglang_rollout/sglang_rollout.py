@@ -1556,6 +1556,9 @@ class ServerAdapter(BaseRollout):
         device_mesh: DeviceMesh,
     ):
         if config.get("quantization", None) == "fp8":
+            import sglang
+
+            assert sglang.__version__ >= "0.5.5", "sglang>=0.5.5 is required for FP8 quantization"
             FP8_BLOCK_QUANT_KWARGS = {
                 "activation_scheme": "dynamic",
                 "fmt": "e4m3",
