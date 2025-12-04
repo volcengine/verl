@@ -60,9 +60,10 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 class TensorBuffer:
     def __init__(self, memory_alloc, dtype):
+        device = get_device_id()
         dtype_size = torch.tensor([], dtype=dtype).element_size()
         self.capacity = memory_alloc // dtype_size
-        self.tensor = torch.empty(self.capacity, dtype=dtype, device="cuda")
+        self.tensor = torch.empty(self.capacity, dtype=dtype, device=device)
         self.keys = []
         self.shapes = []
 
