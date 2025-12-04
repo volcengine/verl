@@ -431,7 +431,8 @@ class AgentLoopWorkerBase:
 
         # Some AgentLoop may have already computed the reward score, e.g SWE-agent.
 
-        # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py
+        # NOTE: consistent with the legacy batch version of generate_sequences that existed in the
+        # deprecated vLLM SPMD rollout implementation.
         # prompt_ids: left padded with zeros (e.g., [0,0,0,0,1,2,3,4])
         # response_ids: right padded with zeros (e.g., [5,6,7,8,0,0,0,0])
         # input_ids: concatenation of prompt + response
