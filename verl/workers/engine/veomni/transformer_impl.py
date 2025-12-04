@@ -38,7 +38,7 @@ from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManage
 
 from ..base import EngineRegistry
 from ..fsdp.transformer_impl import FSDPEngine, FSDPEngineWithLMHead
-from ..utils import postprocess_batch_func, prepare_micro_batches
+from ..utils import enable_full_determinism, postprocess_batch_func, prepare_micro_batches
 
 logger = logging.getLogger(__file__)
 
@@ -83,6 +83,9 @@ class VeOmniEngine(FSDPEngine):
             ulysses_size=self.engine_config.ulysses_parallel_size,
             dp_mode=self.engine_config.data_parallel_mode,
         )
+
+        if self.engine_config.full_determinism:
+            enable_full_determinism(seed=self.engine_config.seed)
 
         self.use_remove_padding = self.model_config.use_remove_padding
 

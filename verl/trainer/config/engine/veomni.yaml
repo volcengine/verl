@@ -22,6 +22,12 @@ ulysses_parallel_size: 1
 
 enable_mixed_precision: true
 
+# Random seed for reproducibility.
+seed: 42
+
+# Whether to enable full determinism for distributed training, only for debugging.
+full_determinism: false
+
 init_device: meta
 
 enable_full_shard: true

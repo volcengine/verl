@@ -196,6 +196,10 @@ class VeOmniEngineConfig(EngineConfig):
         forward_prefetch (bool): Whether to prefetch parameters for next forward pass, default False
         model_dtype (str): Model data type used to initialize the transformers model. default "fp32"
         use_orig_params (bool): Whether to use original parameters when initialize FSDP1, default False
+        seed (int): Random seed for reproducibility.
+        full_determinism (bool): If true, enable_full_determinism is called to ensure reproducible results
+            in distributed training. Important: this will negatively impact performance, so only use it for
+            debugging.
         mixed_precision (Optional[dict[str, Any]]): Mixed precision configuration for FSDP, default None
     """
 
@@ -220,6 +224,8 @@ class VeOmniEngineConfig(EngineConfig):
     context_parallel_size: int = 1
     ulysses_parallel_size: int = 1
     data_parallel_mode: str = "fsdp"
+    seed: int = 42
+    full_determinism: bool = False
     enable_mixed_precision: bool = False
     init_device: str = "meta"
     enable_full_shard: bool = False
