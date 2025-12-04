@@ -323,8 +323,9 @@ class OnPolicyDistillActor:
                 return {"kl_losses": kl_losses, "calc_kl_mask": calc_kl_mask}
 
             if mpu.is_pipeline_last_stage():
-                teacher_topk_logps = batch["teacher_topk_logps"].cuda(non_blocking=True)
-                teacher_topk_indices = batch["teacher_topk_indices"].cuda(non_blocking=True)
+                device = get_device_id()
+                teacher_topk_logps = batch["teacher_topk_logps"].to(device, non_blocking=True)
+                teacher_topk_indices = batch["teacher_topk_indices"].to(device, non_blocking=True)
                 logits_processor_args = {
                     "calc_kl_mask": batch["calc_kl_mask"],
                     "kl_losses": batch["kl_losses"],
