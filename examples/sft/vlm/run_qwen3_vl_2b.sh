@@ -15,6 +15,7 @@ project_name=verl_sft_test
 
 RESUME_MODE=auto
 MODEL_ID=${HDFS_ROOT}/model/Qwen3-VL-2B-Instruct
+# MODEL_ID=${HDFS_ROOT}/model/Qwen3-VL-30B-A3B-Instruct
 
 SP_SIZE=${SP_SIZE:-2}
 FSDP_SIZE=${FSDP_SIZE:--1}
@@ -60,7 +61,7 @@ MEGATRON_ENGINE_CONFIG="\
     engine.virtual_pipeline_model_parallel_size=${VPP_SIZE} \
     engine.context_parallel_size=${CP_SIZE} \
     engine.use_mbridge=True \
-    engine.vanilla_mbridge=False"
+    engine.vanilla_mbridge=True"
 
 if [ "$backend" = "fsdp" ]; then
     ENGINE_CONFIG="$FSDP_ENGINE_CONFIG"

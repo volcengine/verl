@@ -152,6 +152,8 @@ def gptmodel_forward_no_padding(
     logits_processor=None,
     logits_processor_args: dict = None,
     value_model=False,
+    vision_model=False,
+    pad_token_id=None,
     data_format: str = "thd",
 ):
     """Default forward pass for GPT models with optional sequence packing."""
@@ -174,9 +176,16 @@ def gptmodel_forward_no_padding(
     if data_format == "thd":
         input_ids_rmpad, packed_seq_params = preprocess_thd_no_padding(input_ids, pre_process=pre_process)
         input_ids_rmpad = input_ids_rmpad.contiguous()
+
+        # For VLM model, need to pass bshd format `input_ids` and `attention_mask`.
+        attention_mask = None
+        if vision_model:
+            input_ids_rmpad = input_ids.to_padded_tensor(pad_token_id)
+            attention_mask = (input_ids_rmpad != pad_token_id).bool()
+
         output_orig = model(
             input_ids=input_ids_rmpad,
-            attention_mask=None,
+            attention_mask=attention_mask,
             position_ids=None,
             packed_seq_params=packed_seq_params,
             **model_kwargs,
