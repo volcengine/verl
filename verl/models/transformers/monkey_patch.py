@@ -365,7 +365,7 @@ def apply_monkey_patch(
         print(f"Monkey patch {model.__class__.__name__} model forward")
 
         # Step 1.5: patch Qwen3VLMoeTextSparseMoeBlock to fix transformers 4.57.3 bug
-        if model.config.model_type == "qwen3_vl_moe":
+        if model.config.model_type == "qwen3_vl_moe" and is_transformers_version_in_range(max_version="4.57.3"):
             patch_qwen3_vl_moe_sparse_moe_block_forward()
 
         # Step 2: patch input for multimodal sequence parallelism
