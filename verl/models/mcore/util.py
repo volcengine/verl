@@ -144,7 +144,7 @@ def postprocess_packed_seqs(
     if cp_size > 1:
         # output shape: [1, packed_len, hidden_dim]
         # need to gather across cp group and concatenate in sequence dimension
-        output_list = [torch.empty_like(output) for _ in range(cp_size)]
+        output_list = [torch.empty_like(output, dtype=output.dtype) for _ in range(cp_size)]
         torch.distributed.all_gather(output_list, output.detach(), group=mpu.get_context_parallel_group())
         output_list[mpu.get_context_parallel_rank()] = output
     else:
@@ -159,7 +159,7 @@ def postprocess_packed_seqs(
         half_seqlen = s_len_padded_chunk // 2
         s_len = seq_lens_cpu[i]
         s_len_padded = s_len_padded_chunk * cp_size
-        tmp = torch.empty(s_len_padded, *output.shape[2:], device=output.device)
+        tmp = torch.empty(s_len_padded, *output.shape[2:], device=output.device, dtype=output.dtype)
         for j in range(cp_size):
             o = output_list[j][0]
             # split to 2 chunks
