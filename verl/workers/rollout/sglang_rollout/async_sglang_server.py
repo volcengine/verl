@@ -41,7 +41,7 @@ from verl.utils.config import omega_conf_to_dataclass
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
 from verl.workers.rollout.sglang_rollout.sglang_rollout import ServerAdapter, _set_envs_and_config
-from verl.workers.rollout.utils import get_free_port, is_valid_ipv6_address, run_unvicorn
+from verl.workers.rollout.utils import get_free_port, is_valid_ipv6_address, run_uvicorn
 
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
@@ -196,7 +196,7 @@ class SGLangHttpServer:
         app.is_single_tokenizer_mode = True
         app.server_args = server_args
         app.warmup_thread_args = (server_args, None, None)
-        self._server_port, self._server_task = await run_unvicorn(app, server_args, self._server_address)
+        self._server_port, self._server_task = await run_uvicorn(app, server_args, self._server_address)
         self.tokenizer_manager.server_status = ServerStatus.Up
 
     async def wake_up(self):

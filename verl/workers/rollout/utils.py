@@ -45,7 +45,7 @@ def get_free_port(address: str) -> tuple[int, socket.socket]:
     return port, sock
 
 
-async def run_unvicorn(app: FastAPI, server_args, server_address, max_retries=5) -> tuple[int, asyncio.Task]:
+async def run_uvicorn(app: FastAPI, server_args, server_address, max_retries=5) -> tuple[int, asyncio.Task]:
     server_port, server_task = None, None
 
     for i in range(max_retries):

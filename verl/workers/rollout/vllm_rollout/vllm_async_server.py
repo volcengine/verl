@@ -46,7 +46,10 @@ from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
-from verl.workers.rollout.utils import get_free_port, is_valid_ipv6_address, run_unvicorn
+from verl.workers.rollout.utils import (
+    get_free_port,
+    is_valid_ipv6_address,
+)
 from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
 from verl.workers.rollout.vllm_rollout.utils import (
     VLLM_LORA_INT_ID,
@@ -250,7 +253,7 @@ class vLLMHttpServerBase:
             "seed": self.config.get("seed", 0),
             "override_generation_config": json.dumps(override_generation_config),
             "quantization": quantization,
-            "hf_overrides": {"quantization_config": fp8_block_quant_kwargs} if quantization == "fp8" else None,
+            "hf_overrides": ({"quantization_config": fp8_block_quant_kwargs} if quantization == "fp8" else None),
             **engine_kwargs,
         }
 
@@ -358,12 +361,12 @@ class vLLMHttpServerBase:
         await engine_client.reset_mm_cache()
 
         app = build_app(args)
-        await init_app_state(engine_client, vllm_config, app.state, args)
+        await init_app_state(engine_client, app.state, args)
         if self.replica_rank == 0 and self.node_rank == 0:
             logger.info(f"Initializing a V1 LLM engine with config: {vllm_config}")
 
         self.engine = engine_client
-        self._server_port, self._server_task = await run_unvicorn(app, args, self._server_address)
+        self._server_port, self._server_task = await run_uvicorn(app, args, self._server_address)
 
     async def run_headless(self, args: argparse.Namespace):
         # Create the EngineConfig.
@@ -406,7 +409,8 @@ class vLLMHttpServerBase:
         sampling_params = SamplingParams(max_tokens=max_tokens, **sampling_params)
         prompt_ids = _qwen2_5_vl_dedup_image_tokens(prompt_ids, self.model_config.processor)
         prompt = TokensPrompt(
-            prompt_token_ids=prompt_ids, multi_modal_data={"image": image_data} if image_data else None
+            prompt_token_ids=prompt_ids,
+            multi_modal_data={"image": image_data} if image_data else None,
         )
 
         # Add lora request
@@ -416,11 +420,16 @@ class vLLMHttpServerBase:
             lora_loaded = VLLM_LORA_INT_ID in await self.engine.list_loras()
             if lora_loaded:
                 lora_request = LoRARequest(
-                    lora_name=VLLM_LORA_NAME, lora_int_id=VLLM_LORA_INT_ID, lora_path=VLLM_LORA_PATH
+                    lora_name=VLLM_LORA_NAME,
+                    lora_int_id=VLLM_LORA_INT_ID,
+                    lora_path=VLLM_LORA_PATH,
                 )
 
         generator = self.engine.generate(
-            prompt=prompt, sampling_params=sampling_params, request_id=request_id, lora_request=lora_request
+            prompt=prompt,
+            sampling_params=sampling_params,
+            request_id=request_id,
+            lora_request=lora_request,
         )
 
         # Get final response
@@ -490,7 +499,16 @@ class vLLMHttpServer(vLLMHttpServerBase):
         gpus_per_node: int,
         nnodes: int,
     ):
-        super().__init__(config, model_config, rollout_mode, workers, replica_rank, node_rank, gpus_per_node, nnodes)
+        super().__init__(
+            config,
+            model_config,
+            rollout_mode,
+            workers,
+            replica_rank,
+            node_rank,
+            gpus_per_node,
+            nnodes,
+        )
 
 
 _rollout_worker_actor_cls = ray.remote(vLLMAsyncRollout)
