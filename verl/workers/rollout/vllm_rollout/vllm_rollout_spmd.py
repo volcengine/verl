@@ -51,7 +51,14 @@ from torch.distributed.device_mesh import DeviceMesh
 from vllm import LLM, SamplingParams
 from vllm.config import CompilationConfig, LoRAConfig
 from vllm.lora.request import LoRARequest
-from vllm.model_executor.model_loader.utils import process_weights_after_loading
+try:
+    # Preferred path: use vLLM's own helper if it exists
+    from vllm.model_executor.model_loader.utils import process_weights_after_loading  # type: ignore
+except Exception:
+    # Fallback: define a no-op for older / incompatible vLLM versions
+    def process_weights_after_loading(*args, **kwargs):
+        """Compatibility shim for vLLM versions without this helper."""
+        return
 
 try:
     # https://github.com/vllm-project/vllm/commit/96b9aa5aa076e64c68765232aec343e4d0006e2a
