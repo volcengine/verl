@@ -12,7 +12,7 @@ Last updated: 12/3/2025.
 
 Reward Loop is designed to support flexible and user-friendly reward computation, with most implementation in ``verl/experimental/reward``.
 
-Reward Function使用说明
+Reward Function Usage
 ---------------------
 
 Reward Loop covers all typical reward-computation scenarios.
