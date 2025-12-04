@@ -50,17 +50,6 @@ class FP8State:
 
 fp8_state: FP8State = FP8State()
 
-
-@dataclass()
-class FP8KVCacheState:
-    """State for tracking FP8 KV cache patches."""
-    kv_patch_applied: bool = False
-    original_wake_up: Any = None
-
-
-fp8_kv_cache_state: FP8KVCacheState = FP8KVCacheState()
-
-
 def is_kv_cache_fp8_enabled(config):
     """
     Check if FP8 KV cache with dynamic scale calculation is enabled.
@@ -71,6 +60,7 @@ def is_kv_cache_fp8_enabled(config):
     Returns:
         bool: True if FP8 KV cache with calculate_kv_scales is enabled
     """
+    # TODO: Remove debug prints
     print(f"[FP8_KV_CACHE] Checking if FP8 KV cache with dynamic scale calculation is enabled: {config}")
     # Check for kv_cache_dtype
     kv_cache_dtype = getattr(config, 'kv_cache_dtype', None)
@@ -79,9 +69,9 @@ def is_kv_cache_fp8_enabled(config):
         kv_cache_dtype = config.get('kv_cache_dtype', None) if hasattr(config, 'get') else None
     
     # Check for calculate_kv_scales
-    calculate_kv_scales = getattr(config, 'calculate_kv_scales', False)
+    calculate_kv_scales = getattr(config, 'calculate_kv_scales', None)
     print(f"[FP8_KV_CACHE] calculate_kv_scales: {calculate_kv_scales}")
-    if not calculate_kv_scales:
+    if calculate_kv_scales is None:
         calculate_kv_scales = config.get('calculate_kv_scales', False) if hasattr(config, 'get') else False
     
     is_fp8_kv = (
@@ -653,12 +643,9 @@ def patched_maybe_post_process_fp8_weight_block(layer: torch.nn.Module):
         layer.weight_scale.data.copy_(dg_weight_scale)
 
 
-def apply_vllm_fp8_patches(config=None):
+def apply_vllm_fp8_patches():
     """
     Apply all vLLM FP8 patches for blockwise quantization and KV cache.
-    
-    Args:
-        config: Optional RolloutConfig to check for KV cache FP8 settings
     """
     logger.info("Applying vllm fp8 patches for blockwise quantization")
     func1_path = "vllm.model_executor.layers.quantization.fp8.Fp8LinearMethod.process_weights_after_loading"
