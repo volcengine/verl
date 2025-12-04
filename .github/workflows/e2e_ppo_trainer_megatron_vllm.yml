@@ -122,6 +122,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install --no-deps -e .[test]
+          pip3 install mbridge
           pip3 install math-verify transformers==$TRANSFORMERS_VERSION
       - name: Prepare GSM8K dataset
         run: |
@@ -136,6 +137,25 @@ jobs:
           ray stop --force
           RESUME_MODE=auto MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct TOTAL_TRAIN_STEPS=2 SAVE_FREQ=1 COMMON_PP=4 COMMON_VPP=null COMMON_CP=1 USE_MBRIDGE=True USE_DIST_CKPT=False \
           bash tests/special_e2e/run_ppo_trainer_megatron.sh
+      - name: clean up and install Megatron-Bridge
+        run: |
+          rm -rf checkpoints
+          pip3 install git+https://github.com/NVIDIA-NeMo/Megatron-Bridge.git@af21db0 --no-deps --no-build-isolation
+          pip3 install git+https://github.com/NVIDIA/Megatron-LM.git@3cbe5c6 --no-deps --no-build-isolation
+          pip3 install "nvidia-modelopt[torch]>=0.37.0" transformers==4.57.1
+      - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron, use Megatron-Bridge LoRA e2e to pre-load and save (Deepseek)
+        run: |
+          ray stop --force
+          ALL_OFFLOAD=True SAVE_FREQ=1 MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct COMMON_PP=4 LORA_RANK=8 COMMON_VPP=null COMMON_CP=1 USE_MBRIDGE=True VANILLA_MBRIDGE=False VALUE_VANILLA_MBRIDGE=False USE_DIST_CKPT=False \
+          bash tests/special_e2e/run_ppo_trainer_megatron.sh
+      - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron, use Megatron-Bridge LoRA e2e to pre-load and save (Deepseek)
+        run: |
+          ray stop --force
+          RESUME_MODE=auto MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct TOTAL_TRAIN_STEPS=2 SAVE_FREQ=1 COMMON_PP=4 LORA_RANK=8 COMMON_VPP=null COMMON_CP=1 USE_MBRIDGE=True VANILLA_MBRIDGE=False VALUE_VANILLA_MBRIDGE=False USE_DIST_CKPT=False \
+          bash tests/special_e2e/run_ppo_trainer_megatron.sh
+      - name: clean up
+        run: |
+          rm -rf checkpoints
       - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (DeepSeek)
         run: |
           ray stop --force

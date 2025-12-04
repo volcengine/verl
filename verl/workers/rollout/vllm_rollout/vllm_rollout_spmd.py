@@ -111,6 +111,19 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> list[in
     return token_ids
 
 
+def pad_first_dim_tail(x: torch.Tensor, M: int, value: float = 0.0, left_pad: bool = True):
+    N = x.size(0)
+    if M < N:
+        raise ValueError(f"M ({M}) must be >= N ({N})")
+    if M == N:
+        return x
+    pad_shape = (M - N, *x.shape[1:])
+    pad_tensor = torch.full(pad_shape, value, dtype=x.dtype, device=x.device)
+    if left_pad:
+        return torch.cat([pad_tensor, x], dim=0)
+    return torch.cat([x, pad_tensor], dim=0)
+
+
 if is_version_ge(pkg="vllm", minver="0.7.3"):
     VLLMHijack.hijack()
 
@@ -236,6 +249,10 @@ class vLLMRollout(BaseRollout):
             else:
                 logger.warning(f"cudagraph_capture_sizes must be a list, but got {cudagraph_capture_sizes}")
 
+        router_replay_args = {}
+        if config.enable_rollout_routing_replay:
+            router_replay_args = {"enable_return_routed_experts": config.enable_rollout_routing_replay}
+
         self.inference_engine = LLM(
             model=model_path,
             enable_sleep_mode=config.free_cache_engine,
@@ -258,6 +275,7 @@ class vLLMRollout(BaseRollout):
             **compilation_config,
             **self.lora_kwargs,
             **engine_kwargs,
+            **router_replay_args,
         )
 
         kwargs = dict(
@@ -410,6 +428,63 @@ class vLLMRollout(BaseRollout):
                             curr_log_prob.append(logprob[response_ids[i]].logprob)
                         rollout_log_probs.append(curr_log_prob)
 
+            routed_experts = []
+            input_routed_experts = []
+            output_routed_experts = []
+            if self.config.enable_rollout_routing_replay:
+                # Calculate target length for padding (prompt length + max response length)
+                max_prompt_length = idx.shape[-1]
+
+                for output in outputs:
+                    for sample_id in range(len(output.outputs)):
+                        routed_expert = output.outputs[sample_id].routed_experts
+                        routed_experts.append(routed_expert)
+
+                for i, routed_expert in enumerate(routed_experts):
+                    response_length = len(response[i])
+                    # Convert numpy array to torch tensor
+                    routed_expert_tensor = torch.from_numpy(routed_expert)
+                    total_length = routed_expert_tensor.shape[0]
+                    assert total_length >= response_length, (
+                        f"routed_expert length {total_length} is shorter than response length {response_length}"
+                    )
+                    input_len = len(vllm_inputs[i]["prompt_token_ids"])
+                    input_expert = routed_expert_tensor[:input_len]
+
+                    pad_input_expert = pad_first_dim_tail(input_expert, max_prompt_length, value=0, left_pad=True)
+                    input_routed_experts.append(pad_input_expert)
+
+                    output_expert = routed_expert_tensor[input_len:]
+                    output_routed_experts.append(output_expert)
+                # Convert list of tensors to batch tensor
+                input_routed_experts = torch.stack(input_routed_experts, dim=0)
+
+                def pad_3d_list_to_length(routed_experts, pad_token_id, max_length=None):
+                    """
+                    pad a 3D list (e.g. all layer expert_idx) to a 3D tensor.
+                    """
+                    len_list = [sub_response.shape[0] for sub_response in routed_experts]
+                    # response_length = max(len(sub_list.shape[0]) for sub_list in routed_experts)
+                    response_length = max(len_list)
+                    target_length = (
+                        max_length if max_length is not None and max_length > response_length else response_length
+                    )
+                    new_sub_resposne_list = []
+                    for sub_response in routed_experts:
+                        pad_shape = (target_length - sub_response.shape[0], *sub_response.shape[1:])
+                        pad_tensor = torch.full(
+                            pad_shape, pad_token_id, dtype=sub_response.dtype, device=sub_response.device
+                        )
+                        new_sub_response = torch.concat([sub_response, pad_tensor], dim=0)
+                        new_sub_resposne_list.append(new_sub_response)
+                    tensor = torch.stack(new_sub_resposne_list, dim=0)
+                    return tensor
+
+                output_routed_experts = pad_3d_list_to_length(
+                    output_routed_experts, 0, max_length=self.config.response_length
+                )
+                routed_experts = torch.cat([input_routed_experts, output_routed_experts], dim=1)
+
             response = pad_2d_list_to_length(response, self.pad_token_id, max_length=self.config.response_length).to(
                 idx.device
             )
@@ -452,6 +527,9 @@ class vLLMRollout(BaseRollout):
         if self.config.calculate_log_probs:
             # we will recompute old log prob with actor
             batch["rollout_log_probs"] = rollout_log_probs
+
+        if self.config.enable_rollout_routing_replay:
+            batch["routed_experts"] = routed_experts
 
         return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
 
@@ -623,8 +701,6 @@ class vLLMAsyncRollout(BaseRollout):
             return self._init_worker(*args, **kwargs)
         elif method == "load_model":
             return self._load_model(*args, **kwargs)
-        elif method == "sleep" or method == "wake_up":
-            raise ValueError("wake_up and sleep should not be called through ZeroMQ")
         else:
             return self.inference_engine.execute_method(method, *args, **kwargs)
 
