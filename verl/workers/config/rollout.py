@@ -118,7 +118,7 @@ class RolloutConfig(BaseConfig):
     _mutable_fields = {"max_model_len", "load_format"}
 
     name: Optional[str] = MISSING
-    mode: str = "sync"
+    mode: str = "async"
     skip_tokenizer_init: bool = True
 
     temperature: float = 1.0
