@@ -1,10 +1,10 @@
-Data collection based on FSDP backend on Ascend devices(en)
+Data collection based on FSDP or MindSpeed(Megatron) on Ascend devices(en)
 ==========================================================================================
 
 Last updated: 08/14/2025.
 
 This is a tutorial for data collection using the GRPO or DAPO algorithm
-based on FSDP on Ascend devices.
+based on FSDP or MindSpeed(Megatron) on Ascend devices.
 
 Configuration
 -------------
