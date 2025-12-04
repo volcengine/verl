@@ -85,10 +85,10 @@ class GmmFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, weight, group_list, group_list_type=1):
         """
-        Grouped Matrix Multiplication (GMM) for Ascend NPU.
-        
+        Grouped Matmul(GMM) for Ascend NPU.
+
         Args:
-            x (torch.Tensor): Input tensor, shape (batch_size, sequence_length, hidden_size)
+            x (torch.Tensor): Input tensor, shape (tokens_num * top_k, hidden_size)
             weight (torch.Tensor): Expert weights, shape (n_experts, hidden_size, intermediate_size)
             group_list (torch.Tensor): Expert token counts, shape (n_experts,)
                 - type 0: cumsum of tokens per expert
@@ -97,17 +97,11 @@ class GmmFunction(torch.autograd.Function):
         ctx.save_for_backward(x, weight)
         ctx.group_list = group_list
         ctx.group_list_type = group_list_type
-        
+
         output = torch_npu.npu_grouped_matmul(
-            [x], 
-            [weight], 
-            bias=None, 
-            group_list=group_list, 
-            split_item=2, 
-            group_type=0, 
-            group_list_type=group_list_type
+            [x], [weight], bias=None, group_list=group_list, split_item=2, group_type=0, group_list_type=group_list_type
         )[0]
-        
+
         return output
 
     @staticmethod
@@ -115,29 +109,28 @@ class GmmFunction(torch.autograd.Function):
         x, weight = ctx.saved_tensors
         group_list = ctx.group_list
         group_list_type = ctx.group_list_type
-        weight = torch.transpose(weight, 1, 2)
-        
+
         dx = torch_npu.npu_grouped_matmul(
-            [grad_output], 
-            [weight], 
-            bias=None, 
-            group_list=group_list, 
-            split_item=2, 
-            group_type=0, 
-            group_list_type=group_list_type
+            [grad_output],
+            [weight.transpose(1, 2)],
+            bias=None,
+            group_list=group_list,
+            split_item=2,
+            group_type=0,
+            group_list_type=group_list_type,
         )[0]
-        
+
         dw = torch_npu.npu_grouped_matmul(
-            [x.T], 
-            [grad_output], 
-            bias=None, 
-            group_list=group_list, 
-            split_item=3, 
-            group_type=2, 
-            group_list_type=group_list_type
+            [x.transpose(0, 1)],
+            [grad_output],
+            bias=None,
+            group_list=group_list,
+            split_item=3,
+            group_type=2,
+            group_list_type=group_list_type,
         )[0]
-        
-        return dx, dw, None, None  
+
+        return dx, dw, None, None
 
 
 def moe_block_forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
@@ -160,9 +153,9 @@ def moe_block_forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
     up_weight_list = [e.up_proj.weight for e in self.experts]
     gate_weight_list = [e.gate_proj.weight for e in self.experts]
     down_weight_list = [e.down_proj.weight for e in self.experts]
-    w1 = torch.stack(up_weight_list).transpose(1, 2).to(input_dtype) 
-    w2 = torch.stack(gate_weight_list).transpose(1, 2).to(input_dtype) 
-    w3 = torch.stack(down_weight_list).transpose(1, 2).to(input_dtype) 
+    w1 = torch.stack(up_weight_list).transpose(1, 2).to(input_dtype)
+    w2 = torch.stack(gate_weight_list).transpose(1, 2).to(input_dtype)
+    w3 = torch.stack(down_weight_list).transpose(1, 2).to(input_dtype)
 
     permuted_tokens, row_ids_map = torch_npu.npu_moe_token_permute(hidden_states, selected_experts.to(torch.int32))
     tokens_per_expert = torch.histc(selected_experts, bins=self.num_experts, min=0, max=self.num_experts)
