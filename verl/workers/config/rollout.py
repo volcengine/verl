@@ -152,7 +152,6 @@ class RolloutConfig(BaseConfig):
     calculate_kv_scales: bool = False
     """Whether to dynamically calculate KV scales for FP8 KV cache.
     Only effective when kv_cache_dtype is fp8.
-    Must be True for training scenarios where model weights change frequently.
     Works with or without weight quantization (quantization='fp8')"""
     
     data_parallel_size: int = 1

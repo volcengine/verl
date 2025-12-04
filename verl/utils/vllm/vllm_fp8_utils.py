@@ -645,7 +645,7 @@ def patched_maybe_post_process_fp8_weight_block(layer: torch.nn.Module):
 
 def apply_vllm_fp8_patches():
     """
-    Apply all vLLM FP8 patches for blockwise quantization and KV cache.
+    Apply all vLLM FP8 patches for blockwise quantization.
     """
     logger.info("Applying vllm fp8 patches for blockwise quantization")
     func1_path = "vllm.model_executor.layers.quantization.fp8.Fp8LinearMethod.process_weights_after_loading"
@@ -666,9 +666,10 @@ def apply_vllm_fp8_patches():
     patcher2.start()
     
     # CRITICAL: Patch maybe_post_process_fp8_weight_block to preserve parameter types and attributes
-    # This is needed for v0.11.2+ where DeepGEMM optimization would create new Parameters,
-    # losing all custom attributes, methods, and the parameter subclass type
-    if vllm.__version__ >= "0.11.0":
+    # This is needed for v0.11.1+ where DeepGEMM optimization would create new Parameters,
+    # losing all custom attributes, methods, and the parameter subclass type preventing weight reloading.
+    # Ref: https://github.com/vllm-project/vllm/pull/27897/files
+    if vllm.__version__ >= "0.11.1":
         func3_path = "vllm.model_executor.layers.quantization.utils.fp8_utils.maybe_post_process_fp8_weight_block"
         patcher3 = patch(func3_path, patched_maybe_post_process_fp8_weight_block)
         patcher3.start()

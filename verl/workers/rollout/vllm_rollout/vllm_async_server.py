@@ -54,7 +54,7 @@ from vllm.v1.executor.abstract import Executor
 from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches
-from verl.workers.config import HFModelConfig, RewardModelConfig, RolloutConfig
+from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
 from verl.workers.rollout.utils import get_free_port, is_valid_ipv6_address, run_unvicorn
 from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
@@ -281,7 +281,6 @@ class vLLMHttpServerBase:
                 apply_vllm_fp8_patches()
             else:
                 raise ValueError(f"Currently only support fp8 quantization, got: {quantization}")
-        
         args = {
             "dtype": self.config.dtype,
             "load_format": self.config.load_format,
@@ -305,13 +304,30 @@ class vLLMHttpServerBase:
             **engine_kwargs,
         }
         
+        # Get and validate KV cache configuration
+        kv_cache_dtype = getattr(self.config, 'kv_cache_dtype', None)
+        calculate_kv_scales = getattr(self.config, 'calculate_kv_scales', False)
+        is_kv_fp8 = kv_cache_dtype is not None and 'fp8' in str(kv_cache_dtype).lower()
+        
+        # Ensure kv_cache_dtype=fp8 and calculate_kv_scales are specified together
+        if calculate_kv_scales and not is_kv_fp8:
+            raise ValueError(
+                "calculate_kv_scales=True requires kv_cache_dtype to be set to fp8. "
+                f"Got calculate_kv_scales={calculate_kv_scales}, kv_cache_dtype={kv_cache_dtype}"
+            )
+        if is_kv_fp8 and not calculate_kv_scales:
+            raise ValueError(
+                "kv_cache_dtype=fp8 requires calculate_kv_scales=True for dynamic scale calculation. "
+                f"Got kv_cache_dtype={kv_cache_dtype}, calculate_kv_scales={calculate_kv_scales}"
+            )
+        
         # Add KV cache dtype configuration (independent of weight quantization)
-        if hasattr(self.config, 'kv_cache_dtype') and self.config.kv_cache_dtype is not None:
-            args["kv_cache_dtype"] = self.config.kv_cache_dtype
-            logger.info(f"Setting kv_cache_dtype: {self.config.kv_cache_dtype}")
+        if kv_cache_dtype is not None:
+            args["kv_cache_dtype"] = kv_cache_dtype
+            logger.info(f"Setting kv_cache_dtype: {kv_cache_dtype}")
         
         # Add calculate_kv_scales flag
-        if hasattr(self.config, 'calculate_kv_scales') and self.config.calculate_kv_scales:
+        if calculate_kv_scales:
             args["calculate_kv_scales"] = True
             logger.info("Enabling dynamic KV scale calculation")
             
@@ -354,6 +370,9 @@ class vLLMHttpServerBase:
                     "max_lora_rank": get_vllm_max_lora_rank(self.model_config.lora_rank),
                 }
             )
+
+        if self.config.enable_rollout_routing_replay:
+            args.update({"enable_return_routed_experts": True})
 
         server_args = ["serve", self.model_config.local_path]
         for k, v in args.items():
@@ -538,6 +557,10 @@ class vLLMHttpServerBase:
         elif self.rollout_mode == RolloutMode.STANDALONE:
             logger.info("skip sleep in standalone mode")
 
+    async def clear_kv_cache(self):
+        if self.node_rank == 0:
+            await self.engine.reset_prefix_cache()
+
     async def wait_for_requests_to_drain(self):
         await self.engine.wait_for_requests_to_drain()
 
@@ -624,7 +647,7 @@ class vLLMHttpServer(vLLMHttpServerBase):
 
     def __init__(
         self,
-        config: RolloutConfig | RewardModelConfig,
+        config: RolloutConfig,
         model_config: HFModelConfig,
         rollout_mode: RolloutMode,
         workers: list[ActorHandle],
@@ -643,7 +666,7 @@ class vLLMReplica(RolloutReplica):
     def __init__(
         self,
         replica_rank: int,
-        config: RolloutConfig | RewardModelConfig,
+        config: RolloutConfig,
         model_config: HFModelConfig,
         gpus_per_node: int = 8,
         is_reward_model: bool = False,
