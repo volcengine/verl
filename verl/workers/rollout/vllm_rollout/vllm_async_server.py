@@ -16,6 +16,8 @@ import asyncio
 import json
 import logging
 import os
+import threading
+from concurrent.futures import Future
 from pprint import pprint
 from typing import Any, Callable, Optional
 
@@ -104,8 +106,23 @@ class ExternalZeroMQDistributedExecutor(Executor):
         timeout: Optional[float] = None,
         args: tuple = (),
         kwargs: Optional[dict[str, Any]] = None,
+        non_block: bool = False,
         **kwargs_extra: Any,
     ) -> list[Any]:
+        """Execute RPC call on all workers via ZeroMQ.
+        
+        Args:
+            method: Method name or callable to execute
+            timeout: Timeout for the operation (currently unused)
+            args: Positional arguments
+            kwargs: Keyword arguments
+            non_block: If True, return Future objects for async execution.
+                      If False (default), block until completion for backward compatibility.
+            **kwargs_extra: Additional keyword arguments (for compatibility)
+        
+        Returns:
+            List of results from all workers, or list of Futures if non_block=True
+        """
         if isinstance(method, str):
             sent_method = method
         else:
@@ -116,14 +133,41 @@ class ExternalZeroMQDistributedExecutor(Executor):
         for socket in self.sockets:
             socket.send(message, zmq.DONTWAIT)
 
-        outputs = []
-        for socket in self.sockets:
-            outputs.append(pickle.loads(socket.recv()))
+        if non_block:
+            # For async execution, return Future objects
+            # Uncomment for debugging: print(f"ExternalZeroMQDistributedExecutor.collective_rpc called with non_block=True for method={sent_method}")
+            futures = []
+            for socket in self.sockets:
+                future = Future()
+                
+                def _recv_async(sock, fut):
+                    try:
+                        output = pickle.loads(sock.recv())
+                        if isinstance(output, Exception):
+                            fut.set_exception(output)
+                        else:
+                            fut.set_result(output)
+                    except Exception as e:
+                        fut.set_exception(e)
+                
+                # Start a thread to receive the result asynchronously
+                thread = threading.Thread(target=_recv_async, args=(socket, future))
+                thread.daemon = True
+                thread.start()
+                futures.append(future)
 
-        for output in outputs:
-            if isinstance(output, Exception):
-                raise output
-        return outputs
+            # Uncomment for debugging: print(f"ExternalZeroMQDistributedExecutor.collective_rpc returned {len(futures)} futures")
+            return futures
+        else:
+            # Blocking execution - maintain backward compatibility with vllm 0.11.0
+            outputs = []
+            for socket in self.sockets:
+                outputs.append(pickle.loads(socket.recv()))
+
+            for output in outputs:
+                if isinstance(output, Exception):
+                    raise output
+            return outputs
 
     def check_health(self):
         return
@@ -240,11 +284,6 @@ class vLLMHttpServerBase:
                 apply_vllm_fp8_patches(self.config)
             else:
                 raise ValueError(f"Currently only support fp8 quantization, got: {quantization}")
-        else:
-            # Check if we need KV cache FP8 patches even without weight quantization
-            from verl.utils.vllm.vllm_fp8_utils import is_kv_cache_fp8_enabled, apply_vllm_kv_cache_fp8_wake_up_patch
-            if is_kv_cache_fp8_enabled(self.config):
-                logger.info("[FP8_KV_CACHE] Will apply wake_up patch in worker processes")
         
         args = {
             "dtype": self.config.dtype,
@@ -278,7 +317,7 @@ class vLLMHttpServerBase:
         if hasattr(self.config, 'calculate_kv_scales') and self.config.calculate_kv_scales:
             args["calculate_kv_scales"] = True
             logger.info("Enabling dynamic KV scale calculation")
-
+            
         if self.config.prometheus.enable:
             if self.config.prometheus.served_model_name:
                 # Extract model name from path if it's a full path
