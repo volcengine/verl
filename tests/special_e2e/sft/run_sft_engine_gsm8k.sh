@@ -3,15 +3,15 @@ set -xeuo pipefail
 
 NUM_GPUS=${NUM_GPUS:-1}
 
-mode=${mode:-async}
+mode=${mode:-spmd}
 
-if [ "$mode" != "async" ]; then
-  echo "Only async rollout mode is supported. Please set mode=async."
-  exit 1
+if [ "$mode" = "spmd" ]; then
+  ENTRYPOINT=${ENTRYPOINT:-"-m verl.trainer.sft_trainer"}
+  COMMAND="torchrun --standalone --nnodes=${NNODES:-1} --nproc-per-node=${NUM_GPUS:-1} ${ENTRYPOINT}"
+else
+  ENTRYPOINT=${ENTRYPOINT:-"-m verl.trainer.sft_trainer_ray"}
+  COMMAND="python ${ENTRYPOINT} trainer.nnodes=${NNODES:-1} trainer.n_gpus_per_node=${NUM_GPUS:-1}"
 fi
-
-ENTRYPOINT=${ENTRYPOINT:-"-m verl.trainer.sft_trainer_ray"}
-COMMAND="python ${ENTRYPOINT} trainer.nnodes=${NNODES:-1} trainer.n_gpus_per_node=${NUM_GPUS:-1}"
 
 
 TRAIN_FILES=~/data/gsm8k_sft/train.parquet
