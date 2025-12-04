@@ -651,6 +651,8 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         """Context switch hybridengine to rollout mode."""
         aggressive_empty_cache(force_sync=True)
 
+        set_expandable_segments(True)
+
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.actor.actor_module, load_grad=False)
             log_gpu_memory_usage("After load actor params during rollout_mode", logger=logger)
