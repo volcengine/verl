@@ -173,6 +173,9 @@ class SGLangHttpServer:
             enable_weights_cpu_backup = True if self.rollout_mode == RolloutMode.COLOCATED else False
             args["enable_weights_cpu_backup"] = enable_weights_cpu_backup
 
+        # Skip server warmup since we're using async server startup
+        args["skip_server_warmup"] = True
+
         # NOTE: We can't directly call SGLang's launch_server since it's not an async function.
         # https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/entrypoints/http_server.py
         sglang.srt.entrypoints.engine._set_envs_and_config = _set_envs_and_config
@@ -194,8 +197,20 @@ class SGLangHttpServer:
             )
         )
         app.is_single_tokenizer_mode = True
-        app.server_args = server_args
-        app.warmup_thread_args = (server_args, None, None)
+        
+        # Set warmup_thread_args to avoid AttributeError in lifespan function
+        app.warmup_thread_args = (
+            server_args,
+            None,
+            None,
+        )
+        
+        # Manually add Prometheus middleware before starting server
+        # This ensures /metrics endpoint is available immediately
+        if server_args.enable_metrics:
+            from sglang.srt.utils.common import add_prometheus_middleware
+            add_prometheus_middleware(app)
+
         self._server_port, self._server_task = await run_unvicorn(app, server_args, self._server_address)
         self.tokenizer_manager.server_status = ServerStatus.Up
 
