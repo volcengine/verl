@@ -10,24 +10,103 @@ Last updated: 12/3/2025.
 .. warning::
    Reward Loop is ready for use, but the API may change in future releases.
 
-Reward Loop is designed to support flexible and user-friendly reward computation, with implementation mostly in ``verl/experimental/reward``.
+Reward Loop is designed to support flexible and user-friendly reward computation, with most implementation in ``verl/experimental/reward``.
 
-**Supported Types of Rewards:** Reward Loop covers all typical reward-computation scenarios.
+Reward Function Usage
+---------------------
+
+Reward Loop covers all typical reward-computation scenarios.
 
 - **Rule-based Reward**: The reward is determined by predefined rules, e.g., checking whether the predicted answer matches the ground truth via simple string matching.
 - **Discriminative Reward Model (DisRM)**: The reward is produced by a specified discriminative reward model, such as ``Skywork/Skywork-Reward-Llama-3.1-8B-v0.2``.
 - **Generative Reward Model (GenRM)**: The reward is obtained using a generative reward model, for example ``dyyyyyyyy/FAPO-GenRM-4B``.
 - **Hybrid Reward Scenarios**: Reward Loop provides interfaces for plugging in reward models, allowing users to define custom reward logic based on their needs (e.g., combining rule-based methods with GenRM).
 
-**Support Training Modes:** Reward Loop supports multiple execution modes for reward training
+.. warning::
+   For reward-model scenarios, users should set the extra configuration, i.e., ``--config-path recipe/fapo/config --config-name rm_config.yaml``. This configuration will be adopted as the default in a future release.
+
+Rule-based Reward
+~~~~~~~~~~~~~~~~~
+
+If ``--custom_reward_function`` is not provided, the reward loop will fall back to the default rule-based reward function.
+Otherwise, only the user-defined reward function will be used. The files under ``verl/utils/reward_score/`` provide some examples.
+
+Reward Loop supports both synchronous and asynchronous user-defined reward functions. It automatically detects the function type and executes it accordingly, ensuring that reward computation remains non-blocking and efficient.
+
+Discriminative Reward Model (DisRM)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For scenarios involving a discriminative reward model, users should provide ``--reward_model.model.path`` to specify the reward model.
+
+The Reward Loop will pass the question and the model rollout as inputs to the reward model and obtain a reward score from its output.
+
+Generative Reward Model (GenRM)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For generative reward model scenarios, users need to specify both ``--reward_model.model.path`` and ``--custom_reward_function``.
+
+The custom reward function should implement the following components:
+
+- Convert the question and the model rollout into a GenRM input prompt using a custom prompt template.
+- Invoke the GenRM to perform generation with custom sampling parameters. For this purpose, the Reward Loop provides an HTTP interface (i.e., ``reward_router_address``) for interacting with GenRM.
+- Parse the GenRM output using a custom parser and extract the reward score.
+
+As these steps are highly customizable and task-dependent, we offer this flexibility entirely to the user-defined reward function.
+
+Below we provide an example of a custom reward function using GenRM.
+
+.. code:: python
+
+   async def compute_score_gsm8k(
+      data_source: str,
+      solution_str: str,
+      ground_truth: str,
+      extra_info: dict,
+      reward_router_address: str,  # an HTTP router endpoint provided by Reward Loop
+      reward_model_tokenizer: PreTrainedTokenizer,
+   ):
+      """Compute the reward score."""
+
+      # Step 1: Prepare prompt and request payload
+      grm_prompt = GRM_PROMPT_TEMPLATE.format(problem=extra_info["question"], solution=solution_str)
+      messages = [{"role": "user", "content": grm_prompt}]
+      sampling_params = {"temperature": 0.7, "top_p": 0.8, "max_tokens": 4096}
+      chat_complete_request = {"messages": messages, **sampling_params}
+
+      # Step 2: Send async request to the reward model
+      # here, chat_complete sends async http request to the router address
+      result = await chat_complete(
+         router_address=reward_router_address,
+         chat_complete_request=chat_complete_request,
+      )
+
+      # Step 3: Parse model response and extract score
+      grm_response = result.choices[0].message.content.strip()
+      try:
+         score_str = grm_response.split("\n\n")[-1].strip()
+         score = int(score_str)
+      except Exception:
+         score = 0
+
+      return {"score": score}
+
+Hybrid Reward Scenarios
+~~~~~~~~~~~~~~~~~~~~~~~
+
+For more complex application settings, such as combining rule-based rewards with GenRM, or mixing rule-based rewards with DisRM, users can also achieve this by specifying the ``--reward_model.model.path`` together with the ``--custom_reward_function``.
+The implementation of the customized reward function follows the same pattern as illustrated above.
+
+A runnable and reproducible example that demonstrates how to use a rule-based reward function together with a GenRM is provided in the ``recipe/fapo`` directory for reference. Welcome to use and cite.
+
+Architecture Design
+-------------------
+
+Reward Loop supports multiple execution modes for reward training:
 
 - **Colocate Mode**: The reward model shares the same resource pool as the actor/rollout/reference models. In this setup, all rollouts must complete first, after which the reward model is awakened to perform inference.
 - **Standalone Mode**: The reward model runs on a separate resource pool, independent from the actor/rollout/reference models. In this setup, each sample is evaluated by the reward model immediately after its rollout finishes.
 
 .. image:: https://github.com/yyDing1/verl-materials/blob/main/reward_loop.svg?raw=true
-
-Architecture Design
--------------------
 
 RewardLoopWorker
 ~~~~~~~~~~~~~~~~~
@@ -38,9 +117,8 @@ The ``RewardLoopWorker`` is responsible for handling batch-level reward computat
 
 For each sample, the reward is computed according to the following logic:
 
-- if ``custom_reward_function`` is provided, we directly use user-customized reward function
-
-- if ``custom_reward_function`` is not provided:
+- if ``--custom_reward_function`` is provided, we directly use user-customized reward function
+- if ``--custom_reward_function`` is not provided:
    - **reward model is not enabled**: use default rule-based reward function
    - **reward model is discriminative**: compute reward score using disrm
    - **reward model is generative**: this is not permitted (user-customized reward func **must be** provided)
@@ -161,52 +239,3 @@ This design allows us to expose a single unified router address to user-defined 
          assert self.config.rollout.skip_tokenizer_init is False, "Reward model should not skip tokenizer init."
          if self.config.rollout.free_cache_engine:
                self.sleep()
-
-User-defined reward functions can be implemented as either synchronous or asynchronous.
-``RewardLoopManager`` automatically detects the type of the user-defined function and executes it accordingly, ensuring that the reward computation process remains non-blocking.
-
-
-User-Customized Reward Function
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Users can define custom reward functions, for instance, by integrating external generative rewards or rule-based rewards to accommodate diverse scenario requirements.
-
-To facilitate this, the Reward Loop directly exposes the reward model interface, enabling complex reward computation pipelines that involve model-based scoring.
-A user-defined reward function may look like the following:
-
-.. code:: python
-
-   async def compute_score_gsm8k(
-      data_source: str,
-      solution_str: str,
-      ground_truth: str,
-      extra_info: dict,
-      reward_router_address: str,
-      reward_model_tokenizer: PreTrainedTokenizer,
-   ):
-      """Compute the reward score."""
-
-      # Step 1: Prepare prompt and request payload
-      grm_prompt = GRM_PROMPT_TEMPLATE.format(problem=extra_info["question"], solution=solution_str)
-      messages = [{"role": "user", "content": grm_prompt}]
-      sampling_params = {"temperature": 0.7, "top_p": 0.8, "max_tokens": 4096}
-      chat_complete_request = {"messages": messages, **sampling_params}
-
-      # Step 2: Send async request to the reward model
-      # here, chat_complete sends async http request to the router address
-      result = await chat_complete(
-         router_address=reward_router_address,
-         chat_complete_request=chat_complete_request,
-      )
-
-      # Step 3: Parse model response and extract score
-      grm_response = result.choices[0].message.content.strip()
-      try:
-         score_str = grm_response.split("\n\n")[-1].strip()
-         score = int(score_str)
-      except Exception:
-         score = 0
-
-      return {"score": score}
-
-Runable examples are provided in the ``recipe/fapo`` directory for reference.
