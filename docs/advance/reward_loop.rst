@@ -28,7 +28,7 @@ Reward Loop covers all typical reward-computation scenarios.
 Rule-based Reward
 ~~~~~~~~~~~~~~~~~
 
-If a ``custom_reward_function`` is not provided, the reward loop will fall back to the default rule-based reward function.
+If ``--custom_reward_function`` is not provided, the reward loop will fall back to the default rule-based reward function.
 Otherwise, only the user-defined reward function will be used. The files under ``verl/utils/reward_score/`` provide some examples.
 
 Reward Loop supports both synchronous and asynchronous user-defined reward functions. It automatically detects the function type and executes it accordingly, ensuring that reward computation remains non-blocking and efficient.
@@ -36,14 +36,14 @@ Reward Loop supports both synchronous and asynchronous user-defined reward funct
 Discriminative Reward Model (DisRM)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-For scenarios involving a discriminative reward model, users should provide ``reward_model.model.path`` to specify the reward model.
+For scenarios involving a discriminative reward model, users should provide ``--reward_model.model.path`` to specify the reward model.
 
 The Reward Loop will pass the question and the model rollout as inputs to the reward model and obtain a reward score from its output.
 
 Generative Reward Model (GenRM)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-For generative reward model scenarios, users need to specify both ``reward_model.model.path`` and a ``custom_reward_function``.
+For generative reward model scenarios, users need to specify both ``--reward_model.model.path`` and ``--custom_reward_function``.
 
 The custom reward function should implement the following components:
 
@@ -93,7 +93,7 @@ Below we provide an example of a custom reward function using GenRM.
 Hybrid Reward Scenarios
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-For more complex application settings, such as combining rule-based rewards with GenRM, or mixing rule-based rewards with DisRM, users can also achieve this by specifying the ``reward_model.model.path`` together with the ``custom_reward_function``.
+For more complex application settings, such as combining rule-based rewards with GenRM, or mixing rule-based rewards with DisRM, users can also achieve this by specifying the ``--reward_model.model.path`` together with the ``--custom_reward_function``.
 The implementation of the customized reward function follows the same pattern as illustrated above.
 
 A runnable and reproducible example that demonstrates how to use a rule-based reward function together with a GenRM is provided in the ``recipe/fapo`` directory for reference. Welcome to use and cite.
@@ -117,8 +117,8 @@ The ``RewardLoopWorker`` is responsible for handling batch-level reward computat
 
 For each sample, the reward is computed according to the following logic:
 
-- if ``custom_reward_function`` is provided, we directly use user-customized reward function
-- if ``custom_reward_function`` is not provided:
+- if ``--custom_reward_function`` is provided, we directly use user-customized reward function
+- if ``--custom_reward_function`` is not provided:
    - **reward model is not enabled**: use default rule-based reward function
    - **reward model is discriminative**: compute reward score using disrm
    - **reward model is generative**: this is not permitted (user-customized reward func **must be** provided)
