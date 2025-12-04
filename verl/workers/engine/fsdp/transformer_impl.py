@@ -164,7 +164,7 @@ class FSDPEngine(BaseEngine):
             optimizer=self.optimizer,
             lr_scheduler=self.lr_scheduler,
             processing_class=self.model_config.get_processor(),
-            checkpoint_contents=self.checkpoint_config,
+            checkpoint_config=self.checkpoint_config,
         )
 
     def _init_device_mesh(self):

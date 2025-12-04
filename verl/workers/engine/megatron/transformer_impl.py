@@ -683,6 +683,8 @@ class MegatronEngineWithLMHead(MegatronEngine):
             multi_modal_inputs,
             logits_processor=logits_processor,
             logits_processor_args=logits_processor_args,
+            vision_model=hasattr(self.model_config.hf_config, "vision_config"),
+            pad_token_id=self.model_config.tokenizer.pad_token_id,
             data_format="thd" if self.engine_config.use_remove_padding else "bshd",
         )
 
@@ -734,6 +736,8 @@ class MegatronEngineWithValueHead(MegatronEngineWithLMHead):
             input_ids,
             multi_modal_inputs,
             value_model=True,
+            vision_model=hasattr(self.model_config.hf_config, "vision_config"),
+            pad_token_id=self.model_config.tokenizer.pad_token_id,
         )
 
         return output, partial(postprocess_micro_batch_func, data=batch)
