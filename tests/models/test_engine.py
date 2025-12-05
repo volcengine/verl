@@ -24,7 +24,14 @@ import ray
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
-from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForTokenClassification, Qwen3Config, Qwen3MoeConfig
+from transformers import (
+    AutoConfig,
+    AutoModelForCausalLM,
+    AutoModelForTokenClassification,
+    AutoTokenizer,
+    Qwen3Config,
+    Qwen3MoeConfig,
+)
 
 from verl import DataProto
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
@@ -164,9 +171,11 @@ def create_model():
 
     config = Qwen3Config(num_hidden_layers=2, num_labels=1)
     model = AutoModelForTokenClassification.from_config(config)
+    tokenizer = AutoTokenizer.from_pretrained(os.path.expanduser("~/models/Qwen/Qwen3-0.6B"))
     assert model.config.num_labels == 1
     path = os.path.expanduser("~/models/test_model")
     model.save_pretrained(path)
+    tokenizer.save_pretrained(path)
     config.save_pretrained(path)
     return path
 
@@ -176,7 +185,7 @@ def test_critic_engine(strategy):
     ray.init()
 
     path = create_model()
-    model_config = HFModelConfig(path=path, load_tokenizer=False)
+    model_config = HFModelConfig(path=path, load_tokenizer=True)
 
     if strategy == "megatron":
         engine_config = McoreEngineConfig(
