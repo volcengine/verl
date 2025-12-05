@@ -140,6 +140,21 @@ class RolloutConfig(BaseConfig):
     enforce_eager: bool = True
     cudagraph_capture_sizes: Optional[list] = None
     free_cache_engine: bool = True
+    
+    # KV cache configuration (independent of weight quantization)
+    # Can be used alone OR together with quantization='fp8' for maximum memory savings
+    kv_cache_dtype: Optional[str] = None
+    """KV cache data type for attention layers. 
+    Options: None (auto), 'fp8', 'fp8_e4m3', 'fp16', 'bf16'
+    FP8 requires vLLM V1 and compatible GPU (Hopper or later)
+    Can be combined with quantization='fp8' to quantize both weights and KV cache"""
+    
+    calculate_kv_scales: bool = False
+    """Whether to dynamically calculate KV scales for FP8 KV cache.
+    Only effective when kv_cache_dtype is fp8.
+    Must be True for training scenarios where model weights change frequently.
+    Works with or without weight quantization (quantization='fp8')"""
+    
     data_parallel_size: int = 1
     expert_parallel_size: int = 1
     tensor_model_parallel_size: int = 2

@@ -58,7 +58,7 @@ from verl.utils.device import is_npu_available
 from verl.utils.distributed import initialize_global_process_group_ray
 from verl.utils.ray_utils import ray_noset_visible_devices
 from verl.utils.vllm import TensorLoRARequest, VLLMHijack, is_version_ge
-from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches, is_fp8_model, load_quanted_weights
+from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches, is_fp8_model, load_quanted_weights, is_kv_cache_fp8_enabled, reset_kv_scale_flags_in_model
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
 from verl.workers.rollout.utils import get_free_port, is_valid_ipv6_address
@@ -261,6 +261,12 @@ class vLLMAsyncRollout(BaseRollout):
             else:
                 logger.info("Loading standard weights (non-FP8, async)")
                 model.load_weights(weights)
+
+            # Reset KV scale flags after weight update to trigger recalculation on next forward pass
+            # This ensures scales are always computed with the latest weights
+            if is_kv_cache_fp8_enabled(self.config):
+                logger.info("Resetting KV scale flags after weight update")
+                reset_kv_scale_flags_in_model(model_runner)
 
     def generate_sequences(self, prompts: DataProto) -> DataProto:
         """Batch generate sequences in sync mode."""

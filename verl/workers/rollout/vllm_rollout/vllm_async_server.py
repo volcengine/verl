@@ -35,7 +35,15 @@ from vllm.inputs import TokensPrompt
 from vllm.lora.request import LoRARequest
 from vllm.outputs import RequestOutput
 from vllm.usage.usage_lib import UsageContext
-from vllm.utils import FlexibleArgumentParser, get_tcp_uri
+# Catch import error and import from different path
+try:
+    from vllm.utils import get_tcp_uri
+except ImportError:
+    from vllm.utils.network_utils import get_tcp_uri
+try:
+    from vllm.utils import FlexibleArgumentParser
+except ImportError:
+    from vllm.utils.argparse_utils import FlexibleArgumentParser
 from vllm.v1.engine.async_llm import AsyncLLM
 from vllm.v1.engine.core import EngineCoreProc
 from vllm.v1.engine.utils import CoreEngineProcManager
@@ -226,11 +234,18 @@ class vLLMHttpServerBase:
                     "weight_block_size": [128, 128],
                 }
                 fp8_block_quant_kwargs = dict(FP8_BLOCK_QUANT_KWARGS)
-                # Apply vllm fp8 patches
+                # Apply vllm fp8 patches (pass config for KV cache patch detection)
+                # This applies BOTH weight quantization patches AND KV cache patches if kv_cache_dtype=fp8
                 # Will remove the patch after vllm support on-the-fly quant for rollout natively.
-                apply_vllm_fp8_patches()
+                apply_vllm_fp8_patches(self.config)
             else:
                 raise ValueError(f"Currently only support fp8 quantization, got: {quantization}")
+        else:
+            # Check if we need KV cache FP8 patches even without weight quantization
+            from verl.utils.vllm.vllm_fp8_utils import is_kv_cache_fp8_enabled, apply_vllm_kv_cache_fp8_wake_up_patch
+            if is_kv_cache_fp8_enabled(self.config):
+                logger.info("[FP8_KV_CACHE] Will apply wake_up patch in worker processes")
+        
         args = {
             "dtype": self.config.dtype,
             "load_format": self.config.load_format,
@@ -253,6 +268,16 @@ class vLLMHttpServerBase:
             "hf_overrides": {"quantization_config": fp8_block_quant_kwargs} if quantization == "fp8" else None,
             **engine_kwargs,
         }
+        
+        # Add KV cache dtype configuration (independent of weight quantization)
+        if hasattr(self.config, 'kv_cache_dtype') and self.config.kv_cache_dtype is not None:
+            args["kv_cache_dtype"] = self.config.kv_cache_dtype
+            logger.info(f"Setting kv_cache_dtype: {self.config.kv_cache_dtype}")
+        
+        # Add calculate_kv_scales flag
+        if hasattr(self.config, 'calculate_kv_scales') and self.config.calculate_kv_scales:
+            args["calculate_kv_scales"] = True
+            logger.info("Enabling dynamic KV scale calculation")
 
         if self.config.prometheus.enable:
             if self.config.prometheus.served_model_name:
@@ -350,7 +375,7 @@ class vLLMHttpServerBase:
         engine_client = AsyncLLM.from_vllm_config(
             vllm_config=vllm_config,
             usage_context=usage_context,
-            disable_log_requests=engine_args.disable_log_requests,
+ #           disable_log_requests=engine_args.disable_log_requests,
             disable_log_stats=engine_args.disable_log_stats,
         )
 
@@ -358,7 +383,13 @@ class vLLMHttpServerBase:
         await engine_client.reset_mm_cache()
 
         app = build_app(args)
-        await init_app_state(engine_client, vllm_config, app.state, args)
+        # if vllm version is 0.11.1 or higher, call init_app_state with 3 parameters
+        import vllm
+        if vllm.__version__ >= "0.11.1":
+            print("vllm version is 0.11.1 or higher, call init_app_state with 3 parameters")
+            await init_app_state(engine_client, app.state, args)
+        else:
+            await init_app_state(engine_client, vllm_config, app.state, args)
         if self.replica_rank == 0 and self.node_rank == 0:
             logger.info(f"Initializing a V1 LLM engine with config: {vllm_config}")
 

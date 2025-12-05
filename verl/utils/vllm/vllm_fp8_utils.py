@@ -14,7 +14,9 @@
 # limitations under the License.
 
 import logging
+import os
 from dataclasses import dataclass, field
+from typing import Any
 from unittest.mock import patch
 
 import torch
@@ -47,6 +49,128 @@ class FP8State:
 
 
 fp8_state: FP8State = FP8State()
+
+
+@dataclass()
+class FP8KVCacheState:
+    """State for tracking FP8 KV cache patches."""
+    kv_patch_applied: bool = False
+    original_wake_up: Any = None
+
+
+fp8_kv_cache_state: FP8KVCacheState = FP8KVCacheState()
+
+
+def is_kv_cache_fp8_enabled(config):
+    """
+    Check if FP8 KV cache with dynamic scale calculation is enabled.
+    
+    Args:
+        config: RolloutConfig or vLLM config object
+        
+    Returns:
+        bool: True if FP8 KV cache with calculate_kv_scales is enabled
+    """
+    # Check for kv_cache_dtype
+    kv_cache_dtype = getattr(config, 'kv_cache_dtype', None)
+    if kv_cache_dtype is None:
+        kv_cache_dtype = config.get('kv_cache_dtype', None) if hasattr(config, 'get') else None
+    
+    # Check for calculate_kv_scales
+    calculate_kv_scales = getattr(config, 'calculate_kv_scales', False)
+    if not calculate_kv_scales:
+        calculate_kv_scales = config.get('calculate_kv_scales', False) if hasattr(config, 'get') else False
+    
+    is_fp8_kv = (
+        kv_cache_dtype is not None and 
+        ('fp8' in str(kv_cache_dtype).lower() or kv_cache_dtype == torch.float8_e4m3fn) and
+        calculate_kv_scales
+    )
+    
+    logger.info(
+        f"[FP8_KV_CACHE] kv_cache_dtype={kv_cache_dtype}, "
+        f"calculate_kv_scales={calculate_kv_scales}, "
+        f"is_enabled={is_fp8_kv}"
+    )
+    
+    return is_fp8_kv
+
+
+def apply_vllm_kv_cache_fp8_wake_up_patch():
+    """
+    Apply wake_up patch to reset calculate_kv_scales flags after wake up.
+    
+    This patch is needed because:
+    1. After each training cycle, model weights change
+    2. KV scales need to be recalculated based on new weight distributions
+    3. vLLM's wake_up() restores GPU memory but doesn't reset the calculation flags
+    
+    The patch resets calculate_kv_scales=True in:
+    - model_runner.calculate_kv_scales
+    - All attention layer modules with calculate_kv_scales attribute
+    """
+    global fp8_kv_cache_state
+    
+    if fp8_kv_cache_state.kv_patch_applied:
+        logger.info("[FP8_KV_CACHE] Wake up patch already applied, skipping")
+        return
+    
+    try:
+        from vllm.v1.worker.gpu_worker import Worker
+    except ImportError:
+        # V0 or different vLLM version
+        logger.warning("[FP8_KV_CACHE] Could not import vLLM V1 Worker, skipping wake_up patch")
+        return
+    
+    logger.info(f"[FP8_KV_CACHE] Applying wake_up patch in worker process (PID: {os.getpid()})")
+    
+    # Store the original wake_up method
+    fp8_kv_cache_state.original_wake_up = Worker.wake_up
+    
+    def patched_wake_up(self, tags=None):
+        """Patched wake_up that resets calculate_kv_scales after restoration."""
+        logger.info(f"[FP8_KV_CACHE] Calling patched wake_up (PID: {os.getpid()})")
+        
+        # Call the original wake_up to restore GPU memory
+        result = fp8_kv_cache_state.original_wake_up(self, tags)
+        
+        # Check if we should reset KV scales
+        has_cache_config = hasattr(self, 'cache_config')
+        should_reset = (
+            has_cache_config and 
+            hasattr(self.cache_config, 'calculate_kv_scales') and
+            self.cache_config.calculate_kv_scales
+        )
+        
+        logger.info(
+            f"[FP8_KV_CACHE] has_cache_config: {has_cache_config}, "
+            f"calculate_kv_scales: {self.cache_config.calculate_kv_scales if has_cache_config else False}"
+        )
+        
+        if should_reset:
+            logger.info("[FP8_KV_CACHE] Resetting calculate_kv_scales flags after wake up")
+            
+            # Reset the model_runner flag
+            if hasattr(self.model_runner, 'calculate_kv_scales'):
+                self.model_runner.calculate_kv_scales = True
+                logger.info("[FP8_KV_CACHE] Reset model_runner.calculate_kv_scales = True")
+            
+            # Reset flags in all attention layers
+            model = self.model_runner.model
+            num_reset = 0
+            for name, module in model.named_modules():
+                if hasattr(module, 'calculate_kv_scales'):
+                    module.calculate_kv_scales = True
+                    num_reset += 1
+            
+            logger.info(f"[FP8_KV_CACHE] Reset calculate_kv_scales flag in {num_reset} attention layers")
+        
+        return result
+    
+    # Apply the patch
+    Worker.wake_up = patched_wake_up
+    fp8_kv_cache_state.kv_patch_applied = True
+    logger.info("[FP8_KV_CACHE] Successfully patched Worker.wake_up")
 
 
 def is_fp8_model(vllm_config):
@@ -453,7 +577,13 @@ def process_weights_after_loading_moe_for_vllm11(self, layer) -> None:
             layer.w2_weight_scale_inv = get_col_major_tma_aligned_tensor(layer.w2_weight_scale_inv)
 
 
-def apply_vllm_fp8_patches():
+def apply_vllm_fp8_patches(config=None):
+    """
+    Apply all vLLM FP8 patches for blockwise quantization and KV cache.
+    
+    Args:
+        config: Optional RolloutConfig to check for KV cache FP8 settings
+    """
     logger.info("Applying vllm fp8 patches for blockwise quantization")
     func1_path = "vllm.model_executor.layers.quantization.fp8.Fp8LinearMethod.process_weights_after_loading"
     patcher1 = patch(
@@ -471,3 +601,8 @@ def apply_vllm_fp8_patches():
         else process_weights_after_loading_moe_for_vllm10,
     )
     patcher2.start()
+    
+    # Apply KV cache FP8 wake_up patch if configured
+    if config is not None and is_kv_cache_fp8_enabled(config):
+        logger.info("[FP8_KV_CACHE] Detected FP8 KV cache with calculate_kv_scales, applying wake_up patch")
+        apply_vllm_kv_cache_fp8_wake_up_patch()
