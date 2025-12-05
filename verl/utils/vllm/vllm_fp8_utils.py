@@ -29,6 +29,7 @@ except ImportError as e:
     raise ImportError("FP8 quantization not available") from e
 
 logger = logging.getLogger(__name__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "INFO"))  # Set explicit level to show INFO messages
 
 FP8_BLOCK_QUANT_KWARGS = {
     "activation_scheme": "dynamic",
@@ -599,6 +600,8 @@ def reset_kv_scale_flags_in_model(model_runner) -> int:
     if num_reset > 0:
         logger.info(f"Reset calculate_kv_scales flag in {num_reset} attention layers")
         logger.info(f"Restored range constants (q/k/v_range) in {num_ranges_restored} layers (fixes inf/nan)")
+        # Also log at WARNING level to ensure visibility in logs (some loggers filter INFO)
+        logger.warning(f"[KV_SCALE_RESET] Successfully reset {num_reset} attention layers, restored ranges in {num_ranges_restored} layers")
     else:
         logger.warning("No attention layers with calculate_kv_scales found")
     
