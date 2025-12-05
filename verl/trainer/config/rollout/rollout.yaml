@@ -47,8 +47,6 @@ cudagraph_capture_sizes: null
 free_cache_engine: True
 
 # KV cache data type for attention layers
-# Options: null (default/auto), "fp8", "fp8_e4m3", "fp16", "bf16"
-# Note: fp8 requires vLLM V1 and compatible GPU (Hopper or later)
 # Can be used in three ways:
 #   1. Alone (kv_cache_dtype=fp8, quantization=null) - KV cache FP8 only
 #   2. Together with weight quantization (kv_cache_dtype=fp8, quantization=fp8) - Maximum memory savings
@@ -56,9 +54,8 @@ free_cache_engine: True
 kv_cache_dtype: null
 
 # Whether to dynamically calculate KV scales for FP8 KV cache
-# Only effective when kv_cache_dtype is fp8
+# Required to be True when when kv_cache_dtype is fp8
 # When True, vLLM recalculates scales based on actual K/V distributions after each weight update
-# Important: Must be True for training scenarios where model weights change frequently
 # Works with or without weight quantization (quantization=fp8)
 calculate_kv_scales: False
 

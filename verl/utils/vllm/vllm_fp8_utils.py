@@ -60,17 +60,16 @@ def is_kv_cache_fp8_enabled(config):
     Returns:
         bool: True if FP8 KV cache with calculate_kv_scales is enabled
     """
-    # TODO: Remove debug prints
-    print(f"[FP8_KV_CACHE] Checking if FP8 KV cache with dynamic scale calculation is enabled: {config}")
+    logger.debug(f"Checking if FP8 KV cache with dynamic scale calculation is enabled: {config}")
     # Check for kv_cache_dtype
     kv_cache_dtype = getattr(config, 'kv_cache_dtype', None)
-    print(f"[FP8_KV_CACHE] kv_cache_dtype: {kv_cache_dtype}")
+    logger.debug(f"kv_cache_dtype: {kv_cache_dtype}")
     if kv_cache_dtype is None:
         kv_cache_dtype = config.get('kv_cache_dtype', None) if hasattr(config, 'get') else None
     
     # Check for calculate_kv_scales
     calculate_kv_scales = getattr(config, 'calculate_kv_scales', None)
-    print(f"[FP8_KV_CACHE] calculate_kv_scales: {calculate_kv_scales}")
+    logger.debug(f"calculate_kv_scales: {calculate_kv_scales}")
     if calculate_kv_scales is None:
         calculate_kv_scales = config.get('calculate_kv_scales', False) if hasattr(config, 'get') else False
     
@@ -79,10 +78,10 @@ def is_kv_cache_fp8_enabled(config):
         ('fp8' in str(kv_cache_dtype).lower() or kv_cache_dtype == torch.float8_e4m3fn) and
         calculate_kv_scales
     )
-    print(f"[FP8_KV_CACHE] is_fp8_kv: {is_fp8_kv}")
+    logger.debug(f"is_fp8_kv: {is_fp8_kv}")
     
     logger.info(
-        f"[FP8_KV_CACHE] kv_cache_dtype={kv_cache_dtype}, "
+        f"kv_cache_dtype={kv_cache_dtype}, "
         f"calculate_kv_scales={calculate_kv_scales}, "
         f"is_enabled={is_fp8_kv}"
     )
@@ -498,7 +497,7 @@ def process_weights_after_loading_moe_for_vllm11(self, layer) -> None:
             layer.w2_weight_scale_inv = get_col_major_tma_aligned_tensor(layer.w2_weight_scale_inv)
 
 
-def reset_kv_scale_flags_in_model(model_runner, initialize_buffers: bool = True) -> int:
+def reset_kv_scale_flags_in_model(model_runner) -> int:
     """
     Reset calculate_kv_scales flags in model_runner and all attention layers.
     Also restore range constants (q_range, k_range, v_range) that may have been
@@ -506,16 +505,13 @@ def reset_kv_scale_flags_in_model(model_runner, initialize_buffers: bool = True)
     
     This should be called after loading new weights to trigger KV scale recalculation
     on the next forward pass.
-    
     Args:
         model_runner: vLLM ModelRunner instance
-        initialize_buffers: If True, initialize scale buffer tensors to safe default values
-                           to avoid inf/nan from uninitialized GPU memory
         
     Returns:
         int: Number of attention layers where flags were reset
     """
-    print(f"[FP8_KV_CACHE] Resetting KV scale calculation flags in model_runner: {model_runner}")
+    logger.info(f"Resetting KV scale calculation flags in model_runner: {model_runner}")
     
     # Import vllm envs to get the scale constants
     from vllm import envs
@@ -523,14 +519,13 @@ def reset_kv_scale_flags_in_model(model_runner, initialize_buffers: bool = True)
     # Reset model_runner level flag
     if hasattr(model_runner, 'calculate_kv_scales'):
         model_runner.calculate_kv_scales = True
-        print("[FP8_KV_CACHE] Reset model_runner.calculate_kv_scales = True")
+        logger.debug("Reset model_runner.calculate_kv_scales = True")
     else:
-        print("[FP8_KV_CACHE] model_runner does not have calculate_kv_scales attribute")
+        logger.debug("model_runner does not have calculate_kv_scales attribute")
     
-    # Reset per-layer flags, restore range constants, and initialize scale buffers
+    # Reset per-layer flags and restore range constants
     model = model_runner.model
     num_reset = 0
-    num_initialized = 0
     num_ranges_restored = 0
     
     for name, module in model.named_modules():
@@ -547,55 +542,30 @@ def reset_kv_scale_flags_in_model(model_runner, initialize_buffers: bool = True)
                     module.q_range.data.fill_(envs.Q_SCALE_CONSTANT)
                     ranges_restored = True
                 except Exception as e:
-                    logger.warning(f"[FP8_KV_CACHE] Failed to restore q_range for {name}: {e}")
+                    logger.warning(f"Failed to restore q_range for {name}: {e}")
             
             if hasattr(module, 'k_range') and module.k_range is not None:
                 try:
                     module.k_range.data.fill_(envs.K_SCALE_CONSTANT)
                     ranges_restored = True
                 except Exception as e:
-                    logger.warning(f"[FP8_KV_CACHE] Failed to restore k_range for {name}: {e}")
+                    logger.warning(f"Failed to restore k_range for {name}: {e}")
             
             if hasattr(module, 'v_range') and module.v_range is not None:
                 try:
                     module.v_range.data.fill_(envs.V_SCALE_CONSTANT)
                     ranges_restored = True
                 except Exception as e:
-                    logger.warning(f"[FP8_KV_CACHE] Failed to restore v_range for {name}: {e}")
+                    logger.warning(f"Failed to restore v_range for {name}: {e}")
             
             if ranges_restored:
                 num_ranges_restored += 1
-            
-            # Initialize scale buffer tensors to safe default (0.1) to avoid inf/nan
-            # This is a safety measure in case scale calculation fails
-            # But with ranges restored, calculation should produce valid values
-            if initialize_buffers:
-                if hasattr(module, '_k_scale') and module._k_scale is not None:
-                    try:
-                        module._k_scale.data.fill_(0.1)
-                        num_initialized += 1
-                    except Exception as e:
-                        logger.warning(f"[FP8_KV_CACHE] Failed to initialize _k_scale for {name}: {e}")
-                
-                if hasattr(module, '_v_scale') and module._v_scale is not None:
-                    try:
-                        module._v_scale.data.fill_(0.1)
-                    except Exception as e:
-                        logger.warning(f"[FP8_KV_CACHE] Failed to initialize _v_scale for {name}: {e}")
-                
-                if hasattr(module, '_q_scale') and module._q_scale is not None:
-                    try:
-                        module._q_scale.data.fill_(0.1)
-                    except Exception as e:
-                        logger.warning(f"[FP8_KV_CACHE] Failed to initialize _q_scale for {name}: {e}")
     
     if num_reset > 0:
-        print(f"[FP8_KV_CACHE] Reset calculate_kv_scales flag in {num_reset} attention layers")
-        print(f"[FP8_KV_CACHE] Restored range constants (q/k/v_range) in {num_ranges_restored} layers (fixes inf/nan)")
-        if initialize_buffers and num_initialized > 0:
-            print(f"[FP8_KV_CACHE] Initialized scale buffers to 0.1 in {num_initialized} layers (safety fallback)")
+        logger.info(f"Reset calculate_kv_scales flag in {num_reset} attention layers")
+        logger.info(f"Restored range constants (q/k/v_range) in {num_ranges_restored} layers (fixes inf/nan)")
     else:
-        print("[FP8_KV_CACHE] No attention layers with calculate_kv_scales found")
+        logger.warning("No attention layers with calculate_kv_scales found")
     
     return num_reset
 
