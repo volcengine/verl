@@ -63,7 +63,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.9 \
     actor_rollout_ref.rollout.n=5 \
     actor_rollout_ref.ref.log_prob_use_dynamic_bsz=${use_dynamic_bsz} \
-	  actor_rollout_ref.ref.log_prob_max_token_len_per_gpu=8192 \
+    actor_rollout_ref.ref.log_prob_max_token_len_per_gpu=8192 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     actor_rollout_ref.ref.use_torch_compile=True \
     algorithm.kl_ctrl.kl_coef=0.001 \
