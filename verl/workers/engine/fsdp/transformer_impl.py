@@ -69,7 +69,7 @@ from verl.workers.config import FSDPEngineConfig, FSDPOptimizerConfig, HFModelCo
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 from ..base import BaseEngine, EngineRegistry
-from ..utils import postprocess_batch_func, prepare_micro_batches
+from ..utils import enable_full_determinism, postprocess_batch_func, prepare_micro_batches
 from .utils import create_device_mesh, get_sharding_strategy
 
 logger = logging.getLogger(__file__)
@@ -115,6 +115,9 @@ class FSDPEngine(BaseEngine):
         self.use_remove_padding = self.model_config.use_remove_padding
 
         self._init_device_mesh()
+
+        if self.engine_config.full_determinism:
+            enable_full_determinism(seed=self.engine_config.seed)
 
         # set FSDP offload params
         self._is_offload_param = self.engine_config.param_offload
@@ -550,7 +553,7 @@ class FSDPEngine(BaseEngine):
         lr = self.lr_scheduler.get_last_lr()[0]  # only return the first group
         return lr
 
-    def to(self, device: str, model: bool = True, optimizer: bool = True):
+    def to(self, device: str, model: bool = True, optimizer: bool = True, grad: bool = True):
         """
         Move FSDP model and/or optimizer to CPU or GPU with offload support.
         """
@@ -562,14 +565,14 @@ class FSDPEngine(BaseEngine):
 
         assert device in (device_name, "cpu")
         if device == device_name:
-            if not self.engine_config.param_offload:
+            if self.engine_config.param_offload:
                 if model:
                     load_fsdp_model_to_gpu(self.module)
                 if optimizer and self.optimizer is not None:
                     load_fsdp_optimizer(self.optimizer, device)
             gc.collect()
         elif device == "cpu":
-            if not self.engine_config.param_offload:
+            if self.engine_config.param_offload:
                 if model:
                     offload_fsdp_model_to_cpu(self.module)
                 if optimizer and self.optimizer is not None:
@@ -658,7 +661,7 @@ class FSDPEngine(BaseEngine):
                 (name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param)
                 for name, param in params.items()
             )
-        return per_tensor_param
+        return per_tensor_param, peft_config
 
 
 class EngineEvalModeCtx:
@@ -963,7 +966,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
             output = {
                 "model_output": model_output,
-                "loss": loss,
+                "loss": loss.detach().item(),
                 "metrics": metrics,
             }
 

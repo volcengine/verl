@@ -88,7 +88,7 @@ class FullyAsyncAgentLoopWorker(AgentLoopWorkerBase):
 
     async def generate_sequences_no_post(
         self, batch: DataProto, partial_output_list: Optional[list[AgentLoopOutput]]
-    ) -> list[AgentLoopOutput]:
+    ) -> tuple[list[AgentLoopOutput], bool] | tuple[DataProto, bool]:
         """Generate sequences from agent loop.
 
         Args:
@@ -126,15 +126,34 @@ class FullyAsyncAgentLoopWorker(AgentLoopWorkerBase):
 
         if not partial_output_list:
             partial_output_list = [None] * len(batch)
+        try:
+            tasks = []
+            for i in range(len(batch)):
+                kwargs = {k: v[i] for k, v in batch.non_tensor_batch.items()}
+                kwargs["output"] = partial_output_list[i]
+                tasks.append(
+                    asyncio.create_task(self._partial_run_agent_loop(sampling_params, trajectory_info[i], **kwargs))
+                )
+            outputs = await asyncio.gather(*tasks)
+        except Exception:
+            logger.exception("_partial_run_agent_loop failed")
+            raise
 
-        tasks = []
-        for i in range(len(batch)):
-            kwargs = {k: v[i] for k, v in batch.non_tensor_batch.items()}
-            kwargs["output"] = partial_output_list[i]
-            tasks.append(
-                asyncio.create_task(self._partial_run_agent_loop(sampling_params, trajectory_info[i], **kwargs))
-            )
-        return await asyncio.gather(*tasks)
+        is_cancel = any(output.extra_fields.get("is_cancel", False) for output in outputs)
+        if not is_cancel:
+            output = self._postprocess(outputs)
+            output = self._addition_process(output)
+            return output, is_cancel
+        return outputs, is_cancel
+
+    def _addition_process(self, output: DataProto):
+        """collect metirics"""
+        metrics = output.meta_info.pop("metrics")  # List[Dict[str, str]]
+        processing_times_list = [item["generate_sequences"] for item in metrics]
+        tool_calls_times_list = [item["tool_calls"] for item in metrics]
+        output.non_tensor_batch["processing_times"] = processing_times_list
+        output.non_tensor_batch["tool_calls_times"] = tool_calls_times_list
+        return output
 
     async def _partial_run_agent_loop(
         self,
@@ -144,6 +163,10 @@ class FullyAsyncAgentLoopWorker(AgentLoopWorkerBase):
         agent_name: str,
         **kwargs,
     ) -> AgentLoopOutput:
+        # Completed, return directly
+        if kwargs["output"] is not None and not kwargs["output"].extra_fields.get("is_cancel", False):
+            logger.info("In _partial_run_agent_loop, already completed, return derictly!")
+            return kwargs["output"]
         try:
             with rollout_trace_attr(
                 step=trajectory["step"],
@@ -164,10 +187,17 @@ class FullyAsyncAgentLoopWorker(AgentLoopWorkerBase):
                     tokenizer=self.tokenizer,
                     processor=self.processor,
                 )
-                return await agent_loop.run(sampling_params, cancellation_event=self.cancellation_event, **kwargs)
-        except Exception as e:
-            logger.exception(f"Agent_loop run failed: {e}")
-            raise e
+                output: AgentLoopOutput = await agent_loop.run(
+                    sampling_params, cancellation_event=self.cancellation_event, **kwargs
+                )
+                if not output.extra_fields.get("is_cancel", False):
+                    kwargs.pop("output", None)
+                    output = await self._agent_loop_postprocess(output, **kwargs)
+
+                return output
+        except Exception:
+            logger.exception("Agent_loop run failed")
+            raise
 
     async def cancel_agent_loops(self):
         """Set the shared cancellation event to stop all agent loops."""
@@ -210,7 +240,11 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
         self._init_agent_loop_workers()
 
     async def _initialize_llm_servers_async(self):
-        rollout_world_size = self.config.actor_rollout_ref.rollout.tensor_model_parallel_size
+        rollout_world_size = (
+            self.config.actor_rollout_ref.rollout.tensor_model_parallel_size
+            * self.config.actor_rollout_ref.rollout.data_parallel_size
+            * self.config.actor_rollout_ref.rollout.pipeline_model_parallel_size
+        )
         world_size = (
             self.worker_group.world_size
             if self.worker_group
@@ -249,7 +283,7 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
         self,
         sample: DataProto,
         partial_output_list: Optional[list[AgentLoopOutput]],
-    ) -> list[AgentLoopOutput]:
+    ) -> tuple[list[AgentLoopOutput], bool] | tuple[DataProto, bool]:
         """
         Asynchronously process a single sample
 
@@ -289,5 +323,5 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
     async def sleep(self):
         await asyncio.gather(*[replica.sleep() for replica in self.rollout_replicas])
 
-    async def reset_prefix_cache(self):
-        await asyncio.gather(*[replica.reset_prefix_cache() for replica in self.rollout_replicas])
+    async def clear_kv_cache(self):
+        await asyncio.gather(*[replica.clear_kv_cache() for replica in self.rollout_replicas])

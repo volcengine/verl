@@ -25,7 +25,6 @@ try:
     from transfer_queue import (
         AsyncTransferQueueClient,
         BatchMeta,
-        ZMQServerInfo,
     )
 
 except ImportError:
@@ -38,32 +37,27 @@ except ImportError:
 from verl.protocol import DataProto
 
 _TRANSFER_QUEUE_CLIENT = None
-_VAL_TRANSFER_QUEUE_CLIENT = None
 
 is_transferqueue_enabled = os.environ.get("TRANSFER_QUEUE_ENABLE", False)
 
 
 def create_transferqueue_client(
     client_id: str,
-    controller_infos: dict[Any, "ZMQServerInfo"],
-    storage_infos: dict[Any, "ZMQServerInfo"],
-) -> None:
+    config,
+) -> "AsyncTransferQueueClient":
     global _TRANSFER_QUEUE_CLIENT
-    global _VAL_TRANSFER_QUEUE_CLIENT
-    if "val" in client_id:
-        _VAL_TRANSFER_QUEUE_CLIENT = AsyncTransferQueueClient(client_id, controller_infos, storage_infos)
-    else:
-        _TRANSFER_QUEUE_CLIENT = AsyncTransferQueueClient(client_id, controller_infos, storage_infos)
+    if _TRANSFER_QUEUE_CLIENT is None:
+        _TRANSFER_QUEUE_CLIENT = AsyncTransferQueueClient(client_id, config.controller_info)
+        _TRANSFER_QUEUE_CLIENT.initialize_storage_manager(manager_type=config.storage_backend, config=config)
+
+    return _TRANSFER_QUEUE_CLIENT
 
 
 def get_transferqueue_client() -> "AsyncTransferQueueClient":
     return _TRANSFER_QUEUE_CLIENT
 
 
-def get_val_transferqueue_client() -> "AsyncTransferQueueClient":
-    return _VAL_TRANSFER_QUEUE_CLIENT
-
-
+# TODO (TQ): verl will make all actor async, so this can be cleanup later.
 def _run_async_in_temp_loop(async_func: Callable[..., Any], *args, **kwargs) -> Any:
     # Use a temporary event loop in a new thread because event
     # loop may already exist in server mode
@@ -109,10 +103,7 @@ async def _async_batchmeta_to_dataproto(batchmeta: "BatchMeta") -> DataProto:
             meta_info=batchmeta.extra_info.copy(),
         )
 
-    if batchmeta.extra_info.get("validate", False):
-        tensordict = await _VAL_TRANSFER_QUEUE_CLIENT.async_get_data(batchmeta)
-    else:
-        tensordict = await _TRANSFER_QUEUE_CLIENT.async_get_data(batchmeta)
+    tensordict = await _TRANSFER_QUEUE_CLIENT.async_get_data(batchmeta)
     return DataProto.from_tensordict(tensordict, meta_info=batchmeta.extra_info.copy())
 
 
@@ -130,10 +121,7 @@ async def _async_update_batchmeta_with_output(output: DataProto, batchmeta: "Bat
         for key in output.meta_info.keys():
             tensordict.pop(key)
         batchmeta.add_fields(tensordict)
-        if batchmeta.extra_info.get("validate", False):
-            await _VAL_TRANSFER_QUEUE_CLIENT.async_put(data=tensordict, metadata=batchmeta)
-        else:
-            await _TRANSFER_QUEUE_CLIENT.async_put(data=tensordict, metadata=batchmeta)
+        await _TRANSFER_QUEUE_CLIENT.async_put(data=tensordict, metadata=batchmeta)
 
 
 def _update_batchmeta_with_output(output: DataProto, batchmeta: "BatchMeta") -> None:
@@ -141,7 +129,7 @@ def _update_batchmeta_with_output(output: DataProto, batchmeta: "BatchMeta") -> 
 
 
 def tqbridge(put_data: bool = True):
-    """ "Creates a decorator for bridging BatchMeta and DataProto.
+    """Creates a decorator for bridging BatchMeta and DataProto.
 
     This decorator automatically handles conversions between `BatchMeta` and
     `DataProto` in function parameters, and decides whether to sync function

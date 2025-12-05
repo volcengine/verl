@@ -39,7 +39,7 @@ actor_rollout_ref:
       model_config: {}
       moe_config:
         freeze_moe_router: False
-    enable_gradient_checkpointing: False
+    enable_gradient_checkpointing: True
     gradient_checkpointing_kwargs:
       ## Activation Checkpointing
       activations_checkpoint_method: null # 'uniform', 'block'; not used with 'selective'
@@ -62,14 +62,15 @@ actor_rollout_ref:
     clip_ratio_low: 0.2
     clip_ratio_high: 0.2
     clip_ratio_c: 3.0 # lower bound of the value for Dual-clip PPO from https://arxiv.org/pdf/1912.09729
-    loss_agg_mode: "token-mean" # / "seq-mean-token-sum" / "seq-mean-token-mean"
+    loss_agg_mode: "token-mean" # / "seq-mean-token-sum" / "seq-mean-token-mean" / "seq-mean-token-sum-norm"
     # NOTE: "token-mean" is the default behavior
+    loss_scale_factor: null  # Scale factor for "seq-mean-token-sum-norm" mode. If null, uses response_length.
     entropy_coeff: 0
     use_kl_loss: False # True for GRPO
     kl_loss_coef: 0.001 # for grpo
     kl_loss_type: low_var_kl # for grpo
     ppo_epochs: 1
-    data_loader_seed: null
+    data_loader_seed: 42
     shuffle: False
     policy_loss:   # policy loss config
       loss_mode: "vanilla" # Loss function mode: vanilla / clip-cov / kl-cov / gpg from https://arxiv.org/abs/2505.22617,
@@ -111,6 +112,7 @@ actor_rollout_ref:
       seed: 42
       override_transformer_config: {} # additional transformer config like: num_layers_in_first(/last)_pipeline_stage
       use_mbridge: False
+      vanilla_mbridge: True
     profile: # profile the actor model in `update_policy`
       use_profile: False # open it when you want to profile the actor model
       profile_ranks: null # list, you can specify the ranks to profile
@@ -143,6 +145,7 @@ actor_rollout_ref:
       seed: ${actor_rollout_ref.actor.megatron.seed}
       override_transformer_config: ${actor_rollout_ref.actor.megatron.override_transformer_config}
       use_mbridge: ${actor_rollout_ref.actor.megatron.use_mbridge}
+      vanilla_mbridge: ${actor_rollout_ref.actor.megatron.vanilla_mbridge}
     profile:
       use_profile: False
       profile_ranks: null
@@ -290,7 +293,7 @@ critic:
         freeze_moe_router: False
     external_lib: ${actor_rollout_ref.model.external_lib}
     trust_remote_code: False
-    enable_gradient_checkpointing: False
+    enable_gradient_checkpointing: True
     gradient_checkpointing_kwargs:
       ## Activation Checkpointing
       activations_checkpoint_method: null
@@ -313,6 +316,7 @@ critic:
     seed: ${actor_rollout_ref.actor.megatron.seed}
     override_transformer_config: ${actor_rollout_ref.actor.megatron.override_transformer_config}
     use_mbridge: ${actor_rollout_ref.actor.megatron.use_mbridge}
+    vanilla_mbridge: ${actor_rollout_ref.actor.megatron.vanilla_mbridge}
   load_weight: True
   ppo_mini_batch_size: ${actor_rollout_ref.actor.ppo_mini_batch_size}
   ppo_micro_batch_size: null # will be deprecated, use ppo_micro_batch_size_per_gpu
@@ -357,6 +361,7 @@ reward_model:
     seed: ${actor_rollout_ref.actor.megatron.seed}
     override_transformer_config: {}
     use_mbridge: ${actor_rollout_ref.actor.megatron.use_mbridge}
+    vanilla_mbridge: ${actor_rollout_ref.actor.megatron.vanilla_mbridge}
   model:
     input_tokenizer: ${actor_rollout_ref.model.path}  # set this to null if the chat template is identical
     path: ~/models/FsfairX-LLaMA3-RM-v0.1

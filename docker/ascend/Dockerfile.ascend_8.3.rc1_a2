@@ -17,7 +17,7 @@ RUN ARCH=$(uname -m) && \
         pip config set global.extra-index-url "https://download.pytorch.org/whl/cpu/"; \
     fi && \
     # Clone libs
-    git clone --depth 1 --branch v0.11.0 https://github.com/vllm-project/vllm && \
+    git clone --depth 1 --branch v0.11.0 https://github.com/vllm-project/vllm.git && \
     git clone --depth 1 --branch v0.11.0rc1 https://github.com/vllm-project/vllm-ascend.git && \
     git clone https://gitcode.com/Ascend/MindSpeed.git && \
     cd MindSpeed && git checkout f2b0977e && cd .. && \
@@ -42,6 +42,8 @@ RUN ARCH=$(uname -m) && \
     # Install MindSpeed & Megatron
     pip install -e MindSpeed && \
     echo "export PYTHONPATH=\$PYTHONPATH:/Megatron-LM" >> ~/.bashrc && \
+    # Remove existing triton or triton-ascend installed by some third-party packages
+    pip uninstall -y triton triton-ascend && \
     # Clear extra files
     rm -rf /tmp/* /var/tmp/* && \
     pip cache purge

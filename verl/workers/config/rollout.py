@@ -77,6 +77,11 @@ class AgentLoopConfig(BaseConfig):
 class TraceConfig(BaseConfig):
     backend: Optional[str] = None
     token2text: bool = False
+    max_samples_per_step_per_worker: Optional[int] = None
+
+    def __post_init__(self):
+        if self.max_samples_per_step_per_worker is not None and self.max_samples_per_step_per_worker < 0:
+            raise ValueError("`max_samples_per_step_per_worker` must be a non-negative integer or null.")
 
 
 @dataclass
@@ -113,7 +118,7 @@ class RolloutConfig(BaseConfig):
     _mutable_fields = {"max_model_len", "load_format"}
 
     name: Optional[str] = MISSING
-    mode: str = "sync"
+    mode: str = "async"
     skip_tokenizer_init: bool = True
 
     temperature: float = 1.0
@@ -197,6 +202,9 @@ class RolloutConfig(BaseConfig):
     limit_images: Optional[int] = None
 
     skip_tokenizer_init: bool = False
+
+    quantization: Optional[str] = None
+    enable_rollout_routing_replay: bool = False
 
     def __post_init__(self):
         """Validate the rollout config"""

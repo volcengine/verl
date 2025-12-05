@@ -317,14 +317,21 @@ class RateLimitedRewardLoopManager(RewardLoopManagerBase):
     async def _compute_reward(
         self, data_source: str, solution_str: str, ground_truth: str, extra_info: dict
     ) -> dict | float:
+        extra_reward_kwargs = (
+            {
+                "reward_router_address": self.reward_router_address,
+                "reward_model_tokenizer": self.reward_model_tokenizer,
+            }
+            if self.reward_router_address is not None
+            else {}
+        )
         if self.is_async_reward_score:
             return await self.compute_score(
                 data_source=data_source,
                 solution_str=solution_str,
                 ground_truth=ground_truth,
                 extra_info=extra_info,
-                reward_router_address=self.reward_router_address,
-                reward_model_tokenizer=self.reward_model_tokenizer,
+                **extra_reward_kwargs,
             )
         else:
             return await self.loop.run_in_executor(
@@ -334,8 +341,7 @@ class RateLimitedRewardLoopManager(RewardLoopManagerBase):
                     solution_str=solution_str,
                     ground_truth=ground_truth,
                     extra_info=extra_info,
-                    reward_router_address=self.reward_router_address,
-                    reward_model_tokenizer=self.reward_model_tokenizer,
+                    **extra_reward_kwargs,
                 ),
             )
 
