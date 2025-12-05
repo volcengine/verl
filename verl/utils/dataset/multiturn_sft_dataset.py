@@ -168,6 +168,7 @@ class MultiTurnSFTDataset(Dataset):
 
     def _process_single_message(
         self,
+        index: int,
         message: dict[str, Any],
         tools: Optional[list[dict[str, Any]]] = None,
         enable_thinking: Optional[bool] = None,
@@ -176,6 +177,7 @@ class MultiTurnSFTDataset(Dataset):
         Process a single message and return its tokenized representation.
 
         Args:
+            index: turn index in the conversation
             message: A single message dictionary
             images: List of images to be used
             videos: List of videos to be used
@@ -204,7 +206,7 @@ class MultiTurnSFTDataset(Dataset):
         attention_mask = inputs.pop("attention_mask")[0]
 
         # remove system prompt if exists
-        if message["role"] != "system":
+        if index != 0 and message["role"] != "system":
             input_ids = input_ids[len(self.system_prompt) :]
             attention_mask = attention_mask[len(self.system_prompt) :]
 
@@ -273,7 +275,8 @@ class MultiTurnSFTDataset(Dataset):
         input_ids, loss_mask, attention_mask, multi_modal_inputs = [], [], [], {}
         for i, message in enumerate(messages):
             _input_ids, _loss_mask, _attention_mask, _inputs = self._process_single_message(
-                message,
+                index=i,
+                message=message,
                 tools=tools if i == 0 else None,
                 enable_thinking=enable_thinking,
             )

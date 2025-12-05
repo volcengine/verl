@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-def initialize_system_prompt(tokenizer, add_generation_prompt=False, **apply_chat_template_kwargs) -> list[int]:
+def initialize_system_prompt(tokenizer, **apply_chat_template_kwargs) -> list[int]:
     """
     Initialize system prompt tokens for chat templates that support them.
 
@@ -20,9 +20,7 @@ def initialize_system_prompt(tokenizer, add_generation_prompt=False, **apply_cha
         List of token IDs for the system prompt, or empty list if not supported
     """
     try:
-        return tokenizer.apply_chat_template(
-            [{}], add_generation_prompt=add_generation_prompt, tokenize=True, **apply_chat_template_kwargs
-        )
+        return tokenizer.apply_chat_template([{}], tokenize=True, **apply_chat_template_kwargs)
     except TemplateError as e:
         logger.warning(f"Chat template does not support system prompt: {e}")
         return []
