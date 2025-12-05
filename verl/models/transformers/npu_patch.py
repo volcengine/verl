@@ -15,9 +15,6 @@
 # limitations under the License.
 
 
-from importlib.metadata import version as get_version
-from typing import Optional
-
 import torch
 import torch.nn.functional as F
 import torch_npu
@@ -32,48 +29,25 @@ from transformers.models.qwen3_vl import modeling_qwen3_vl
 from transformers.models.qwen3_vl_moe import modeling_qwen3_vl_moe
 from transformers.utils import logging
 
-if get_version("transformers") > "4.57.1":
-    from transformers.configuration_utils import PretrainedConfig
-    from transformers.modeling_utils import PreTrainedModel
-else:
-    from transformers.modeling_utils import PretrainedConfig, PreTrainedModel
 
 logger = logging.get_logger(__name__)
 
 
-# This patch takes effect when using apply_rotary_pos_emb_flashatt on qwen2_5_vl and will be removed in
-# subsequent versions
-# https://github.com/huggingface/transformers/pull/38491
-def apply_rotary_pos_emb_flashatt_npu(
-    q: torch.Tensor, k: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor
-) -> tuple[torch.Tensor, torch.Tensor]:
-    cos = cos.chunk(2, dim=-1)[0].contiguous()
-    sin = sin.chunk(2, dim=-1)[0].contiguous()
-    cos = cos.repeat(1, 2)
-    sin = sin.repeat(1, 2)
-    q_embed = apply_rotary_emb(
-        q.float(), cos.unsqueeze(0).unsqueeze(2).float(), sin.unsqueeze(0).unsqueeze(2).float()
-    ).type_as(q)
-    k_embed = apply_rotary_emb(
-        k.float(), cos.unsqueeze(0).unsqueeze(2).float(), sin.unsqueeze(0).unsqueeze(2).float()
-    ).type_as(k)
-    return q_embed, k_embed
-
-
-# This api can improve performance on ASCEND NPU
-def rms_norm_forward(self, x):
+def rms_norm_forward_npu(self, x):
+    """NPU optimized implementation for RMSNorm."""
     if x.dtype != self.weight.dtype:
         x = x.to(self.weight.dtype)
     return torch_npu.npu_rms_norm(x, self.weight, epsilon=self.variance_epsilon)[0]
 
 
-def silu_forward(self, hidden_state):
-    """NPU optimized silu"""
+def silu_forward_npu(self, hidden_state):
+    """NPU optimized implementation for SiLU in `forward` func in MLP layer."""
     gate_up = torch.cat((self.gate_proj(hidden_state), self.up_proj(hidden_state)), dim=-1)
     return self.down_proj(torch_npu.npu_swiglu(gate_up, dim=-1))
 
 
 def apply_rotary_pos_emb_npu(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
+    """NPU optimized implementation for RoPE."""
     cos = cos.unsqueeze(unsqueeze_dim)
     sin = sin.unsqueeze(unsqueeze_dim)
     q_embed = torch_npu.npu_rotary_mul(q, cos, sin)
@@ -81,7 +55,7 @@ def apply_rotary_pos_emb_npu(q, k, cos, sin, position_ids=None, unsqueeze_dim=1)
     return q_embed.to(q.dtype), k_embed.to(k.dtype)
 
 
-class GmmFunction(torch.autograd.Function):
+class NPUGmmFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, weight, group_list, group_list_type=1):
         """
@@ -133,7 +107,8 @@ class GmmFunction(torch.autograd.Function):
         return dx, dw, None, None
 
 
-def moe_block_forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+def qwen3_moe_sparse_moe_block_forward_npu(self, hidden_states: torch.Tensor) -> torch.Tensor:
+    """NPU optimized implementation for `forward` in Qwen3MoeSparseMoeBlock."""
     # hidden_states: (batch_size, sequence_length, hidden_size)
     hidden_dim = hidden_states.shape[-1]
     hidden_states = hidden_states.view(-1, hidden_dim)
@@ -160,10 +135,10 @@ def moe_block_forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
     permuted_tokens, row_ids_map = torch_npu.npu_moe_token_permute(hidden_states, selected_experts.to(torch.int32))
     tokens_per_expert = torch.histc(selected_experts, bins=self.num_experts, min=0, max=self.num_experts)
 
-    up_res = GmmFunction.apply(permuted_tokens, w1, tokens_per_expert)
-    gate_res = GmmFunction.apply(permuted_tokens, w2, tokens_per_expert)
+    up_res = NPUGmmFunction.apply(permuted_tokens, w1, tokens_per_expert)
+    gate_res = NPUGmmFunction.apply(permuted_tokens, w2, tokens_per_expert)
     act_res = torch_npu.npu_swiglu(torch.cat([gate_res, up_res], dim=-1))
-    down_res = GmmFunction.apply(act_res, w3, tokens_per_expert)
+    down_res = NPUGmmFunction.apply(act_res, w3, tokens_per_expert)
 
     final_hidden_states = torch_npu.npu_moe_token_unpermute(down_res, row_ids_map, probs=routing_weights)
 
@@ -171,6 +146,7 @@ def moe_block_forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
 
 
 class NPUQwen3VLMoeTextExperts(nn.Module):
+    """NPU optimized implementation for Qwen3VLMoeTextExperts."""
     def __init__(self, config):
         super().__init__()
         self.num_experts = config.num_experts
@@ -205,9 +181,9 @@ class NPUQwen3VLMoeTextExperts(nn.Module):
                 hidden_states, router_indices.to(torch.int32)
             )
             tokens_per_expert = torch.histc(router_indices, bins=self.num_experts, min=0, max=self.num_experts)
-            intermediate_hidden_states = GmmFunction.apply(permuted_hidden_states, self.gate_up_proj, tokens_per_expert)
+            intermediate_hidden_states = NPUGmmFunction.apply(permuted_hidden_states, self.gate_up_proj, tokens_per_expert)
             intermediate_activations = torch_npu.npu_swiglu(intermediate_hidden_states, dim=-1)
-            output = GmmFunction.apply(intermediate_activations, self.down_proj, tokens_per_expert)
+            output = NPUGmmFunction.apply(intermediate_activations, self.down_proj, tokens_per_expert)
             next_states = torch_npu.npu_moe_token_unpermute(output, row_ids_map, probs=routing_weights)
             next_states = next_states.view(batch_size, -1, self.hidden_size)
         else:
@@ -224,7 +200,8 @@ class NPUQwen3VLMoeTextExperts(nn.Module):
         return next_states
 
 
-class Qwen3VLMoeTextSparseMoeBlock(nn.Module):
+class NPUQwen3VLMoeTextSparseMoeBlock(nn.Module):
+    """NPU optimized implementation for Qwen3VLMoeTextSparseMoeBlock."""
     def __init__(self, config):
         super().__init__()
         self.hidden_size = config.hidden_size
@@ -232,9 +209,6 @@ class Qwen3VLMoeTextSparseMoeBlock(nn.Module):
         self.top_k = config.num_experts_per_tok
         self.gate = nn.Linear(config.hidden_size, config.num_experts, bias=False)
         self.experts = NPUQwen3VLMoeTextExperts(config)
-
-        # since all the models use norm_topk_prob, we don't need to have a extra check for it
-        # self.norm_topk_prob = config.norm_topk_prob
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         batch_size = hidden_states.shape[0]
@@ -251,51 +225,29 @@ class Qwen3VLMoeTextSparseMoeBlock(nn.Module):
         return routed_out
 
 
-@classmethod
-def _check_and_enable_flash_attn_2(
-    cls,
-    config,
-    torch_dtype: Optional[torch.dtype] = None,
-    device_map: Optional[str | dict[str, int]] = None,
-    check_device_map: bool = True,
-    hard_check_only: bool = False,
-) -> PretrainedConfig:
-    """
-    Checks the availability of Flash Attention 2 and compatibility with the current model.
-
-    If all checks pass and `hard_check_only` is False, the method will set the config attribute
-    `attn_implementation` to "flash_attention_2" so that the model can initialize
-    the correct attention module.
-    """
-    if not cls._supports_flash_attn_2:
-        raise ValueError(
-            f"{cls.__name__} does not support Flash Attention 2.0 yet. Please request to add support where the"
-            f" model is hosted, on its model hub page: https://huggingface.co/{config._name_or_path}/discussions/new"
-            " or in the Transformers GitHub repo: https://github.com/huggingface/transformers/issues/new"
-        )
-
-    if not hard_check_only:
-        config._attn_implementation = "flash_attention_2"
-    logger.info("Detect using FlashAttention2 on Ascend NPU.")
-    return config
-
-
-modeling_qwen2.Qwen2RMSNorm.forward = rms_norm_forward
-modeling_qwen2.Qwen2MLP.forward = silu_forward
+# Patches for Qwen2 Model
+modeling_qwen2.Qwen2RMSNorm.forward = rms_norm_forward_npu
+modeling_qwen2.Qwen2MLP.forward = silu_forward_npu
 modeling_qwen2.apply_rotary_pos_emb = apply_rotary_pos_emb_npu
-modeling_qwen2_5_vl.Qwen2RMSNorm.forward = rms_norm_forward
-modeling_qwen2_5_vl.Qwen2_5_VLMLP.forward = silu_forward
-modeling_qwen2_5_vl.apply_rotary_pos_emb_flashatt = apply_rotary_pos_emb_flashatt_npu
-modeling_qwen3_moe.Qwen3MoeRMSNorm.forward = rms_norm_forward
-modeling_qwen3_moe.Qwen3MoeSparseMoeBlock.forward = moe_block_forward
-modeling_qwen3_moe.apply_rotary_pos_emb = apply_rotary_pos_emb_npu
-modeling_qwen3.Qwen3RMSNorm.forward = rms_norm_forward
-modeling_qwen3.Qwen3MLP.forward = silu_forward
-modeling_qwen3_vl_moe.Qwen3VLMoeTextSparseMoeBlock = Qwen3VLMoeTextSparseMoeBlock
-modeling_qwen3_vl_moe.Qwen3VLMoeTextRMSNorm.forward = rms_norm_forward
-modeling_qwen3_vl_moe.apply_rotary_pos_emb = apply_rotary_pos_emb_npu
-modeling_qwen3_vl.Qwen3VLTextRMSNorm.forward = rms_norm_forward
-modeling_qwen3_vl.Qwen3VLTextMLP.forward = silu_forward
 
-if get_version("transformers") < "4.54.0":
-    PreTrainedModel._check_and_enable_flash_attn_2 = _check_and_enable_flash_attn_2
+# Patches for Qwen2.5-VL Model
+modeling_qwen2_5_vl.Qwen2RMSNorm.forward = rms_norm_forward_npu
+modeling_qwen2_5_vl.Qwen2_5_VLMLP.forward = silu_forward_npu
+
+# Patches for Qwen3 Model
+modeling_qwen3.Qwen3RMSNorm.forward = rms_norm_forward_npu
+modeling_qwen3.Qwen3MLP.forward = silu_forward_npu
+
+# Patches for Qwen3 MoE Model
+modeling_qwen3_moe.Qwen3MoeRMSNorm.forward = rms_norm_forward_npu
+modeling_qwen3_moe.Qwen3MoeSparseMoeBlock.forward = qwen3_moe_sparse_moe_block_forward_npu
+modeling_qwen3_moe.apply_rotary_pos_emb = apply_rotary_pos_emb_npu
+
+# Patches for Qwen3 VL Model
+modeling_qwen3_vl.Qwen3VLTextRMSNorm.forward = rms_norm_forward_npu
+modeling_qwen3_vl.Qwen3VLTextMLP.forward = silu_forward_npu
+
+# Patches for Qwen3-VL MoE Model
+modeling_qwen3_vl_moe.Qwen3VLMoeTextSparseMoeBlock = NPUQwen3VLMoeTextSparseMoeBlock
+modeling_qwen3_vl_moe.Qwen3VLMoeTextRMSNorm.forward = rms_norm_forward_npu
+modeling_qwen3_vl_moe.apply_rotary_pos_emb = apply_rotary_pos_emb_npu
