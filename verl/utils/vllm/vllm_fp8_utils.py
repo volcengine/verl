@@ -50,6 +50,49 @@ class FP8State:
 
 fp8_state: FP8State = FP8State()
 
+def validate_kv_cache_fp8_config(config):
+    """
+    Validate KV cache FP8 configuration to ensure both kv_cache_dtype=fp8 and 
+    calculate_kv_scales=True are specified together.
+    
+    Args:
+        config: RolloutConfig or vLLM config object
+        
+    Returns:
+        tuple: (kv_cache_dtype, calculate_kv_scales) if valid
+        
+    Raises:
+        ValueError: If configuration is invalid (one set without the other)
+    """
+    # Check for kv_cache_dtype
+    kv_cache_dtype = getattr(config, 'kv_cache_dtype', None)
+    if kv_cache_dtype is None:
+        kv_cache_dtype = config.get('kv_cache_dtype', None) if hasattr(config, 'get') else None
+    
+    # Check for calculate_kv_scales
+    calculate_kv_scales = getattr(config, 'calculate_kv_scales', None)
+    if calculate_kv_scales is None:
+        calculate_kv_scales = config.get('calculate_kv_scales', False) if hasattr(config, 'get') else False
+    
+    # Check if kv_cache_dtype is FP8
+    is_kv_fp8 = kv_cache_dtype is not None and 'fp8' in str(kv_cache_dtype).lower()
+    
+    # Validate that both are set together or neither is set
+    if calculate_kv_scales and not is_kv_fp8:
+        raise ValueError(
+            "calculate_kv_scales=True requires kv_cache_dtype to be set to fp8. "
+            f"Got calculate_kv_scales={calculate_kv_scales}, kv_cache_dtype={kv_cache_dtype}"
+        )
+    if is_kv_fp8 and not calculate_kv_scales:
+        raise ValueError(
+            "kv_cache_dtype=fp8 requires calculate_kv_scales=True for dynamic scale calculation. "
+            f"Got kv_cache_dtype={kv_cache_dtype}, calculate_kv_scales={calculate_kv_scales}"
+        )
+    
+    logger.debug(f"KV cache FP8 config validated: kv_cache_dtype={kv_cache_dtype}, calculate_kv_scales={calculate_kv_scales}")
+    
+    return kv_cache_dtype, calculate_kv_scales
+
 def is_kv_cache_fp8_enabled(config):
     """
     Check if FP8 KV cache with dynamic scale calculation is enabled.
@@ -61,24 +104,16 @@ def is_kv_cache_fp8_enabled(config):
         bool: True if FP8 KV cache with calculate_kv_scales is enabled
     """
     logger.debug(f"Checking if FP8 KV cache with dynamic scale calculation is enabled: {config}")
-    # Check for kv_cache_dtype
-    kv_cache_dtype = getattr(config, 'kv_cache_dtype', None)
-    logger.debug(f"kv_cache_dtype: {kv_cache_dtype}")
-    if kv_cache_dtype is None:
-        kv_cache_dtype = config.get('kv_cache_dtype', None) if hasattr(config, 'get') else None
     
-    # Check for calculate_kv_scales
-    calculate_kv_scales = getattr(config, 'calculate_kv_scales', None)
-    logger.debug(f"calculate_kv_scales: {calculate_kv_scales}")
-    if calculate_kv_scales is None:
-        calculate_kv_scales = config.get('calculate_kv_scales', False) if hasattr(config, 'get') else False
+    # Leverage validate_kv_cache_fp8_config to get and validate the config values
+    kv_cache_dtype, calculate_kv_scales = validate_kv_cache_fp8_config(config)
     
+    # Check if both FP8 KV cache dtype and dynamic scale calculation are enabled
     is_fp8_kv = (
         kv_cache_dtype is not None and 
-        ('fp8' in str(kv_cache_dtype).lower() or kv_cache_dtype == torch.float8_e4m3fn) and
+        'fp8' in str(kv_cache_dtype).lower() and
         calculate_kv_scales
     )
-    logger.debug(f"is_fp8_kv: {is_fp8_kv}")
     
     logger.info(
         f"kv_cache_dtype={kv_cache_dtype}, "

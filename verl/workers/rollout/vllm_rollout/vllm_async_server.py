@@ -305,21 +305,8 @@ class vLLMHttpServerBase:
         }
         
         # Get and validate KV cache configuration
-        kv_cache_dtype = getattr(self.config, 'kv_cache_dtype', None)
-        calculate_kv_scales = getattr(self.config, 'calculate_kv_scales', False)
-        is_kv_fp8 = kv_cache_dtype is not None and 'fp8' in str(kv_cache_dtype).lower()
-        
-        # Ensure kv_cache_dtype=fp8 and calculate_kv_scales are specified together
-        if calculate_kv_scales and not is_kv_fp8:
-            raise ValueError(
-                "calculate_kv_scales=True requires kv_cache_dtype to be set to fp8. "
-                f"Got calculate_kv_scales={calculate_kv_scales}, kv_cache_dtype={kv_cache_dtype}"
-            )
-        if is_kv_fp8 and not calculate_kv_scales:
-            raise ValueError(
-                "kv_cache_dtype=fp8 requires calculate_kv_scales=True for dynamic scale calculation. "
-                f"Got kv_cache_dtype={kv_cache_dtype}, calculate_kv_scales={calculate_kv_scales}"
-            )
+        from verl.utils.vllm.vllm_fp8_utils import validate_kv_cache_fp8_config
+        kv_cache_dtype, calculate_kv_scales = validate_kv_cache_fp8_config(self.config)
         
         # Add KV cache dtype configuration (independent of weight quantization)
         if kv_cache_dtype is not None:
