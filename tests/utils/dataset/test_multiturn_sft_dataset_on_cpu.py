@@ -36,6 +36,7 @@ from verl.utils.model import extract_multi_modal_inputs_tensordict
 @pytest.mark.parametrize(
     "model_path",
     [
+        "Qwen/Qwen2.5-0.5B",
         "Qwen/Qwen2.5-Coder-7B-Instruct",
         "Qwen/Qwen3-30B-A3B-Instruct-2507",
         # "Qwen/Qwen3-30B-A3B-Thinking-2507" # Thinking series models add <think></think> tags to last turn.
@@ -48,14 +49,13 @@ def test_multiturn_sft_dataset(model_path: str, enable_thinking: bool):
     test_data = {
         "messages": [
             [
-                {"role": "system", "content": "You are a helpful assistant."},
                 {"role": "user", "content": "What is 2+2?"},
                 {"role": "assistant", "content": "2+2 equals 4."},
                 {"role": "user", "content": "And what is 4+4?"},
                 {"role": "assistant", "content": "4+4 equals 8."},
             ],
             [
-                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "system", "content": "You are a powerful assistant."},
                 {"role": "user", "content": "Tell me a joke."},
                 {"role": "assistant", "content": "Why did the chicken cross the road?"},
                 {"role": "user", "content": "Why?"},

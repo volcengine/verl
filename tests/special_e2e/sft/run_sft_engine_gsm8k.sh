@@ -25,7 +25,7 @@ RESUME_MODE=disable
 
 ckpts_home=${ckpts_home:-~/verl/test/gsm8k-sft-${backend}}
 
-MODEL_ID=${MODEL_ID:-Qwen/Qwen3-0.6B}
+MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B}
 MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
 #huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
 
@@ -94,7 +94,6 @@ $COMMAND \
     data.use_dynamic_bsz=True \
     data.max_token_len_per_gpu=8192 \
     data.messages_key=messages \
-    data.ignore_input_ids_mismatch=True \
     model.path=$MODEL_PATH \
     model.use_remove_padding=${USE_REMOVE_PADDING} \
     ${ENGINE_CONFIG} \
