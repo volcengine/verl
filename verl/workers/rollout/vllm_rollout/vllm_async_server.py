@@ -414,7 +414,7 @@ class vLLMHttpServerBase:
         engine_client = AsyncLLM.from_vllm_config(
             vllm_config=vllm_config,
             usage_context=usage_context,
-            disable_log_requests=engine_args.disable_log_requests,
+            #disable_log_requests=engine_args.disable_log_requests,
             disable_log_stats=engine_args.disable_log_stats,
         )
 
@@ -425,7 +425,6 @@ class vLLMHttpServerBase:
         # if vllm version is 0.11.1 or higher, call init_app_state with 3 parameters
         import vllm
         if vllm.__version__ >= "0.11.1":
-            print("vllm version is 0.11.1 or higher, call init_app_state with 3 parameters")
             await init_app_state(engine_client, app.state, args)
         else:
             await init_app_state(engine_client, vllm_config, app.state, args)
