@@ -81,11 +81,11 @@ class ResourcePoolManager:
         """
         for resource_pool_name, process_on_nodes in self.resource_pool_spec.items():
             # max_colocate_count means the number of WorkerGroups (i.e. processes) in each RayResourcePool
-            # For FSDP backend, we recommend using max_colocate_count=1 that merge all WorkerGroups into one.
+            # For FSDP backend, using max_colocate_count=3: actor_critic_ref, rollout, reward model (optional)
             # For Megatron backend, we recommend using max_colocate_count>1
             # that can utilize different WorkerGroup for differnt models
             resource_pool = RayResourcePool(
-                process_on_nodes=process_on_nodes, use_gpu=True, max_colocate_count=1, name_prefix=resource_pool_name
+                process_on_nodes=process_on_nodes, use_gpu=True, max_colocate_count=3, name_prefix=resource_pool_name
             )
             self.resource_pool_dict[resource_pool_name] = resource_pool
 
@@ -316,7 +316,9 @@ class RayPPOTrainer:
         assert self.hybrid_engine, "Currently, only support hybrid engine"
 
         if self.hybrid_engine:
-            assert Role.ActorRollout in role_worker_mapping, f"{role_worker_mapping.keys()=}"
+            assert Role.ActorRollout in role_worker_mapping or Role.ActorRolloutRef in role_worker_mapping, (
+                f"{role_worker_mapping.keys()=}"
+            )
 
         self.role_worker_mapping = role_worker_mapping
         self.resource_pool_manager = resource_pool_manager
@@ -679,14 +681,15 @@ class RayPPOTrainer:
         self.resource_pool_to_cls = {pool: {} for pool in self.resource_pool_manager.resource_pool_dict.values()}
 
         # create actor and rollout
+        actor_role = Role.ActorRolloutRef if Role.ActorRolloutRef in self.role_worker_mapping else Role.ActorRollout
         if self.hybrid_engine:
-            resource_pool = self.resource_pool_manager.get_resource_pool(Role.ActorRollout)
+            resource_pool = self.resource_pool_manager.get_resource_pool(actor_role)
             actor_rollout_cls = RayClassWithInitArgs(
-                cls=self.role_worker_mapping[Role.ActorRollout],
+                cls=self.role_worker_mapping[actor_role],
                 config=self.config.actor_rollout_ref,
-                role=str(Role.ActorRollout),
+                role=str(actor_role),
             )
-            self.resource_pool_to_cls[resource_pool][str(Role.ActorRollout)] = actor_rollout_cls
+            self.resource_pool_to_cls[resource_pool][str(actor_role)] = actor_rollout_cls
         else:
             raise NotImplementedError
 
@@ -698,7 +701,7 @@ class RayPPOTrainer:
             self.resource_pool_to_cls[resource_pool][str(Role.Critic)] = critic_cls
 
         # create reference policy if needed
-        if self.use_reference_policy:
+        if self.use_reference_policy and Role.RefPolicy in self.role_worker_mapping:
             resource_pool = self.resource_pool_manager.get_resource_pool(Role.RefPolicy)
             ref_policy_cls = RayClassWithInitArgs(
                 self.role_worker_mapping[Role.RefPolicy],
@@ -751,8 +754,13 @@ class RayPPOTrainer:
             self.critic_wg.init_model()
 
         if self.use_reference_policy and not self.ref_in_actor:
-            self.ref_policy_wg = all_wg[str(Role.RefPolicy)]
-            self.ref_policy_wg.init_model()
+            if str(Role.RefPolicy) in all_wg:
+                self.ref_policy_wg = all_wg[str(Role.RefPolicy)]
+                self.ref_policy_wg.init_model()
+            else:
+                # Model engine: ActorRolloutRefWorker
+                assert str(Role.ActorRolloutRef) in all_wg, f"{all_wg.keys()=}"
+                self.ref_policy_wg = all_wg[str(Role.ActorRolloutRef)]
 
         self.rm_wg = None
         # initalization of rm_wg will be deprecated in the future
@@ -761,7 +769,7 @@ class RayPPOTrainer:
             self.rm_wg.init_model()
 
         # we should create rollout at the end so that vllm can have a better estimation of kv cache memory
-        self.actor_rollout_wg = all_wg[str(Role.ActorRollout)]
+        self.actor_rollout_wg = all_wg[str(actor_role)]
         self.actor_rollout_wg.init_model()
 
         # create async rollout manager and request scheduler
@@ -770,8 +778,15 @@ class RayPPOTrainer:
             from verl.experimental.agent_loop import AgentLoopManager
 
             self.async_rollout_mode = True
+            if self.config.reward_model.enable and self.config.reward_model.enable_resource_pool:
+                rm_resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)
+            else:
+                rm_resource_pool = None
+
             self.async_rollout_manager = AgentLoopManager(
-                config=self.config, worker_group=self.actor_rollout_wg, rm_wg=self.rm_wg
+                config=self.config,
+                worker_group=self.actor_rollout_wg,
+                rm_resource_pool=rm_resource_pool,
             )
 
     def _save_checkpoint(self):
@@ -828,6 +843,15 @@ class RayPPOTrainer:
         torch.save(dataloader_state_dict, dataloader_local_path)
 
         # latest checkpointed iteration tracker (for atomic usage)
+        if (
+            hasattr(self.config.actor_rollout_ref.actor.checkpoint, "async_save")
+            and self.config.actor_rollout_ref.actor.checkpoint.async_save
+        ) or (
+            "async_save" in self.config.actor_rollout_ref.actor.checkpoint
+            and self.config.actor_rollout_ref.actor.checkpoint["async_save"]
+        ):
+            print("skip write latest_checkpointed_iteration.txt when async_save is True")
+            return
         local_latest_checkpointed_iteration = os.path.join(
             self.config.trainer.default_local_dir, "latest_checkpointed_iteration.txt"
         )
@@ -836,8 +860,6 @@ class RayPPOTrainer:
 
     def _load_checkpoint(self):
         if self.config.trainer.resume_mode == "disable":
-            # NOTE: while there is no checkpoint to load, we still need to offload the model and optimizer to CPU
-            self.actor_rollout_wg.load_checkpoint(None)
             return 0
 
         # load from hdfs
@@ -854,7 +876,6 @@ class RayPPOTrainer:
         if self.config.trainer.resume_mode == "auto":
             if global_step_folder is None:
                 print("Training from scratch")
-                self.actor_rollout_wg.load_checkpoint(None)
                 return 0
         else:
             if self.config.trainer.resume_mode == "resume_path":
@@ -1010,6 +1031,8 @@ class RayPPOTrainer:
 
         for epoch in range(current_epoch, self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
+                if hasattr(self.actor_rollout_wg, "async_calls_finalize_fn_exec"):
+                    self.actor_rollout_wg.async_calls_finalize_fn_exec(blocking=False)
                 metrics = {}
                 timing_raw = {}
 
@@ -1020,6 +1043,7 @@ class RayPPOTrainer:
                         else curr_step_profile
                     )
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
+                batch.meta_info["temperature"] = self.config.actor_rollout_ref.rollout.temperature
 
                 # add uid to batch
                 batch.non_tensor_batch["uid"] = np.array(
@@ -1122,9 +1146,12 @@ class RayPPOTrainer:
                             old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
                             entropys = old_log_prob.batch["entropys"]
                             response_masks = batch.batch["response_mask"]
-                            loss_agg_mode = self.config.actor_rollout_ref.actor.loss_agg_mode
+                            actor_config = self.config.actor_rollout_ref.actor
                             entropy_agg = agg_loss(
-                                loss_mat=entropys, loss_mask=response_masks, loss_agg_mode=loss_agg_mode
+                                loss_mat=entropys,
+                                loss_mask=response_masks,
+                                loss_agg_mode=actor_config.loss_agg_mode,
+                                loss_scale_factor=actor_config.loss_scale_factor,
                             )
                             old_log_prob_metrics = {"actor/entropy": entropy_agg.detach().item()}
                             metrics.update(old_log_prob_metrics)
@@ -1309,6 +1336,8 @@ class RayPPOTrainer:
                     )
 
                 if is_last_step:
+                    if hasattr(self.actor_rollout_wg, "async_calls_finalize_fn_exec"):
+                        self.actor_rollout_wg.async_calls_finalize_fn_exec(blocking=True)
                     pprint(f"Final validation metrics: {last_val_metrics}")
                     progress_bar.close()
                     return

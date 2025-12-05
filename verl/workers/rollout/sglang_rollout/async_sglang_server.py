@@ -193,8 +193,21 @@ class SGLangHttpServerBase:
             )
         )
         app.is_single_tokenizer_mode = True
-        app.server_args = server_args
-        app.warmup_thread_args = (server_args, None, None)
+
+        # Set warmup_thread_args to avoid AttributeError in lifespan function
+        app.warmup_thread_args = (
+            server_args,
+            None,
+            None,
+        )
+
+        # Manually add Prometheus middleware before starting server
+        # This ensures /metrics endpoint is available immediately
+        if server_args.enable_metrics:
+            from sglang.srt.utils.common import add_prometheus_middleware
+
+            add_prometheus_middleware(app)
+
         self._server_port, self._server_task = await run_unvicorn(app, server_args, self._server_address)
         self.tokenizer_manager.server_status = ServerStatus.Up
 
@@ -204,7 +217,6 @@ class SGLangHttpServerBase:
             await asyncio.gather(*[worker.wake_up.remote() for worker in self.workers])
         elif self.rollout_mode == RolloutMode.COLOCATED:
             # Directly call engine to wake up without sync weights.
-            # FIXME(@wuxibin): sglang seems resume with random weights.
             obj = ResumeMemoryOccupationReqInput(tags=["kv_cache", "weights"])
             await self.tokenizer_manager.resume_memory_occupation(obj, None)
             await self.tokenizer_manager.flush_cache()
@@ -219,6 +231,10 @@ class SGLangHttpServerBase:
             await self.tokenizer_manager.release_memory_occupation(obj, None)
         elif self.rollout_mode == RolloutMode.STANDALONE:
             logger.info("skip sleep in standalone mode")
+
+    async def clear_kv_cache(self):
+        obj = ReleaseMemoryOccupationReqInput(tags=["kv_cache"])
+        await self.tokenizer_manager.release_memory_occupation(obj, None)
 
     async def generate(
         self,

@@ -44,7 +44,7 @@ from vllm.v1.executor.abstract import Executor
 from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches
-from verl.workers.config import HFModelConfig, RewardModelConfig, RolloutConfig
+from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
 from verl.workers.rollout.utils import get_free_port, is_valid_ipv6_address, run_unvicorn
 from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
@@ -294,6 +294,9 @@ class vLLMHttpServerBase:
                 }
             )
 
+        if self.config.enable_rollout_routing_replay:
+            args.update({"enable_return_routed_experts": True})
+
         server_args = ["serve", self.model_config.local_path]
         for k, v in args.items():
             if isinstance(v, bool):
@@ -430,7 +433,12 @@ class vLLMHttpServerBase:
         log_probs = None
         if sampling_params.logprobs is not None:
             log_probs = [logprobs[token_ids[i]].logprob for i, logprobs in enumerate(final_res.outputs[0].logprobs)]
-        return TokenOutput(token_ids=token_ids, log_probs=log_probs)
+
+        routed_experts = None
+        if self.config.enable_rollout_routing_replay:
+            routed_experts = final_res.outputs[0].routed_experts
+
+        return TokenOutput(token_ids=token_ids, log_probs=log_probs, routed_experts=routed_experts)
 
     async def wake_up(self):
         if self.rollout_mode == RolloutMode.HYBRID:
@@ -455,6 +463,10 @@ class vLLMHttpServerBase:
         elif self.rollout_mode == RolloutMode.STANDALONE:
             logger.info("skip sleep in standalone mode")
 
+    async def clear_kv_cache(self):
+        if self.node_rank == 0:
+            await self.engine.reset_prefix_cache()
+
     async def wait_for_requests_to_drain(self):
         await self.engine.wait_for_requests_to_drain()
 
@@ -469,7 +481,7 @@ class vLLMHttpServer(vLLMHttpServerBase):
 
     def __init__(
         self,
-        config: RolloutConfig | RewardModelConfig,
+        config: RolloutConfig,
         model_config: HFModelConfig,
         rollout_mode: RolloutMode,
         workers: list[ActorHandle],
@@ -488,7 +500,7 @@ class vLLMReplica(RolloutReplica):
     def __init__(
         self,
         replica_rank: int,
-        config: RolloutConfig | RewardModelConfig,
+        config: RolloutConfig,
         model_config: HFModelConfig,
         gpus_per_node: int = 8,
         is_reward_model: bool = False,

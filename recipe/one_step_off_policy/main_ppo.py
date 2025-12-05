@@ -16,66 +16,121 @@
 Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
 """
 
+import asyncio
 import os
 import socket
 
 import hydra
 import ray
-from omegaconf import OmegaConf
 
+from recipe.one_step_off_policy.ray_trainer import OneStepOffRayTrainer
 from recipe.one_step_off_policy.utils import need_critic
-from verl.trainer.constants_ppo import get_ppo_ray_runtime_env
 from verl.trainer.main_ppo import create_rl_dataset, create_rl_sampler
+from verl.trainer.ppo.ray_trainer import ResourcePoolManager
 from verl.trainer.ppo.reward import load_reward_manager
-from verl.trainer.ppo.utils import need_reference_policy
+from verl.trainer.ppo.utils import Role, need_reference_policy
 from verl.utils.config import validate_config
 
-from .ray_trainer import OneStepOffRayTrainer
+
+def create_resource_pool_manager(config, roles: list) -> ResourcePoolManager:
+    """
+    Create resource pool manager
+
+    Args:
+        config: Configuration object
+        roles: List of roles that need to create resource pools
+
+    Returns:
+        ResourcePoolManager: Resource pool manager
+    """
+    resource_pool_spec = {}
+    mapping = {}
+
+    # Actor/Critic resource pool
+    if any(role in roles for role in [Role.Actor, Role.Critic, Role.RefPolicy, Role.RewardModel]):
+        assert config.trainer.n_gpus_per_node > 0, "config.trainer.n_gpus_per_node must be greater than 0"
+        assert config.trainer.nnodes > 0, "config.trainer.nnodes must be greater than 0"
+
+        trainer_pool = [config.trainer.n_gpus_per_node] * config.trainer.nnodes
+        resource_pool_spec["trainer_pool"] = trainer_pool
+
+        # Map training-related roles to the same resource pool
+        for role in [Role.Actor, Role.Critic, Role.RefPolicy, Role.RewardModel]:
+            if role in roles:
+                mapping[role] = "trainer_pool"
+
+    # Rollout resource pool
+    if Role.Rollout in roles:
+        assert config.rollout.n_gpus_per_node > 0, "config.rollout.n_gpus_per_node must be greater than 0"
+        assert config.rollout.nnodes > 0, "config.rollout.nnodes must be greater than 0"
+
+        rollout_pool = [config.rollout.n_gpus_per_node] * config.rollout.nnodes
+        resource_pool_spec["rollout_pool"] = rollout_pool
+        mapping[Role.Rollout] = "rollout_pool"
+
+    return ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
 
-@hydra.main(config_path="config", config_name="one_step_off_ppo_trainer", version_base=None)
-def main(config):
-    run_ppo(config)
+def create_role_worker_mapping(config):
+    """
+    Create mapping from roles to worker classes
 
+    Args:
+        config: Configuration object
 
-# Define a function to run the PPO-like training process
-def run_ppo(config) -> None:
-    # Check if Ray is not initialized
-    if not ray.is_initialized():
-        # Initialize Ray with a local cluster configuration
-        # Set environment variables in the runtime environment to control tokenizer parallelism,
-        # NCCL debug level, VLLM logging level, and allow runtime LoRA updating
-        # `num_cpus` specifies the number of CPU cores Ray can use, obtained from the configuration
-        default_runtime_env = get_ppo_ray_runtime_env()
-        ray_init_kwargs = config.ray_kwargs.get("ray_init", {})
-        runtime_env_kwargs = ray_init_kwargs.get("runtime_env", {})
-        runtime_env = OmegaConf.merge(default_runtime_env, runtime_env_kwargs)
-        ray_init_kwargs = OmegaConf.create({**ray_init_kwargs, "runtime_env": runtime_env})
-        print(f"ray init kwargs: {ray_init_kwargs}")
-        ray.init(**OmegaConf.to_container(ray_init_kwargs))
+    Returns:
+        dict: Mapping from roles to worker classes
+    """
+    # Select worker class based on strategy
+    if config.actor_rollout_ref.actor.strategy in ["fsdp", "fsdp2"]:
+        assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
+        from recipe.one_step_off_policy.fsdp_workers import (
+            CriticWorker,
+            DetachActorWorker,
+            DetachAsyncRolloutWorker,
+        )
+        from verl.single_controller.ray import RayWorkerGroup
 
-    # Create a remote instance of the TaskRunner class, and
-    # Execute the `run` method of the TaskRunner instance remotely and wait for it to complete
-    if (
-        config.global_profiler.tool == "nsys"
-        and OmegaConf.select(config.global_profiler, "steps") is not None
-        and len(OmegaConf.select(config.global_profiler, "steps")) > 0
-    ):
-        nsight_options = OmegaConf.to_container(config.global_profiler.tool_config.nsys.controller_nsight_options)
-        runner = TaskRunner.options(runtime_env={"nsight": nsight_options}).remote()
+        ray_worker_group_cls = RayWorkerGroup
+
+    elif config.actor_rollout_ref.actor.strategy == "megatron":
+        assert config.critic.strategy == "megatron"
+        from recipe.one_step_off_policy.megatron_workers import (
+            CriticWorker,
+            DetachActorWorker,
+            DetachAsyncRolloutWorker,
+        )
+        from verl.single_controller.ray import RayWorkerGroup
+
+        ray_worker_group_cls = RayWorkerGroup
     else:
-        runner = TaskRunner.remote()
-    ray.get(runner.run.remote(config))
+        raise NotImplementedError(f"Unsupported strategy: {config.actor_rollout_ref.actor.strategy}")
 
-    # [Optional] get the path of the timeline trace file from the configuration, default to None
-    # This file is used for performance analysis
-    timeline_json_file = config.ray_kwargs.get("timeline_json_file", None)
-    if timeline_json_file:
-        ray.timeline(filename=timeline_json_file)
+    role_worker_mapping = {
+        Role.Actor: ray.remote(DetachActorWorker),
+        Role.Rollout: ray.remote(DetachAsyncRolloutWorker),
+        Role.Critic: ray.remote(CriticWorker),
+    }
+
+    if config.reward_model.enable:
+        if config.reward_model.strategy in ["fsdp", "fsdp2"]:
+            from verl.workers.fsdp_workers import RewardModelWorker
+        elif config.reward_model.strategy == "megatron":
+            from verl.workers.megatron_workers import RewardModelWorker
+        else:
+            raise NotImplementedError(f"Unsupported reward model strategy: {config.reward_model.strategy}")
+
+        role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
+
+    # Add reference policy (if KL loss or reward is required)
+    if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
+        role_worker_mapping[Role.RefPolicy] = ray.remote(DetachActorWorker)
+
+    return role_worker_mapping, ray_worker_group_cls
 
 
-@ray.remote(num_cpus=1)  # please make sure main_task is not scheduled on head
-class TaskRunner:
+@ray.remote(num_cpus=10, max_concurrency=100)  # please make sure main_task is not scheduled on head
+class OneStepTaskRunner:
     def run(self, config):
         # Print the initial configuration. `resolve=True` will evaluate symbolic values.
         from pprint import pprint
@@ -90,94 +145,7 @@ class TaskRunner:
 
         OmegaConf.resolve(config)
 
-        # Define worker classes based on the actor strategy.
-        if config.actor_rollout_ref.actor.strategy == "fsdp2":
-            assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
-            from verl.single_controller.ray import RayWorkerGroup
-
-            from .fsdp_workers import (
-                ActorRolloutRefWorker,
-                AsyncActorRolloutRefWorker,
-                CriticWorker,
-                RolloutWorker,
-            )
-
-            actor_rollout_cls = (
-                AsyncActorRolloutRefWorker
-                if config.actor_rollout_ref.rollout.mode == "async"
-                else ActorRolloutRefWorker
-            )
-            ray_worker_group_cls = RayWorkerGroup
-
-        elif config.actor_rollout_ref.actor.strategy == "megatron":
-            assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
-            from verl.single_controller.ray import RayWorkerGroup
-
-            from .megatron_workers import (
-                ActorRolloutRefWorker,
-                AsyncActorRolloutRefWorker,
-                CriticWorker,
-                RolloutWorker,
-            )
-
-            actor_rollout_cls = (
-                AsyncActorRolloutRefWorker
-                if config.actor_rollout_ref.rollout.mode == "async"
-                else ActorRolloutRefWorker
-            )
-            ray_worker_group_cls = RayWorkerGroup
-
-        else:
-            raise NotImplementedError
-
-        from .ray_trainer import ResourcePoolManager, Role
-
-        role_worker_mapping = {
-            Role.Actor: ray.remote(actor_rollout_cls),
-            Role.Rollout: ray.remote(RolloutWorker),
-            Role.Critic: ray.remote(CriticWorker),
-        }
-
-        global_pool_id = "actor_pool"
-
-        assert config.trainer.n_gpus_per_node > 0, "config.trainer.n_gpus_per_node must be greater than 0"
-        assert config.trainer.nnodes > 0, "config.trainer.nnodes must be greater than 0"
-        assert config.rollout.n_gpus_per_node > 0, "config.rollout.n_gpus_per_node must be greater than 0"
-        assert config.rollout.nnodes > 0, "config.rollout.nnodes must be greater than 0"
-
-        actor_pool = [config.trainer.n_gpus_per_node] * config.trainer.nnodes
-        rollout_pool = [config.rollout.n_gpus_per_node] * config.rollout.nnodes
-
-        resource_pool_spec = {
-            "actor_pool": actor_pool,
-            "rollout_pool": rollout_pool,
-        }
-        mapping = {
-            Role.Actor: "actor_pool",
-            Role.Rollout: "rollout_pool",
-            Role.Critic: "actor_pool",
-        }
-        print(f"resource_pool_spec: {resource_pool_spec}")
-        # We should adopt a multi-source reward function here:
-        # - for rule-based rm, we directly call a reward score
-        # - for model-based rm, we call a model
-        # - for code related prompt, we send to a sandbox if there are test cases
-        # finally, we combine all the rewards together
-        # The reward type depends on the tag of the data
-        if config.reward_model.enable:
-            if config.reward_model.strategy in ["fsdp2"]:
-                from verl.workers.fsdp_workers import RewardModelWorker
-            elif config.reward_model.strategy == "megatron":
-                from verl.workers.megatron_workers import RewardModelWorker
-            else:
-                raise NotImplementedError
-            role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
-            mapping[Role.RewardModel] = global_pool_id
-
-        # Add a reference policy worker if KL loss or KL reward is used.
-        if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
-            role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
-            mapping[Role.RefPolicy] = global_pool_id
+        role_worker_mapping, ray_worker_group_cls = create_role_worker_mapping(config)
 
         # validate config
         validate_config(
@@ -207,7 +175,8 @@ class TaskRunner:
         val_reward_fn = load_reward_manager(
             config, tokenizer, num_examine=1, **config.reward_model.get("reward_kwargs", {})
         )
-        resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
+
+        resource_pool_manager = create_resource_pool_manager(config, role_worker_mapping.keys())
 
         from verl.utils.dataset.rl_dataset import collate_fn
 
@@ -243,7 +212,18 @@ class TaskRunner:
         # Initialize the workers of the trainer.
         trainer.init_workers()
         # Start the training process.
-        trainer.fit()
+        asyncio.run(trainer.fit())
+
+
+@hydra.main(config_path="config", config_name="one_step_off_ppo_trainer", version_base=None)
+def main(config):
+    from time import time
+
+    from verl.trainer.main_ppo import run_ppo
+
+    start_time = time()
+    run_ppo(config, task_runner_class=OneStepTaskRunner)
+    print(f"total time: {time() - start_time:.2f} seconds")
 
 
 if __name__ == "__main__":
