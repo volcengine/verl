@@ -34,7 +34,7 @@ def check_if_invalid(topk_logps, inputs):
     is_valid = True
     reason = ""
     for x in topk_logps:
-        if x.isnan.any():
+        if x.isnan().any():
             is_valid = False
             reason = "nan"
             break
