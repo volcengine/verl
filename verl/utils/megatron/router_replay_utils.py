@@ -57,7 +57,7 @@ def get_num_layers_to_build(
     """
     # If we have a custom PP layout, straightforwardly
     # return the number of decoders in the layout array.
-    if config.pipeline_model_parallel_layout is not None:
+    if hasattr(config, "pipeline_model_parallel_layout"):
         from megatron.core.transformer.enums import LayerType
 
         return config.pipeline_model_parallel_layout.get_num_layers_to_build(
