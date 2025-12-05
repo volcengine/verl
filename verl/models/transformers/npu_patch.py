@@ -333,6 +333,7 @@ modeling_qwen3_moe.Qwen3MoeSparseMoeBlock.forward = moe_block_forward
 modeling_qwen3_moe.apply_rotary_pos_emb = apply_rotary_pos_emb_npu
 modeling_qwen3.Qwen3RMSNorm.forward = rms_norm_forward
 modeling_qwen3.Qwen3MLP.forward = silu_forward
+modeling_qwen3.apply_rotary_pos_emb = apply_rotary_pos_emb_npu
 modeling_qwen3_vl_moe.Qwen3VLMoeTextSparseMoeBlock = Qwen3VLMoeTextSparseMoeBlock
 modeling_qwen3_vl_moe.Qwen3VLMoeTextRMSNorm.forward = rms_norm_forward
 modeling_qwen3_vl_moe.apply_rotary_pos_emb = apply_rotary_pos_emb_npu
