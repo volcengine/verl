@@ -180,15 +180,17 @@ class MultiTurnSFTDataset(Dataset):
             Tuple of (input_ids, loss_mask, attention_mask, dict[str, torch.Tensor])
         """
         processor = self.processor if self.processor is not None else self.tokenizer
+        apply_chat_template_kwargs = {**self.apply_chat_template_kwargs}
+        if enable_thinking is not None:
+            apply_chat_template_kwargs["enable_thinking"] = enable_thinking
         inputs = processor.apply_chat_template(
             [message],
             tools=tools,
-            enable_thinking=enable_thinking,
             add_generation_prompt=False,
             tokenize=True,
             return_dict=True,
             return_tensors="pt",
-            **self.apply_chat_template_kwargs,
+            **apply_chat_template_kwargs,
         )
 
         inputs = dict(inputs)
@@ -264,10 +266,9 @@ class MultiTurnSFTDataset(Dataset):
         # 1. tokenize each message
         input_ids, loss_mask, attention_mask, multi_modal_inputs = [], [], [], {}
         for i, message in enumerate(messages):
-            tools = tools if i == 0 else None
             _input_ids, _loss_mask, _attention_mask, _inputs = self._process_single_message(
                 message,
-                tools=tools,
+                tools=tools if i == 0 else None,
                 enable_thinking=enable_thinking,
             )
             input_ids.append(_input_ids)
@@ -282,6 +283,7 @@ class MultiTurnSFTDataset(Dataset):
         assert input_ids.shape == loss_mask.shape == attention_mask.shape, (
             f"Shape mismatch: {input_ids.shape}, {loss_mask.shape}, {attention_mask.shape}"
         )
+        self.sanity_check(input_ids, messages, tools, enable_thinking)
 
         for k, v in multi_modal_inputs.items():
             multi_modal_inputs[k] = torch.concat(v, dim=0)
@@ -359,3 +361,26 @@ class MultiTurnSFTDataset(Dataset):
             }
         else:
             raise ValueError(f"Unknown pad mode {self.pad_mode}")
+
+    def sanity_check(self, input_ids: torch.Tensor, messages: list[dict], tools: list[dict], enable_thinking: bool):
+        """Check concatenated input_ids of apply_chat_template to each turn equals
+        apply_chat_template to whole messages.
+        """
+        processor = self.processor if self.processor is not None else self.tokenizer
+        apply_chat_template_kwargs = {**self.apply_chat_template_kwargs}
+        if enable_thinking is not None:
+            apply_chat_template_kwargs["enable_thinking"] = enable_thinking
+        inputs = processor.apply_chat_template(
+            messages,
+            tools=tools,
+            add_generation_prompt=False,
+            tokenize=True,
+            return_dict=True,
+            return_tensors="pt",
+            **apply_chat_template_kwargs,
+        )
+        assert torch.equal(input_ids, inputs["input_ids"].squeeze(0)), (
+            "concatenated input_ids of each turn not equal to apply_chat_template to whole messages, "
+            "which may cause silent errors. Please check your tokenizer chat template settings. "
+            "For example, Qwen Thinking series models add <think></think> tags to each turn."
+        )
