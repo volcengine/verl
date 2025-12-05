@@ -57,6 +57,7 @@ from verl.tools.base_tool import BaseTool
 from verl.tools.schemas import OpenAIFunctionCallSchema, OpenAIFunctionParsedSchema, OpenAIFunctionToolCall
 from verl.tools.utils.tool_registry import initialize_tools_from_config
 from verl.utils.device import get_visible_devices_keyword
+from verl.utils.import_utils import deprecated
 from verl.utils.net_utils import is_ipv6
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
@@ -254,6 +255,10 @@ def get_tool_call_parser_type(
         raise ValueError(f"No tool call parser found for processing_class {processing_class}")
 
 
+@deprecated(
+    "SGLangRollout spmd mode is deprecated and is not compatible since sglang>=0.5.5. "
+    "Please set `actor_rollout_ref.rollout.mode=async` to use sglang native server mode."
+)
 class SGLangRollout(BaseRollout):
     def __init__(
         self,
@@ -434,8 +439,8 @@ class SGLangRollout(BaseRollout):
         if self.config.mode == "async" and not self.config.skip_tokenizer_init:
             raise ValueError("async mode requires skip_tokenizer_init to be True")
         backend = attention_backend if attention_backend is not None else "fa3"
+        sglang_port = int(os.getenv("SGLANG_PORT", "30000")) + (dist.get_rank() * 2)
         if effective_first:
-            rank = dist.get_rank()
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
             args = {
                 "model_path": actor_module,
@@ -453,7 +458,8 @@ class SGLangRollout(BaseRollout):
                 "max_running_requests": max_running_requests,
                 # NOTE(linjunrong): add rank to prevent SGLang generate same port inside PortArgs.init_new
                 # when random.seed is being set during training
-                "port": 30000 + rank,
+                "port": sglang_port,
+                "nccl_port": sglang_port + 1,
                 # NOTE(Chenyang): if you want to debug the SGLang engine output
                 # please set the following parameters
                 # Otherwise, it will make the engine run too slow
@@ -741,6 +747,12 @@ class SGLangRollout(BaseRollout):
 
         # Most naive implementation, can extract tensor and send via gloo if too slow
         dist.barrier()
+
+        # Because the logic below requires GPU memory proportional to the batch size, so free cache first to avoid OOM
+        if self._engine is not None and self._tp_rank == 0:
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(self._engine.flush_cache())
+
         [output] = broadcast_pyobj(
             data=[output],
             rank=self._rank,
@@ -795,11 +807,6 @@ class SGLangRollout(BaseRollout):
         if self.config.calculate_log_probs:
             # we will recompute old log prob with actor
             batch["rollout_log_probs"] = rollout_log_probs
-
-        # free cache engine
-        if self._engine is not None and self._tp_rank == 0:
-            loop = asyncio.get_event_loop()
-            loop.run_until_complete(self._engine.flush_cache())
 
         return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
 
@@ -1179,6 +1186,12 @@ class SGLangRollout(BaseRollout):
             sorted_output_req_list = None
 
         dist.barrier()
+
+        # Because the logic below requires GPU memory proportional to the batch size, so free cache first to avoid OOM
+        if self._engine is not None and self._tp_rank == 0:
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(self._engine.flush_cache())
+
         [sorted_output_req_list] = broadcast_pyobj(
             data=[sorted_output_req_list],
             rank=self._rank,
@@ -1333,11 +1346,6 @@ class SGLangRollout(BaseRollout):
         if self.config.calculate_log_probs:
             batch["rollout_log_probs"] = output_logprobs
             batch["rollout_output_token_ids"] = rollout_output_token_ids
-
-        # free cache engine
-        if self._engine is not None and self._tp_rank == 0:
-            loop = asyncio.get_event_loop()
-            loop.run_until_complete(self._engine.flush_cache())
 
         non_tensor_batch = {
             "messages": np.array(messages),

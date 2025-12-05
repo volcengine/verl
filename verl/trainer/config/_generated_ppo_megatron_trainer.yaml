@@ -33,7 +33,7 @@ actor_rollout_ref:
       optimizer_offload: false
       tensor_model_parallel_size: 1
       expert_model_parallel_size: 1
-      expert_tensor_parallel_size: 1
+      expert_tensor_parallel_size: null
       pipeline_model_parallel_size: 1
       virtual_pipeline_model_parallel_size: null
       context_parallel_size: 1
@@ -41,6 +41,7 @@ actor_rollout_ref:
       use_distributed_optimizer: true
       use_dist_checkpointing: false
       dist_checkpointing_path: null
+      dist_checkpointing_prefix: ''
       seed: 42
       override_ddp_config: {}
       override_transformer_config:
@@ -53,6 +54,7 @@ actor_rollout_ref:
       override_mcore_model_config: {}
       use_mbridge: false
       forward_only: false
+      dtype: bfloat16
     _target_: verl.workers.config.McoreActorConfig
     strategy: megatron
     ppo_mini_batch_size: 256
@@ -156,7 +158,7 @@ actor_rollout_ref:
       optimizer_offload: false
       tensor_model_parallel_size: 1
       expert_model_parallel_size: 1
-      expert_tensor_parallel_size: 1
+      expert_tensor_parallel_size: null
       pipeline_model_parallel_size: 1
       virtual_pipeline_model_parallel_size: null
       context_parallel_size: 1
@@ -164,17 +166,19 @@ actor_rollout_ref:
       use_distributed_optimizer: true
       use_dist_checkpointing: false
       dist_checkpointing_path: null
+      dist_checkpointing_prefix: ''
       seed: ${oc.select:actor_rollout_ref.actor.megatron.seed,42}
       override_ddp_config: {}
       override_transformer_config: ${oc.select:actor_rollout_ref.actor.megatron.override_transformer_config,{}}
       override_mcore_model_config: {}
       use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
       forward_only: false
+      dtype: bfloat16
     load_weight: true
   rollout:
     _target_: verl.workers.config.RolloutConfig
     name: ???
-    mode: sync
+    mode: async
     temperature: 1.0
     top_k: -1
     top_p: 1
@@ -244,6 +248,7 @@ actor_rollout_ref:
       _target_: verl.workers.config.TraceConfig
       backend: null
       token2text: false
+      max_samples_per_step_per_worker: null
     skip_rollout: false
     skip_dump_dir: /tmp/rollout_dump
     skip_tokenizer_init: true
@@ -255,6 +260,13 @@ actor_rollout_ref:
       ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
       save_path: ${oc.select:global_profiler.save_path,null}
       tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}
+    prometheus:
+      _target_: verl.workers.config.PrometheusConfig
+      enable: false
+      port: 9090
+      file: /tmp/ray/session_latest/metrics/prometheus/prometheus.yml
+      served_model_name: ${oc.select:actor_rollout_ref.model.path,null}
+    quantization: null
     layer_name_map:
       qkv_layer_name: qkv
       gate_proj_layer_name: gate_up
@@ -284,8 +296,10 @@ data:
   max_response_length: 512
   train_batch_size: 1024
   val_batch_size: null
+  tool_config_path: ${oc.select:actor_rollout_ref.rollout.multi_turn.tool_config_path,
+    null}
   return_raw_input_ids: false
-  return_raw_chat: false
+  return_raw_chat: true
   return_full_prompt: false
   shuffle: true
   seed: null
@@ -338,7 +352,7 @@ critic:
     optimizer_offload: false
     tensor_model_parallel_size: 1
     expert_model_parallel_size: 1
-    expert_tensor_parallel_size: 1
+    expert_tensor_parallel_size: null
     pipeline_model_parallel_size: 1
     virtual_pipeline_model_parallel_size: null
     context_parallel_size: 1
@@ -346,6 +360,7 @@ critic:
     use_distributed_optimizer: true
     use_dist_checkpointing: false
     dist_checkpointing_path: null
+    dist_checkpointing_prefix: ''
     seed: 42
     override_ddp_config: {}
     override_transformer_config:
@@ -358,6 +373,7 @@ critic:
     override_mcore_model_config: {}
     use_mbridge: false
     forward_only: false
+    dtype: bfloat16
   _target_: verl.workers.config.McoreCriticConfig
   rollout_n: ${oc.select:actor_rollout_ref.rollout.n,1}
   strategy: megatron
@@ -454,7 +470,7 @@ reward_model:
     param_offload: false
     tensor_model_parallel_size: 1
     expert_model_parallel_size: 1
-    expert_tensor_parallel_size: 1
+    expert_tensor_parallel_size: null
     pipeline_model_parallel_size: 1
     virtual_pipeline_model_parallel_size: null
     context_parallel_size: 1
@@ -462,14 +478,23 @@ reward_model:
     use_distributed_optimizer: false
     use_dist_checkpointing: false
     dist_checkpointing_path: null
+    dist_checkpointing_prefix: ''
     seed: ${oc.select:actor_rollout_ref.actor.megatron.seed,42}
     override_transformer_config: ${oc.select:actor_rollout_ref.actor.megatron.override_transformer_config,{}}
     use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
+    dtype: bfloat16
   load_weight: true
-custom_reward_function:
-  path: null
-  name: compute_score
 algorithm:
+  rollout_correction:
+    rollout_is: null
+    rollout_is_threshold: 2.0
+    rollout_rs: null
+    rollout_rs_threshold: null
+    rollout_rs_threshold_lower: null
+    rollout_token_veto_threshold: null
+    bypass_mode: false
+    use_policy_gradient: false
+    rollout_is_batch_normalize: false
   _target_: verl.trainer.config.AlgoConfig
   gamma: 1.0
   lam: 1.0
@@ -487,12 +512,9 @@ algorithm:
   pf_ppo:
     reweight_method: pow
     weight_pow: 2.0
-  rollout_is_threshold: null
-  rollout_is_threshold_lower: null
-  rollout_is_level: token
-  rollout_is_mode: truncate
-  rollout_is_veto_threshold: null
-  rollout_is: false
+custom_reward_function:
+  path: null
+  name: compute_score
 trainer:
   balance_batch: true
   total_epochs: 30

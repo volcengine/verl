@@ -60,6 +60,7 @@ If possible, please add CI test(s) for your new feature:
 pip install -e .[test]
 
 # Install documentation dependencies
+cd docs
 pip install -r requirements-docs.txt
 
 # Generate HTML docs

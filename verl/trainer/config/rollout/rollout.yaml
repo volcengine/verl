@@ -5,7 +5,7 @@ _target_: verl.workers.config.RolloutConfig
 name: ???
 
 # sync: LLM, async: AsyncLLM
-mode: sync
+mode: async
 
 # Sampling temperature for rollout.
 temperature: 1.0
@@ -258,6 +258,12 @@ trace:
   # whether translate token id to text in output
   token2text: False
 
+  # Maximum number of unique samples to trace per agent worker per training step.
+  # If null, all samples are traced. If set to N, each agent loop worker will randomly
+  # select N unique samples to trace (including all their rollouts for GRPO).
+  # Total traces per step = max_samples_per_step_per_worker * num_workers * n_rollouts_per_sample
+  max_samples_per_step_per_worker: null
+
 # When enabled (True), the trainer will attempt to load previously generated rollout data from the specified directory instead of computing new rollouts.
 # If no cached data is found or loading fails, new rollouts will be generated and automatically saved.
 # This feature is useful for debugging or when you want to reuse computation results across multiple runs.
@@ -295,3 +301,22 @@ profiler:
 
   # specific tool config
   tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}
+
+# prometheus configuration for vllm/sglang server mode
+prometheus:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.workers.config.PrometheusConfig
+
+  # whether enable prometheus on server mode rollout
+  enable: false
+
+  # Port number that Prometheus listens on, default is 9090
+  port: 9090
+
+  # Path to Prometheus configuration file
+  file: /tmp/ray/session_latest/metrics/prometheus/prometheus.yml
+
+  # Specify served_model_name to avoid displaying overly long model paths in Grafana
+  served_model_name: ${oc.select:actor_rollout_ref.model.path,null}
+

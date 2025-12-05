@@ -12,7 +12,7 @@
 # - `special_sanity`: a suite of quick sanity tests
 # - `special_standalone`: a set of test that are designed to run in dedicated environments
 
-# Accelerators for tests 
+# Accelerators for tests
 # - By default tests are run with GPU available, except for the ones under `special_npu`, and any test script whose name ends with `on_cpu.py`.
 # - For test scripts with `on_cpu.py` name suffix would be tested on CPU resources in linux environment.
 
@@ -44,12 +44,13 @@ on:
       - main
     paths:
       - ".github/workflows/e2e_ascend.yml"
-      - "**/*.py"
-      - "docs/ascend_tutorial/**"
-      - "examples/**"
-      - "recipe/**"
+      - "examples/data_preprocess/**"
+      - "examples/grpo_trainer/**"
+      - "examples/ppo_trainer/**"
+      - "examples/sft/**"
+      - "recipe/dapo/**"
       - "tests/special_npu/**"
-      - "tests/special_sanity/**"
+      - "tests/special_sanity/check_device_api_usage.py"
       - "verl/**"
       - "pyproject.toml"
       - "requirements-npu.txt"
@@ -68,9 +69,9 @@ jobs:
     if: github.repository_owner == 'volcengine'
     name: verl Ascend test (self-host)
     runs-on: [self-hosted, npu-0]
-    timeout-minutes: 45 # Increase this timeout value as needed
+    timeout-minutes: 60 # Increase this timeout value as needed
     container:
-      image: quay.io/ascend/verl:verl-8.2.rc1-910b-ubuntu22.04-py3.11-latest
+      image: quay.io/ascend/verl:verl-8.3.rc1-910b-ubuntu22.04-py3.11-latest
       volumes:
         - /usr/local/dcmi:/usr/local/dcmi
         - /usr/local/bin/npu-smi:/usr/local/bin/npu-smi
@@ -89,7 +90,7 @@ jobs:
         --network host
         --privileged
         --shm-size 16g
-    env: 
+    env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
       NO_PROXY: "localhost,127.0.0.1,hf-mirror.com"
@@ -107,8 +108,7 @@ jobs:
           clean: true
       - name: Install the current repository
         run: |
-          pip3 install hf_transfer peft
-          pip3 install -r requirements-npu.txt
+          pip install -r requirements-npu.txt
           pip install -e .
       - name: Preprocess gsm8k dataset
         run: |
@@ -141,6 +141,11 @@ jobs:
           ray stop --force
           bash tests/special_npu/run_qwen2_5_05b_dapo.sh
           rm -rf $HOME/ckpts
+      - name: Running gsm8k e2e qwen3 MoE training tests with DAPO MindSpeed on ASCEND NPU
+        run: |
+          ray stop --force
+          export PYTHONPATH=$PYTHONPATH:/Megatron-LM
+          USE_DIST_CKPT=True USE_DUMMY_MODEL=True DUMMY_MODEL_CONFIG_PATH=tests/special_e2e/ppo_trainer/expert_parallel/qwen3moe_minimal.json DUMMY_MODEL_PATH=$HOME/dist_ckpt/qwen3_30b_dapo_mindspeed bash tests/special_npu/run_qwen3_30b_dapo_mindspeed.sh
       - name: Running gsm8k e2e training tests with GRPO MindSpeed on ASCEND NPU
         run: |
           ray stop --force

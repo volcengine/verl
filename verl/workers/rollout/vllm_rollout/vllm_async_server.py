@@ -16,10 +16,10 @@ import asyncio
 import json
 import logging
 import os
-import pickle
 from pprint import pprint
 from typing import Any, Callable, Optional
 
+import cloudpickle as pickle
 import numpy as np
 import ray
 import vllm.entrypoints.cli.serve
@@ -43,6 +43,7 @@ from vllm.v1.executor.abstract import Executor
 
 from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
+from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches
 from verl.workers.config import HFModelConfig, RewardModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
 from verl.workers.rollout.utils import get_free_port, is_valid_ipv6_address, run_unvicorn
@@ -215,12 +216,26 @@ class vLLMHttpServerBase:
             max_new_tokens=self.config.response_length,
         )
         logger.info(f"override_generation_config: {override_generation_config}")
-
+        quantization = self.config.quantization
+        if quantization is not None:
+            if quantization == "fp8":
+                FP8_BLOCK_QUANT_KWARGS = {
+                    "activation_scheme": "dynamic",
+                    "fmt": "e4m3",
+                    "quant_method": "fp8",
+                    "weight_block_size": [128, 128],
+                }
+                fp8_block_quant_kwargs = dict(FP8_BLOCK_QUANT_KWARGS)
+                # Apply vllm fp8 patches
+                # Will remove the patch after vllm support on-the-fly quant for rollout natively.
+                apply_vllm_fp8_patches()
+            else:
+                raise ValueError(f"Currently only support fp8 quantization, got: {quantization}")
         args = {
             "dtype": self.config.dtype,
             "load_format": self.config.load_format,
             "skip_tokenizer_init": False,
-            # "trust_remote_code": True,
+            "trust_remote_code": self.model_config.trust_remote_code,
             "max_model_len": self.config.max_model_len,
             "max_num_seqs": self.config.max_num_seqs,
             "enable_chunked_prefill": self.config.enable_chunked_prefill,
@@ -234,8 +249,20 @@ class vLLMHttpServerBase:
             "tensor_parallel_size": self.config.tensor_model_parallel_size,
             "seed": self.config.get("seed", 0),
             "override_generation_config": json.dumps(override_generation_config),
+            "quantization": quantization,
+            "hf_overrides": {"quantization_config": fp8_block_quant_kwargs} if quantization == "fp8" else None,
             **engine_kwargs,
         }
+
+        if self.config.prometheus.enable:
+            if self.config.prometheus.served_model_name:
+                # Extract model name from path if it's a full path
+                served_model_name = self.config.prometheus.served_model_name
+                if "/" in served_model_name:
+                    # If it's a full path, extract the last part as model name
+                    served_model_name = served_model_name.split("/")[-1]
+                args["served_model_name"] = served_model_name
+
         if self.config.expert_parallel_size > 1:
             assert self.gpus_per_node % self.config.tensor_model_parallel_size == 0, (
                 "gpus_per_node should be divisible by tensor_model_parallel_size"
@@ -272,9 +299,10 @@ class vLLMHttpServerBase:
             if isinstance(v, bool):
                 if v:
                     server_args.append(f"--{k}")
-            else:
+            elif v is not None:
                 server_args.append(f"--{k}")
-                server_args.append(str(v))
+                # Use json.dumps for dict to ensure valid JSON format
+                server_args.append(json.dumps(v) if isinstance(v, dict) else str(v))
 
         if self.replica_rank == 0:
             pprint(server_args)

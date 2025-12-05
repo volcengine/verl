@@ -18,7 +18,7 @@ if [ "$USE_DUMMY_MODEL" = "True" ]; then
         echo "[ERROR] DUMMY_MODEL_CONFIG_PATH not set"
         exit 1
     fi
-    
+
     python scripts/init_random_model.py \
         --hf_model_path "${MODEL_PATH}" \
         --new_config_path "${DUMMY_MODEL_CONFIG_PATH}" \
@@ -127,15 +127,14 @@ fi
 ENGINE=${ENGINE:-"vllm"}
 
 exp_name="$(basename "${MODEL_ID,,}")-megatron-gsm8k-minimal"
+ROLLOUT_MODE=${ROLLOUT_MODE:-sync}
+ROLLOUT_QUANTIZATION=${ROLLOUT_QUANTIZATION:-null}
 
-if [ "$ENGINE" = "vllm" ]; then
-    MODE=${MODE:-"sync"}
-    ROLLOUT_MODE_ARG="actor_rollout_ref.rollout.mode=${MODE}"
-    if [ "$MODE" = "async" ]; then
-        ROLLOUT_MODE_ARG="${ROLLOUT_MODE_ARG} data.return_raw_chat=True"
-    fi
-else
-    ROLLOUT_MODE_ARG=""
+RETURN_RAW_CHAT="False"
+SKIP_TOKENIZER_INIT=${SKIP_TOKENIZER_INIT:-False}
+if [ "$ROLLOUT_MODE" = "async" ]; then
+    RETURN_RAW_CHAT="True"
+    SKIP_TOKENIZER_INIT="True"
 fi
 
 OPTIM_MEMORY_EFFICIENT=${OPTIM_MEMORY_EFFICIENT:-False}
@@ -154,6 +153,7 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     data.train_batch_size=${train_prompt_bsz} \
     data.max_prompt_length=${MAX_PROMPT_LENGTH} \
     data.max_response_length=${MAX_RESPONSE_LENGTH} \
+    data.return_raw_chat=${RETURN_RAW_CHAT} \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     actor_rollout_ref.model.path="${MODEL_PATH}" \
@@ -185,11 +185,13 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     actor_rollout_ref.actor.profiler.enable=$PROFILE_ENABLE \
     actor_rollout_ref.actor.profiler.ranks=$PROFILE_RANKS \
     actor_rollout_ref.actor.profiler.all_ranks=$PROFILE_RANKS_ALL \
-    actor_rollout_ref.rollout.name="${ENGINE}" ${ROLLOUT_MODE_ARG}\
+    actor_rollout_ref.rollout.name="${ENGINE}" \
+    actor_rollout_ref.rollout.mode="${ROLLOUT_MODE}" \
     actor_rollout_ref.rollout.tensor_model_parallel_size=$ROLLOUT_TP \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.n=${n_resp_per_prompt} \
     actor_rollout_ref.rollout.update_weights_bucket_megabytes=128 \
+    ++actor_rollout_ref.rollout.quantization=${ROLLOUT_QUANTIZATION} \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
     actor_rollout_ref.ref.megatron.use_mbridge=${USE_MBRIDGE} \

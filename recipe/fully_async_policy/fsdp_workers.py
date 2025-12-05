@@ -25,6 +25,7 @@ from torch.distributed.device_mesh import init_device_mesh
 from omegaconf import DictConfig
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
+from recipe.fully_async_policy.fsdp2_utils import fsdp2_sharded_load_from_cpu, fsdp2_sharded_save_to_cpu
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils.device import (
     get_device_name,
@@ -32,6 +33,8 @@ from verl.utils.device import (
 )
 from verl.utils.fsdp_utils import (
     fsdp_version,
+    load_fsdp_model_to_gpu,
+    offload_fsdp_model_to_cpu,
 )
 from verl.utils.ray_utils import get_event_loop
 from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
@@ -108,6 +111,8 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
         assert (self._is_actor or self._is_rollout) and not self.config.hybrid_engine
         assert hasattr(self, "_weights_info") and self._weights_info is not None
 
+        if self._is_actor and self._is_offload_param:
+            load_fsdp_model_to_gpu(self.actor_module_fsdp)
         params = self._get_actor_params() if self._is_actor else None
         rollout_name = self.config.rollout.name
         
@@ -160,6 +165,9 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
                     inference_model.load_weights([(key, tensor)])
                 elif rollout_name == "sglang":
                     self._run_async_safely(self.update_weights(inference_model, [(key, tensor)]))
+
+        if self._is_actor and self._is_offload_param:
+            offload_fsdp_model_to_cpu(self.actor_module_fsdp)
         get_torch_device().empty_cache()
 
 
@@ -210,6 +218,23 @@ class DetachActorWorker(DetachNcclSync):
             ret.append((key, tensor.size(), tensor.dtype))
         self._weights_info = ret
         return ret
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def save_model_to_cpu(self, n):
+        if not hasattr(self, "cpu_saved_models"):
+            self.cpu_saved_models = {}
+        self.cpu_saved_models[n] = fsdp2_sharded_save_to_cpu(self.actor_module_fsdp)
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def restore_model_from_cpu(self, n):
+        if n in self.cpu_saved_models:
+            cpu_sharded_state, global_spec = self.cpu_saved_models[n]
+            fsdp2_sharded_load_from_cpu(self.actor_module_fsdp, cpu_sharded_state, global_spec)
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def clear_cpu_model(self, n):
+        if n in self.cpu_saved_models:
+            del self.cpu_saved_models[n]
 
 
 class DetachAsyncRolloutWorker(DetachNcclSync):

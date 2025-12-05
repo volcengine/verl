@@ -150,6 +150,14 @@ def postprocess_agent_loop_outputs(rs: "RolloutSample", tokenizer, config, proce
         batch_size=len(input_ids),
     )
 
+    response_logprobs_list = []
+    for input in inputs:
+        pad_size = config.actor_rollout_ref.rollout.response_length - len(input.response_logprobs)
+        response_logprobs = torch.tensor(input.response_logprobs + [0.0] * pad_size).unsqueeze(0)
+        response_logprobs_list.append(response_logprobs)
+    rollout_log_probs = torch.cat(response_logprobs_list, dim=0)
+    batch["rollout_log_probs"] = rollout_log_probs  # [bsz, response_length]
+
     num_turns = np.array([input.num_turns for input in inputs], dtype=np.int32)
     metrics = [input.metrics.model_dump() for input in inputs]
     return DataProto(batch=batch, non_tensor_batch={"__num_turns__": num_turns}, meta_info={"metrics": metrics})
@@ -163,7 +171,7 @@ class RolloutSample:
     full_batch: Any
 
     # AgentLoopOutput from generation
-    agent_loop_output_list: list[Any]  # AgentLoopOutput
+    agent_loop_output_list: list[AgentLoopOutput]
 
     # Metadata
     sample_id: str
@@ -171,6 +179,7 @@ class RolloutSample:
 
     # Processing metadata
     processing_times: list[float]
+    tool_calls: list[float]
     param_version: int
     param_version_start: list[int]
     param_version_end: list[int]
@@ -187,7 +196,7 @@ class ValidateMetrics:
     param_version: Optional[int] = None
 
 
-def prepare_single_generation_data(batch_dict, global_steps, rollout_n) -> DataProto:
+def prepare_single_generation_data(batch_dict, config) -> DataProto:
     """
     Similar to the logic of ray_trainer._prepare_generate_batch, but for a single sample.
     Separate the data used for generation from the original data.
@@ -206,44 +215,19 @@ def prepare_single_generation_data(batch_dict, global_steps, rollout_n) -> DataP
         non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
     )
 
-    # Setting agent - partial_single_turn_agent, that supports partial
-    full_batch.non_tensor_batch["agent_name"] = np.array(["partial_single_turn_agent"] * len(full_batch), dtype=object)
+    # Setting selected agent, that supports partial
+    if config.actor_rollout_ref.rollout.multi_turn.enable:
+        full_batch.non_tensor_batch["agent_name"] = np.array(
+            ["async_partial_tool_agent"] * len(full_batch), dtype=object
+        )
+    else:
+        full_batch.non_tensor_batch["agent_name"] = np.array(
+            ["partial_single_turn_agent"] * len(full_batch), dtype=object
+        )
 
     # Add global step count to generated data
-    full_batch = full_batch.repeat(repeat_times=rollout_n, interleave=True)
+    full_batch = full_batch.repeat(repeat_times=config.actor_rollout_ref.rollout.n, interleave=True)
     return full_batch
-
-
-def process_rollout_log_probs(data_proto: DataProto, rollout_log_probs: list[list[float]]) -> torch.Tensor:
-    """
-    Process rollout_log_probs according to the mask in DataProto
-    mask: [0,0,0,0,1,1,1,1, | 1,1,1,0,0,0,0,0]
-
-    Args:
-        data_proto: A DataProto object containing batch information
-        rollout_log_probs: A two-dimensional list, each sublist containing the log_probs of a sample
-
-    Returns:
-        torch.Tensor: The processed log_probs tensor, with shape: [bsz, response_length]
-    """
-
-    batch = data_proto.batch
-    response_mask = batch["response_mask"]
-    rollout_log_probs_tensor = torch.zeros(response_mask.shape, dtype=torch.float32) - 1
-
-    for i, log_probs_seq in enumerate(rollout_log_probs):
-        # Get the effective length of the current sample (the number of positions with 1 in the mask)
-        valid_length = response_mask[i].sum().item()
-
-        # Ensure that the length of log_probs_seq does not exceed the valid length
-        actual_length = min(len(log_probs_seq), valid_length)
-
-        # Fill log_probs into the corresponding position
-        if actual_length > 0:
-            rollout_log_probs_tensor[i, :actual_length] = torch.tensor(log_probs_seq[:actual_length])
-
-    rollout_log_probs_tensor = rollout_log_probs_tensor.to(torch.float32)
-    return rollout_log_probs_tensor
 
 
 def merge_rollout_sample(config, tokenizer, rs: RolloutSample, processor):
@@ -252,9 +236,6 @@ def merge_rollout_sample(config, tokenizer, rs: RolloutSample, processor):
     """
     # Step 1: Create a DataProto from the AgentLoopOutput to generate the result
     gen_batch_output = postprocess_agent_loop_outputs(rs, tokenizer, config, processor)
-    rollout_log_probs = [x.log_probs for x in rs.agent_loop_output_list]
-    rollout_log_probs = process_rollout_log_probs(gen_batch_output, rollout_log_probs)
-    gen_batch_output.batch["rollout_log_probs"] = rollout_log_probs.to(torch.float32)
 
     # Step 2: Add uid
     rs.full_batch.non_tensor_batch["uid"] = np.array([f"uid_{rs.sample_id}"] * len(rs.full_batch), dtype=object)
@@ -268,10 +249,16 @@ def merge_rollout_sample(config, tokenizer, rs: RolloutSample, processor):
     # Step 3, set full_batch
     rs.full_batch = gen_batch_output
     rs.processing_times = []
+    rs.tool_calls = []
     for agent_loop in rs.agent_loop_output_list:
         rs.processing_times.append(agent_loop.metrics.generate_sequences)
-    rs.param_version_start = [agent_loop.param_version_start for agent_loop in rs.agent_loop_output_list]
-    rs.param_version_end = [agent_loop.param_version_end for agent_loop in rs.agent_loop_output_list]
+        rs.tool_calls.append(agent_loop.metrics.tool_calls)
+    rs.param_version_start = [
+        agent_loop.extra_fields.get("param_version_start", 0) for agent_loop in rs.agent_loop_output_list
+    ]
+    rs.param_version_end = [
+        agent_loop.extra_fields.get("param_version_end", 0) for agent_loop in rs.agent_loop_output_list
+    ]
     # Step 4, clear agent_loop_output_list
     rs.agent_loop_output_list = []
     return rs
@@ -305,6 +292,7 @@ def assemble_batch_from_rollout_samples(
 
     rollout_samples_batch = []
     processing_times = []
+    tool_calls = []
     rollout_status = rollout_samples[0].rollout_status
     # Add a prefix to all rollout_status keys
     rollout_status = {f"fully_async/{key}": value for key, value in rollout_status.items()}
@@ -312,6 +300,7 @@ def assemble_batch_from_rollout_samples(
     for rs in rollout_samples:
         rollout_samples_batch.append(rs.full_batch)
         processing_times.extend(rs.processing_times)
+        tool_calls.extend(rs.tool_calls)
     final_batch = DataProto.concat(rollout_samples_batch)
 
     # Calculate response_mask (if not present)
@@ -337,9 +326,18 @@ def assemble_batch_from_rollout_samples(
         "processing_time/tp99": np.percentile(processing_times, 99),
         "processing_time/tp95": np.percentile(processing_times, 95),
     }
+    tool_calls_stats = {}
+    if tool_calls:
+        tool_calls_stats = {
+            "timing_s/agent_loop/tool_calls/max": np.max(tool_calls),
+            "timing_s/agent_loop/tool_calls/min": np.min(tool_calls),
+            "timing_s/agent_loop/tool_calls/mean": np.mean(tool_calls),
+        }
     processing_time_stats = {f"fully_async/{key}": value for key, value in processing_time_stats.items()}
 
-    param_version_diff = [abs(a - b) for a, b in zip(rs.param_version_end, rs.param_version_start, strict=False)]
+    param_version_start = [v for rs in rollout_samples for v in rs.param_version_start]
+    param_version_end = [v for rs in rollout_samples for v in rs.param_version_end]
+    param_version_diff = [abs(a - b) for a, b in zip(param_version_end, param_version_start, strict=False)]
     num_diff0 = param_version_diff.count(0)
     partial_stats = {
         "fully_async/partial/total_partial_num": len(param_version_diff) - num_diff0,
@@ -355,6 +353,7 @@ def assemble_batch_from_rollout_samples(
             **processing_time_stats,
             **rollout_status,
             **partial_stats,
+            **tool_calls_stats,
         }
     )
 
@@ -386,6 +385,9 @@ class MetricsAggregator:
         return {
             # Time-Based metrics, can add metrics here
             "time_sum": ["perf/time_per_step"],
+            "min": ["timing_s/agent_loop/tool_calls/min"],
+            "avg": ["timing_s/agent_loop/tool_calls/mean"],
+            "max": ["timing_s/agent_loop/tool_calls/max"],
             "last": [
                 "fully_async/count/total_generated_samples",
                 "fully_async/count/stale_samples_processed",

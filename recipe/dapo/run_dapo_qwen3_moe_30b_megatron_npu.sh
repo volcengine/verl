@@ -58,6 +58,9 @@ offload=True
 
 max_num_batched_tokens=$((max_prompt_length + max_response_length))
 
+# vllm
+gen_tp=4
+
 # Megatron backen
 train_tp=4
 train_ep=2

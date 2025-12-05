@@ -18,7 +18,7 @@ import os
 
 import torch
 import torch.distributed
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
 from verl.utils.config import omega_conf_to_dataclass
@@ -26,6 +26,7 @@ from verl.utils.debug import (
     log_gpu_memory_usage,
 )
 from verl.utils.device import get_device_name, get_torch_device
+from verl.utils.megatron_utils import load_megatron_model_to_gpu, offload_megatron_model_to_cpu
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.megatron_workers import ActorRolloutRefWorker as ARRWorker
 from verl.workers.megatron_workers import CriticWorker, RewardModelWorker
@@ -82,7 +83,8 @@ class ActorRolloutRefWorker(ARRWorker):
     def sync_rollout_weights(self):
         assert (self._is_actor or self._is_rollout) and not self.config.hybrid_engine
         assert hasattr(self, "_weights_info") and self._weights_info is not None
-
+        if self._is_actor and self._is_offload_param:
+            load_megatron_model_to_gpu(self.actor_module)
         params_generator = self._get_actor_params_generator() if self._is_actor else None
         if self._is_rollout:
             inference_model = (
@@ -105,19 +107,25 @@ class ActorRolloutRefWorker(ARRWorker):
             self._weight_sync_group.broadcast(tensor, src=0, stream=get_torch_device().current_stream())
             if self._is_rollout:
                 inference_model.load_weights([(key, tensor)])
+        if self._is_actor and self._is_offload_param:
+            offload_megatron_model_to_cpu(self.actor_module)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def get_actor_weights_info(self):
         assert self._is_actor
         if hasattr(self, "_weights_info"):
             return self._weights_info
-
+        if self._is_offload_param:
+            load_megatron_model_to_gpu(self.actor_module)
         params_generator = self._get_actor_params_generator()
         ret = []
         for key, tensor in params_generator:
             ret.append((key, tensor.size(), tensor.dtype))
 
         self._weights_info = ret
+        # Here, we only call this function at the beginning,
+        # and immediately afterwards we call sync_rollout_weights.
+        # So we no longer call offload in this.
         return ret
 
 
@@ -134,24 +142,10 @@ class RolloutWorker(ActorRolloutRefWorker):
 
             importlib.import_module(self.config.model.external_lib)
 
-        from verl.utils.torch_dtypes import PrecisionType
-
-        override_model_config = OmegaConf.to_container(OmegaConf.create(self.config.model.get("override_config", {})))
-        override_transformer_config = {}
-        self.param_dtype = torch.bfloat16
-        self.dtype = PrecisionType.to_dtype(self.param_dtype)
-        trust_remote_code = self.config.model.get("trust_remote_code", False)
-
+        from verl.utils.fs import copy_to_local
         from verl.utils.model import get_generation_config
 
-        self._init_hf_config_and_tf_config(
-            self.config.model.path,
-            self.config.model.path,
-            self.dtype,
-            override_model_config,
-            override_transformer_config,
-            trust_remote_code,
-        )
+        self.local_path = copy_to_local(self.config.model.path)
         self.generation_config = get_generation_config(self.local_path)
 
         from torch.distributed.device_mesh import init_device_mesh
