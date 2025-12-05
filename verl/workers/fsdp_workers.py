@@ -177,6 +177,16 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         else:
             self._register_dispatch_collect_info("actor", dp_rank=self.rank, is_collect=True)
 
+        # build device mesh for rollout
+        self.rollout_device_mesh = None
+        self.rollout_tensor_model_parallel_size = self.config.rollout.get("tensor_model_parallel_size", 1)
+        dp = world_size // self.rollout_tensor_model_parallel_size
+        print(f"[ActorRolloutRefWorker] rollout mode: {self.config.rollout.mode}")
+        if self.config.rollout.mode == "async":
+            self.rollout_device_mesh = init_device_mesh(
+                device_name, mesh_shape=(dp, self.rollout_tensor_model_parallel_size), mesh_dim_names=["dp", "infer_tp"]
+            )
+
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
         self._lora_rank = self.config.model.get("lora_rank", 0)
         self._is_lora = self.config.model.get("lora_adapter_path") is not None or self._lora_rank > 0
