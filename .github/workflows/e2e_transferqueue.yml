@@ -128,9 +128,10 @@ jobs:
       - name: Prepare GSM8K dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
-      - name: Running the E2E test with TransferQueue (FSDP)
+      - name: Running the E2E test with TransferQueue (FSDP), enable zero copy serialization
         run: |
           ray stop --force
+          export TQ_ZERO_COPY_SERIALIZATION=True
           bash tests/special_e2e/run_transferqueue.sh
 
   # Test Megatron strategy
@@ -157,9 +158,10 @@ jobs:
       - name: Prepare GSM8K dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
-      - name: Running the E2E test with TransferQueue (Megatron)
+      - name: Running the E2E test with TransferQueue (Megatron), disable zero copy serialization
         run: |
           ray stop --force
+          export TQ_ZERO_COPY_SERIALIZATION=False
           bash tests/special_e2e/run_transferqueue.sh
 
   cleanup:
