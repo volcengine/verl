@@ -1,33 +1,42 @@
-source /usr/local/Ascend/ascend-toolkit/set_env.sh
 set -xeuo pipefail
+source /usr/local/Ascend/ascend-toolkit/set_env.sh
+source /usr/local/Ascend/nnal/atb/set_env.sh
 
-trainer_n_gpus_per_node=16
-trainer_nnodes=1
-log_path=logs/${trainer_project_name}/${trainer_experiment_name}.log
-use_dynamic_bsz=True
-project_name='GRPO-Qwen3'
-exp_name='GRPO-Qwen3-4B-npu'
-
-RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
-MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen3-4B"}
-CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/ckpts/${project_name}/${exp_name}"}
-TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/gsm8k.parquet"}
-TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/gsm8k.parquet"}
+export VLLM_USE_V1=1
+export VLLM_VERSION=0.9.1
 
 # 开启二级流水
 export TASK_QUEUE_ENABLE=2
-# 开启帮核
+# 开启细绑核
 export CPU_AFFINITY_CONF=1
-export VLLM_USE_V1=1
-export VLLM_VERSION=0.9.1
-export TENSORBOARD_DIR=tb/${trainer_project_name}/${trainer_experiment_name}
+# 使用jemalloc优化内存访问，较小全局锁对性能的影响，依赖安装jemalloc。
+export LD_PRELOAD="/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
+
+# A3 机器单机8卡
+trainer_n_gpus_per_node=16
+trainer_nnodes=1
+exp_num="1"
+trainer_project_name='verl_grpo_example_gsm8k'
+trainer_experiment_name="qwen3_4b_grpo_8ka_${exp_num}"
+
+RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
+MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen3-4B"}
+CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/ckpts/${trainer_project_name}/${trainer_experiment_name}"}
+TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/gsm8k/train.parquet"}
+TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/gsm8k/test.parquet"}
+
+export TENSORBOARD_DIR="${RAY_DATA_HOME}/tensorboard_dir/${trainer_project_name}/${trainer_experiment_name}"
+mkdir -p "${RAY_DATA_HOME}/logs/${trainer_project_name}"
+LOG_PATH="${RAY_DATA_HOME}/logs/${trainer_project_name}/${trainer_experiment_name}.log"
+
+use_dynamic_bsz=True
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=${TRAIN_FILE} \
     data.val_files=${TEST_FILE} \
     data.train_batch_size=512 \
-    data.max_prompt_length=512 \
+    data.max_prompt_length=1024 \
     data.max_response_length=1024 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
@@ -41,7 +50,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
     actor_rollout_ref.actor.use_torch_compile=False \
     actor_rollout_ref.actor.use_dynamic_bsz=${use_dynamic_bsz} \
-    actor_rollout_ref.actor.ppo_max_token_len_per_gpu=4096 \
+    actor_rollout_ref.actor.ppo_max_token_len_per_gpu=3000 \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.fsdp_config.param_offload=True \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
@@ -62,12 +71,11 @@ python3 -m verl.trainer.main_ppo \
     trainer.project_name=${trainer_project_name} \
     trainer.experiment_name=${trainer_experiment_name} \
     trainer.logger=['console','tensorboard'] \
-    trainer.default_local_dir=${CKPTS_DIR} \ \
+    trainer.default_local_dir=${CKPTS_DIR} \
     trainer.n_gpus_per_node=$trainer_n_gpus_per_node \
     trainer.nnodes=$trainer_nnodes \
-    trainer.save_freq=100 \
+    trainer.save_freq=-1 \
     trainer.test_freq=5 \
-    trainer.total_epochs=5 \
+    trainer.total_epochs=15 \
     trainer.val_before_train=False \
-    trainer.total_training_steps=5 \
-    trainer.device=npu 2>&1 | tee $log_path
+    trainer.device=npu 2>&1 | tee ${LOG_PATH}
