@@ -19,7 +19,6 @@ import torch
 import torch.nn.functional as F
 import torch_npu
 from torch import nn
-from torch_npu import npu_rotary_mul as apply_rotary_emb
 from transformers.activations import ACT2FN
 from transformers.models.qwen2 import modeling_qwen2
 from transformers.models.qwen2_5_vl import modeling_qwen2_5_vl
@@ -28,7 +27,6 @@ from transformers.models.qwen3_moe import modeling_qwen3_moe
 from transformers.models.qwen3_vl import modeling_qwen3_vl
 from transformers.models.qwen3_vl_moe import modeling_qwen3_vl_moe
 from transformers.utils import logging
-
 
 logger = logging.get_logger(__name__)
 
@@ -147,6 +145,7 @@ def qwen3_moe_sparse_moe_block_forward_npu(self, hidden_states: torch.Tensor) ->
 
 class NPUQwen3VLMoeTextExperts(nn.Module):
     """NPU optimized implementation for Qwen3VLMoeTextExperts."""
+
     def __init__(self, config):
         super().__init__()
         self.num_experts = config.num_experts
@@ -181,7 +180,9 @@ class NPUQwen3VLMoeTextExperts(nn.Module):
                 hidden_states, router_indices.to(torch.int32)
             )
             tokens_per_expert = torch.histc(router_indices, bins=self.num_experts, min=0, max=self.num_experts)
-            intermediate_hidden_states = NPUGmmFunction.apply(permuted_hidden_states, self.gate_up_proj, tokens_per_expert)
+            intermediate_hidden_states = NPUGmmFunction.apply(
+                permuted_hidden_states, self.gate_up_proj, tokens_per_expert
+            )
             intermediate_activations = torch_npu.npu_swiglu(intermediate_hidden_states, dim=-1)
             output = NPUGmmFunction.apply(intermediate_activations, self.down_proj, tokens_per_expert)
             next_states = torch_npu.npu_moe_token_unpermute(output, row_ids_map, probs=routing_weights)
@@ -202,6 +203,7 @@ class NPUQwen3VLMoeTextExperts(nn.Module):
 
 class NPUQwen3VLMoeTextSparseMoeBlock(nn.Module):
     """NPU optimized implementation for Qwen3VLMoeTextSparseMoeBlock."""
+
     def __init__(self, config):
         super().__init__()
         self.hidden_size = config.hidden_size
