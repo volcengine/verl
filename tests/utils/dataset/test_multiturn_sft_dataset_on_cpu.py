@@ -33,8 +33,17 @@ from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
 from verl.utils.model import extract_multi_modal_inputs_tensordict
 
 
-def test_multiturn_sft_dataset():
-    print("Starting test...")
+@pytest.mark.parametrize(
+    "model_path",
+    [
+        "Qwen/Qwen2.5-Coder-7B-Instruct",
+        "Qwen/Qwen3-30B-A3B-Instruct-2507",
+        # "Qwen/Qwen3-30B-A3B-Thinking-2507" # Thinking series models add <think></think> tags to each turn.
+    ],
+)
+@pytest.mark.parametrize("enable_thinking", [False, True])
+def test_multiturn_sft_dataset(model_path: str, enable_thinking: bool):
+    print(f"Starting test... model_path={model_path}, enable_thinking={enable_thinking}")
     # Create a temporary parquet file with test data
     test_data = {
         "messages": [
@@ -64,8 +73,13 @@ def test_multiturn_sft_dataset():
     df.to_parquet(test_file)
 
     # Initialize tokenizer and dataset
-    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-Coder-7B-Instruct")
-    config = {"max_length": 512, "truncation": "error", "multiturn": {"messages_key": "messages"}}
+    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    config = {
+        "max_length": 512,
+        "truncation": "error",
+        "multiturn": {"messages_key": "messages"},
+        "apply_chat_template_kwargs": {"enable_thinking": enable_thinking},
+    }
     dataset = MultiTurnSFTDataset(parquet_files=test_file, tokenizer=tokenizer, config=config)
 
     # Test 1: Dataset Length
