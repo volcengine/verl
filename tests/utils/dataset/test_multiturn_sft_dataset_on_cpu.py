@@ -38,7 +38,7 @@ from verl.utils.model import extract_multi_modal_inputs_tensordict
     [
         "Qwen/Qwen2.5-Coder-7B-Instruct",
         "Qwen/Qwen3-30B-A3B-Instruct-2507",
-        # "Qwen/Qwen3-30B-A3B-Thinking-2507" # Thinking series models add <think></think> tags to each turn.
+        # "Qwen/Qwen3-30B-A3B-Thinking-2507" # Thinking series models add <think></think> tags to last turn.
     ],
 )
 @pytest.mark.parametrize("enable_thinking", [False, True])

@@ -16,6 +16,8 @@
 Multi-turn SFT dataset that supports training on conversation data with multiple turns
 """
 
+import logging
+import os
 import re
 from typing import Any, Optional
 
@@ -33,6 +35,9 @@ from verl.utils.chat_template import initialize_system_prompt
 from verl.utils.dataset.dataset_utils import DatasetPadMode
 from verl.utils.dataset.vision_utils import process_image, process_video
 from verl.utils.fs import copy_local_path_from_hdfs
+
+logger = logging.getLogger(__file__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 def convert_nested_value_to_list_recursive(data_item):
@@ -90,6 +95,7 @@ class MultiTurnSFTDataset(Dataset):
         self.shuffle = config.get("shuffle", False)
         self.seed = config.get("seed")
         self.max_samples = max_samples
+        self.ignore_input_ids_mismatch = config.get("ignore_input_ids_mismatch", False)
         assert self.truncation in ["error", "left", "right"]
 
         if not isinstance(parquet_files, list | ListConfig):
@@ -379,8 +385,18 @@ class MultiTurnSFTDataset(Dataset):
             return_tensors="pt",
             **apply_chat_template_kwargs,
         )
-        assert torch.equal(input_ids, inputs["input_ids"].squeeze(0)), (
-            "concatenated input_ids of each turn not equal to apply_chat_template to whole messages, "
-            "which may cause silent errors. Please check your tokenizer chat template settings. "
-            "For example, Qwen Thinking series models add <think></think> tags to each turn."
+
+        error_message = (
+            "MultiTurnSFTDataset apply_chat_template to each turn separately and concat `input_ids` "
+            "as a whole sequence, which may not equal to apply_chat_template to whole messages at once.\n"
+            "For example, Qwen Thinking series models add <think></think> tags to last turn, please check "
+            "your tokenizer chat template settings.\n"
+            "Set `ignore_input_ids_mismatch=True` to ignore input_ids mismatch and use the concatenated "
+            "input_ids as the final input_ids. "
         )
+
+        if not torch.equal(input_ids, inputs["input_ids"].squeeze(0)):
+            if self.ignore_input_ids_mismatch:
+                logger.warning_once(error_message)
+            else:
+                raise AssertionError(error_message)

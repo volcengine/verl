@@ -681,14 +681,15 @@ def get_hf_auto_model_class(hf_config):
             case _:
                 actor_module_class = AutoModel
     else:
-        if type(hf_config) in AutoModelForVision2Seq._model_mapping.keys():
-            actor_module_class = AutoModelForVision2Seq
-        elif type(hf_config) in AutoModelForCausalLM._model_mapping.keys():
-            actor_module_class = AutoModelForCausalLM
-        elif type(hf_config) in AutoModelForImageTextToText._model_mapping.keys():
+        actor_module_class = AutoModel
+        # For VLM models, we use type to check instead of architecture
+        if type(hf_config) in AutoModelForImageTextToText._model_mapping.keys():
             actor_module_class = AutoModelForImageTextToText
         else:
-            actor_module_class = AutoModel
+            for key, cls in _architecture_to_auto_class.items():
+                if key in hf_config.architectures[0]:
+                    actor_module_class = cls
+                    break
 
     return actor_module_class
 
