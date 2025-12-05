@@ -15,6 +15,7 @@
 
 import logging
 import os
+import time
 
 import torch
 import torch.distributed
@@ -136,8 +137,6 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
 
         if self._is_actor and self._is_offload_param:
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
-
-        import time
 
         from ray.util.collective import collective
 

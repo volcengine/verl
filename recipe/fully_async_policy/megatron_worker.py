@@ -16,6 +16,7 @@
 
 import logging
 import os
+import time
 
 import torch
 import torch.distributed
@@ -138,8 +139,6 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
     def sync_rollout_weights_by_checkpoint(self, sync_group_name="actor_rollout"):
         assert (self._is_actor or self._is_rollout) and not self.config.hybrid_engine
         assert hasattr(self, "_weights_info") and self._weights_info is not None
-
-        import time
 
         from ray.util.collective import collective
 
