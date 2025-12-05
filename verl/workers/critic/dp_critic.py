@@ -216,7 +216,7 @@ class DataParallelPPOCritic(BasePPOCritic):
                     micro_batches = mini_batch.split(self.config.ppo_micro_batch_size_per_gpu)
 
                 self.critic_optimizer.zero_grad()
-
+                vf_losses_metric = []
                 for micro_batch in micro_batches:
                     micro_batch = micro_batch.to(get_device_id())
                     micro_batch_metrics = {}
@@ -243,10 +243,9 @@ class DataParallelPPOCritic(BasePPOCritic):
                         loss = vf_loss * loss_scale_factor
 
                     loss.backward()
-
+                    vf_losses_metric.append(vf_loss.detach().item() * loss_scale_factor)
                     micro_batch_metrics.update(
                         {
-                            "critic/vf_loss": vf_loss.detach().item() * loss_scale_factor,
                             "critic/vf_clipfrac": vf_clipfrac.detach().item(),
                             "critic/vpred_mean": masked_mean(vpreds, response_mask).detach().item(),
                         }
@@ -255,7 +254,10 @@ class DataParallelPPOCritic(BasePPOCritic):
                     append_to_dict(metrics, micro_batch_metrics)
 
                 grad_norm = self._optimizer_step()
-                mini_batch_metrics = {"critic/grad_norm": grad_norm.detach().item()}
+                mini_batch_metrics = {
+                    "critic/vf_loss": sum(vf_losses_metric),
+                    "critic/grad_norm": grad_norm.detach().item(),
+                }
                 append_to_dict(metrics, mini_batch_metrics)
         self.critic_optimizer.zero_grad()
         return metrics
