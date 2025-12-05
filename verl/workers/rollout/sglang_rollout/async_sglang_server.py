@@ -194,8 +194,21 @@ class SGLangHttpServer:
             )
         )
         app.is_single_tokenizer_mode = True
-        app.server_args = server_args
-        app.warmup_thread_args = (server_args, None, None)
+
+        # Set warmup_thread_args to avoid AttributeError in lifespan function
+        app.warmup_thread_args = (
+            server_args,
+            None,
+            None,
+        )
+
+        # Manually add Prometheus middleware before starting server
+        # This ensures /metrics endpoint is available immediately
+        if server_args.enable_metrics:
+            from sglang.srt.utils.common import add_prometheus_middleware
+
+            add_prometheus_middleware(app)
+
         self._server_port, self._server_task = await run_unvicorn(app, server_args, self._server_address)
         self.tokenizer_manager.server_status = ServerStatus.Up
 

@@ -131,6 +131,9 @@ fi
 
 # ===================================== Inference =====================================
 rollout_name=vllm
+if [ "$rollout_name" = "vllm" ]; then
+    export VLLM_USE_V1=1
+fi
 infer_tp=4
 infer_dp=1
 infer_ep=1
