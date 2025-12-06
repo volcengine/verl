@@ -14,7 +14,9 @@
 # limitations under the License.
 
 import logging
+import os
 from dataclasses import dataclass, field
+from typing import Any
 from unittest.mock import patch
 
 import torch
@@ -27,6 +29,7 @@ except ImportError as e:
     raise ImportError("FP8 quantization not available") from e
 
 logger = logging.getLogger(__name__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "INFO"))  # Set explicit level to show INFO messages
 
 FP8_BLOCK_QUANT_KWARGS = {
     "activation_scheme": "dynamic",
@@ -47,6 +50,79 @@ class FP8State:
 
 
 fp8_state: FP8State = FP8State()
+
+def validate_kv_cache_fp8_config(config):
+    """
+    Validate KV cache FP8 configuration to ensure both kv_cache_dtype=fp8 and 
+    calculate_kv_scales=True are specified together.
+    
+    Args:
+        config: RolloutConfig or vLLM config object
+        
+    Returns:
+        tuple: (kv_cache_dtype, calculate_kv_scales) if valid
+        
+    Raises:
+        ValueError: If configuration is invalid (one set without the other)
+    """
+    # Check for kv_cache_dtype
+    kv_cache_dtype = getattr(config, 'kv_cache_dtype', None)
+    if kv_cache_dtype is None:
+        kv_cache_dtype = config.get('kv_cache_dtype', None) if hasattr(config, 'get') else None
+    
+    # Check for calculate_kv_scales
+    calculate_kv_scales = getattr(config, 'calculate_kv_scales', None)
+    if calculate_kv_scales is None:
+        calculate_kv_scales = config.get('calculate_kv_scales', False) if hasattr(config, 'get') else False
+    
+    # Check if kv_cache_dtype is FP8
+    is_kv_fp8 = kv_cache_dtype is not None and 'fp8' in str(kv_cache_dtype).lower()
+    
+    # Validate that both are set together or neither is set
+    if calculate_kv_scales and not is_kv_fp8:
+        raise ValueError(
+            "calculate_kv_scales=True requires kv_cache_dtype to be set to fp8. "
+            f"Got calculate_kv_scales={calculate_kv_scales}, kv_cache_dtype={kv_cache_dtype}"
+        )
+    if is_kv_fp8 and not calculate_kv_scales:
+        raise ValueError(
+            "kv_cache_dtype=fp8 requires calculate_kv_scales=True for dynamic scale calculation. "
+            f"Got kv_cache_dtype={kv_cache_dtype}, calculate_kv_scales={calculate_kv_scales}"
+        )
+    
+    logger.debug(f"KV cache FP8 config validated: kv_cache_dtype={kv_cache_dtype}, calculate_kv_scales={calculate_kv_scales}")
+    
+    return kv_cache_dtype, calculate_kv_scales
+
+def is_kv_cache_fp8_enabled(config):
+    """
+    Check if FP8 KV cache with dynamic scale calculation is enabled.
+    
+    Args:
+        config: RolloutConfig or vLLM config object
+        
+    Returns:
+        bool: True if FP8 KV cache with calculate_kv_scales is enabled
+    """
+    logger.debug(f"Checking if FP8 KV cache with dynamic scale calculation is enabled: {config}")
+    
+    # Leverage validate_kv_cache_fp8_config to get and validate the config values
+    kv_cache_dtype, calculate_kv_scales = validate_kv_cache_fp8_config(config)
+    
+    # Check if both FP8 KV cache dtype and dynamic scale calculation are enabled
+    is_fp8_kv = (
+        kv_cache_dtype is not None and 
+        'fp8' in str(kv_cache_dtype).lower() and
+        calculate_kv_scales
+    )
+    
+    logger.info(
+        f"kv_cache_dtype={kv_cache_dtype}, "
+        f"calculate_kv_scales={calculate_kv_scales}, "
+        f"is_enabled={is_fp8_kv}"
+    )
+    
+    return is_fp8_kv
 
 
 def is_fp8_model(vllm_config):
@@ -322,7 +398,11 @@ def process_weights_after_loading_for_vllm11(self, layer) -> None:
 
     del layer.weight_scale_inv
 
-    maybe_post_process_fp8_weight_block(layer, self.cutlass_block_fp8_supported)
+    # invoke with just 1 parameter for vllm v0.11.1 and above
+    if vllm.__version__ >= "0.11.1":
+        maybe_post_process_fp8_weight_block(layer)
+    else:
+        maybe_post_process_fp8_weight_block(layer, self.cutlass_block_fp8_supported)
 
 
 def process_weights_after_loading_moe_for_vllm10(self, layer) -> None:
@@ -453,7 +533,128 @@ def process_weights_after_loading_moe_for_vllm11(self, layer) -> None:
             layer.w2_weight_scale_inv = get_col_major_tma_aligned_tensor(layer.w2_weight_scale_inv)
 
 
+def reset_kv_scale_flags_in_model(model_runner) -> int:
+    """
+    Reset calculate_kv_scales flags in model_runner and all attention layers.
+    Also restore range constants (q_range, k_range, v_range) that may have been
+    corrupted during wake_up.
+    
+    This should be called after loading new weights to trigger KV scale recalculation
+    on the next forward pass.
+    Args:
+        model_runner: vLLM ModelRunner instance
+        
+    Returns:
+        int: Number of attention layers where flags were reset
+    """
+    logger.info(f"Resetting KV scale calculation flags in model_runner: {model_runner}")
+    
+    # Import vllm envs to get the scale constants
+    from vllm import envs
+    
+    # Reset model_runner level flag
+    if hasattr(model_runner, 'calculate_kv_scales'):
+        model_runner.calculate_kv_scales = True
+        logger.debug("Reset model_runner.calculate_kv_scales = True")
+    else:
+        logger.debug("model_runner does not have calculate_kv_scales attribute")
+    
+    # Reset per-layer flags and restore range constants
+    model = model_runner.model
+    num_reset = 0
+    num_ranges_restored = 0
+    
+    for name, module in model.named_modules():
+        if hasattr(module, 'calculate_kv_scales'):
+            module.calculate_kv_scales = True
+            num_reset += 1
+            
+            # CRITICAL FIX: Restore range constants that get corrupted during wake_up
+            # These are used as denominators in scale calculation: scale = max_value / range
+            # If range becomes 0 or garbage, we get inf/nan
+            ranges_restored = False
+            if hasattr(module, 'q_range') and module.q_range is not None:
+                try:
+                    module.q_range.data.fill_(envs.Q_SCALE_CONSTANT)
+                    ranges_restored = True
+                except Exception as e:
+                    logger.warning(f"Failed to restore q_range for {name}: {e}")
+            
+            if hasattr(module, 'k_range') and module.k_range is not None:
+                try:
+                    module.k_range.data.fill_(envs.K_SCALE_CONSTANT)
+                    ranges_restored = True
+                except Exception as e:
+                    logger.warning(f"Failed to restore k_range for {name}: {e}")
+            
+            if hasattr(module, 'v_range') and module.v_range is not None:
+                try:
+                    module.v_range.data.fill_(envs.V_SCALE_CONSTANT)
+                    ranges_restored = True
+                except Exception as e:
+                    logger.warning(f"Failed to restore v_range for {name}: {e}")
+            
+            if ranges_restored:
+                num_ranges_restored += 1
+    
+    if num_reset > 0:
+        logger.info(f"Reset calculate_kv_scales flag in {num_reset} attention layers")
+        logger.info(f"Restored range constants (q/k/v_range) in {num_ranges_restored} layers (fixes inf/nan)")
+        # Also log at WARNING level to ensure visibility in logs (some loggers filter INFO)
+        logger.warning(f"[KV_SCALE_RESET] Successfully reset {num_reset} attention layers, restored ranges in {num_ranges_restored} layers")
+    else:
+        logger.warning("No attention layers with calculate_kv_scales found")
+    
+    return num_reset
+
+
+def patched_maybe_post_process_fp8_weight_block(layer: torch.nn.Module):
+    """Patched version that preserves parameter attributes and types.
+    
+    This patches vllm's maybe_post_process_fp8_weight_block function which
+    creates new Parameter objects for DeepGEMM optimization but loses:
+    - The parameter class type (ModelWeightParameter, BlockQuantScaleParameter)
+    - All custom attributes (weight_loader, output_dim, input_dim, etc.)
+    - All custom methods (load_qkv_weight, load_column_parallel_weight, etc.)
+    
+    Instead of creating new Parameters, we update the existing parameter data
+    in-place, which preserves everything needed for weight reloading.
+    """
+    assert layer.weight_block_size is not None
+
+    from vllm.utils.deep_gemm import (
+        is_deep_gemm_e8m0_used,
+        should_use_deepgemm_for_fp8_linear,
+    )
+    from vllm.model_executor.layers.quantization.utils.fp8_utils import (
+        deepgemm_post_process_fp8_weight_block,
+    )
+    
+    # On Blackwell or Hopper, if E8M0 for DeepGemm is used, we need to
+    # requantize the weight and input to the specific scale at the same time.
+    should_use_deepgemm = should_use_deepgemm_for_fp8_linear(
+        layer.orig_dtype, layer.weight
+    )
+    if should_use_deepgemm:
+        dg_weight, dg_weight_scale = deepgemm_post_process_fp8_weight_block(
+            wq=layer.weight.data,
+            ws=layer.weight_scale.data,
+            quant_block_shape=tuple(layer.weight_block_size),
+            use_e8m0=is_deep_gemm_e8m0_used(),
+        )
+        # CRITICAL: Update data in-place to preserve parameter type and ALL attributes
+        # Do NOT create new Parameter objects as that loses:
+        # - Parameter subclass types (ModelWeightParameter, BlockQuantScaleParameter)
+        # - Custom attributes (weight_loader, output_dim, input_dim, etc.)
+        # - Custom methods (load_qkv_weight, load_column_parallel_weight, etc.)
+        layer.weight.data.copy_(dg_weight)
+        layer.weight_scale.data.copy_(dg_weight_scale)
+
+
 def apply_vllm_fp8_patches():
+    """
+    Apply all vLLM FP8 patches for blockwise quantization.
+    """
     logger.info("Applying vllm fp8 patches for blockwise quantization")
     func1_path = "vllm.model_executor.layers.quantization.fp8.Fp8LinearMethod.process_weights_after_loading"
     patcher1 = patch(
@@ -471,3 +672,13 @@ def apply_vllm_fp8_patches():
         else process_weights_after_loading_moe_for_vllm10,
     )
     patcher2.start()
+    
+    # CRITICAL: Patch maybe_post_process_fp8_weight_block to preserve parameter types and attributes
+    # This is needed for v0.11.1+ where DeepGEMM optimization would create new Parameters,
+    # losing all custom attributes, methods, and the parameter subclass type preventing weight reloading.
+    # Ref: https://github.com/vllm-project/vllm/pull/27897/files
+    if vllm.__version__ >= "0.11.1":
+        func3_path = "vllm.model_executor.layers.quantization.utils.fp8_utils.maybe_post_process_fp8_weight_block"
+        patcher3 = patch(func3_path, patched_maybe_post_process_fp8_weight_block)
+        patcher3.start()
+        logger.info("Applied patch for maybe_post_process_fp8_weight_block to preserve parameter types/attributes")
