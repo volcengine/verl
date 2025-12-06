@@ -508,10 +508,10 @@ class vLLMRollout(BaseRollout):
             device = next(model.parameters()).device
             process_weights_after_loading(model, vllm_config, device)
 
-class vLLMAsyncRollout(BaseRollout):
+class ServerAdapter(BaseRollout):
     """
-    Refactored vLLMAsyncRollout to be a ZMQ client.
-    No longer directly manages inference engine, but communicates with vLLMMultiprocExecutor via ZMQ.
+    vLLM server adapter used in native async mode, serve as ZMQ client to request vLLM server
+    to resume/release/update weights and kv_cache.
     """
 
     def __init__(
@@ -530,6 +530,7 @@ class vLLMAsyncRollout(BaseRollout):
         rollout_world_size = self.config.tensor_model_parallel_size * self.config.data_parallel_size
         rollout_rank = rank % rollout_world_size
         self.local_rank = rollout_rank % local_world_size
+        self._execute_lock = threading.Lock()
 
         if config.layered_summon or (config.expert_parallel_size > 1 and not _check_vllm_version_for_sleep_level()):
             logger.warning("Setting the sleep level to 1 may cause a memory overflow.")
@@ -544,7 +545,6 @@ class vLLMAsyncRollout(BaseRollout):
         self.zmq_context = zmq.Context()
         self.zmq_address_counter = 0
         self.zmq_handles: dict[str, str] = None
-        self._execute_lock = threading.Lock()  # Lock for synchronizing _execute_method calls
 
     def _init_zmq_client(self):
         """Initialize ZMQ client connection (only for local_rank=0 instance)."""

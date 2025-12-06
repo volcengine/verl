@@ -11,16 +11,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-from concurrent.futures import ThreadPoolExecutor
 import logging
 import os
 import pickle
 import signal
 import threading
-from typing import Optional
 import weakref
+from concurrent.futures import ThreadPoolExecutor
 from multiprocessing.synchronize import Lock as LockType
+from typing import Optional
 from threading import Thread
 from types import MethodType
 
