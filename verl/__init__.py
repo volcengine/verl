@@ -71,7 +71,7 @@ if is_npu_available:
         pass
 
     # Apply patches about transformers
-    from .models.transformers import npu_patch as npu_patch
+    from .models.transformers import npu_patch as npu_patch  # noqa
 
     # In verl, the driver process aggregates the computation results of workers via Ray.
     # Therefore, after a worker completes its computation job, it will package the output
