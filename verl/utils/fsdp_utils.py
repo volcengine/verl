@@ -504,7 +504,7 @@ def maybe_patch_fsdp_module(model):
         fully_shard_module.FSDPModule = orig_fsdp_module
 
 
-def apply_fsdp2(model, fsdp_kwargs, config):
+def apply_fsdp2(model, fsdp_kwargs, config, is_lora=False):
     """model: AutoModelForCausalLM"""
     assert CPUOffloadPolicy is not None, "PyTorch version >= 2.4 is required for using fully_shard API (FSDP2)"
 
@@ -518,14 +518,27 @@ def apply_fsdp2(model, fsdp_kwargs, config):
 
     assert len(fsdp_transformer_layer_cls_to_wrap) > 0 and fsdp_transformer_layer_cls_to_wrap[0] is not None
 
-    modules = []
+    lora_modules = []
+    transformer_modules = []
     for name, module in model.named_modules():
-        if module.__class__.__name__ in fsdp_transformer_layer_cls_to_wrap or (
+        if is_lora and (
+            len(list(module.named_children())) == 0
+            and getattr(module, "weight", None) is not None
+            and module.weight.requires_grad
+        ):
+            lora_modules.append(module)
+        elif module.__class__.__name__ in fsdp_transformer_layer_cls_to_wrap or (
             isinstance(module, nn.Embedding) and not model.config.tie_word_embeddings
         ):
-            modules.append(module)
+            transformer_modules.append(module)
 
-    for idx, module in enumerate(modules):
+    for module in lora_modules:
+        # if torch.distributed.is_initialized() and torch.distributed.get_rank() == 0:
+        #     print(f"wrap LoRA module {module.__class__.__name__}")
+        with maybe_patch_fsdp_module(module):
+            fully_shard(module, **fsdp_kwargs)
+
+    for module in transformer_modules:
         # if torch.distributed.is_initialized() and torch.distributed.get_rank() == 0:
         #     print(f"wrap module {module.__class__.__name__}")
         with maybe_patch_fsdp_module(module):
