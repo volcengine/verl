@@ -149,6 +149,18 @@ class NsightSystemsProfiler(DistProfiler):
             if not self.discrete:
                 torch.cuda.profiler.stop()
 
+    def capture_start(self, **kwargs):
+        if not (self.enable and self.this_step):
+            return
+        if self.discrete:
+            torch.cuda.profiler.start()
+
+    def capture_stop(self):
+        if not (self.enable and self.this_step):
+            return
+        if self.discrete:
+            torch.cuda.profiler.stop()
+
     def annotate(
         self,
         message: Optional[str] = None,
