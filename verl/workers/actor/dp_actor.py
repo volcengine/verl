@@ -71,6 +71,10 @@ class DataParallelPPOActor(BasePPOActor):
 
         self.ulysses_sequence_parallel_size = self.config.ulysses_sequence_parallel_size
         self.use_ulysses_sp = self.ulysses_sequence_parallel_size > 1
+        self.use_prefix_grouper = self.config.get("use_prefix_grouper", False)
+        self.use_dynamic_bsz = self.config.get("use_dynamic_bsz", False)
+        if torch.distributed.get_rank() == 0:
+            print(f"{role} use_prefix_grouper={self.use_prefix_grouper}")
 
         if self.config.entropy_from_logits_with_chunking:
             entropy_from_logits = verl_F.entropy_from_logits_with_chunking
@@ -99,6 +103,78 @@ class DataParallelPPOActor(BasePPOActor):
             entropy: # (bs, response_len)
             log_probs: # (bs, response_len)
         """
+        # PrefixGrouper path for shared-prefix optimization
+        if self.use_prefix_grouper:
+            can_use_pg = (
+                not self.use_remove_padding
+                and not self.use_ulysses_sp
+                and not self.use_fused_kernels
+                and not self.use_dynamic_bsz
+            )
+            if can_use_pg and "response_mask" in micro_batch and "uid" in micro_batch:
+                from verl.trainer.ppo.prefix_grouper_utils import build_pg_from_micro_batch, pg_forward
+
+                pad_token_id = micro_batch.get("pad_token_id", 0)
+
+                (
+                    prefix_grouper,
+                    concat_input_ids,
+                    attention_mask,
+                    position_ids,
+                    responses,
+                    response_mask,
+                ) = build_pg_from_micro_batch(
+                    micro_batch,
+                    pad_token_id=pad_token_id,
+                    padding_mode="right",
+                )
+
+                entropy_fn = None
+                if calculate_entropy:
+                    if self.config.get("entropy_from_logits_with_chunking", False):
+                        entropy_fn = verl_F.entropy_from_logits_with_chunking
+                    else:
+                        entropy_fn = verl_F.entropy_from_logits
+
+                with torch.autocast(device_type=self.device_name, dtype=self.param_dtype):
+                    log_probs, entropy, suffix_mask_from_pg = pg_forward(
+                        model=self.actor_module,
+                        prefix_grouper=prefix_grouper,
+                        concat_input_ids=concat_input_ids,
+                        attention_mask=attention_mask,
+                        position_ids=position_ids,
+                        completion_ids=responses,
+                        completion_mask=response_mask,
+                        temperature=temperature,
+                        padding_mode="right",
+                        include_prefix_last=1,
+                        calculate_entropy=calculate_entropy,
+                        entropy_fn=entropy_fn,
+                    )
+
+                # Zero out padding positions
+                padding_mask = suffix_mask_from_pg == 0
+                log_probs = log_probs.masked_fill(padding_mask, 0.0)
+                if entropy is not None:
+                    entropy = entropy.masked_fill(padding_mask, 0.0)
+
+                # Pad to target response length if needed
+                target_response_length = responses.size(1)
+                if log_probs.size(1) != target_response_length:
+                    batch_size = log_probs.size(0)
+                    current_len = log_probs.size(1)
+
+                    full_log_probs = log_probs.new_zeros(batch_size, target_response_length)
+                    full_log_probs[:, :current_len] = log_probs
+                    log_probs = full_log_probs
+
+                    if entropy is not None:
+                        full_entropy = entropy.new_zeros(batch_size, target_response_length)
+                        full_entropy[:, :current_len] = entropy
+                        entropy = full_entropy
+
+                return entropy, log_probs
+
         response_length = micro_batch["responses"].size(-1)
         multi_modal_inputs = {}
         if "multi_modal_inputs" in micro_batch.keys():
@@ -358,8 +434,13 @@ class DataParallelPPOActor(BasePPOActor):
         temperature = data.meta_info["temperature"]  # temperature must be in the data.meta_info to avoid silent error
         use_dynamic_bsz = data.meta_info["use_dynamic_bsz"]
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
+
         select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
         non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
+        if self.use_prefix_grouper:
+            select_keys += [k for k in ["prompts", "response_mask"] if k in data.batch]
+            if "uid" in data.non_tensor_batch:
+                non_tensor_select_keys.append("uid")
 
         data = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
 
@@ -410,6 +491,8 @@ class DataParallelPPOActor(BasePPOActor):
             "old_log_probs",
             "advantages",
         ]
+        if self.use_prefix_grouper and "prompts" in data.batch.keys():
+            select_keys.append("prompts")
         if self.config.use_kl_loss:
             select_keys.append("ref_log_prob")
         # Include pre-computed IS weights if present in batch
@@ -421,7 +504,11 @@ class DataParallelPPOActor(BasePPOActor):
             select_keys.append("rollout_log_probs")
 
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
-        non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
+        non_tensor_select_keys = []
+        if has_multi_modal_inputs:
+            non_tensor_select_keys.append("multi_modal_inputs")
+        if self.use_prefix_grouper and "uid" in data.non_tensor_batch.keys():
+            non_tensor_select_keys.append("uid")
 
         data = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
 
