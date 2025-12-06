@@ -1,0 +1,130 @@
+- name: swe_agent
+  
+  _target_: recipe.swe_agent.swe_agent_loop.SWEAgentLoop
+
+  deployment:
+    type: "vefaas"
+    startup_timeout: 180.0
+    region: "cn-beijing"  # Set your region
+    function_id: ""  # Set your function ID
+    command: "curl -fsSL https://pjw-test-empty.tos-cn-beijing.volces.com/bin/tos_swe_rex.sh | bash -s -- {token}"
+
+  agent:
+    name: "main"
+    templates:
+      system_template: |-
+        You are a helpful assistant that can interact with a computer to solve tasks.
+      instance_template: |-
+        <uploaded_files>
+        {{working_dir}}
+        </uploaded_files>
+        I've uploaded a python code repository in the directory {{working_dir}}. Consider the following PR description:
+
+        <pr_description>
+        {{problem_statement}}
+        </pr_description>
+
+        Can you help me implement the necessary changes to the repository so that the requirements specified in the <pr_description> are met?
+        I've already taken care of all changes to any of the test files described in the <pr_description>. This means you DON'T have to modify the testing logic or any of the tests in any way!
+        Your task is to make the minimal changes to non-tests files in the {{working_dir}} directory to ensure the <pr_description> is satisfied.
+        Follow these steps to resolve the issue:
+        1. As a first step, it might be a good idea to find and read code relevant to the <pr_description>
+        2. Create a script to reproduce the error and execute it with `python <filename.py>` using the bash tool, to confirm the error
+        3. Edit the sourcecode of the repo to resolve the issue
+        4. Rerun your reproduce script and confirm that the error is fixed!
+        5. Think about edgecases and make sure your fix handles them as well
+        Your thinking should be thorough and so it's fine if it's very long.
+      next_step_template: |-
+        OBSERVATION:
+        {{observation}}
+      next_step_truncated_observation_template: "Observation: {{observation[:max_observation_length]}}<response clipped><NOTE>Observations should not exceeded {{max_observation_length}} characters. {{elided_chars}} characters were elided. Please try a different command that produces less output or use head/tail/grep/redirect the output to a file. Do not use interactive pagers.</NOTE>"
+      max_observation_length: 100000
+      next_step_no_output_template: |-
+        Your last command ran successfully and did not produce any output.
+      strategy_template: null
+      demonstration_template: null
+      demonstrations: []
+      put_demos_in_history: false
+      disable_image_processing: false
+      shell_check_error_template: "Your bash command contained syntax errors and was NOT executed. Please fix the syntax errors and try again. This can be the result of not adhering to the syntax for multi-line commands. Here is the output of `bash -n`:\n{{bash_stdout}}\n{{bash_stderr}}"
+      command_cancelled_timeout_template: "The command '{{command}}' was cancelled because it took more than {{timeout}} seconds. Please try a different command that completes more quickly. Note: A common source of this error is if the command is interactive or requires user input (it is impossible to receive user input in the current environment, so the command will never complete)."
+    tools:
+      filter: []
+      bundles:
+        - path: tools/registry
+        - path: tools/edit_anthropic
+        - path: tools/review_on_submit_m
+      propagate_env_variables: true
+      env_variables: {}
+      registry_variables:
+        USE_FILEMAP: 'true'
+        SUBMIT_REVIEW_MESSAGES:
+          - |
+            Thank you for your work on this issue. Please carefully follow the steps below to help review your changes.
+
+            1. If you made any changes to your code after the reproduction script, please run the reproduction script again.
+              If the reproduction script is failing, please revisit your changes and make sure they are correct.
+              If you have already removed your reproduction script, please ignore this step.
+            2. Remove your reproduction script (if you haven't done so already).
+            3. If you have modified any TEST files, please revert them to the state they had before you started fixing the issue.
+              You can do this with `git checkout -- /path/to/test/file.py`. Use below <diff> to find the files you need to revert.
+            4. Run the submit command again to confirm.
+
+            Here is a list of all of your changes:
+
+            <diff>
+            {{diff}}
+            </diff>
+      submit_command: null
+      parse_function:
+        type: function_calling
+      enable_bash_tool: true
+      format_error_template: "Your output was not formatted correctly. Please make sure you follow the response format instructions."
+      command_docs: {}
+      multi_line_command_endings: {}
+      submit_command_end_name: null
+      reset_commands: []
+      execution_timeout: 120
+      install_timeout: 300
+      total_execution_timeout: 300
+      max_consecutive_execution_timeouts: 3
+    history_processors:
+      - type: cache_control
+        last_n_messages: 2
+    model:
+      name: "Qwen/Qwen3-30B-A3B-Instruct"
+      per_instance_cost_limit: 3.0
+      total_cost_limit: 0.0
+      per_instance_call_limit: 0
+      temperature: 0.0
+      top_p: 1.0
+      api_base: "http://localhost:8000"
+      api_version: null
+      api_key: null
+      stop: []
+      completion_kwargs: {}
+      convert_system_to_user: false
+      retry:
+        retries: 20
+        min_wait: 10
+        max_wait: 120
+      delay: 0.0
+      fallbacks: []
+      choose_api_key_by_thread: true
+      max_input_tokens: null
+      max_output_tokens: null
+      litellm_model_registry: null
+      custom_tokenizer: null
+    max_requeries: 3
+    action_sampler: null
+    type: "default"
+  environment:
+    post_startup_commands: []
+    post_startup_command_timeout: 500
+  rollout:
+    max_model_len: null
+    prompt_length: 1024
+    response_length: 2048
+    multi_turn:
+      max_parallel_calls: 1
+      format: "hermes"
