@@ -463,7 +463,11 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         # TODO: add more optimizer args into config
         if self._is_actor:
-            optim_config_megatron = init_megatron_optim_config(optim_config, fp16=self.dtype == torch.float16)
+            optim_config_megatron = init_megatron_optim_config(
+                optim_config,
+                use_distributed_optimizer=wrap_config.use_distributed_optimizer,
+                fp16=self.dtype == torch.float16,
+            )
             actor_optimizer = get_megatron_optimizer(model=actor_module, config=optim_config_megatron)
             actor_optimizer_scheduler = get_megatron_optimizer_param_scheduler(
                 optimizer=actor_optimizer, config=optim_config
@@ -1118,7 +1122,11 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             print_model_size(critic_module[0])
 
         # TODO: add more optimizer args into config
-        optim_config_megatron = init_megatron_optim_config(optim_config, fp16=self.dtype == torch.float16)
+        optim_config_megatron = init_megatron_optim_config(
+            optim_config,
+            use_distributed_optimizer=wrap_config.use_distributed_optimizer,
+            fp16=self.dtype == torch.float16,
+        )
         critic_optimizer = get_megatron_optimizer(model=critic_module, config=optim_config_megatron)
         critic_optimizer_scheduler = get_megatron_optimizer_param_scheduler(
             optimizer=critic_optimizer, config=optim_config
