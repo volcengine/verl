@@ -99,7 +99,7 @@ $PYTHON -m recipe.vla.main_ppo \
     +trainer.n_rollout_gpus_per_node=$NUM_ROLLOUT_GPUS \
     trainer.nnodes=$NUM_NODES \
     trainer.save_freq=30 \
-    trainer.test_freq=30 \
+    trainer.test_freq=-1 \
     trainer.total_epochs=20 \
     trainer.val_only=False \
     trainer.total_training_steps=10000 \

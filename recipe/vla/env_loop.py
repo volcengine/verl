@@ -58,7 +58,7 @@ class EnvLoop:
         self.env_wg.init_worker()
         self.env_wg.init_simulator()
 
-    def generate_sequences(self, prompts: DataProto) -> DataProto:
+    def generate_sequences(self, prompts: DataProto, reset_future: asyncio.Future) -> DataProto:
         """Split input batch and dispatch to env loop workers.
 
         Args:
@@ -68,14 +68,16 @@ class EnvLoop:
             DataProto: Output batch.
         """
 
+        reset_results = reset_future.get()
+
         loop = asyncio.get_event_loop()
         self.rollout_wg.switch_to_rollout()
-        output = loop.run_until_complete(self.run(prompts))
+        output = loop.run_until_complete(self.run(prompts, reset_results))
         self.rollout_wg.switch_to_train()
         # TODO(caiyunke.astra): add timing metrics
         return output
 
-    async def run(self, prompts: DataProto) -> DataProto:
+    async def run(self, prompts: DataProto, reset_results: DataProto) -> DataProto:
         """
         Run the environment interaction loop.
         This method orchestrates a pipelined process:
@@ -90,16 +92,11 @@ class EnvLoop:
             DataProto: A batch containing the complete trajectories.
         """
         initial_state_ids = prompts.non_tensor_batch["state_ids"]
-        task_ids = prompts.non_tensor_batch["task_ids"]
-
-        reset_prompts = DataProto.from_dict(non_tensors={"state_ids": initial_state_ids, "task_ids": task_ids})
-        reset_results = self.env_wg.reset_envs_to_state_ids(reset_prompts)
 
         staged_obs = self._restructure_obs_data(reset_results)
         # --- Pipeline state ---
         trajectories = {i: [] for i in range(self.stage_num)}  # To store (obs, action, rew, done) tuples
         rollout_futures = {}
-        env_step_futures = {}
         # is_complete = torch.zeros((self.total_envs,), dtype=torch.bool)
 
         for stage_id in range(self.stage_num):
@@ -108,40 +105,35 @@ class EnvLoop:
             vla_input = staged_obs[stage_id]
             vla_input.meta_info = prompts.meta_info  # Pass along rollout config
             rollout_futures[stage_id] = self.rollout_wg.generate_sequences(vla_input)
-        for step in range(self.max_interactions):
-            for stage_id in range(self.stage_num):
-                action_result: DataProto = rollout_futures[stage_id].get()
+
+        async def _stage_loop(stage_id: int):
+            for step_idx in range(self.max_interactions):
+                action_result: DataProto = await asyncio.to_thread(rollout_futures[stage_id].get)
 
                 trajectories[stage_id][-1]["action"] = action_result
                 action_data = DataProto.from_dict(
                     non_tensors={"actions": action_result.batch["action"].cpu().numpy()},
                     meta_info={"stage_id": stage_id},
                 )
-                env_step_futures[stage_id] = self.env_wg.env_interact_step(action_data)
 
-            staged_next_obs = {}
-            for stage_id in range(self.stage_num):
-                env_result: DataProto = env_step_futures[stage_id].get()
+                env_ref = self.env_wg.env_interact_step(action_data)
+                env_result: DataProto = await asyncio.to_thread(env_ref.get)
 
-                # Store rewards and terminations
                 trajectories[stage_id][-1]["rew"] = env_result.batch["rews"]
                 trajectories[stage_id][-1]["done"] = env_result.batch["terminations"]
 
-                # Prepare next observation
                 next_obs = DataProto(
                     batch=env_result.batch.select("full_image", "state"),
                     non_tensor_batch={"task_descriptions": env_result.non_tensor_batch["task_descriptions"]},
                 )
-                staged_next_obs[stage_id] = next_obs
 
-                if step < self.max_interactions - 1:
-                    # Start next trajectory step
+                if step_idx < self.max_interactions - 1:
                     trajectories[stage_id].append({})
-
-                    # Send next observation to model
-                    vla_input = staged_next_obs[stage_id]
-                    vla_input.meta_info = prompts.meta_info  # Pass along rollout config
+                    vla_input = next_obs
+                    vla_input.meta_info = prompts.meta_info
                     rollout_futures[stage_id] = self.rollout_wg.generate_sequences(vla_input)
+
+        await asyncio.gather(*[asyncio.create_task(_stage_loop(sid)) for sid in range(self.stage_num)])
         self.env_wg.finish_rollout()
 
         return self._collate_trajectories(trajectories, initial_state_ids, meta_info=prompts.meta_info)
