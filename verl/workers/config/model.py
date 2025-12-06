@@ -74,12 +74,16 @@ class HFModelConfig(BaseConfig):
 
     use_remove_padding: bool = False
 
-    # lora related. We may setup a separate config later
+    # TODO: unify fsdp and megatron lora config
+    # fsdp lora related. We may setup a separate config later
     lora_rank: int = 0
     lora_alpha: int = 16
     target_modules: Optional[str] = "all-linear"
 
     exclude_modules: Optional[str] = None
+
+    # megatron lora config
+    lora: dict[str, Any] = field(default_factory=dict)
 
     # path to pre-trained LoRA adapter to load for continued training
     lora_adapter_path: Optional[str] = None
