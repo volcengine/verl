@@ -63,17 +63,11 @@ def init_megatron_optim_config(optim_config: dict, fp16: bool = False) -> Optimi
 def get_megatron_optimizer(
     model,
     config: OptimizerConfig,
-    no_weight_decay_cond=None,
-    scale_lr_cond=None,
-    lr_mult=1.0,
 ):
     # Base optimizer.
     return get_megatron_optimizer_native(
         config=config,
         model_chunks=model,
-        no_weight_decay_cond=no_weight_decay_cond,
-        scale_lr_cond=scale_lr_cond,
-        lr_mult=lr_mult,
     )
 
 
