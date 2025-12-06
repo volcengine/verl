@@ -1,0 +1,275 @@
+# Copyright 2024 Bytedance Ltd. and/or its affiliates
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+import logging
+from typing import Any, Callable
+
+import torch
+import torch.distributed as dist
+from tensordict import TensorDict
+from torch.distributed.tensor import DTensor
+from veomni.distributed import parallel_state
+from veomni.distributed.offloading import build_activation_offloading_context
+from veomni.distributed.torch_parallelize import build_parallelize_model
+from veomni.models.auto import build_foundation_model
+from veomni.optim import build_lr_scheduler, build_optimizer
+
+import verl.utils.torch_functional as verl_F
+from verl.trainer.config import CheckpointConfig
+from verl.utils import tensordict_utils as tu
+from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
+from verl.utils.device import (
+    get_device_id,
+)
+from verl.workers.config import HFModelConfig, VeOmniEngineConfig, VeOmniOptimizerConfig
+from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
+
+from ..base import EngineRegistry
+from ..fsdp.transformer_impl import FSDPEngine, FSDPEngineWithLMHead
+from ..utils import enable_full_determinism, postprocess_batch_func, prepare_micro_batches
+
+logger = logging.getLogger(__file__)
+
+
+class VeOmniEngine(FSDPEngine):
+    def __init__(
+        self,
+        model_config: HFModelConfig,
+        engine_config: VeOmniEngineConfig,
+        optimizer_config: VeOmniOptimizerConfig,
+        checkpoint_config: CheckpointConfig,
+        **kwargs,
+    ):
+        """
+        Initialize the FSDPEngine.
+
+        Sets up distributed device meshes, LoRA, and offload policies based on config.
+
+        Args:
+            config: Configuration object with FSDP and model settings.
+        """
+
+        self.model_config = model_config
+        self.engine_config = engine_config
+        self.optimizer_config = optimizer_config
+        self.checkpoint_config = checkpoint_config
+        self.config = kwargs.pop("config", None)
+        self.train_dataloader = kwargs.pop("train_dataloader", None)
+
+        self.mode = None
+
+        self.rank = dist.get_rank()
+
+        parallel_state.init_parallel_state(
+            dp_size=self.engine_config.data_parallel_size,
+            dp_replicate_size=self.engine_config.data_parallel_replicate_size,
+            dp_shard_size=self.engine_config.data_parallel_shard_size,
+            tp_size=self.engine_config.tensor_parallel_size,
+            ep_size=self.engine_config.expert_parallel_size,
+            pp_size=self.engine_config.pipeline_parallel_size,
+            cp_size=self.engine_config.context_parallel_size,
+            ulysses_size=self.engine_config.ulysses_parallel_size,
+            dp_mode=self.engine_config.data_parallel_mode,
+        )
+
+        if self.engine_config.full_determinism:
+            enable_full_determinism(seed=self.engine_config.seed)
+
+        self.use_remove_padding = self.model_config.use_remove_padding
+
+        # set FSDP offload params
+        self._is_offload_param = self.engine_config.param_offload
+        self._is_offload_optimizer = self.engine_config.optimizer_offload
+        self._is_lora = self.model_config.lora_rank > 0
+
+        self.use_ulysses_sp = parallel_state.get_parallel_state().sp_enabled
+        self.ulysses_sequence_parallel_size = self.engine_config.ulysses_parallel_size
+
+        if self.use_ulysses_sp:
+            self.ulysses_sharding_manager = FSDPUlyssesShardingManager(parallel_state.get_parallel_state().device_mesh)
+        else:
+            self.ulysses_sharding_manager = FSDPUlyssesShardingManager(None)
+
+        if self.engine_config.entropy_from_logits_with_chunking:
+            entropy_from_logits = verl_F.entropy_from_logits_with_chunking
+        else:
+            entropy_from_logits = verl_F.entropy_from_logits
+
+        self.compute_entropy_from_logits = (
+            torch.compile(entropy_from_logits, dynamic=True)
+            if self.engine_config.use_torch_compile  #  use torch compile by default
+            else entropy_from_logits
+        )
+
+    def initialize(self):
+        """
+        Build the model, optimizer, and learning rate scheduler under FSDP.
+
+        Applies device, dtype, and precision configurations, including mixed precision.
+        Sets up checkpoint manager and FLOPs counter.
+        """
+
+        self.module = build_foundation_model(
+            config_path=self.model_config.hf_config_path,
+            weights_path=self.model_config.path,
+            torch_dtype="float32" if self.engine_config.enable_mixed_precision else "bfloat16",
+            attn_implementation=self.model_config.attn_implementation,
+            moe_implementation=self.model_config.moe_implementation,
+            init_device=self.engine_config.init_device,
+            force_use_huggingface=self.model_config.force_use_huggingface,
+        )
+
+        model_config = self.module.config
+
+        get_optimizer_pre_hook = getattr(self.module, "get_optimizer_pre_hook", None)
+        self.module = build_parallelize_model(
+            self.module,
+            init_device=self.engine_config.init_device,
+            weights_path=self.model_config.path,
+            enable_full_shard=self.engine_config.enable_full_shard,
+            enable_mixed_precision=self.engine_config.enable_mixed_precision,
+            enable_gradient_checkpointing=self.model_config.enable_gradient_checkpointing,
+            enable_fsdp_offload=self.model_config.enable_fsdp_offload,
+            basic_modules=self.module._no_split_modules + self.model_config.basic_modules,
+            enable_reentrant=self.model_config.enable_reentrant,
+            enable_forward_prefetch=self.engine_config.enable_forward_prefetch,
+        )
+
+        self.optimizer = build_optimizer(
+            self.module,
+            lr=self.optimizer_config.lr,
+            weight_decay=self.optimizer_config.weight_decay,
+            fused=True,
+            optimizer_type=self.optimizer_config.optimizer,
+        )
+        if get_optimizer_pre_hook is not None:
+            optimizer_pre_hook = get_optimizer_pre_hook(
+                self.module, model_config, self.engine_config.data_parallel_mode
+            )
+            self.optimizer.register_step_pre_hook(optimizer_pre_hook)
+
+        self.lr_scheduler = build_lr_scheduler(
+            self.optimizer,
+            train_steps=self.optimizer_config.total_training_steps,
+            lr=self.optimizer_config.lr,
+            lr_min=self.optimizer_config.lr_min,
+            lr_decay_style=self.optimizer_config.lr_decay_style,
+            lr_decay_ratio=self.optimizer_config.lr_decay_ratio,
+            lr_warmup_ratio=self.optimizer_config.lr_warmup_steps_ratio,
+            lr_start=self.optimizer_config.lr_start,
+        )
+
+        self.checkpoint_manager = FSDPCheckpointManager(
+            model=self.module,
+            optimizer=self.optimizer,
+            lr_scheduler=self.lr_scheduler,
+            processing_class=self.model_config.get_processor(),
+            checkpoint_contents=self.checkpoint_config,
+        )
+
+        self.model_fwd_context, self.model_bwd_context = build_activation_offloading_context(
+            self.model_config.enable_activation_offload,
+            self.model_config.enable_gradient_checkpointing,
+            self.model_config.activation_gpu_limit,
+        )
+
+    def optimizer_step(self):
+        """
+        Perform an optimization step using the optimizer.
+        """
+        if hasattr(self.module, "clip_grad_norm_"):
+            grad_norm = self.module.clip_grad_norm_(self.optimizer_config.clip_grad)
+        else:
+            grad_norm = torch.nn.utils.clip_grad_norm_(self.module.parameters(), self.optimizer_config.clip_grad)
+
+        if isinstance(grad_norm, DTensor):
+            grad_norm = grad_norm.full_tensor()
+
+        # if grad_norm is not finite, skip the update
+        if not torch.isfinite(grad_norm):
+            print(f"WARN: grad_norm is not finite: {grad_norm}")
+            self.optimizer.zero_grad()
+        else:
+            self.optimizer.step()
+        return grad_norm.item()
+
+    def forward_backward_batch(self, data: TensorDict, loss_function: Callable, forward_only=False) -> Any:
+        """
+        Perform a forward pass and optionally a backward pass on a batch of data.
+
+        Args:
+            data: The input data for the forward pass, typically containing tensors and metadata.
+            loss_function: The loss function to optimize. See `verl.workers.roles.utils.losses` for examples.
+            forward_only: If True, perform only the forward pass. If False, perform forward and backward pass.
+
+        Returns:
+            Any: The output of the forward pass, which can be used for loss computation or other purposes.
+        """
+        tu.assign_non_tensor(data, sp_size=parallel_state.get_parallel_state().ulysses_size)
+
+        # compute num_tokens in global batch for loss normalization
+        batch_num_tokens = data["loss_mask"].sum().to(get_device_id())
+        torch.distributed.all_reduce(
+            batch_num_tokens, op=torch.distributed.ReduceOp.SUM, group=self.get_data_parallel_group()
+        )
+        tu.assign_non_tensor(data, batch_num_tokens=batch_num_tokens.item())
+        tu.assign_non_tensor(data, dp_size=self.get_data_parallel_size())
+
+        micro_batches, indices = prepare_micro_batches(
+            data=data, dp_group=self.get_data_parallel_group(), same_micro_num_in_dp=True
+        )
+
+        output_lst = []
+
+        for micro_batch in micro_batches:
+            with self.model_fwd_context:
+                loss, meta_info = self.forward_step(micro_batch, loss_function=loss_function, forward_only=forward_only)
+            if not forward_only:
+                with self.model_bwd_context:
+                    loss.backward()
+
+            output_lst.append(meta_info)
+
+        return postprocess_batch_func(output_lst=output_lst, indices=indices, data=data)
+
+    def get_data_parallel_rank(self):
+        if parallel_state.get_parallel_state().ulysses_size > 1:
+            return parallel_state.get_parallel_state().device_mesh["dp"].get_local_rank()
+        else:
+            return torch.distributed.get_rank()
+
+    def get_data_parallel_size(self):
+        return torch.distributed.get_world_size() // parallel_state.get_parallel_state().ulysses_size
+
+    def get_data_parallel_group(self):
+        if parallel_state.get_parallel_state().ulysses_size > 1:
+            return parallel_state.get_parallel_state().device_mesh.get_group(mesh_dim="dp")
+        else:
+            return torch.distributed.group.WORLD
+
+    def is_mp_src_rank_with_outputs(self):
+        """
+        Whether the current rank is the first rank in model parallel group that contains model outputs
+        """
+        if parallel_state.get_parallel_state().ulysses_size > 1:
+            is_collect = parallel_state.get_parallel_state().device_mesh["ulysses"].get_local_rank() == 0
+        else:
+            is_collect = True
+        return is_collect
+
+
+@EngineRegistry.register(model_type="language_model", backend=["veomni"], device=["cuda"])
+class VeOmniEngineWithLMHead(VeOmniEngine, FSDPEngineWithLMHead):
+    pass
