@@ -5,7 +5,7 @@ _target_: verl.workers.config.RolloutConfig
 name: ???
 
 # sync: LLM, async: AsyncLLM
-mode: sync
+mode: async
 
 # Sampling temperature for rollout.
 temperature: 1.0
@@ -48,6 +48,15 @@ free_cache_engine: True
 
 # TP size for rollout. Not effective for hf
 tensor_model_parallel_size: 2
+
+# DP size for rollout
+data_parallel_size: 1
+
+# EP size for rollout
+expert_parallel_size: 1
+
+# PP size for rollout.
+pipeline_model_parallel_size: 1
 
 # max number of tokens in a batch
 max_num_batched_tokens: 8192
@@ -180,6 +189,9 @@ multi_turn:
   # Format of the multi-turn interaction. Options: hermes, llama3_json, ...
   format: hermes
 
+  # Number of repeat rollouts for each interaction
+  num_repeat_rollouts: null
+
 # support logging rollout prob for debugging purpose
 # "Truncated importance sampling" requires rollout log probs, set to True when turning on Truncated importance sampling
 calculate_log_probs: False
@@ -192,6 +204,9 @@ agent:
 
   # Number of agent loop workers
   num_workers: 8
+
+  # default agent loop to use if `agent_name` not set in RL dataset
+  default_agent_loop: single_turn_agent
 
   # custom agent loop config path, which should contain list of configs to intialize AgentLoop instances.
   # https://hydra.cc/docs/advanced/instantiate_objects/overview/
@@ -243,6 +258,12 @@ trace:
   # whether translate token id to text in output
   token2text: False
 
+  # Maximum number of unique samples to trace per agent worker per training step.
+  # If null, all samples are traced. If set to N, each agent loop worker will randomly
+  # select N unique samples to trace (including all their rollouts for GRPO).
+  # Total traces per step = max_samples_per_step_per_worker * num_workers * n_rollouts_per_sample
+  max_samples_per_step_per_worker: null
+
 # When enabled (True), the trainer will attempt to load previously generated rollout data from the specified directory instead of computing new rollouts.
 # If no cached data is found or loading fails, new rollouts will be generated and automatically saved.
 # This feature is useful for debugging or when you want to reuse computation results across multiple runs.
@@ -255,6 +276,11 @@ skip_dump_dir: /tmp/rollout_dump
 # Whether to skip tokenizer initialization for rollout engine
 # When enabled (True), the rollout assume token in token out for generation
 skip_tokenizer_init: True
+
+# Whether to enable rollout routing replay for MoE models
+# When enabled (True), the rollout will record the routing decisions.
+enable_rollout_routing_replay: False
+
 
 # profile the rollout model in `generate_sequence` 
 profiler:
@@ -280,3 +306,22 @@ profiler:
 
   # specific tool config
   tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}
+
+# prometheus configuration for vllm/sglang server mode
+prometheus:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.workers.config.PrometheusConfig
+
+  # whether enable prometheus on server mode rollout
+  enable: false
+
+  # Port number that Prometheus listens on, default is 9090
+  port: 9090
+
+  # Path to Prometheus configuration file
+  file: /tmp/ray/session_latest/metrics/prometheus/prometheus.yml
+
+  # Specify served_model_name to avoid displaying overly long model paths in Grafana
+  served_model_name: ${oc.select:actor_rollout_ref.model.path,null}
+

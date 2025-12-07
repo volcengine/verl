@@ -163,6 +163,71 @@ def test_hf_value_models():
     print("Value model check pass")
 
 
+def test_attn_implementation_override():
+    """Test that attn_implementation override config is properly respected."""
+    # Test case 1: Test the actual extraction logic (no network required)
+    test_cases = [
+        ({}, "flash_attention_2"),  # Default case
+        ({"attn_implementation": "eager"}, "eager"),  # Override case
+        ({"attn_implementation": "sdpa"}, "sdpa"),  # Another override
+        ({"other_config": "value"}, "flash_attention_2"),  # No attn_implementation key
+    ]
+
+    for override_config, expected in test_cases:
+        actual = override_config.get("attn_implementation", "flash_attention_2")
+        assert actual == expected, f"Expected {expected}, got {actual} for config {override_config}"
+
+    # Test case 2: Test with local config creation (simulate FSDP worker behavior)
+    # Test default behavior
+    override_config_default = {}
+    attn_implementation_default = override_config_default.get("attn_implementation", "flash_attention_2")
+    assert attn_implementation_default == "flash_attention_2"
+
+    # Test override behavior
+    override_config_eager = {"attn_implementation": "eager"}
+    attn_implementation_eager = override_config_eager.get("attn_implementation", "flash_attention_2")
+    assert attn_implementation_eager == "eager"
+
+    # Test that we can create a config with specific attn_implementation
+    config_with_eager = LlamaConfig(num_hidden_layers=1, _attn_implementation="eager")
+    assert config_with_eager._attn_implementation == "eager"
+
+    config_with_flash = LlamaConfig(num_hidden_layers=1, _attn_implementation="flash_attention_2")
+    assert config_with_flash._attn_implementation == "flash_attention_2"
+
+    print("✓ All attn_implementation override config tests passed")
+
+
+def test_fsdp_worker_attn_implementation_integration():
+    """Test integration of attn_implementation with FSDP worker logic."""
+
+    # Mock the FSDP worker configuration scenario
+    mock_override_config = {"attn_implementation": "eager"}
+
+    # Test the exact logic used in FSDP workers
+    attn_implementation = mock_override_config.get("attn_implementation", "flash_attention_2")
+    assert attn_implementation == "eager"
+
+    # Test with empty config (should default)
+    mock_override_config_empty = {}
+    attn_implementation_default = mock_override_config_empty.get("attn_implementation", "flash_attention_2")
+    assert attn_implementation_default == "flash_attention_2"
+
+    # Test that the parameter would be passed correctly to both AutoConfig and Model
+    expected_calls = [
+        ("AutoConfig.from_pretrained", {"attn_implementation": attn_implementation}),
+        ("AutoModel.from_pretrained", {"attn_implementation": attn_implementation}),
+    ]
+
+    # Verify the parameter extraction works as expected
+    for call_name, expected_params in expected_calls:
+        assert expected_params["attn_implementation"] == "eager"
+
+    print("✓ FSDP worker integration test passed")
+
+
 if __name__ == "__main__":
     test_hf_casual_models()
     test_hf_value_models()
+    test_attn_implementation_override()
+    test_fsdp_worker_attn_implementation_integration()

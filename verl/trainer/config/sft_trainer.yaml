@@ -1,9 +1,15 @@
+defaults:
+  - optim: fsdp
+  - _self_
+
 data:
   train_batch_size: 256
   micro_batch_size: null # will be deprecated, use micro_batch_size_per_gpu
   micro_batch_size_per_gpu: 4  # this is also val batch size
   train_files: ~/data/gsm8k/train.parquet
   val_files: ~/data/gsm8k/test.parquet
+  train_max_samples: -1  # set to -1 to use full dataset
+  val_max_samples: -1  # set to -1 to use full dataset
   # Single-turn settings
   prompt_key: question
   response_key: answer
@@ -45,7 +51,7 @@ optim:
   lr: 1e-5
   betas: [0.9, 0.95]
   weight_decay: 0.01
-  warmup_steps_ratio: 0.1
+  lr_warmup_steps_ratio: 0.1
   clip_grad: 1.0
   lr_scheduler: cosine
 ulysses_sequence_parallel_size: 1

@@ -21,7 +21,7 @@ import torch
 from tensordict import TensorDict
 
 from verl.protocol import DataProto, DataProtoFuture
-from verl.single_controller.base.decorator import Dispatch, register
+from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
 from verl.single_controller.base.worker import Worker
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 
@@ -43,6 +43,8 @@ class DecoratorTestWorker(Worker):
         # Simulate some setup if needed
         time.sleep(0.1)  # Ensure worker init completes
 
+        self._register_dispatch_collect_info(mesh_name="train", dp_rank=self.rank, is_collect=True)
+
     # Test method for synchronous DP compute (default behavior)
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def dp_compute(self, data: DataProto) -> DataProto:
@@ -58,6 +60,12 @@ class DecoratorTestWorker(Worker):
         await asyncio.sleep(0.1)  # Simulate async work
         rank_value = torch.tensor(self.rank, device=data.batch["input"].device, dtype=data.batch["input"].dtype)
         data.batch["output_async"] = data.batch["input"] * 2 + self.value + rank_value
+        return data
+
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False)
+    def dp_compute_td(self, data: TensorDict) -> TensorDict:
+        rank_value = torch.tensor(self.rank, device=data["input"].device, dtype=data["input"].dtype)
+        data["output"] = data["input"] + self.value + rank_value
         return data
 
 
@@ -139,3 +147,36 @@ def test_decorator_async_function(ray_init_shutdown):
     torch.testing.assert_close(
         result_data.batch["output_async"], expected_output, msg="Async DP compute output data mismatch"
     )
+
+
+def test_decorator_dp_compute_td(ray_init_shutdown):
+    num_workers = 2
+    resource_pool = RayResourcePool([num_workers], use_gpu=False, max_colocate_count=1)  # Use CPU for simplicity
+    cls_with_args = RayClassWithInitArgs(cls=DecoratorTestWorker, initial_value=10)
+    worker_group = RayWorkerGroup(
+        resource_pool, cls_with_args, name_prefix=f"decorator_test_sync_dp_{int(time.time())}"
+    )
+
+    # Prepare input data (size 4, for 2 workers)
+    input_tensor = torch.arange(4, dtype=torch.float32)
+    data = TensorDict({"input": input_tensor}, batch_size=[4])
+
+    # Call the decorated method
+    output = worker_group.dp_compute_td(data)
+
+    output = output.get()
+
+    # Assert the result correctness
+    assert isinstance(output, TensorDict), "Expected DataProto result"
+    assert "output" in output.keys()
+    assert len(output) == len(data), "Output length should match input length"
+
+    # Expected output calculation for DP_COMPUTE_PROTO with 2 workers
+    # Worker 0 gets data[0:2], Worker 1 gets data[2:4]
+    # Worker 0 adds initial_value(10) + rank(0) = 10
+    # Worker 1 adds initial_value(10) + rank(1) = 11
+    expected_output_part1 = torch.tensor([0, 1], dtype=torch.float32) + 10 + 0
+    expected_output_part2 = torch.tensor([2, 3], dtype=torch.float32) + 10 + 1
+    expected_output = torch.cat([expected_output_part1, expected_output_part2])
+
+    torch.testing.assert_close(output["output"], expected_output, msg="Sync DP compute output data mismatch")

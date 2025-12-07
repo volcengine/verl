@@ -28,6 +28,7 @@ from transformers.models.qwen2_vl.modeling_qwen2_vl import (
 )
 from transformers.utils import is_flash_attn_2_available, is_flash_attn_greater_or_equal_2_10
 
+from verl.utils.device import is_npu_available
 from verl.utils.transformers_compat import is_transformers_version_in_range
 from verl.utils.ulysses import (
     gather_heads_scatter_seq,
@@ -46,8 +47,18 @@ if is_flash_attn_2_available():
 
     _flash_supports_window_size = "window_size" in inspect.signature(flash_attn_func).parameters
     _flash_supports_deterministic = "deterministic" in inspect.signature(flash_attn_func).parameters
-    _flash_deterministic_enabled = os.getenv("FLASH_ATTENTION_DETERMINISTIC", "0") == "1"
     _flash_use_top_left_mask = not is_flash_attn_greater_or_equal_2_10()
+
+if is_npu_available:
+    from transformers.integrations.npu_flash_attention import npu_flash_attn_func as flash_attn_func
+    from transformers.integrations.npu_flash_attention import npu_flash_attn_varlen_func as flash_attn_varlen_func
+    from transformers.modeling_flash_attention_utils import flash_attn_supports_top_left_mask
+
+    _flash_supports_window_size = "window_size" in inspect.signature(flash_attn_func).parameters
+    _flash_supports_deterministic = "deterministic" in inspect.signature(flash_attn_func).parameters
+    _flash_use_top_left_mask = flash_attn_supports_top_left_mask()
+
+_flash_deterministic_enabled = os.getenv("FLASH_ATTENTION_DETERMINISTIC", "0") == "1"
 
 
 def get_rope_index(
@@ -367,8 +378,10 @@ def _get_input_embeds(
         video_embeds = video_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
         inputs_embeds = inputs_embeds.masked_scatter(video_mask, video_embeds)
 
-    if model.training and pixel_values is None and pixel_values_videos is None:  # handle mixed text-image data
-        pixel_values = torch.zeros((16, 1176), dtype=inputs_embeds.dtype, device=inputs_embeds.device)
+    if pixel_values is None and pixel_values_videos is None:  # handle mixed text-image data
+        config = model.config.vision_config
+        patch_dim = config.in_channels * config.temporal_patch_size * config.patch_size**2
+        pixel_values = torch.zeros((16, patch_dim), dtype=inputs_embeds.dtype, device=inputs_embeds.device)
         image_grid_thw = torch.tensor([[1, 4, 4]], dtype=torch.long, device=inputs_embeds.device)
         image_embeds = model.visual(pixel_values, grid_thw=image_grid_thw)
         inputs_embeds += 0.0 * image_embeds.mean()
@@ -412,10 +425,7 @@ def qwen2_vl_base_forward(
     kwargs["inputs_embeds"], kwargs["attention_mask"] = _get_input_embeds(
         self, input_ids, attention_mask, pixel_values, pixel_values_videos, image_grid_thw, video_grid_thw
     )  # avoid lora module having multiple keyword arguments
-    return self.language_model(
-        input_ids=None,
-        **kwargs,
-    )
+    return self.language_model(input_ids=None, **kwargs)
 
 
 def qwen2_vl_forward(

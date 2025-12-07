@@ -21,18 +21,34 @@ from megatron.core.optimizer_param_scheduler import OptimizerParamScheduler
 from verl.utils.logger import print_rank_0
 
 
-def init_megatron_optim_config(optim_config: dict) -> OptimizerConfig:
+def init_megatron_optim_config(optim_config: dict, fp16: bool = False) -> OptimizerConfig:
     optim_args = {
-        "optimizer": optim_config.get("optimizer", "adam"),
-        "lr": optim_config.get("lr"),
-        "min_lr": optim_config.get("min_lr", None),
-        "clip_grad": optim_config.get("clip_grad", 1.0),
-        "weight_decay": optim_config.get("weight_decay", 0.01),
-        "bf16": True,
-        "params_dtype": torch.bfloat16,
+        "optimizer": optim_config.optimizer,
+        "lr": optim_config.lr,
+        "min_lr": optim_config.min_lr,
+        "clip_grad": optim_config.clip_grad,
+        "weight_decay": optim_config.weight_decay,
         "use_distributed_optimizer": True,
     }
-
+    if fp16:
+        optim_args.update(
+            {
+                "bf16": False,
+                "fp16": True,
+                "params_dtype": torch.float16,
+                "initial_loss_scale": 32768,
+                "min_loss_scale": 1,
+                "use_precision_aware_optimizer": True,
+                "store_param_remainders": False,
+            }
+        )
+    else:  # bf16 mode
+        optim_args.update(
+            {
+                "bf16": True,
+                "params_dtype": torch.bfloat16,
+            }
+        )
     override_config = optim_config.get("override_optimizer_config", {})
     if override_config:
         for k, v in override_config.items():

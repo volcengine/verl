@@ -58,6 +58,9 @@ offload=True
 
 max_num_batched_tokens=$((max_prompt_length + max_response_length))
 
+# vllm
+gen_tp=4
+
 # Megatron backen
 train_tp=4
 train_ep=2
@@ -107,7 +110,6 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     +actor_rollout_ref.model.override_config.embd_pdrop=0. \
     +actor_rollout_ref.model.override_config.resid_pdrop=0. \
     actor_rollout_ref.actor.optim.lr=1e-6 \
-    +actor_rollout_ref.critic.optim.lr=5e-8 \
     actor_rollout_ref.actor.optim.lr_warmup_steps=10 \
     actor_rollout_ref.actor.ppo_mini_batch_size=${train_prompt_mini_bsz} \
     actor_rollout_ref.actor.megatron.param_offload=${offload} \

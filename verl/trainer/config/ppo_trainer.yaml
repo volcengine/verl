@@ -14,6 +14,9 @@ defaults:
   # data: trainer/config/data/legacy_data.yaml
   - data@data: legacy_data
 
+  # (Rule-based) Reward manager config.
+  - reward_manager@reward_manager
+
   # Reference model config.
   # Reference model will be enabled when actor.use_kl_loss or/and algorithm.use_kl_in_reward is/are True.
   - ref@actor_rollout_ref.ref: dp_ref
@@ -29,6 +32,9 @@ defaults:
 
   # Reward model config.
   - reward_model@reward_model: dp_reward_model
+
+  # Rollout correction config.
+  - algorithm@algorithm.rollout_correction: rollout_correction
 
   # load the reference default config, then apply the fields in the current yaml
   # self config override anything above
@@ -294,6 +300,12 @@ global_profiler:
 
       # devices, record_context etc.
       kw_args: {}
+
+# configs for TransferQueue
+transfer_queue:
+
+  # Whether to enable transfer queue
+  enable: False
 
 # configs related to ray
 ray_kwargs:

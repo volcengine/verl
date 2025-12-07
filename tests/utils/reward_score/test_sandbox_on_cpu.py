@@ -18,8 +18,7 @@ import os
 
 import pytest
 
-from verl.utils.reward_score import default_compute_score, prime_code, sandbox_fusion
-from verl.utils.reward_score.prime_code import apps_check_correctness
+from verl.utils.reward_score import default_compute_score, sandbox_fusion
 from verl.workers.reward_manager.prime import parallel_compute_score_async
 
 prime_math_answers = [
@@ -115,6 +114,7 @@ def test_parallelism():
     print(scores)
 
 
+@pytest.mark.skip("pyext not compatible with python 3.12")
 def test_prime_code():
     """
     Test PRIME code sandbox.
@@ -149,6 +149,8 @@ def test_continuous_score_consistency():
     Verify that continuous score calculation is consistent between prime_code and sandbox_fusion.
     Uses a test case where the first 9 out of 11 sub-cases pass (expected score 0.9).
     """
+    from verl.utils.reward_score import prime_code
+
     completion = prime_code_answers[1]  # Use the second sample
     ground_truth = prime_code_gts[1]  # Use the second sample (9/11 pass, first 9 pass)
     expected_continuous_score = 0.9
@@ -170,7 +172,10 @@ def test_continuous_score_consistency():
     print(f"Continuous Score (Sandbox Fusion): {fusion_score}")
 
 
+@pytest.mark.skip("pyext not compatible with python 3.12")
 def test_check_correctness():
+    from verl.utils.reward_score.prime_code import apps_check_correctness
+
     completion = prime_code_answers[0]
     ground_truth = json.loads(prime_code_gts[0])
     ground_truth_single = {"inputs": ground_truth["inputs"][:1], "outputs": ground_truth["outputs"][:1]}

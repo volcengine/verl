@@ -194,4 +194,8 @@ def validate_config(
             "validation gen temperature should be greater than 0 when enabling do_sample"
         )
 
+    # check LoRA rank in vLLM
+    if config.actor_rollout_ref.model.get("lora_rank", 0) > 0 and config.actor_rollout_ref.rollout.name == "vllm":
+        assert config.actor_rollout_ref.model.lora_rank <= 512, "LoRA rank in vLLM must be less than or equal to 512"
+
     print("[validate_config] All configuration checks passed successfully!")

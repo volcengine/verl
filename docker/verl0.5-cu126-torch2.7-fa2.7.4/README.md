@@ -9,7 +9,7 @@ torch==2.7.1
 flash_attn=2.7.4.post1
 sglang==0.4.9.post6
 vllm==0.8.5.post1
-vidia-cudnn-cu12==9.8.0.87
+nvidia-cudnn-cu12==9.8.0.87
 transformer_engine==2.3
 megatron.core==core_v0.12.2
 # Preview
@@ -24,3 +24,4 @@ megatron.core==core_r0.13.0
 - App image:
   - `verlai/verl:app-verl0.5-transformers4.55.4-vllm0.10.0-mcore0.13.0-te2.2`
   - `verlai/verl:app-verl0.5-transformers4.55.4-sglang0.4.10.post2-mcore0.13.0-te2.2`
+  - `iseekyan/verl:app-verl0.5-transformers4.55.4-vllm0.10.0-mcore0.15.0-te2.7`

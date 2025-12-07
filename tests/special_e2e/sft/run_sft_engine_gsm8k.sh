@@ -1,9 +1,18 @@
 #!/usr/bin/env bash
 set -xeuo pipefail
 
-ENTRYPOINT=${ENTRYPOINT:-"-m verl.trainer.sft_trainer"}
-
 NUM_GPUS=${NUM_GPUS:-1}
+
+mode=${mode:-spmd}
+
+if [ "$mode" = "spmd" ]; then
+  ENTRYPOINT=${ENTRYPOINT:-"-m verl.trainer.sft_trainer"}
+  COMMAND="torchrun --standalone --nnodes=${NNODES:-1} --nproc-per-node=${NUM_GPUS:-1} ${ENTRYPOINT}"
+else
+  ENTRYPOINT=${ENTRYPOINT:-"-m verl.trainer.sft_trainer_ray"}
+  COMMAND="python ${ENTRYPOINT} trainer.nnodes=${NNODES:-1} trainer.n_gpus_per_node=${NUM_GPUS:-1}"
+fi
+
 
 TRAIN_FILES=~/data/gsm8k_sft/train.parquet
 VAL_FILES=~/data/gsm8k_sft/test.parquet
@@ -29,6 +38,10 @@ PP_SIZE=${PP_SIZE:-1}
 VPP_SIZE=${VPP_SIZE:-null}
 CP_SIZE=${CP_SIZE:-1}
 
+PAD_MODE=${PAD_MODE:-no_padding}
+
+USE_REMOVE_PADDING=${USE_REMOVE_PADDING:-True}
+
 FSDP_ENGINE_CONFIG="\
     engine=${backend} \
     optim=${backend} \
@@ -38,7 +51,7 @@ FSDP_ENGINE_CONFIG="\
     optim.betas="[0.9,0.95]" \
     optim.clip_grad=1.0 \
     optim.min_lr_ratio=0.1 \
-    optim.warmup_style=cosine \
+    optim.lr_scheduler_type=cosine \
     engine.ulysses_sequence_parallel_size=${SP_SIZE} \
     engine.strategy=${FSDP_STRATEGY} \
     engine.fsdp_size=${FSDP_SIZE}"
@@ -63,27 +76,26 @@ MEGATRON_ENGINE_CONFIG="\
 if [ "$backend" = "fsdp" ]; then
     ENGINE_CONFIG="$FSDP_ENGINE_CONFIG"
     echo "Using fsdp engine"
-    exp_name=gsm8k-${backend}-${FSDP_STRATEGY}-sp${SP_SIZE}-fsdp${FSDP_SIZE}
+    exp_name=gsm8k-${backend}-${FSDP_STRATEGY}-sp${SP_SIZE}-fsdp${FSDP_SIZE}-pad-${PAD_MODE}-use_remove_padding-${USE_REMOVE_PADDING}-mode-${mode}
 else
     ENGINE_CONFIG="$MEGATRON_ENGINE_CONFIG"
     echo "Using megatron engine"
-    exp_name=gsm8k-${backend}-tp${TP_SIZE}-pp${PP_SIZE}-vpp${VPP_SIZE}-cp${CP_SIZE}
+    exp_name=gsm8k-${backend}-tp${TP_SIZE}-pp${PP_SIZE}-vpp${VPP_SIZE}-cp${CP_SIZE}-pad-${PAD_MODE}-use_remove_padding-${USE_REMOVE_PADDING}-mode-${mode}
 fi
 
 mkdir -p "${ckpts_home}"
 
-torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
+$COMMAND \
     data.train_files="${TRAIN_FILES}" \
     data.val_files="${VAL_FILES}" \
     data.train_batch_size=256 \
-    data.max_prompt_length=1024 \
-    data.max_response_length=1024 \
-    data.pad_mode=left_right \
+    data.pad_mode=${PAD_MODE} \
     data.truncation=error \
     data.use_dynamic_bsz=True \
     data.max_token_len_per_gpu=8192 \
     data.messages_key=messages \
     model.path=$MODEL_PATH \
+    model.use_remove_padding=${USE_REMOVE_PADDING} \
     ${ENGINE_CONFIG} \
     trainer.test_freq=after_each_epoch \
     trainer.save_freq=-1 \

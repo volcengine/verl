@@ -1,9 +1,16 @@
 # Recipe
-The examples under `recipes/` are representative extensions to verl for specific end-to-end RL training recipes.
-The help the community reproduce experiments, verl team provides a snapshot of the codebase when each recipe is initially PR'ed to verl main. You can find them via [github branches](https://github.com/volcengine/verl/branches/all?query=recipe)
+> Update 2025/11/25: recipes have been moved to a new repository: [verl-recipe](https://github.com/verl-project/verl-recipe). 
+
+verl is designed to be a modular, extensible framework for post-training: SFT and RL. Recipe is expected to import verl as a library, with necessary extensions to build specific RL training pipeline. If you find verl can't meet recipe's requirements, please open an issue or PR to verl.
+
+There's still some incubation recipes kept here, which is expected to be offically supported in verl in the future.
+- fully_async_policy: fully asynchronous off-policy training with decoupled trainer and rollout.
+- transfer_queue: high performance asynchronous streaming data management system.
+- vla: VLA model RL training.
 
 # Awesome work using verl
 
+- [FlowRL](https://github.com/Xuekai-Zhu/FlowRL): Matching reward distributions via **flow balance** for diverse exploration and generalizable reasoning ![GitHub Repo stars](https://img.shields.io/github/stars/Xuekai-Zhu/FlowRL)
 - [Logic-RL](https://github.com/Unakar/Logic-RL): a reproduction of DeepSeek R1 Zero on 2K Tiny Logic Puzzle Dataset. ![GitHub Repo stars](https://img.shields.io/github/stars/Unakar/Logic-RL)
 - [Seed-Coder](https://github.com/ByteDance-Seed/Seed-Coder): RL training of Seed-Coder boosts performance on competitive programming ![GitHub Repo stars](https://img.shields.io/github/stars/ByteDance-Seed/Seed-Coder)
 - [all-hands/openhands-lm-32b-v0.1](https://www.all-hands.dev/blog/introducing-openhands-lm-32b----a-strong-open-coding-agent-model): A strong, open coding agent model, trained with [multi-turn fine-tuning](https://github.com/volcengine/verl/pull/195)

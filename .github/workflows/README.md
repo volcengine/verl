@@ -31,7 +31,7 @@ permissions:
   contents: read
 
 env:
-  IMAGE: "your vemlp image" # e.g. "verl-ci-cn-beijing.cr.volces.com/verlai/verl:app-verl0.4-vllm0.8.5-mcore0.12.2"
+  IMAGE: "your vemlp image" # e.g. "verl-ci-cn-beijing.cr.volces.com/verlai/verl:sgl055.dev2"
   DYNAMIC_RUNNER_URL: "https://sd10g3clalm04ug7alq90.apigateway-cn-beijing.volceapi.com/runner" # public veFaas api
 
 jobs:

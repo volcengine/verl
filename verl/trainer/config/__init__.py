@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .algorithm import *  # noqa
-from .config import *  # noqa
-from . import config, algorithm
+from . import algorithm, config
+from .algorithm import *  # noqa: F401
+from .config import *  # noqa: F401
 
 __all__ = config.__all__ + algorithm.__all__

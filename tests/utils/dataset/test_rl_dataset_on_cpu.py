@@ -66,6 +66,25 @@ def test_rl_dataset():
     print(f"\n\noutput: {output}")
 
 
+def test_rl_dataset_with_max_samples():
+    from verl.utils import hf_tokenizer
+    from verl.utils.dataset.rl_dataset import RLHFDataset
+
+    tokenizer = hf_tokenizer("deepseek-ai/deepseek-coder-1.3b-instruct")
+    local_path = get_gsm8k_data()
+    config = OmegaConf.create(
+        {
+            "prompt_key": "prompt",
+            "max_prompt_length": 256,
+            "filter_overlong_prompts": True,
+            "filter_overlong_prompts_workers": 2,
+            "max_samples": 5,
+        }
+    )
+    dataset = RLHFDataset(data_files=local_path, tokenizer=tokenizer, config=config, max_samples=5)
+    assert len(dataset) == 5
+
+
 def test_image_rl_data():
     from verl.utils import hf_processor, hf_tokenizer
     from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
@@ -77,7 +96,7 @@ def test_image_rl_data():
             "prompt_key": "prompt",
             "max_prompt_length": 1024,
             "filter_overlong_prompts": True,
-            "filter_overlong_prompts_workers": 1,
+            "filter_overlong_prompts_workers": None,  # num_workers=1 hang in ci
         }
     )
     dataset = RLHFDataset(

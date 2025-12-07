@@ -7,6 +7,8 @@ actor_rollout_ref:
   actor:
     optim:
       _target_: verl.workers.config.FSDPOptimizerConfig
+      optimizer: AdamW
+      optimizer_impl: torch.optim
       lr: 1.0e-06
       lr_warmup_steps_ratio: 0.0
       total_training_steps: -1
@@ -18,7 +20,9 @@ actor_rollout_ref:
       clip_grad: 1.0
       min_lr_ratio: 0.0
       num_cycles: 0.5
-      warmup_style: constant
+      lr_scheduler_type: constant
+      warmup_style: null
+      override_optimizer_config: null
     fsdp_config:
       _target_: verl.workers.config.FSDPEngineConfig
       wrap_policy:
@@ -31,13 +35,17 @@ actor_rollout_ref:
       forward_prefetch: false
       model_dtype: fp32
       use_orig_params: false
+      seed: 42
+      full_determinism: false
       ulysses_sequence_parallel_size: 1
       entropy_from_logits_with_chunking: false
       use_torch_compile: true
       entropy_checkpointing: false
       forward_only: false
       strategy: fsdp
+      dtype: bfloat16
     _target_: verl.workers.config.FSDPActorConfig
+    rollout_n: ${oc.select:actor_rollout_ref.rollout.n,1}
     strategy: fsdp
     ppo_mini_batch_size: 256
     ppo_micro_batch_size: null
@@ -58,8 +66,9 @@ actor_rollout_ref:
       ppo_kl_coef: 0.1
     clip_ratio_c: 3.0
     loss_agg_mode: token-mean
+    loss_scale_factor: null
     entropy_coeff: 0
-    tis_imp_ratio_cap: -1
+    calculate_entropy: false
     use_kl_loss: false
     use_torch_compile: true
     kl_loss_coef: 0.001
@@ -100,12 +109,18 @@ actor_rollout_ref:
           _target_: verl.utils.profiler.config.TorchMemoryToolConfig
           trace_alloc_max_entries: ${oc.select:global_profiler.global_tool_config.torch_memory.trace_alloc_max_entries,100000}
           stack_depth: ${oc.select:global_profiler.global_tool_config.torch_memory.stack_depth,32}
+    router_replay:
+      _target_: verl.workers.config.RouterReplayConfig
+      mode: disabled
+      record_file: null
+      replay_file: null
     grad_clip: 1.0
     ulysses_sequence_parallel_size: 1
     entropy_from_logits_with_chunking: false
     entropy_checkpointing: false
     use_remove_padding: ${oc.select:actor_rollout_ref.model.use_remove_padding,false}
   ref:
+    rollout_n: ${oc.select:actor_rollout_ref.rollout.n,1}
     strategy: ${actor_rollout_ref.actor.strategy}
     use_torch_compile: ${oc.select:actor_rollout_ref.actor.use_torch_compile,true}
     log_prob_micro_batch_size: null
@@ -137,6 +152,11 @@ actor_rollout_ref:
           _target_: verl.utils.profiler.config.TorchMemoryToolConfig
           trace_alloc_max_entries: ${oc.select:global_profiler.global_tool_config.torch_memory.trace_alloc_max_entries,100000}
           stack_depth: ${oc.select:global_profiler.global_tool_config.torch_memory.stack_depth,32}
+    router_replay:
+      _target_: verl.workers.config.RouterReplayConfig
+      mode: disabled
+      record_file: null
+      replay_file: null
     fsdp_config:
       _target_: verl.workers.config.FSDPEngineConfig
       wrap_policy:
@@ -149,20 +169,23 @@ actor_rollout_ref:
       forward_prefetch: false
       model_dtype: fp32
       use_orig_params: false
+      seed: 42
+      full_determinism: false
       ulysses_sequence_parallel_size: 1
       entropy_from_logits_with_chunking: false
       use_torch_compile: true
       entropy_checkpointing: false
-      forward_only: false
+      forward_only: true
       strategy: fsdp
-    model: null
+      dtype: bfloat16
+    _target_: verl.workers.config.FSDPActorConfig
     ulysses_sequence_parallel_size: ${oc.select:actor_rollout_ref.actor.ulysses_sequence_parallel_size,1}
     entropy_from_logits_with_chunking: false
     entropy_checkpointing: false
   rollout:
     _target_: verl.workers.config.RolloutConfig
     name: ???
-    mode: sync
+    mode: async
     temperature: 1.0
     top_k: -1
     top_p: 1
@@ -175,6 +198,9 @@ actor_rollout_ref:
     cudagraph_capture_sizes: null
     free_cache_engine: true
     tensor_model_parallel_size: 2
+    data_parallel_size: 1
+    expert_parallel_size: 1
+    pipeline_model_parallel_size: 1
     max_num_batched_tokens: 8192
     max_model_len: null
     max_num_seqs: 1024
@@ -213,10 +239,12 @@ actor_rollout_ref:
       use_inference_chat_template: false
       tokenization_sanity_check_mode: strict
       format: hermes
+      num_repeat_rollouts: null
     calculate_log_probs: false
     agent:
       _target_: verl.workers.config.AgentLoopConfig
       num_workers: 8
+      default_agent_loop: single_turn_agent
       agent_loop_config_path: null
       custom_async_server:
         _target_: verl.workers.config.CustomAsyncServerConfig
@@ -227,9 +255,11 @@ actor_rollout_ref:
       _target_: verl.workers.config.TraceConfig
       backend: null
       token2text: false
+      max_samples_per_step_per_worker: null
     skip_rollout: false
     skip_dump_dir: /tmp/rollout_dump
     skip_tokenizer_init: true
+    enable_rollout_routing_replay: false
     profiler:
       _target_: verl.utils.profiler.ProfilerConfig
       tool: ${oc.select:global_profiler.tool,null}
@@ -238,6 +268,12 @@ actor_rollout_ref:
       ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
       save_path: ${oc.select:global_profiler.save_path,null}
       tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}
+    prometheus:
+      _target_: verl.workers.config.PrometheusConfig
+      enable: false
+      port: 9090
+      file: /tmp/ray/session_latest/metrics/prometheus/prometheus.yml
+      served_model_name: ${oc.select:actor_rollout_ref.model.path,null}
     layered_summon: false
   model:
     _target_: verl.workers.config.HFModelConfig
@@ -256,6 +292,7 @@ actor_rollout_ref:
     lora_alpha: 16
     target_modules: all-linear
     exclude_modules: null
+    lora_adapter_path: null
     use_liger: false
     use_fused_kernels: false
     fused_kernel_options:
@@ -267,17 +304,23 @@ data:
   use_shm: false
   train_files: ~/data/rlhf/gsm8k/train.parquet
   val_files: ~/data/rlhf/gsm8k/test.parquet
+  train_max_samples: -1
+  val_max_samples: -1
   prompt_key: prompt
   reward_fn_key: data_source
   max_prompt_length: 512
   max_response_length: 512
   train_batch_size: 1024
   val_batch_size: null
+  tool_config_path: ${oc.select:actor_rollout_ref.rollout.multi_turn.tool_config_path,
+    null}
   return_raw_input_ids: false
-  return_raw_chat: false
+  return_raw_chat: true
   return_full_prompt: false
   shuffle: true
+  seed: null
   dataloader_num_workers: 8
+  image_patch_size: 14
   validation_shuffle: false
   filter_overlong_prompts: false
   filter_overlong_prompts_workers: 1
@@ -296,9 +339,19 @@ data:
     path: null
     name: null
   apply_chat_template_kwargs: {}
+reward_manager:
+  _target_: verl.trainer.config.config.RewardManagerConfig
+  source: register
+  name: ${oc.select:reward_model.reward_manager,naive}
+  module:
+    _target_: verl.trainer.config.config.ModuleConfig
+    path: null
+    name: custom_reward_manager
 critic:
   optim:
     _target_: verl.workers.config.FSDPOptimizerConfig
+    optimizer: AdamW
+    optimizer_impl: torch.optim
     lr: 1.0e-05
     lr_warmup_steps_ratio: 0.0
     total_training_steps: -1
@@ -310,7 +363,9 @@ critic:
     clip_grad: 1.0
     min_lr_ratio: 0.0
     num_cycles: 0.5
-    warmup_style: constant
+    lr_scheduler_type: constant
+    warmup_style: null
+    override_optimizer_config: null
   model:
     fsdp_config:
       _target_: verl.workers.config.FSDPEngineConfig
@@ -324,12 +379,15 @@ critic:
       forward_prefetch: false
       model_dtype: fp32
       use_orig_params: false
+      seed: 42
+      full_determinism: false
       ulysses_sequence_parallel_size: 1
       entropy_from_logits_with_chunking: false
       use_torch_compile: true
       entropy_checkpointing: false
       forward_only: false
       strategy: fsdp
+      dtype: bfloat16
     path: ~/models/deepseek-llm-7b-chat
     tokenizer_path: ${oc.select:actor_rollout_ref.model.path,"~/models/deepseek-llm-7b-chat"}
     override_config: {}
@@ -405,6 +463,7 @@ reward_model:
     path: ~/models/FsfairX-LLaMA3-RM-v0.1
     external_lib: ${actor_rollout_ref.model.external_lib}
     trust_remote_code: false
+    override_config: {}
     use_shm: false
     use_remove_padding: false
     use_fused_kernels: ${actor_rollout_ref.model.use_fused_kernels}
@@ -436,10 +495,17 @@ reward_model:
     save_path: ${oc.select:global_profiler.save_path,null}
     tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}
   ulysses_sequence_parallel_size: 1
-custom_reward_function:
-  path: null
-  name: compute_score
 algorithm:
+  rollout_correction:
+    rollout_is: null
+    rollout_is_threshold: 2.0
+    rollout_rs: null
+    rollout_rs_threshold: null
+    rollout_rs_threshold_lower: null
+    rollout_token_veto_threshold: null
+    bypass_mode: false
+    use_policy_gradient: false
+    rollout_is_batch_normalize: false
   _target_: verl.trainer.config.AlgoConfig
   gamma: 1.0
   lam: 1.0
@@ -457,6 +523,9 @@ algorithm:
   pf_ppo:
     reweight_method: pow
     weight_pow: 2.0
+custom_reward_function:
+  path: null
+  name: compute_score
 trainer:
   balance_batch: true
   total_epochs: 30
@@ -514,6 +583,8 @@ global_profiler:
       context: all
       stacks: all
       kw_args: {}
+transfer_queue:
+  enable: false
 ray_kwargs:
   ray_init:
     num_cpus: null

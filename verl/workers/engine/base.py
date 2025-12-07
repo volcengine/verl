@@ -15,10 +15,12 @@
 The abstract base class defining the interface for model training engines.
 """
 
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Generator, Optional
 
 import torch
 from tensordict import TensorDict
+
+from verl.utils.device import get_device_name
 
 
 class BaseEngine:
@@ -107,6 +109,7 @@ class BaseEngine:
         outputs = self.forward_backward_batch(data, loss_function, forward_only=False)
         grad_norm = self.optimizer_step()
         if self.is_mp_src_rank_with_outputs():
+            assert "grad_norm" not in outputs["metrics"]
             outputs["metrics"]["grad_norm"] = grad_norm
         return outputs
 
@@ -124,7 +127,14 @@ class BaseEngine:
             outputs = self.forward_backward_batch(data, loss_function, forward_only=True)
         return outputs
 
-    def get_per_tensor_param(self):
+    def get_per_tensor_param(self) -> tuple[Generator[tuple[str, torch.Tensor], None, None], Optional[dict]]:
+        """
+        Get a generator that yields per-tensor parameters and optional peft config.
+
+        Returns:
+            Generator[tuple[str, torch.Tensor]]: A generator that yields tuples of parameter names and tensors.
+            Optional[dict]: Optional peft config.
+        """
         raise NotImplementedError
 
     def get_data_parallel_size(self):
@@ -136,7 +146,7 @@ class BaseEngine:
     def get_data_parallel_group(self):
         raise NotImplementedError
 
-    def to(self, device: str, model: bool = True, optimizer: bool = True):
+    def to(self, device: str, model: bool = True, optimizer: bool = True, grad: bool = True):
         """
         Move model parameters, optimizer states, or both to the specified device.
 
@@ -144,10 +154,18 @@ class BaseEngine:
             device: Target device identifier.
             model: If True, move the model.
             optimizer: If True, move the optimizer states.
+            grad: If True, move the gradient buffer.
         """
         raise NotImplementedError
 
-    def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
+    def save_checkpoint(
+        self,
+        local_path: str,
+        hdfs_path: Optional[str] = None,
+        global_step: int = 0,
+        max_ckpt_to_keep: Optional[int] = None,
+        **kwargs,
+    ) -> None:
         """
         Save model, optimizer, and scheduler states to a checkpoint.
 
@@ -156,10 +174,13 @@ class BaseEngine:
             hdfs_path: Optional HDFS path to copy checkpoint.
             global_step: Integer training step number for naming.
             max_ckpt_to_keep: Maximum number of recent checkpoints to retain.
+            **kwargs: Arbitrary keyword arguments.
         """
         raise NotImplementedError
 
-    def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=True):
+    def load_checkpoint(
+        self, local_path: str, hdfs_path: Optional[str] = None, del_local_after_load: bool = True, **kwargs
+    ) -> None:
         """
         Load model, optimizer, and scheduler states from a checkpoint.
 
@@ -167,6 +188,7 @@ class BaseEngine:
             local_path: Local filesystem path of the checkpoint.
             hdfs_path: Optional HDFS path where checkpoint is stored.
             del_local_after_load: Whether to delete local copy after loading.
+            **kwargs: Arbitrary keyword arguments.
         """
         raise NotImplementedError
 
@@ -189,7 +211,7 @@ class EngineRegistry:
     _engines = {}
 
     @classmethod
-    def register(cls, model_type: str, backend: list[str] | str):
+    def register(cls, model_type: str, backend: list[str] | str, device: list[str] | str = "cuda"):
         """
         A class method decorator that registers an engine class with a given key.
 
@@ -198,6 +220,8 @@ class EngineRegistry:
         Args:
             model_type (str): The type of the model
             backend (list[str] | str): The backend to use for the model type
+            device (list[str] | str): The device type (e.g., "cuda", "npu", "cpu") this engine supports,
+                default is "cuda"
 
         Returns:
             A decorator function that takes an engine class and registers it.
@@ -208,12 +232,15 @@ class EngineRegistry:
             if model_type not in cls._engines:
                 cls._engines[model_type] = {}
 
-            if isinstance(backend, list):
-                for k in backend:
-                    cls._engines[model_type][k] = engine_class
-            else:
-                assert isinstance(backend, str)
-                cls._engines[model_type][backend] = engine_class
+            backends = backend if isinstance(backend, list) else [backend]
+            devices = device if isinstance(device, list) else [device]
+            for current_backend in backends:
+                for current_device in devices:
+                    if current_backend not in cls._engines[model_type]:
+                        cls._engines[model_type][current_backend] = {}
+                    if current_device not in cls._engines[model_type][current_backend]:
+                        cls._engines[model_type][current_backend][current_device] = engine_class
+
             return engine_class
 
         return decorator
@@ -222,7 +249,11 @@ class EngineRegistry:
     def get_engine_cls(cls, model_type: str, backend: str):
         assert model_type in cls._engines, f"Unknown model_type: {model_type}"
         assert backend in cls._engines[model_type], f"Unknown backend: {backend}"
-        return cls._engines[model_type][backend]
+        device = get_device_name()
+        assert device in cls._engines[model_type][backend], (
+            f"Unknown device: {device} for model_type: {model_type} and backend: {backend}"
+        )
+        return cls._engines[model_type][backend][device]
 
     @classmethod
     def new(cls, model_type, backend, *args, **kwargs):
