@@ -113,6 +113,12 @@ class DataParallelPPOActor(BasePPOActor):
                 )  # input_ids_rmpad (total_nnz, ...)
                 input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
 
+                if micro_batch.get("routing_ids", None) is not None:
+                    routing_ids = micro_batch["routing_ids"]  # (bsz, seqlen, n_layer, k_expert)
+                    routing_ids_flat = rearrange(routing_ids, "b s l k -> (b s) l k")           # (b*s, l, k)
+                    routing_ids_rmpad = index_first_axis(routing_ids_flat, indices)             # (total_nnz, l, k)
+                    routing_ids_rmpad = routing_ids_rmpad.unsqueeze(0)
+
                 # unpad the position_ids to align the rotary
                 if position_ids.dim() == 3:
                     position_ids_rmpad = (
@@ -147,12 +153,32 @@ class DataParallelPPOActor(BasePPOActor):
                             position_ids_rmpad=position_ids_rmpad,
                             sp_size=self.ulysses_sequence_parallel_size,
                         )
+
+                        assert micro_batch.get("routing_ids", None) is not None, f"[ERROR] routing replay not implemented for vlm models."
                     else:
                         input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(
                             input_ids_rmpad,
                             position_ids_rmpad=position_ids_rmpad,
                             sp_size=self.ulysses_sequence_parallel_size,
                         )
+
+                        if micro_batch.get("routing_ids", None) is not None:
+                            B, T, L, K = routing_ids_rmpad.shape  # B should be 1
+                            r = routing_ids_rmpad.permute(0, 2, 3, 1).contiguous()  # (1, L, K, T)
+                            r = r.view(L * K, T)                                    # (B' = L*K, T)
+
+                            # Use the existing helpers unchanged (they expect 2D)
+                            r, _, pad_size_r = ulysses_pad_and_slice_inputs(
+                                r, position_ids_rmpad=None, sp_size=self.ulysses_sequence_parallel_size
+                            )                                                       # (L*K, T_local)
+
+                            T_local = r.size(1)
+                            r = r.view(1, L, K, T_local).permute(0, 3, 1, 2).contiguous()  # (1, T_local, L, K)
+                            routing_ids_rmpad = r
+
+                            # Sanity: token axis must match other token-aligned inputs
+                            assert routing_ids_rmpad.size(1) == input_ids_rmpad.size(1)
+
                     input_ids_rmpad_rolled, _, _ = ulysses_pad_and_slice_inputs(
                         input_ids_rmpad_rolled,
                         position_ids_rmpad=None,
@@ -171,6 +197,7 @@ class DataParallelPPOActor(BasePPOActor):
                     input_ids=input_ids_rmpad,
                     attention_mask=None,
                     position_ids=position_ids_rmpad,
+                    routing_ids=routing_ids_rmpad if micro_batch.get("routing_ids", None) is not None else None, 
                     **multi_modal_inputs,
                     use_cache=False,
                     **extra_args,
@@ -249,6 +276,7 @@ class DataParallelPPOActor(BasePPOActor):
                     input_ids=input_ids,
                     attention_mask=attention_mask,
                     position_ids=position_ids,
+                    routing_ids=micro_batch.get("routing_ids", None),
                     **multi_modal_inputs,
                     use_cache=False,
                     **extra_args,
@@ -322,6 +350,9 @@ class DataParallelPPOActor(BasePPOActor):
         select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
         non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
 
+        if "routing_ids" in data.batch.keys():
+            select_keys.append("routing_ids")
+
         data = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
 
         if use_dynamic_bsz:
@@ -377,6 +408,9 @@ class DataParallelPPOActor(BasePPOActor):
         # Weights are computed centrally in trainer and added to batch when algorithm.rollout_is=True
         if "rollout_is_weights" in data.batch.keys():
             select_keys.append("rollout_is_weights")
+        # routing_ids will be added to batch when SGLang returns the routing matrix
+        if "routing_ids" in data.batch.keys():
+            select_keys.append("routing_ids")
 
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
         non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []

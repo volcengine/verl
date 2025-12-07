@@ -591,7 +591,42 @@ class SGLangRollout(BaseRollout):
         """
         if self.config.multi_turn.enable:
             return self._req_level_generate_sequences(prompts, **kwargs)
-        return self._batch_level_generate_sequences(prompts, **kwargs)
+
+        device_id = kwargs.pop('device_id', "no device_id passed in")
+        device = kwargs.pop('device', "no device passed in")
+
+        # validation without routing matrix
+        if prompts.meta_info.get("validate", False):
+            res = self._batch_level_generate_sequences(prompts, **kwargs)
+            # dist.barrier()
+            return res
+        
+        if not self.config.enable_routing_replay:
+            print(f"Routing replay not enabled.")
+            return self._batch_level_generate_sequences(prompts, **kwargs)
+        
+        step_bsz = 32 # NOTE Curretnly, SGLang expert_distribution_recorder is not functioning as expected when per entry bsz > 32
+        if len(prompts) <= step_bsz:
+            res = self._batch_level_generate_sequences_train(prompts, **kwargs)
+            # dist.barrier()
+            return res
+
+        prompts = prompts.to('cpu')
+        data_sliced = [prompts[start:start+step_bsz] for start in range(0, len(prompts), step_bsz)]
+        generations_list = []
+
+        # for idx in range(0, len(data_sliced)):
+        while (len(data_sliced) > 0):
+            data_cpu = data_sliced.pop(0)
+            data_gpu = data_cpu.to(device_id)
+            res = self._batch_level_generate_sequences_train(data_gpu, **kwargs).to('cpu')
+            generations_list.append(res)
+            del data_gpu
+            del data_cpu
+            # device.empty_cache()
+        
+        # dist.barrier()
+        return DataProto.concat(generations_list)#.to(device_id) # NOTE we don't need to move back to GPU according to later exeuction logic in fsdp_workers.py `generate_sequences`` function
 
     @GPUMemoryLogger(role="sglang rollout", logger=logger)
     @torch.no_grad()
@@ -803,6 +838,420 @@ class SGLangRollout(BaseRollout):
             batch["rollout_log_probs"] = rollout_log_probs
 
         return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
+
+
+    def _pad_and_put_routing_from_mask(
+        self,
+        ids_per_row,                 # list of tuples: (ids_TLK, pos_arr, p2l_arr), ids_TLK shape (Ti, L, K)
+        attention_mask: torch.Tensor,# [B, T_full], final mask after concat
+        *,
+        logger=None,
+    ):
+        """
+        For each row b:
+        - Scatter ids_TLK (Ti, L, K) into a zero-initialized (T_full, L, K) array
+            at positions where attention_mask[b] == 1 (in order).
+        - Because Ti == sum(mask==1) (by your observation), this is a 1:1 fill.
+        - Returns (refs_per_row, shape_list) where each ref is
+            ray.put((ids_padded_TLK, pos_arr, p2l_arr)) and shape_list[b]=(T_full,L,K).
+        """
+
+        B, T_full = attention_mask.shape
+        refs_per_row = [None] * B
+        shape_list   = [None] * B
+
+        mask_cpu = attention_mask.detach().to("cpu")
+
+        for b in range(B):
+            ids_TLK, pos_arr, p2l_arr = ids_per_row[b]  # ids_TLK: (Ti, L, K)
+            if ids_TLK is None:
+                refs_per_row[b] = None
+                continue
+
+            if not isinstance(ids_TLK, np.ndarray) or ids_TLK.ndim != 3:
+                raise ValueError(f"[routing] ids_TLK[{b}] must be np.ndarray with shape (Ti,L,K), got {type(ids_TLK)} {getattr(ids_TLK,'shape',None)}")
+
+            Ti, L, K = ids_TLK.shape
+            active_idx = (mask_cpu[b] != 0).nonzero(as_tuple=False).squeeze(1).numpy()  # (Ti,)
+            n_active = int(active_idx.size)
+
+            if n_active != Ti:
+                raise ValueError(f"[error][routing][rank {torch.distributed.get_rank()}] row {b}: Ti={Ti} != active_mask_tokens={n_active}")
+
+            # Allocate final frame and scatter
+            out = np.zeros((int(T_full), int(L), int(K)), dtype=ids_TLK.dtype)
+            n_fill = min(Ti, n_active)
+            if n_fill > 0:
+                out[active_idx[:n_fill], :, :] = ids_TLK[:n_fill]
+            
+            out = np.ascontiguousarray(out)
+            # Put tuple to plasma and remember final shape
+            refs_per_row[b] = ray.put((out, pos_arr, p2l_arr))
+            shape_list[b]   = (out.shape[0], L, K)
+
+        return refs_per_row, shape_list
+
+
+
+    @GPUMemoryLogger(role="sglang rollout", logger=logger)
+    @torch.no_grad()
+    def _batch_level_generate_sequences_train(self, prompts: DataProto, **kwargs) -> DataProto:
+        """Generates single-turn sequences for a batch of prompts.
+        For single-turn generation, all prompts are processed in one request.
+        `_batch_level_generate_sequences` involves:
+        1.  Extracting and pre-processing prompt token IDs from the input
+            `prompts`. This includes handling padding and preparing raw
+            token ID lists.
+        2.  Preparing inputs for the SGLang engine, including multi-modal
+            data if present.
+        3.  Invoking the SGLang engine (`self._engine.async_generate`,
+            an async coroutine) with the batch of processed inputs and
+            specified sampling parameters on the master TP rank.
+        4.  Broadcasting the results from the master TP rank to all
+            other TP ranks.
+        5.  Post-processing the engine's output to format the generated
+            token IDs and (if applicable) log probabilities.
+        6.  Constructing the final sequences by concatenating original
+            prompts with the generated responses.
+        7.  Updating attention masks and position IDs to reflect the full
+            concatenated sequences.
+        8.  If `self.config.free_cache_engine` is true, the SGLang engine's
+            KV cache is flushed after generation on the master TP rank.
+        Args:
+            prompts: A `DataProto` object containing the batch of
+              input prompts, including tensor data (like `input_ids`,
+              `attention_mask`) and meta-information (like `eos_token_id`,
+              `do_sample`).
+            **kwargs: Additional keyword arguments that can override the
+              default sampling parameters (e.g., `temperature`, `top_p`,
+              `max_new_tokens`). These are temporarily applied using
+              `update_sampling_params`.
+        Returns:
+            DataProto: A `DataProto` object containing the batch of
+              generated sequences. This includes tensors for `prompts`
+              (original input IDs), `responses` (generated token IDs),
+              `input_ids` (concatenated prompt and response),
+              `attention_mask`, and `position_ids` for the full
+              sequences.
+        Note that in GRPO, if the prompts are validated, we repeat the prompts for rollout.n times in ray_trainer.
+        Thus we do not need to repeat the prompts here and set the sampling parameter n to 1.
+        """
+        # input ids: (bs, prompt_length), left-padded
+        idx = prompts.batch["input_ids"]
+        # attention_mask: (bs, seq_length), left-padded
+        attention_mask = prompts.batch["attention_mask"]
+        position_ids = prompts.batch["position_ids"]
+
+        # used to generate attention mask for the
+        # response based on EOS token position
+        eos_token_id = prompts.meta_info["eos_token_id"]
+
+        batch_size = idx.size(0)
+
+        # Extract non-tensor data
+        non_tensor_batch = prompts.non_tensor_batch
+        if "raw_prompt_ids" not in non_tensor_batch:
+            non_tensor_batch["raw_prompt_ids"] = np.array(
+                [_pre_process_inputs(self.pad_token_id, idx[i]).tolist() for i in range(batch_size)],
+                dtype=object,
+            )
+
+        if "multi_modal_data" in non_tensor_batch:
+            sglang_inputs = []
+            for raw_prompt_ids, multi_modal_data in zip(
+                non_tensor_batch.pop("raw_prompt_ids"),
+                non_tensor_batch.pop("multi_modal_data"),
+                strict=True,
+            ):
+                sglang_inputs.append(
+                    {
+                        "prompt_token_ids": raw_prompt_ids,
+                        "multi_modal_data": multi_modal_data,
+                        "image_data": (
+                            multi_modal_data.get("image", None) if isinstance(multi_modal_data, dict) else None
+                        ),
+                    }
+                )
+        else:
+            sglang_inputs = [
+                {"prompt_token_ids": raw_prompt_ids} for raw_prompt_ids in non_tensor_batch.pop("raw_prompt_ids")
+            ]
+
+        for input_data in sglang_inputs:
+            # Ensure token IDs are lists or numpy arrays
+            if not isinstance(input_data["prompt_token_ids"], list | np.ndarray):
+                raise TypeError(
+                    f"prompt_token_ids must be a list or numpy array, got {type(input_data['prompt_token_ids'])}"
+                )
+
+            input_data["prompt_token_ids"] = list(input_data["prompt_token_ids"])
+
+        # Extract token IDs and image data for SGLang Engine
+        idx_list = [input_data["prompt_token_ids"] for input_data in sglang_inputs]
+        image_list = [input_data.get("image_data", None) for input_data in sglang_inputs]
+
+        do_sample = prompts.meta_info.get("do_sample", True)
+        is_validate = prompts.meta_info.get("validate", False)
+        
+
+
+        # --- initialize locals for all ranks ---
+        routing_meta = None
+        routing_locals = None
+        
+        # Create request-level sampling parameters
+        request_sampling_params = self.sampling_params.copy()
+        if not do_sample:
+            request_sampling_params.update(
+                {
+                    "n": 1,
+                    "presence_penalty": 0.0,
+                    "frequency_penalty": 0.0,
+                    "repetition_penalty": 1.0,
+                    "temperature": 0,
+                    "top_p": 1,
+                    "top_k": -1,
+                    "ignore_eos": False,
+                    "min_new_tokens": 0,
+                    "max_new_tokens": self.config.response_length,
+                    "skip_special_tokens": True,
+                    "spaces_between_special_tokens": True,
+                }
+            )
+        elif is_validate:
+            request_sampling_params.update(
+                {
+                    "top_k": self.config.val_kwargs.top_k,
+                    "top_p": self.config.val_kwargs.top_p,
+                    "temperature": self.config.val_kwargs.temperature,
+                    "n": 1,  # if validate, already repeat in ray_trainer
+                }
+            )
+
+        # Update with any additional kwargs
+        request_sampling_params.update(kwargs)
+        # TODO cx NOTE to be deleted
+        # request_sampling_params.update({'stop_token_ids': [151645]})
+
+        if self._tp_rank == 0:
+            loop = asyncio.get_event_loop()
+            output = loop.run_until_complete(
+                self._engine.async_generate(
+                    prompt=None,  # because we have already convert it to prompt token id
+                    sampling_params=request_sampling_params,
+                    return_logprob=True,
+                    input_ids=idx_list,
+                    image_data=image_list,
+                    # return_expert_routing=(not is_validate), 
+                    return_expert_routing=True,
+                )
+            )
+
+            owner_node = ray.get_runtime_context().get_node_id()  # stable per Ray node
+
+            B = batch_size
+            # refs_per_row = [None] * B
+            ids_per_row = [None] * B
+            rid_list     = [None] * B
+            shape_list   = [None] * B
+            # dtype_ids_list = [None] * B    # store dtype per row (usually 'uint16')
+            # TODO CRITICAL move to tensor bfloat16?
+            dtype_ids = np.int64 # TODO cx note CRITICAL used to be uint8. modify to int64 but still witnessed over/underflow in qwen3_routing_model.py
+            layout = "T_L_K"               # token-major for fast row fetch (ids[t] -> [L,K])
+
+            for b in range(B):
+                # TODO please review the np types
+                r = output[b]["meta_info"]["moe_routing"]
+                del output[b]["meta_info"]["moe_routing"]
+
+                # Required meta
+                rid = r["rid"]  # canonical UUID string from SGLang (e.g., "0e3b1f...-...")
+                L = int(r["shape"]["num_layers"])
+                T = int(r["shape"]["num_tokens"])
+                K = int(r["shape"]["top_k"])
+                rid_list[b]   = rid
+                shape_list[b] = (T, L, K)
+
+                # 1) Expert IDs: list [L, T, K] -> ndarray [T, L, K] (token-major), compact dtype (seq_len, n_layers, n_experts)
+                ids = np.asarray(r["topk_ids_of_layer"], dtype=dtype_ids)  # safe upcast first
+                if ids.shape != (L, T, K):
+                    raise ValueError(f"topk_ids_of_layer shape mismatch, expected {(L,T,K)}, got {ids.shape}")
+                    
+                ids_TLK = np.ascontiguousarray(np.transpose(ids, (1, 0, 2)))  # [T, L, K], aka [seq_len, n_layers, k_experts_selected]
+
+                # 2) positions (optional) -> int32 contiguous
+                pos = r.get("positions", None)
+                if pos is None:
+                    pos_arr = np.empty((0,), dtype=np.int32)
+                else:
+                    pos_arr = np.ascontiguousarray(np.asarray(pos, dtype=np.int32))
+
+                # 3) physical_to_logical_map [L, E] (tiny) -> int16 contiguous
+                p2l = r.get("physical_to_logical_map", None)
+                if p2l is None:
+                    p2l_arr = np.empty((0, 0), dtype=np.int64)
+                else:
+                    p2l_arr = np.ascontiguousarray(np.asarray(p2l, dtype=np.int32)).astype(np.int64, copy=False)
+
+                # Put one plasma object per row (tuple of arrays). Arrays are zero-copy in plasma.
+                ids_per_row[b] = (ids_TLK, pos_arr, p2l_arr)
+
+
+            # Tiny meta to broadcast (NO ObjectRefs)
+            routing_meta = {
+                "owner_node": owner_node,      # <-- add this
+                # "owner_rank": owner_rank,      # (optional/legacy; not used for training)
+                "rid":   rid_list,     # list[str], len B
+                "shape": shape_list,   # list[tuple(T,L,K)], len B
+                "layout": layout,      # 'T_L_K'
+                "dtype_ids": np.dtype(dtype_ids).name,  # list[str], e.g., 'uint16'
+            }
+
+        else:
+            output = None
+
+        # Most naive implementation, can extract tensor and send via gloo if too slow
+        dist.barrier()
+        # dist.barrier(self._device_mesh_cpu["tp"].get_group())
+        [output] = broadcast_pyobj(
+            data=[output],
+            rank=self._rank,
+            dist_group=self._device_mesh_cpu["tp"].get_group(),
+            src=self._device_mesh_cpu["tp"].mesh[0].item(),
+            force_cpu_device=False,
+        )
+        out = _post_process_outputs(self.processing_class, output)
+
+        response = out[0].to(idx.device)
+        rollout_log_probs = None
+        if self.config.calculate_log_probs:
+            rollout_log_probs = out[1].to(idx.device)
+
+        if response.shape[1] < self.config.response_length:
+            response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
+            if self.config.calculate_log_probs:
+                rollout_log_probs = pad_sequence_to_length(
+                    rollout_log_probs, self.config.response_length, self.pad_token_id
+                )
+
+        seq = torch.cat([idx, response], dim=-1)
+
+        response_length = response.size(1)
+        delta_position_id = torch.arange(1, response_length + 1, device=position_ids.device)
+        delta_position_id = delta_position_id.unsqueeze(0).repeat(batch_size, 1)
+        if position_ids.dim() == 3:  # qwen2vl mrope
+            delta_position_id = delta_position_id.view(batch_size, 1, -1).expand(batch_size, 3, -1)
+
+        # TODO(sgm): fix position_ids on right_pad
+        # prompt: left pad + response: right pad
+        # attention_mask: [0,0,0,0,1,1,1,1, | 1,1,1,0,0,0,0,0]
+        # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
+        response_position_ids = position_ids[..., -1:] + delta_position_id
+        position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
+        response_attention_mask = get_response_mask(
+            response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype
+        )
+        attention_mask = torch.cat((attention_mask, response_attention_mask), dim=-1)
+
+
+
+        if self._tp_rank == 0:
+            # TODO pad the routing ids in ids_per_row using the attention_mask, then ray put each tup
+            # Pad routing to match final attention_mask, then ray.put each row
+            refs_per_row, padded_shapes = self._pad_and_put_routing_from_mask(
+                ids_per_row=ids_per_row,
+                attention_mask=attention_mask,  # final mask (prompt + response)
+                logger=logger,
+            )
+            # Ensure meta shape reflects the padded T_full so training sees consistent lengths
+            routing_meta["shape"] = padded_shapes
+        
+        # ---------------------------
+        # 3) TP sync and broadcast ONLY tiny routing_meta (NO ObjectRef)
+        # ---------------------------
+        dist.barrier()
+        # dist.barrier(self._device_mesh_cpu["tp"].get_group())
+        [routing_meta] = broadcast_pyobj(
+            data=[routing_meta],
+            rank=self._rank,
+            dist_group=self._device_mesh_cpu["tp"].get_group(),
+            src=self._device_mesh_cpu["tp"].mesh[0].item(),
+            force_cpu_device=False,
+        )
+
+
+
+        # all the tp ranks should contain the same data here. data in all ranks are valid
+        batch = TensorDict(
+            {
+                "prompts": idx,
+                "responses": response,
+                "input_ids": seq,  # here input_ids become the whole sentences
+                "attention_mask": attention_mask,
+                "position_ids": position_ids,
+            },
+            batch_size=batch_size,
+        )
+        if self.config.calculate_log_probs:
+            # we will recompute old log prob with actor
+            batch["rollout_log_probs"] = rollout_log_probs
+
+        # free cache engine
+        if self._engine is not None and self._tp_rank == 0:
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(self._engine.flush_cache())
+
+        
+
+
+        # ---------------------------
+        # 5) Build per-sample arrays for DataProto.non_tensor_batch
+        # ---------------------------
+        B = batch_size
+
+        # Make sure refs_per_row exists on non-TP0 ranks
+        if self._tp_rank != 0 or 'refs_per_row' not in locals() or refs_per_row is None:
+            refs_per_row = [None] * batch_size
+
+        # Normalize dtype string (optional; keeps it readable like "uint8")
+        dtype_ids_str = routing_meta.get("dtype_ids", "int64")
+        # If someone passed a class repr like "<class 'numpy.uint8'>", keep it as-is; it's fine for logging.
+
+        # owner_arr = np.full((batch_size,), routing_meta["owner_rank"], dtype=np.int32) # TODO notice type volume
+        owner_node_arr = np.empty((B,), dtype=object)
+        owner_node_arr.fill(routing_meta["owner_node"])
+
+        rid_arr   = np.asarray(routing_meta["rid"], dtype=object)
+
+        shape_arr = np.empty((batch_size,), dtype=object)
+        shape_arr[:] = [tuple(s) for s in routing_meta["shape"]]
+
+        layout_arr = np.empty((batch_size,), dtype=object)
+        layout_arr.fill(routing_meta.get("layout", "T_L_K"))
+
+        dtype_ids_arr = np.empty((batch_size,), dtype=object)
+        dtype_ids_arr.fill(dtype_ids_str)
+
+        ref_arr = np.empty((batch_size,), dtype=object)
+        if self._tp_rank == 0:
+            for i in range(batch_size):
+                ref_arr[i] = refs_per_row[i]
+        else:
+            ref_arr.fill(None)
+
+        b_idx_arr = np.arange(batch_size, dtype=np.int64) # TODO no use if storing as individual obj and rid is unique; but future proof for switching to as a single large tensor
+
+        # non_tensor_batch["routing_owner_rank"] = owner_arr
+        non_tensor_batch["routing_owner_node"] = owner_node_arr
+        non_tensor_batch["routing_rid"]        = rid_arr
+        non_tensor_batch["routing_shape"]      = shape_arr          # (T, L, K) per row
+        non_tensor_batch["routing_layout"]     = layout_arr         # 'T_L_K'
+        non_tensor_batch["routing_dtype_ids"]  = dtype_ids_arr      # 'uint8'/'uint16'/'uint32'
+        non_tensor_batch["routing_ref"]        = ref_arr            # ObjectRef on TP-0; None elsewhere
+        non_tensor_batch["routing_b_idx"]      = b_idx_arr
+
+        payload = DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
+        return payload
 
     async def _async_rollout_a_request(
         self,

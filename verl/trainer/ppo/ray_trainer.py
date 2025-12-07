@@ -1204,6 +1204,7 @@ class RayPPOTrainer:
                         with marked_timer("update_actor", timing_raw, color="red"):
                             batch.meta_info["multi_turn"] = self.config.actor_rollout_ref.rollout.multi_turn.enable
                             actor_output = self.actor_rollout_wg.update_actor(batch)
+                            assert self.actor_rollout_wg._routing_cache == {} and self.actor_rollout_wg._routing_refs == {} and self.actor_rollout_wg._routing_prepared_batches == set(), f"self.actor_rollout_wg._routing_cache of len {len(self.actor_rollout_wg._routing_cache)} ={self.actor_rollout_wg._routing_cache}, self.actor_rollout_wg._routing_refs of len {len(self.actor_rollout_wg._routing_refs)} = {self.actor_rollout_wg._routing_refs == {}}, self.actor_rollout_wg._routing_prepared_batches of len {len(self.actor_rollout_wg._routing_prepared_batches)} = {self.actor_rollout_wg._routing_prepared_batches}"
                         actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
                         metrics.update(actor_output_metrics)
 

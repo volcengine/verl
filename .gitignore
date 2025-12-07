@@ -1,3 +1,6 @@
+/ckpts_hdd
+cx_run.sh
+cx_run_noRoutingReplay.sh
 
 **/*.pt
 **/checkpoints

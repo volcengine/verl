@@ -36,6 +36,9 @@ from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp.api import FullStateDictConfig, ShardedStateDictConfig, StateDictType
 
+import ray
+from typing import List, Dict, Tuple
+
 try:
     # for torch 2.5+
     from torch.distributed.tensor import DTensor
@@ -89,6 +92,8 @@ from verl.workers.config import FSDPCriticConfig, FSDPEngineConfig, HFModelConfi
 from verl.workers.config.optimizer import build_optimizer
 from verl.workers.rollout import get_rollout_class
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
+
+from recipe.moe_routing_replay.qwen3_routing_model import CustomMoeForCausalLM
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -265,6 +270,607 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         if self._is_ref and self.config.ref.log_prob_micro_batch_size is not None:
             self.config.ref.log_prob_micro_batch_size //= self.device_mesh.size() // self.ulysses_sequence_parallel_size
             self.config.ref.log_prob_micro_batch_size_per_gpu = self.config.ref.log_prob_micro_batch_size
+
+
+                # --- routing caches / book-keeping (training-time only) ---
+        self._routing_refs: dict[str, "ray.ObjectRef"] = {}   # rid -> ObjectRef (pins plasma lifetime)
+        self._routing_cache: dict[str, torch.Tensor] = {}     # rid -> CUDA tensor [T, L, K]
+        self._routing_prepared_batches: set[str] = set()      # batch ids we've prepared
+
+    # ----------------------------------------------------------------------
+    # Routing: helpers, prepare, fetch (NCCL full sequence), guard, cleanup
+    # ----------------------------------------------------------------------
+    def _get_my_node_id(self) -> str:
+        """Ray node_id if running under Ray, else hostname."""
+        try:
+            return ray.get_runtime_context().get_node_id()
+        except Exception:
+            import socket
+            return socket.gethostname()
+
+    def _routing_batch_id(self, meta: dict) -> str:
+        """Stable batch id; prefer explicit uuid provided by rollout."""
+        bid = meta.get("routing_batch_uuid")
+        if isinstance(bid, str) and bid:
+            return bid
+        rids = meta.get("routing_rid", [])
+
+        try:
+            rids = rids.tolist()
+        except Exception as e:
+            raise e
+            # pass
+        bid = "RID|" + "|".join(map(str, rids))
+        return bid
+
+    def _gather_node_ids(self, group=None) -> List[str]:
+        """Return global_rank -> node_id (Ray node_id) for current group."""
+        group = group or torch.distributed.group.WORLD
+        me = self._get_my_node_id()
+        world = torch.distributed.get_world_size(group)
+        all_nodes = [None] * world
+        torch.distributed.all_gather_object(all_nodes, me, group=group)
+        return all_nodes
+
+    def _pick_owner_rank_for_node(
+        self, owner_node_id: str, ranks_in_group: List[int], node_id_per_rank: List[str]
+    ) -> Optional[int]:
+        cands = [r for r in ranks_in_group if node_id_per_rank[r] == owner_node_id]
+        return min(cands) if cands else None
+
+    def _owner_register_refs_from_batch(self, meta: dict) -> None:
+        """Pin plasma lifetime by copying any present ObjectRef into a long-lived dict, keyed by rid."""
+        rid_arr = meta.get("routing_rid", [])
+        ref_arr = meta.get("routing_ref", [])
+        for rid, ref in zip(rid_arr, ref_arr if len(ref_arr) == len(rid_arr) else [None] * len(rid_arr), strict=True):
+            if ref is not None and str(rid) not in self._routing_refs:
+                self._routing_refs[str(rid)] = ref
+    
+    def _owner_materialize_blocks_to_cuda(self, rid_list: List[str]) -> None:
+        """
+        Owner rank only: for each rid not yet cached, ray.get the per-sample [T,L,K] from plasma
+        and keep it on CUDA for fast NCCL serving.
+        """
+        if not rid_list:
+            return  # non-owner: no-op
+        need = [rid for rid in rid_list if rid not in self._routing_cache]
+        if not need:
+            return
+        refs = [self._routing_refs[rid] for rid in need]
+        
+        np_tuples = ray.get(refs)  # each is (ids_TLK, pos_arr, p2l_arr)
+
+        for rid, tup in zip(need, np_tuples, strict=True):
+            ids_TLK_np = tup[0]  # NumPy [T, L, K], token-major
+            ids_TLK = torch.from_numpy(ids_TLK_np).to("cuda", dtype=torch.long, non_blocking=True)  # keep original storage dtype # TODO cx note check dtype
+            self._routing_cache[rid] = ids_TLK
+
+    def _fetch_routing_block_nccl(
+        self,
+        owner_rank: int,
+        rid: str,
+        need_block: bool,
+        group=None,
+    ) -> torch.Tensor:
+        """
+        NCCL exchange for a SINGLE rid (one block per rid):
+        non-owner -> send flag (int32: 1 if need, 0 if not)
+                    if need==1 then recv T,L,K header and then [T,L,K] payload (torch.long)
+        owner     -> for each peer, recv flag; if flag==1 send T,L,K then payload
+        Returns [T, L, K] on CUDA (dtype torch.long) for non-owner requester; empty tensor otherwise.
+        """
+        group = group or torch.distributed.group.WORLD
+        rank  = torch.distributed.get_rank(group)
+        dev   = torch.device("cuda")
+
+        need_flag = torch.tensor([1 if need_block else 0], device=dev, dtype=torch.long)
+
+        if rank != owner_rank:
+            # send flag
+            torch.distributed.isend(need_flag, dst=owner_rank, group=group).wait()
+            if not need_block:
+                return torch.empty((0, 0, 0), device=dev, dtype=torch.long)
+
+            # recv header T,L,K then payload
+            T = torch.empty(1, device=dev, dtype=torch.long)
+            L = torch.empty(1, device=dev, dtype=torch.long)
+            K = torch.empty(1, device=dev, dtype=torch.long)
+            torch.distributed.irecv(T, src=owner_rank, group=group).wait()
+            torch.distributed.irecv(L, src=owner_rank, group=group).wait()
+            torch.distributed.irecv(K, src=owner_rank, group=group).wait()
+
+            out = torch.empty((int(T.item()), int(L.item()), int(K.item())), device=dev, dtype=torch.long)
+            torch.distributed.irecv(out, src=owner_rank, group=group).wait()
+            if out.numel() > 0:
+                self._routing_cache[rid] = out
+            return out
+
+        # --- owner path ---
+        world = torch.distributed.get_world_size(group)
+        # tensor to send (header + payload) is constant for all requesters
+        rblk = self._routing_cache[rid]  # [T,L,K], on CUDA, dtype may be uint8/16/32
+
+        # In case offloaded - JIT warm to cuda
+        if not rblk.is_cuda:
+            rblk = rblk.to("cuda", non_blocking=True)        # JIT warm for NCCL
+            self._routing_cache[rid] = rblk                   # keep consistent 
+
+        T_dim, L_dim, K_dim = map(int, rblk.shape)
+        header_T = torch.tensor([T_dim], device=dev, dtype=torch.long)
+        header_L = torch.tensor([L_dim], device=dev, dtype=torch.long)
+        header_K = torch.tensor([K_dim], device=dev, dtype=torch.long)
+        payload  = rblk.to(torch.long, non_blocking=True).contiguous()
+
+        for peer in range(world):
+            if peer == owner_rank:
+                continue
+            flag = torch.empty(1, device=dev, dtype=torch.long)
+            torch.distributed.irecv(flag, src=peer, group=group).wait()
+            if int(flag.item()) == 0:
+                continue
+            torch.distributed.isend(header_T, dst=peer, group=group).wait()
+            torch.distributed.isend(header_L, dst=peer, group=group).wait()
+            torch.distributed.isend(header_K, dst=peer, group=group).wait()
+            torch.distributed.isend(payload,  dst=peer, group=group).wait()
+        
+        # if need_block:
+        #     # if need_block is True, this tensor is meant to be transforred for other ranks and don't need to be kept on the owner rank after syncing is done.
+        #     del self._routing_cache[rid]
+
+        return torch.empty(0, device=dev, dtype=torch.long)
+
+
+    def prepare_routing_for_actor_step(self, data: DataProto) -> DataProto:
+        """
+        One-time per batch (idempotent):
+        1) Pin any local ObjectRefs (rid->ref).
+        2) All-gather (rid, ref) pairs and pick the first non-None ref per rid.
+        3) Choose an owner rank per rid via 'routing_owner_node' colocation.
+        4) On the owner rank: ray.get ONCE per rid; keep CUDA copy in self._routing_cache.
+        5) Barrier.
+        """
+
+        meta = data.non_tensor_batch
+        if "routing_rid" not in meta or "routing_owner_node" not in meta:
+            return DataProto(meta_info={"routing_prepared": False})
+
+        batch_id = self._routing_batch_id(meta)
+        if batch_id in self._routing_prepared_batches:
+            return DataProto(meta_info={"routing_prepared": True})
+
+        # 1) pin lifetime for any refs visible on THIS rank (local shard)
+        self._owner_register_refs_from_batch(meta)
+
+        # local (rid, ref) pairs
+        local_pairs = []
+        rid_arr = meta["routing_rid"]
+        ref_arr = meta.get("routing_ref", [])
+        for rid, ref in zip(rid_arr, ref_arr if len(ref_arr) == len(rid_arr) else [None] * len(rid_arr), strict=True):
+            local_pairs.append((str(rid), ref))
+
+        # 2) global refs_by_rid
+        world = torch.distributed.get_world_size()
+        gathered: List[List[Tuple[str, "ray.ObjectRef"]]] = [None] * world  # type: ignore
+        torch.distributed.all_gather_object(gathered, local_pairs)
+
+        from itertools import chain
+        flat = list(chain.from_iterable(gathered))
+        by_rid = {}
+        for rid, ref in flat:
+            if ref is not None:
+                by_rid.setdefault(rid, []).append(ref)
+
+        for rid, refs in by_rid.items():
+            # Ray ObjectRef supports equality by id; this is safe
+            if any(r != refs[0] for r in refs[1:]):
+                raise RuntimeError(f"[routing] Multiple distinct ObjectRefs found for rid={rid}")
+
+
+        refs_by_rid: dict[str, "ray.ObjectRef"] = {}
+        for pairs in gathered:
+            for rid, ref in pairs:
+                if ref is not None and rid not in refs_by_rid:
+                    refs_by_rid[rid] = ref
+
+        # 3) choose owner per rid using owner_node colocation
+        ranks = list(range(world))
+        node_id_per_rank = self._gather_node_ids()
+        owner_nodes = meta["routing_owner_node"]  # per-local-sample node ids
+        # build local list then global-union of (rid, owner_rank)
+        loc_owner_pairs: List[Tuple[str, int]] = []
+        for node_id, rid in zip(owner_nodes, rid_arr, strict=True):
+            owner = self._pick_owner_rank_for_node(node_id, ranks, node_id_per_rank)
+            if owner is None:
+                raise RuntimeError(
+                    f"[routing] No actor rank colocated with Ray node {node_id} for rid={rid}. "
+                    "Cross-node ray.get is disallowed. Please schedule at least one actor rank on that node."
+                )
+            loc_owner_pairs.append((str(rid), owner))
+
+        gathered_pairs: List[List[Tuple[str, int]]] = [None] * world  # type: ignore
+        torch.distributed.all_gather_object(gathered_pairs, loc_owner_pairs)
+        rid_owner_map: dict[str, int] = {}
+        for pairs in gathered_pairs:
+            for rid, own in pairs:
+                rid_owner_map[rid] = own  # consistent across ranks; last write ok
+
+        # 4) owners ray.get once per rid
+        my_rank = torch.distributed.get_rank()
+
+        # TODO DEBUGGING
+        #### Enforce in-node ray.get to avoid cross code ray.get in `_owner_materialize_blocks_to_cuda` ####
+        # after rid_owner_map is built
+        for rid, own in rid_owner_map.items():
+            if own != my_rank:
+                self._routing_refs.pop(rid, None)  # keep only owner's handle
+        ####################################################################################################
+
+        my_rids_to_materialize = [rid for rid, own in rid_owner_map.items() if own == my_rank]
+        # sanity: must have ObjectRef
+        missing = [rid for rid in my_rids_to_materialize if rid not in refs_by_rid]
+        if missing:
+            raise RuntimeError(
+                f"[routing] Owner rank {my_rank} lacks ObjectRef(s) for rid(s)={missing}; "
+                f"no rank provided a non-None routing_ref for those rids."
+            )
+        # ensure owner rank actually has the ObjectRef locally
+        for rid in my_rids_to_materialize:
+            if rid not in self._routing_refs:
+                self._routing_refs[rid] = refs_by_rid[rid]
+        self._owner_materialize_blocks_to_cuda(my_rids_to_materialize)
+
+        # 5) mesh-wide sync: owners are ready to serve
+        torch.distributed.barrier()
+        self._routing_prepared_batches.add(batch_id)
+        return DataProto(meta_info={"routing_prepared": True})
+
+    
+    def sync_routing_rows_to_local_cache(self, data: DataProto) -> DataProto:
+        """
+        NCCL-sync stage (deadlock-safe, rid-only):
+        - Build global set of (owner_rank, rid) via all_gather_object so EVERY rank participates.
+        - For each (owner, rid):
+            * owner calls _fetch_routing_block_nccl(owner, rid, need_block=False) to serve.
+            * non-owners call it with need_block=(rid in my local shard AND rid not cached).
+        - Cache the received block as self._routing_cache[rid].
+        Assumes prepare_routing_for_actor_step has already materialized owners' CUDA caches.
+        """
+        meta = data.non_tensor_batch
+        if "routing_rid" not in meta or "routing_owner_node" not in meta:
+            return DataProto(meta_info={"routing_synced": False})
+
+        ranks = list(range(torch.distributed.get_world_size()))
+        node_id_per_rank = self._gather_node_ids()
+        owner_nodes = meta["routing_owner_node"]
+        rids        = [str(r) for r in meta["routing_rid"]]
+
+        my_rank = torch.distributed.get_rank()
+
+        # local (owner, rid) pairs
+        local_pairs: List[Tuple[int, str]] = []
+        for node_id, rid in zip(owner_nodes, rids, strict=True):
+            owner = self._pick_owner_rank_for_node(node_id, ranks, node_id_per_rank)
+            if owner is None:
+                raise RuntimeError(
+                    f"[routing] No actor rank colocated with Ray node {node_id} for rid={rid}. "
+                    "Cross-node ray.get is disallowed. Please schedule at least one actor rank on that node."
+                )
+            local_pairs.append((owner, rid))
+
+        # global union of (owner, rid)
+        world = torch.distributed.get_world_size()
+        gathered: List[List[Tuple[int, str]]] = [None] * world  # type: ignore
+        torch.distributed.all_gather_object(gathered, local_pairs)
+        global_pairs = sorted({p for sub in gathered for p in sub})
+
+        # Make sure owners finished materialization (should already be true)
+        torch.distributed.barrier()
+        print(f"[DEBUG][sync_routing_rows_to_local_cache] Start fetching inference routing maps via NCCL")
+
+        # participate for EVERY pair to avoid deadlocks
+        local_rid_set = set(rids)
+        need_list = []
+        for (owner_rank, rid) in global_pairs:
+            if owner_rank == my_rank:
+                _ = self._fetch_routing_block_nccl(owner_rank, rid, need_block=False)
+            else:
+                need = (rid in local_rid_set) and (rid not in self._routing_cache)
+                need_list.append(need)
+                # assert need==True
+                block = self._fetch_routing_block_nccl(owner_rank, rid, need_block=need)
+                # if need and block.numel() > 0:
+                #     self._routing_cache[rid] = block  # [T,L,K], int32 CUDA
+
+        print(f"[DEBUG][sync_routing_rows_to_local_cache]: Fetching complete and wait at the barrier...")
+        
+
+        torch.distributed.barrier()
+        return DataProto(meta_info={"routing_synced": True})
+    
+
+    def _as_list(self, x):
+        try: return x.tolist()
+        except Exception: return list(x)
+
+    def _rids_from_data(self, data):
+        meta = data.non_tensor_batch
+        if "routing_rid" not in meta: return []
+        return [str(r) for r in self._as_list(meta["routing_rid"])]
+
+    def _move_cached_rids(self, rids, to: str, *, pin_cpu: bool = True):
+        for rid in rids:
+            t = self._routing_cache.get(rid)
+            if t is None: 
+                continue
+            if to == "cpu" and t.is_cuda:
+                cpu = t.to("cpu", non_blocking=True)
+                self._routing_cache[rid] = cpu.pin_memory() if pin_cpu else cpu
+            elif to == "cuda" and not t.is_cuda:
+                self._routing_cache[rid] = t.to("cuda", non_blocking=True)
+            elif to not in ("cpu", "cuda"):
+                raise ValueError(f"bad target {to}")
+
+    def _offload_cached_rids_for_data(self, data, *, drop_instead: bool = False):
+        rids = self._rids_from_data(data)
+        if not rids: 
+            return
+        if drop_instead:
+            for rid in rids:
+                self._routing_cache.pop(rid, None)
+        else:
+            rids = [str(r) for r in list(self._routing_cache.keys())]
+            self._move_cached_rids(rids, "cpu", pin_cpu=True)
+        try: torch.cuda.empty_cache()
+        except: pass
+
+
+
+    def _attach_full_routing_to_data(self, data: DataProto) -> None:
+        """
+        Build and attach a dense routing tensor shaped [B_local, T_max, L, K] to data.batch["routing_ids"],
+        and lengths [B_local] to data.batch["routing_T_lens"].
+        Assumes prepare_routing_for_actor_step + sync_routing_rows_to_local_cache completed.
+        """
+        meta = data.non_tensor_batch
+        if "routing_rid" not in meta:
+            return
+
+        # lists
+        def _as_list(x):
+            try:
+                return x.tolist()
+            except Exception:
+                return list(x)
+
+        rid_arr   = [str(r) for r in _as_list(meta["routing_rid"])]
+        shape_arr = _as_list(meta["routing_shape"])  # each item like (T, L, K)
+
+        B_local = len(rid_arr)
+        if B_local == 0:
+            return
+
+        # T may differ per rid; L,K must be consistent
+        shapes = [tuple(s) for s in shape_arr]
+        T_list = [int(tlk[0]) for tlk in shapes]
+        L_set  = {int(tlk[1]) for tlk in shapes}
+        K_set  = {int(tlk[2]) for tlk in shapes}
+        assert len(L_set) == 1 and len(K_set) == 1, "Routing L,K must be consistent across the batch."
+        L = L_set.pop(); K = K_set.pop()
+        # T_max = max(T_list)
+        T_max = data.batch['input_ids'].shape[1] # directly left padding to the same length of input_ids
+
+        target_device = data.batch["input_ids"].device
+        out_ids = torch.full((B_local, T_max, L, K), 0, device=target_device, dtype=torch.long).contiguous() # TODO cx note: CRITICAL! default to -1 or 0?
+        out_len = torch.tensor(T_list, device=target_device, dtype=torch.long).contiguous()
+
+        for i, rid in enumerate(rid_arr):
+            rblk = self._routing_cache.get(rid, None)
+            if rblk is None:
+                raise RuntimeError(
+                    f"[routing] Missing cached routing block for rid={rid} on rank {torch.distributed.get_rank()}. "
+                    f"Call prepare_routing_for_actor_step + sync_routing_rows_to_local_cache first."
+                )
+            if rblk.device != target_device:
+                rblk = rblk.to(target_device, non_blocking=True)
+
+            # assert int(data.batch['attention_mask'][i].sum()) == 
+            assert data.batch['attention_mask'].shape[1] == data.batch['input_ids'].shape[1] == rblk.shape[0]
+            out_ids[i, :, :, :] = rblk.to(torch.long, non_blocking=True)
+
+            # Ti = T_list[i]
+
+            # # out_ids[i, :Ti, :, :] = rblk[:Ti, :, :].to(torch.long, non_blocking=True) # RIGHT padding
+            # start = T_max - Ti  # number of padded steps on the left
+            # assert Ti == rblk.shape[0], f"n tokens {Ti} and routing matrix seq len {rblk.shape[0]} doesn't match"
+            # assert start >=0 and start+Ti<=out_ids.shape[1], f"start={start}, start+Ti={start+Ti}, out_ids.shape[1]={out_ids.shape[1]}"
+            # out_ids[i, start:start+Ti, :, :] = rblk[:Ti, :, :].to(torch.long, non_blocking=True) # TODO CRITICAL LEFT padding
+
+
+        # data.batch["routing_ids"] = out_ids.detach()#.contiguous()#.clone()           # [B_local, T_max, L, K]
+        # data.batch["routing_T_lens"] = out_len.contiguous().detach()#.contiguous()#.clone()        # [B_local]
+
+        # cx NOTE make sure not attached a view, due to current cache offloading strategy
+        data.batch["routing_ids"] = out_ids.detach().clone()           # [B_local, T_max, L, K]
+        data.batch["routing_T_lens"] = out_len.contiguous().detach().clone()        # [B_local]
+        data.meta_info["routing_attached"] = True
+
+
+    def _ensure_routing_prepared(self, data: DataProto, tag='') -> DataProto:
+        """
+        Guard that runs the 3-stage pipeline on demand:
+        1) prepare_routing_for_actor_step
+        2) sync_routing_rows_to_local_cache
+        3) _attach_full_routing_to_data
+        """
+        meta = data.non_tensor_batch
+        if "routing_rid" not in meta:
+            print(f"routing_rid not found. routing matrix syncing skipped.")
+            return data
+
+        # TODO DEBUGGING ONLY
+        # snapshot rids before we mutate anything
+        def _to_list_str(x):
+            try:
+                return [str(y) for y in x.tolist()]
+            except Exception:
+                return [str(y) for y in list(x)]
+
+        rid_before = None
+        if "routing_rid" in meta:
+            rid_before = _to_list_str(meta["routing_rid"])
+        ################################################
+
+        bid = self._routing_batch_id(meta)
+
+        if bid not in self._routing_prepared_batches:
+            print(f"[DEBUG][fsdp_workers]: Preparing routing matrices (owner materialization) for batch with id: {bid}")
+            _ = self.prepare_routing_for_actor_step(data)
+        else:
+            print(f"[DEBUG][fsdp_workers]: prepare stage already done. Skipped...")
+
+        # TODO CRITICAL no syncing except for the first time
+        # TODO CRITICAL empty self.routing_cache etc once dataproto constructed?
+        _ = self.sync_routing_rows_to_local_cache(data)
+
+        if not data.meta_info.get("routing_attached", False):
+            self._attach_full_routing_to_data(data)
+
+            data.batch = data.batch.contiguous()
+            self._offload_cached_rids_for_data(data, drop_instead=False) # NOTE setting `drop_instead` can cause re-sync local caches
+            
+            ########################## TODO DEBUGGING ONLY ##########################
+            ########################## ASSERTIONS: (1)token num matches (2) rid doesn't change ##########################
+            # # After self._attach_full_routing_to_data(data)
+            # if "routing_T_lens" in data.batch and "attention_mask" in data.batch:
+            #     # Prefer counting tokens in the prompt region to avoid response spillover
+            #     if "prompts" in data.batch:
+            #         prompt_len = data.batch["prompts"].size(-1)  # left-padded width
+            #         attn_prompt = data.batch["attention_mask"][..., :]
+            #     else:
+            #         # Fallback: assume routing covers exactly the left segment of input_ids
+            #         # (only use if 'prompts' is absent)
+            #         attn_prompt = data.batch["attention_mask"]
+
+            #     # Sum to per-sample lengths (int32 for fair compare)
+            #     attn_lens = attn_prompt.sum(dim=-1).to(dtype=torch.int32, device=data.batch["routing_T_lens"].device)
+            #     t_lens    = data.batch["routing_T_lens"]
+
+            #     # Strict equality: routing tokens must match prompt token count
+            #     if not torch.equal(attn_lens, t_lens):
+            #         # Helpful debug: show first few mismatches
+            #         mismatch = (attn_lens != t_lens).nonzero(as_tuple=False).flatten()
+            #         idx = mismatch[:8].tolist()
+            #         raise AssertionError(
+            #             "[routing] routing_T_lens mismatch vs prompt attention sum: "
+            #             f"indices={idx}, routing_T_lens={t_lens[idx].tolist()}, attn_sum={attn_lens[idx].tolist()}"
+            #         )
+            
+            # ---------------- DEBUG: routing_ids vs attention_mask alignment ----------------
+            if "routing_ids" in data.batch and "attention_mask" in data.batch:
+                mask = data.batch["attention_mask"]              # [B,T]
+                rid  = data.batch["routing_ids"]                 # [B,T,L,K]
+                # reduce [L,K] -> whether any element is non-zero at each (b,t)
+                any_nonpad = (rid != 0).any(dim=(-1, -2))        # [B,T], bool
+
+                # (1) padded tokens must be all zeros
+                bad_pad = (mask == 0) & any_nonpad               # non-zero routing under mask==0
+                if bad_pad.any():
+                    idx = bad_pad.nonzero(as_tuple=False)[:8].tolist()
+                    raise AssertionError(
+                        f"[routing] non-zero routing under mask==0 at {idx} (showing up to 8)"
+                    )
+
+                # (2) active count must match: sum over T of mask==1 equals sum over T of any_nonpad==1
+                attn_lens   = mask.sum(dim=-1).to(dtype=torch.long)           # [B]
+                routed_lens = any_nonpad.sum(dim=-1).to(dtype=torch.long)     # [B]
+                if not torch.equal(attn_lens, routed_lens):
+                    mismatch = (attn_lens != routed_lens).nonzero(as_tuple=False).flatten()
+                    idx = mismatch[:8].tolist()
+                    raise AssertionError(
+                        f"[routing][rank {torch.distributed.get_rank()}] active length mismatch vs non-zero routing length: "
+                        f"indices={idx}, attn_lens={attn_lens[idx].tolist()}, "
+                        f"routed_lens={routed_lens[idx].tolist()}"
+                    )
+
+                # Optional: also assert full-length T matches input_ids T for sanity
+                T_full_ids   = data.batch["input_ids"].shape[1]
+                T_full_mask  = mask.shape[1]
+                T_full_route = rid.shape[1]
+                if not (T_full_ids == T_full_mask == T_full_route):
+                    raise AssertionError(
+                        f"[routing] T_full mismatch: input_ids={T_full_ids}, "
+                        f"mask={T_full_mask}, routing_ids={T_full_route}"
+                    )
+            # -------------------------------------------------------------------------------
+
+            # TODO CRITICAL add routing_ids assertion. 8 ids should be different. This should be enough to detect under/overflow if any
+            
+            # --- integrity checks: rids unchanged across _ensure pipeline ---
+            if rid_before is not None:
+                rid_after = _to_list_str(data.non_tensor_batch.get("routing_rid", []))
+
+                # length must be identical
+                if len(rid_before) != len(rid_after):
+                    raise AssertionError(
+                        "[routing] routing_rid length changed across _ensure_routing_prepared: "
+                        f"before={len(rid_before)} after={len(rid_after)}"
+                    )
+
+                # content & order must be identical
+                if rid_before != rid_after:
+                    # help debug: show first few mismatches
+                    bad = [i for i, (a, b) in enumerate(zip(rid_before, rid_after)) if a != b]
+                    bad = bad[:8]
+                    raise AssertionError(
+                        "[routing] routing_rid content/order changed across _ensure_routing_prepared: "
+                        f"indices={bad}, before={[rid_before[i] for i in bad]}, after={[rid_after[i] for i in bad]}"
+                    )
+
+                # optional: uniqueness & companion-field length sanity
+                if len(set(rid_after)) != len(rid_after):
+                    raise AssertionError("[routing] routing_rid contains duplicates")
+
+                # keep companion fields in lockstep with rid count (helpful for sneaky shape bugs)
+                for k in ("routing_owner_node", "routing_shape", "routing_layout", "routing_dtype_ids", "routing_ref", "routing_b_idx"):
+                    if k in data.non_tensor_batch and len(data.non_tensor_batch[k]) != len(rid_after):
+                        raise AssertionError(
+                            f"[routing] {k} length ({len(data.non_tensor_batch[k])}) != routing_rid length ({len(rid_after)})"
+                        )
+
+            ########################################################################################################
+        
+        # print(f"""[cx_debug][fsdp_workers] len(data)={len(data)}. data.meta_info["routing_attached"]={data.meta_info["routing_attached"]}. data.batch["routing_T_lens"].shape={data.batch["routing_T_lens"].shape} and data.batch['input_ids'].shape=""")
+        
+        # if 'routing_attached' in data.batch:
+        #     data.batch.pop('routing_attached')
+        if 'routing_T_lens' in data.batch: # TODO 
+            data.pop(batch_keys=['routing_T_lens'])
+        
+        # # TODO 
+        # if 'meta_info' in data:
+        #     print(f"data.meta_info popped as: {data.meta_info}")
+        #     data.batch.pop('meta_info')
+
+        return data
+
+
+
+    def _cleanup_routing_for_batch(self, meta: dict) -> None:
+        """Drop CUDA cache and ObjectRefs for this batch to avoid (CUDA) OOM."""
+        if "routing_rid" not in meta:
+            return
+        rid_arr = meta.get("routing_rid", [])
+        for rid in rid_arr:
+            self._routing_cache.pop(str(rid), None)  # free CUDA
+            self._routing_refs.pop(str(rid), None)   # allow plasma to reclaim
+        self._routing_prepared_batches.discard(self._routing_batch_id(meta))
+        # assert self._routing_cache == {} and self._routing_refs == {} and self._routing_prepared_batches == set(), f"self._routing_cache of len {len(self._routing_cache)} ={self._routing_cache}, self._routing_refs of len {len(self._routing_refs)} = {self._routing_refs == {}}, self._routing_prepared_batches of len {len(self._routing_prepared_batches)} = {self._routing_prepared_batches}"
+        try:
+            torch.cuda.empty_cache()
+        except Exception as e:
+            pass
+
+
 
     def _build_model_optimizer(
         self,
@@ -860,9 +1466,35 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 checkpoint_config=checkpoint_contents,
             )
 
+
+    # TODO cx_note debugging only
+    def print_tensordict_info(self, td, tag=""):
+        for k, v in td.items():
+            if isinstance(v, torch.Tensor):
+                base = getattr(v, "_base", None)
+                try:
+                    stride = tuple(v.stride())
+                except Exception:
+                    stride = "<unavailable>"
+                try:
+                    off = v.storage_offset()
+                except Exception:
+                    off = "<unavailable>"
+                print(
+                    f"[cx_debug][fsdp_workers][update_actor][print_tensordict_info][{tag}] "
+                    f"{k:>24} | dtype={str(v.dtype):>8} | device={str(v.device):>8} | "
+                    f"shape={tuple(v.shape)} | stride={stride} | contiguous={v.is_contiguous()} | "
+                    f"layout={v.layout} | storage_offset={off} | is_view={'yes' if base is not None else 'no'}"
+                )
+            else:
+                print(f"{k:>24} | non-tensor type={type(v).__name__}")
+
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @DistProfiler.annotate(color="red", role="actor_update")
     def update_actor(self, data: DataProto):
+        # ensure routing prepared once (idempotent)
+        self._ensure_routing_prepared(data, tag='[update_actor]') # TODO debugging only
+
         assert self._is_actor
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
@@ -901,6 +1533,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             offload_fsdp_optimizer(optimizer=self.actor_optimizer)
             log_gpu_memory_usage("After offload actor optimizer during update_actor", logger=logger)
 
+        # NOTE Cleaning up is coupled with the current training order, assuming that update_actor is the last function that requires the rouing_ids for routing replay
+        self._cleanup_routing_for_batch(data.non_tensor_batch)
+
         return output
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="rollout"))
@@ -927,7 +1562,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             log_gpu_memory_usage("After switch to rollout mode", logger=logger)
 
         with simple_timer("generate_sequences", timing_generate):
-            output = self.rollout.generate_sequences(prompts=prompts)
+            # output = self.rollout.generate_sequences(prompts=prompts)
+            output = self.rollout.generate_sequences(prompts=prompts, device_id=get_device_id(), device=get_torch_device())
 
         if self._is_actor:
             loop.run_until_complete(self.trainer_mode())
@@ -956,6 +1592,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @DistProfiler.annotate(color="blue", role="actor_compute_log_prob")
     def compute_log_prob(self, data: DataProto):
+        owner_node_id = ray.get_runtime_context().get_node_id()  # stable per Ray node
+        self._ensure_routing_prepared(data, tag='[compute_log_prob]')
+
         # when is_lora is True, we use the actor without lora applied to calculate the log_prob
         # which is mostly used for ref log_prob calculation
         assert self._is_actor
@@ -997,6 +1636,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @DistProfiler.annotate(color="olive", role="ref_compute_log_prob")
     def compute_ref_log_prob(self, data: DataProto):
+        # ensure routing prepared once (idempotent)
+        self._ensure_routing_prepared(data, 'compute_ref_log_prob')
+
         if self._is_lora:
             # if _is_lora, actor without lora applied is the ref
             data.meta_info["is_lora"] = True

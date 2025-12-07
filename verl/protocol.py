@@ -590,6 +590,72 @@ class DataProto:
             meta_info=meta_info,
         )
 
+    
+    def _tensor_debug_info(self, t: torch.Tensor) -> str:
+        base = getattr(t, "_base", None)
+        try:
+            stride = tuple(t.stride())
+        except Exception:
+            stride = "<unavailable>"
+        try:
+            off = t.storage_offset()
+        except Exception:
+            off = "<unavailable>"
+        return (
+            f"shape={tuple(t.shape)}, stride={stride}, dtype={t.dtype}, device={t.device}, "
+            f"is_contiguous={t.is_contiguous()}, layout={t.layout}, storage_offset={off}, "
+            f"is_view={'yes' if base is not None else 'no'}"
+        )
+
+    def _safe_move_tensor(self, t: torch.Tensor, device: str | torch.device) -> torch.Tensor:
+        # 1) try normal move
+        try:
+            return t.to(device)
+        except Exception as e:
+            print(f"[_safe_move_tensor][diagnose] normal move failed: {e}")
+            pass
+        # 2) detach + contiguous
+        try:
+            return t.detach().contiguous().to(device)
+        except Exception as e:
+            print(f"[_safe_move_tensor][diagnose] no cloning move failed: {e}. Falling back to clone")
+            pass
+        # 3) materialize fresh storage then move
+        return t.detach().contiguous().clone().to(device)
+
+    def _safely_move_tensordict(self, td, device: str | torch.device):
+        """Move a TensorDict to device with graceful fallback and diagnostics."""
+        # Fast path (prefer copy=True when available to avoid storage rebind bugs)
+        try:
+            return td.to(device, copy=True)  # tensordict>=0.4
+        except TypeError:
+            # older versions don't support copy=...
+            pass
+        except Exception as e:
+            print(f"[diagnose] td.to(copy=True, device={device!s}) failed: {e}")
+
+        try:
+            return td.to(device)             # try fast zero-copy path
+        except Exception as e:
+            print(f"[diagnose] td.to({device!s}) failed: {e}\n[diagnose] per-key fallback...")
+
+        # Per-key move with detailed logging for the failing entry
+        # from tensordict import TensorDict
+        moved = {}
+        for k, v in td.items():
+            if torch.is_tensor(v):
+                try:
+                    moved[k] = self._safe_move_tensor(v, device)
+                except Exception as ke:
+                    print(f"[diagnose] key {k!r} move failed: {ke}")
+                    print(f"[diagnose] key {k!r} info: {self._tensor_debug_info(v)}")
+                    # last-resort attempt: clone then move (already tried inside _safe_move_tensor)
+                    raise
+            else:
+                # Non-tensors are carried as-is
+                moved[k] = v
+        return TensorDict(moved, batch_size=td.batch_size, device=device)
+
     def to(self, device) -> "DataProto":
         """move the batch to device
 
@@ -601,7 +667,15 @@ class DataProto:
 
         """
         if self.batch is not None:
-            self.batch = self.batch.to(device)
+            try:
+                self.batch = self.batch.to(device)
+            except RuntimeError as e:
+                try:
+                    # TODO cx_note add condition to only consolidate if is to CPU, or it is said to be time-consuming on GPU
+                    # self.batch = self.batch.contiguous().consolidate() # TODO cx_note will this cause memory leak of the old batch? check out "/nlp_group/sunchenxi/qwen_moe/logs/qwen3_moe_2025-10-28-23:08:51.log" for log of enabling it (searching is_view=no and you'll find all no views)
+                    self.batch = self.batch.to(device)
+                except RuntimeError as re:
+                    self.batch = self._safely_move_tensordict(self.batch, device)
         return self
 
     def select(self, batch_keys=None, non_tensor_batch_keys=None, meta_info_keys=None, deepcopy=False) -> "DataProto":
