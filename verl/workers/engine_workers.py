@@ -82,8 +82,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             self.set_dispatch_collect(mesh_name="actor", **self.actor.get_dispatch_collect())
 
         # 3. build rollout engine
-        # - vllm: vLLMAsyncRollout
-        # - sglang: ServerAdapter
         if "rollout" in self.role:
             rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
 

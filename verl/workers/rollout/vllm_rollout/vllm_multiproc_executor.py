@@ -340,7 +340,7 @@ class vLLMMultiprocExecutor(MultiprocExecutor):
 
 
     def _handle_zmq_request(self, request: dict) -> dict:
-        """Handle ZMQ requests from vLLMAsyncRollout."""
+        """Handle ZMQ requests from ServerAdapter."""
         method = request.get("method")
         args = request.get("args", ())
         kwargs = request.get("kwargs", {})
@@ -392,7 +392,7 @@ class vLLMMultiprocExecutor(MultiprocExecutor):
         logger.info("vLLMMultiprocExecutor ZMQ server started")
 
     def _zmq_service_loop(self):
-        """ZMQ service loop to handle requests from vLLMAsyncRollout."""
+        """ZMQ service loop to handle requests from ServerAdapter."""
         while self.zmq_is_running:
             try:
                 message = self.zmq_socket.recv()
