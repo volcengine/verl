@@ -112,68 +112,17 @@ class DataParallelPPOActor(BasePPOActor):
                 and not self.use_dynamic_bsz
             )
             if can_use_pg and "response_mask" in micro_batch and "uid" in micro_batch:
-                from verl.trainer.ppo.prefix_grouper_utils import build_pg_from_micro_batch, pg_forward
+                from verl.trainer.ppo.prefix_grouper_utils import forward_micro_batch_with_prefix_grouper
 
-                pad_token_id = micro_batch.get("pad_token_id", 0)
-
-                (
-                    prefix_grouper,
-                    concat_input_ids,
-                    attention_mask,
-                    position_ids,
-                    responses,
-                    response_mask,
-                ) = build_pg_from_micro_batch(
-                    micro_batch,
-                    pad_token_id=pad_token_id,
-                    padding_mode="right",
+                return forward_micro_batch_with_prefix_grouper(
+                    micro_batch=micro_batch,
+                    model=self.actor_module,
+                    temperature=temperature,
+                    calculate_entropy=calculate_entropy,
+                    device_name=self.device_name,
+                    param_dtype=self.param_dtype,
+                    use_chunking_entropy=self.config.get("entropy_from_logits_with_chunking", False),
                 )
-
-                entropy_fn = None
-                if calculate_entropy:
-                    if self.config.get("entropy_from_logits_with_chunking", False):
-                        entropy_fn = verl_F.entropy_from_logits_with_chunking
-                    else:
-                        entropy_fn = verl_F.entropy_from_logits
-
-                with torch.autocast(device_type=self.device_name, dtype=self.param_dtype):
-                    log_probs, entropy, suffix_mask_from_pg = pg_forward(
-                        model=self.actor_module,
-                        prefix_grouper=prefix_grouper,
-                        concat_input_ids=concat_input_ids,
-                        attention_mask=attention_mask,
-                        position_ids=position_ids,
-                        completion_ids=responses,
-                        completion_mask=response_mask,
-                        temperature=temperature,
-                        padding_mode="right",
-                        include_prefix_last=1,
-                        calculate_entropy=calculate_entropy,
-                        entropy_fn=entropy_fn,
-                    )
-
-                # Zero out padding positions
-                padding_mask = suffix_mask_from_pg == 0
-                log_probs = log_probs.masked_fill(padding_mask, 0.0)
-                if entropy is not None:
-                    entropy = entropy.masked_fill(padding_mask, 0.0)
-
-                # Pad to target response length if needed
-                target_response_length = responses.size(1)
-                if log_probs.size(1) != target_response_length:
-                    batch_size = log_probs.size(0)
-                    current_len = log_probs.size(1)
-
-                    full_log_probs = log_probs.new_zeros(batch_size, target_response_length)
-                    full_log_probs[:, :current_len] = log_probs
-                    log_probs = full_log_probs
-
-                    if entropy is not None:
-                        full_entropy = entropy.new_zeros(batch_size, target_response_length)
-                        full_entropy[:, :current_len] = entropy
-                        entropy = full_entropy
-
-                return entropy, log_probs
 
         response_length = micro_batch["responses"].size(-1)
         multi_modal_inputs = {}
