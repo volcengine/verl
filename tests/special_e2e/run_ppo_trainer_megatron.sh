@@ -132,17 +132,16 @@ if [ "$USE_DIST_CKPT" = "True" ]; then
 fi
 
 ENGINE=${ENGINE:-"vllm"}
+if [ "$ENGINE" = "vllm" ]; then
+    export VLLM_USE_V1=1
+fi
 
 exp_name="$(basename "${MODEL_ID,,}")-megatron-gsm8k-minimal"
-ROLLOUT_MODE=${ROLLOUT_MODE:-sync}
+ROLLOUT_MODE="async"
 ROLLOUT_QUANTIZATION=${ROLLOUT_QUANTIZATION:-null}
 
-RETURN_RAW_CHAT="False"
-SKIP_TOKENIZER_INIT=${SKIP_TOKENIZER_INIT:-False}
-if [ "$ROLLOUT_MODE" = "async" ]; then
-    RETURN_RAW_CHAT="True"
-    SKIP_TOKENIZER_INIT="True"
-fi
+RETURN_RAW_CHAT="True"
+SKIP_TOKENIZER_INIT="True"
 
 OPTIM_MEMORY_EFFICIENT=${OPTIM_MEMORY_EFFICIENT:-False}
 

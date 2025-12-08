@@ -17,7 +17,6 @@ Note that we don't combine the main with ray_trainer as ray_trainer is used by o
 
 import os
 import socket
-import warnings
 
 import hydra
 import ray
@@ -30,7 +29,7 @@ from verl.trainer.ppo.reward import load_reward_manager
 from verl.trainer.ppo.utils import need_critic, need_reference_policy
 from verl.utils.config import validate_config
 from verl.utils.device import is_cuda_available
-from verl.utils.import_utils import load_extern_type
+from verl.utils.import_utils import load_extern_object
 
 
 @hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
@@ -142,7 +141,10 @@ class TaskRunner:
             return actor_rollout_cls, ray_worker_group_cls
 
         if config.actor_rollout_ref.rollout.mode == "sync":
-            warnings.warn("spmd rollout mode is deprecated and will be removed in v0.6.2", stacklevel=2)
+            raise ValueError(
+                "Rollout mode 'sync' has been removed. Please set "
+                "`actor_rollout_ref.rollout.mode=async` to use the native server rollout."
+            )
 
         if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
             from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
@@ -386,7 +388,7 @@ def create_rl_dataset(data_paths, data_config, tokenizer, processor, is_train=Tr
     # and if the path to the custom class is provided
     if "custom_cls" in data_config and data_config.custom_cls.get("path", None) is not None:
         # Dynamically load the custom dataset class
-        dataset_cls = load_extern_type(data_config.custom_cls.path, data_config.custom_cls.name)
+        dataset_cls = load_extern_object(data_config.custom_cls.path, data_config.custom_cls.name)
         # Verify that the custom dataset class inherits from torch.utils.data.Dataset
         if not issubclass(dataset_cls, Dataset):
             raise TypeError(
@@ -433,7 +435,7 @@ def create_rl_sampler(data_config, dataset):
     from torchdata.stateful_dataloader.sampler import RandomSampler
 
     if data_config.sampler is not None and data_config.sampler.get("class_path", None) is not None:
-        curriculum_class = load_extern_type(
+        curriculum_class = load_extern_object(
             data_config.sampler.class_path,
             data_config.sampler.class_name,
         )

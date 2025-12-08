@@ -58,13 +58,10 @@ use_dynamic_bsz=False # recommended but not necessary
 
 ################################################### quick config ###################################################
 
-rollout_mode="sync"
+rollout_mode="async"
 rollout_name="vllm" # sglang or vllm
-return_raw_chat="False"
-if [ "$rollout_mode" = "async" ]; then
-    export VLLM_USE_V1=1
-    return_raw_chat="True"
-fi
+export VLLM_USE_V1=1
+return_raw_chat="True"
 dtype="bfloat16" # ["bfloat16", "float16"]
 
 project_name='DAPO'

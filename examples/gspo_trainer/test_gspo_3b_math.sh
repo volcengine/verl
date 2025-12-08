@@ -47,7 +47,11 @@ loss_agg_mode="seq-mean-token-mean"
 MODEL_PATH=Qwen/Qwen2.5-3B-Instruct
 offload=false # it's a small model, offloading will just slow-down training
 rollout_engine=vllm
-rollout_mode=sync # can be async to speedup large scale xps
+rollout_mode=async
+return_raw_chat="True"
+if [ "$rollout_engine" = "vllm" ]; then
+    export VLLM_USE_V1=1
+fi
 gpu_memory_utilization=0.8
 reward_manager=dapo
 adv_estimator=grpo
@@ -121,6 +125,7 @@ python3 -m verl.trainer.main_ppo \
     data.prompt_key=prompt \
     data.truncation='error' \
     data.filter_overlong_prompts=true \
+    data.return_raw_chat=${return_raw_chat} \
     data.train_batch_size=${train_batch_size} \
     data.max_prompt_length=${max_prompt_length} \
     data.max_response_length=${max_response_length} \
@@ -138,7 +143,6 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=${actor_ppo_max_token_len} \
     actor_rollout_ref.ref.log_prob_max_token_len_per_gpu=${infer_ppo_max_token_len} \
     actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=${infer_ppo_max_token_len} \
-    actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.name=${rollout_engine} \
     actor_rollout_ref.rollout.mode=${rollout_mode} \
     actor_rollout_ref.model.path="${MODEL_PATH}" \
