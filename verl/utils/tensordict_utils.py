@@ -246,7 +246,9 @@ def index_select_tensor_dict(batch: TensorDict, indices: torch.Tensor | list[int
                 data_dict[key] = tensor[indices]
             elif isinstance(tensor, torch.Tensor) and tensor.is_nested:
                 tensor_lst = tensor.unbind()  # for performance
-                data_dict[key] = torch.nested.as_nested_tensor([tensor_lst[idx] for idx in indices], layout=torch.jagged)
+                data_dict[key] = torch.nested.as_nested_tensor(
+                    [tensor_lst[idx] for idx in indices], layout=torch.jagged
+                )
             else:
                 # This handles NonTensorStack (indexable by batch dim) and NonTensorData (scalar metadata).
                 if tensor.shape:
