@@ -39,6 +39,32 @@ class TestMlflowLoggingAdapter(unittest.TestCase):
             self.assertTrue(any("invalid@key!" in msg and "invalid_at_key_" in msg for msg in warning_msgs))
             self.assertTrue(any("bad key#" in msg and "bad key_" in msg for msg in warning_msgs))
 
+    def test_sanitize_consecutive_slashes(self):
+        """Test that consecutive slashes are collapsed to a single slash."""
+        adapter = _MlflowLoggingAdapter()
+        data = {
+            "val-aux//reward/mean_at_1": 1.0,
+            "val-core///acc/best_at_5": 2.0,
+            "metric////with/many////slashes": 3.0,
+        }
+        # Patch mlflow.log_metrics to capture the metrics actually sent
+        with (
+            patch("mlflow.log_metrics") as mock_log_metrics,
+            patch.object(adapter, "logger") as mock_logger,
+        ):
+            adapter.log(data, step=5)
+            # Check that consecutive slashes are collapsed to single slashes
+            sent_metrics = mock_log_metrics.call_args[1]["metrics"]
+            self.assertIn("val-aux/reward/mean_at_1", sent_metrics)
+            self.assertIn("val-core/acc/best_at_5", sent_metrics)
+            self.assertIn("metric/with/many/slashes", sent_metrics)
+            self.assertNotIn("val-aux//reward/mean_at_1", sent_metrics)
+            self.assertNotIn("val-core///acc/best_at_5", sent_metrics)
+            # Check that warnings were logged for sanitized keys
+            warning_msgs = [str(call) for call in mock_logger.warning.call_args_list]
+            self.assertTrue(any("val-aux//reward/mean_at_1" in msg for msg in warning_msgs))
+            self.assertTrue(any("val-core///acc/best_at_5" in msg for msg in warning_msgs))
+
 
 if __name__ == "__main__":
     unittest.main()

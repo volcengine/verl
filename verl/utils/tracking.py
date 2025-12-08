@@ -281,10 +281,13 @@ class _MlflowLoggingAdapter:
 
     def log(self, data, step):
         import mlflow
+        import re
 
         def sanitize_key(key):
             # First replace @ with _at_ for backward compatibility
             sanitized = key.replace("@", "_at_")
+            # Replace consecutive slashes with a single slash (MLflow treats them as file paths)
+            sanitized = re.sub(r"/+", "/", sanitized)
             # Then replace any other invalid characters with _
             sanitized = self._invalid_chars_pattern.sub("_", sanitized)
             if sanitized != key:
