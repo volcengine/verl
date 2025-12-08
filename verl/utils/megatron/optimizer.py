@@ -19,9 +19,10 @@ from megatron.core.optimizer import get_megatron_optimizer as get_megatron_optim
 from megatron.core.optimizer_param_scheduler import OptimizerParamScheduler
 
 from verl.utils.logger import print_rank_0
+from verl.workers.config.optimizer import McoreOptimizerConfig
 
 
-def init_megatron_optim_config(optim_config: dict, fp16: bool = False) -> OptimizerConfig:
+def init_megatron_optim_config(optim_config: McoreOptimizerConfig, fp16: bool = False) -> OptimizerConfig:
     optim_args = {
         "optimizer": optim_config.optimizer,
         "lr": optim_config.lr,
@@ -49,6 +50,10 @@ def init_megatron_optim_config(optim_config: dict, fp16: bool = False) -> Optimi
                 "params_dtype": torch.bfloat16,
             }
         )
+    if optim_config.optimizer == "adam":
+        optim_args["adam_beta1"] = optim_config.betas[0]
+        optim_args["adam_beta2"] = optim_config.betas[1]
+
     override_config = optim_config.get("override_optimizer_config", {})
     if override_config:
         for k, v in override_config.items():
