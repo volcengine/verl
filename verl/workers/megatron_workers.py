@@ -235,7 +235,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
     """
 
     def __init__(self, config: DictConfig, role: str, **kwargs):
-        Worker.__init__(self)
+        Worker.__init__(self, **kwargs)
         self.config = config
         if repatch is not None:
             # NPU MindSpeed patch, will be refactored with MindSpeedEngine.
@@ -983,8 +983,8 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
 
 
 class CriticWorker(MegatronWorker, DistProfilerExtension):
-    def __init__(self, config: McoreCriticConfig):
-        Worker.__init__(self)
+     def __init__(self, config: McoreCriticConfig, **kwargs):
+        Worker.__init__(self, **kwargs)
 
         omega_profiler_config = config.get("profiler", {})
         profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
@@ -1283,8 +1283,8 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
     Note that we only implement the reward model that is subclass of AutoModelForSequenceClassification.
     """
 
-    def __init__(self, config):
-        Worker.__init__(self)
+    def __init__(self, config, **kwargs):
+        Worker.__init__(self, **kwargs)
 
         profiler_config = omega_conf_to_dataclass(config.get("profiler", {}), dataclass_type=ProfilerConfig)
         omega_profiler_config = config.get("profiler", {})
