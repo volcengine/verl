@@ -150,8 +150,8 @@ class VeOmniEngine(FSDPEngine):
         self.optimizer = build_optimizer(
             self.module,
             lr=self.optimizer_config.lr,
+            betas=self.optimizer_config.betas,
             weight_decay=self.optimizer_config.weight_decay,
-            fused=True,
             optimizer_type=self.optimizer_config.optimizer,
         )
         if get_optimizer_pre_hook is not None:
@@ -165,7 +165,7 @@ class VeOmniEngine(FSDPEngine):
             train_steps=self.optimizer_config.total_training_steps,
             lr=self.optimizer_config.lr,
             lr_min=self.optimizer_config.lr_min,
-            lr_decay_style=self.optimizer_config.lr_decay_style,
+            lr_decay_style=self.optimizer_config.lr_scheduler_type,
             lr_decay_ratio=self.optimizer_config.lr_decay_ratio,
             lr_warmup_ratio=self.optimizer_config.lr_warmup_steps_ratio,
             lr_start=self.optimizer_config.lr_start,

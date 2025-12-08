@@ -58,48 +58,22 @@ class VeOmniOptimizerConfig(OptimizerConfig):
     """FSDP optimizer configuration extending base OptimizerConfig.
 
     Args:
-        optimizer (str): Optimizer class name (e.g., "AdamW", "AdamW8bit", "_AdamW").
-        optimizer_impl (str): Module path to import optimizer from (e.g., "torch.optim", "torchao.optim",
-            "bitsandbytes.optim").
+        optimizer (str): Optimizer name; default is "adamw".
         lr (float): Learning rate.
-        min_lr_ratio (Optional[float]): Minimum LR ratio for cosine schedule.
+        lr_min (float): Minimum learning rate.
+        lr_start (float): Starting learning rate for warmup.
+        lr_decay_ratio (float): LR decay ratio.
         lr_scheduler_type (str): LR scheduler type: "constant" or "cosine".
-        num_cycles (float): Number of cosine cycles in LR schedule.
     """
 
     _mutable_fields = OptimizerConfig._mutable_fields.copy()
-    _mutable_fields |= {"lr_warmup_steps_ratio", "lr_decay_style"}
 
     optimizer: str = "adamw"
-    lr_min: float = 1e-7
-    lr_decay_style: str = "constant"
-    lr_decay_ratio: float = 1.0
-    lr_warmup_ratio: Optional[float] = None
+    lr_min: float = 0.0
     lr_start: float = 0.0
-    lr_scheduler_type: Optional[str] = None
-    max_grad_norm: Optional[float] = None
-
-    def __post_init__(self):
-        if self.max_grad_norm is not None:
-            warnings.warn(
-                "`max_grad_norm` is for VeOmni, be replaced with `clip_grad` instead.", UserWarning, stacklevel=2
-            )
-            self.clip_grad = self.max_grad_norm
-        if self.lr_warmup_ratio is not None:
-            warnings.warn(
-                "`lr_warmup_ratio` is for VeOmni, be replaced with `lr_warmup_steps_ratio` instead.",
-                UserWarning,
-                stacklevel=2,
-            )
-            self.lr_warmup_steps_ratio = self.lr_warmup_ratio
-        if self.lr_scheduler_type is not None:
-            warnings.warn(
-                "`lr_scheduler_type` is for VeOmni, be replaced with `lr_decay_style` instead.",
-                UserWarning,
-                stacklevel=2,
-            )
-            self.lr_decay_style = self.lr_scheduler_type
-        return super().__post_init__()
+    lr_decay_ratio: float = 1.0
+    lr_scheduler_type: str = "constant"
+    override_optimizer_config: Optional[dict] = None
 
 
 @dataclass
