@@ -278,16 +278,16 @@ class _MlflowLoggingAdapter:
         self._invalid_chars_pattern = re.compile(
             r"[^/\w.\- :]"
         )  # Allowed: slashes, alphanumerics, underscores, periods, dashes, colons, and spaces.
+        self._consecutive_slashes_pattern = re.compile(r"/+")
 
     def log(self, data, step):
         import mlflow
-        import re
 
         def sanitize_key(key):
             # First replace @ with _at_ for backward compatibility
             sanitized = key.replace("@", "_at_")
             # Replace consecutive slashes with a single slash (MLflow treats them as file paths)
-            sanitized = re.sub(r"/+", "/", sanitized)
+            sanitized = self._consecutive_slashes_pattern.sub("/", sanitized)
             # Then replace any other invalid characters with _
             sanitized = self._invalid_chars_pattern.sub("_", sanitized)
             if sanitized != key:
