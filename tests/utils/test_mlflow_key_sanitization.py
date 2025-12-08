@@ -43,14 +43,12 @@ class TestMlflowLoggingAdapter(unittest.TestCase):
             self.assertIn("bad key_", sent_metrics)  # # becomes _, space remains
             self.assertNotIn("invalid@key!", sent_metrics)
             self.assertNotIn("bad key#", sent_metrics)
-            
             # Check that consecutive slashes are collapsed to single slashes
             self.assertIn("val-aux/reward/mean_at_1", sent_metrics)
             self.assertIn("val-core/acc/best_at_5", sent_metrics)
             self.assertIn("metric/with/many/slashes", sent_metrics)
             self.assertNotIn("val-aux//reward/mean_at_1", sent_metrics)
             self.assertNotIn("val-core///acc/best_at_5", sent_metrics)
-            
             # Check that warnings were logged for all sanitized keys
             warning_msgs = [str(call) for call in mock_logger.warning.call_args_list]
             # Warnings for invalid characters
