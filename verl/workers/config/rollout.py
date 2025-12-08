@@ -206,6 +206,10 @@ class RolloutConfig(BaseConfig):
     quantization: Optional[str] = None
     enable_rollout_routing_replay: bool = False
 
+    # vLLM allowed_token_ids: If provided, the engine will construct a logits processor
+    # which only retains scores for the given token ids. Defaults to None.
+    allowed_token_ids: Optional[list[int]] = None
+
     def __post_init__(self):
         """Validate the rollout config"""
         if self.expert_parallel_size > 1:
