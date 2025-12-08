@@ -310,7 +310,8 @@ def rearrange_micro_batches(
 
     assert num_micro_batches <= len(seq_len_effective)
 
-    workloads = calculate_workload(seq_len_effective)
+    # note that seq_len_effective is a GPU tensor. We need to make it a list to avoid D2H!
+    workloads = calculate_workload(seq_len_effective).cpu().tolist()
     micro_bsz_idx = get_seqlen_balanced_partitions(workloads, num_micro_batches, equal_size=False)
 
     if use_dynamic_bsz_balance:
