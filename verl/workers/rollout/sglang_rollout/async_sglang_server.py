@@ -14,11 +14,13 @@
 # limitations under the License.
 import asyncio
 import dataclasses
+import json
 import logging
 import os
 from typing import Any, Optional
 
 import ray
+import sglang
 import sglang.srt.entrypoints.engine
 import torch
 from ray.actor import ActorHandle
@@ -125,6 +127,19 @@ class SGLangHttpServer:
 
         engine_kwargs = self.config.get("engine_kwargs", {}).get("sglang", {}) or {}
         attention_backend = engine_kwargs.pop("attention_backend", None)
+        quantization = self.config.get("quantization", None)
+        if quantization is not None:
+            if quantization == "fp8":
+                assert sglang.__version__ >= "0.5.5", "sglang>=0.5.5 is required for FP8 quantization"
+                FP8_BLOCK_QUANT_KWARGS = {
+                    "activation_scheme": "dynamic",
+                    "fmt": "e4m3",
+                    "quant_method": "fp8",
+                    "weight_block_size": [128, 128],
+                }
+                fp8_block_quant_kwargs = dict(FP8_BLOCK_QUANT_KWARGS)
+            else:
+                raise ValueError(f"Currently only support fp8 quantization, got: {quantization}")
         dist_init_addr = (
             f"[{self._master_address}]:{self._master_port}"
             if is_valid_ipv6_address(self._master_address)
@@ -153,6 +168,10 @@ class SGLangHttpServer:
             "attention_backend": attention_backend if attention_backend is not None else "fa3",
             "skip_tokenizer_init": self.config.skip_tokenizer_init,
             "skip_server_warmup": True,
+            "quantization": quantization,
+            "json_model_override_args": json.dumps({"quantization_config": fp8_block_quant_kwargs})
+            if quantization == "fp8"
+            else json.dumps({}),
             **engine_kwargs,
         }
 
@@ -194,8 +213,21 @@ class SGLangHttpServer:
             )
         )
         app.is_single_tokenizer_mode = True
-        app.server_args = server_args
-        app.warmup_thread_args = (server_args, None, None)
+
+        # Set warmup_thread_args to avoid AttributeError in lifespan function
+        app.warmup_thread_args = (
+            server_args,
+            None,
+            None,
+        )
+
+        # Manually add Prometheus middleware before starting server
+        # This ensures /metrics endpoint is available immediately
+        if server_args.enable_metrics:
+            from sglang.srt.utils.common import add_prometheus_middleware
+
+            add_prometheus_middleware(app)
+
         self._server_port, self._server_task = await run_unvicorn(app, server_args, self._server_address)
         self.tokenizer_manager.server_status = ServerStatus.Up
 
@@ -205,7 +237,6 @@ class SGLangHttpServer:
             await asyncio.gather(*[worker.wake_up.remote() for worker in self.workers])
         elif self.rollout_mode == RolloutMode.COLOCATED:
             # Directly call engine to wake up without sync weights.
-            # FIXME(@wuxibin): sglang seems resume with random weights.
             obj = ResumeMemoryOccupationReqInput(tags=["kv_cache", "weights"])
             await self.tokenizer_manager.resume_memory_occupation(obj, None)
             await self.tokenizer_manager.flush_cache()
@@ -220,6 +251,10 @@ class SGLangHttpServer:
             await self.tokenizer_manager.release_memory_occupation(obj, None)
         elif self.rollout_mode == RolloutMode.STANDALONE:
             logger.info("skip sleep in standalone mode")
+
+    async def clear_kv_cache(self):
+        obj = ReleaseMemoryOccupationReqInput(tags=["kv_cache"])
+        await self.tokenizer_manager.release_memory_occupation(obj, None)
 
     async def generate(
         self,

@@ -133,6 +133,26 @@ class DataParallelPPOActor(BasePPOActor):
                         rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices
                     ).transpose(0, 1)
 
+                is_mask_all_zero = attention_mask.sum() == 0
+                if is_mask_all_zero:
+                    input_ids_rmpad = torch.zeros(
+                        (1, self.ulysses_sequence_parallel_size),
+                        device=input_ids.device,
+                        dtype=input_ids.dtype,
+                    )
+                    if position_ids.dim() == 3:
+                        position_ids_rmpad = torch.zeros(
+                            (position_ids.shape[0], 1, self.ulysses_sequence_parallel_size),
+                            device=position_ids.device,
+                            dtype=position_ids.dtype,
+                        )
+                    else:
+                        position_ids_rmpad = torch.zeros(
+                            (1, self.ulysses_sequence_parallel_size),
+                            device=position_ids.device,
+                            dtype=position_ids.dtype,
+                        )
+
                 if "image_bound" in multi_modal_inputs:
                     from verl.utils.dataset.vision_utils import process_multi_modal_inputs_for_minicpmo
 
@@ -227,6 +247,12 @@ class DataParallelPPOActor(BasePPOActor):
                             unpad_dim=0,
                             padding_size=pad_size,
                         )
+
+                if is_mask_all_zero:
+                    log_probs = log_probs[:0]
+                    if calculate_entropy:
+                        entropy_rmpad = entropy_rmpad[:0]
+
                 # pad back to (bsz, seqlen)
                 if calculate_entropy:
                     full_entropy = pad_input(
@@ -430,15 +456,14 @@ class DataParallelPPOActor(BasePPOActor):
                     entropy_coeff = self.config.entropy_coeff
                     loss_agg_mode = self.config.loss_agg_mode
 
+                    calculate_entropy = self.config.calculate_entropy or (entropy_coeff != 0)
+
                     if self.config.use_dynamic_bsz:
                         loss_scale_factor = response_mask.shape[0] / self.config.ppo_mini_batch_size
                     else:
                         loss_scale_factor = 1 / self.gradient_accumulation
 
                     # all return: (bsz, response_length)
-                    calculate_entropy = False
-                    if entropy_coeff != 0:
-                        calculate_entropy = True
                     entropy, log_prob = self._forward_micro_batch(
                         model_inputs, temperature=temperature, calculate_entropy=calculate_entropy
                     )
@@ -489,13 +514,12 @@ class DataParallelPPOActor(BasePPOActor):
                         )
                         micro_batch_metrics.update(rollout_corr_metrics)
 
-                    if entropy_coeff != 0:
-                        entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
-
-                        # compute policy loss
-                        policy_loss = pg_loss - entropy_loss * entropy_coeff
-                    else:
-                        policy_loss = pg_loss
+                    policy_loss = pg_loss
+                    if calculate_entropy and entropy is not None:
+                        entropy_agg = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+                        micro_batch_metrics["actor/entropy"] = entropy_agg.detach().item()
+                        if entropy_coeff != 0:
+                            policy_loss -= entropy_agg * entropy_coeff
 
                     if self.config.use_kl_loss:
                         ref_log_prob = model_inputs["ref_log_prob"]

@@ -1,17 +1,14 @@
 set -x
 export VLLM_ASCEND_ENABLE_NZ=0
 
-# TODO (FightingZhen) Env VLLM_USE_V1=1 is not supported in vllm==0.7.3
-# export VLLM_USE_V1=1
-
 MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B-Instruct}  # TODO: change to Qwen3-0.6B when CI server is ready
-MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
+MODEL_PATH=${MODEL_PATH:-${HOME}/.cache/models/${MODEL_ID}}
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=gae \
     data.train_files=$HOME/data/gsm8k/train.parquet \
     data.val_files=$HOME/data/gsm8k/test.parquet \
-    data.train_batch_size=128 \
+    data.train_batch_size=16 \
     data.max_prompt_length=512 \
     data.max_response_length=128 \
     data.shuffle=False \
@@ -19,15 +16,15 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.optim.lr=1e-6 \
-    actor_rollout_ref.actor.ppo_mini_batch_size=64 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=8 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=8 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.actor.fsdp_config.param_offload=True \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=2 \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
     actor_rollout_ref.actor.use_torch_compile=False \
-    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=8 \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
@@ -38,7 +35,7 @@ python3 -m verl.trainer.main_ppo \
     critic.model.use_remove_padding=True \
     critic.model.path="${MODEL_PATH}" \
     critic.model.enable_gradient_checkpointing=True \
-    critic.ppo_micro_batch_size_per_gpu=8 \
+    critic.ppo_micro_batch_size_per_gpu=1 \
     critic.ulysses_sequence_parallel_size=2 \
     critic.model.fsdp_config.param_offload=True \
     critic.model.fsdp_config.optimizer_offload=True \
@@ -52,5 +49,5 @@ python3 -m verl.trainer.main_ppo \
     trainer.save_freq=-1 \
     trainer.test_freq=-1 \
     trainer.total_epochs=1 \
-    trainer.total_training_steps=2 \
+    trainer.total_training_steps=1 \
     trainer.device=npu $@

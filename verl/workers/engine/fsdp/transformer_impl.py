@@ -69,7 +69,7 @@ from verl.workers.config import FSDPEngineConfig, FSDPOptimizerConfig, HFModelCo
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 from ..base import BaseEngine, EngineRegistry
-from ..utils import postprocess_batch_func, prepare_micro_batches
+from ..utils import enable_full_determinism, postprocess_batch_func, prepare_micro_batches
 from .utils import create_device_mesh, get_sharding_strategy
 
 logger = logging.getLogger(__file__)
@@ -115,6 +115,9 @@ class FSDPEngine(BaseEngine):
         self.use_remove_padding = self.model_config.use_remove_padding
 
         self._init_device_mesh()
+
+        if self.engine_config.full_determinism:
+            enable_full_determinism(seed=self.engine_config.seed)
 
         # set FSDP offload params
         self._is_offload_param = self.engine_config.param_offload
@@ -963,7 +966,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
             output = {
                 "model_output": model_output,
-                "loss": loss,
+                "loss": loss.detach().item(),
                 "metrics": metrics,
             }
 
