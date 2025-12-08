@@ -181,6 +181,11 @@ class RolloutConfig(BaseConfig):
     # Use Prometheus to collect and monitor rollout statistics
     prometheus: PrometheusConfig = field(default_factory=PrometheusConfig)
 
+    # Generic extension point for custom configurations (e.g., remote rollout, external integrations)
+    # This field accepts arbitrary dict and is not validated by verl.
+    # Example usage: custom.my_integration.setting = value
+    custom: Optional[dict] = None
+
     update_weights_bucket_megabytes: int = 512
 
     skip_rollout: bool = False
