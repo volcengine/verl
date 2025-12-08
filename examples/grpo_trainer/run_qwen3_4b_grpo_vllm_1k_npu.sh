@@ -2,22 +2,23 @@ set -xeuo pipefail
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
 source /usr/local/Ascend/nnal/atb/set_env.sh
 
+# 使用v1引擎
 export VLLM_USE_V1=1
+# 指定vllm 版本
 export VLLM_VERSION=0.9.1
 
 # 开启二级流水
 export TASK_QUEUE_ENABLE=2
 # 开启细绑核
 export CPU_AFFINITY_CONF=1
-# 使用jemalloc优化内存访问，较小全局锁对性能的影响，依赖安装jemalloc。
+# 使用jemalloc优化内存访问（依赖安装jemalloc）
 export LD_PRELOAD="/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
 
 # A3 机器单机8卡
 trainer_n_gpus_per_node=16
 trainer_nnodes=1
-exp_num="1"
 trainer_project_name='verl_grpo_example_gsm8k'
-trainer_experiment_name="qwen3_4b_grpo_8ka_${exp_num}"
+trainer_experiment_name="qwen3_4b_grpo_8npu}"
 
 RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
 MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen3-4B"}
