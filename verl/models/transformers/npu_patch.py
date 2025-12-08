@@ -239,6 +239,7 @@ modeling_qwen2_5_vl.Qwen2_5_VLMLP.forward = silu_forward_npu
 # Patches for Qwen3 Model
 modeling_qwen3.Qwen3RMSNorm.forward = rms_norm_forward_npu
 modeling_qwen3.Qwen3MLP.forward = silu_forward_npu
+modeling_qwen3.apply_rotary_pos_emb = apply_rotary_pos_emb_npu
 
 # Patches for Qwen3 MoE Model
 modeling_qwen3_moe.Qwen3MoeRMSNorm.forward = rms_norm_forward_npu
