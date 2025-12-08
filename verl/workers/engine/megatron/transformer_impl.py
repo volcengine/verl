@@ -262,7 +262,11 @@ class MegatronEngine(BaseEngine):
             init_megatron_optim_config,
         )
 
-        optim_config_megatron = init_megatron_optim_config(self.optimizer_config, self.param_dtype == torch.float16)
+        optim_config_megatron = init_megatron_optim_config(
+            self.optimizer_config,
+            use_distributed_optimizer=self.engine_config.use_distributed_optimizer,
+            fp16=self.param_dtype == torch.float16,
+        )
         optimizer = get_megatron_optimizer(model=self.module, config=optim_config_megatron)
         register_megatron_training_hooks(self.module, optimizer)
         return optimizer
