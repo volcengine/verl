@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import logging
 import os
 import pickle
@@ -22,6 +23,7 @@ from multiprocessing.synchronize import Lock as LockType
 from typing import Optional
 from threading import Thread
 from types import MethodType
+from typing import Optional
 
 import torch
 import zmq
@@ -92,8 +94,7 @@ class vLLMWorkerProc(WorkerProc):
         }
         if os.environ.get("VERL_VLLM_FP8_QUANT_ENABLED", "0") == "1":
             apply_vllm_fp8_patches()
-        rank_offset = int(os.environ.get("VERL_VLLM_MULTIPROC_RANK_OFFSET", "0"))
-        wrapper = WorkerWrapperBase(vllm_config=vllm_config, rpc_rank=local_rank - rank_offset)
+        wrapper = WorkerWrapperBase(vllm_config=vllm_config, rpc_rank=local_rank)
         wrapper.init_worker(all_kwargs)
         self.worker = wrapper
 
@@ -281,7 +282,6 @@ class vLLMMultiprocExecutor(MultiprocExecutor):
 
         self.world_size = self.parallel_config.world_size
         tensor_parallel_size = self.parallel_config.tensor_parallel_size
-        rank_offset = int(os.environ.get("VERL_VLLM_MULTIPROC_RANK_OFFSET", "0"))
 
         # Set multiprocessing envs
         set_multiprocessing_worker_envs()
@@ -305,7 +305,7 @@ class vLLMMultiprocExecutor(MultiprocExecutor):
                 unready_workers.append(
                     vLLMWorkerProc.make_worker_process(
                         vllm_config=self.vllm_config,
-                        local_rank=rank + rank_offset,
+                        local_rank=rank,
                         rank=rank,
                         distributed_init_method=distributed_init_method,
                         input_shm_handle=scheduler_output_handle,

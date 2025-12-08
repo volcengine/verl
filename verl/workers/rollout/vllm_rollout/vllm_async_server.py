@@ -523,9 +523,22 @@ class vLLMReplica(RolloutReplica):
             "VERL_VLLM_VOCAB_SIZE": str(len(self.model_config.tokenizer))
         }
         if self.n_gpus_per_node > self.world_size:
-            env_vars.update({
-                "VERL_VLLM_MULTIPROC_RANK_OFFSET": str(self.replica_rank * self.world_size % self.n_gpus_per_node)
-            })
+            assert self.n_gpus_per_node % self.world_size == 0, (
+                f"n_gpus_per_node {self.n_gpus_per_node} must be divisible by world_size {self.world_size}"
+                f"while n_gpus_per_node > world_size"
+            )
+            start_device_index = self.replica_rank * self.world_size % self.n_gpus_per_node
+            end_device_index = start_device_index + self.world_size
+            CUDA_VISIBLE_DEVICES = ",".join(str(i) for i in range(start_device_index, end_device_index))
+        else:
+            assert self.world_size % self.n_gpus_per_node == 0, (
+                f"world_size {self.world_size} must be divisible by n_gpus_per_node {self.n_gpus_per_node}"
+                f"while world_size >= n_gpus_per_node"
+            )
+            CUDA_VISIBLE_DEVICES = ",".join(str(i) for i in range(self.n_gpus_per_node))
+        env_vars.update({
+            "CUDA_VISIBLE_DEVICES": CUDA_VISIBLE_DEVICES
+        })
 
         # create server actor in each node with node affinity
         for node_rank in range(nnodes):
