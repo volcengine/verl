@@ -318,7 +318,4 @@ class EngineRegistry:
             NotImplementedError: If the engine key in the config does not match any known engines.
         """
         engine_cls = cls.get_engine_cls(model_type, backend)
-        if backend != "veomni":
-            kwargs.pop("config", None)
-            kwargs.pop("train_dataloader", None)
         return engine_cls(*args, **kwargs)

@@ -94,14 +94,6 @@ class HFModelConfig(BaseConfig):
 
     architectures: Optional[list[str]] = None
 
-    enable_fsdp_offload: bool = False
-    enable_reentrant: bool = False
-    attn_implementation: str = "flash_attention_2"
-    moe_implementation: str = "eager"
-    force_use_huggingface: bool = False
-    activation_gpu_limit: float = 0.0
-    basic_modules: Optional[list[str]] = field(default_factory=list)
-
     def __post_init__(self):
         import_external_libs(self.external_lib)
 

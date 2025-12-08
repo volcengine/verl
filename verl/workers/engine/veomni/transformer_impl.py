@@ -33,10 +33,13 @@ from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.utils.device import (
     get_device_id,
 )
+from verl.utils.fsdp_utils import (
+    fsdp_version,
+)
 from verl.workers.config import HFModelConfig, VeOmniEngineConfig, VeOmniOptimizerConfig
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
-from ..base import EngineRegistry
+from ..base import BaseEngineCtx, EngineRegistry
 from ..fsdp.transformer_impl import FSDPEngine, FSDPEngineWithLMHead
 from ..utils import enable_full_determinism, postprocess_batch_func, prepare_micro_batches
 
@@ -61,12 +64,13 @@ class VeOmniEngine(FSDPEngine):
             config: Configuration object with FSDP and model settings.
         """
 
+        # TODO: Preprocessing operations for the MOE model are appended here,
+        # instead of relying on Veomni's transformation scripts.
+
         self.model_config = model_config
         self.engine_config = engine_config
         self.optimizer_config = optimizer_config
         self.checkpoint_config = checkpoint_config
-        self.config = kwargs.pop("config", None)
-        self.train_dataloader = kwargs.pop("train_dataloader", None)
 
         self.mode = None
 
@@ -124,14 +128,14 @@ class VeOmniEngine(FSDPEngine):
         self.module = build_foundation_model(
             config_path=self.model_config.hf_config_path,
             weights_path=self.model_config.path,
-            torch_dtype="float32" if self.engine_config.enable_mixed_precision else "bfloat16",
-            attn_implementation=self.model_config.attn_implementation,
-            moe_implementation=self.model_config.moe_implementation,
+            torch_dtype="float32" if self.engine_config.mixed_precision else "bfloat16",
+            attn_implementation=self.engine_config.attn_implementation,
+            moe_implementation=self.engine_config.moe_implementation,
             init_device=self.engine_config.init_device,
-            force_use_huggingface=self.model_config.force_use_huggingface,
+            force_use_huggingface=self.engine_config.force_use_huggingface,
         )
 
-        model_config = self.module.config
+        module_config = self.module.config
 
         get_optimizer_pre_hook = getattr(self.module, "get_optimizer_pre_hook", None)
         self.module = build_parallelize_model(
@@ -139,12 +143,12 @@ class VeOmniEngine(FSDPEngine):
             init_device=self.engine_config.init_device,
             weights_path=self.model_config.path,
             enable_full_shard=self.engine_config.enable_full_shard,
-            enable_mixed_precision=self.engine_config.enable_mixed_precision,
+            enable_mixed_precision=self.engine_config.mixed_precision,
             enable_gradient_checkpointing=self.model_config.enable_gradient_checkpointing,
-            enable_fsdp_offload=self.model_config.enable_fsdp_offload,
-            basic_modules=self.module._no_split_modules + self.model_config.basic_modules,
-            enable_reentrant=self.model_config.enable_reentrant,
-            enable_forward_prefetch=self.engine_config.enable_forward_prefetch,
+            enable_fsdp_offload=self.engine_config.enable_fsdp_offload,
+            basic_modules=self.module._no_split_modules + self.engine_config.basic_modules,
+            enable_reentrant=self.engine_config.enable_reentrant,
+            enable_forward_prefetch=self.engine_config.forward_prefetch,
         )
 
         self.optimizer = build_optimizer(
@@ -156,7 +160,7 @@ class VeOmniEngine(FSDPEngine):
         )
         if get_optimizer_pre_hook is not None:
             optimizer_pre_hook = get_optimizer_pre_hook(
-                self.module, model_config, self.engine_config.data_parallel_mode
+                self.module, module_config, self.engine_config.data_parallel_mode
             )
             self.optimizer.register_step_pre_hook(optimizer_pre_hook)
 
@@ -182,7 +186,7 @@ class VeOmniEngine(FSDPEngine):
         self.model_fwd_context, self.model_bwd_context = build_activation_offloading_context(
             self.model_config.enable_activation_offload,
             self.model_config.enable_gradient_checkpointing,
-            self.model_config.activation_gpu_limit,
+            self.engine_config.activation_gpu_limit,
         )
 
     def optimizer_step(self):
@@ -269,7 +273,65 @@ class VeOmniEngine(FSDPEngine):
             is_collect = True
         return is_collect
 
+    def train_mode(self, **kwargs):
+        """
+        Return a context manager that switches to training mode with VeOmni-specific handling.
 
-@EngineRegistry.register(model_type="language_model", backend=["veomni"], device=["cuda"])
+        Includes parameter and optimizer offload entry/exit.
+        """
+        return EngineTrainModeCtx(self, **kwargs)
+
+    def eval_mode(self, **kwargs):
+        """
+        Return a context manager that switches to evaluation mode with VeOmni-specific handling.
+
+        Includes activation offload entry/exit.
+        """
+        return EngineEvalModeCtx(self, **kwargs)
+
+
+class EngineEvalModeCtx(BaseEngineCtx):
+    def __init__(self, engine: VeOmniEngine, **kwargs):
+        super().__init__(engine=engine, mode="eval", **kwargs)
+
+    def __enter__(self):
+        assert isinstance(self.engine, VeOmniEngine)
+        super().__enter__()
+        self.engine.ulysses_sharding_manager.__enter__()
+        self.engine.module.eval()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        assert isinstance(self.engine, VeOmniEngine)
+        self.engine.ulysses_sharding_manager.__exit__(exc_type, exc_value, traceback)
+
+        # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
+        # unshard the root FSDP module
+        if parallel_state.get_parallel_state().dp_shard_size > 1:
+            if fsdp_version(self.engine.module) == 1:
+                self.engine.module._handle.reshard(True)
+            elif fsdp_version(self.engine.module) == 2:
+                self.engine.module.reshard()
+
+        super().__exit__(exc_type, exc_value, traceback)
+
+
+class EngineTrainModeCtx(BaseEngineCtx):
+    def __init__(self, engine: VeOmniEngine, **kwargs):
+        super().__init__(engine=engine, mode="train", **kwargs)
+
+    def __enter__(self):
+        assert isinstance(self.engine, VeOmniEngine)
+        super().__enter__()
+        self.engine.ulysses_sharding_manager.__enter__()
+        self.engine.module.train()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        assert isinstance(self.engine, VeOmniEngine)
+        self.engine.ulysses_sharding_manager.__exit__(exc_type, exc_value, traceback)
+        self.engine.optimizer_zero_grad()
+        super().__exit__(exc_type, exc_value, traceback)
+
+
+@EngineRegistry.register(model_type="language_model", backend=["veomni"], device=["cuda", "npu"])
 class VeOmniEngineWithLMHead(VeOmniEngine, FSDPEngineWithLMHead):
     pass
