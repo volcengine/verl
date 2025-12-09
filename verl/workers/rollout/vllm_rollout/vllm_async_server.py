@@ -490,9 +490,9 @@ class vLLMHttpServerBase:
                 - request_ids: List of aborted request IDs
         """
         try:
-            # Get all active request states from the output processor
-            request_states = self.engine.output_processor.request_states
-            request_ids = list(request_states.keys())
+            # Take an atomic snapshot to avoid race conditions with the vLLM engine thread
+            request_states_snapshot = list(self.engine.output_processor.request_states.items())
+            request_ids = [req_id for req_id, _ in request_states_snapshot]
 
             if not request_ids:
                 return {"aborted_count": 0, "request_ids": []}
@@ -501,7 +501,7 @@ class vLLMHttpServerBase:
             # This allows the generator to receive the aborted result
             from vllm.v1.engine import FinishReason
 
-            for req_state in request_states.values():
+            for _, req_state in request_states_snapshot:
                 request_output = req_state.make_request_output(
                     [], pooling_output=None, finish_reason=FinishReason.ABORT, stop_reason=None
                 )
@@ -529,11 +529,10 @@ class vLLMHttpServerBase:
         """
         try:
             request_states = self.engine.output_processor.request_states
+            req_state = request_states.get(request_id)
 
-            if request_id not in request_states:
+            if req_state is None:
                 return {"aborted": False, "error": f"Request {request_id} not found"}
-
-            req_state = request_states[request_id]
 
             # Create abort output and put it to the queue
             from vllm.v1.engine import FinishReason
