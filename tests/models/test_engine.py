@@ -57,7 +57,7 @@ from verl.workers.utils.padding import left_right_2_no_padding, no_padding_2_pad
 def test_engine(strategy):
     ray.init()
 
-    path = os.path.expanduser("~/models/HuggingFaceTB/SmolLM2-135M-Instruct")
+    path = os.path.expanduser("~/models/Qwen/Qwen2.5-0.5B")
     model_config = HFModelConfig(path=path, use_remove_padding=True)
 
     kwargs = dict(
@@ -74,15 +74,15 @@ def test_engine(strategy):
         engine_config = McoreEngineConfig(
             forward_only=False,
             use_mbridge=False,
-            tensor_model_parallel_size=1,
-            pipeline_model_parallel_size=1,
-            context_parallel_size=1,
+            tensor_model_parallel_size=2,
+            pipeline_model_parallel_size=2,
+            context_parallel_size=2,
             **kwargs,
         )
         optimizer_config = McoreOptimizerConfig(lr_decay_steps=10)
     elif strategy in ["fsdp", "fsdp2"]:
         engine_config = FSDPEngineConfig(
-            forward_only=False, fsdp_size=1, strategy=strategy, ulysses_sequence_parallel_size=1, **kwargs
+            forward_only=False, fsdp_size=4, strategy=strategy, ulysses_sequence_parallel_size=2, **kwargs
         )
         optimizer_config = FSDPOptimizerConfig()
     else:
@@ -97,7 +97,7 @@ def test_engine(strategy):
     )
 
     ray_cls_with_init = RayClassWithInitArgs(cls=ray.remote(TrainingWorker), config=config)
-    resource_pool = RayResourcePool(process_on_nodes=[1])
+    resource_pool = RayResourcePool(process_on_nodes=[8])
     wg = RayWorkerGroup(resource_pool=resource_pool, ray_cls_with_init=ray_cls_with_init)
     # init model
     wg.reset()
