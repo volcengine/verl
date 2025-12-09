@@ -628,9 +628,7 @@ def collect_lora_params(module: FSDP, layered_summon: bool, base_sync_done: bool
         else:
             if base_sync_done:
                 lora_params = get_peft_model_state_dict(peft_model)
-                lora_params = {
-                    name: param for name, param in lora_params.items()
-                }
+                lora_params = {name: param for name, param in lora_params.items()}
             else:
                 for name, submodule in module.named_modules():
                     if fsdp_version(submodule) > 0 and name.startswith("_fsdp_wrapped_module.base_model"):
@@ -638,8 +636,10 @@ def collect_lora_params(module: FSDP, layered_summon: bool, base_sync_done: bool
                 for name, param in module.state_dict().items():
                     if any(x in name for x in ["_flat_param", "lora_"]):
                         continue
-                    name = name.replace("_fsdp_wrapped_module.", "").replace(".base_layer", "").replace(
-                        "base_model.model.", ""
+                    name = (
+                        name.replace("_fsdp_wrapped_module.", "")
+                        .replace(".base_layer", "")
+                        .replace("base_model.model.", "")
                     )
                     lora_params[name] = param
             get_torch_device().empty_cache()
