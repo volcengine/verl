@@ -727,7 +727,9 @@ class RayPPOTrainer:
                 self.resource_pool_to_cls[resource_pool][str(Role.RewardModel)] = rm_cls
         else:
             # reward loop handle hybrid reward scenario (rule, disrm, genrm, ...)
-            can_reward_loop_parallelize = not self.use_rm or self.config.reward_model.enable_resource_pool
+            can_reward_loop_parallelize = self.config.actor_rollout_ref.rollout.mode == "async" and (
+                not self.use_rm or self.config.reward_model.enable_resource_pool
+            )
             # judge if we can asynchronously parallelize reward model with actor rollout
             # two condition that we can parallelize reward model with actor rollout:
             # 1. reward model is not enabled (rule-based reward can parallelize)
