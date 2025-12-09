@@ -73,7 +73,7 @@ class TrainingWorker(Worker):
 
         # TODO: fix me
         assert self.model_config.use_remove_padding == self.engine_config.use_remove_padding, (
-            "Got {self.model_config.use_remove_padding=}, {self.engine_config.use_remove_padding=}"
+            f"Got {self.model_config.use_remove_padding=}, {self.engine_config.use_remove_padding=}"
         )
 
         # TODO: add DistProfilerExtension
