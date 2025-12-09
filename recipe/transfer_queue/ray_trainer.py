@@ -26,6 +26,7 @@ import os
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
+from functools import partial
 from pprint import pprint
 from typing import Any, Optional
 
@@ -410,9 +411,9 @@ class RayPPOTrainer:
         if self.config.algorithm.use_kl_in_reward:
             self.kl_ctrl_in_reward = core_algos.get_kl_controller(self.config.algorithm.kl_ctrl)
 
-        self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
-
+        self.val_dataset_size = len(val_dataset)
         self.tq_client = self._initialize_transferqueue()
+        self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
 
     def _initialize_transferqueue(self):
         # 1. initialize TransferQueueStorage
@@ -508,20 +509,28 @@ class RayPPOTrainer:
 
         num_workers = self.config.data["dataloader_num_workers"]
 
+        # TODO(baymax): need remove
+        # self.train_dataloader = StatefulDataLoader(
+        #     dataset=self.train_dataset,
+        #     batch_size=self.config.data.get("gen_batch_size", self.config.data.train_batch_size),
+        #     num_workers=num_workers,
+        #     drop_last=True,
+        #     collate_fn=collate_fn,
+        #     sampler=train_sampler,
+        # )
+
         self.train_dataloader = StatefulDataLoader(
             dataset=self.train_dataset,
-            batch_size=self.config.data.get("gen_batch_size", self.config.data.train_batch_size),
+            batch_sampler=train_sampler,
             num_workers=num_workers,
-            drop_last=True,
-            collate_fn=collate_fn,
-            sampler=train_sampler,
+            collate_fn=partial(collate_fn, config=self.config, prefix="train_"),
         )
 
         val_batch_size = self.config.data.val_batch_size  # Prefer config value if set
         if val_batch_size is None:
             val_batch_size = len(self.val_dataset)
-        self.val_batch_size = val_batch_size
-
+        
+        #TODO(baymax): val_dataloader need put_tq
         self.val_dataloader = StatefulDataLoader(
             dataset=self.val_dataset,
             batch_size=val_batch_size,
@@ -675,23 +684,24 @@ class RayPPOTrainer:
         sample_uids = []
 
         for test_data in self.val_dataloader:
-            if "uid" not in test_data.keys():
-                test_data["uid"] = np.array(
-                    [str(uuid.uuid4()) for _ in range(len(test_data["input_ids"]))], dtype=object
-                )
+            #TODO(baymax): need remove
+            # if "uid" not in test_data.keys():
+            #     test_data["uid"] = np.array(
+            #         [str(uuid.uuid4()) for _ in range(len(test_data["input_ids"]))], dtype=object
+            #     )
 
-            # repeat test data
-            repeated_test_data = self.repeat_dict(
-                test_data, repeat_times=self.config.actor_rollout_ref.rollout.val_kwargs.n, interleave=True
-            )
+            # # repeat test data
+            # repeated_test_data = self.repeat_dict(
+            #     test_data, repeat_times=self.config.actor_rollout_ref.rollout.val_kwargs.n, interleave=True
+            # )
 
-            test_batch: TensorDict = self.dict_to_tensordict(repeated_test_data)
+            # test_batch: TensorDict = self.dict_to_tensordict(repeated_test_data)
 
             # we only do validation on rule-based rm
             if self.config.reward_model.enable and test_batch[0]["reward_model"]["style"] == "model":
                 return {}
 
-            asyncio.run(self.tq_client.async_put(data=test_batch, partition_id=f"val_{self.global_steps - 1}"))
+            # asyncio.run(self.tq_client.async_put(data=test_batch, partition_id=f"val_{self.global_steps - 1}"))
 
             # Store original inputs
             batch_meta = asyncio.run(
@@ -1167,47 +1177,6 @@ class RayPPOTrainer:
         return global_idx
 
     @classmethod
-    def repeat_dict(
-        cls, batch_dict: dict[str, torch.Tensor | np.ndarray], repeat_times=2, interleave=True
-    ) -> dict[str, torch.Tensor | np.ndarray]:
-        """
-        Repeat the batch dict a specified number of times.
-
-        Args:
-            repeat_times (int): Number of times to repeat the data.
-            interleave (bool): Whether to interleave the repeated data.
-
-        Returns:
-            dict: A new dict with repeated data.
-        """
-        if repeat_times == 1:
-            return batch_dict
-
-        repeated_batch_dict = {}
-        if batch_dict:
-            if interleave:
-                # Interleave the data
-                for key, val in batch_dict.items():
-                    if isinstance(val, torch.Tensor):
-                        repeated_batch_dict[key] = val.repeat_interleave(repeat_times, dim=0)
-                    elif isinstance(val, np.ndarray):
-                        repeated_batch_dict[key] = np.repeat(val, repeat_times, axis=0)
-                    else:
-                        raise ValueError(f"Unsupported type in data {type(val)}")
-            else:
-                # Stack the data
-                for key, val in batch_dict.items():
-                    if isinstance(val, torch.Tensor):
-                        repeated_batch_dict[key] = (
-                            val.unsqueeze(0).expand(repeat_times, *val.shape).reshape(-1, *val.shape[1:])
-                        )
-                    elif isinstance(val, np.ndarray):
-                        repeated_batch_dict[key] = np.tile(val, (repeat_times,) + (1,) * (val.ndim - 1))
-                    else:
-                        raise ValueError(f"Unsupported type in data {type(val)}")
-        return repeated_batch_dict
-
-    @classmethod
     def dict_to_tensordict(cls, data: dict[str, torch.Tensor | np.ndarray]) -> TensorDict:
         """
         Create a TensorDict from a dict of tensors and non_tensors.
@@ -1291,7 +1260,8 @@ class RayPPOTrainer:
         next_step_profile = False
 
         for epoch in range(self.config.trainer.total_epochs):
-            for batch_dict in self.train_dataloader:
+            # for batch_dict in self.train_dataloader:
+            for batch_keys in self.train_dataloader:
                 metrics = {}
                 timing_raw = {}
                 base_get_meta_kwargs = dict(

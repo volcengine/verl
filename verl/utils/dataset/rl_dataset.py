@@ -291,6 +291,10 @@ class RLHFDataset(Dataset):
         """
         Note that we also return the raw_input_ids so that it can be combined with other chat template
         """
+        print(f"baymax debug item={item}")
+        batch_id=None
+        if isinstance(item, tuple):
+            batch_id, item = item
         row_dict: dict = self.dataframe[item]
         messages = self._build_messages(row_dict)
         model_inputs = {}
@@ -450,6 +454,9 @@ class RLHFDataset(Dataset):
         row_dict["index"] = index
         row_dict["tools_kwargs"] = tools_kwargs
         row_dict["interaction_kwargs"] = interaction_kwargs
+
+        if batch_id is not None:
+            row_dict["batch_id"] = batch_id
         return row_dict
 
     def __getstate__(self):

@@ -388,19 +388,27 @@ class RayPPOTrainer:
 
         num_workers = self.config.data["dataloader_num_workers"]
 
+        # self.train_dataloader = StatefulDataLoader(
+        #     dataset=self.train_dataset,
+        #     batch_size=self.config.data.get("gen_batch_size", self.config.data.train_batch_size),
+        #     num_workers=num_workers,
+        #     drop_last=True,
+        #     collate_fn=collate_fn,
+        #     sampler=train_sampler,
+        # )
+
         self.train_dataloader = StatefulDataLoader(
             dataset=self.train_dataset,
-            batch_size=self.config.data.get("gen_batch_size", self.config.data.train_batch_size),
+            batch_sampler=train_sampler,
             num_workers=num_workers,
-            drop_last=True,
-            collate_fn=collate_fn,
-            sampler=train_sampler,
+            collate_fn=partial(collate_fn, tq_client=self.tq_client, prefix="train_"),
         )
 
         val_batch_size = self.config.data.val_batch_size  # Prefer config value if set
         if val_batch_size is None:
             val_batch_size = len(self.val_dataset)
-
+        
+        #TODO: val_dataloader need put_tq
         self.val_dataloader = StatefulDataLoader(
             dataset=self.val_dataset,
             batch_size=val_batch_size,

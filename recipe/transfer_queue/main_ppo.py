@@ -15,12 +15,14 @@
 Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
 """
 
+import asyncio
 import os
 import socket
 
 import hydra
 import ray
 from omegaconf import OmegaConf
+from torch.utils.data import BatchSampler
 
 from verl.trainer.constants_ppo import get_ppo_ray_runtime_env
 from verl.trainer.main_ppo import (
@@ -36,6 +38,12 @@ from verl.utils.config import validate_config
 from verl.utils.device import auto_set_ascend_device_name, is_cuda_available
 
 from .ray_trainer import RayPPOTrainer
+
+import torch
+import tensordict
+import numpy as np
+from tensordict import TensorDict
+from packaging.version import parse as parse_version
 
 
 @hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
@@ -176,12 +184,10 @@ class TaskRunner(MainTaskRunner):
 
         resource_pool_manager = self.init_resource_pool_mgr(config)
 
-        from verl.utils.dataset.rl_dataset import collate_fn
-
         # Create training and validation datasets.
         train_dataset = create_rl_dataset(config.data.train_files, config.data, tokenizer, processor, is_train=True)
         val_dataset = create_rl_dataset(config.data.val_files, config.data, tokenizer, processor, is_train=False)
-        train_sampler = create_rl_sampler(config.data, train_dataset)
+        train_sampler = create_rl_batch_sampler(config.data, train_dataset, drop_last=True)
 
         # Initialize the PPO trainer.
         trainer = RayPPOTrainer(
@@ -195,7 +201,7 @@ class TaskRunner(MainTaskRunner):
             val_reward_fn=val_reward_fn,
             train_dataset=train_dataset,
             val_dataset=val_dataset,
-            collate_fn=collate_fn,
+            collate_fn=tq_collect_fn,
             train_sampler=train_sampler,
         )
         # Initialize the workers of the trainer.
@@ -203,6 +209,130 @@ class TaskRunner(MainTaskRunner):
         # Start the training process.
         trainer.fit()
 
+
+
+
+
+def repeat_dict(
+    batch_dict: dict[str, torch.Tensor | np.ndarray], repeat_times=2, interleave=True
+) -> dict[str, torch.Tensor | np.ndarray]:
+    """
+    Repeat the batch dict a specified number of times.
+
+    Args:
+        repeat_times (int): Number of times to repeat the data.
+        interleave (bool): Whether to interleave the repeated data.
+
+    Returns:
+        dict: A new dict with repeated data.
+    """
+    if repeat_times == 1:
+        return batch_dict
+
+    repeated_batch_dict = {}
+    if batch_dict:
+        if interleave:
+            # Interleave the data
+            for key, val in batch_dict.items():
+                if isinstance(val, torch.Tensor):
+                    repeated_batch_dict[key] = val.repeat_interleave(repeat_times, dim=0)
+                elif isinstance(val, np.ndarray):
+                    repeated_batch_dict[key] = np.repeat(val, repeat_times, axis=0)
+                else:
+                    raise ValueError(f"Unsupported type in data {type(val)}")
+        else:
+            # Stack the data
+            for key, val in batch_dict.items():
+                if isinstance(val, torch.Tensor):
+                    repeated_batch_dict[key] = (
+                        val.unsqueeze(0).expand(repeat_times, *val.shape).reshape(-1, *val.shape[1:])
+                    )
+                elif isinstance(val, np.ndarray):
+                    repeated_batch_dict[key] = np.tile(val, (repeat_times,) + (1,) * (val.ndim - 1))
+                else:
+                    raise ValueError(f"Unsupported type in data {type(val)}")
+    return repeated_batch_dict
+
+
+def dict_to_tensordict(data: dict[str, torch.Tensor | np.ndarray]) -> TensorDict:
+        """
+        Create a TensorDict from a dict of tensors and non_tensors.
+        Note that this requires tensordict version at least 0.10
+        """
+        assert parse_version(tensordict.__version__) >= parse_version("0.10"), (
+            "Storing non-tensor data in TensorDict at least requires tensordict version 0.10"
+        )
+        tensors_batch = {}
+        batch_size = None
+
+        for key, val in data.items():
+            if isinstance(val, torch.Tensor | np.ndarray):
+                tensors_batch[key] = val
+            else:
+                raise ValueError(f"Unsupported type in data {type(val)}")
+
+            if batch_size is None:
+                batch_size = len(val)
+            else:
+                assert len(val) == batch_size
+
+        if batch_size is None:
+            batch_size = []
+        else:
+            batch_size = [batch_size]
+
+        return TensorDict(tensors_batch, batch_size=batch_size)
+
+
+class BatchSamplerWithId(BatchSampler):
+    def __iter__(self):
+        for bid, batch in enumerate(super().__iter__()):
+            yield [(bid, idx) for idx in batch]
+
+
+def create_rl_batch_sampler(data_config, dataset, drop_last):
+    from verl.trainer.main_ppo import create_rl_sampler
+
+    base_sampler = create_rl_sampler(data_config, dataset)
+    batch_sampler = BatchSamplerWithId(
+        sampler=base_sampler,
+        batch_size=data_config.get("gen_batch_size", data_config.train_batch_size),
+        drop_last=drop_last,
+    )
+
+    return batch_sampler
+
+
+def tq_collect_fn(batch, config, prefix="train_"):
+    import uuid
+
+    from verl.utils.dataset.rl_dataset import collate_fn
+    from verl.utils.transferqueue_utils import (
+        create_transferqueue_client,
+        get_transferqueue_client,
+    )
+
+    create_transferqueue_client(
+        client_id="data_process",
+        config=config.transfer_queue,
+        enforce=True
+    )
+    tq_client = get_transferqueue_client()
+
+    batch_dict = collate_fn(batch)
+    partition_id = batch_dict.pop("batch_id")[0]
+    
+    batch_dict["uid"] = np.array(
+        [str(uuid.uuid4()) for _ in range(len(batch_dict["input_ids"]))], dtype=object
+    )
+
+    batch_dict = repeat_dict(
+        batch_dict, repeat_times=config.actor_rollout_ref.rollout.n, interleave=True
+    )
+    batch_dict: TensorDict = dict_to_tensordict(batch_dict)
+    asyncio.run(tq_client.async_put(data=batch_dict, partition_id=f"{prefix}{partition_id}"))
+
+    return list(batch_dict.keys())
 
 if __name__ == "__main__":
     main()
