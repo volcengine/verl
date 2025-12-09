@@ -192,9 +192,13 @@ class TrainingWorker(Worker):
     def infer_batch(self, data: TensorDict) -> TensorDict:
         # add mfu calculator
         global_token_num = tu.get(data, key="global_token_num")
+        compute_loss = tu.get(data, key='compute_loss', default=True)
+
+        # for sft training, we need to compute loss in eval
+        loss_function = self.loss_fn if compute_loss else None
 
         with self.engine.eval_mode(), Timer(name="eval_batch", logger=None) as timer:
-            output = self.engine.infer_batch(data, loss_function=self.loss_fn)
+            output = self.engine.infer_batch(data, loss_function=loss_function)
         delta_time = timer.last
 
         if self.engine.is_mp_src_rank_with_outputs():
