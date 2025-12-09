@@ -195,7 +195,7 @@ def test_engine(strategy):
     ray.shutdown()
 
 
-@pytest.mark.parametrize("strategy", ["fsdp"])
+@pytest.mark.parametrize("strategy", ["fsdp", "fsdp2", "megatron"])
 def test_actor_engine(strategy):
     ray.init()
 
