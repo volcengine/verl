@@ -21,7 +21,7 @@ Last updated: 12/09/2025.
 ----------------
 对于fsdp训练后端和megatron后端开启方式分别为在fsdp_worker.py/megatron_worker.py文件开头增加seed函数。
 
-.. code:: bash
+.. code:: python
 
    import random
    import numpy as np
