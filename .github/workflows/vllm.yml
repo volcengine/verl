@@ -124,6 +124,9 @@ jobs:
       - name: Test the latest vLLM Rollout async with agent loop
         run: |
           ROLLOUT_NAME=vllm pytest -svvv tests/experimental/agent_loop
+      - name: Test vllm server abort functionality
+        run: |
+          pytest tests/workers/rollout/rollout_vllm/test_vllm_abort.py -v -s
       # Note(haibin.lin): for any new test, please update gpu_unit_tests.yaml to avoid repeated tests
 
   cleanup:

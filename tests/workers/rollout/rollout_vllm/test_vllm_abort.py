@@ -12,10 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Simple standalone script to test vLLM abort functionality.
+Test vLLM abort functionality.
 
 Usage:
-    python tests/test_vllm_abort_standalone.py
+    pytest tests/workers/rollout/rollout_vllm/test_vllm_abort.py -v -s
+    or
+    python tests/workers/rollout/rollout_vllm/test_vllm_abort.py
 """
 
 import asyncio
@@ -24,7 +26,7 @@ import time
 from uuid import uuid4
 
 
-def main():
+def test_vllm_abort():
     # ==================== Configuration ====================
     MODEL_PATH = os.path.expanduser("~/models/Qwen/Qwen2.5-3B-Instruct")
     GPUS_PER_NODE = 2
@@ -199,10 +201,17 @@ def main():
         print("=" * 60)
         print("Abort test completed!")
 
+        # Assertions for pytest
+        assert timeout_count == 0, "No requests should timeout"
+        assert aborted_count + completed_count == NUM_PROMPTS, "All requests should finish"
+        assert "aborted_count" in abort_result, "Abort result should contain aborted_count"
+        assert abort_time < 1.0, "Abort should be fast (< 1 second)"
+
     finally:
         print("\nShutting down Ray...")
         ray.shutdown()
 
 
 if __name__ == "__main__":
-    main()
+    # Can still run as standalone script
+    test_vllm_abort()
