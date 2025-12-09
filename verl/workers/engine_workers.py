@@ -72,7 +72,9 @@ class TrainingWorker(Worker):
         self.device_name = get_device_name()
 
         # TODO: fix me
-        assert self.model_config.use_remove_padding == self.engine_config.use_remove_padding
+        assert self.model_config.use_remove_padding == self.engine_config.use_remove_padding, (
+            "Got {self.model_config.use_remove_padding=}, {self.engine_config.use_remove_padding=}"
+        )
 
         # TODO: add DistProfilerExtension
         # self.profiler_config = self.config.profiler_config
