@@ -36,6 +36,7 @@ from transformers import (
 from verl import DataProto
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 from verl.trainer.config import CheckpointConfig
+from verl.utils import tensordict_utils as tu
 from verl.utils.model import compute_position_id_with_mask, create_random_mask
 from verl.utils.torch_functional import logprobs_from_logits_naive
 from verl.workers.config import (
@@ -49,8 +50,6 @@ from verl.workers.config import (
 )
 from verl.workers.engine_workers import ActorWorker, CriticWorker, TrainingWorker, TrainingWorkerConfig
 from verl.workers.utils.losses import ppo_loss, sft_loss
-
-from verl.utils import tensordict_utils as tu
 from verl.workers.utils.padding import left_right_2_no_padding, no_padding_2_padding
 
 
@@ -60,7 +59,6 @@ def test_engine(strategy):
 
     path = os.path.expanduser("~/models/HuggingFaceTB/SmolLM2-135M-Instruct")
     model_config = HFModelConfig(path=path, use_remove_padding=True)
-
 
     kwargs = dict(
         param_offload=True,
@@ -79,24 +77,23 @@ def test_engine(strategy):
             tensor_model_parallel_size=1,
             pipeline_model_parallel_size=1,
             context_parallel_size=1,
-            **kwargs
+            **kwargs,
         )
         optimizer_config = McoreOptimizerConfig(lr_decay_steps=10)
     elif strategy in ["fsdp", "fsdp2"]:
         engine_config = FSDPEngineConfig(
-            forward_only=False, fsdp_size=1, strategy=strategy, ulysses_sequence_parallel_size=1,
-            **kwargs
+            forward_only=False, fsdp_size=1, strategy=strategy, ulysses_sequence_parallel_size=1, **kwargs
         )
         optimizer_config = FSDPOptimizerConfig()
     else:
         raise NotImplementedError(f"strategy {strategy} is not supported")
 
     config = TrainingWorkerConfig(
-        model_type='language_model',
+        model_type="language_model",
         model_config=model_config,
         engine_config=engine_config,
         optimizer_config=optimizer_config,
-        checkpoint_config=None
+        checkpoint_config=None,
     )
 
     ray_cls_with_init = RayClassWithInitArgs(cls=ray.remote(TrainingWorker), config=config)
@@ -141,8 +138,7 @@ def test_engine(strategy):
             "responses": responses,
             "response_mask": response_mask,
         },
-        meta_info={"temperature": 1.0, "global_token_num": global_token_num,
-                   "compute_loss": False},
+        meta_info={"temperature": 1.0, "global_token_num": global_token_num, "compute_loss": False},
     )
 
     data_td = data.to_tensordict()
@@ -151,20 +147,16 @@ def test_engine(strategy):
     # eval
     output = wg.infer_batch(data_td)
     output = output.get()
-    logprobs_unpad = tu.get(output, 'log_probs').cpu()
+    logprobs_unpad = tu.get(output, "log_probs").cpu()
     logprobs = no_padding_2_padding(logprobs_unpad, data_td)
 
-    output = DataProto.from_single_dict(
-        {
-            'old_log_probs': logprobs
-        }
-    )
+    output = DataProto.from_single_dict({"old_log_probs": logprobs})
 
     # load hf model and compare results with hf model
     hf_model = AutoModelForCausalLM.from_pretrained(path, torch_dtype=torch.bfloat16)
     hf_output = hf_model(input_ids, attention_mask=attention_mask)
     hf_logprobs = logprobs_from_logits_naive(
-        hf_output.logits[:, -response_length - 1: -1, :].float(), input_ids[:, -response_length:]
+        hf_output.logits[:, -response_length - 1 : -1, :].float(), input_ids[:, -response_length:]
     )
     hf_logprobs_mean = torch.mean(hf_logprobs * response_mask)
     mcore_logprobs_mean = torch.mean(output.batch["old_log_probs"] * response_mask)
@@ -185,8 +177,7 @@ def test_engine(strategy):
     data.batch["ref_log_prob"] = torch.rand_like(responses, dtype=torch.float32)
 
     # construct actor config
-    actor_config = ActorConfig(strategy=strategy, rollout_n=1,
-                               ppo_micro_batch_size_per_gpu=-1)
+    actor_config = ActorConfig(strategy=strategy, rollout_n=1, ppo_micro_batch_size_per_gpu=-1)
 
     # set ppo loss
     ppo_loss_ = partial(ppo_loss, config=actor_config)
@@ -198,12 +189,10 @@ def test_engine(strategy):
     tu.assign_non_tensor(data_td, global_batch_size=data_td.shape[0])
     ppo_metrics = wg.train_batch(data_td)
     ppo_metrics = ppo_metrics.get()
-    ppo_metrics = tu.get(ppo_metrics, 'metrics')
+    ppo_metrics = tu.get(ppo_metrics, "metrics")
     print(ppo_metrics)
 
     ray.shutdown()
-
-
 
 
 @pytest.mark.parametrize("strategy", ["fsdp"])

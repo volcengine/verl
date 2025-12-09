@@ -172,7 +172,7 @@ class TrainingWorker(Worker):
             use_dynamic_bsz=self.engine_config.use_dynamic_bsz,
             max_token_len_per_gpu=self.engine_config.max_token_len_per_gpu,
             micro_batch_size_per_gpu=self.engine_config.micro_batch_size_per_gpu,
-            use_fused_kernels=self.engine_config.use_fused_kernels
+            use_fused_kernels=self.engine_config.use_fused_kernels,
         )
 
         for key, val in default_keys.items():
@@ -208,14 +208,14 @@ class TrainingWorker(Worker):
     def infer_batch(self, data: TensorDict) -> TensorDict:
         # add mfu calculator
         global_token_num = tu.get(data, key="global_token_num")
-        compute_loss = tu.get(data, key='compute_loss', default=True)
+        compute_loss = tu.get(data, key="compute_loss", default=True)
 
         default_keys = dict(
             use_remove_padding=self.model_config.use_remove_padding,
             use_dynamic_bsz=self.engine_config.use_dynamic_bsz,
             max_token_len_per_gpu=self.engine_config.infer_max_token_len_per_gpu,
             micro_batch_size_per_gpu=self.engine_config.infer_micro_batch_size_per_gpu,
-            use_fused_kernels=self.engine_config.use_fused_kernels
+            use_fused_kernels=self.engine_config.use_fused_kernels,
         )
 
         for key, val in default_keys.items():

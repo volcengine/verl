@@ -27,13 +27,15 @@ __all__ = ["FSDPEngineConfig", "McoreEngineConfig", "TrainingWorkerConfig"]
 
 @dataclass
 class EngineConfig(BaseConfig):
-    _mutable_fields = BaseConfig._mutable_fields | {"use_dynamic_bsz",
-                                                    "max_token_len_per_gpu",
-                                                    "micro_batch_size_per_gpu",
-                                                    "infer_max_token_len_per_gpu",
-                                                    "infer_micro_batch_size_per_gpu",
-                                                    "use_fused_kernels",
-                                                    "use_remove_padding"}
+    _mutable_fields = BaseConfig._mutable_fields | {
+        "use_dynamic_bsz",
+        "max_token_len_per_gpu",
+        "micro_batch_size_per_gpu",
+        "infer_max_token_len_per_gpu",
+        "infer_micro_batch_size_per_gpu",
+        "use_fused_kernels",
+        "use_remove_padding",
+    }
 
     # whether to offload param
     param_offload: bool = False
