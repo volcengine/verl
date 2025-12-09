@@ -156,16 +156,16 @@ class MultiTurnSFTDataset(Dataset):
         else:
             self.enable_thinking = None
 
-        self.fake_system_prompt = [{'role': 'system', 'content': "This is fake system prompt"}]
+        self.fake_system_prompt = [{"role": "system", "content": "This is fake system prompt"}]
 
         # system prompt: <|im_start|>system\nYou are a helpful assistant.<|im_end|>\n
-        self.system_prompt = initialize_system_prompt(self.tokenizer, fake_message=self.fake_system_prompt,
-                                                      add_generation_prompt=False)
+        self.system_prompt = initialize_system_prompt(
+            self.tokenizer, fake_message=self.fake_system_prompt, add_generation_prompt=False
+        )
         # generation prompt: <|im_start|>assistant\n
-        self.generation_prompt = initialize_system_prompt(self.tokenizer, fake_message=self.fake_system_prompt,
-                                                          add_generation_prompt=True)[
-            len(self.system_prompt) :
-        ]
+        self.generation_prompt = initialize_system_prompt(
+            self.tokenizer, fake_message=self.fake_system_prompt, add_generation_prompt=True
+        )[len(self.system_prompt) :]
 
     def __len__(self):
         return len(self.messages)
