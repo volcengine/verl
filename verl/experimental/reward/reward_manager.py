@@ -187,7 +187,7 @@ class RewardLoopManager:
 
     def _init_reward_loop_workers(self):
         self.reward_loop_workers = []
-        num_workers = self.config.reward_model.get("num_workers", 1)
+        num_workers = self.config.reward_model.num_workers
         node_ids = [node["NodeID"] for node in ray.nodes() if node["Alive"] and node["Resources"].get("CPU", 0) > 0]
 
         for i in range(num_workers):

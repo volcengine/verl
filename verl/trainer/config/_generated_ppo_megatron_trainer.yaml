@@ -521,7 +521,7 @@ critic:
 reward_model:
   enable: false
   enable_resource_pool: false
-  n_gpus_per_node: 0
+  n_gpus_per_node: 8
   nnodes: 0
   strategy: megatron
   model:

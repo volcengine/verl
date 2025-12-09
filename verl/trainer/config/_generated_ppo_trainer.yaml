@@ -455,7 +455,7 @@ critic:
 reward_model:
   enable: false
   enable_resource_pool: false
-  n_gpus_per_node: 0
+  n_gpus_per_node: 8
   nnodes: 0
   strategy: fsdp
   model:
@@ -517,8 +517,8 @@ reward_model:
     enable_prefix_caching: true
     disable_log_stats: true
     skip_tokenizer_init: true
-    prompt_length: 512
-    response_length: 512
+    prompt_length: 4096
+    response_length: 4096
 algorithm:
   rollout_correction:
     rollout_is: null
