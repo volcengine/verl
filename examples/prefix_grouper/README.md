@@ -31,45 +31,42 @@ pip install prefix_grouper
 - Incompatible with `use_fused_kernels=True`.
 - Incompatible with Ulysses sequence parallelism (`use_ulysses_sp=True`) and ring-attention.
 
-## Directory Structure
-
-- `qwen3/modeling_qwen3.py`: A modified Qwen3 model implementation that supports `PrefixGrouper`.
-- `run_qwen3_pg.sh`: An example training script enabling PrefixGrouper.
-
 ## How to Use
 
-### 1. Prepare the Model
+### 1. Enable PrefixGrouper in Config
 
-PrefixGrouper requires the model to accept a `prefix_grouper` argument in its `forward` method and use it to compute attention.
+Simply set `use_prefix_grouper=True` in your training config:
 
-The provided `qwen3/modeling_qwen3.py` demonstrates how to integrate PrefixGrouper into the Qwen model. Key changes include:
-- Importing `PrefixGrouper`.
-- Adding `prefix_grouper` argument to `forward`.
-- Passing `prefix_grouper` to the flash attention mechanism.
+```yaml
+actor_rollout_ref:
+  actor:
+    use_prefix_grouper: True
+  model:
+    use_remove_padding: False 
+```
 
-**Option A (Recommended): Use `trust_remote_code=True`**
-1. Copy `qwen3/modeling_qwen3.py` to your local model checkpoint directory (e.g., `/path/to/your/model/`).
-2. Ensure your model's `config.json` has the correct `auto_map` to load this file.
-   ```json
-   "auto_map": {
-       "AutoModelForCausalLM": "modeling_qwen3.Qwen3ForCausalLM"
-   }
-   ```
-3. In the training script, ensure `trust_remote_code=True` is set (default in many verl scripts).
-
-**Option B: Monkey Patching**
-You can also create a custom python entry script that imports this model class and registers it to `AutoModel` before training starts.
+Also ensure these settings are disabled:
+```yaml
+trainer:
+  balance_batch: False 
+```
 
 ### 2. Run Training
 
-Use the provided script `run_qwen3_pg.sh` to start training. This script is pre-configured with:
-- `actor_rollout_ref.actor.use_prefix_grouper=True`
-- `trainer.balance_batch=False`
-- `actor_rollout_ref.model.use_remove_padding=False`
+Use the provided script `run_qwen3_prefix_grouper.sh` as an example:
 
 ```bash
-bash examples/prefix_grouper_examples/run_qwen3_pg.sh
+bash examples/prefix_grouper/run_qwen3_prefix_grouper.sh
 ```
+
+## How It Works
+
+When `use_prefix_grouper=True`, verl automatically patches the attention functions in `transformers.modeling_utils.ALL_ATTENTION_FUNCTIONS` to support the `prefix_grouper` parameter. No model code modifications are needed.
+
+The patch wraps each attention function to:
+1. Extract `prefix_grouper` from kwargs
+2. If `prefix_grouper` is None, call original attention
+3. If `prefix_grouper` is provided, use PrefixGrouper's optimized attention computation
 
 ## Performance
 

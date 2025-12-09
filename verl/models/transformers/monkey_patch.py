@@ -34,6 +34,47 @@ from verl.utils.ulysses import (
 )
 
 
+# ==================== PrefixGrouper Patch ====================
+_PREFIX_GROUPER_PATCHED = False
+_PREFIX_GROUPER_SUPPORTED_ATTENTIONS = {"flash_attention_2", "flash_attention_3", "sdpa", "flex_attention", "eager"}
+
+
+def _create_prefix_grouper_wrapper(original_fn):
+    """Wrap attention function to support prefix_grouper in kwargs."""
+
+    def wrapped(module, query, key, value, attention_mask, *args, **kwargs):
+        prefix_grouper = kwargs.pop("prefix_grouper", None)
+        if prefix_grouper is None:
+            return original_fn(module, query, key, value, attention_mask, *args, **kwargs)
+
+        def attn_func(q, k, v, attn_mask, *inner_args, **inner_kwargs):
+            out, _ = original_fn(module, q, k, v, attn_mask, *inner_args, **inner_kwargs)
+            return out
+
+        return prefix_grouper.forward(attn_func, query, key, value, *args, **kwargs), None
+
+    return wrapped
+
+
+def apply_prefix_grouper_patch():
+    """Patch ALL_ATTENTION_FUNCTIONS to support prefix_grouper parameter."""
+    global _PREFIX_GROUPER_PATCHED
+    if _PREFIX_GROUPER_PATCHED:
+        return
+
+    from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
+
+    patched = []
+    for name in list(ALL_ATTENTION_FUNCTIONS.keys()):
+        if name in _PREFIX_GROUPER_SUPPORTED_ATTENTIONS:
+            ALL_ATTENTION_FUNCTIONS[name] = _create_prefix_grouper_wrapper(ALL_ATTENTION_FUNCTIONS[name])
+            patched.append(name)
+
+    _PREFIX_GROUPER_PATCHED = True
+    print(f"[PrefixGrouper] Patched: {patched}")
+
+
+# ==================== Ulysses Patch ====================
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     """
     This is the equivalent of torch.repeat_interleave(x, dim=2, repeats=n_rep). The hidden states go from (batch,
@@ -251,13 +292,25 @@ def apply_monkey_patch(
     use_remove_padding: bool = True,
     use_fused_kernels: bool = False,
     fused_kernels_backend: str = None,
+    use_prefix_grouper: bool = False,
 ):
     """
-    Apply monkey patch to the models for ulysses sequence parallel and fused kernel.
+    Apply monkey patch to the models for ulysses sequence parallel, fused kernel, and prefix grouper.
 
     In the end of this function forward function of the model is patched for fused kernel.
     If the model is not supported with fused kernel, please return after patch.
+
+    Args:
+        model: The model to apply patches to.
+        ulysses_sp_size: Size of Ulysses sequence parallelism.
+        use_remove_padding: Whether to use remove padding optimization.
+        use_fused_kernels: Whether to use fused kernels.
+        fused_kernels_backend: Backend for fused kernels ('triton' or 'torch').
+        use_prefix_grouper: Whether to enable PrefixGrouper support for shared-prefix optimization.
     """
+    # Apply PrefixGrouper patch if enabled
+    if use_prefix_grouper:
+        apply_prefix_grouper_patch()
 
     """Replace _flash_attention_forward to _ulysses_flash_attention_forward"""
     module = sys.modules[model.__module__]
