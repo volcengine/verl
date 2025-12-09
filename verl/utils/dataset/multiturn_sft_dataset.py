@@ -31,7 +31,7 @@ from transformers import PreTrainedTokenizer, ProcessorMixin
 
 from verl.models.transformers.qwen2_vl import get_rope_index
 from verl.utils import hf_tokenizer
-from verl.utils.chat_template import initialize_system_prompt
+from verl.utils.chat_template import initialize_system_prompt, extract_system_prompt_and_generation
 from verl.utils.dataset.dataset_utils import DatasetPadMode
 from verl.utils.dataset.vision_utils import process_image, process_video
 from verl.utils.fs import copy_local_path_from_hdfs
@@ -159,13 +159,9 @@ class MultiTurnSFTDataset(Dataset):
         self.fake_system_prompt = [{"role": "system", "content": "This is fake system prompt"}]
 
         # system prompt: <|im_start|>system\nYou are a helpful assistant.<|im_end|>\n
-        self.system_prompt = initialize_system_prompt(
-            self.tokenizer, fake_message=self.fake_system_prompt, add_generation_prompt=False
-        )
         # generation prompt: <|im_start|>assistant\n
-        self.generation_prompt = initialize_system_prompt(
-            self.tokenizer, fake_message=self.fake_system_prompt, add_generation_prompt=True
-        )[len(self.system_prompt) :]
+        self.system_prompt, self.generation_prompt = extract_system_prompt_and_generation(self.tokenizer)
+
 
     def __len__(self):
         return len(self.messages)
@@ -196,13 +192,8 @@ class MultiTurnSFTDataset(Dataset):
         if enable_thinking is not None:
             apply_chat_template_kwargs["enable_thinking"] = enable_thinking
 
-        if index != 0 and message["role"] != "system":
-            encode_message = self.fake_system_prompt + [message]
-        else:
-            encode_message = [message]
-
         inputs = processor.apply_chat_template(
-            encode_message,
+            [message],
             tools=tools,
             add_generation_prompt=False,
             tokenize=True,
