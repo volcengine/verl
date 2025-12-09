@@ -20,9 +20,7 @@ def initialize_system_prompt(tokenizer, **apply_chat_template_kwargs) -> list[in
         List of token IDs for the system prompt, or empty list if not supported
     """
     try:
-        return tokenizer.apply_chat_template(
-            [{}], add_generation_prompt=False, tokenize=True, **apply_chat_template_kwargs
-        )
+        return tokenizer.apply_chat_template([{}], tokenize=True, **apply_chat_template_kwargs)
     except TemplateError as e:
         logger.warning(f"Chat template does not support system prompt: {e}")
         return []

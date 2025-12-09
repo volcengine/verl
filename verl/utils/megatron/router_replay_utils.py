@@ -17,12 +17,19 @@ Router Replay Utilities
 Utilities for handling router replay functionality in Megatron models.
 """
 
+import warnings
 from typing import Optional
 
 import torch
+
+try:
+    from megatron.core.pipeline_parallel.utils import is_vp_first_stage, is_vp_last_stage
+except ImportError:
+    warnings.warn("NPU not support router replay for now.", stacklevel=2)
+    pass
+
 from megatron.core import parallel_state as mpu
 from megatron.core.pipeline_parallel.schedules import get_schedule_table
-from megatron.core.pipeline_parallel.utils import is_vp_first_stage, is_vp_last_stage
 from megatron.core.tensor_parallel import gather_from_sequence_parallel_region, scatter_to_sequence_parallel_region
 from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.transformer.transformer_layer import get_transformer_layer_offset
@@ -50,7 +57,7 @@ def get_num_layers_to_build(
     """
     # If we have a custom PP layout, straightforwardly
     # return the number of decoders in the layout array.
-    if config.pipeline_model_parallel_layout is not None:
+    if hasattr(config, "pipeline_model_parallel_layout") and config.pipeline_model_parallel_layout is not None:
         from megatron.core.transformer.enums import LayerType
 
         return config.pipeline_model_parallel_layout.get_num_layers_to_build(

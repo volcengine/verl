@@ -43,7 +43,11 @@ from verl.utils.megatron_utils import (
     per_tensor_generator,
     register_megatron_training_hooks,
 )
-from verl.utils.model import load_mcore_dist_weights, load_megatron_gptmodel_weights
+from verl.utils.model import (
+    extract_multi_modal_inputs_tensordict,
+    load_mcore_dist_weights,
+    load_megatron_gptmodel_weights,
+)
 from verl.workers.config import HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
 
 from ..base import BaseEngine, EngineRegistry
@@ -232,7 +236,7 @@ class MegatronEngine(BaseEngine):
                     self.bridge.load_weights(module, self.model_config.local_path)
                 else:
                     allowed_mismatched_params = []
-                    if self.engine_config.is_value_model:
+                    if self.is_value_model:
                         allowed_mismatched_params = ["output_layer.weight"]
                     self.bridge.load_hf_weights(
                         module, self.model_config.local_path, allowed_mismatched_params=allowed_mismatched_params
@@ -262,7 +266,11 @@ class MegatronEngine(BaseEngine):
             init_megatron_optim_config,
         )
 
-        optim_config_megatron = init_megatron_optim_config(self.optimizer_config, self.param_dtype == torch.float16)
+        optim_config_megatron = init_megatron_optim_config(
+            self.optimizer_config,
+            use_distributed_optimizer=self.engine_config.use_distributed_optimizer,
+            fp16=self.param_dtype == torch.float16,
+        )
         optimizer = get_megatron_optimizer(model=self.module, config=optim_config_megatron)
         register_megatron_training_hooks(self.module, optimizer)
         return optimizer
@@ -604,36 +612,13 @@ class EngineTrainModeCtx:
 @EngineRegistry.register(model_type="language_model", backend="megatron")
 class MegatronEngineWithLMHead(MegatronEngine):
     def prepare_model_inputs(self, batch: TensorDict):
-        batch = batch.to(get_device_id())
-        batch = batch.contiguous()
         input_ids = batch["input_ids"]
         loss_mask = batch["loss_mask"].to(bool)
-        position_ids = batch["position_ids"]
-
-        # process vlm inputs
-        has_multi_modal_inputs = "multi_modal_inputs" in batch.keys()
-        if has_multi_modal_inputs:
-            batch["multi_modal_inputs"] = batch["multi_modal_inputs"]
-            batch["multi_modal_inputs_idx"] = torch.Tensor(list(range(len(batch["multi_modal_inputs"])))).to(
-                torch.int64
-            )
-
-        if batch["position_ids"].dim() == 3:  # qwen2vl mrope [bs, 3, seq_len]
-            batch["position_ids"] = batch["position_ids"][
-                :, 0
-            ]  # mcore patch recompute qwen2vl's pos ids during forward
-
-        multi_modal_inputs = {}
-        if "multi_modal_inputs" in batch:
-            from verl.utils.model import extract_multi_modal_inputs
-
-            indices = batch.get("multi_modal_inputs_idx", None)
-            multi_modal_inputs = extract_multi_modal_inputs(batch["multi_modal_inputs"], indices)
+        multi_modal_inputs = extract_multi_modal_inputs_tensordict(batch)
 
         return {
             "input_ids": input_ids,
             "loss_mask": loss_mask,
-            "position_ids": position_ids,
             "multi_modal_inputs": multi_modal_inputs,
         }
 
@@ -702,6 +687,8 @@ class MegatronEngineWithLMHead(MegatronEngine):
             multi_modal_inputs,
             logits_processor=logits_processor,
             logits_processor_args=logits_processor_args,
+            vision_model=hasattr(self.model_config.hf_config, "vision_config"),
+            pad_token_id=self.model_config.tokenizer.pad_token_id,
             data_format="thd" if self.engine_config.use_remove_padding else "bshd",
         )
 
@@ -753,6 +740,8 @@ class MegatronEngineWithValueHead(MegatronEngineWithLMHead):
             input_ids,
             multi_modal_inputs,
             value_model=True,
+            vision_model=hasattr(self.model_config.hf_config, "vision_config"),
+            pad_token_id=self.model_config.tokenizer.pad_token_id,
         )
 
         return output, partial(postprocess_micro_batch_func, data=batch)
