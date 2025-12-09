@@ -35,6 +35,7 @@ class Role(Enum):
     RefPolicy = 4
     RewardModel = 5
     ActorRolloutRef = 6
+    Env = 7
 
     def __str__(self):
         return self._get_role_string()

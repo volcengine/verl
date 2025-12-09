@@ -61,7 +61,7 @@ from verl.utils.fsdp_utils import (
     offload_fsdp_optimizer,
     replace_lora_wrapper,
 )
-from verl.utils.model import convert_weight_keys
+from verl.utils.model import convert_weight_keys, extract_multi_modal_inputs_tensordict
 from verl.utils.py_functional import convert_to_regular_types
 from verl.utils.torch_functional import logprobs_from_logits
 from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad, ulysses_pad_and_slice_inputs
@@ -69,7 +69,7 @@ from verl.workers.config import FSDPEngineConfig, FSDPOptimizerConfig, HFModelCo
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 from ..base import BaseEngine, EngineRegistry
-from ..utils import postprocess_batch_func, prepare_micro_batches
+from ..utils import enable_full_determinism, postprocess_batch_func, prepare_micro_batches
 from .utils import create_device_mesh, get_sharding_strategy
 
 logger = logging.getLogger(__file__)
@@ -116,6 +116,9 @@ class FSDPEngine(BaseEngine):
 
         self._init_device_mesh()
 
+        if self.engine_config.full_determinism:
+            enable_full_determinism(seed=self.engine_config.seed)
+
         # set FSDP offload params
         self._is_offload_param = self.engine_config.param_offload
         self._is_offload_optimizer = self.engine_config.optimizer_offload
@@ -161,7 +164,7 @@ class FSDPEngine(BaseEngine):
             optimizer=self.optimizer,
             lr_scheduler=self.lr_scheduler,
             processing_class=self.model_config.get_processor(),
-            checkpoint_contents=self.checkpoint_config,
+            checkpoint_config=self.checkpoint_config,
         )
 
     def _init_device_mesh(self):
@@ -724,17 +727,9 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
         assert pad_mode == DatasetPadMode.NO_PADDING, f"pad_mode {pad_mode} not supported"
 
-        multi_modal_inputs = {}
-        if "multi_modal_inputs" in micro_batch.keys():
-            from verl.utils.model import extract_multi_modal_inputs
-
-            multi_modal_inputs = extract_multi_modal_inputs(micro_batch["multi_modal_inputs"])
-
+        multi_modal_inputs = extract_multi_modal_inputs_tensordict(micro_batch)
         input_ids = micro_batch["input_ids"]
         position_ids = micro_batch["position_ids"]
-
-        if position_ids.dim() == 3:  # qwen2vl mrope
-            position_ids = position_ids.transpose(0, 1)  # (bsz, 3, seqlen) -> (3, bsz, seqlen)
 
         # args used to get outputs
         output_args = {}
@@ -742,7 +737,10 @@ class FSDPEngineWithLMHead(FSDPEngine):
         if use_remove_padding:
             if pad_mode == DatasetPadMode.NO_PADDING:
                 input_ids_rmpad = input_ids.values().unsqueeze(0)  # (1, total_nnz)
-                position_ids_rmpad = position_ids.values().unsqueeze(0)  # (1, total_nnz)
+                if position_ids.dim() == 3:
+                    position_ids_rmpad = position_ids.values().unsqueeze(1)  # (4, 1, total_nnz)
+                else:
+                    position_ids_rmpad = position_ids.values().unsqueeze(0)  # (1, total_nnz)
             else:
                 raise NotImplementedError(f"pad_mode {pad_mode} not implemented")
 
@@ -802,9 +800,14 @@ class FSDPEngineWithLMHead(FSDPEngine):
                     input_ids, padding=pad_token_id, output_size=(batch_size, max_seq_len)
                 )
 
-                position_ids = torch.nested.to_padded_tensor(
-                    position_ids, padding=0, output_size=(batch_size, max_seq_len)
-                )
+                if position_ids.dim() == 3:
+                    position_ids = torch.nested.to_padded_tensor(
+                        position_ids, padding=0, output_size=(batch_size, 4, max_seq_len)
+                    ).transpose(0, 1)  # (4, batch_size, max_seq_len)
+                else:
+                    position_ids = torch.nested.to_padded_tensor(
+                        position_ids, padding=0, output_size=(batch_size, max_seq_len)
+                    )
 
                 attention_mask_list = [torch.ones_like(t, dtype=torch.int32) for t in loss_mask]
                 attention_mask = torch.nested.as_nested_tensor(attention_mask_list, layout=torch.jagged)
@@ -963,7 +966,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
             output = {
                 "model_output": model_output,
-                "loss": loss,
+                "loss": loss.detach().item(),
                 "metrics": metrics,
             }
 

@@ -118,14 +118,14 @@ class RolloutConfig(BaseConfig):
     _mutable_fields = {"max_model_len", "load_format"}
 
     name: Optional[str] = MISSING
-    mode: str = "sync"
-    skip_tokenizer_init: bool = True
+    mode: str = "async"
 
     temperature: float = 1.0
     top_k: int = -1
     top_p: float = 1.0
     do_sample: bool = True
     n: int = 1
+    repetition_penalty: float = 1.0
 
     # Early termination threshold for multi-turn rollout in sglang.
     # Abort remaining requests when (1 - over_sample_rate) * total_requests are completed.
@@ -204,6 +204,8 @@ class RolloutConfig(BaseConfig):
     skip_tokenizer_init: bool = False
 
     quantization: Optional[str] = None
+
+    enable_rollout_routing_replay: bool = False
 
     def __post_init__(self):
         """Validate the rollout config"""

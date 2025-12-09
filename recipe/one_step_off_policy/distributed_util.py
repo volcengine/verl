@@ -1,4 +1,5 @@
 # Copyright 2025 Bytedance Ltd. and/or its affiliates
+# Copyright 2025 Meituan Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,7 +16,7 @@
 from verl.utils.device import is_npu_available
 
 
-def stateless_init_process_group(master_address, master_port, rank, world_size, device):
+def vllm_stateless_init_process_group(master_address, master_port, rank, world_size, device):
     """
     vLLM provides `StatelessProcessGroup` to create a process group
     without considering the global process group in torch.distributed.

@@ -276,6 +276,9 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                     # if the generation config isn't available, we don't save it
                     pass
 
+            if hasattr(model_config, "auto_map") and None in model_config.auto_map:
+                model_config.auto_map = {k: v for k, v in model_config.auto_map.items() if k is not None}
+
             model_config.save_pretrained(hf_config_tokenizer_path)
             if self.processing_class is not None:
                 self.processing_class.save_pretrained(hf_config_tokenizer_path)
