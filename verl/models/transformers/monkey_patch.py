@@ -34,7 +34,6 @@ from verl.utils.ulysses import (
 )
 
 
-# ==================== PrefixGrouper Patch ====================
 _PREFIX_GROUPER_PATCHED = False
 _PREFIX_GROUPER_SUPPORTED_ATTENTIONS = {"flash_attention_2", "flash_attention_3", "sdpa", "flex_attention", "eager"}
 
@@ -74,7 +73,6 @@ def apply_prefix_grouper_patch():
     print(f"[PrefixGrouper] Patched: {patched}")
 
 
-# ==================== Ulysses Patch ====================
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     """
     This is the equivalent of torch.repeat_interleave(x, dim=2, repeats=n_rep). The hidden states go from (batch,
@@ -299,14 +297,6 @@ def apply_monkey_patch(
 
     In the end of this function forward function of the model is patched for fused kernel.
     If the model is not supported with fused kernel, please return after patch.
-
-    Args:
-        model: The model to apply patches to.
-        ulysses_sp_size: Size of Ulysses sequence parallelism.
-        use_remove_padding: Whether to use remove padding optimization.
-        use_fused_kernels: Whether to use fused kernels.
-        fused_kernels_backend: Backend for fused kernels ('triton' or 'torch').
-        use_prefix_grouper: Whether to enable PrefixGrouper support for shared-prefix optimization.
     """
     # Apply PrefixGrouper patch if enabled
     if use_prefix_grouper:
