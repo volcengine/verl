@@ -356,6 +356,7 @@ class DataParallelPPOActor(BasePPOActor):
         micro_batch_size = data.meta_info["micro_batch_size"]
         temperature = data.meta_info["temperature"]  # temperature must be in the data.meta_info to avoid silent error
         use_dynamic_bsz = data.meta_info["use_dynamic_bsz"]
+        pad_token_id = data.meta_info.get("pad_token_id", 0)
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
 
         select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
@@ -377,7 +378,7 @@ class DataParallelPPOActor(BasePPOActor):
         entropy_lst = []
         for micro_batch in micro_batches:
             micro_batch = micro_batch.to(get_device_id())
-            model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch}
+            model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch, "pad_token_id": pad_token_id}
             with torch.no_grad():
                 entropy, log_probs = self._forward_micro_batch(
                     model_inputs, temperature=temperature, calculate_entropy=calculate_entropy
@@ -404,6 +405,7 @@ class DataParallelPPOActor(BasePPOActor):
         self.actor_module.train()
 
         temperature = data.meta_info["temperature"]  # temperature must be in the data.meta_info to avoid silent error
+        pad_token_id = data.meta_info.get("pad_token_id", 0)
 
         select_keys = [
             "responses",
@@ -458,7 +460,7 @@ class DataParallelPPOActor(BasePPOActor):
                 for micro_batch in micro_batches:
                     micro_batch = micro_batch.to(get_device_id())
                     micro_batch_metrics = {}
-                    model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch}
+                    model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch, "pad_token_id": pad_token_id}
                     response_mask = model_inputs["response_mask"]
                     old_log_prob = model_inputs["old_log_probs"]
                     advantages = model_inputs["advantages"]
