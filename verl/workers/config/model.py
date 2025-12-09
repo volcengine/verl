@@ -72,7 +72,7 @@ class HFModelConfig(BaseConfig):
     enable_gradient_checkpointing: bool = True
     enable_activation_offload: bool = False
 
-    use_remove_padding: bool = False
+    use_remove_padding: bool = True
 
     # TODO: unify fsdp and megatron lora config
     # fsdp lora related. We may setup a separate config later

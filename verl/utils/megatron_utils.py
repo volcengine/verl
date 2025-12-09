@@ -445,7 +445,7 @@ def load_megatron_model_to_gpu(models, load_grad=True):
             for buffers in model_chunk_all_buffers:
                 for buffer in buffers:
                     # sometimes, we don't want to load grad for pure inference
-                    if load_grad:
+                    if load_grad and hasattr(buffer, "grad_data_size"):
                         buffer.grad_data.storage().resize_(buffer.grad_data_size)
                         buffer.grad_data.zero_()
 

@@ -31,7 +31,7 @@ from transformers import PreTrainedTokenizer, ProcessorMixin
 
 from verl.models.transformers.qwen2_vl import get_rope_index
 from verl.utils import hf_tokenizer
-from verl.utils.chat_template import initialize_system_prompt
+from verl.utils.chat_template import extract_system_prompt_and_generation
 from verl.utils.dataset.dataset_utils import DatasetPadMode
 from verl.utils.dataset.vision_utils import process_image, process_video
 from verl.utils.fs import copy_local_path_from_hdfs
@@ -157,11 +157,8 @@ class MultiTurnSFTDataset(Dataset):
             self.enable_thinking = None
 
         # system prompt: <|im_start|>system\nYou are a helpful assistant.<|im_end|>\n
-        self.system_prompt = initialize_system_prompt(self.tokenizer, add_generation_prompt=False)
         # generation prompt: <|im_start|>assistant\n
-        self.generation_prompt = initialize_system_prompt(self.tokenizer, add_generation_prompt=True)[
-            len(self.system_prompt) :
-        ]
+        self.system_prompt, self.generation_prompt = extract_system_prompt_and_generation(self.tokenizer)
 
     def __len__(self):
         return len(self.messages)
@@ -191,6 +188,7 @@ class MultiTurnSFTDataset(Dataset):
         apply_chat_template_kwargs = {**self.apply_chat_template_kwargs}
         if enable_thinking is not None:
             apply_chat_template_kwargs["enable_thinking"] = enable_thinking
+
         inputs = processor.apply_chat_template(
             [message],
             tools=tools,

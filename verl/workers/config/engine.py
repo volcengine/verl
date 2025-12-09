@@ -27,12 +27,52 @@ __all__ = ["FSDPEngineConfig", "McoreEngineConfig", "TrainingWorkerConfig"]
 
 @dataclass
 class EngineConfig(BaseConfig):
+    _mutable_fields = BaseConfig._mutable_fields | {
+        "use_dynamic_bsz",
+        "max_token_len_per_gpu",
+        "micro_batch_size_per_gpu",
+        "infer_max_token_len_per_gpu",
+        "infer_micro_batch_size_per_gpu",
+        "use_fused_kernels",
+        "use_remove_padding",
+    }
+
+    # whether to offload param
     param_offload: bool = False
+    # whether to offload optimizer
     optimizer_offload: bool = False
+    # whether to offload grad
     grad_offload: bool = False
+    # whether the engine is forward only (e.g., ref policy)
     forward_only: bool = False
+    # the strategy (backend)
     strategy: str = None
+    # model dtype
     dtype: str = "bfloat16"  # ["bfloat16", "float16"]
+    # whether to use dynamic bsz
+    use_dynamic_bsz: bool = True
+    # for training
+    max_token_len_per_gpu: int = None
+    micro_batch_size_per_gpu: int = None
+    # for inference
+    infer_max_token_len_per_gpu: int = None
+    infer_micro_batch_size_per_gpu: int = None
+    # whether use fuse lm head kernel
+    use_fused_kernels: bool = False
+    # TODO (this may conflict with the one in model config)
+    use_remove_padding: bool = True
+
+    seed: int = 42
+
+    full_determinism: bool = False
+
+    def __post_init__(self):
+        pass
+        # TODO: turn on this check after we reorg config
+        # if self.use_dynamic_bsz:
+        #     assert self.max_token_len_per_gpu is not None
+        # else:
+        #     assert self.micro_batch_size_per_gpu is not None
 
 
 @dataclass
@@ -64,7 +104,7 @@ class McoreEngineConfig(EngineConfig):
     """
 
     # sequence_parallel is not listed as a frozen field for auto-correction purpose
-    _mutable_fields = BaseConfig._mutable_fields | {"sequence_parallel"}
+    _mutable_fields = EngineConfig._mutable_fields | {"sequence_parallel"}
     # mcore parallelism
     tensor_model_parallel_size: int = 1
     expert_model_parallel_size: int = 1
@@ -77,16 +117,15 @@ class McoreEngineConfig(EngineConfig):
     use_dist_checkpointing: bool = False
     dist_checkpointing_path: Optional[str] = None
     dist_checkpointing_prefix: str = ""
-    seed: int = 42
     override_ddp_config: dict[str, Any] = field(default_factory=dict)
     override_transformer_config: dict[str, Any] = field(default_factory=dict)
     override_mcore_model_config: dict[str, Any] = field(default_factory=dict)
     use_mbridge: bool = False
     vanilla_mbridge: bool = True
-    use_remove_padding: bool = True
     strategy: str = "megatron"
 
     def __post_init__(self) -> None:
+        super().__post_init__()
         """config validation logics go here"""
         assert self.strategy == "megatron"
         assert self.dtype in ["bfloat16", "float16"], f"dtype {self.dtype} not supported"
@@ -120,7 +159,7 @@ class FSDPEngineConfig(EngineConfig):
     """
 
     # ulysses_sequence_parallel_size is mutable for backward compatibility
-    _mutable_fields = BaseConfig._mutable_fields | {"ulysses_sequence_parallel_size"}
+    _mutable_fields = EngineConfig._mutable_fields | {"ulysses_sequence_parallel_size"}
 
     # fsdp specific flags
     wrap_policy: dict[str, Any] = field(default_factory=dict)
@@ -131,8 +170,6 @@ class FSDPEngineConfig(EngineConfig):
     model_dtype: str = "fp32"
     use_orig_params: bool = False
     mixed_precision: Optional[dict[str, Any]] = None
-    seed: int = 42
-    full_determinism: bool = False
     ulysses_sequence_parallel_size: int = 1
     entropy_from_logits_with_chunking: bool = False
     use_torch_compile: bool = True
@@ -140,6 +177,7 @@ class FSDPEngineConfig(EngineConfig):
     strategy: str = "fsdp"
 
     def __post_init__(self):
+        super().__post_init__()
         assert self.strategy in ["fsdp", "fsdp2"], f"strategy {self.strategy} not supported"
 
 
