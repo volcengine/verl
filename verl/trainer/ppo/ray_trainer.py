@@ -850,8 +850,11 @@ class RayPPOTrainer:
             # Support custom AgentLoopManager via config
             manager_class = self.config.actor_rollout_ref.rollout.get("agent", {}).get("agent_loop_manager_class")
             if manager_class:
+                import importlib
+
                 module_path, class_name = manager_class.rsplit(".", 1)
-                exec(f"from {module_path} import {class_name} as AgentLoopManager")
+                module = importlib.import_module(module_path)
+                AgentLoopManager = getattr(module, class_name)
             else:
                 from verl.experimental.agent_loop import AgentLoopManager
 
