@@ -60,7 +60,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_test_qwen25_rm' \
-    trainer.val_before_train=True \
+    trainer.val_before_train=False \
     trainer.experiment_name='reward_loop_colocate_reward_model' \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \

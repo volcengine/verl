@@ -136,6 +136,10 @@ class RewardLoopWorker:
             add_generation_prompt=False,
             tokenize=False,
         )
+
+        if self.reward_model_tokenizer.bos_token is not None and rm_prompt.startswith(self.reward_model_tokenizer.bos_token):
+            rm_prompt = rm_prompt[len(self.reward_model_tokenizer.bos_token) :]
+
         return rm_prompt
 
     async def compute_score_disrm(self, data: DataProto) -> dict:
@@ -148,7 +152,7 @@ class RewardLoopWorker:
                 "model": model_name,
                 "input": disrm_prompt,
                 "activation": False,
-                "add_special_tokens": False,
+                # "add_special_tokens": False,  # vllm >= 0.11.2
             }
             output = await self._post_request(payloads, "classify")
             rm_score = output["data"][-1]["probs"][-1]
