@@ -137,7 +137,11 @@ class RewardLoopWorker:
             tokenize=False,
         )
 
-        if self.reward_model_tokenizer.bos_token is not None and rm_prompt.startswith(self.reward_model_tokenizer.bos_token):
+        # llama tokenizer will add bos token by default
+        # will be removed in vllm >= 0.11.2, where we can add "add_special_tokens" = False
+        if self.reward_model_tokenizer.bos_token is not None and rm_prompt.startswith(
+            self.reward_model_tokenizer.bos_token
+        ):
             rm_prompt = rm_prompt[len(self.reward_model_tokenizer.bos_token) :]
 
         return rm_prompt
