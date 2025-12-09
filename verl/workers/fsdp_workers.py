@@ -1659,6 +1659,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
         trust_remote_code = config.model.get("trust_remote_code", False)
         model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
         model_config.num_labels = 1
+        override_config = OmegaConf.to_container(OmegaConf.create(config.model.get("override_config", {})))
 
         # note that we have to create model in fp32. Otherwise, the optimizer is in bf16, which is incorrect
         init_context = get_init_weight_context_manager(
@@ -1672,7 +1673,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
                 pretrained_model_name_or_path=local_path,
                 config=model_config,
                 torch_dtype=torch.bfloat16,
-                attn_implementation="flash_attention_2",
+                attn_implementation=override_config.get("attn_implementation", "flash_attention_2"),
                 trust_remote_code=trust_remote_code,
             )
 
