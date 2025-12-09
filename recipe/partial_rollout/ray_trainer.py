@@ -419,6 +419,9 @@ def ray_trainer_fit(self):
                     else:
                         partial_batch = None
 
+                    if staged_batch is not None and len(staged_batch.batch) > 0:
+                        staged_batch.meta_info.pop("global_token_num",None)
+                        staged_out.meta_info.pop("global_token_num",None)
                     # note that we no longer ensure the order of samples in staged_batch
                     staged_batch = (
                         DataProto.concat([staged_batch, staged_out]) if staged_batch is not None else staged_out
