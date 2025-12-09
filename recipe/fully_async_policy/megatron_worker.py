@@ -168,7 +168,7 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
         self.checkpoint_engine.update_checkpoint(
             inference_model=inference_model,
             group_name=sync_group_name,
-            use_pipeline=self.config.checkpoint_engine.enable_broadcast_update_pipeline,
+            overlap_broadcast_and_consume=self.config.checkpoint_engine.overlap_broadcast_and_consume,
         )
 
         update_end_time = time.time()

@@ -83,7 +83,7 @@ https://github.com/ArronHZG/verl-community/blob/recipe/async_policy/docs/fully_a
 | `async_training.use_rollout_log_probs`               | 使用rollout产生的log_probs                                           |
 | `async_training.compute_prox_log_prob`（experimental） | 是否在train阶段，使用train模型的参数计算token的 log_prob                        |
 | `async_training.checkpoint_engine.active`| 是否开启checkpoint_engine模式的加速，默认值True |
-| `async_training.checkpoint_engine.enable_broadcast_update_pipeline` | 启动checkpoint_engine时，是否在参数同步时在broadcast和加载之间使用流水，默认值False|
+| `async_training.checkpoint_engine.overlap_broadcast_and_consume` | 启动checkpoint_engine时，是否在参数同步时在broadcast和加载之间使用流水，默认值False|
 | `async_training.checkpoint_engine.device_buffer_size_M` | 启动checkpoint_engine时，组装的bucket的大小(MB)，默认为4096 |
 
 **进一步的解释：**
@@ -147,15 +147,15 @@ https://github.com/ArronHZG/verl-community/blob/recipe/async_policy/docs/fully_a
   
   开启checkpoint engine后，相较于原始的逐tensor的参数同步方式，同步时间开销普遍可以降低60%以上。但是组装bucket会带来额外的临时显存开销。
 
-* `async_training.checkpoint_engine.enable_broadcast_update_pipeline`
+* `async_training.checkpoint_engine.overlap_broadcast_and_consume`
 
   开启参数broadcast和load_weights之间的流水后，会进一步额外申请更多显存。由于目前分析参数同步的主要耗时并非来自broadcast和load_weights阶段，而是在参数生成阶段（由megatron或FSDP），因此该开关默认关闭。
 
 * `async_training.checkpoint_engine.device_buffer_size_M`
   
   控制开启checkpoint engine后，用于同步的显存buffer大小。实际的`bucket_size` = `max(device_buffer_size_M, 最大参数tensor size)`
-  * 在开启`enable_broadcast_update_pipeline`时，trainer节点的临时额外显存开销为 `3 * bucket_size`, rollout节点的临时额外显存开销为`2 * bucket_size`。
-  * 在关闭`enable_broadcast_update_pipeline`时，trainer节点的临时额外显存开销为 `2 * bucket_size`, rollout节点的临时额外显存开销为`1 * bucket_size`。
+  * 在开启`overlap_broadcast_and_consume`时，trainer节点的临时额外显存开销为 `3 * bucket_size`, rollout节点的临时额外显存开销为`2 * bucket_size`。
+  * 在关闭`overlap_broadcast_and_consume`时，trainer节点的临时额外显存开销为 `2 * bucket_size`, rollout节点的临时额外显存开销为`1 * bucket_size`。
 
 ### 模式支持
 

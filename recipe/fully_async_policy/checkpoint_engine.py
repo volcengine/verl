@@ -407,7 +407,7 @@ class CheckpointEngine:
         self._zmq_addr_counter += 1
         return socket, socket_path
 
-    def update_checkpoint(self, inference_model, group_name: str, use_pipeline: bool = False):
+    def update_checkpoint(self, inference_model, group_name: str, overlap_broadcast_and_consume: bool = False):
         """
         Update the checkpoint by broadcasting and loading weights.
 
@@ -420,7 +420,8 @@ class CheckpointEngine:
         Args:
             inference_model: The model to load weights into. If None (trainer rank), weights are only broadcasted.
             group_name (str): The name of the collective communication group.
-            use_pipeline (bool): Whether to use the pipeline approach for broadcasting and loading weights.
+            overlap_broadcast_and_consume (bool): Whether to use the pipeline approach
+            for broadcasting and loading weights.
         """
         try:
             h2d_buffer: torch.Tensor | None = (
@@ -430,7 +431,7 @@ class CheckpointEngine:
             )
             # for pipeline mode, we need to allocate 2x buffer size
             broadcast_load_buffer = torch.empty(
-                self.bucket_size * (2 if use_pipeline else 1),
+                self.bucket_size * (2 if overlap_broadcast_and_consume else 1),
                 dtype=torch.uint8,
                 device=get_torch_device().current_device(),
             )
@@ -444,7 +445,7 @@ class CheckpointEngine:
 
         max_h2d_iter = self.get_max_buckets_num_per_rank()
 
-        if use_pipeline:
+        if overlap_broadcast_and_consume:
             socket, socket_path = self._bind_zmq_socket()
 
             # Define a function to update weights from IPC
@@ -491,7 +492,7 @@ class CheckpointEngine:
                 bucket = _buckets[i]
 
                 # Prepare the broadcast buffer
-                start = gidx % 2 * self.bucket_size if use_pipeline else 0
+                start = gidx % 2 * self.bucket_size if overlap_broadcast_and_consume else 0
                 buffer_b: torch.Tensor = broadcast_load_buffer[start : start + bucket.size]
                 if broadcast_rank == self.current_rank:
                     buffer_b.data.copy_(h2d_buffer[: bucket.size])
@@ -499,7 +500,7 @@ class CheckpointEngine:
                 # Broadcast the buffer to all ranks
                 collective.broadcast(buffer_b, src_rank=broadcast_rank, group_name=group_name)
 
-                if use_pipeline:
+                if overlap_broadcast_and_consume:
                     socket.recv()
                     collective.barrier(group_name=group_name)
                     socket.send_pyobj(_to_flattened_tensor_meta(bucket.metas, start))
@@ -509,7 +510,7 @@ class CheckpointEngine:
 
                 gidx += 1
 
-        if use_pipeline:
+        if overlap_broadcast_and_consume:
             socket.recv()
             socket.send_pyobj(None)
             socket.recv()
