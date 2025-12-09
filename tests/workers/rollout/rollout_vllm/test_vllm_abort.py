@@ -28,7 +28,7 @@ from uuid import uuid4
 
 def test_vllm_abort():
     # ==================== Configuration ====================
-    MODEL_PATH = os.path.expanduser("~/models/Qwen/Qwen2.5-3B-Instruct")
+    MODEL_PATH = os.path.expanduser("~/models/Qwen/Qwen2.5-1.5B-Instruct")  # /root/models/Qwen/Qwen2.5-1.5B-Instruct
     GPUS_PER_NODE = 2
     TP_SIZE = 1
     ROLLOUT_NAME = "vllm"
