@@ -134,6 +134,14 @@ class FSDPEngine(BaseEngine):
             else entropy_from_logits
         )
 
+    @property
+    def is_param_offload_enabled(self) -> bool:
+        return self._is_offload_param
+
+    @property
+    def is_optimizer_offload_enabled(self) -> bool:
+        return self._is_offload_optimizer
+
     def is_mp_src_rank_with_outputs(self):
         if self.ulysses_device_mesh is not None:
             is_collect = self.ulysses_device_mesh["sp"].get_local_rank() == 0

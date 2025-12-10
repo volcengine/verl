@@ -283,6 +283,14 @@ class MegatronEngine(BaseEngine):
         )
         return optimizer_scheduler
 
+    @property
+    def is_param_offload_enabled(self) -> bool:
+        return self._is_offload_param
+
+    @property
+    def is_optimizer_offload_enabled(self) -> bool:
+        return self._is_offload_optimizer
+
     def is_mp_src_rank_with_outputs(self):
         return (
             mpu.get_tensor_model_parallel_rank() == 0

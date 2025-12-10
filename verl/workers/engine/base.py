@@ -15,6 +15,7 @@
 The abstract base class defining the interface for model training engines.
 """
 
+from abc import abstractmethod
 from typing import Any, Callable, Generator, Optional
 
 import torch
@@ -37,6 +38,18 @@ class BaseEngine:
 
         Should prepare all components necessary for training or evaluation.
         """
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def is_param_offload_enabled(self) -> bool:
+        """Whether parameter offloading is enabled."""
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def is_optimizer_offload_enabled(self) -> bool:
+        """Whether optimizer offloading is enabled."""
         raise NotImplementedError
 
     def train_mode(self, **kwargs):
@@ -209,9 +222,6 @@ class BaseEngineCtx:
             **kwargs:
         """
         self.engine = engine
-        assert hasattr(self.engine, "_is_offload_param")
-        assert hasattr(self.engine, "_is_offload_optimizer")
-
         self.mode = mode
         assert self.mode in ("train", "eval")
         self.disable_auto_offload = kwargs.pop("disable_auto_offload", False)
@@ -220,13 +230,13 @@ class BaseEngineCtx:
         if self.disable_auto_offload:
             return
         if self.mode == "eval":
-            self.engine.to(device=device, model=self.engine._is_offload_param, optimizer=False, grad=False)
+            self.engine.to(device=device, model=self.engine.is_param_offload_enabled, optimizer=False, grad=False)
         elif self.mode == "train":
             self.engine.to(
                 device=device,
-                model=self.engine._is_offload_param,
-                optimizer=self.engine._is_offload_optimizer,
-                grad=self.engine._is_offload_param,
+                model=self.engine.is_param_offload_enabled,
+                optimizer=self.engine.is_optimizer_offload_enabled,
+                grad=self.engine.is_param_offload_enabled,
             )
 
     def __enter__(self):
