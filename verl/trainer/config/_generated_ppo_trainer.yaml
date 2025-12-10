@@ -75,6 +75,7 @@ actor_rollout_ref:
     kl_loss_type: low_var_kl
     ppo_epochs: 1
     shuffle: false
+    data_loader_seed: 42
     checkpoint:
       _target_: verl.trainer.config.CheckpointConfig
       save_contents:

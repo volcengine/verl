@@ -17,7 +17,6 @@ from tensordict import TensorDict
 
 from verl.utils import tensordict_utils as tu
 from verl.utils.device import (
-    is_cuda_available,
     is_npu_available,
 )
 
@@ -27,7 +26,7 @@ else:
     try:
         # for cuda and cpu
         from flash_attn.bert_padding import pad_input, unpad_input
-    except Exception as e:
+    except Exception:
         pad_input, unpad_input = None, None
 
 

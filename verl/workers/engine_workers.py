@@ -632,17 +632,19 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
             # construct TrainingWorkerConfig
             ref_training_config = TrainingWorkerConfig(
-                model_type='language_model',
+                model_type="language_model",
                 model_config=ref_config.model_config,
                 engine_config=ref_config.engine,
                 optimizer_config=ref_config.optim,
-                checkpoint_config=ref_config.checkpoint
+                checkpoint_config=ref_config.checkpoint,
             )
 
             # assign engine configs
             ref_training_config.engine_config.use_dynamic_bsz = self.config.ref.use_dynamic_bsz
             ref_training_config.engine_config.infer_max_token_len_per_gpu = self.config.ref.ppo_max_token_len_per_gpu
-            ref_training_config.engine_config.infer_micro_batch_size_per_gpu = self.config.ref.ppo_micro_batch_size_per_gpu
+            ref_training_config.engine_config.infer_micro_batch_size_per_gpu = (
+                self.config.ref.ppo_micro_batch_size_per_gpu
+            )
             ref_training_config.engine_config.use_remove_padding = model_config.use_remove_padding
 
             self.ref = TrainingWorker(config=ref_training_config)
@@ -655,21 +657,27 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             actor_config.model_config = model_config
 
             actor_training_config = TrainingWorkerConfig(
-                model_type='language_model',
+                model_type="language_model",
                 model_config=actor_config.model_config,
                 engine_config=actor_config.engine,
                 optimizer_config=actor_config.optim,
-                checkpoint_config=actor_config.checkpoint
+                checkpoint_config=actor_config.checkpoint,
             )
 
             assert self.config.actor.use_dynamic_bsz == self.config.rollout.log_prob_use_dynamic_bsz
 
             # assign engine configs
             actor_training_config.engine_config.use_dynamic_bsz = self.config.actor.use_dynamic_bsz
-            actor_training_config.engine_config.infer_max_token_len_per_gpu = self.config.rollout.log_prob_max_token_len_per_gpu
-            actor_training_config.engine_config.infer_micro_batch_size_per_gpu = self.config.rollout.log_prob_micro_batch_size_per_gpu
+            actor_training_config.engine_config.infer_max_token_len_per_gpu = (
+                self.config.rollout.log_prob_max_token_len_per_gpu
+            )
+            actor_training_config.engine_config.infer_micro_batch_size_per_gpu = (
+                self.config.rollout.log_prob_micro_batch_size_per_gpu
+            )
             actor_training_config.engine_config.max_token_len_per_gpu = self.config.actor.ppo_max_token_len_per_gpu
-            actor_training_config.engine_config.micro_batch_size_per_gpu = self.config.actor.ppo_micro_batch_size_per_gpu
+            actor_training_config.engine_config.micro_batch_size_per_gpu = (
+                self.config.actor.ppo_micro_batch_size_per_gpu
+            )
             actor_training_config.engine_config.use_remove_padding = model_config.use_remove_padding
 
             if self.config.actor.use_dynamic_bsz:
