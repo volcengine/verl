@@ -98,7 +98,7 @@ actor_rollout_ref:
         npu:
           _target_: verl.utils.profiler.config.NPUToolConfig
           contents: []
-          level: level1
+          level: level0
           analysis: true
           discrete: false
         torch:
@@ -141,7 +141,7 @@ actor_rollout_ref:
         npu:
           _target_: verl.utils.profiler.config.NPUToolConfig
           contents: []
-          level: level1
+          level: level0
           analysis: true
           discrete: false
         torch:
@@ -437,7 +437,7 @@ critic:
       npu:
         _target_: verl.utils.profiler.config.NPUToolConfig
         contents: []
-        level: level1
+        level: level0
         analysis: true
         discrete: false
       torch:

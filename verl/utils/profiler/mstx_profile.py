@@ -133,8 +133,8 @@ def get_npu_profiler(
     
     # The ability to filter communication via mstx_domain_exclude depends on Profiler versions 630 and later. Compatibility issues may arise with older versions.
     sig = inspect.signature(torch_npu.profiler._ExperimentalConfig.__init__)
-    param_names = sig.parameters.keys()
-    assert "mstx_domain_exclude" in param_names, "Requires torch_npu.profiler version 630 or later."
+    if "mstx_domain_exclude" not in sig.parameters:
+        raise RuntimeError("Requires torch_npu.profiler version 630 or later.")
 
     experimental_config = torch_npu.profiler._ExperimentalConfig(
         aic_metrics=torch_npu.profiler.AiCMetrics.PipeUtilization,
