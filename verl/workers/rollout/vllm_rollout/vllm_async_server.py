@@ -16,6 +16,7 @@ import asyncio
 import json
 import logging
 import os
+from concurrent.futures import Future
 from pprint import pprint
 from typing import Any, Callable, Optional
 
@@ -35,7 +36,6 @@ from vllm.inputs import TokensPrompt
 from vllm.lora.request import LoRARequest
 from vllm.outputs import RequestOutput
 from vllm.usage.usage_lib import UsageContext
-from vllm.utils import FlexibleArgumentParser, get_tcp_uri
 from vllm.v1.engine.async_llm import AsyncLLM
 from vllm.v1.engine.core import EngineCoreProc
 from vllm.v1.engine.utils import CoreEngineProcManager
@@ -54,6 +54,20 @@ from verl.workers.rollout.vllm_rollout.utils import (
     VLLM_LORA_PATH,
     get_vllm_max_lora_rank,
 )
+
+if vllm.__version__ > "0.11.0":
+    from vllm.utils.argparse_utils import FlexibleArgumentParser
+    from vllm.utils.network_utils import get_tcp_uri
+
+    if vllm.__version__ == "0.12.0":
+        from vllm.entrypoints.harmony_utils import get_encoding
+
+        get_encoding()
+else:
+    from vllm.utils import FlexibleArgumentParser, get_tcp_uri
+if vllm.__version__ >= "0.12.0":
+    from vllm.v1.core.sched.output import GrammarOutput, SchedulerOutput
+    from vllm.v1.outputs import ModelRunnerOutput
 
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
@@ -89,6 +103,30 @@ class ExternalZeroMQDistributedExecutor(Executor):
         self.collective_rpc("init_worker", args=([kwargs],))
         self.collective_rpc("init_device")
         self.collective_rpc("load_model")
+
+    if vllm.__version__ >= "0.12.0":
+
+        def execute_model(
+            self, scheduler_output: "SchedulerOutput", non_block: bool = False
+        ) -> "ModelRunnerOutput | None | Future[ModelRunnerOutput | None]":
+            output = self.collective_rpc("execute_model", args=(scheduler_output,))
+            result = output[0]
+            if non_block:
+                f = Future()
+                f.set_result(result)
+                return f
+            return result
+
+        def sample_tokens(
+            self, grammar_output: "GrammarOutput | None", non_block: bool = False
+        ) -> "ModelRunnerOutput | None | Future[ModelRunnerOutput | None]":
+            output = self.collective_rpc("sample_tokens", args=(grammar_output,))
+            result = output[0]
+            if non_block:
+                f = Future()
+                f.set_result(result)
+                return f
+            return result
 
     def collective_rpc(
         self,
@@ -350,7 +388,7 @@ class vLLMHttpServerBase:
         engine_client = AsyncLLM.from_vllm_config(
             vllm_config=vllm_config,
             usage_context=usage_context,
-            disable_log_requests=engine_args.disable_log_requests,
+            enable_log_requests=engine_args.enable_log_requests,
             disable_log_stats=engine_args.disable_log_stats,
         )
 
@@ -358,7 +396,10 @@ class vLLMHttpServerBase:
         await engine_client.reset_mm_cache()
 
         app = build_app(args)
-        await init_app_state(engine_client, vllm_config, app.state, args)
+        if vllm.__version__ > "0.11.0":
+            await init_app_state(engine_client, app.state, args)
+        else:
+            await init_app_state(engine_client, vllm_config, app.state, args)
         if self.replica_rank == 0 and self.node_rank == 0:
             logger.info(f"Initializing a V1 LLM engine with config: {vllm_config}")
 
