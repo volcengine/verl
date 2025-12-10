@@ -102,6 +102,16 @@ class TrainingWorker(Worker):
         self.loss_fn = None
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def to(self, device, model=True, optimizer=True, grad=True):
+        """Manual control of load/offload"""
+        assert device in ["cpu", "device"]
+
+        if device == "device":
+            device = get_device_name()
+
+        self.engine.to(device=device, model=model, optimizer=optimizer, grad=grad)
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def set_loss_fn(self, loss_fn):
         self.loss_fn = loss_fn
 
@@ -165,6 +175,7 @@ class TrainingWorker(Worker):
         assert self.loss_fn is not None, "loss function can't be None when calling train_batch"
         # global_token_num should be a list of number of tokens of each seq in this batch
         global_token_num = tu.get(data, key="global_token_num")
+        disable_auto_offload = tu.get(data, key="disable_auto_offload", default=False)
 
         # inject engineering parameters if not specified
         default_keys = dict(
@@ -179,7 +190,10 @@ class TrainingWorker(Worker):
             if key not in data.keys():
                 tu.assign_non_tensor(data, **{key: val})
 
-        with self.engine.train_mode(), Timer(name="train_batch", logger=None) as timer:
+        with (
+            self.engine.train_mode(disable_auto_offload=disable_auto_offload),
+            Timer(name="train_batch", logger=None) as timer,
+        ):
             output = self.engine.train_batch(data, loss_function=self.loss_fn)
             # containing loss, model_output and metrics
             # for training, we only care about loss and metrics
@@ -209,6 +223,7 @@ class TrainingWorker(Worker):
         # add mfu calculator
         global_token_num = tu.get(data, key="global_token_num")
         compute_loss = tu.get(data, key="compute_loss", default=True)
+        disable_auto_offload = tu.get(data, key="disable_auto_offload", default=False)
 
         default_keys = dict(
             use_remove_padding=self.model_config.use_remove_padding,
@@ -225,7 +240,10 @@ class TrainingWorker(Worker):
         # for sft training, we need to compute loss in eval
         loss_function = self.loss_fn if compute_loss else None
 
-        with self.engine.eval_mode(), Timer(name="eval_batch", logger=None) as timer:
+        with (
+            self.engine.eval_mode(disable_auto_offload=disable_auto_offload),
+            Timer(name="eval_batch", logger=None) as timer,
+        ):
             output = self.engine.infer_batch(data, loss_function=loss_function)
         delta_time = timer.last
 
