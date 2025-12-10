@@ -407,7 +407,7 @@ class MegatronEngine(BaseEngine):
             if model:
                 load_megatron_model_to_gpu(self.module, load_grad=grad)
             if optimizer and self.optimizer is not None:
-                load_megatron_optimizer(self.optimizer, device)
+                load_megatron_optimizer(self.optimizer)
         elif device == "cpu":
             if model:
                 offload_megatron_model_to_cpu(self.module)
