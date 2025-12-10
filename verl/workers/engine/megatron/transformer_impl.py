@@ -29,6 +29,7 @@ from verl.trainer.config import CheckpointConfig
 from verl.utils import tensordict_utils as tu
 from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpointManager
 from verl.utils.dataset.dataset_utils import DatasetPadMode
+from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.device import get_device_id, get_device_name
 from verl.utils.megatron.pipeline_parallel import make_batch_generator
 from verl.utils.megatron.tensor_parallel import (
@@ -336,6 +337,15 @@ class MegatronEngine(BaseEngine):
             provider=self.provider,
             use_dist_checkpointing=self.engine_config.use_dist_checkpointing,
         )
+
+        self.to(
+            device="cpu",
+            model=self._is_offload_param,
+            optimizer=self._is_offload_optimizer,
+            grad=self._is_offload_param,
+        )
+
+        log_gpu_memory_usage("After offload model/optimizer/grad during init", logger=logger)
 
     def train_mode(self, **kwargs):
         """

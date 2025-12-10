@@ -159,13 +159,6 @@ class FSDPEngine(BaseEngine):
         # This is used to import external_lib into the huggingface systems
         self._build_model_optimizer()
 
-        if self._is_offload_param:
-            offload_fsdp_model_to_cpu(self.module)
-            log_gpu_memory_usage("After offload model during init", logger=logger)
-        if self._is_offload_optimizer:
-            offload_fsdp_optimizer(optimizer=self.optimizer)
-            log_gpu_memory_usage("After offload optimizer during init", logger=logger)
-
         self.checkpoint_manager = FSDPCheckpointManager(
             model=self.module,
             optimizer=self.optimizer,
@@ -173,6 +166,15 @@ class FSDPEngine(BaseEngine):
             processing_class=self.model_config.get_processor(),
             checkpoint_config=self.checkpoint_config,
         )
+
+        self.to(
+            device="cpu",
+            model=self._is_offload_param,
+            optimizer=self._is_offload_optimizer,
+            grad=self._is_offload_param,
+        )
+
+        log_gpu_memory_usage("After offload model/optimizer/grad during init", logger=logger)
 
     def _init_device_mesh(self):
         world_size = torch.distributed.get_world_size()

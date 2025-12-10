@@ -122,12 +122,6 @@ class TrainingWorker(Worker):
         we initialize it. Otherwise, reload ckpt and reset states
         """
         self.engine.initialize()
-        self.engine.to(
-            device="cpu",
-            model=self.engine_config.param_offload,
-            optimizer=self.engine_config.optimizer_offload,
-            grad=self.engine_config.grad_offload,
-        )
 
     def _postprocess_output(self, output, *, global_token_num, delta_time, forward_only):
         """
