@@ -483,7 +483,6 @@ def process_weights_after_loading_moe_for_vllm10(self, layer) -> None:
 
 def process_weights_after_loading_moe_for_vllm11(self, layer) -> None:
     """This function is used to process the weights after loading for a FusedMoE layer, it is used for vllm 0.11"""
-    from vllm.model_executor.layers.fused_moe.rocm_aiter_fused_moe import is_rocm_aiter_moe_enabled
     from vllm.model_executor.layers.quantization.utils.flashinfer_utils import (
         swap_w13_to_w31,
     )
@@ -496,8 +495,6 @@ def process_weights_after_loading_moe_for_vllm11(self, layer) -> None:
         is_deep_gemm_e8m0_used,
     )
 
-    self.rocm_aiter_moe_enabled = is_rocm_aiter_moe_enabled()
-
     assert self.block_quant and self.quant_config.is_checkpoint_fp8_serialized
     assert self.quant_config.activation_scheme == "dynamic"
 
@@ -505,32 +502,52 @@ def process_weights_after_loading_moe_for_vllm11(self, layer) -> None:
         layer.w13_weight.data = swap_w13_to_w31(layer.w13_weight.data)
         layer.w13_weight_scale_inv.data = swap_w13_to_w31(layer.w13_weight_scale_inv.data)
 
-    if self.allow_deep_gemm and not is_deep_gemm_e8m0_used():
-        if expert_weight_is_col_major(layer.w13_weight_scale_inv):
-            layer.w13_weight_scale_inv = get_col_major_tma_aligned_tensor(layer.w13_weight_scale_inv)
-        if expert_weight_is_col_major(layer.w2_weight_scale_inv):
-            layer.w2_weight_scale_inv = get_col_major_tma_aligned_tensor(layer.w2_weight_scale_inv)
+    # Try to import deepgemm_post_process_fp8_weight_block from vllm.model_executor.layers.quantization.utils.fp8_utils. 
+    # If successful, invoke the logic of vllm 0.11.1 and above. Otherwise, invoke the logic of vllm 0.11.0.
+    try:
+        from vllm.model_executor.layers.quantization.utils.fp8_utils import deepgemm_post_process_fp8_weight_block
+        # For vllm 0.11.1 and above
+        if self.allow_deep_gemm:
+            dg_w13_weight, dg_w13_weight_scale_inv = deepgemm_post_process_fp8_weight_block(
+                wq=layer.w13_weight.data,
+                ws=layer.w13_weight_scale_inv.data,
+                quant_block_shape=tuple(layer.weight_block_size),
+                use_e8m0=is_deep_gemm_e8m0_used(),
+            )
+            dg_w2_weight, dg_w2_weight_scale_inv = deepgemm_post_process_fp8_weight_block(
+                wq=layer.w2_weight.data,
+                ws=layer.w2_weight_scale_inv.data,
+                quant_block_shape=tuple(layer.weight_block_size),
+                use_e8m0=is_deep_gemm_e8m0_used(),
+            )
+    except ImportError:
+        # For vllm 0.11.0
+        if self.allow_deep_gemm and not is_deep_gemm_e8m0_used():
+            if expert_weight_is_col_major(layer.w13_weight_scale_inv):
+                layer.w13_weight_scale_inv = get_col_major_tma_aligned_tensor(layer.w13_weight_scale_inv)
+            if expert_weight_is_col_major(layer.w2_weight_scale_inv):
+                layer.w2_weight_scale_inv = get_col_major_tma_aligned_tensor(layer.w2_weight_scale_inv)
 
-    if is_deep_gemm_e8m0_used():
-        assert layer.weight_block_size is not None
-        # Re-quantise the expert weights so their scales are UE8M0.
-        block_sz = tuple(layer.weight_block_size)
-        requant_weight_ue8m0_inplace(
-            layer.w13_weight.data,
-            layer.w13_weight_scale_inv.data,
-            block_sz,
-        )
-        requant_weight_ue8m0_inplace(
-            layer.w2_weight.data,
-            layer.w2_weight_scale_inv.data,
-            block_sz,
-        )
+            if is_deep_gemm_e8m0_used():
+                assert layer.weight_block_size is not None
+                # Re-quantise the expert weights so their scales are UE8M0.
+                block_sz = tuple(layer.weight_block_size)
+                requant_weight_ue8m0_inplace(
+                    layer.w13_weight.data,
+                    layer.w13_weight_scale_inv.data,
+                    block_sz,
+                )
+                requant_weight_ue8m0_inplace(
+                    layer.w2_weight.data,
+                    layer.w2_weight_scale_inv.data,
+                    block_sz,
+                )
 
-        # Ensure column-major TMA alignment expected by DeepGEMM.
-        if expert_weight_is_col_major(layer.w13_weight_scale_inv):
-            layer.w13_weight_scale_inv = get_col_major_tma_aligned_tensor(layer.w13_weight_scale_inv)
-        if expert_weight_is_col_major(layer.w2_weight_scale_inv):
-            layer.w2_weight_scale_inv = get_col_major_tma_aligned_tensor(layer.w2_weight_scale_inv)
+                # Ensure column-major TMA alignment expected by DeepGEMM.
+                if expert_weight_is_col_major(layer.w13_weight_scale_inv):
+                    layer.w13_weight_scale_inv = get_col_major_tma_aligned_tensor(layer.w13_weight_scale_inv)
+                if expert_weight_is_col_major(layer.w2_weight_scale_inv):
+                    layer.w2_weight_scale_inv = get_col_major_tma_aligned_tensor(layer.w2_weight_scale_inv)
 
 
 def reset_kv_scale_flags_in_model(model_runner) -> int:
