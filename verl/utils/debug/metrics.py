@@ -61,11 +61,11 @@ def calculate_log_prob_diff(log_probs1: torch.Tensor, log_probs2: torch.Tensor, 
 
 def calculate_rollout_actor_probs_kl_divergence(rollout_probs: torch.Tensor, rollout_old_log_probs: torch.Tensor, actor_old_log_probs: torch.Tensor, mask: torch.Tensor) -> float:
     # implemention of https://arxiv.org/pdf/2512.01374
-    rollout_probs = torch.masked_select(rollout_probs, mask)
-    rollout_old_log_probs = torch.masked_select(rollout_old_log_probs, mask)
-    actor_old_log_probs = torch.masked_select(actor_old_log_probs, mask)
-    result = rollout_probs * (rollout_old_log_probs - actor_old_log_probs)
-    return result.mean().detach().item()
+    kl_terms = rollout_probs * (rollout_old_log_probs - actor_old_log_probs)
+    masked_kl_terms = torch.masked_select(kl_terms, mask)
+    if masked_kl_terms.numel() == 0:
+        return 0.0
+    return masked_kl_terms.mean().detach().item()
 
 def calculate_debug_metrics(data: DataProto) -> dict:
     """
