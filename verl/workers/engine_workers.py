@@ -57,8 +57,8 @@ class TrainingWorker(Worker):
     and do not provide exact APIs as Tinker does. But this can be added in the future.
     """
 
-    def __init__(self, config: TrainingWorkerConfig):
-        Worker.__init__(self)
+    def __init__(self, config: TrainingWorkerConfig, **kwargs):
+        Worker.__init__(self, **kwargs)
 
         from verl.workers.engine import BaseEngine, EngineRegistry
 
@@ -270,9 +270,9 @@ class ActorWorker(Worker, DistProfilerExtension):
     or a hybrid engine based on the config.rollout
     """
 
-    def __init__(self, config: ActorConfig):
+    def __init__(self, config: ActorConfig, **kwargs):
         self.config = config
-        Worker.__init__(self)
+        Worker.__init__(self, **kwargs)
         self.profiler_config = self.config.profiler
         tool_config = self.profiler_config.tool_config
         DistProfilerExtension.__init__(
@@ -425,9 +425,9 @@ class CriticWorker(Worker, DistProfilerExtension):
     or a hybrid engine based on the config.rollout
     """
 
-    def __init__(self, config: CriticConfig):
+    def __init__(self, config: CriticConfig, **kwargs):
         self.config = config
-        Worker.__init__(self)
+        Worker.__init__(self, **kwargs)
         self.profiler_config = self.config.profiler
         tool_config = self.profiler_config.tool_config
         DistProfilerExtension.__init__(
@@ -596,7 +596,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     """
 
     def __init__(self, config: DictConfig, role: str, **kwargs):
-        Worker.__init__(self)
+        Worker.__init__(self, **kwargs)
         self.config = config
         self.role = role
         self.actor: ActorWorker = None

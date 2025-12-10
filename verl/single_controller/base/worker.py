@@ -184,7 +184,7 @@ class Worker(WorkerHelper):
             get_visible_devices_keyword().upper(),
         ]
 
-    def __init__(self, cuda_visible_devices=None) -> None:
+    def __init__(self, cuda_visible_devices=None, **kwargs) -> None:
         """Initialize the worker with environment settings and device configuration.
 
         Args:
@@ -224,6 +224,11 @@ class Worker(WorkerHelper):
         self.fused_worker_dict = {}
         self.__dispatch_dp_rank = {}
         self.__collect_dp_rank = {}
+
+        if kwargs.get("addition_funcs", None) is not None:
+            for func in kwargs["addition_funcs"]:
+                func(config=kwargs.get("config", None))
+                print(f"Addition func {func} applied.")
 
     def get_fused_worker_by_name(self, worker_name: str):
         """Get a fused worker by its name.
