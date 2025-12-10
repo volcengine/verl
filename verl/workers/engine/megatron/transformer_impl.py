@@ -50,7 +50,7 @@ from verl.utils.model import (
 )
 from verl.workers.config import HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
 
-from ..base import BaseEngine, EngineRegistry
+from ..base import BaseEngine, EngineRegistry, BaseEngineCtx
 from ..utils import (
     postprocess_batch_func,
     prepare_micro_batches,
@@ -329,7 +329,7 @@ class MegatronEngine(BaseEngine):
             use_dist_checkpointing=self.engine_config.use_dist_checkpointing,
         )
 
-    def train_mode(self):
+    def train_mode(self, **kwargs):
         """
         Context manager entry for switching the engine and model into training mode.
 
@@ -337,9 +337,9 @@ class MegatronEngine(BaseEngine):
             with engine.train_mode():
                 # runs in training mode
         """
-        return EngineTrainModeCtx(self)
+        return EngineTrainModeCtx(self, **kwargs)
 
-    def eval_mode(self):
+    def eval_mode(self, **kwargs):
         """
         Context manager entry for switching the engine and model into evaluation mode.
 
@@ -347,7 +347,7 @@ class MegatronEngine(BaseEngine):
             with engine.eval_mode():
                 # runs in evaluation mode
         """
-        return EngineEvalModeCtx(self)
+        return EngineEvalModeCtx(self, **kwargs)
 
     def optimizer_zero_grad(self):
         """
@@ -391,27 +391,28 @@ class MegatronEngine(BaseEngine):
     def to(self, device: str, model: bool = True, optimizer: bool = True, grad: bool = True):
         """
         Move model parameters, optimizer states, or both to the specified device.
+        Note that this function executes irrespective of offload config. It serves as manual control
 
         Args:
             device: Target device identifier.
             model: If True, move the model.
             optimizer: If True, move the optimizer states.
         """
+        super().to(device=device, model=model, optimizer=optimizer, grad=grad)
+
         device_name = get_device_name()
 
         assert device in (device_name, "cpu")
         if device == device_name:
-            if self.engine_config.param_offload:
-                if model:
-                    load_megatron_model_to_gpu(self.module, load_grad=grad)
-                if optimizer and self.optimizer is not None:
-                    load_megatron_optimizer(self.optimizer, device)
+            if model:
+                load_megatron_model_to_gpu(self.module, load_grad=grad)
+            if optimizer and self.optimizer is not None:
+                load_megatron_optimizer(self.optimizer, device)
         elif device == "cpu":
-            if self.engine_config.param_offload:
-                if model:
-                    offload_megatron_model_to_cpu(self.module)
-                if optimizer and self.optimizer is not None:
-                    offload_megatron_optimizer(self.optimizer)
+            if model:
+                offload_megatron_model_to_cpu(self.module)
+            if optimizer and self.optimizer is not None:
+                offload_megatron_optimizer(self.optimizer)
         else:
             raise ValueError(f"Invalid device type: {device}")
 
@@ -563,50 +564,36 @@ class MegatronEngine(BaseEngine):
         raise NotImplementedError("postprocess_micro_batch_func must be implemented in subclass")
 
 
-class EngineEvalModeCtx:
-    def __init__(self, engine: MegatronEngine):
-        self.engine = engine
+class EngineEvalModeCtx(BaseEngineCtx):
+    def __init__(self, engine: MegatronEngine, **kwargs):
+        super().__init__(engine=engine, mode='eval', **kwargs)
 
     def __enter__(self):
         assert isinstance(self.engine, MegatronEngine)
-
-        self.engine.mode = "eval"
-        if self.engine._is_offload_param:
-            load_megatron_model_to_gpu(self.engine.module, load_grad=True)
-
+        super().__enter__()
         # mcore module is a list of model chunk in each vpp stage
         for module in self.engine.module:
             module.eval()
 
     def __exit__(self, exc_type, exc_value, traceback):
-        if self.engine._is_offload_param:
-            offload_megatron_model_to_cpu(self.engine.module)
-        self.engine.mode = None
+        assert isinstance(self.engine, MegatronEngine)
+        super().__exit__(exc_type, exc_value, traceback)
 
 
-class EngineTrainModeCtx:
-    def __init__(self, engine: MegatronEngine):
-        self.engine = engine
+class EngineTrainModeCtx(BaseEngineCtx):
+    def __init__(self, engine: MegatronEngine, **kwargs):
+        super().__init__(engine=engine, mode='train', **kwargs)
 
     def __enter__(self):
         assert isinstance(self.engine, MegatronEngine)
-
-        self.engine.mode = "train"
-        if self.engine._is_offload_param:
-            load_megatron_model_to_gpu(self.engine.module, load_grad=True)
-        if self.engine._is_offload_optimizer:
-            load_megatron_optimizer(self.engine.optimizer)
-
+        super().__enter__()
         # mcore module is a list of model chunk in each vpp stage
         for module in self.engine.module:
             module.train()
 
     def __exit__(self, exc_type, exc_value, traceback):
-        if self.engine._is_offload_param:
-            offload_megatron_model_to_cpu(self.engine.module)
-        if self.engine._is_offload_optimizer:
-            offload_megatron_optimizer(self.engine.optimizer)
-        self.engine.mode = None
+        assert isinstance(self.engine, MegatronEngine)
+        super().__exit__(exc_type, exc_value, traceback)
 
 
 @EngineRegistry.register(model_type="language_model", backend="megatron")

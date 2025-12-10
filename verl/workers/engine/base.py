@@ -39,7 +39,7 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def train_mode(self):
+    def train_mode(self, **kwargs):
         """
         Context manager entry for switching the engine and model into training mode.
 
@@ -49,7 +49,7 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def eval_mode(self):
+    def eval_mode(self, **kwargs):
         """
         Context manager entry for switching the engine and model into evaluation mode.
 
@@ -156,7 +156,8 @@ class BaseEngine:
             optimizer: If True, move the optimizer states.
             grad: If True, move the gradient buffer.
         """
-        raise NotImplementedError
+        if not model:
+            assert not optimizer and not grad, "Model must be moved to device along with optimizer and grad"
 
     def save_checkpoint(
         self,
@@ -197,6 +198,43 @@ class BaseEngine:
         Whether the current rank is the first rank in model parallel group that contains model outputs
         """
         raise NotImplementedError
+
+
+class BaseEngineCtx:
+    def __init__(self, engine: BaseEngine, mode, **kwargs):
+        """Base Engine context that handles load and offload
+
+        Args:
+            engine:
+            **kwargs:
+        """
+        self.engine = engine
+        assert hasattr(self.engine, '_is_offload_param')
+        assert hasattr(self.engine, '_is_offload_optimizer')
+
+        self.mode = mode
+        assert self.mode in ('train', 'eval')
+        self.disable_auto_offload = kwargs.pop('disable_auto_offload', False)
+
+
+    def _context_switch(self, device):
+        if self.disable_auto_offload:
+            return
+        if self.mode == 'eval':
+            self.engine.to(device=device, model=self.engine._is_offload_param, optimizer=False, grad=False)
+        elif self.mode == 'train':
+            self.engine.to(device=device,
+                           model=self.engine._is_offload_param,
+                           optimizer=self.engine._is_offload_optimizer,
+                           grad=self.engine._is_offload_param)
+
+    def __enter__(self):
+        self._context_switch(get_device_name())
+        self.engine.mode = self.mode
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._context_switch('cpu')
+        self.engine.mode = None
 
 
 class EngineRegistry:
