@@ -68,7 +68,7 @@ jobs:
   non_rl_job:
     if: github.repository_owner == 'volcengine'
     name: E2E Ascend testing for non-RL algorithm scenarios
-    runs-on: linux-aarch64-a2-8
+    runs-on: linux-aarch64-a2-1
     timeout-minutes: 30
     container:
       image: swr.ap-southeast-1.myhuaweicloud.com/base_image/ascend-ci/verl/verl:verl-8.3.rc1-910b-ubuntu22.04-py3.11-latest
