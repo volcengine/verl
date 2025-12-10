@@ -1290,6 +1290,7 @@ class RayPPOTrainer:
                                 batch_td = left_right_2_no_padding(batch_td)
                                 calculate_entropy = self.config.actor_rollout_ref.actor.entropy_coeff != 0.0
                                 ppo_mini_batch_size = self.config.actor_rollout_ref.actor.ppo_mini_batch_size
+                                ppo_mini_batch_size = ppo_mini_batch_size * self.config.actor_rollout_ref.rollout.n
                                 ppo_epochs = self.config.actor_rollout_ref.actor.ppo_epochs
                                 seed = self.config.actor_rollout_ref.actor.data_loader_seed
                                 shuffle = self.config.actor_rollout_ref.actor.shuffle
