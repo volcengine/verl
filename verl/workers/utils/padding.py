@@ -21,10 +21,14 @@ from verl.utils.device import (
     is_npu_available,
 )
 
-if is_cuda_available:
-    from flash_attn.bert_padding import pad_input, unpad_input
-elif is_npu_available:
+if is_npu_available:
     from transformers.integrations.npu_flash_attention import pad_input, unpad_input
+else:
+    try:
+        # for cuda and cpu
+        from flash_attn.bert_padding import pad_input, unpad_input
+    except Exception as e:
+        pad_input, unpad_input = None, None
 
 
 def left_right_2_no_padding(data: TensorDict) -> TensorDict:

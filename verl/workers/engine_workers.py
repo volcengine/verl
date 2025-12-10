@@ -599,9 +599,18 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         Worker.__init__(self)
         self.config = config
         self.role = role
-        self.actor: ActorWorker = None
-        self.ref: ActorWorker = None
+        self.actor: TrainingWorker = None
+        self.ref: TrainingWorker = None
         self.rollout: BaseRollout = None
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def set_loss_fn(self, loss_fn):
+        self.actor.set_loss_fn(loss_fn=loss_fn)
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def to(self, device, model=True, optimizer=True, grad=True):
+        """Manual control of load/offload"""
+        self.actor.to(device=device, model=model, optimizer=optimizer, grad=grad)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
@@ -621,9 +630,23 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             ref_config: ActorConfig = omega_conf_to_dataclass(self.config.ref)
             ref_config.model_config = model_config
 
-            self.ref = ActorWorker(ref_config)
-            self.ref.init_model()
-            self.ref.engine.to("cpu")
+            # construct TrainingWorkerConfig
+            ref_training_config = TrainingWorkerConfig(
+                model_type='language_model',
+                model_config=ref_config.model_config,
+                engine_config=ref_config.engine,
+                optimizer_config=ref_config.optim,
+                checkpoint_config=ref_config.checkpoint
+            )
+
+            # assign engine configs
+            ref_training_config.engine_config.use_dynamic_bsz = self.config.ref.use_dynamic_bsz
+            ref_training_config.engine_config.infer_max_token_len_per_gpu = self.config.ref.ppo_max_token_len_per_gpu
+            ref_training_config.engine_config.infer_micro_batch_size_per_gpu = self.config.ref.ppo_micro_batch_size_per_gpu
+            ref_training_config.engine_config.use_remove_padding = model_config.use_remove_padding
+
+            self.ref = TrainingWorker(config=ref_training_config)
+            self.ref.reset()
             self.set_dispatch_collect(mesh_name="ref", **self.ref.get_dispatch_collect())
 
         # 2. build actor model
@@ -631,9 +654,35 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             actor_config: ActorConfig = omega_conf_to_dataclass(self.config.actor)
             actor_config.model_config = model_config
 
-            self.actor = ActorWorker(actor_config)
-            self.actor.init_model()
-            self.actor.engine.to("cpu")
+            actor_training_config = TrainingWorkerConfig(
+                model_type='language_model',
+                model_config=actor_config.model_config,
+                engine_config=actor_config.engine,
+                optimizer_config=actor_config.optim,
+                checkpoint_config=actor_config.checkpoint
+            )
+
+            assert self.config.actor.use_dynamic_bsz == self.config.rollout.log_prob_use_dynamic_bsz
+
+            # assign engine configs
+            actor_training_config.engine_config.use_dynamic_bsz = self.config.actor.use_dynamic_bsz
+            actor_training_config.engine_config.infer_max_token_len_per_gpu = self.config.rollout.log_prob_max_token_len_per_gpu
+            actor_training_config.engine_config.infer_micro_batch_size_per_gpu = self.config.rollout.log_prob_micro_batch_size_per_gpu
+            actor_training_config.engine_config.max_token_len_per_gpu = self.config.actor.ppo_max_token_len_per_gpu
+            actor_training_config.engine_config.micro_batch_size_per_gpu = self.config.actor.ppo_micro_batch_size_per_gpu
+            actor_training_config.engine_config.use_remove_padding = model_config.use_remove_padding
+
+            if self.config.actor.use_dynamic_bsz:
+                assert self.config.rollout.log_prob_max_token_len_per_gpu is not None
+                assert self.config.actor.ppo_max_token_len_per_gpu is not None
+            else:
+                assert self.config.rollout.log_prob_micro_batch_size_per_gpu is not None
+                assert self.config.rollout.ppo_micro_batch_size_per_gpu is not None
+
+            self.loss_fn = partial(ppo_loss, config=actor_config)
+            self.actor = TrainingWorker(config=actor_training_config)
+            self.actor.reset()
+            self.actor.set_loss_fn(self.loss_fn)
             self.set_dispatch_collect(mesh_name="actor", **self.actor.get_dispatch_collect())
 
         # 3. build rollout engine
@@ -673,22 +722,19 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="ref"))
     @DistProfiler.annotate(color="olive", role="ref_compute_log_prob")
-    def compute_ref_log_prob(self, data: DataProto):
-        data.meta_info["calculate_entropy"] = False
-        output = self.ref.compute_log_prob(data)
-        if output is not None:
-            output.batch["ref_log_prob"] = output.batch.pop("old_log_probs")
-        return output
+    def compute_ref_log_prob(self, data: TensorDict) -> TensorDict:
+        return self.ref.infer_batch(data=data).cpu()
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @DistProfiler.annotate(color="blue", role="actor_compute_log_prob")
-    def compute_log_prob(self, data: DataProto):
-        return self.actor.compute_log_prob(data)
+    def compute_log_prob(self, data: TensorDict) -> TensorDict:
+        return self.actor.infer_batch(data).cpu()
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"), blocking=False)
     @DistProfiler.annotate(color="red", role="actor_update")
-    def update_actor(self, data: DataProto):
-        return self.actor.update_actor(data)
+    def train_batch(self, data: TensorDict) -> TensorDict:
+        output = self.actor.train_batch(data=data)
+        return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=False):
