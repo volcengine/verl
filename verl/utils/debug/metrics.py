@@ -59,7 +59,7 @@ def calculate_log_prob_diff(log_probs1: torch.Tensor, log_probs2: torch.Tensor, 
     full_diff = torch.abs(log_probs1 - log_probs2)
     return torch.masked_select(full_diff, mask)
 
-def calculate_rollout_actor_probs_kl_divergence(rollout_probs: torch.Tensor, rollout_old_log_probs: torch.Tensor, actor_old_log_probs: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+def calculate_rollout_actor_probs_kl_divergence(rollout_probs: torch.Tensor, rollout_old_log_probs: torch.Tensor, actor_old_log_probs: torch.Tensor, mask: torch.Tensor) -> float:
     # implemention of https://arxiv.org/pdf/2512.01374
     rollout_probs = torch.masked_select(rollout_probs, mask)
     rollout_old_log_probs = torch.masked_select(rollout_old_log_probs, mask)
