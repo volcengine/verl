@@ -18,6 +18,7 @@ import logging
 import os
 from contextlib import contextmanager
 from typing import Any, Callable, Optional
+import inspect
 
 import torch_npu
 from torch_npu.npu import mstx
@@ -128,12 +129,20 @@ def get_npu_profiler(
     if role:
         profile_save_path = os.path.join(profile_save_path, role)
 
+    init_method = torch_npu.profiler._ExperimentalConfig.__init__
+    
+    # The ability to filter communication via mstx_domain_exclude depends on Profiler versions 630 and later. Compatibility issues may arise with older versions.
+    sig = inspect.signature(torch_npu.profiler._ExperimentalConfig.__init__)
+    param_names = sig.parameters.keys()
+    assert "mstx_domain_exclude" in param_names, "Requires torch_npu.profiler version 630 or later."
+
     experimental_config = torch_npu.profiler._ExperimentalConfig(
         aic_metrics=torch_npu.profiler.AiCMetrics.PipeUtilization,
         profiler_level=level,
-        export_type=torch_npu.profiler.ExportType.Text,
+        export_type=torch_npu.profiler.ExportType.Db,
         data_simplification=True,
         msprof_tx=True,
+        mstx_domain_exclude=["communication"]
     )
 
     activites = []
