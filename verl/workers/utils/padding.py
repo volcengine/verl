@@ -26,8 +26,15 @@ else:
     try:
         # for cuda and cpu
         from flash_attn.bert_padding import pad_input, unpad_input
-    except Exception:
-        pad_input, unpad_input = None, None
+    except ImportError:
+
+        def _raise_import_error(*args, **kwargs):
+            raise ImportError(
+                "flash_attn is not installed or not compatible with your environment. "
+                "Please install it to use padding removal features (e.g., `pip install flash-attn`)."
+            )
+
+        pad_input, unpad_input = _raise_import_error, _raise_import_error
 
 
 def left_right_2_no_padding(data: TensorDict) -> TensorDict:
