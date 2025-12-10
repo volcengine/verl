@@ -1338,6 +1338,9 @@ class RayPPOTrainer:
                                             output[key] = list(chain.from_iterable(val))
                                     append_to_dict(agg_actor_output, output, prefix="actor/")
 
+                                # modify key name
+                                agg_actor_output["perf/mfu/actor"] = agg_actor_output.pop("actor/mfu")
+
                                 actor_output = DataProto.from_single_dict(
                                     data={}, meta_info={"metrics": agg_actor_output}
                                 )
