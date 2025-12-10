@@ -30,7 +30,7 @@ async_training:
   # checkpoint_engine config for accelerating parameter synchronization between rollouter and trainer
   checkpoint_engine:
     # Whether to use checkpoint_engine
-    active: True
+    enable: True
 
     # Device buffer size for checkpoint_engine, default is 4096 MB
     device_buffer_size_M: 4096

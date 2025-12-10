@@ -82,7 +82,7 @@ https://github.com/ArronHZG/verl-community/blob/recipe/async_policy/docs/fully_a
 | `async_training.partial_rollout`                     | 是否进行partial_rollout                                             |
 | `async_training.use_rollout_log_probs`               | 使用rollout产生的log_probs                                           |
 | `async_training.compute_prox_log_prob`（experimental） | 是否在train阶段，使用train模型的参数计算token的 log_prob                        |
-| `async_training.checkpoint_engine.active`| 是否开启checkpoint_engine模式的加速，默认值True |
+| `async_training.checkpoint_engine.enable`| 是否开启checkpoint_engine模式的加速，默认值True |
 | `async_training.checkpoint_engine.overlap_broadcast_and_consume` | 启动checkpoint_engine时，是否在参数同步时在broadcast和加载之间使用流水，默认值False|
 | `async_training.checkpoint_engine.device_buffer_size_M` | 启动checkpoint_engine时，组装的bucket的大小(MB)，默认为4096 |
 
@@ -143,7 +143,7 @@ https://github.com/ArronHZG/verl-community/blob/recipe/async_policy/docs/fully_a
   此外，在 mode d (async stream pipeline with partial rollout) 的情况下开启 `compute_prox_log_prob` 以及
   `Rollout Importance Sampling` 后，我们的实现已近似Areal的 `Decoupled PPO`。
 
-* `async_training.checkpoint_engine.active`
+* `async_training.checkpoint_engine.enable`
   
   开启checkpoint engine后，相较于原始的逐tensor的参数同步方式，同步时间开销普遍可以降低60%以上。但是组装bucket会带来额外的临时显存开销。
 

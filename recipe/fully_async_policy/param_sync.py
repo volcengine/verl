@@ -52,7 +52,7 @@ class ParameterSynchronizer:
         self._init_weights_info()
         self._init_sync_group()
 
-        if self.config.async_training.checkpoint_engine.active:
+        if self.config.async_training.checkpoint_engine.enable:
             self._init_actor_rollout_checkpoint_engine()
 
     def get_current_param_version(self) -> int:
@@ -108,7 +108,7 @@ class ParameterSynchronizer:
         pause_time = time.time()
 
         # sync weights
-        if self.config.async_training.checkpoint_engine.active:
+        if self.config.async_training.checkpoint_engine.enable:
             self.actor_wg.sync_rollout_weights_by_checkpoint(self.sync_group_name)
             ray.get(self.rollout_wg.sync_rollout_weights_by_checkpoint(self.sync_group_name))
         else:
