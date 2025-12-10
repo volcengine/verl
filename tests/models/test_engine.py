@@ -53,11 +53,11 @@ from verl.workers.utils.losses import ppo_loss, sft_loss
 from verl.workers.utils.padding import left_right_2_no_padding, no_padding_2_padding
 
 
-@pytest.mark.parametrize("strategy", ["megatron", "fsdp", "fsdp2"])
+@pytest.mark.parametrize("strategy", ["fsdp", "fsdp2", "megatron"])
 def test_engine(strategy):
     ray.init()
 
-    path = os.path.expanduser("~/models/HuggingFaceTB/SmolLM2-135M-Instruct")
+    path = os.path.expanduser("~/models/Qwen/Qwen2.5-0.5B")
     model_config = HFModelConfig(path=path, use_remove_padding=True)
 
     kwargs = dict(
@@ -82,7 +82,7 @@ def test_engine(strategy):
         optimizer_config = McoreOptimizerConfig(lr_decay_steps=10)
     elif strategy in ["fsdp", "fsdp2"]:
         engine_config = FSDPEngineConfig(
-            forward_only=False, fsdp_size=1, strategy=strategy, ulysses_sequence_parallel_size=1, **kwargs
+            forward_only=False, fsdp_size=4, strategy=strategy, ulysses_sequence_parallel_size=2, **kwargs
         )
         optimizer_config = FSDPOptimizerConfig()
     else:
