@@ -188,22 +188,20 @@ def test_engine(strategy):
     data_td = left_right_2_no_padding(data_td)
 
     # auto load/offload
-    tu.assign_non_tensor(data_td,
-                         global_batch_size=data_td.shape[0])
+    tu.assign_non_tensor(data_td, global_batch_size=data_td.shape[0])
     ppo_metrics = wg.train_batch(data_td)
     ppo_metrics = ppo_metrics.get()
     ppo_metrics = tu.get(ppo_metrics, "metrics")
     print(ppo_metrics)
 
     # test manual load/offload
-    tu.assign_non_tensor(data_td,
-                         disable_auto_offload=True)
-    wg.to('device')
+    tu.assign_non_tensor(data_td, disable_auto_offload=True)
+    wg.to("device")
     ppo_metrics = wg.train_batch(data_td)
     ppo_metrics = ppo_metrics.get()
     ppo_metrics = tu.get(ppo_metrics, "metrics")
     print(ppo_metrics)
-    wg.to('cpu')
+    wg.to("cpu")
 
     ray.shutdown()
 

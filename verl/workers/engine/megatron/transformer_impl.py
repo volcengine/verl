@@ -50,7 +50,7 @@ from verl.utils.model import (
 )
 from verl.workers.config import HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
 
-from ..base import BaseEngine, EngineRegistry, BaseEngineCtx
+from ..base import BaseEngine, BaseEngineCtx, EngineRegistry
 from ..utils import (
     postprocess_batch_func,
     prepare_micro_batches,
@@ -566,7 +566,7 @@ class MegatronEngine(BaseEngine):
 
 class EngineEvalModeCtx(BaseEngineCtx):
     def __init__(self, engine: MegatronEngine, **kwargs):
-        super().__init__(engine=engine, mode='eval', **kwargs)
+        super().__init__(engine=engine, mode="eval", **kwargs)
 
     def __enter__(self):
         assert isinstance(self.engine, MegatronEngine)
@@ -582,7 +582,7 @@ class EngineEvalModeCtx(BaseEngineCtx):
 
 class EngineTrainModeCtx(BaseEngineCtx):
     def __init__(self, engine: MegatronEngine, **kwargs):
-        super().__init__(engine=engine, mode='train', **kwargs)
+        super().__init__(engine=engine, mode="train", **kwargs)
 
     def __enter__(self):
         assert isinstance(self.engine, MegatronEngine)

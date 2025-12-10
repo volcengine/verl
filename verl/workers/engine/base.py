@@ -209,31 +209,32 @@ class BaseEngineCtx:
             **kwargs:
         """
         self.engine = engine
-        assert hasattr(self.engine, '_is_offload_param')
-        assert hasattr(self.engine, '_is_offload_optimizer')
+        assert hasattr(self.engine, "_is_offload_param")
+        assert hasattr(self.engine, "_is_offload_optimizer")
 
         self.mode = mode
-        assert self.mode in ('train', 'eval')
-        self.disable_auto_offload = kwargs.pop('disable_auto_offload', False)
-
+        assert self.mode in ("train", "eval")
+        self.disable_auto_offload = kwargs.pop("disable_auto_offload", False)
 
     def _context_switch(self, device):
         if self.disable_auto_offload:
             return
-        if self.mode == 'eval':
+        if self.mode == "eval":
             self.engine.to(device=device, model=self.engine._is_offload_param, optimizer=False, grad=False)
-        elif self.mode == 'train':
-            self.engine.to(device=device,
-                           model=self.engine._is_offload_param,
-                           optimizer=self.engine._is_offload_optimizer,
-                           grad=self.engine._is_offload_param)
+        elif self.mode == "train":
+            self.engine.to(
+                device=device,
+                model=self.engine._is_offload_param,
+                optimizer=self.engine._is_offload_optimizer,
+                grad=self.engine._is_offload_param,
+            )
 
     def __enter__(self):
         self._context_switch(get_device_name())
         self.engine.mode = self.mode
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self._context_switch('cpu')
+        self._context_switch("cpu")
         self.engine.mode = None
 
 

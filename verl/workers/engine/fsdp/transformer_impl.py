@@ -41,7 +41,6 @@ from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.device import (
     get_device_id,
     get_device_name,
-    get_torch_device,
 )
 from verl.utils.fsdp_utils import (
     CPUOffloadPolicy,
@@ -68,7 +67,7 @@ from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad, ulysses_pa
 from verl.workers.config import FSDPEngineConfig, FSDPOptimizerConfig, HFModelConfig
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
-from ..base import BaseEngine, EngineRegistry, BaseEngineCtx
+from ..base import BaseEngine, BaseEngineCtx, EngineRegistry
 from ..utils import enable_full_determinism, postprocess_batch_func, prepare_micro_batches
 from .utils import create_device_mesh, get_sharding_strategy
 
@@ -570,7 +569,7 @@ class FSDPEngine(BaseEngine):
         if device == device_name:
             if model:
                 load_fsdp_model_to_gpu(self.module)
-            if optimizer and self.optimizer is not None :
+            if optimizer and self.optimizer is not None:
                 load_fsdp_optimizer(self.optimizer, device)
             gc.collect()
         elif device == "cpu":
@@ -667,7 +666,7 @@ class FSDPEngine(BaseEngine):
 
 class EngineEvalModeCtx(BaseEngineCtx):
     def __init__(self, engine: FSDPEngine, **kwargs):
-        super().__init__(engine=engine, mode='eval', **kwargs)
+        super().__init__(engine=engine, mode="eval", **kwargs)
 
     def __enter__(self):
         assert isinstance(self.engine, FSDPEngine)
@@ -692,8 +691,7 @@ class EngineEvalModeCtx(BaseEngineCtx):
 
 class EngineTrainModeCtx(BaseEngineCtx):
     def __init__(self, engine: FSDPEngine, **kwargs):
-        super().__init__(engine=engine, mode='train', **kwargs)
-
+        super().__init__(engine=engine, mode="train", **kwargs)
 
     def __enter__(self):
         assert isinstance(self.engine, FSDPEngine)
