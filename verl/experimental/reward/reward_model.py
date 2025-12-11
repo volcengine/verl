@@ -13,14 +13,9 @@
 # limitations under the License.
 
 import asyncio
-import json
 import logging
 import os
 
-import aiohttp
-from openai.types.chat import ChatCompletion
-
-from verl import DataProto
 from verl.single_controller.ray.base import RayResourcePool, split_resource_pool
 from verl.workers.config import HFModelConfig, RewardModelConfig
 from verl.workers.rollout.replica import get_rollout_replica_class
@@ -32,7 +27,11 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 class RewardModelManager:
     """Reward model manager."""
 
-    def __init__(self, config: RewardModelConfig, resource_pool: RayResourcePool = None):
+    def __init__(
+        self,
+        config: RewardModelConfig,
+        resource_pool: RayResourcePool = None,
+    ):
         """
         Initialize the reward model manager.
 
@@ -44,6 +43,7 @@ class RewardModelManager:
         self.resource_pool = resource_pool
         self._initialize_llm_servers()
         self._initialize_router()
+        assert self.config.rollout.skip_tokenizer_init is False, "Reward model should not skip tokenizer init."
         if self.config.rollout.free_cache_engine:
             self.sleep()
 
@@ -80,7 +80,7 @@ class RewardModelManager:
             self._run_all(
                 [
                     server.init_colocated(resource_pool)
-                    for server, resource_pool in zip(self.rollout_replicas, split_resource_pools, strict=False)
+                    for server, resource_pool in zip(self.rollout_replicas, split_resource_pools, strict=True)
                 ]
             )
         else:
@@ -111,37 +111,6 @@ class RewardModelManager:
 
     def _run_all(self, tasks: list[asyncio.Task]):
         async def run_all():
-            return await asyncio.gather(*tasks)
+            await asyncio.gather(*tasks)
 
-        return asyncio.run(run_all())
-
-    async def chat_complete(self, chat_complete_request: dict):
-        url = f"http://{self.router_address}/v1/chat/completions"
-        try:
-            timeout = aiohttp.ClientTimeout(total=None)
-            session = aiohttp.ClientSession(timeout=timeout)
-            async with session.post(url, json=chat_complete_request) as resp:
-                output = await resp.text()
-                output = json.loads(output)
-                return ChatCompletion(**output)
-        except Exception as e:
-            raise e
-        finally:
-            await session.close()
-
-    def generate_sequences(self, prompts: DataProto, sampling_params: dict):
-        if self.config.rollout.free_cache_engine:
-            self.wake_up()
-        chat_complete_requests = [
-            {
-                "model": self.config.model.path,
-                "messages": list(messages),
-                **sampling_params,
-            }
-            for messages in prompts.non_tensor_batch.get("raw_prompt")
-        ]
-        tasks = [self.chat_complete(chat_complete_request) for chat_complete_request in chat_complete_requests]
-        results = self._run_all(tasks)
-        if self.config.rollout.free_cache_engine:
-            self.sleep()
-        return results
+        asyncio.run(run_all())

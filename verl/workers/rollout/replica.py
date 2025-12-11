@@ -16,7 +16,7 @@ import logging
 import os
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from omegaconf import DictConfig, OmegaConf
 from pydantic import BaseModel
@@ -35,6 +35,10 @@ class TokenOutput(BaseModel):
     """response token ids"""
     log_probs: Optional[list[float]] = None
     """logprobs of response token ids"""
+    routed_experts: Optional[Any] = None
+    """routed experts of response token ids"""
+    stop_reason: Optional[str] = None
+    """stop reason: 'completed', 'aborted', or None for unknown"""
 
 
 class RolloutMode(Enum):
@@ -209,6 +213,10 @@ class RolloutReplica(ABC):
     async def sleep(self):
         """Sleep each rollout server."""
         await asyncio.gather(*[server.sleep.remote() for server in self.servers])
+
+    async def clear_kv_cache(self):
+        """reset kv cache in each rollout server."""
+        await asyncio.gather(*[server.clear_kv_cache.remote() for server in self.servers])
 
 
 class RolloutReplicaRegistry:

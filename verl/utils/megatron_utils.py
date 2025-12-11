@@ -192,7 +192,10 @@ def make_megatron_module(
         else:
             from verl.models.mcore.bridge import freeze_moe_router, make_value_model
 
-            value_model_hook = make_value_model(hf_config.hidden_size, provider.sequence_parallel)
+            hidden_size = (
+                hf_config.text_config.hidden_size if hasattr(hf_config, "text_config") else hf_config.hidden_size
+            )
+            value_model_hook = make_value_model(hidden_size, provider.sequence_parallel)
 
         post_model_creation_callbacks = []
         if wrap_config.is_value_model:
@@ -442,7 +445,7 @@ def load_megatron_model_to_gpu(models, load_grad=True):
             for buffers in model_chunk_all_buffers:
                 for buffer in buffers:
                     # sometimes, we don't want to load grad for pure inference
-                    if load_grad:
+                    if load_grad and hasattr(buffer, "grad_data_size"):
                         buffer.grad_data.storage().resize_(buffer.grad_data_size)
                         buffer.grad_data.zero_()
 

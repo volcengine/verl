@@ -24,11 +24,19 @@ import ray
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
-from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForTokenClassification, Qwen3Config, Qwen3MoeConfig
+from transformers import (
+    AutoConfig,
+    AutoModelForCausalLM,
+    AutoModelForTokenClassification,
+    AutoTokenizer,
+    Qwen3Config,
+    Qwen3MoeConfig,
+)
 
 from verl import DataProto
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 from verl.trainer.config import CheckpointConfig
+from verl.utils import tensordict_utils as tu
 from verl.utils.model import compute_position_id_with_mask, create_random_mask
 from verl.utils.torch_functional import logprobs_from_logits_naive
 from verl.workers.config import (
@@ -40,16 +48,27 @@ from verl.workers.config import (
     McoreEngineConfig,
     McoreOptimizerConfig,
 )
-from verl.workers.roles import ActorWorker, CriticWorker
-from verl.workers.roles.utils.losses import ppo_loss
+from verl.workers.engine_workers import CriticWorker, TrainingWorker, TrainingWorkerConfig
+from verl.workers.utils.losses import ppo_loss, sft_loss
+from verl.workers.utils.padding import left_right_2_no_padding, no_padding_2_padding
 
 
-@pytest.mark.parametrize("strategy", ["megatron", "fsdp", "fsdp2"])
-def test_actor_engine(strategy):
+@pytest.mark.parametrize("strategy", ["fsdp", "fsdp2", "megatron"])
+def test_engine(strategy):
     ray.init()
 
     path = os.path.expanduser("~/models/Qwen/Qwen2.5-0.5B")
-    model_config = HFModelConfig(path=path)
+    model_config = HFModelConfig(path=path, use_remove_padding=True)
+
+    kwargs = dict(
+        param_offload=True,
+        optimizer_offload=True,
+        grad_offload=True,
+        use_dynamic_bsz=True,
+        use_remove_padding=True,
+        max_token_len_per_gpu=500,
+        infer_max_token_len_per_gpu=1000,
+    )
 
     if strategy == "megatron":
         engine_config = McoreEngineConfig(
@@ -58,31 +77,34 @@ def test_actor_engine(strategy):
             tensor_model_parallel_size=2,
             pipeline_model_parallel_size=2,
             context_parallel_size=2,
+            **kwargs,
         )
         optimizer_config = McoreOptimizerConfig(lr_decay_steps=10)
     elif strategy in ["fsdp", "fsdp2"]:
         engine_config = FSDPEngineConfig(
-            forward_only=False, fsdp_size=4, strategy=strategy, ulysses_sequence_parallel_size=2
+            forward_only=False, fsdp_size=4, strategy=strategy, ulysses_sequence_parallel_size=2, **kwargs
         )
         optimizer_config = FSDPOptimizerConfig()
     else:
         raise NotImplementedError(f"strategy {strategy} is not supported")
 
-    config = ActorConfig(
+    config = TrainingWorkerConfig(
+        model_type="language_model",
         model_config=model_config,
-        engine=engine_config,
-        strategy=strategy,
-        ppo_micro_batch_size_per_gpu=256,
-        ppo_mini_batch_size=4,
-        optim=optimizer_config,
-        use_dynamic_bsz=True,
-        rollout_n=1,
+        engine_config=engine_config,
+        optimizer_config=optimizer_config,
+        checkpoint_config=None,
     )
-    ray_cls_with_init = RayClassWithInitArgs(cls=ray.remote(ActorWorker), config=config)
+
+    ray_cls_with_init = RayClassWithInitArgs(cls=ray.remote(TrainingWorker), config=config)
     resource_pool = RayResourcePool(process_on_nodes=[8])
     wg = RayWorkerGroup(resource_pool=resource_pool, ray_cls_with_init=ray_cls_with_init)
     # init model
-    wg.init_model()
+    wg.reset()
+
+    sft_loss_ = partial(sft_loss, config=config)
+
+    wg.set_loss_fn(sft_loss_)
 
     batch_size = 8
     seqlen = 32
@@ -116,13 +138,19 @@ def test_actor_engine(strategy):
             "responses": responses,
             "response_mask": response_mask,
         },
-        meta_info={"temperature": 1.0, "global_token_num": global_token_num},
+        meta_info={"temperature": 1.0, "global_token_num": global_token_num, "compute_loss": False},
     )
 
-    # sft_loss_ = partial(sft_loss, config=config)
+    data_td = data.to_tensordict()
+    data_td = left_right_2_no_padding(data_td)
 
     # eval
-    output = wg.compute_log_prob(data)
+    output = wg.infer_batch(data_td)
+    output = output.get()
+    logprobs_unpad = tu.get(output, "log_probs").cpu()
+    logprobs = no_padding_2_padding(logprobs_unpad, data_td)
+
+    output = DataProto.from_single_dict({"old_log_probs": logprobs})
 
     # load hf model and compare results with hf model
     hf_model = AutoModelForCausalLM.from_pretrained(path, torch_dtype=torch.bfloat16)
@@ -148,13 +176,32 @@ def test_actor_engine(strategy):
     data.batch["advantages"] = torch.rand_like(responses, dtype=torch.float32)
     data.batch["ref_log_prob"] = torch.rand_like(responses, dtype=torch.float32)
 
+    # construct actor config
+    actor_config = ActorConfig(strategy=strategy, rollout_n=1, ppo_micro_batch_size_per_gpu=-1)
+
     # set ppo loss
-    ppo_loss_ = partial(ppo_loss, config=config)
+    ppo_loss_ = partial(ppo_loss, config=actor_config)
     wg.set_loss_fn(ppo_loss_)
 
     # update again
-    ppo_metrics = wg.update_actor(data)
+    data_td = data.to_tensordict()
+    data_td = left_right_2_no_padding(data_td)
+
+    # auto load/offload
+    tu.assign_non_tensor(data_td, global_batch_size=data_td.shape[0])
+    ppo_metrics = wg.train_batch(data_td)
+    ppo_metrics = ppo_metrics.get()
+    ppo_metrics = tu.get(ppo_metrics, "metrics")
     print(ppo_metrics)
+
+    # test manual load/offload
+    tu.assign_non_tensor(data_td, disable_auto_offload=True)
+    wg.to("device")
+    ppo_metrics = wg.train_batch(data_td)
+    ppo_metrics = ppo_metrics.get()
+    ppo_metrics = tu.get(ppo_metrics, "metrics")
+    print(ppo_metrics)
+    wg.to("cpu")
 
     ray.shutdown()
 
@@ -164,9 +211,11 @@ def create_model():
 
     config = Qwen3Config(num_hidden_layers=2, num_labels=1)
     model = AutoModelForTokenClassification.from_config(config)
+    tokenizer = AutoTokenizer.from_pretrained(os.path.expanduser("~/models/Qwen/Qwen3-0.6B"))
     assert model.config.num_labels == 1
     path = os.path.expanduser("~/models/test_model")
     model.save_pretrained(path)
+    tokenizer.save_pretrained(path)
     config.save_pretrained(path)
     return path
 
@@ -176,7 +225,7 @@ def test_critic_engine(strategy):
     ray.init()
 
     path = create_model()
-    model_config = HFModelConfig(path=path, load_tokenizer=False)
+    model_config = HFModelConfig(path=path, load_tokenizer=True)
 
     if strategy == "megatron":
         engine_config = McoreEngineConfig(

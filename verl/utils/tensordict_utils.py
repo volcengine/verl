@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import logging
-from typing import Iterator
+from typing import Any, Iterable
 
 import torch
 from tensordict import TensorDict
@@ -111,6 +111,13 @@ def concat_nested_tensors(tensors: list[torch.Tensor]) -> torch.Tensor:
     return tensor
 
 
+def concat_tensordict_with_none_bsz(data: list[TensorDict]):
+    for d in data:
+        assert len(d.batch_size) == 0
+    # directly return the first meta info
+    return data[0]
+
+
 def concat_tensordict(data: list[TensorDict]) -> TensorDict:
     """Concatenates tensordicts into a single tensordict on dim zero. Support nested tensor"""
     assert len(data) > 0, "Must have at least one tensordict"
@@ -119,6 +126,9 @@ def concat_tensordict(data: list[TensorDict]) -> TensorDict:
     nested_tensor_keys = {key for key, value in data[0].items() if isinstance(value, torch.Tensor) and value.is_nested}
 
     if not nested_tensor_keys:
+        if len(data[0].batch_size) == 0:
+            return concat_tensordict_with_none_bsz(data)
+        # if batch size is None (only contain NonTensorData)
         return TensorDict.cat(data, dim=0)
 
     # Create a list of tensordicts containing only non-nested tensors for concatenation
@@ -176,6 +186,7 @@ def get_tensordict(tensor_dict: dict[str, torch.Tensor | list], non_tensor_dict:
     for key, val in tensor_dict.items():
         if isinstance(val, torch.Tensor) and val.is_nested:
             assert val.is_contiguous(), "Nested tensors must be contiguous. Try setting layout=torch.jagged"
+            assert val.layout == torch.jagged, "Nested tensors must be jagged."
 
         # Skip validation for NonTensorStack as it's already properly formatted
         if isinstance(val, NonTensorStack):
@@ -235,7 +246,10 @@ def index_select_tensor_dict(batch: TensorDict, indices: torch.Tensor | list[int
             if isinstance(tensor, torch.Tensor) and not tensor.is_nested:
                 data_dict[key] = tensor[indices]
             elif isinstance(tensor, torch.Tensor) and tensor.is_nested:
-                data_dict[key] = torch.nested.as_nested_tensor([tensor[idx] for idx in indices], layout=torch.jagged)
+                tensor_lst = tensor.unbind()  # for performance
+                data_dict[key] = torch.nested.as_nested_tensor(
+                    [tensor_lst[idx] for idx in indices], layout=torch.jagged
+                )
             else:
                 # This handles NonTensorStack (indexable by batch dim) and NonTensorData (scalar metadata).
                 if tensor.shape:
@@ -256,7 +270,8 @@ def union_tensor_dict(tensor_dict1: TensorDict, tensor_dict2: TensorDict) -> Ten
     )
     for key in tensor_dict2.keys():
         if key not in tensor_dict1.keys():
-            tensor_dict1[key] = tensor_dict2[key]
+            # Note that there is a difference between tensor_dict2[key] and tensor_dict2.get(key)
+            tensor_dict1[key] = tensor_dict2.get(key)
         else:
             if isinstance(tensor_dict2[key], torch.Tensor):
                 assert tensor_dict1[key].equal(tensor_dict2[key]), (
@@ -286,13 +301,17 @@ def make_iterator(tensordict: TensorDict, mini_batch_size, epochs, seed=None, da
         generator = None
 
     assert isinstance(dataloader_kwargs, dict)
+
+    idx_lst = torch.arange(tensordict.shape[0])
+
     train_dataloader = DataLoader(
-        dataset=tensordict, batch_size=mini_batch_size, collate_fn=lambda x: x, generator=generator, **dataloader_kwargs
+        dataset=idx_lst, batch_size=mini_batch_size, collate_fn=lambda x: x, generator=generator, **dataloader_kwargs
     )
 
     def get_data():
         for _ in range(epochs):
-            yield from train_dataloader
+            for idx in train_dataloader:
+                yield index_select_tensor_dict(tensordict, idx)
 
     return iter(get_data())
 
@@ -325,10 +344,59 @@ def assert_tensordict_eq(tensordict1: TensorDict, tensordict2: TensorDict):
             assert val == val2
 
 
-def pop(tensordict: TensorDict, keys: Iterator[str]) -> TensorDict:
+def get(tensordict: TensorDict, key: str, default=None) -> Any:
+    if key not in tensordict:
+        return default
+
+    output = tensordict.get(key)
+    if isinstance(output, torch.Tensor):
+        return output
+    elif isinstance(output, NonTensorStack):
+        return output.tolist()
+    else:
+        assert isinstance(output, NonTensorData)
+        return output.data
+
+
+def get_keys(tensordict: TensorDict, keys: Iterable[str]) -> TensorDict:
     tensor_output = {}
     non_tensor_output = {}
     for key in keys:
+        if key not in tensordict.keys():
+            raise KeyError(f"key {key} not in tensordict")
+        output = tensordict.get(key)
+        if isinstance(output, torch.Tensor):
+            tensor_output[key] = output
+        elif isinstance(output, NonTensorStack):
+            tensor_output[key] = output.tolist()
+        else:
+            assert isinstance(output, NonTensorData)
+            non_tensor_output[key] = output.data
+
+    return get_tensordict(tensor_output, non_tensor_output)
+
+
+def pop(tensordict: TensorDict, key: str, default=None) -> Any:
+    _sentinel = object()
+    output = tensordict.pop(key, _sentinel)
+    if output is _sentinel:
+        return default
+
+    if isinstance(output, torch.Tensor):
+        return output
+    elif isinstance(output, NonTensorStack):
+        return output.tolist()
+    else:
+        assert isinstance(output, NonTensorData)
+        return output.data
+
+
+def pop_keys(tensordict: TensorDict, keys: Iterable[str]) -> TensorDict:
+    tensor_output = {}
+    non_tensor_output = {}
+    for key in keys:
+        if key not in tensordict.keys():
+            raise KeyError(f"key {key} not in tensordict")
         output = tensordict.get(key)
         if isinstance(output, torch.Tensor):
             tensor_output[key] = tensordict.pop(key)

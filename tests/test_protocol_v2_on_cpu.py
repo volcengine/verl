@@ -247,15 +247,35 @@ def test_tensordict_eq():
 
 def test_tensor_dict_make_iterator():
     obs = torch.tensor([1, 2, 3, 4, 5, 6])
+    input_ids = torch.nested.as_nested_tensor(
+        [
+            torch.tensor([0, 1]),
+            torch.tensor([2]),
+            torch.tensor([3, 4]),
+            torch.tensor([5]),
+            torch.tensor([6, 7, 8]),
+            torch.tensor([9]),
+        ],
+        layout=torch.jagged,
+    )
     data_sources = ["abc", "def", "abc", "def", "pol", "klj"]
     non_tensor_dict = {"train_sample_kwargs": {"top_p": 1.0}, "val_sample_kwargs": {"top_p": 0.7}}
-    dataset = tu.get_tensordict({"obs": obs, "data_sources": data_sources}, non_tensor_dict=non_tensor_dict)
+    dataset = tu.get_tensordict(
+        {"obs": obs, "data_sources": data_sources, "input_ids": input_ids}, non_tensor_dict=non_tensor_dict
+    )
 
     dataloader = tu.make_iterator(
         dataset, mini_batch_size=2, epochs=2, seed=0, dataloader_kwargs={"shuffle": False, "drop_last": False}
     )
 
-    expected_tensor_dict = [dataset[0:2], dataset[2:4], dataset[4:6], dataset[0:2], dataset[2:4], dataset[4:6]]
+    expected_tensor_dict = [
+        tu.index_select_tensor_dict(dataset, indices=list(range(0, 2))),
+        tu.index_select_tensor_dict(dataset, indices=list(range(2, 4))),
+        tu.index_select_tensor_dict(dataset, indices=list(range(4, 6))),
+        tu.index_select_tensor_dict(dataset, indices=list(range(0, 2))),
+        tu.index_select_tensor_dict(dataset, indices=list(range(2, 4))),
+        tu.index_select_tensor_dict(dataset, indices=list(range(4, 6))),
+    ]
 
     i = 0
 
@@ -328,17 +348,65 @@ def test_chunk_concat():
 
 
 def test_pop():
-    obs = torch.randn(100, 10)
-    act = torch.randn(100, 3)
-    dataset = tu.get_tensordict({"obs": obs, "act": act}, non_tensor_dict={"2": 2, "1": 1})
+    obs = torch.randn(3, 10)
+    act = torch.randn(3, 3)
+    labels = ["a", ["b"], []]
+    dataset = tu.get_tensordict({"obs": obs, "act": act, "labels": labels}, non_tensor_dict={"2": 2, "1": 1})
 
-    poped_dataset = tu.pop(dataset, keys=["obs", "2"])
+    dataset1 = copy.deepcopy(dataset)
 
-    assert poped_dataset.batch_size[0] == 100
+    # test pop keys
+    popped_dataset = tu.pop_keys(dataset, keys=["obs", "2"])
 
-    assert poped_dataset.keys() == {"obs", "2"}
+    assert popped_dataset.batch_size[0] == 3
 
-    assert dataset.keys() == {"act", "1"}
+    assert popped_dataset.keys() == {"obs", "2"}
+    assert torch.all(torch.eq(popped_dataset["obs"], obs)).item()
+    assert popped_dataset["2"] == 2
+
+    assert dataset.keys() == {"act", "1", "labels"}
+
+    # test pop non-exist key
+    with pytest.raises(KeyError):
+        tu.pop_keys(dataset, keys=["obs", "2"])
+
+    # test single pop
+    # NonTensorData
+    assert tu.pop(dataset1, key="2") == 2
+    # NonTensorStack
+    assert tu.pop(dataset1, key="labels") == ["a", ["b"], []]
+    # Tensor
+    assert torch.all(torch.eq(tu.pop(dataset1, key="obs"), obs)).item()
+
+
+def test_get():
+    obs = torch.randn(3, 10)
+    act = torch.randn(3, 3)
+    labels = ["a", ["b"], []]
+    dataset = tu.get_tensordict({"obs": obs, "act": act, "labels": labels}, non_tensor_dict={"2": 2, "1": 1})
+
+    # test pop keys
+    popped_dataset = tu.get_keys(dataset, keys=["obs", "2"])
+
+    assert popped_dataset.batch_size[0] == 3
+
+    assert torch.all(torch.eq(popped_dataset["obs"], dataset["obs"])).item()
+
+    assert popped_dataset["2"] == dataset["2"]
+
+    # test pop non-exist key
+    with pytest.raises(KeyError):
+        tu.get_keys(dataset, keys=["obs", "3"])
+
+    # test single pop
+    # NonTensorData
+    assert tu.get(dataset, key="2") == 2
+    # NonTensorStack
+    assert tu.get(dataset, key="labels") == ["a", ["b"], []]
+    # Tensor
+    assert torch.all(torch.eq(tu.get(dataset, key="obs"), obs)).item()
+    # Non-exist key
+    assert tu.get(dataset, key="3", default=3) == 3
 
 
 def test_repeat():
@@ -531,7 +599,7 @@ def test_dataproto_no_batch():
     selected = data.select("labels")
 
     assert selected["labels"] == labels
-    pop_data = tu.pop(data, keys=["labels"])
+    pop_data = tu.pop_keys(data, keys=["labels"])
     assert pop_data["labels"] == labels
     assert "labels" not in data
 
@@ -652,6 +720,25 @@ def test_concat_tensordict():
     # make sure tensordict1 and tensordict2 is untouched
     tu.assert_tensordict_eq(tensordict1, tensordict1_copy)
     tu.assert_tensordict_eq(tensordict2, tensordict2_copy)
+
+    # test concat tensordict with only NonTensorStack and NonTensorData
+    tensordict1 = tu.get_tensordict(tensor_dict={"labels": ["a", "b"]}, non_tensor_dict={"temp": 1.0})
+    tensordict2 = tu.get_tensordict(tensor_dict={"labels": ["c", "d"]}, non_tensor_dict={"temp": 2.0})
+
+    output = tu.concat_tensordict([tensordict1, tensordict2])
+
+    assert output["labels"] == ["a", "b", "c", "d"]
+    assert output["temp"] == 1.0
+
+    assert output.batch_size[0] == 4
+
+    # test concat tensordict with only NonTensorData
+    tensordict1 = tu.get_tensordict(tensor_dict={}, non_tensor_dict={"temp": 1.0})
+    tensordict2 = tu.get_tensordict(tensor_dict={}, non_tensor_dict={"temp": 2.0})
+
+    output = tu.concat_tensordict([tensordict1, tensordict2])
+    assert len(output.batch_size) == 0
+    assert output["temp"] == 1.0
 
 
 def test_assign_non_tensor_stack_with_nested_lists():
