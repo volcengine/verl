@@ -68,8 +68,6 @@ class VeOmniEngine(FSDPEngine):
         self.engine_config = engine_config
         self.optimizer_config = optimizer_config
         self.checkpoint_config = checkpoint_config
-        self.config = kwargs.pop("config", None)
-        self.train_dataloader = kwargs.pop("train_dataloader", None)
 
         self.mode = None
 
@@ -128,10 +126,10 @@ class VeOmniEngine(FSDPEngine):
             config_path=self.model_config.hf_config_path,
             weights_path=self.model_config.path,
             torch_dtype="float32" if self.engine_config.enable_mixed_precision else "bfloat16",
-            attn_implementation=self.model_config.attn_implementation,
-            moe_implementation=self.model_config.moe_implementation,
+            attn_implementation=self.engine_config.attn_implementation,
+            moe_implementation=self.engine_config.moe_implementation,
             init_device=self.engine_config.init_device,
-            force_use_huggingface=self.model_config.force_use_huggingface,
+            force_use_huggingface=self.engine_config.force_use_huggingface,
         )
 
         module_config = self.module.config
@@ -144,9 +142,9 @@ class VeOmniEngine(FSDPEngine):
             enable_full_shard=self.engine_config.enable_full_shard,
             enable_mixed_precision=self.engine_config.enable_mixed_precision,
             enable_gradient_checkpointing=self.model_config.enable_gradient_checkpointing,
-            enable_fsdp_offload=self.model_config.enable_fsdp_offload,
-            basic_modules=self.module._no_split_modules + self.model_config.basic_modules,
-            enable_reentrant=self.model_config.enable_reentrant,
+            enable_fsdp_offload=self.engine_config.enable_fsdp_offload,
+            basic_modules=self.module._no_split_modules + self.engine_config.basic_modules,
+            enable_reentrant=self.engine_config.enable_reentrant,
             enable_forward_prefetch=self.engine_config.enable_forward_prefetch,
         )
 
@@ -185,7 +183,7 @@ class VeOmniEngine(FSDPEngine):
         self.model_fwd_context, self.model_bwd_context = build_activation_offloading_context(
             self.model_config.enable_activation_offload,
             self.model_config.enable_gradient_checkpointing,
-            self.model_config.activation_gpu_limit,
+            self.engine_config.activation_gpu_limit,
         )
 
     def optimizer_step(self):

@@ -230,6 +230,13 @@ class VeOmniEngineConfig(EngineConfig):
     enable_forward_prefetch: Optional[bool] = None
     ckpt_manager: Literal["dcp"] = "dcp"
     load_checkpoint_path: Optional[str] = None
+    enable_fsdp_offload: bool = False
+    enable_reentrant: bool = False
+    attn_implementation: str = "flash_attention_2"
+    moe_implementation: str = "eager"
+    force_use_huggingface: bool = False
+    activation_gpu_limit: float = 0.0
+    basic_modules: Optional[list[str]] = field(default_factory=list)
 
     _mutable_fields = BaseConfig._mutable_fields.copy()
     _mutable_fields |= {"forward_prefetch"}
