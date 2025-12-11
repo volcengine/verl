@@ -1131,8 +1131,16 @@ class DataProto:
 
         for key, val in non_tensor_batch.items():
             assert isinstance(val, np.ndarray)
-            # Convert to NonTensorStack instead of plain list to handle nested structures
-            tensor_batch[key] = NonTensorStack.from_list([NonTensorData(item) for item in val])
+            if key != "multi_modal_inputs":
+                # Convert to NonTensorStack instead of plain list to handle nested structures
+                tensor_batch[key] = NonTensorStack.from_list([NonTensorData(item) for item in val])
+                continue
+
+            # convert multi_modal_inputs from list of dict to dict of NonTensorStack
+            multi_modal_keys = set().union(*(d.keys() for d in val))
+            for k in multi_modal_keys:
+                tensor_batch[k] = NonTensorStack.from_list([NonTensorData(item.get(k)) for item in val])
+
         output = tu.get_tensordict(tensor_dict=tensor_batch, non_tensor_dict=self.meta_info)
         return output
 
