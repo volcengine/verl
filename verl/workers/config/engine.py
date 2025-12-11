@@ -207,11 +207,8 @@ class VeOmniEngineConfig(EngineConfig):
     wrap_policy: dict[str, Any] = field(default_factory=dict)
     offload_policy: bool = False
     reshard_after_forward: bool = True
-    # fsdp_size: int = -1
     forward_prefetch: bool = False
-    # model_dtype: str = "fp32"
     use_orig_params: bool = False
-    # mixed_precision: Optional[dict[str, Any]] = None
     entropy_from_logits_with_chunking: bool = False
     use_torch_compile: bool = True
     entropy_checkpointing: bool = False

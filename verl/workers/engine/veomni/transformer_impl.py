@@ -61,6 +61,9 @@ class VeOmniEngine(FSDPEngine):
             config: Configuration object with FSDP and model settings.
         """
 
+        # TODO: Preprocessing operations for the MOE model are appended here,
+        # instead of relying on Veomni's transformation scripts.
+
         self.model_config = model_config
         self.engine_config = engine_config
         self.optimizer_config = optimizer_config
@@ -131,7 +134,7 @@ class VeOmniEngine(FSDPEngine):
             force_use_huggingface=self.model_config.force_use_huggingface,
         )
 
-        model_config = self.module.config
+        module_config = self.module.config
 
         get_optimizer_pre_hook = getattr(self.module, "get_optimizer_pre_hook", None)
         self.module = build_parallelize_model(
@@ -156,7 +159,7 @@ class VeOmniEngine(FSDPEngine):
         )
         if get_optimizer_pre_hook is not None:
             optimizer_pre_hook = get_optimizer_pre_hook(
-                self.module, model_config, self.engine_config.data_parallel_mode
+                self.module, module_config, self.engine_config.data_parallel_mode
             )
             self.optimizer.register_step_pre_hook(optimizer_pre_hook)
 
@@ -270,6 +273,6 @@ class VeOmniEngine(FSDPEngine):
         return is_collect
 
 
-@EngineRegistry.register(model_type="language_model", backend=["veomni"], device=["cuda"])
+@EngineRegistry.register(model_type="language_model", backend=["veomni"], device=["cuda", "npu"])
 class VeOmniEngineWithLMHead(VeOmniEngine, FSDPEngineWithLMHead):
     pass
