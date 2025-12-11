@@ -663,11 +663,7 @@ class MegatronEngineWithLMHead(MegatronEngine):
         forward_fn = get_mcore_forward_no_padding_fn(self.model_config.hf_config)
 
         def logits_processor(logits, label):
-            try:
-                assert logits.shape[:2] == label.shape[:2]
-            except AssertionError:
-                print(f"logits.shape: {logits.shape}, label.shape: {label.shape}")
-                breakpoint()
+            assert logits.shape[:2] == label.shape[:2]
             logits.div_(temperature)
             ret = {}
             if calculate_entropy:
