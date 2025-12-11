@@ -984,7 +984,6 @@ class RayPPOTrainer:
         )
         metrics.update(global_balance_stats)
 
-
     def _compute_ref_log_prob(self, batch: DataProto) -> DataProto:
         if self.use_legacy_worker_impl == "disable":
             # step 1: convert dataproto to tensordict.
@@ -999,15 +998,12 @@ class RayPPOTrainer:
             # step 4. No padding to padding
             log_probs = no_padding_2_padding(log_probs, batch_td)
             # step 5: rebuild a tensordict and convert to dataproto
-            ref_log_prob = tu.get_tensordict(
-                {"ref_log_prob": log_probs.float()}
-            )
+            ref_log_prob = tu.get_tensordict({"ref_log_prob": log_probs.float()})
             ref_log_prob = DataProto.from_tensordict(ref_log_prob)
         else:
             ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
 
         return ref_log_prob
-
 
     def _compute_old_log_prob(self, batch: DataProto):
         if self.use_legacy_worker_impl == "disable":
@@ -1027,15 +1023,12 @@ class RayPPOTrainer:
             entropy = no_padding_2_padding(entropy, batch_td)
             log_probs = no_padding_2_padding(log_probs, batch_td)
             # step 5: rebuild a tensordict and convert to dataproto
-            old_log_prob = tu.get_tensordict(
-                {"old_log_probs": log_probs.float(), "entropys": entropy.float()}
-            )
+            old_log_prob = tu.get_tensordict({"old_log_probs": log_probs.float(), "entropys": entropy.float()})
             old_log_prob = DataProto.from_tensordict(old_log_prob)
         else:
             old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
             old_log_prob_mfu = 0
         return old_log_prob, old_log_prob_mfu
-
 
     def _update_actor(self, batch: DataProto) -> DataProto:
         rollout_config = self.config.actor_rollout_ref.rollout
@@ -1053,9 +1046,7 @@ class RayPPOTrainer:
             ppo_epochs = self.config.actor_rollout_ref.actor.ppo_epochs
             seed = self.config.actor_rollout_ref.actor.data_loader_seed
             shuffle = self.config.actor_rollout_ref.actor.shuffle
-            tu.assign_non_tensor(
-                batch_td, calculate_entropy=calculate_entropy, global_batch_size=ppo_mini_batch_size
-            )
+            tu.assign_non_tensor(batch_td, calculate_entropy=calculate_entropy, global_batch_size=ppo_mini_batch_size)
 
             # make iterator
             dataloader = tu.make_iterator(
@@ -1102,13 +1093,10 @@ class RayPPOTrainer:
             # modify key name
             agg_actor_output["perf/mfu/actor"] = agg_actor_output.pop("actor/mfu")
 
-            actor_output = DataProto.from_single_dict(
-                data={}, meta_info={"metrics": agg_actor_output}
-            )
+            actor_output = DataProto.from_single_dict(data={}, meta_info={"metrics": agg_actor_output})
         else:
             actor_output = self.actor_rollout_wg.update_actor(batch)
         return actor_output
-
 
     def fit(self):
         """

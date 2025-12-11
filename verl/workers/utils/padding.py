@@ -16,11 +16,7 @@ import torch
 from tensordict import TensorDict
 
 from verl.utils import tensordict_utils as tu
-from verl.utils.device import (
-    is_npu_available,
-)
-
-from verl.utils.attention_utils import index_first_axis, pad_input, rearrange, unpad_input
+from verl.utils.attention_utils import pad_input, unpad_input
 
 
 def left_right_2_no_padding(data: TensorDict) -> TensorDict:
