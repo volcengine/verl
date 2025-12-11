@@ -17,10 +17,9 @@
 from typing import Callable, Optional
 
 import torch
-from megatorn.core.utils import unwrap_model
 from megatron.core.models.common.model_chunk_schedule_plan import TransformerModelChunkSchedulePlan
 from megatron.core.models.gpt.gpt_model import GPTModel
-from megatron.core.utils import make_viewless_tensor
+from megatron.core.utils import make_viewless_tensor, unwrap_model
 from torch import Tensor
 
 from verl.models.mcore.util import preprocess_packed_seqs
