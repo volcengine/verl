@@ -68,7 +68,13 @@ class SFTTrainer:
         # Initialize resume-related variables
         self.resume_global_step = self.ckpt_handler.load_checkpoint()
 
-        self.device_name = self.config.trainer.device
+        if config.trainer.device is not None:
+            logger.warning(
+                "[Deprecation Warning] param trainer.device will be deprecated in the future, "
+                "device type will be set automatically."
+            )
+
+        self.device_name = get_device_name()
 
         if self.rank == 0:
             print(self.config)

@@ -42,6 +42,7 @@ from verl.trainer.ppo.metric_utils import (
 )
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer, ResourcePoolManager, Role
 from verl.utils.debug import marked_timer
+from verl.utils.import_utils import is_torch_npu_pkg_available
 from verl.utils.metric import (
     reduce_metrics,
 )
@@ -160,7 +161,8 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
         self.role_worker_mapping = role_worker_mapping
         self.resource_pool_manager = resource_pool_manager
         self.ray_worker_group_cls = ray_worker_group_cls
-        self.device_name = device_name
+        self.device_name = device_name if not is_torch_npu_pkg_available() else "npu"
+
         self.validation_generations_logger = ValidationGenerationsLogger()
         self.use_critic = False
 

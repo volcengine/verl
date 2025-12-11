@@ -87,7 +87,6 @@ python3 -m recipe.one_step_off_policy.main_ppo \
     trainer.save_freq=10 \
     trainer.test_freq=-1 \
     trainer.total_epochs=15 \
-    trainer.device=npu \
     trainer.resume_mode=auto \
     trainer.nnodes="${NNODES}" \
     trainer.n_gpus_per_node="${n_gpus_training}" \

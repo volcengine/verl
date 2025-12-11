@@ -54,6 +54,7 @@ from verl.trainer.ppo.utils import Role, WorkerType, need_reference_policy, need
 from verl.utils import omega_conf_to_dataclass
 from verl.utils.checkpoint.checkpoint_manager import should_save_ckpt_esi
 from verl.utils.debug import marked_timer
+from verl.utils.import_utils import is_torch_npu_pkg_available
 from verl.utils.metric import (
     reduce_metrics,
 )
@@ -116,7 +117,8 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         self.use_rm = need_reward_model(self.role_worker_mapping)
         self.use_critic = need_critic(config)
         self.ray_worker_group_cls = ray_worker_group_cls
-        self.device_name = device_name
+        self.device_name = device_name if not is_torch_npu_pkg_available() else "npu"
+
         self.validation_generations_logger = ValidationGenerationsLogger()
 
         # if ref_in_actor is True, the reference policy will be actor without lora applied
