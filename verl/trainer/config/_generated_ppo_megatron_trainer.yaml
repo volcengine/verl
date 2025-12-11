@@ -52,7 +52,6 @@ actor_rollout_ref:
         recompute_num_layers: null
         attention_backend: flash
       override_mcore_model_config: {}
-      use_mbridge: false
       vanilla_mbridge: true
       use_remove_padding: true
       forward_only: false
@@ -187,7 +186,6 @@ actor_rollout_ref:
       override_ddp_config: {}
       override_transformer_config: ${oc.select:actor_rollout_ref.actor.megatron.override_transformer_config,{}}
       override_mcore_model_config: {}
-      use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
       vanilla_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.vanilla_mbridge,True}
       use_remove_padding: ${oc.select:actor_rollout_ref.actor.megatron.use_remove_padding,True}
       forward_only: true
@@ -433,7 +431,6 @@ critic:
       recompute_num_layers: null
       attention_backend: flash
     override_mcore_model_config: {}
-    use_mbridge: false
     vanilla_mbridge: true
     use_remove_padding: true
     forward_only: false
@@ -566,7 +563,6 @@ reward_model:
     dist_checkpointing_prefix: ''
     seed: ${oc.select:actor_rollout_ref.actor.megatron.seed,42}
     override_transformer_config: ${oc.select:actor_rollout_ref.actor.megatron.override_transformer_config,{}}
-    use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
     vanilla_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.vanilla_mbridge,True}
     use_remove_padding: ${oc.select:actor_rollout_ref.actor.megatron.use_remove_padding,True}
     dtype: bfloat16

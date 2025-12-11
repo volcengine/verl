@@ -46,8 +46,6 @@ python get_model.py
 ####################### specific training config: #######################
 
 GPT_OSS_CONFIG=(
-    # only support mbridge for gptoss
-    actor_rollout_ref.actor.megatron.use_mbridge=True
     # for now (latest TE=2.10), gptoss's optimized attn kernel is not supported for thd format, so we use bshd format here
     # when bshd format is used, we need to pad the input_ids to the longest sequence length
     # so we recommend to disable dynamic batch size and set micro batch size to 1 to avoid paddings

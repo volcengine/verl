@@ -53,7 +53,6 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.7 \
     actor_rollout_ref.rollout.n=5 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=1 \
-    actor_rollout_ref.actor.megatron.use_mbridge=True \
     actor_rollout_ref.actor.megatron.param_offload=True \
     actor_rollout_ref.actor.megatron.optimizer_offload=True \
     actor_rollout_ref.actor.megatron.grad_offload=True \
