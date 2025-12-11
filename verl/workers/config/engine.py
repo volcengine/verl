@@ -204,6 +204,8 @@ class VeOmniEngineConfig(EngineConfig):
         mixed_precision (Optional[dict[str, Any]]): Mixed precision configuration for FSDP, default None
     """
 
+    _mutable_fields = EngineConfig._mutable_fields | {"forward_prefetch"}
+
     wrap_policy: dict[str, Any] = field(default_factory=dict)
     offload_policy: bool = False
     reshard_after_forward: bool = True
@@ -238,8 +240,6 @@ class VeOmniEngineConfig(EngineConfig):
     activation_gpu_limit: float = 0.0
     basic_modules: Optional[list[str]] = field(default_factory=list)
 
-    _mutable_fields = BaseConfig._mutable_fields.copy()
-    _mutable_fields |= {"forward_prefetch"}
 
     def __post_init__(self):
         if self.enable_forward_prefetch is not None:
