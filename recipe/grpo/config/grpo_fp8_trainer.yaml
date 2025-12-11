@@ -20,6 +20,9 @@ actor_rollout_ref:
     fsdp_config:
       # Enable FP8 training
       fp8: true
+      # Use blockwise prototype for FP8 (default: true)
+      # Set to false to use native tensor/channel-wise linear
+      use_blockwise_prototype: true
   rollout:
     name: sglang
     multi_turn:
@@ -34,3 +37,6 @@ critic:
     fsdp_config:
       # Enable FP8 training
       fp8: true
+      # Use blockwise prototype for FP8 (default: true)
+      # Set to false to use native tensor/channel-wise linear
+      use_blockwise_prototype: true
