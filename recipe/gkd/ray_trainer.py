@@ -162,7 +162,6 @@ class OnPolicyDistillTrainer(RayPPOTrainer):
         self.resource_pool_manager = resource_pool_manager
         self.ray_worker_group_cls = ray_worker_group_cls
         self.device_name = device_name if not is_torch_npu_pkg_available() else "npu"
-
         self.validation_generations_logger = ValidationGenerationsLogger()
         self.use_critic = False
 

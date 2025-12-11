@@ -116,7 +116,6 @@ class RaySPPOTrainer(RayPPOTrainer):
         self.use_critic = False
         self.ray_worker_group_cls = ray_worker_group_cls
         self.validation_generations_logger = ValidationGenerationsLogger()
-
         self.device_name = device_name if device_name else self.config.trainer.device
 
         if is_torch_npu_pkg_available():

@@ -118,7 +118,6 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         self.use_critic = need_critic(config)
         self.ray_worker_group_cls = ray_worker_group_cls
         self.device_name = device_name if not is_torch_npu_pkg_available() else "npu"
-
         self.validation_generations_logger = ValidationGenerationsLogger()
 
         # if ref_in_actor is True, the reference policy will be actor without lora applied

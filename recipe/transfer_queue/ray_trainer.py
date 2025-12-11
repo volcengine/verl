@@ -397,7 +397,6 @@ class RayPPOTrainer:
         self.use_rm = need_reward_model(self.role_worker_mapping)
         self.use_critic = need_critic(self.config)
         self.ray_worker_group_cls = ray_worker_group_cls
-
         self.device_name = device_name if device_name else self.config.trainer.device
 
         if is_torch_npu_pkg_available():
