@@ -1073,6 +1073,159 @@ def compute_policy_loss_gspo(
     return pg_loss, pg_metrics
 
 
+@register_policy_loss("minirl")
+def compute_policy_loss_minirl(
+    old_log_prob: torch.Tensor,
+    log_prob: torch.Tensor,
+    advantages: torch.Tensor,
+    response_mask: torch.Tensor,
+    loss_agg_mode: str = "seq-mean-token-mean",
+    config: Optional[ActorConfig] = None,
+    rollout_is_weights: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, dict[str, Any]]:
+    r"""
+    MiniRL-style policy loss with rollout correction reuse.
+
+    Key idea (Eq. 5 in the paper):
+        π_θ / μ_rollout = (π_θ / π_θ_old) ⋅ (π_θ_old / μ_rollout)
+          = staleness_ratio ⋅ inference_discrepancy_weight
+
+    In VeRL:
+      * old_log_prob        ≈ log π_θ_old   (training engine at sampling time)
+      * log_prob            ≈ log π_θ       (current training engine)
+      * rollout_is_weights  ≈ π_θ_old / μ_rollout (from rollout_corr_helper, truncated & detached)
+
+    We therefore:
+      1. Compute a *staleness* ratio r_t(θ) = π_θ / π_θ_old from (log_prob - old_log_prob).
+      2. Reuse rollout_is_weights as the *inference-discrepancy* term π_θ_old / μ_rollout.
+      3. Multiply them to approximate full IS weight π_θ / μ_rollout, without ever
+         needing rollout_log_prob inside the loss.
+      4. Apply MiniRL's clipping gate M_t (Eq. 7) using r_t(θ) **detached** so that
+         the gate only decides which tokens update, but gradients still flow
+         through log_prob like standard REINFORCE.
+
+    Args:
+        old_log_prob: (bs, seq_len) log π_θ_old
+        log_prob:     (bs, seq_len) log π_θ (current policy)
+        advantages:   (bs, seq_len) Â(x, y) broadcast over tokens
+        response_mask:(bs, seq_len) 1 for valid tokens, 0 for padding
+        loss_agg_mode: aggregation mode for agg_loss (MiniRL is seq/token agnostic)
+        config:       ActorConfig (must contain clip_ratio_low/high and global_batch_info)
+        rollout_is_weights:
+            (bs, seq_len) truncated IS weights from rollout_corr_helper:
+                rollout_is_weights ≈ π_θ_old / μ_rollout
+            If None, we fall back to pure on-policy MiniRL (no rollout mismatch correction).
+
+    Returns:
+        pg_loss: scalar policy gradient loss
+        pg_metrics: dict of MiniRL/rollout-correction diagnostics
+    """
+    assert config is not None
+    assert not isinstance(config, AlgoConfig)
+
+    # -------------------------------------------------------------------------
+    # 1) Staleness ratio r_t(θ) = π_θ / π_θ_old  (token-level)
+    #    negative_approx_kl = log π_θ - log π_θ_old
+    # -------------------------------------------------------------------------
+    clip_ratio = config.clip_ratio
+    eps_low = config.clip_ratio_low if config.clip_ratio_low is not None else clip_ratio
+    eps_high = config.clip_ratio_high if config.clip_ratio_high is not None else clip_ratio
+
+    # log r_t = log π_θ - log π_θ_old
+    negative_approx_kl = (log_prob - old_log_prob).detach()
+    # Clamp for numerical stability before exponentiating
+    negative_approx_kl_clamped = torch.clamp(negative_approx_kl, min=-20.0, max=20.0)
+    staleness_ratio = torch.exp(negative_approx_kl_clamped)  # r_t(θ)
+
+    # -------------------------------------------------------------------------
+    # 2) MiniRL gate M_t (Eq. 7), using r_t(θ) **detached**:
+    #
+    #       M_t = 0 if  A>0 and r_t > 1+ε_high
+    #           = 0 if  A<0 and r_t < 1-ε_low
+    #           = 1 otherwise
+    #
+    #    This prevents aggressive policy updates from stale trajectories, but
+    #    does not change the gradient formula itself.
+    # -------------------------------------------------------------------------
+    r_detached = staleness_ratio  #.detach()
+    ones = torch.ones_like(advantages)
+    gate = ones.clone()
+
+    too_large_pos = (advantages > 0) & (r_detached > 1.0 + eps_high)
+    too_small_neg = (advantages < 0) & (r_detached < 1.0 - eps_low)
+    gate = gate.masked_fill(too_large_pos | too_small_neg, 0.0)
+
+    # -------------------------------------------------------------------------
+    # 3) Inference discrepancy weights:
+    #       rollout_is_weights ≈ π_θ_old / μ_rollout  (from rollout_corr_helper)
+    #
+    #    This is already:
+    #      * computed in log-space as old_log_prob - rollout_log_prob
+    #      * truncated, optionally batch-normalized
+    #      * detached (no gradient), as required by IS theory
+    #
+    #    If not provided, we set it to 1 and get pure on-policy MiniRL.
+    # -------------------------------------------------------------------------
+    if rollout_is_weights is None:
+        inference_discrepancy = torch.ones_like(advantages)
+    else:
+        # Mask is already applied inside rollout_corr_helper, but we re-mask to be safe.
+        inference_discrepancy = rollout_is_weights * response_mask
+
+    # -------------------------------------------------------------------------
+    # 4) Total IS weight:
+    #       w_t(θ) ≈ (π_θ / π_θ_old) ⋅ (π_θ_old / μ_rollout)
+    #               = staleness_ratio ⋅ inference_discrepancy
+    #
+    #    This matches Eq. (5) in the paper while reusing rollout_is_weights,
+    #    so the loss never needs rollout_log_prob directly.
+    # -------------------------------------------------------------------------
+    total_is_weight = staleness_ratio * inference_discrepancy
+
+    # -------------------------------------------------------------------------
+    # 5) MiniRL objective:
+    #       J ≈ E[ M_t ⋅ w_t(θ) ⋅ Â(x,y) ⋅ log π_θ ]
+    #    so loss is:
+    #       L = - M_t ⋅ w_t(θ) ⋅ Â(x,y) ⋅ log π_θ
+    #
+    #    Gradients:
+    #       ∇_θ L = - E[ M_t ⋅ w_t(θ) ⋅ Â ⋅ ∇ log π_θ ]
+    #
+    #    where:
+    #       - M_t only gates tokens (built from r_detached)
+    #       - w_t(θ) combines staleness + rollout mismatch
+    # -------------------------------------------------------------------------
+    pg_losses = -gate * total_is_weight * advantages * log_prob
+
+    pg_loss = agg_loss(
+        loss_mat=pg_losses,
+        loss_mask=response_mask,
+        loss_agg_mode=loss_agg_mode,
+        **config.global_batch_info,
+    )
+
+    # -------------------------------------------------------------------------
+    # 6) Diagnostics
+    # -------------------------------------------------------------------------
+    ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
+    gate_zero_frac = verl_F.masked_mean((1.0 - gate).float(), response_mask)
+    mean_staleness = verl_F.masked_mean(staleness_ratio, response_mask)
+
+    if rollout_is_weights is not None:
+        mean_inference_w = verl_F.masked_mean(inference_discrepancy, response_mask)
+    else:
+        mean_inference_w = torch.tensor(1.0, device=pg_loss.device)
+
+    pg_metrics = {
+        "actor/ppo_kl": ppo_kl.detach().item(),
+        "actor/minirl_gate_zero_frac": gate_zero_frac.detach().item(),
+        "actor/minirl_mean_staleness_ratio": mean_staleness.detach().item(),
+        "actor/minirl_mean_inference_weight": mean_inference_w.detach().item(),
+    }
+
+    return pg_loss, pg_metrics
+
+
 @register_policy_loss("gpg")
 def compute_policy_loss_gpg(
     old_log_prob: torch.Tensor,
