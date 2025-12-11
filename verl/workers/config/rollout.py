@@ -28,6 +28,7 @@ __all__ = [
     "TraceConfig",
     "ServerConfig",
     "PrometheusConfig",
+    "QuantizationConfig",
     "RolloutConfig",
 ]
 
@@ -114,6 +115,26 @@ class PrometheusConfig(BaseConfig):
 
 
 @dataclass
+class QuantizationConfig(BaseConfig):
+    """
+    Configuration for quantization options in rollout.
+    Groups all quantization-related settings together.
+    """
+
+    weight_dtype: Optional[str] = None
+    """Weight quantization data type. null (default, no quantization) or 'fp8' for FP8 weight quantization."""
+    
+    kv_cache_dtype: Optional[str] = None
+    """KV cache data type for attention layers. null (default, BF16/FP16) or 'fp8' for FP8 KV cache.
+    Can be used independently or with weight_dtype='fp8' for maximum memory savings."""
+    
+    calculate_kv_scales: bool = False
+    """Whether to dynamically calculate KV scales for FP8 KV cache.
+    Required to be True when kv_cache_dtype is 'fp8'.
+    When True, vLLM recalculates scales based on actual K/V distributions after each weight update."""
+
+
+@dataclass
 class RolloutConfig(BaseConfig):
     _mutable_fields = {"max_model_len", "load_format"}
 
@@ -141,16 +162,9 @@ class RolloutConfig(BaseConfig):
     cudagraph_capture_sizes: Optional[list] = None
     free_cache_engine: bool = True
     
-    # KV cache configuration (independent of weight quantization)
-    # Can be used alone OR together with quantization='fp8' for maximum memory savings
-    kv_cache_dtype: Optional[str] = None
-    """KV cache data type for attention layers. 
-    Can be combined with quantization='fp8' to quantize both weights and KV cache"""
-    
-    calculate_kv_scales: bool = False
-    """Whether to dynamically calculate KV scales for FP8 KV cache.
-    Only effective when kv_cache_dtype is fp8. And must be True when kv_cache_dtype is fp8.
-    Works with or without weight quantization (quantization='fp8')"""
+    # Quantization configuration (groups weight and KV cache quantization settings)
+    quantization: QuantizationConfig = field(default_factory=QuantizationConfig)
+    """Quantization configuration for weights and KV cache."""
     
     data_parallel_size: int = 1
     expert_parallel_size: int = 1
@@ -214,8 +228,6 @@ class RolloutConfig(BaseConfig):
     limit_images: Optional[int] = None
 
     skip_tokenizer_init: bool = False
-
-    quantization: Optional[str] = None
 
     enable_rollout_routing_replay: bool = False
 

@@ -57,7 +57,7 @@ def validate_kv_cache_fp8_config(config):
     calculate_kv_scales=True are specified together.
     
     Args:
-        config: RolloutConfig or vLLM config object
+        config: RolloutConfig with nested quantization config
         
     Returns:
         tuple: (kv_cache_dtype, calculate_kv_scales) if valid
@@ -65,15 +65,10 @@ def validate_kv_cache_fp8_config(config):
     Raises:
         ValueError: If configuration is invalid (one set without the other)
     """
-    # Check for kv_cache_dtype
-    kv_cache_dtype = getattr(config, 'kv_cache_dtype', None)
-    if kv_cache_dtype is None:
-        kv_cache_dtype = config.get('kv_cache_dtype', None) if hasattr(config, 'get') else None
-    
-    # Check for calculate_kv_scales
-    calculate_kv_scales = getattr(config, 'calculate_kv_scales', None)
-    if calculate_kv_scales is None:
-        calculate_kv_scales = config.get('calculate_kv_scales', False) if hasattr(config, 'get') else False
+    # Access nested quantization config
+    quant_config = config.quantization
+    kv_cache_dtype = quant_config.kv_cache_dtype
+    calculate_kv_scales = quant_config.calculate_kv_scales
     
     # Check if kv_cache_dtype is FP8
     is_kv_fp8 = kv_cache_dtype is not None and 'fp8' in str(kv_cache_dtype).lower()
@@ -617,8 +612,6 @@ def reset_kv_scale_flags_in_model(model_runner) -> int:
     if num_reset > 0:
         logger.info(f"Reset calculate_kv_scales flag in {num_reset} attention layers")
         logger.info(f"Restored range constants (q/k/v_range) in {num_ranges_restored} layers (fixes inf/nan)")
-        # Also log at WARNING level to ensure visibility in logs (some loggers filter INFO)
-        logger.warning(f"[KV_SCALE_RESET] Successfully reset {num_reset} attention layers, restored ranges in {num_ranges_restored} layers")
     else:
         logger.warning("No attention layers with calculate_kv_scales found")
     

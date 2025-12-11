@@ -97,7 +97,7 @@ class ServerAdapter(BaseRollout):
         model_config: HFModelConfig,
         device_mesh: DeviceMesh,
     ):
-        if config.get("quantization", None) == "fp8":
+        if config.quantization.weight_dtype == "fp8":
             import sglang
 
             assert sglang.__version__ >= "0.5.5", "sglang>=0.5.5 is required for FP8 quantization"
@@ -169,7 +169,7 @@ class ServerAdapter(BaseRollout):
             await self._init_server_adapter()
 
         update_weights_bucket_bytes = int(self.config.update_weights_bucket_megabytes) << 20
-        if self.config.get("quantization", None) == "fp8":
+        if self.config.quantization.weight_dtype == "fp8":
             from verl.utils.sglang.sglang_fp8_utils import quant_weights_by_name
 
             logger.info("Convert bf16 weights to fp8 format before loading")

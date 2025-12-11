@@ -127,7 +127,7 @@ class SGLangHttpServer:
 
         engine_kwargs = self.config.get("engine_kwargs", {}).get("sglang", {}) or {}
         attention_backend = engine_kwargs.pop("attention_backend", None)
-        quantization = self.config.get("quantization", None)
+        quantization = self.config.quantization.weight_dtype
         if quantization is not None:
             if quantization == "fp8":
                 assert sglang.__version__ >= "0.5.5", "sglang>=0.5.5 is required for FP8 quantization"

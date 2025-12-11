@@ -100,7 +100,10 @@ actor_rollout_ref:
       freeze_language_model: True
 
   rollout:
-    quantization: null
+    quantization:
+      weight_dtype: null
+      kv_cache_dtype: null
+      calculate_kv_scales: false
 
     layer_name_map:
       qkv_layer_name: qkv

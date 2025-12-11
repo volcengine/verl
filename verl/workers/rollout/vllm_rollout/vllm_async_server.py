@@ -266,7 +266,7 @@ class vLLMHttpServerBase:
             max_new_tokens=self.config.response_length,
         )
         logger.info(f"override_generation_config: {override_generation_config}")
-        quantization = self.config.quantization
+        quantization = self.config.quantization.weight_dtype
         if quantization is not None:
             if quantization == "fp8":
                 FP8_BLOCK_QUANT_KWARGS = {
