@@ -250,7 +250,7 @@ class TrainingWorker(Worker):
         if self.engine.is_mp_src_rank_with_outputs():
             final_output = self._postprocess_output(
                 output, global_token_num=global_token_num, delta_time=delta_time, forward_only=True
-            )
+            ).to("cpu")
         else:
             final_output = None
         return final_output
@@ -576,12 +576,12 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="ref"))
     @DistProfiler.annotate(color="olive", role="ref_compute_log_prob")
     def compute_ref_log_prob(self, data: TensorDict) -> TensorDict:
-        return self.ref.infer_batch(data=data).cpu()
+        return self.ref.infer_batch(data=data)
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @DistProfiler.annotate(color="blue", role="actor_compute_log_prob")
     def compute_log_prob(self, data: TensorDict) -> TensorDict:
-        return self.actor.infer_batch(data).cpu()
+        return self.actor.infer_batch(data)
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"), blocking=False)
     @DistProfiler.annotate(color="red", role="actor_update")
