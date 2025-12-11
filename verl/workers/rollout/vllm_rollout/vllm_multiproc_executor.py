@@ -45,7 +45,7 @@ except ModuleNotFoundError:
     # https://github.com/vllm-project/vllm/commit/6a113d9aed8221a9c234535958e70e34ab6cac5b
     from vllm.v1.worker.worker_base import WorkerWrapperBase
 
-
+from verl.utils.distributed import initialize_global_process_group_ray
 from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches
 
 logger = logging.getLogger(__file__)
@@ -82,24 +82,28 @@ class vLLMWorkerProc(WorkerProc):
         self.mm_receiver_cache = None
         self.use_async_scheduling = False
 
-        all_kwargs: list[dict] = [
-            {} for _ in range(vllm_config.parallel_config.world_size)
-        ]
-        all_kwargs[rank] = {
+        local_rank_offset = int(os.environ.get("VERL_VLLM_MULTIPROC_LOCAL_RANK_OFFSET", "0"))
+        global_rank_offset = int(os.environ.get("VERL_VLLM_MULTIPROC_GLOBAL_RANK_OFFSET", "0"))
+        all_kwargs: list[dict] = [{}]
+        all_kwargs[0] = {
             "vllm_config": vllm_config,
-            "local_rank": local_rank,
-            "rank": rank,
-            "distributed_init_method": distributed_init_method,
+            "local_rank": local_rank + local_rank_offset,
+            "rank": rank + global_rank_offset,
+            "distributed_init_method": "env://",
             "is_driver_worker": True,
         }
+        os.environ["RANK"] = str(rank + global_rank_offset)
+        os.environ["LOCAL_RANK"] = str(local_rank + local_rank_offset)
+        if not torch.distributed.is_initialized():
+            initialize_global_process_group_ray()
         if os.environ.get("VERL_VLLM_FP8_QUANT_ENABLED", "0") == "1":
             apply_vllm_fp8_patches()
-        wrapper = WorkerWrapperBase(vllm_config=vllm_config, rpc_rank=local_rank)
+        wrapper = WorkerWrapperBase(vllm_config=vllm_config)
         wrapper.init_worker(all_kwargs)
         self.worker = wrapper
 
         self.rpc_broadcast_mq = MessageQueue.create_from_handle(
-            input_shm_handle, self.worker.rank)
+            input_shm_handle, rank)
         self.worker_response_mq = MessageQueue(1, 1)
 
         self.worker.init_device()
@@ -286,9 +290,6 @@ class vLLMMultiprocExecutor(MultiprocExecutor):
         # Set multiprocessing envs
         set_multiprocessing_worker_envs()
 
-        distributed_init_method = get_distributed_init_method(
-            get_loopback_ip(), get_open_port()
-        )
         max_chunk_bytes = envs.VLLM_MQ_MAX_CHUNK_BYTES_MB * 1024 * 1024
         self.rpc_broadcast_mq = MessageQueue(tensor_parallel_size,
                                              tensor_parallel_size,
@@ -307,7 +308,7 @@ class vLLMMultiprocExecutor(MultiprocExecutor):
                         vllm_config=self.vllm_config,
                         local_rank=rank,
                         rank=rank,
-                        distributed_init_method=distributed_init_method,
+                        distributed_init_method=None,
                         input_shm_handle=scheduler_output_handle,
                         shared_worker_lock=shared_worker_lock,
                     ))
