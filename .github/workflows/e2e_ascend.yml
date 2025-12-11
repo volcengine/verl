@@ -96,6 +96,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip install -r requirements-npu.txt
+          pip3 install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple veomni>=0.1.4
           pip install -e .
       - name: Check final pip list
         run: |
@@ -144,6 +145,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip install -r requirements-npu.txt
+          pip3 install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple veomni>=0.1.4
           pip install -e .
       - name: Check final pip list
         run: |
@@ -210,6 +212,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip install -r requirements-npu.txt
+          pip3 install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple veomni>=0.1.4
           pip install -e .
       - name: Check final pip list
         run: |

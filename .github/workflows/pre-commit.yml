@@ -31,6 +31,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install the current repository
         run: |
+          pip3 install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple veomni>=0.1.4
           pip install -e .
       - name: Set ruff --output-format=github
         run: |

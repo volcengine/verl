@@ -122,6 +122,7 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
+          pip3 install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple veomni>=0.1.4
           pip3 install --no-deps -e .[test]
           pip3 install mbridge
           pip3 install math-verify transformers==$TRANSFORMERS_VERSION
@@ -177,6 +178,7 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
+          pip3 install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple veomni>=0.1.4
           pip3 install --no-deps -e .[test]
           pip3 install math-verify transformers==$TRANSFORMERS_VERSION
       - name: Prepare GSM8K dataset

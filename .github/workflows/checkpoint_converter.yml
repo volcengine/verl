@@ -106,6 +106,7 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
+          pip3 install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple veomni>=0.1.4
           pip3 install -e .[test]
 #      - name: Download Model to Use
 #        run: |
@@ -140,6 +141,7 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
+          pip3 install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple veomni>=0.1.4
           pip3 install -e .[test]
 #      - name: Download Model to Use
 #        run: |

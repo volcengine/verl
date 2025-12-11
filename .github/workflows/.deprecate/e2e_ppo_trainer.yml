@@ -57,6 +57,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install the current repository
         run: |
+          pip3 install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple veomni>=0.1.4
           pip install -e .
       - name: Set ruff --output-format=github
         run: |
@@ -85,6 +86,7 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
+          pip3 install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple veomni>=0.1.4
           pip3 install -e .[test,gpu,sglang]
       - name: Prepare gsm8k dataset with tool
         run: |
@@ -118,6 +120,7 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
+          pip3 install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple veomni>=0.1.4
           pip3 install -e .[test,geo,gpu,sglang]
       - name: Prepare geo3k dataset with tool
         run: |

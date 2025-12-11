@@ -119,6 +119,7 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
+          pip3 install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple veomni>=0.1.4
           pip3 install --no-deps -e .[test,gpu]
       - name: Prepare GSM8K dataset
         run: |
