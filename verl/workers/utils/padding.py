@@ -20,21 +20,7 @@ from verl.utils.device import (
     is_npu_available,
 )
 
-if is_npu_available:
-    from transformers.integrations.npu_flash_attention import pad_input, unpad_input
-else:
-    try:
-        # for cuda and cpu
-        from flash_attn.bert_padding import pad_input, unpad_input
-    except ImportError:
-
-        def _raise_import_error(*args, **kwargs):
-            raise ImportError(
-                "flash_attn is not installed or not compatible with your environment. "
-                "Please install it to use padding removal features (e.g., `pip install flash-attn`)."
-            )
-
-        pad_input, unpad_input = _raise_import_error, _raise_import_error
+from verl.utils.attention_utils import index_first_axis, pad_input, rearrange, unpad_input
 
 
 def left_right_2_no_padding(data: TensorDict) -> TensorDict:

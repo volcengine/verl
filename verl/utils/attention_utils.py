@@ -24,10 +24,10 @@ def _get_attention_functions() -> tuple[Callable, Callable, Callable, Callable]:
 
     global _index_first_axis, _pad_input, _rearrange, _unpad_input
 
-    if is_cuda_available:
-        from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
-    elif is_npu_available:
+    if is_npu_available:
         from verl.utils.npu_flash_attn_utils import index_first_axis, pad_input, rearrange, unpad_input
+    else:
+        from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
 
     _index_first_axis, _pad_input, _rearrange, _unpad_input = index_first_axis, pad_input, rearrange, unpad_input
 

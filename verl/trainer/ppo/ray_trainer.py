@@ -984,6 +984,132 @@ class RayPPOTrainer:
         )
         metrics.update(global_balance_stats)
 
+
+    def _compute_ref_log_prob(self, batch: DataProto) -> DataProto:
+        if self.use_legacy_worker_impl == "disable":
+            # step 1: convert dataproto to tensordict.
+            batch_td = batch.to_tensordict()
+            # step 2: convert from padding to nopadding
+            batch_td = left_right_2_no_padding(batch_td)
+            # step 3: add meta info
+            tu.assign_non_tensor(batch_td, calculate_entropy=False, compute_loss=False)
+            output = self.actor_rollout_wg.compute_log_prob(batch_td)
+            # gather output
+            log_probs = tu.get(output, "log_probs")
+            # step 4. No padding to padding
+            log_probs = no_padding_2_padding(log_probs, batch_td)
+            # step 5: rebuild a tensordict and convert to dataproto
+            ref_log_prob = tu.get_tensordict(
+                {"ref_log_prob": log_probs.float()}
+            )
+            ref_log_prob = DataProto.from_tensordict(ref_log_prob)
+        else:
+            ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
+
+        return ref_log_prob
+
+
+    def _compute_old_log_prob(self, batch: DataProto):
+        if self.use_legacy_worker_impl == "disable":
+            # TODO: remove step 1, 2, 4 after we make the whole training tensordict and padding free
+            # step 1: convert dataproto to tensordict.
+            batch_td = batch.to_tensordict()
+            # step 2: convert from padding to nopadding
+            batch_td = left_right_2_no_padding(batch_td)
+            # step 3: add meta info
+            tu.assign_non_tensor(batch_td, calculate_entropy=True, compute_loss=False)
+            output = self.actor_rollout_wg.compute_log_prob(batch_td)
+            # gather output
+            entropy = tu.get(output, "entropy")
+            log_probs = tu.get(output, "log_probs")
+            old_log_prob_mfu = tu.get(output, "metrics")["mfu"]
+            # step 4. No padding to padding
+            entropy = no_padding_2_padding(entropy, batch_td)
+            log_probs = no_padding_2_padding(log_probs, batch_td)
+            # step 5: rebuild a tensordict and convert to dataproto
+            old_log_prob = tu.get_tensordict(
+                {"old_log_probs": log_probs.float(), "entropys": entropy.float()}
+            )
+            old_log_prob = DataProto.from_tensordict(old_log_prob)
+        else:
+            old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
+            old_log_prob_mfu = 0
+        return old_log_prob, old_log_prob_mfu
+
+
+    def _update_actor(self, batch: DataProto) -> DataProto:
+        rollout_config = self.config.actor_rollout_ref.rollout
+        batch.meta_info["multi_turn"] = rollout_config.multi_turn.enable
+        # TODO: Make "temperature" single source of truth from generation.
+        batch.meta_info["temperature"] = rollout_config.temperature
+        # update actor
+        if self.use_legacy_worker_impl == "disable":
+            batch_td = batch.to_tensordict()
+            # step 2: convert from padding to no-padding
+            batch_td = left_right_2_no_padding(batch_td)
+            calculate_entropy = self.config.actor_rollout_ref.actor.entropy_coeff != 0.0
+            ppo_mini_batch_size = self.config.actor_rollout_ref.actor.ppo_mini_batch_size
+            ppo_mini_batch_size = ppo_mini_batch_size * self.config.actor_rollout_ref.rollout.n
+            ppo_epochs = self.config.actor_rollout_ref.actor.ppo_epochs
+            seed = self.config.actor_rollout_ref.actor.data_loader_seed
+            shuffle = self.config.actor_rollout_ref.actor.shuffle
+            tu.assign_non_tensor(
+                batch_td, calculate_entropy=calculate_entropy, global_batch_size=ppo_mini_batch_size
+            )
+
+            # make iterator
+            dataloader = tu.make_iterator(
+                batch_td,
+                mini_batch_size=ppo_mini_batch_size,
+                epochs=ppo_epochs,
+                seed=seed,
+                dataloader_kwargs={"shuffle": shuffle},
+            )
+            # manually wakeup actor
+            self.actor_rollout_wg.to("device")
+
+            # update
+            output_ref_lst = []
+            total_num_iterations = batch_td.shape[0] // ppo_mini_batch_size * ppo_epochs
+            for batch_idx, mini_batch_td in enumerate(dataloader):
+                # add global token num
+                global_token_num = mini_batch_td["input_ids"].offsets().diff().tolist()
+                tu.assign_non_tensor(
+                    mini_batch_td,
+                    global_token_num=NonTensorData(global_token_num),
+                    update_lr_scheduler=batch_idx == total_num_iterations - 1,
+                    disable_auto_offload=True,
+                )
+                actor_output_ref = self.actor_rollout_wg.train_batch(mini_batch_td)
+                output_ref_lst.append(actor_output_ref)
+
+            actor_output = [output_ref.get() for output_ref in output_ref_lst]
+            actor_output = [tu.get(output, "metrics") for output in actor_output]
+
+            # manually sleep actor
+            self.actor_rollout_wg.to("cpu")
+
+            # each metric is a list of list (dp and micro-batch) (output[0] is metric in dp[0])
+            # flatten each metric
+            agg_actor_output = {}
+            for output in actor_output:
+                for key, val in output.items():
+                    # flattn dp and micro batch
+                    if isinstance(val, list):
+                        output[key] = list(chain.from_iterable(val))
+                append_to_dict(agg_actor_output, output, prefix="actor/")
+
+            # modify key name
+            agg_actor_output["perf/mfu/actor"] = agg_actor_output.pop("actor/mfu")
+
+            actor_output = DataProto.from_single_dict(
+                data={}, meta_info={"metrics": agg_actor_output}
+            )
+        else:
+            actor_output = self.actor_rollout_wg.update_actor(batch)
+        return actor_output
+
+
     def fit(self):
         """
         The training loop of PPO.
@@ -1153,31 +1279,7 @@ class RayPPOTrainer:
                         )
                     else:  # Recompute old_log_probs
                         with marked_timer("old_log_prob", timing_raw, color="blue"):
-                            if self.use_legacy_worker_impl == "disable":
-                                # TODO: remove step 1, 2, 4 after we make the whole training tensordict and padding free
-                                # step 1: convert dataproto to tensordict.
-                                batch_td = batch.to_tensordict()
-                                # step 2: convert from padding to nopadding
-                                batch_td = left_right_2_no_padding(batch_td)
-                                # step 3: add meta info
-                                tu.assign_non_tensor(batch_td, calculate_entropy=True, compute_loss=False)
-                                output = self.actor_rollout_wg.compute_log_prob(batch_td)
-                                # gather output
-                                entropy = tu.get(output, "entropy")
-                                log_probs = tu.get(output, "log_probs")
-                                old_log_prob_mfu = tu.get(output, "metrics")["mfu"]
-                                # step 4. No padding to padding
-                                entropy = no_padding_2_padding(entropy, batch_td)
-                                log_probs = no_padding_2_padding(log_probs, batch_td)
-                                # step 5: rebuild a tensordict and convert to dataproto
-                                old_log_prob = tu.get_tensordict(
-                                    {"old_log_probs": log_probs.float(), "entropys": entropy.float()}
-                                )
-                                old_log_prob = DataProto.from_tensordict(old_log_prob)
-                            else:
-                                old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
-                                old_log_prob_mfu = 0
-
+                            old_log_prob, old_log_prob_mfu = self._compute_old_log_prob(batch)
                             entropys = old_log_prob.batch["entropys"]
                             response_masks = batch.batch["response_mask"]
                             actor_config = self.config.actor_rollout_ref.actor
@@ -1205,10 +1307,7 @@ class RayPPOTrainer:
                     if self.use_reference_policy:
                         # compute reference log_prob
                         with marked_timer(str(Role.RefPolicy), timing_raw, color="olive"):
-                            if not self.ref_in_actor:
-                                ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
-                            else:
-                                ref_log_prob = self.actor_rollout_wg.compute_ref_log_prob(batch)
+                            ref_log_prob = self._compute_ref_log_prob(batch)
                             batch = batch.union(ref_log_prob)
 
                     # compute values
@@ -1277,75 +1376,7 @@ class RayPPOTrainer:
                     if self.config.trainer.critic_warmup <= self.global_steps:
                         # update actor
                         with marked_timer("update_actor", timing_raw, color="red"):
-                            rollout_config = self.config.actor_rollout_ref.rollout
-                            batch.meta_info["multi_turn"] = rollout_config.multi_turn.enable
-                            # TODO: Make "temperature" single source of truth from generation.
-                            batch.meta_info["temperature"] = rollout_config.temperature
-                            # update actor
-                            if self.use_legacy_worker_impl == "disable":
-                                batch_td = batch.to_tensordict()
-                                # step 2: convert from padding to no-padding
-                                batch_td = left_right_2_no_padding(batch_td)
-                                calculate_entropy = self.config.actor_rollout_ref.actor.entropy_coeff != 0.0
-                                ppo_mini_batch_size = self.config.actor_rollout_ref.actor.ppo_mini_batch_size
-                                ppo_mini_batch_size = ppo_mini_batch_size * self.config.actor_rollout_ref.rollout.n
-                                ppo_epochs = self.config.actor_rollout_ref.actor.ppo_epochs
-                                seed = self.config.actor_rollout_ref.actor.data_loader_seed
-                                shuffle = self.config.actor_rollout_ref.actor.shuffle
-                                tu.assign_non_tensor(
-                                    batch_td, calculate_entropy=calculate_entropy, global_batch_size=ppo_mini_batch_size
-                                )
-
-                                # make iterator
-                                dataloader = tu.make_iterator(
-                                    batch_td,
-                                    mini_batch_size=ppo_mini_batch_size,
-                                    epochs=ppo_epochs,
-                                    seed=seed,
-                                    dataloader_kwargs={"shuffle": shuffle},
-                                )
-                                # manually wakeup actor
-                                self.actor_rollout_wg.to("device")
-
-                                # update
-                                output_ref_lst = []
-                                total_num_iterations = batch_td.shape[0] // ppo_mini_batch_size * ppo_epochs
-                                for batch_idx, mini_batch_td in enumerate(dataloader):
-                                    # add global token num
-                                    global_token_num = mini_batch_td["input_ids"].offsets().diff().tolist()
-                                    tu.assign_non_tensor(
-                                        mini_batch_td,
-                                        global_token_num=NonTensorData(global_token_num),
-                                        update_lr_scheduler=batch_idx == total_num_iterations - 1,
-                                        disable_auto_offload=True,
-                                    )
-                                    actor_output_ref = self.actor_rollout_wg.train_batch(mini_batch_td)
-                                    output_ref_lst.append(actor_output_ref)
-
-                                actor_output = [output_ref.get() for output_ref in output_ref_lst]
-                                actor_output = [tu.get(output, "metrics") for output in actor_output]
-
-                                # manually sleep actor
-                                self.actor_rollout_wg.to("cpu")
-
-                                # each metric is a list of list (dp and micro-batch) (output[0] is metric in dp[0])
-                                # flatten each metric
-                                agg_actor_output = {}
-                                for output in actor_output:
-                                    for key, val in output.items():
-                                        # flattn dp and micro batch
-                                        if isinstance(val, list):
-                                            output[key] = list(chain.from_iterable(val))
-                                    append_to_dict(agg_actor_output, output, prefix="actor/")
-
-                                # modify key name
-                                agg_actor_output["perf/mfu/actor"] = agg_actor_output.pop("actor/mfu")
-
-                                actor_output = DataProto.from_single_dict(
-                                    data={}, meta_info={"metrics": agg_actor_output}
-                                )
-                            else:
-                                actor_output = self.actor_rollout_wg.update_actor(batch)
+                            actor_output = self._update_actor(batch)
                         actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
                         metrics.update(actor_output_metrics)
 
