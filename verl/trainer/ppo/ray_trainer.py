@@ -992,7 +992,7 @@ class RayPPOTrainer:
             batch_td = left_right_2_no_padding(batch_td)
             # step 3: add meta info
             tu.assign_non_tensor(batch_td, calculate_entropy=False, compute_loss=False)
-            output = self.actor_rollout_wg.compute_log_prob(batch_td)
+            output = self.ref_policy_wg.compute_ref_log_prob(batch_td)
             # gather output
             log_probs = tu.get(output, "log_probs")
             # step 4. No padding to padding
