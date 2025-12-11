@@ -343,14 +343,7 @@ class RayPPOTrainer:
         if self.config.algorithm.use_kl_in_reward:
             self.kl_ctrl_in_reward = core_algos.get_kl_controller(self.config.algorithm.kl_ctrl)
 
-        # PrefixGrouper requires data to be sorted by uid, which is incompatible with balance_batch
-        if self.config.actor_rollout_ref.actor.get("use_prefix_grouper", False) and self.config.trainer.get(
-            "balance_batch", False
-        ):
-            raise ValueError(
-                "use_prefix_grouper=True is incompatible with balance_batch=True. "
-                "PrefixGrouper requires data to be sorted by uid, but balance_batch reorders data."
-            )
+        self.use_prefix_grouper = self.config.actor_rollout_ref.actor.get("use_prefix_grouper", False)
 
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
 
@@ -938,13 +931,41 @@ class RayPPOTrainer:
                 self.rm_wg.stop_profile()
 
     def _balance_batch(self, batch: DataProto, metrics, logging_prefix="global_seqlen", keep_minibatch=False):
-        """Reorder the data on single controller such that each dp rank gets similar total tokens"""
+        """Reorder the data on single controller such that each dp rank gets similar total tokens.
+
+        When use_prefix_grouper is enabled, uses group-level balancing to keep samples with
+        the same uid together on the same rank for prefix sharing optimization.
+        """
         attention_mask = batch.batch["attention_mask"]
         batch_size = attention_mask.shape[0]
         global_seqlen_lst = batch.batch["attention_mask"].view(batch_size, -1).sum(-1)  # (train_batch_size,)
         workload_lst = calculate_workload(global_seqlen_lst)
         world_size = self.actor_rollout_wg.world_size
-        if keep_minibatch:
+
+        # Use group-level balancing for PrefixGrouper to keep same-uid samples together
+        if self.use_prefix_grouper and "uid" in batch.non_tensor_batch:
+            from verl.utils.seqlen_balancing import get_group_balanced_partitions
+
+            uid_list = list(batch.non_tensor_batch["uid"])
+            seqlen_list = global_seqlen_lst.tolist()
+
+            # Count number of uid groups
+            num_groups = len(set(uid_list))
+
+            if num_groups % world_size != 0:
+                raise ValueError(
+                    f"PrefixGrouper with balance_batch requires num_uid_groups ({num_groups}) % world_size ({world_size}) == 0. "
+                    f"This ensures each rank gets equal number of groups. "
+                    f"Current batch_size={batch_size}, adjust batch_size to be a multiple of world_size * rollout.n."
+                )
+
+            global_partition_lst = get_group_balanced_partitions(
+                seqlen_list=seqlen_list,
+                uid_list=uid_list,
+                k_partitions=world_size,
+            )
+
+        elif keep_minibatch:
             # Decouple the DP balancing and mini-batching.
             minibatch_size = self.config.actor_rollout_ref.actor.get("ppo_mini_batch_size")
             minibatch_num = len(workload_lst) // minibatch_size
@@ -962,10 +983,13 @@ class RayPPOTrainer:
                 workload_lst, k_partitions=world_size, equal_size=True
             )
         # Place smaller micro-batches at both ends to reduce the bubbles in pipeline parallel.
-        for idx, partition in enumerate(global_partition_lst):
-            partition.sort(key=lambda x: (workload_lst[x], x))
-            ordered_partition = partition[::2] + partition[1::2][::-1]
-            global_partition_lst[idx] = ordered_partition
+        # Skip reordering within partitions for PrefixGrouper to maintain uid grouping
+        if not self.use_prefix_grouper:
+            for idx, partition in enumerate(global_partition_lst):
+                partition.sort(key=lambda x: (workload_lst[x], x))
+                ordered_partition = partition[::2] + partition[1::2][::-1]
+                global_partition_lst[idx] = ordered_partition
+
         # reorder based on index. The data will be automatically equally partitioned by dispatch function
         global_idx = torch.tensor([j for partition in global_partition_lst for j in partition])
         batch.reorder(global_idx)

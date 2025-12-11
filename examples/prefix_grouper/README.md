@@ -25,11 +25,12 @@ pip install prefix_grouper
 ## Limitations
 
 - Currently only supports FSDP worker (Megatron worker is not supported yet).
-- Incompatible with `balance_batch=True`.
 - Incompatible with `use_dynamic_bsz=True`.
 - Incompatible with `use_remove_padding=True` (Flash Attention V2 variable length).
 - Incompatible with `use_fused_kernels=True`.
 - Incompatible with Ulysses sequence parallelism (`use_ulysses_sp=True`) and ring-attention.
+
+Note: `balance_batch=True` is now supported with group-level balancing, which keeps samples with the same uid together on the same rank. However, this requires `batch_size % (world_size * rollout.n) == 0`. For example, with `world_size=8` and `rollout.n=4`, you need `batch_size` to be a multiple of 32.
 
 ## How to Use
 
@@ -45,10 +46,10 @@ actor_rollout_ref:
     use_remove_padding: False 
 ```
 
-Also ensure these settings are disabled:
+Optionally enable balance_batch for better load distribution:
 ```yaml
 trainer:
-  balance_batch: False 
+  balance_batch: True  # Now supported with group-level balancing
 ```
 
 ### 2. Run Training
