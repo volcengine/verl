@@ -91,8 +91,6 @@ class vLLMHttpServerBase:
             node_rank (int): node rank.
             gpus_per_node (int): number of gpus per node.
             nnodes (int): number of nodes.
-            master_addr (str): master address for vllm's multiproc torch distributed initialization.
-            master_port (str): master port for vllm's multiproc torch distributed initialization.
         """
         super().__init__()
 
