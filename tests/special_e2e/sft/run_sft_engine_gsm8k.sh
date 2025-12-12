@@ -67,8 +67,8 @@ VEOMNI_ENGINE_CONFIG="\
     optim.lr_min=1e-6 \
     optim.lr_scheduler_type=cosine \
     engine.ulysses_parallel_size=${SP_SIZE} \
-    engine.data_parallel_mode="fsdp2" \
-    engine.data_parallel_size=${SP_SIZE}"
+    engine.data_parallel_mode=${FSDP_STRATEGY} \
+    engine.data_parallel_size=${FSDP_SIZE}"
 
 
 MEGATRON_ENGINE_CONFIG="\
