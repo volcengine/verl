@@ -58,7 +58,7 @@ from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, shou
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.debug import marked_timer
 from verl.utils.metric import reduce_metrics
-from verl.utils.py_functional import append_to_dict
+from verl.utils.py_functional import append_to_dict, rename_dict
 from verl.utils.rollout_skip import RolloutSkip
 from verl.utils.seqlen_balancing import calculate_workload, get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
@@ -1046,54 +1046,20 @@ class RayPPOTrainer:
             ppo_epochs = self.config.actor_rollout_ref.actor.ppo_epochs
             seed = self.config.actor_rollout_ref.actor.data_loader_seed
             shuffle = self.config.actor_rollout_ref.actor.shuffle
-            tu.assign_non_tensor(batch_td, calculate_entropy=calculate_entropy, global_batch_size=ppo_mini_batch_size)
+            tu.assign_non_tensor(batch_td,
+                                 calculate_entropy=calculate_entropy,
+                                 global_batch_size=ppo_mini_batch_size,
+                                 mini_batch_size=ppo_mini_batch_size,
+                                 epochs=ppo_epochs,
+                                 seed=seed,
+                                 dataloader_kwargs={"shuffle": shuffle})
 
-            # make iterator
-            dataloader = tu.make_iterator(
-                batch_td,
-                mini_batch_size=ppo_mini_batch_size,
-                epochs=ppo_epochs,
-                seed=seed,
-                dataloader_kwargs={"shuffle": shuffle},
-            )
-            # manually wakeup actor
-            self.actor_rollout_wg.to("device")
-
-            # update
-            output_ref_lst = []
-            total_num_iterations = batch_td.shape[0] // ppo_mini_batch_size * ppo_epochs
-            for batch_idx, mini_batch_td in enumerate(dataloader):
-                # add global token num
-                global_token_num = mini_batch_td["input_ids"].offsets().diff().tolist()
-                tu.assign_non_tensor(
-                    mini_batch_td,
-                    global_token_num=NonTensorData(global_token_num),
-                    update_lr_scheduler=batch_idx == total_num_iterations - 1,
-                    disable_auto_offload=True,
-                )
-                actor_output_ref = self.actor_rollout_wg.train_batch(mini_batch_td)
-                output_ref_lst.append(actor_output_ref)
-
-            actor_output = [output_ref.get() for output_ref in output_ref_lst]
-            actor_output = [tu.get(output, "metrics") for output in actor_output]
-
-            # manually sleep actor
-            self.actor_rollout_wg.to("cpu")
-
-            # each metric is a list of list (dp and micro-batch) (output[0] is metric in dp[0])
-            # flatten each metric
-            agg_actor_output = {}
-            for output in actor_output:
-                for key, val in output.items():
-                    # flattn dp and micro batch
-                    if isinstance(val, list):
-                        output[key] = list(chain.from_iterable(val))
-                append_to_dict(agg_actor_output, output, prefix="actor/")
-
+            actor_output = self.actor_rollout_wg.update_actor(batch_td)
+            actor_output = tu.get(actor_output, "metrics")
+            actor_output = rename_dict(actor_output, "actor/")
             # modify key name
-            agg_actor_output["perf/mfu/actor"] = agg_actor_output.pop("actor/mfu")
-
-            actor_output = DataProto.from_single_dict(data={}, meta_info={"metrics": agg_actor_output})
+            actor_output["perf/mfu/actor"] = actor_output.pop("actor/mfu")
+            actor_output = DataProto.from_single_dict(data={}, meta_info={"metrics": actor_output})
         else:
             actor_output = self.actor_rollout_wg.update_actor(batch)
         return actor_output

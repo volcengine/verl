@@ -16,12 +16,13 @@ import os
 import warnings
 from functools import partial
 from typing import Any, Optional
+from itertools import chain
 
 import psutil
 import torch
 from codetiming import Timer
 from omegaconf import DictConfig, open_dict
-from tensordict import TensorDict
+from tensordict import TensorDict, NonTensorData
 from torch.distributed.device_mesh import init_device_mesh
 
 from verl import DataProto
@@ -169,6 +170,78 @@ class TrainingWorker(Worker):
         # We only return final_metrics
         final_output = tu.get_tensordict(tensor_dict=model_output, non_tensor_dict={"metrics": final_metrics})
         return final_output
+
+
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False)
+    def train_mini_batch(self, data: TensorDict) -> TensorDict:
+        """Split a batch into N mini-batches run for multiple epochs
+
+        Args:
+            data:
+
+        Returns:
+
+        """
+
+        batch_size_per_dp = data.shape[0]
+        disable_auto_offload = tu.pop(data, key="disable_auto_offload", default=False)
+        mini_batch_size = tu.pop(data, key="mini_batch_size", default=None)
+        num_mini_batch = tu.pop(data, key="num_mini_batch", default=None)
+        epochs = tu.pop(data, key="epochs", default=1)
+        seed = tu.pop(data, key="seed", default=42)
+        dataloader_kwargs = tu.pop(data, key="dataloader_kwargs", default={})
+
+        assert mini_batch_size is not None or num_mini_batch is not None
+
+        if mini_batch_size is None:
+            assert batch_size_per_dp % num_mini_batch == 0, f"Got {batch_size_per_dp=} and {num_mini_batch=}"
+            mini_batch_size_per_gpu = batch_size_per_dp // num_mini_batch
+        else:
+            assert mini_batch_size % self.engine.get_data_parallel_size() == 0, \
+                f"Got {batch_size_per_dp=} and {num_mini_batch=}"
+            mini_batch_size_per_gpu = mini_batch_size // self.engine.get_data_parallel_size()
+
+        # make iterator
+        dataloader = tu.make_iterator(
+            data,
+            mini_batch_size=mini_batch_size_per_gpu,
+            epochs=epochs,
+            seed=seed + self.engine.get_data_parallel_rank(),
+            dataloader_kwargs=dataloader_kwargs,
+        )
+
+        with (
+            self.engine.train_mode(disable_auto_offload=disable_auto_offload),
+            Timer(name="train_batch", logger=None) as timer,
+        ):
+            # update
+            output_lst = []
+            total_num_iterations = data.shape[0] // mini_batch_size_per_gpu * epochs
+
+            for batch_idx, mini_batch_td in enumerate(dataloader):
+                # add global token num
+                global_token_num = mini_batch_td["input_ids"].offsets().diff().tolist()
+                tu.assign_non_tensor(
+                    mini_batch_td,
+                    global_token_num=NonTensorData(global_token_num),
+                    update_lr_scheduler=batch_idx == total_num_iterations - 1,
+                    disable_auto_offload=True,
+                )
+                actor_output = self.train_batch(mini_batch_td)
+                output_lst.append(actor_output)
+
+            actor_output = [tu.get(output, "metrics") for output in output_lst]
+            metrics = {}
+            for output in actor_output:
+                for key, val in output.items():
+                    # flattn dp and micro batch
+                    if isinstance(val, list):
+                        output[key] = list(chain.from_iterable(val))
+                append_to_dict(metrics, output)
+
+            output = tu.get_tensordict(tensor_dict={}, non_tensor_dict={"metrics": metrics})
+        return output
+
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False)
     def train_batch(self, data: TensorDict) -> TensorDict:
@@ -583,10 +656,10 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     def compute_log_prob(self, data: TensorDict) -> TensorDict:
         return self.actor.infer_batch(data).cpu()
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"), blocking=False)
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @DistProfiler.annotate(color="red", role="actor_update")
-    def train_batch(self, data: TensorDict) -> TensorDict:
-        output = self.actor.train_batch(data=data)
+    def update_actor(self, data: TensorDict) -> TensorDict:
+        output = self.actor.train_mini_batch(data=data)
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
