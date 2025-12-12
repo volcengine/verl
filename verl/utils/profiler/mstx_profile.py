@@ -183,6 +183,7 @@ class NPUProfiler(DistProfiler):
             return
         self.this_step: bool = False
         self.discrete: bool = tool_config.discrete
+        self.roles: list[str] = tool_config.roles
         self.this_rank: bool = False
         self.profile_npu = None
         self.profile_contents = tool_config.contents
@@ -248,7 +249,7 @@ class NPUProfiler(DistProfiler):
                 if profile_enable:
                     if not discrete_mode:
                         mark_range = mark_start_range(message=profile_name)
-                    else:
+                    elif "all" in self.roles or role in self.roles:
                         profile_npu = get_npu_profiler(
                             contents=self.profile_contents,
                             profile_level=self.profile_level,
@@ -264,7 +265,7 @@ class NPUProfiler(DistProfiler):
                 if profile_enable:
                     if not discrete_mode:
                         mark_end_range(mark_range)
-                    else:
+                    elif "all" in self.roles or role in self.roles:
                         mark_end_range(mark_range)
                         profile_npu.step()
                         profile_npu.stop()
