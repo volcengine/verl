@@ -219,7 +219,9 @@ class RLHFDataset(Dataset):
         if self.processor is not None:
             from verl.utils.dataset.vision_utils import process_image, process_video
 
+            # [TODO] change the chat template data to raw_prompt
             raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+            print(f"raw_prompt: {raw_prompt}")
             multi_modal_data = {}
 
             images = None
@@ -259,6 +261,8 @@ class RLHFDataset(Dataset):
 
         else:
             raw_prompt = self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+            # [TODO] change the chat template data to raw_prompt
+            print(f"raw_prompt: {raw_prompt}")
             model_inputs = self.tokenizer(raw_prompt, return_tensors="pt", add_special_tokens=False)
             input_ids = model_inputs.pop("input_ids")
             attention_mask = model_inputs.pop("attention_mask")
