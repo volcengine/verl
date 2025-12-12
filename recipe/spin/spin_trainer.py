@@ -39,7 +39,7 @@ from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.ppo.metric_utils import compute_throughout_metrics, compute_timing_metrics, process_validation_metrics
 from verl.trainer.ppo.utils import Role, WorkerType, need_reference_policy, need_reward_model
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
-from verl.utils.import_utils import is_torch_npu_pkg_available
+from verl.utils.import_utils import is_torch_npu_available
 from verl.utils.metric import reduce_metrics
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
@@ -374,7 +374,7 @@ class RaySPINTrainer:
         self.async_rollout_mode = False
         self.device_name = device_name if device_name else self.config.trainer.device
 
-        if is_torch_npu_pkg_available():
+        if is_torch_npu_available():
             self.device_name = "npu"
 
         # define in-reward KL control

@@ -70,7 +70,7 @@ def is_trl_available():
 
 
 @cache
-def is_torch_npu_pkg_available():
+def is_torch_npu_available():
     try:
         torch_npu_spec = importlib.util.find_spec("torch_npu")
     except ModuleNotFoundError:

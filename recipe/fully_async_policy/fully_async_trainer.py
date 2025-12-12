@@ -36,7 +36,7 @@ from verl.trainer.ppo.reward import load_reward_manager
 from verl.trainer.ppo.utils import Role, WorkerType, need_critic, need_reference_policy, need_reward_model
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
 from verl.utils.debug import marked_timer
-from verl.utils.import_utils import is_torch_npu_pkg_available
+from verl.utils.import_utils import is_torch_npu_available
 
 
 @ray.remote(num_cpus=10)
@@ -81,7 +81,7 @@ class FullyAsyncTrainer(FullyAsyncRayPPOTrainer):
 
         self.device_name = device_name if device_name else self.config.trainer.device
 
-        if is_torch_npu_pkg_available():
+        if is_torch_npu_available():
             self.device_name = "npu"
 
         # if ref_in_actor is True, the reference policy will be actor without lora applied

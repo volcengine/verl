@@ -57,7 +57,7 @@ from verl.utils import tensordict_utils as tu
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.debug import marked_timer
-from verl.utils.import_utils import is_torch_npu_pkg_available
+from verl.utils.import_utils import is_torch_npu_available
 from verl.utils.metric import reduce_metrics
 from verl.utils.py_functional import append_to_dict
 from verl.utils.rollout_skip import RolloutSkip
@@ -334,7 +334,7 @@ class RayPPOTrainer:
         self.ray_worker_group_cls = ray_worker_group_cls
         self.device_name = device_name if device_name else self.config.trainer.device
 
-        if is_torch_npu_pkg_available():
+        if is_torch_npu_available():
             self.device_name = "npu"
 
         self.validation_generations_logger = ValidationGenerationsLogger(
