@@ -187,7 +187,8 @@ class TaskRunner(MainTaskRunner):
         # Create training and validation datasets.
         train_dataset = create_rl_dataset(config.data.train_files, config.data, tokenizer, processor, is_train=True)
         val_dataset = create_rl_dataset(config.data.val_files, config.data, tokenizer, processor, is_train=False)
-        train_sampler = create_rl_batch_sampler(config.data, train_dataset, drop_last=True)
+        train_sampler = create_rl_batch_sampler(config.data, train_dataset, is_train=True)
+        val_sampler = create_rl_batch_sampler(config.data, val_dataset, is_train=False)
 
         # Initialize the PPO trainer.
         trainer = RayPPOTrainer(
@@ -201,16 +202,14 @@ class TaskRunner(MainTaskRunner):
             val_reward_fn=val_reward_fn,
             train_dataset=train_dataset,
             val_dataset=val_dataset,
-            collate_fn=tq_collect_fn,
+            collate_fn=tq_collact_fn,
             train_sampler=train_sampler,
+            val_sampler=val_sampler,
         )
         # Initialize the workers of the trainer.
         trainer.init_workers()
         # Start the training process.
         trainer.fit()
-
-
-
 
 
 def repeat_dict(
@@ -255,55 +254,64 @@ def repeat_dict(
 
 
 def dict_to_tensordict(data: dict[str, torch.Tensor | np.ndarray]) -> TensorDict:
-        """
-        Create a TensorDict from a dict of tensors and non_tensors.
-        Note that this requires tensordict version at least 0.10
-        """
-        assert parse_version(tensordict.__version__) >= parse_version("0.10"), (
-            "Storing non-tensor data in TensorDict at least requires tensordict version 0.10"
-        )
-        tensors_batch = {}
-        batch_size = None
+    """
+    Create a TensorDict from a dict of tensors and non_tensors.
+    Note that this requires tensordict version at least 0.10
+    """
+    assert parse_version(tensordict.__version__) >= parse_version("0.10"), (
+        "Storing non-tensor data in TensorDict at least requires tensordict version 0.10"
+    )
+    tensors_batch = {}
+    batch_size = None
 
-        for key, val in data.items():
-            if isinstance(val, torch.Tensor | np.ndarray):
-                tensors_batch[key] = val
-            else:
-                raise ValueError(f"Unsupported type in data {type(val)}")
-
-            if batch_size is None:
-                batch_size = len(val)
-            else:
-                assert len(val) == batch_size
+    for key, val in data.items():
+        if isinstance(val, torch.Tensor | np.ndarray):
+            tensors_batch[key] = val
+        else:
+            raise ValueError(f"Unsupported type in data {type(val)}")
 
         if batch_size is None:
-            batch_size = []
+            batch_size = len(val)
         else:
-            batch_size = [batch_size]
+            assert len(val) == batch_size
 
-        return TensorDict(tensors_batch, batch_size=batch_size)
+    if batch_size is None:
+        batch_size = []
+    else:
+        batch_size = [batch_size]
+
+    return TensorDict(tensors_batch, batch_size=batch_size)
 
 
 class BatchSamplerWithId(BatchSampler):
     def __iter__(self):
-        for bid, batch in enumerate(super().__iter__()):
-            yield [(bid, idx) for idx in batch]
+        for batch_id, batch in enumerate(super().__iter__()):
+            yield [(batch_id, idx) for idx in batch]
 
 
-def create_rl_batch_sampler(data_config, dataset, drop_last):
+def create_rl_batch_sampler(data_config, dataset, is_train=True):
     from verl.trainer.main_ppo import create_rl_sampler
+
+    if is_train:
+        batch_size = data_config.get("gen_batch_size", data_config.train_batch_size)
+        drop_last = True
+    else:
+        # TODO(baymax): current only support all
+        batch_size = len(dataset)
+        data_config.shuffle = False
+        drop_last = False
 
     base_sampler = create_rl_sampler(data_config, dataset)
     batch_sampler = BatchSamplerWithId(
         sampler=base_sampler,
-        batch_size=data_config.get("gen_batch_size", data_config.train_batch_size),
+        batch_size=batch_size,
         drop_last=drop_last,
     )
 
     return batch_sampler
 
 
-def tq_collect_fn(batch, config, prefix="train_"):
+def tq_collact_fn(batch, config, is_train=True):
     import uuid
 
     from verl.utils.dataset.rl_dataset import collate_fn
@@ -312,27 +320,27 @@ def tq_collect_fn(batch, config, prefix="train_"):
         get_transferqueue_client,
     )
 
-    create_transferqueue_client(
-        client_id="data_process",
-        config=config.transfer_queue,
-        enforce=True
-    )
+    if is_train:
+        prefix = "train_"
+        repeat_times = config.actor_rollout_ref.rollout.n
+    else:
+        prefix = "val_"
+        repeat_times = config.actor_rollout_ref.rollout.val_kwargs.n
+
+    create_transferqueue_client(client_id="data_process", config=config.transfer_queue, enforce=True)
     tq_client = get_transferqueue_client()
 
     batch_dict = collate_fn(batch)
     partition_id = batch_dict.pop("batch_id")[0]
-    
-    batch_dict["uid"] = np.array(
-        [str(uuid.uuid4()) for _ in range(len(batch_dict["input_ids"]))], dtype=object
-    )
 
-    batch_dict = repeat_dict(
-        batch_dict, repeat_times=config.actor_rollout_ref.rollout.n, interleave=True
-    )
+    batch_dict["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(batch_dict["input_ids"]))], dtype=object)
+
+    batch_dict = repeat_dict(batch_dict, repeat_times=repeat_times, interleave=True)
     batch_dict: TensorDict = dict_to_tensordict(batch_dict)
     asyncio.run(tq_client.async_put(data=batch_dict, partition_id=f"{prefix}{partition_id}"))
 
-    return list(batch_dict.keys())
+    return partition_id, list(batch_dict.keys())
+
 
 if __name__ == "__main__":
     main()

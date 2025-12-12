@@ -68,7 +68,7 @@ python3 -m recipe.transfer_queue.main_ppo \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
-    trainer.test_freq=1000 \
+    trainer.test_freq=2 \
     trainer.total_epochs=15 \
     trainer.total_training_steps=200 \
     trainer.val_before_train=False \

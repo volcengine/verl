@@ -291,8 +291,7 @@ class RLHFDataset(Dataset):
         """
         Note that we also return the raw_input_ids so that it can be combined with other chat template
         """
-        print(f"baymax debug item={item}")
-        batch_id=None
+        batch_id = None
         if isinstance(item, tuple):
             batch_id, item = item
         row_dict: dict = self.dataframe[item]
