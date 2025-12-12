@@ -42,7 +42,6 @@ install_requires = [
     "wandb",
     "packaging>=20.0",
     "tensorboard",
-    # TODO(ji-huazhong): add veomni when it is available on https://mirrors.ivolces.com/pypi/simple/
 ]
 
 TEST_REQUIRES = ["pytest", "pre-commit", "py-spy", "pytest-asyncio", "pytest-rerunfailures"]

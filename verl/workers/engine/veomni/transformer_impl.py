@@ -33,10 +33,13 @@ from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.utils.device import (
     get_device_id,
 )
+from verl.utils.fsdp_utils import (
+    fsdp_version,
+)
 from verl.workers.config import HFModelConfig, VeOmniEngineConfig, VeOmniOptimizerConfig
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
-from ..base import EngineRegistry
+from ..base import BaseEngineCtx, EngineRegistry
 from ..fsdp.transformer_impl import FSDPEngine, FSDPEngineWithLMHead
 from ..utils import enable_full_determinism, postprocess_batch_func, prepare_micro_batches
 
@@ -269,6 +272,64 @@ class VeOmniEngine(FSDPEngine):
         else:
             is_collect = True
         return is_collect
+
+    def train_mode(self, **kwargs):
+        """
+        Return a context manager that switches to training mode with VeOmni-specific handling.
+
+        Includes parameter and optimizer offload entry/exit.
+        """
+        return EngineTrainModeCtx(self, **kwargs)
+
+    def eval_mode(self, **kwargs):
+        """
+        Return a context manager that switches to evaluation mode with VeOmni-specific handling.
+
+        Includes activation offload entry/exit.
+        """
+        return EngineEvalModeCtx(self, **kwargs)
+
+
+class EngineEvalModeCtx(BaseEngineCtx):
+    def __init__(self, engine: VeOmniEngine, **kwargs):
+        super().__init__(engine=engine, mode="eval", **kwargs)
+
+    def __enter__(self):
+        assert isinstance(self.engine, VeOmniEngine)
+        super().__enter__()
+        self.engine.ulysses_sharding_manager.__enter__()
+        self.engine.module.eval()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        assert isinstance(self.engine, VeOmniEngine)
+        self.engine.ulysses_sharding_manager.__exit__(exc_type, exc_value, traceback)
+
+        # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
+        # unshard the root FSDP module
+        if parallel_state.get_parallel_state().dp_shard_size > 1:
+            if fsdp_version(self.engine.module) == 1:
+                self.engine.module._handle.reshard(True)
+            elif fsdp_version(self.engine.module) == 2:
+                self.engine.module.reshard()
+
+        super().__exit__(exc_type, exc_value, traceback)
+
+
+class EngineTrainModeCtx(BaseEngineCtx):
+    def __init__(self, engine: VeOmniEngine, **kwargs):
+        super().__init__(engine=engine, mode="train", **kwargs)
+
+    def __enter__(self):
+        assert isinstance(self.engine, VeOmniEngine)
+        super().__enter__()
+        self.engine.ulysses_sharding_manager.__enter__()
+        self.engine.module.train()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        assert isinstance(self.engine, VeOmniEngine)
+        self.engine.ulysses_sharding_manager.__exit__(exc_type, exc_value, traceback)
+        self.engine.optimizer_zero_grad()
+        super().__exit__(exc_type, exc_value, traceback)
 
 
 @EngineRegistry.register(model_type="language_model", backend=["veomni"], device=["cuda", "npu"])

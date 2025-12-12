@@ -24,4 +24,3 @@ fastapi
 latex2sympy2_extended
 math_verify
 tensorboard
-# TODO(ji-huazhong): add veomni when it is available on https://mirrors.ivolces.com/pypi/simple/
