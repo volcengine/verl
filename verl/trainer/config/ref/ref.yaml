@@ -1,3 +1,10 @@
+
+# resource pool id for the ref
+resource_pool_id: global_pool
+
+# colocate slot for the ref
+colocate_slot: 0
+
 # Number of rollouts per update (mirrors actor rollout_n)
 rollout_n: ${oc.select:actor_rollout_ref.rollout.n,1}
 

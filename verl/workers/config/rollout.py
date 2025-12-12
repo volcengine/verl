@@ -121,6 +121,9 @@ class RolloutConfig(BaseConfig):
     mode: str = "async"
     placement: str = "hybrid"
 
+    resource_pool_id: Optional[str] = None
+    colocate_slot: int = 0
+
     temperature: float = 1.0
     top_k: int = -1
     top_p: float = 1.0

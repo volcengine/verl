@@ -58,6 +58,8 @@ actor_rollout_ref:
       forward_only: false
       dtype: bfloat16
     _target_: verl.workers.config.McoreActorConfig
+    resource_pool_id: global_pool
+    colocate_slot: 0
     rollout_n: ${oc.select:actor_rollout_ref.rollout.n,1}
     strategy: megatron
     ppo_mini_batch_size: 256
@@ -130,6 +132,8 @@ actor_rollout_ref:
       replay_file: null
     load_weight: true
   ref:
+    resource_pool_id: global_pool
+    colocate_slot: 0
     rollout_n: ${oc.select:actor_rollout_ref.rollout.n,1}
     strategy: megatron
     use_torch_compile: ${oc.select:actor_rollout_ref.actor.use_torch_compile,true}
@@ -198,7 +202,8 @@ actor_rollout_ref:
     _target_: verl.workers.config.RolloutConfig
     name: ???
     mode: async
-    placement: hybrid
+    resource_pool_id: global_pool
+    colocate_slot: 0
     temperature: 1.0
     top_k: -1
     top_p: 1
@@ -442,6 +447,8 @@ critic:
     forward_only: false
     dtype: bfloat16
   _target_: verl.workers.config.McoreCriticConfig
+  resource_pool_id: global_pool
+  colocate_slot: 0
   rollout_n: ${oc.select:actor_rollout_ref.rollout.n,1}
   strategy: megatron
   enable: null
@@ -526,6 +533,8 @@ reward_model:
   enable_resource_pool: false
   n_gpus_per_node: 0
   nnodes: 0
+  resource_pool_id: global_pool
+  colocate_slot: 1
   strategy: megatron
   model:
     input_tokenizer: ${actor_rollout_ref.model.path}
@@ -689,3 +698,8 @@ ray_kwargs:
   ray_init:
     num_cpus: null
   timeline_json_file: null
+resource_pool_specs:
+- id: global_pool
+  nnodes: 1
+  n_gpus_per_node: 8
+  max_colocate_count: 1

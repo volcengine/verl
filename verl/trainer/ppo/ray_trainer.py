@@ -322,11 +322,10 @@ class RayPPOTrainer:
         self.reward_fn = reward_fn
         self.val_reward_fn = val_reward_fn
 
-        self.hybrid_engine = config.actor_rollout_ref.hybrid_engine
-        self.placement = config.actor_rollout_ref.rollout.placement
-        assert self.placement == "hybrid" and self.hybrid_engine or self.placement == "colocate", (
-            "Currently, only support hybrid or colocate placement"
+        self.hybrid_engine = (
+            config.actor_rollout_ref.actor.resource_pool_id == config.actor_rollout_ref.rollout.resource_pool_id
         )
+        assert self.hybrid_engine, "Currently, only support hybrid engine, or collocated placement"
 
         if self.hybrid_engine:
             assert Role.ActorRollout in role_worker_mapping or Role.ActorRolloutRef in role_worker_mapping, (
@@ -697,7 +696,10 @@ class RayPPOTrainer:
 
         # create actor and rollout
         actor_role = Role.ActorRolloutRef if Role.ActorRolloutRef in self.role_worker_mapping else Role.ActorRollout
-        if self.placement == "hybrid" or self.placement == "colocate":
+        if (
+            self.config.actor_rollout_ref.actor.resource_pool_id
+            == self.config.actor_rollout_ref.rollout.resource_pool_id
+        ):
             actor_rollout_resource_pool = self.resource_pool_manager.get_resource_pool(actor_role)
             actor_rollout_cls = RayClassWithInitArgs(
                 cls=self.role_worker_mapping[actor_role],

@@ -786,16 +786,29 @@ class AgentLoopManager:
             )
             for replica_rank in range(num_replicas)
         ]
-        if rollout_config.placement == "hybrid":
+
+        placement = "hybrid"
+        if (
+            self.config.actor_rollout_ref.actor.resource_pool_id
+            == self.config.actor_rollout_ref.rollout.resource_pool_id
+        ):
+            if self.config.actor_rollout_ref.actor.colocate_slot == self.config.actor_rollout_ref.rollout.colocate_slot:
+                placement = "hybrid"
+            else:
+                placement = "colocate"
+        else:
+            placement = "standalone"
+
+        if placement == "hybrid":
             self._run_all([server.init_hybrid(self.worker_group) for server in self.rollout_replicas])
-        elif rollout_config.placement == "colocate":
+        elif placement == "colocate" and rollout_config.name == "trtllm":
             self._run_all(
                 [
                     server.init_hybrid_colocated(self.worker_group, rollout_resource_pool)
                     for server in self.rollout_replicas
                 ]
             )
-        elif rollout_config.placement == "standalone":
+        elif placement == "standalone":
             self._run_all([server.init_standalone() for server in self.rollout_replicas])
         else:
             raise ValueError(f"Invalid rollout placement: {rollout_config.placement}")

@@ -125,6 +125,8 @@ class ActorConfig(BaseConfig):
         "model_config",
     }
 
+    resource_pool_id: Optional[str] = None
+    colocate_slot: int = 0
     strategy: str = MISSING
     ppo_mini_batch_size: int = 256
     ppo_micro_batch_size: Optional[int] = None  # deprecate

@@ -45,6 +45,7 @@ def init_config() -> DictConfig:
         )
 
     model_path = os.path.expanduser("~/models/Qwen/Qwen2.5-VL-3B-Instruct")
+    config.resource_pool_specs = [{"id": "rollout_pool", "nnodes": 1, "n_gpus_per_node": 8, "max_colocate_count": 1}]
     config.actor_rollout_ref.model.path = model_path
     config.actor_rollout_ref.rollout.name = os.environ["ROLLOUT_NAME"]
     config.actor_rollout_ref.rollout.mode = "async"
@@ -54,7 +55,7 @@ def init_config() -> DictConfig:
     config.actor_rollout_ref.rollout.n = 4
     config.actor_rollout_ref.rollout.agent.num_workers = 2
     config.actor_rollout_ref.rollout.skip_tokenizer_init = True
-    config.actor_rollout_ref.rollout.placement = "standalone"
+    config.actor_rollout_ref.rollout.resource_pool_id = "rollout_pool"
 
     return config
 

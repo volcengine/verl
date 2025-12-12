@@ -7,11 +7,9 @@ name: ???
 # sync: LLM, async: AsyncLLM
 mode: async
 
-# Placement mode: colocate or standalone or hybrid.
-# Hybrid means the actor and rollout are in same process group. This also implies hybrid_engine = True.
-# Colocate means the actor and rollout are colocated on the same set of GPUs but in different process groups.
-# Standalone means the actor and rollout are in different GPUs and surely in different process groups.
-placement: hybrid
+resource_pool_id: global_pool
+
+colocate_slot: 0
 
 # Sampling temperature for rollout.
 temperature: 1.0

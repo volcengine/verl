@@ -238,3 +238,9 @@ ray_kwargs:
   ray_init:
     num_cpus: null # `None` means using all CPUs, which might cause hang if limited in systems like SLURM. Please set to a number allowed then.
   timeline_json_file: null
+
+resource_pool_specs:
+  - id: global_pool
+    nnodes: 1
+    n_gpus_per_node: 8
+    max_colocate_count: 1

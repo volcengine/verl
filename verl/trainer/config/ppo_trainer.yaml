@@ -318,3 +318,24 @@ ray_kwargs:
 
   # Path to save Ray timeline JSON for performance profiling
   timeline_json_file: null
+
+# resource pool specs for different roles
+resource_pool_specs:
+
+  # global pool is the actor pool by default. Other roles can be hybrid or colocate with the actor.
+  - id: global_pool
+
+    # number of nodes for the pool
+    nnodes: 1
+
+    # number of GPUs per node for the pool
+    n_gpus_per_node: 8
+
+    # max number of processes in the pool
+    max_colocate_count: 1
+
+  # reward_model pool is the reward model pool by default. Other roles can be hybrid or colocate with the actor. Here is an example commented out.
+  ##- id: reward_model_pool
+  ##  nnodes: 1
+  ##  n_gpus_per_node: 8
+  ##  max_colocate_count: 1
