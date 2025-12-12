@@ -20,8 +20,6 @@ TODO(zhangchi.usc1992)
 
 import os
 
-from verl.utils.import_utils import is_torch_npu_available
-
 os.environ["NCCL_DEBUG"] = "WARN"
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
@@ -135,7 +133,7 @@ class FSDPSFTTrainer:
         if self.device_mesh.get_rank() == 0:
             print(self.config)
 
-        self.device_name = self.config.trainer.device if not is_torch_npu_available() else "npu"
+        self.device_name = self.config.trainer.device
 
     def _normalize_config_bsz(self):
         dp_size = self.device_mesh.size(0) if not self.ulysses_device_mesh else self.ulysses_device_mesh.size(0)

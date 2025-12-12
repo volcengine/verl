@@ -34,7 +34,6 @@ from verl.trainer.ppo.ray_trainer import ResourcePoolManager
 from verl.trainer.ppo.reward import load_reward_manager
 from verl.trainer.ppo.utils import Role, WorkerType
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
-from verl.utils.import_utils import is_torch_npu_available
 from verl.utils.profiler import marked_timer
 from verl.utils.tracking import ValidationGenerationsLogger
 
@@ -82,12 +81,7 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         self.role_worker_mapping = role_worker_mapping
         self.resource_pool_manager = resource_pool_manager
         self.ray_worker_group_cls = ray_worker_group_cls
-
         self.device_name = device_name if device_name else self.config.trainer.device
-
-        if is_torch_npu_available():
-            self.device_name = "npu"
-
         self.validation_generations_logger = ValidationGenerationsLogger(
             project_name=self.config.trainer.project_name,
             experiment_name=self.config.trainer.experiment_name,

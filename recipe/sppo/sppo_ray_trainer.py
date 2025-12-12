@@ -42,7 +42,6 @@ from verl.trainer.ppo.ray_trainer import (
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.trainer.ppo.utils import Role, WorkerType, need_reference_policy, need_reward_model
-from verl.utils.import_utils import is_torch_npu_available
 from verl.utils.metric import reduce_metrics
 from verl.utils.profiler.performance import simple_timer
 from verl.utils.tracking import ValidationGenerationsLogger
@@ -117,9 +116,6 @@ class RaySPPOTrainer(RayPPOTrainer):
         self.ray_worker_group_cls = ray_worker_group_cls
         self.validation_generations_logger = ValidationGenerationsLogger()
         self.device_name = device_name if device_name else self.config.trainer.device
-
-        if is_torch_npu_available():
-            self.device_name = "npu"
 
         # define in-reward KL control
         # kl loss control currently not supported

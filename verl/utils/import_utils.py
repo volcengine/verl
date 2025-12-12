@@ -69,15 +69,6 @@ def is_trl_available():
     return trl_spec is not None
 
 
-@cache
-def is_torch_npu_available():
-    try:
-        torch_npu_spec = importlib.util.find_spec("torch_npu")
-    except ModuleNotFoundError:
-        torch_npu_spec = None
-    return torch_npu_spec is not None
-
-
 def import_external_libs(external_libs=None):
     if external_libs is None:
         return

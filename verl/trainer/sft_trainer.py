@@ -18,8 +18,6 @@ from functools import partial
 
 from tensordict.tensorclass import NonTensorData
 
-from verl.utils.import_utils import is_torch_npu_available
-
 os.environ["NCCL_DEBUG"] = "WARN"
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
@@ -70,7 +68,7 @@ class SFTTrainer:
         # Initialize resume-related variables
         self.resume_global_step = self.ckpt_handler.load_checkpoint()
 
-        self.device_name = self.config.trainer.device if not is_torch_npu_available() else "npu"
+        self.device_name = self.config.trainer.device
 
         if self.rank == 0:
             print(self.config)
