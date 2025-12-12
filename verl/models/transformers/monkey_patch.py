@@ -356,7 +356,11 @@ def apply_monkey_patch(
             Qwen3VLMoeTextModel,
         )
 
-        from verl.models.transformers.qwen3_vl import forward_with_normal_backend, qwen3_vl_base_forward,patch_qwen3_vl_moe_sparse_moe_block_forward
+        from verl.models.transformers.qwen3_vl import (
+            forward_with_normal_backend,
+            patch_qwen3_vl_moe_sparse_moe_block_forward,
+            qwen3_vl_base_forward,
+        )
 
         Qwen3VLModel.forward = qwen3_vl_base_forward
         Qwen3VLMoeModel.forward = qwen3_vl_base_forward
