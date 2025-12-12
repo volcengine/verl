@@ -52,7 +52,7 @@ Last updated: 08/14/2025.
    -  cpu: 是否采集主机端性能数据。
    -  memory: 是否启用内存分析。
    -  shapes: 是否记录张量形状。
-   -  module: 是否记录框架层Python调用栈信息。
+   -  module: 是否记录框架层Python调用栈信息。相较于stack，更推荐使用module记录调用栈信息，因其产生的性能膨胀更低。
    -  stack: 是否记录算子调用栈信息。
 
 -  analysis: 启用自动数据解析。

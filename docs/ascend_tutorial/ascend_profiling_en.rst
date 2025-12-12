@@ -58,8 +58,7 @@ Use parameters in each role's ``profiler.tool_config.npu`` to control npu profil
    -  cpu: Whether to collect host-side performance data.
    -  memory: Whether to enable memory analysis.
    -  shapes: Whether to record tensor shapes.
-   -  module: Whether to record framework-layer Python call stack
-      information.
+   -  module: Whether to record framework-layer Python call stack information. It is recommended to use 'module' instead of 'stack' for recording call stack information, as it costs less performance overhead.
    -  stack: Whether to record operator call stack information.
 
 -  analysis: Enables automatic data parsing.
