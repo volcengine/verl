@@ -55,7 +55,7 @@ class OptimizerConfig(BaseConfig):
 
 @dataclass
 class VeOmniOptimizerConfig(OptimizerConfig):
-    """FSDP optimizer configuration extending base OptimizerConfig.
+    """VeOmni optimizer configuration extending base OptimizerConfig.
 
     Args:
         optimizer (str): Optimizer name; default is "adamw".

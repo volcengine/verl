@@ -125,7 +125,7 @@ class VeOmniEngine(FSDPEngine):
         self.module = build_foundation_model(
             config_path=self.model_config.hf_config_path,
             weights_path=self.model_config.path,
-            torch_dtype="float32" if self.engine_config.enable_mixed_precision else "bfloat16",
+            torch_dtype="float32" if self.engine_config.mixed_precision else "bfloat16",
             attn_implementation=self.engine_config.attn_implementation,
             moe_implementation=self.engine_config.moe_implementation,
             init_device=self.engine_config.init_device,
@@ -140,12 +140,12 @@ class VeOmniEngine(FSDPEngine):
             init_device=self.engine_config.init_device,
             weights_path=self.model_config.path,
             enable_full_shard=self.engine_config.enable_full_shard,
-            enable_mixed_precision=self.engine_config.enable_mixed_precision,
+            enable_mixed_precision=self.engine_config.mixed_precision,
             enable_gradient_checkpointing=self.model_config.enable_gradient_checkpointing,
             enable_fsdp_offload=self.engine_config.enable_fsdp_offload,
             basic_modules=self.module._no_split_modules + self.engine_config.basic_modules,
             enable_reentrant=self.engine_config.enable_reentrant,
-            enable_forward_prefetch=self.engine_config.enable_forward_prefetch,
+            enable_forward_prefetch=self.engine_config.forward_prefetch,
         )
 
         self.optimizer = build_optimizer(

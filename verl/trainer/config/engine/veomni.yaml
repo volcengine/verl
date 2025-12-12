@@ -20,7 +20,7 @@ context_parallel_size: 1
 
 ulysses_parallel_size: 1
 
-enable_mixed_precision: true
+mixed_precision: true
 
 # Random seed for reproducibility.
 seed: 42
@@ -36,7 +36,7 @@ ckpt_manager: dcp
 
 # Only for FSDP1: FSDP1 configuration, prefetch the next forward-pass all-gather
 # before the current forward computation.
-enable_forward_prefetch: true
+forward_prefetch: true
 
 strategy: veomni
 
