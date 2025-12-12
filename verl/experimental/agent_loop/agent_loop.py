@@ -70,7 +70,7 @@ class AsyncLLMServerManager:
         random.shuffle(self.server_handles)
 
         # Least requests load balancing
-        self.weighted_serveres = [[0, (hash(server), server)] for server in server_handles]
+        self.weighted_serveres = [[0, idx, server] for idx, server in enumerate(self.server_handles)]
         heapq.heapify(self.weighted_serveres)
 
         # LRU cache to map request_id to server
@@ -81,7 +81,7 @@ class AsyncLLMServerManager:
         if request_id in self.request_id_to_server:
             return self.request_id_to_server[request_id]
 
-        server = self.weighted_serveres[0][1][1]
+        _, _, server = self.weighted_serveres[0]
         self.weighted_serveres[0][0] += 1
         heapq.heapreplace(self.weighted_serveres, self.weighted_serveres[0])
         self.request_id_to_server[request_id] = server
