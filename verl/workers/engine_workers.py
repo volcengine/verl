@@ -240,7 +240,7 @@ class TrainingWorker(Worker):
                 append_to_dict(metrics, output)
 
             output = tu.get_tensordict(tensor_dict={}, non_tensor_dict={"metrics": metrics})
-        return output
+        return output.cpu()
 
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False)
@@ -289,7 +289,7 @@ class TrainingWorker(Worker):
             )
         else:
             final_output = None
-        return final_output
+        return final_output.cpu()
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False)
     def infer_batch(self, data: TensorDict) -> TensorDict:
@@ -326,7 +326,7 @@ class TrainingWorker(Worker):
             )
         else:
             final_output = None
-        return final_output
+        return final_output.cpu()
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):

@@ -63,6 +63,7 @@ from verl.utils.rollout_skip import RolloutSkip
 from verl.utils.seqlen_balancing import calculate_workload, get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
+from verl.workers.config import FSDPEngineConfig
 from verl.workers.utils.padding import left_right_2_no_padding, no_padding_2_padding
 
 
@@ -711,10 +712,17 @@ class RayPPOTrainer:
                 # convert critic_cfg into TrainingWorkerConfig
                 from verl.workers.engine_workers import TrainingWorkerConfig
                 orig_critic_cfg = critic_cfg
+                if orig_critic_cfg.strategy == 'fsdp':
+                    engine_config: FSDPEngineConfig = orig_critic_cfg.model.fsdp_config
+                    engine_config.infer_max_token_len_per_gpu = critic_cfg.ppo_infer_max_token_len_per_gpu
+                    engine_config.max_token_len_per_gpu = critic_cfg.ppo_max_token_len_per_gpu
+                else:
+                    raise NotImplementedError(f'Unknown strategy {orig_critic_cfg.strategy=}')
+
                 critic_cfg = TrainingWorkerConfig(
                     model_type="value_model",
                     model_config=orig_critic_cfg.model_config,
-                    engine_config=orig_critic_cfg.engine,
+                    engine_config=engine_config,
                     optimizer_config=orig_critic_cfg.optim,
                     checkpoint_config=orig_critic_cfg.checkpoint
                 )
@@ -1003,6 +1011,24 @@ class RayPPOTrainer:
         )
         metrics.update(global_balance_stats)
 
+
+    def _compute_values(self, batch: DataProto) -> DataProto:
+        if self.use_legacy_worker_impl == "disable":
+            batch_td = batch.to_tensordict()
+            # step 2: convert from padding to nopadding
+            batch_td = left_right_2_no_padding(batch_td)
+            # step 3: add meta info
+            tu.assign_non_tensor(batch_td, compute_loss=False)
+            output = self.critic_wg.infer_batch(batch_td)
+            output = output.get()
+            values = tu.get(output, "values")
+            values = no_padding_2_padding(values, batch_td)
+            values = tu.get_tensordict({"values": values.float()})
+            values = DataProto.from_tensordict(values)
+        else:
+            values = self.critic_wg.compute_values(batch)
+        return values
+
     def _compute_ref_log_prob(self, batch: DataProto) -> DataProto:
         if self.use_legacy_worker_impl == "disable":
             # step 1: convert dataproto to tensordict.
@@ -1286,7 +1312,7 @@ class RayPPOTrainer:
                     # compute values
                     if self.use_critic:
                         with marked_timer("values", timing_raw, color="cyan"):
-                            values = self.critic_wg.compute_values(batch)
+                            values = self._compute_values(batch)
                             batch = batch.union(values)
 
                     with marked_timer("adv", timing_raw, color="brown"):

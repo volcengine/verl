@@ -13,8 +13,6 @@ defaults:
   # fsdp engine config
   - ../engine@model.fsdp_config: fsdp
 
-  - ../engine@engine: fsdp
-
   # dp actor config, inheriting from trainer/config/critic/critic.yaml
   - critic
 
