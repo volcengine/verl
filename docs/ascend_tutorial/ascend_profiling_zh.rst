@@ -41,7 +41,7 @@ Last updated: 08/14/2025.
 -  level: 采集级别—选项有 level_none、level0、level1 和 level2
 
    -  level_none: 禁用所有基于级别的数据采集（关闭 profiler_level）。
-   -  level0: 采集高级应用数据、底层NPU数据和NPU上的算子执行详情。
+   -  level0: 采集高级应用数据、底层NPU数据和NPU上的算子执行详情。在权衡数据量和分析能力后，level0是推荐的默认配置。
    -  level1: 在level0基础上增加CANN层AscendCL数据和NPU上的AI Core性能指标。
    -  level2: 在level1基础上增加CANN层Runtime数据和AI CPU指标。
 
@@ -52,7 +52,7 @@ Last updated: 08/14/2025.
    -  cpu: 是否采集主机端性能数据。
    -  memory: 是否启用内存分析。
    -  shapes: 是否记录张量形状。
-   -  module: 是否记录框架层Python调用栈信息。
+   -  module: 是否记录框架层Python调用栈信息。相较于stack，更推荐使用module记录调用栈信息，因其产生的性能膨胀更低。
    -  stack: 是否记录算子调用栈信息。
 
 -  analysis: 启用自动数据解析。

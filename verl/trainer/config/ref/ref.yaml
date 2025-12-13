@@ -67,7 +67,7 @@ profiler:
       contents: []
 
       # Collection level, optional values: level_none, level0, level1, level2.
-      level: "level1"
+      level: "level0"
 
       # Whether to automatically parse the data.
       analysis: True

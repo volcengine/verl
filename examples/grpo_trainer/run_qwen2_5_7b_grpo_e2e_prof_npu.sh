@@ -7,7 +7,7 @@ DISCRETE=False
 
 # profiling NPU options
 SAVE_PATH="$HOME/profile_data"
-LEVEL="level1"
+LEVEL="level0"
 CONTENTS=['npu','cpu']
 ANALYSIS=True
 

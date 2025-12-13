@@ -46,14 +46,10 @@ Use parameters in each role's ``profiler.tool_config.npu`` to control npu profil
 -  level: Collection level—options are level_none, level0, level1, and
    level2
 
-   -  level_none: Disables all level-based data collection (turns off
-      profiler_level).
-   -  level0: Collect high-level application data, underlying NPU data,
-      and operator execution details on NPU.
-   -  level1: Extends level0 by adding CANN-layer AscendCL data and AI
-      Core performance metrics on NPU.
-   -  level2: Extends level1 by adding CANN-layer Runtime data and AI
-      CPU metrics.
+   -  level_none: Disables all level-based data collection (turns off profiler_level).
+   -  level0: Collect high-level application data, underlying NPU data, and operator execution details on NPU. After balancing data volume and analytical capability, Level 0 is recommended as the default configuration.
+   -  level1: Extends level0 by adding CANN-layer AscendCL data and AI Core performance metrics on NPU.
+   -  level2: Extends level1 by adding CANN-layer Runtime data and AI CPU metrics.
 
 -  contents: A list of options to control the collection content, such as
    npu, cpu, memory, shapes, module, stack.
@@ -62,8 +58,7 @@ Use parameters in each role's ``profiler.tool_config.npu`` to control npu profil
    -  cpu: Whether to collect host-side performance data.
    -  memory: Whether to enable memory analysis.
    -  shapes: Whether to record tensor shapes.
-   -  module: Whether to record framework-layer Python call stack
-      information.
+   -  module: Whether to record framework-layer Python call stack information. It is recommended to use 'module' instead of 'stack' for recording call stack information, as it costs less performance overhead.
    -  stack: Whether to record operator call stack information.
 
 -  analysis: Enables automatic data parsing.
