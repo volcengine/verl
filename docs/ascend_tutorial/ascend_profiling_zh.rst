@@ -1,11 +1,11 @@
-Data collection based on FSDP backend on Ascend devices(zh)
+Data collection based on FSDP or MindSpeed(Megatron) on Ascend devices(zh)
 ====================================
 
-在昇腾设备上基于FSDP后端进行数据采集
+在昇腾设备上基于FSDP或MindSpeed(Megatron)后端进行数据采集
 
 Last updated: 08/14/2025.
 
-这是一份在昇腾设备上基于FSDP后端使用GRPO或DAPO算法进行数据采集的教程。
+这是一份在昇腾设备上基于FSDP或MindSpeed(Megatron)后端，使用GRPO或DAPO算法进行数据采集的教程。
 
 配置
 ----
