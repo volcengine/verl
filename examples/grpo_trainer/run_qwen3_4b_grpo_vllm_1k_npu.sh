@@ -78,5 +78,4 @@ python3 -m verl.trainer.main_ppo \
     trainer.save_freq=-1 \
     trainer.test_freq=5 \
     trainer.total_epochs=15 \
-    trainer.val_before_train=False \
-    trainer.device=npu 2>&1 | tee ${LOG_PATH}
+    trainer.val_before_train=False 2>&1 | tee ${LOG_PATH}

@@ -125,7 +125,6 @@ python3 -m recipe.dapo.main_dapo \
     trainer.test_freq=-1 \
     trainer.total_epochs=1 \
     trainer.total_training_steps=1 \
-    trainer.device=npu \
     actor_rollout_ref.actor.use_torch_compile=False \
     actor_rollout_ref.ref.use_torch_compile=False \
     +actor_rollout_ref.actor.megatron.override_transformer_config.use_flash_attn=True $@

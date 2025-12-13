@@ -105,7 +105,6 @@ python3 -m recipe.r1_ascend.main_ppo \
     trainer.test_freq=5 \
     trainer.save_freq=-1 \
     trainer.total_epochs=1 \
-    trainer.device="npu" \
     +actor_rollout_ref.actor.megatron.override_transformer_config.multi_head_latent_attention=True \
     +actor_rollout_ref.actor.megatron.override_transformer_config.use_flash_attn=True \
     +actor_rollout_ref.actor.megatron.override_transformer_config.pipeline_num_transformer_layers=[[6],[8],[8],[8],[8],[8],[8],[7]] \
