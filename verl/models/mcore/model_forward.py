@@ -15,7 +15,7 @@
 # limitations under the License.
 
 
-from verl.utils.megatron_utils import unwrap_model
+from megatron.core.utils import unwrap_model
 
 from .util import (
     postprocess_bshd,

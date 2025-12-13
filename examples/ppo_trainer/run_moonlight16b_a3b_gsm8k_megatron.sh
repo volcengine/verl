@@ -9,8 +9,6 @@ huggingface-cli download moonshotai/Moonlight-16B-A3B-Instruct
 # 1. convert the model to mcore format
 # change the HF_MODEL_PATH and DIST_CKPT_PATH to your own path
 HF_MODEL_PATH=/data/models/moonshotai/Moonlight-16B-A3B-Instruct
-DIST_CKPT_PATH=/data/mcore_ckpt/Moonlight-16B-A3B-Instruct
-python scripts/converter_hf_to_mcore.py --hf_model_path $HF_MODEL_PATH --output_path $DIST_CKPT_PATH
 
 
 # 2. run the script
@@ -95,12 +93,6 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     critic.megatron.param_offload=${CRITIC_PARAM_OFFLOAD} \
     critic.megatron.optimizer_offload=${CRITIC_OPTIMIZER_OFFLOAD} \
     critic.megatron.grad_offload=${CRITIC_GRAD_OFFLOAD} \
-    actor_rollout_ref.actor.megatron.use_dist_checkpointing=True \
-    actor_rollout_ref.ref.megatron.use_dist_checkpointing=True \
-    critic.megatron.use_dist_checkpointing=True \
-    actor_rollout_ref.actor.megatron.dist_checkpointing_path=$DIST_CKPT_PATH \
-    actor_rollout_ref.ref.megatron.dist_checkpointing_path=$DIST_CKPT_PATH \
-    critic.megatron.dist_checkpointing_path=$DIST_CKPT_PATH \
     trainer.val_before_train=False \
     trainer.total_epochs=100 $@
     

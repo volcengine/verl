@@ -73,7 +73,6 @@ def test_engine(strategy):
     if strategy == "megatron":
         engine_config = McoreEngineConfig(
             forward_only=False,
-            use_mbridge=False,
             tensor_model_parallel_size=2,
             pipeline_model_parallel_size=2,
             context_parallel_size=2,
@@ -230,7 +229,6 @@ def test_critic_engine(strategy):
     if strategy == "megatron":
         engine_config = McoreEngineConfig(
             forward_only=False,
-            use_mbridge=False,
             tensor_model_parallel_size=2,
             pipeline_model_parallel_size=2,
             context_parallel_size=2,
@@ -353,7 +351,6 @@ def _worker(rank: int, world_size: int, rendezvous_file: str, strategy: str, mod
     if strategy == "megatron":
         engine_config = McoreEngineConfig(
             forward_only=False,
-            use_mbridge=True,
             tensor_model_parallel_size=2,
             pipeline_model_parallel_size=2,
             context_parallel_size=1,

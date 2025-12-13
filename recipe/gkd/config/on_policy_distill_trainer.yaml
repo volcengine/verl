@@ -77,7 +77,6 @@ actor_rollout_ref:
       seed: 42
       # additional transformer config like: num_layers_in_first(/last)_pipeline_stage
       override_transformer_config: {}
-      use_mbridge: False
     optim:
       # Learning rate
       lr: 1e-6

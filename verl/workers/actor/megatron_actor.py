@@ -33,6 +33,7 @@ from megatron.core.distributed import finalize_model_grads
 # from megatron.core.optimizer import DistributedOptimizer
 from megatron.core.optimizer import DistributedOptimizer
 from megatron.core.pipeline_parallel import get_forward_backward_func
+from megatron.core.utils import get_model_config, unwrap_model
 from omegaconf import OmegaConf
 from torch import nn
 
@@ -49,7 +50,6 @@ from verl.utils.megatron.router_replay_utils import (
     set_router_replay_data,
 )
 from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy, vocab_parallel_log_probs_from_logits
-from verl.utils.megatron_utils import get_model_config, unwrap_model
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.profiler.profile import Profiler
 from verl.utils.py_functional import append_to_dict

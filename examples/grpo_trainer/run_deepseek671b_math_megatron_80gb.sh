@@ -112,7 +112,6 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_method=uniform \
     +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_granularity=full \
     +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_num_layers=1 \
-    actor_rollout_ref.actor.megatron.use_mbridge=True \
     trainer.default_local_dir=$CKPT_DIR \
     trainer.val_before_train=False \
     trainer.total_epochs=100 $@

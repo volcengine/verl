@@ -82,8 +82,7 @@ ACTOR_MEGATRON_CONFIG="
     +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_granularity=full \
     +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_num_layers=1 \
     +actor_rollout_ref.actor.megatron.override_transformer_config.apply_rope_fusion=True \
-    +actor_rollout_ref.actor.megatron.override_transformer_config.gradient_accumulation_fusion=True \
-    actor_rollout_ref.actor.megatron.use_mbridge=True"
+    +actor_rollout_ref.actor.megatron.override_transformer_config.gradient_accumulation_fusion=True"
 
 # Actor model config
 ACTOR_CONFIG="

@@ -19,12 +19,11 @@ from typing import Callable, Optional
 import torch
 from megatron.core.models.common.model_chunk_schedule_plan import TransformerModelChunkSchedulePlan
 from megatron.core.models.gpt.gpt_model import GPTModel
-from megatron.core.utils import make_viewless_tensor
+from megatron.core.utils import make_viewless_tensor, unwrap_model
 from torch import Tensor
 
 from verl.models.mcore.util import preprocess_packed_seqs
 from verl.utils.kernel.linear_cross_entropy import linear_cross_entropy
-from verl.utils.megatron_utils import unwrap_model
 from verl.utils.model import CausalLMOutputForPPO
 
 from .util import postprocess_packed_seqs, postprocess_packed_seqs_for_dict_output

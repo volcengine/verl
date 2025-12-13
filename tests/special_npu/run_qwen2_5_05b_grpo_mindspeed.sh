@@ -10,9 +10,6 @@ if [ "$USE_DIST_CKPT" = "True" ]; then
     if [ "$USE_DUMMY_MODEL" = "True" ]; then
         DIST_CKPT_PATH=${HOME}/dist_ckpt_dummy/${MODEL_ID}
     fi
-    python scripts/converter_hf_to_mcore.py \
-        --hf_model_path "${MODEL_PATH}" \
-        --output_path "${DIST_CKPT_PATH}"
 fi
 
 

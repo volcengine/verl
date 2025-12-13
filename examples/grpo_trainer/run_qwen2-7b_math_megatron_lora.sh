@@ -50,7 +50,6 @@ ACTOR=(
     actor_rollout_ref.actor.ppo_mini_batch_size=16
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2
     actor_rollout_ref.actor.use_dynamic_bsz=True
-    actor_rollout_ref.actor.megatron.use_mbridge=True
     actor_rollout_ref.actor.megatron.vanilla_mbridge=False
     actor_rollout_ref.actor.megatron.pipeline_model_parallel_size=1
     actor_rollout_ref.actor.megatron.tensor_model_parallel_size=4

@@ -81,7 +81,6 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     actor_rollout_ref.rollout.tensor_model_parallel_size=$VLLM_INFER_TP \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.mode=async \
-    actor_rollout_ref.actor.megatron.use_mbridge=True \
     actor_rollout_ref.rollout.gpu_memory_utilization=$gpu_memory_utilization \
     actor_rollout_ref.rollout.n=8 \
     actor_rollout_ref.rollout.enable_chunked_prefill=True \

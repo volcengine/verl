@@ -141,7 +141,6 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.megatron.expert_model_parallel_size=$EP \
     actor_rollout_ref.ref.megatron.expert_tensor_parallel_size=$ETP \
     actor_rollout_ref.ref.megatron.param_offload=${offload} \
-    actor_rollout_ref.actor.megatron.use_mbridge=True \
     +actor_rollout_ref.actor.megatron.override_transformer_config.apply_rope_fusion=True \
     +actor_rollout_ref.actor.megatron.override_transformer_config.moe_router_dtype=fp32 \
     +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_method=uniform \

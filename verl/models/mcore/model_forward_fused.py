@@ -25,12 +25,11 @@ from megatron.core.inference.contexts import BaseInferenceContext
 from megatron.core.models.gpt.gpt_model import GPTModel
 from megatron.core.packed_seq_params import PackedSeqParams
 from megatron.core.tensor_parallel.mappings import gather_from_sequence_parallel_region
-from megatron.core.utils import deprecate_inference_params
+from megatron.core.utils import deprecate_inference_params, unwrap_model
 from torch import Tensor
 
 from verl.models.mcore.util import preprocess_packed_seqs
 from verl.utils.kernel.linear_cross_entropy import linear_cross_entropy
-from verl.utils.megatron_utils import unwrap_model
 from verl.utils.model import CausalLMOutputForPPO
 
 from .util import postprocess_packed_seqs_for_dict_output
