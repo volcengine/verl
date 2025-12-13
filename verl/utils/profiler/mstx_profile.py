@@ -214,6 +214,39 @@ class NPUProfiler(DistProfiler):
                 self.profile_npu.stop()
                 NPUProfiler._define_count -= 1
 
+    def capture_start(self, **kwargs):
+        """Start an on-demand profiling segment."""
+        if not (self.enable and self.this_step):
+            return
+
+        role = kwargs.get("role", "")
+
+        if self.discrete:
+            self.capture_profiler_npu = get_npu_profiler(
+                contents=self.profile_contents,
+                profile_level=self.profile_level,
+                profile_save_path=self.profile_save_path,
+                analysis=self.analysis,
+                role=role,
+            )
+            self.capture_profiler_npu.start()
+
+        self._capture_range_id = mark_start_range(message=role)
+
+    def capture_stop(self):
+        """Stop the on-demand profiling segment."""
+        if not (self.enable and self.this_step):
+            return
+
+        if hasattr(self, "_capture_range_id"):
+            mark_end_range(self._capture_range_id)
+            del self._capture_range_id
+
+        if self.discrete and getattr(self, "capture_profiler_npu", None):
+            self.capture_profiler_npu.step()
+            self.capture_profiler_npu.stop()
+            del self.capture_profiler_npu
+
     def annotate(self, message: Optional[str] = None, role: Optional[str] = None, **kwargs_outer) -> Callable:
         """Decorate a Worker member function to profile the current rank in the current training step.
 

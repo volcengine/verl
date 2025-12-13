@@ -227,6 +227,12 @@ class DistProfiler:
     def stop(self):
         return getattr(self._impl, "stop", lambda: None)()
 
+    def capture_start(self, **kwargs):
+        return getattr(self._impl, "capture_start", lambda **_: None)(**kwargs)
+
+    def capture_stop(self):
+        return getattr(self._impl, "capture_stop", lambda: None)()
+
     @classmethod
     def annotate(
         cls,
@@ -369,3 +375,15 @@ class DistProfilerExtension:
     def stop_profile(self) -> None:
         """Stop profiling for the current rank in the current training step."""
         self.profiler.stop()
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
+    async def start_capture_profile(self, **kwargs):
+        """Start an on-demand profiling segment."""
+        self.profiler.capture_start(**kwargs)
+        return True
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
+    async def stop_capture_profile(self):
+        """Stop the on-demand profiling segment."""
+        self.profiler.capture_stop()
+        return True
