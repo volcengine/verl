@@ -79,6 +79,8 @@ class HFModelConfig(BaseConfig):
     lora_rank: int = 0
     lora_alpha: int = 16
     target_modules: Optional[str] = "all-linear"
+    use_svd_lora: bool = False  # Toggle for the SVD-GRPO approach described in ESSA
+    # [ESSA: Evolutionary Strategies for Scalable Alignment](https://arxiv.org/abs/2507.04453)
 
     exclude_modules: Optional[str] = None
 
