@@ -175,18 +175,21 @@ class TaskRunner:
 
     def add_critic_worker(self, config):
         """Add critic worker to role mapping."""
+        use_legacy_worker_impl = config.trainer.get("use_legacy_worker_impl", "auto")
         if config.critic.strategy in {"fsdp", "fsdp2"}:
-            use_legacy_worker_impl = config.trainer.get("use_legacy_worker_impl", "auto")
             if use_legacy_worker_impl in ["auto", "enable"]:
                 from verl.workers.fsdp_workers import CriticWorker
             elif use_legacy_worker_impl == "disable":
-                from verl.workers.engine_workers import CriticWorker
-
+                # we don't need to specialize critic worker. Just use TrainingWorker
+                from verl.workers.engine_workers import TrainingWorker
+                CriticWorker = TrainingWorker
                 print("Using new worker implementation")
             else:
                 raise ValueError(f"Invalid use_legacy_worker_impl: {use_legacy_worker_impl}")
 
         elif config.critic.strategy == "megatron":
+            # TODO: switch this to TrainingWorker as well
+            assert use_legacy_worker_impl != "disable", "Megatron critic only supports legacy worker implementation"
             from verl.workers.megatron_workers import CriticWorker
 
         else:

@@ -703,7 +703,23 @@ class RayPPOTrainer:
         # create critic
         if self.use_critic:
             resource_pool = self.resource_pool_manager.get_resource_pool(Role.Critic)
-            critic_cfg = omega_conf_to_dataclass(self.config.critic)
+
+            from verl.workers.config import CriticConfig
+            critic_cfg: CriticConfig = omega_conf_to_dataclass(self.config.critic)
+
+            if self.use_legacy_worker_impl == 'disable':
+                # convert critic_cfg into TrainingWorkerConfig
+                from verl.workers.engine_workers import TrainingWorkerConfig
+                orig_critic_cfg = critic_cfg
+                critic_cfg = TrainingWorkerConfig(
+                    model_type="value_model",
+                    model_config=orig_critic_cfg.model_config,
+                    engine_config=orig_critic_cfg.engine,
+                    optimizer_config=orig_critic_cfg.optim,
+                    checkpoint_config=orig_critic_cfg.checkpoint
+                )
+
+
             critic_cls = RayClassWithInitArgs(cls=self.role_worker_mapping[Role.Critic], config=critic_cfg)
             self.resource_pool_to_cls[resource_pool][str(Role.Critic)] = critic_cls
 
@@ -758,7 +774,10 @@ class RayPPOTrainer:
 
         if self.use_critic:
             self.critic_wg = all_wg[str(Role.Critic)]
-            self.critic_wg.init_model()
+            if self.use_legacy_worker_impl == "disable":
+                self.critic_wg.reset()
+            else:
+                self.critic_wg.init_model()
 
         if self.use_reference_policy and not self.ref_in_actor:
             if str(Role.RefPolicy) in all_wg:

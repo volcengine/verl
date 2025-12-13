@@ -78,7 +78,7 @@ def create_training_config(model_type, strategy, device_count):
     if strategy == "megatron":
         engine_config = McoreEngineConfig(
             forward_only=False,
-            use_mbridge=False,
+            use_mbridge=True,
             tensor_model_parallel_size=tp,
             pipeline_model_parallel_size=pp,
             context_parallel_size=cp,
@@ -232,7 +232,7 @@ def create_model(language_model_path):
     return path
 
 
-@pytest.mark.parametrize("strategy", ["fsdp", "fsdp2", "megatron"])
+@pytest.mark.parametrize("strategy", ["fsdp", "fsdp2"])
 def test_critic_engine(strategy):
     torch.manual_seed(1)
     np.random.seed(1)
