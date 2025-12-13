@@ -48,7 +48,7 @@ from verl.workers.config import (
     McoreEngineConfig,
     McoreOptimizerConfig,
 )
-from verl.workers.engine_workers import CriticWorker, TrainingWorker, TrainingWorkerConfig
+from verl.workers.engine_workers import TrainingWorker, TrainingWorkerConfig
 from verl.workers.utils.losses import ppo_loss, sft_loss, value_loss
 from verl.workers.utils.padding import left_right_2_no_padding, no_padding_2_padding
 
@@ -107,7 +107,7 @@ def create_training_config(model_type, strategy, device_count):
 def test_actor_engine(strategy):
     ray.init()
     device_count = torch.cuda.device_count()
-    config = create_training_config(model_type='language_model', strategy=strategy, device_count=device_count)
+    config = create_training_config(model_type="language_model", strategy=strategy, device_count=device_count)
     ray_cls_with_init = RayClassWithInitArgs(cls=ray.remote(TrainingWorker), config=config)
     resource_pool = RayResourcePool(process_on_nodes=[device_count])
     wg = RayWorkerGroup(resource_pool=resource_pool, ray_cls_with_init=ray_cls_with_init)
@@ -239,7 +239,7 @@ def test_critic_engine(strategy):
 
     ray.init()
     device_count = torch.cuda.device_count()
-    config = create_training_config(model_type='value_model', strategy=strategy, device_count=device_count)
+    config = create_training_config(model_type="value_model", strategy=strategy, device_count=device_count)
     # create a dummy AutoModelForTokenClassification
     value_model_path = create_model(config.model_config.path)
     hf_config = AutoConfig.from_pretrained(value_model_path)

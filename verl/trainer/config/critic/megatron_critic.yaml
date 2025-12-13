@@ -7,8 +7,6 @@ defaults:
   # megatron engine config
   - ../engine@megatron: megatron
 
-  - ../engine@engine: megatron
-
   # dp actor config, inheriting from trainer/config/critic/critic.yaml
   - critic
 

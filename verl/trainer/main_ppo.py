@@ -182,6 +182,7 @@ class TaskRunner:
             elif use_legacy_worker_impl == "disable":
                 # we don't need to specialize critic worker. Just use TrainingWorker
                 from verl.workers.engine_workers import TrainingWorker
+
                 CriticWorker = TrainingWorker
                 print("Using new worker implementation")
             else:

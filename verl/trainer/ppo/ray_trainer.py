@@ -24,7 +24,6 @@ import uuid
 from collections import defaultdict
 from copy import deepcopy
 from dataclasses import dataclass, field
-from itertools import chain
 from pprint import pprint
 from typing import Optional
 
@@ -32,7 +31,6 @@ import numpy as np
 import ray
 import torch
 from omegaconf import OmegaConf, open_dict
-from tensordict import NonTensorData
 from torch.utils.data import Dataset, Sampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
@@ -58,7 +56,7 @@ from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, shou
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.debug import marked_timer
 from verl.utils.metric import reduce_metrics
-from verl.utils.py_functional import append_to_dict, rename_dict
+from verl.utils.py_functional import rename_dict
 from verl.utils.rollout_skip import RolloutSkip
 from verl.utils.seqlen_balancing import calculate_workload, get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
@@ -706,27 +704,28 @@ class RayPPOTrainer:
             resource_pool = self.resource_pool_manager.get_resource_pool(Role.Critic)
 
             from verl.workers.config import CriticConfig
+
             critic_cfg: CriticConfig = omega_conf_to_dataclass(self.config.critic)
 
-            if self.use_legacy_worker_impl == 'disable':
+            if self.use_legacy_worker_impl == "disable":
                 # convert critic_cfg into TrainingWorkerConfig
                 from verl.workers.engine_workers import TrainingWorkerConfig
+
                 orig_critic_cfg = critic_cfg
-                if orig_critic_cfg.strategy == 'fsdp':
+                if orig_critic_cfg.strategy == "fsdp":
                     engine_config: FSDPEngineConfig = orig_critic_cfg.model.fsdp_config
                     engine_config.infer_max_token_len_per_gpu = critic_cfg.ppo_infer_max_token_len_per_gpu
                     engine_config.max_token_len_per_gpu = critic_cfg.ppo_max_token_len_per_gpu
                 else:
-                    raise NotImplementedError(f'Unknown strategy {orig_critic_cfg.strategy=}')
+                    raise NotImplementedError(f"Unknown strategy {orig_critic_cfg.strategy=}")
 
                 critic_cfg = TrainingWorkerConfig(
                     model_type="value_model",
                     model_config=orig_critic_cfg.model_config,
                     engine_config=engine_config,
                     optimizer_config=orig_critic_cfg.optim,
-                    checkpoint_config=orig_critic_cfg.checkpoint
+                    checkpoint_config=orig_critic_cfg.checkpoint,
                 )
-
 
             critic_cls = RayClassWithInitArgs(cls=self.role_worker_mapping[Role.Critic], config=critic_cfg)
             self.resource_pool_to_cls[resource_pool][str(Role.Critic)] = critic_cls
@@ -785,8 +784,10 @@ class RayPPOTrainer:
             if self.use_legacy_worker_impl == "disable":
                 self.critic_wg.reset()
                 # assign critic loss
-                from verl.workers.utils.losses import value_loss
                 from functools import partial
+
+                from verl.workers.utils.losses import value_loss
+
                 value_loss_ = partial(value_loss, config=orig_critic_cfg)
                 self.critic_wg.set_loss_fn(value_loss_)
             else:
@@ -1016,7 +1017,6 @@ class RayPPOTrainer:
         )
         metrics.update(global_balance_stats)
 
-
     def _compute_values(self, batch: DataProto) -> DataProto:
         if self.use_legacy_worker_impl == "disable":
             batch_td = batch.to_tensordict()
@@ -1096,13 +1096,15 @@ class RayPPOTrainer:
             ppo_epochs = self.config.actor_rollout_ref.actor.ppo_epochs
             seed = self.config.actor_rollout_ref.actor.data_loader_seed
             shuffle = self.config.actor_rollout_ref.actor.shuffle
-            tu.assign_non_tensor(batch_td,
-                                 calculate_entropy=calculate_entropy,
-                                 global_batch_size=ppo_mini_batch_size,
-                                 mini_batch_size=ppo_mini_batch_size,
-                                 epochs=ppo_epochs,
-                                 seed=seed,
-                                 dataloader_kwargs={"shuffle": shuffle})
+            tu.assign_non_tensor(
+                batch_td,
+                calculate_entropy=calculate_entropy,
+                global_batch_size=ppo_mini_batch_size,
+                mini_batch_size=ppo_mini_batch_size,
+                epochs=ppo_epochs,
+                seed=seed,
+                dataloader_kwargs={"shuffle": shuffle},
+            )
 
             actor_output = self.actor_rollout_wg.update_actor(batch_td)
             actor_output = tu.get(actor_output, "metrics")
@@ -1124,12 +1126,14 @@ class RayPPOTrainer:
             ppo_epochs = self.config.critic.ppo_epochs
             seed = self.config.critic.data_loader_seed
             shuffle = self.config.critic.shuffle
-            tu.assign_non_tensor(batch_td,
-                                 global_batch_size=ppo_mini_batch_size,
-                                 mini_batch_size=ppo_mini_batch_size,
-                                 epochs=ppo_epochs,
-                                 seed=seed,
-                                 dataloader_kwargs={"shuffle": shuffle})
+            tu.assign_non_tensor(
+                batch_td,
+                global_batch_size=ppo_mini_batch_size,
+                mini_batch_size=ppo_mini_batch_size,
+                epochs=ppo_epochs,
+                seed=seed,
+                dataloader_kwargs={"shuffle": shuffle},
+            )
 
             output = self.critic_wg.train_mini_batch(batch_td)
             output = output.get()

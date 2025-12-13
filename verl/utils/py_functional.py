@@ -162,7 +162,6 @@ def union_two_dict(dict1: dict, dict2: dict):
     return dict1
 
 
-
 def rename_dict(data: dict, prefix: str = ""):
     new_data = {}
     for key, val in data.items():

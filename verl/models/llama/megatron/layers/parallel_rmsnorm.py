@@ -15,7 +15,6 @@
 import numbers
 
 import torch
-
 from megatron.core import ModelParallelConfig
 from torch import nn
 from transformers import LlamaConfig
@@ -40,6 +39,7 @@ class ParallelLlamaRMSNorm(nn.Module):
 
     def forward(self, hidden_states):
         from apex.normalization.fused_layer_norm import fused_rms_norm_affine
+
         return fused_rms_norm_affine(
             input=hidden_states,
             weight=self.weight,

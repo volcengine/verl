@@ -85,7 +85,7 @@ MODEL_CONFIG_CONVERTER_REGISTRY: dict[SupportedModel, Callable[[PretrainedConfig
     SupportedModel.QWEN3: hf_to_mcore_config_dense,
     SupportedModel.QWEN3_MOE: hf_to_mcore_config_qwen3moe,
     SupportedModel.QWEN3_TOKEN_CLASSIFICATION: hf_to_mcore_config_dense,
-    SupportedModel.LLAMA_TOKEN_CLASSIFICATION: hf_to_mcore_config_dense
+    SupportedModel.LLAMA_TOKEN_CLASSIFICATION: hf_to_mcore_config_dense,
 }
 
 # Registry for model initializers
