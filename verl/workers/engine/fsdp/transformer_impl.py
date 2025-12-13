@@ -982,10 +982,8 @@ class FSDPEngineWithValueHead(FSDPEngineWithLMHead):
         use_remove_padding = tu.get_non_tensor_data(data=micro_batch, key="use_remove_padding", default=True)
         pad_mode = tu.get_non_tensor_data(data=micro_batch, key="pad_mode", default=DatasetPadMode.NO_PADDING)
 
+        input_ids = micro_batch["input_ids"]
         if use_remove_padding:
-            input_ids = micro_batch["input_ids"]
-            batch_size, seqlen = input_ids.shape
-
             if hasattr(self.module, "v_head"):
                 # For trl.AutoModelForCausalLMWithValueHead
                 values_rmpad = output[2].squeeze(0).unsqueeze(-1)

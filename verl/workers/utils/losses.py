@@ -156,6 +156,17 @@ def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
 
 
 def value_loss(config: CriticConfig, model_output, data: TensorDict, dp_group=None):
+    """value loss
+
+    Args:
+        config: CriticConfig
+        model_output: model output from the model
+        data: the input to the model
+        dp_group: data paralle group
+
+    Returns:
+        value loss
+    """
     vpreds = _slice_response_from_unpad_output(model_output["values"], data)  # (bsz, response_length)
 
     values = data["values"]
