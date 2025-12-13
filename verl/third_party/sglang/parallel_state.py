@@ -8,9 +8,10 @@
 import os
 from typing import Optional
 
-import sglang.srt.distributed.parallel_state as ps
 import torch
 import torch.distributed
+
+import sglang.srt.distributed.parallel_state as ps
 from sglang.srt.distributed.parallel_state import (
     get_pp_group,
     get_world_group,
