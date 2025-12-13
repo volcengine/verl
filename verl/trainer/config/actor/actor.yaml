@@ -197,7 +197,11 @@ profiler:
 
       # True for each task has its own database, False for all tasks in one training step share one database.
       discrete: False
-    
+
+      # Stages to be profiled. Only takes effect in discrete mode.
+      # options: all, actor_compute_log_prob, actor_update, ref_compute_log_prob, rollout_generate
+      roles: ["all"]
+
     # torch profiler config
     torch:
 

@@ -76,7 +76,7 @@ class TorchMemoryToolConfig(BaseConfig):
 
 @dataclass
 class NPUToolConfig(NsightToolConfig):
-    """NPU profiler too; config."""
+    """NPU profiler tool; config."""
 
     # options: npu, cpu, memory, shapes, module, stack
     contents: list[str] = field(default_factory=list)
@@ -87,14 +87,30 @@ class NPUToolConfig(NsightToolConfig):
     # Whether to automatically parse the data.
     analysis: bool = False
 
+    # True for each task has its own database, False for all tasks in one training step share one database.
+    discrete: bool = False
+
+    # Stages to be profiled. Only takes effect in discrete mode.
+    # Optional values: all, actor_compute_log_prob, actor_update, ref_compute_log_prob, rollout_generate
+    # "all" means all stages will be profiled.
+    roles: list[str] = field(default_factory=list)
+
     def __post_init__(self) -> None:
         """config validation logics go here"""
         assert isinstance(self.contents, list), f"Profiler contents must be of type list, got {type(self.contents)}"
         assert isinstance(self.level, str), f"Profiler level must be of type str, got {type(self.level)}"
         assert isinstance(self.analysis, bool), f"Profiler analysis must be of type bool, got {type(self.analysis)}"
+        assert isinstance(self.discrete, bool), f"Profiler discrete must be of type bool, got {type(self.discrete)}"
+        assert isinstance(self.roles, list), f"Profiler roles must be of type list, got {type(self.roles)}"
         for content in self.contents:
             assert content in ["npu", "cpu", "memory", "shapes", "module", "stack"], (
                 f"Profiler contents only supports npu, cpu, memory, shapes, module, stack, but gets {content}"
+            )
+        for role in self.roles:
+            assert role in ["all", "actor_compute_log_prob", "actor_update", "ref_compute_log_prob", 
+                            "rollout_generate"], (
+                "Profiler stages only supports all, actor_compute_log_prob, actor_update, "
+                f"ref_compute_log_prob, rollout_generate, but gets {role}"
             )
         assert self.level in ["level_none", "level0", "level1", "level2"], (
             f"Profiler level only supports level0, 1, 2, and level_none, but gets {self.level}"

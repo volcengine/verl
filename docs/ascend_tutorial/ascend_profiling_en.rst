@@ -68,6 +68,13 @@ Use parameters in each role's ``profiler.tool_config.npu`` to control npu profil
 
 -  analysis: Enables automatic data parsing.
 -  discrete: Whether to enable discrete mode.
+-  roles: A list of options to control the collection stage, which only takes effect in discrete mode, such as
+   all, actor_compute_log_prob, actor_update, ref_compute_log_prob, rollout_generate.
+   -  rollout_generate: Collect the `generate_sequences` phase of rollout worker.
+   -  actor_compute_log_prob: Collect the `compute_log_prob` phase of the actor worker.
+   -  actor_update:  Collect the `update_actor` phase of the actor worker.
+   -  ref_compute_log_prob: Collect the `compute_ref_log_prob` phase of the ref worker.
+   -  all: Collect all of the above phases.
 
 
 Examples
@@ -87,6 +94,7 @@ End-to-End collection
 .. code:: yaml
 
       global_profiler:
+         tool: npu
          steps: [1, 2, 5]
       actor_rollout_ref:
          actor:
@@ -96,7 +104,7 @@ End-to-End collection
                tool_config:
                   npu:
                      discrete: False
-        # rollout & ref follow actor settings
+         # rollout & ref follow actor settings
 
 
 Discrete Mode Collection
@@ -105,6 +113,7 @@ Discrete Mode Collection
 .. code:: yaml
 
       global_profiler:
+         tool: npu
          steps: [1, 2, 5]
       actor_rollout_ref:
          actor:
@@ -114,7 +123,8 @@ Discrete Mode Collection
                tool_config:
                   npu:
                      discrete: True
-        # rollout & ref follow actor settings
+                     roles: ["all"]
+         # rollout & ref follow actor settings
 
 
 Visualization
