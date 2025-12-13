@@ -784,6 +784,11 @@ class RayPPOTrainer:
             self.critic_wg = all_wg[str(Role.Critic)]
             if self.use_legacy_worker_impl == "disable":
                 self.critic_wg.reset()
+                # assign critic loss
+                from verl.workers.utils.losses import value_loss
+                from functools import partial
+                value_loss_ = partial(value_loss, config=orig_critic_cfg)
+                self.critic_wg.set_loss_fn(value_loss_)
             else:
                 self.critic_wg.init_model()
 
@@ -1109,6 +1114,33 @@ class RayPPOTrainer:
             actor_output = self.actor_rollout_wg.update_actor(batch)
         return actor_output
 
+    def _update_critic(self, batch: DataProto) -> DataProto:
+        if self.use_legacy_worker_impl == "disable":
+            batch_td = batch.to_tensordict()
+            # step 2: convert from padding to no-padding
+            batch_td = left_right_2_no_padding(batch_td)
+            ppo_mini_batch_size = self.config.critic.ppo_mini_batch_size
+            ppo_mini_batch_size = ppo_mini_batch_size * self.config.actor_rollout_ref.rollout.n
+            ppo_epochs = self.config.critic.ppo_epochs
+            seed = self.config.critic.data_loader_seed
+            shuffle = self.config.critic.shuffle
+            tu.assign_non_tensor(batch_td,
+                                 global_batch_size=ppo_mini_batch_size,
+                                 mini_batch_size=ppo_mini_batch_size,
+                                 epochs=ppo_epochs,
+                                 seed=seed,
+                                 dataloader_kwargs={"shuffle": shuffle})
+
+            output = self.critic_wg.train_mini_batch(batch_td)
+            output = tu.get(output, "metrics")
+            output = rename_dict(output, "critic/")
+            # modify key name
+            output["perf/critic/actor"] = output.pop("critic/mfu")
+            critic_output = DataProto.from_single_dict(data={}, meta_info={"metrics": output})
+        else:
+            critic_output = self.critic_wg.update_critic(batch)
+        return critic_output
+
     def fit(self):
         """
         The training loop of PPO.
@@ -1367,7 +1399,7 @@ class RayPPOTrainer:
                     # update critic
                     if self.use_critic:
                         with marked_timer("update_critic", timing_raw, color="pink"):
-                            critic_output = self.critic_wg.update_critic(batch)
+                            critic_output = self._update_critic(batch)
                         critic_output_metrics = reduce_metrics(critic_output.meta_info["metrics"])
                         metrics.update(critic_output_metrics)
 
