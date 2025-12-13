@@ -42,6 +42,9 @@ install_requires = [
     "wandb",
     "packaging>=20.0",
     "tensorboard",
+    # FIXME(ji-huazhong): A workaround for veomni 0.1.4 not being available
+    # in the PyPI mirror at https://mirrors.ivolces.com/pypi/simple/
+    "veomni @ git+https://github.com/ByteDance-Seed/VeOmni.git@v0.1.4",
 ]
 
 TEST_REQUIRES = ["pytest", "pre-commit", "py-spy", "pytest-asyncio", "pytest-rerunfailures"]
