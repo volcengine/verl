@@ -1140,7 +1140,7 @@ class RayPPOTrainer:
             output = tu.get(output, "metrics")
             output = rename_dict(output, "critic/")
             # modify key name
-            output["perf/critic/actor"] = output.pop("critic/mfu")
+            output["perf/mfu/critic"] = output.pop("critic/mfu")
             critic_output = DataProto.from_single_dict(data={}, meta_info={"metrics": output})
         else:
             critic_output = self.critic_wg.update_critic(batch)
