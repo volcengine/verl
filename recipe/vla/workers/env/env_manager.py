@@ -43,7 +43,7 @@ def get_gpu_numa_node(gpu_id: int) -> int:
             pci_info = pynvml.nvmlDeviceGetPciInfo(handle)
             pci_bus_id = pci_info.busId
         except ImportError:
-            # Fallback to nvidia-smi
+            # Fallback to nvidia-smi if nvidia-ml-py not available
             result = subprocess.run(
                 [
                     "nvidia-smi",
