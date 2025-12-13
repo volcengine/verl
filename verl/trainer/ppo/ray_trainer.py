@@ -1132,6 +1132,7 @@ class RayPPOTrainer:
                                  dataloader_kwargs={"shuffle": shuffle})
 
             output = self.critic_wg.train_mini_batch(batch_td)
+            output = output.get()
             output = tu.get(output, "metrics")
             output = rename_dict(output, "critic/")
             # modify key name
