@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "ep_frozen_lake": {
+      "url": "http://localhost:8000/mcp/"
+    }
+  }
+}
+
+
