@@ -220,13 +220,15 @@ def split_resource_pool(
     else:
         start_bundle_idx_list = np.cumsum([0] + split_size_list[:-1])
 
+    # ensure resource_pool.pgs has been initialized
+    placement_groups = resource_pool.get_placement_groups()
     split_resource_pools = [
         SubRayResourcePool(
             process_on_nodes=resource_pool.store,
             use_gpu=resource_pool.use_gpu,
             name_prefix=f"{resource_pool.name_prefix}_split_{split_idx}",
             max_colocate_count=resource_pool.max_colocate_count,
-            placement_groups=resource_pool.pgs,
+            placement_groups=placement_groups,
             start_bundle_index=start_bundle_idx_list[split_idx],
             subgroup_world_size=split_size_list[split_idx],
         )
