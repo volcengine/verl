@@ -30,7 +30,13 @@ from verl.experimental.agent_loop.agent_loop import (
     register,
 )
 from verl.experimental.agent_loop.tool_parser import FunctionCall, ToolParser
-from verl.experimental.agent_loop.utils import add_generation_prompt_for_gpt_oss, format_gpt_oss_tool_response_manually
+from verl.experimental.agent_loop.utils import (
+    apply_chat_template_with_processor,
+    apply_chat_template_with_tokenizer,
+    build_gpt_oss_tool_response_text,
+    compute_system_prompt,
+    tokenize_with_processor,
+)
 from verl.interactions.base import BaseInteraction
 from verl.interactions.utils.interaction_registry import initialize_interactions_from_config
 from verl.tools.schemas import ToolResponse
@@ -203,25 +209,28 @@ class ToolAgentLoop(AgentLoopBase):
         if self.processor is not None:
             raw_prompt = await self.loop.run_in_executor(
                 None,
-                lambda: self.processor.apply_chat_template(
+                lambda: apply_chat_template_with_processor(
+                    self.processor,
                     agent_data.messages,
                     tools=self.tool_schemas,
                     add_generation_prompt=True,
-                    tokenize=False,
-                    **self.apply_chat_template_kwargs,
+                    apply_chat_template_kwargs=self.apply_chat_template_kwargs,
                 ),
             )
-            model_inputs = self.processor(text=[raw_prompt], images=agent_data.image_data, return_tensors="pt")
-            agent_data.prompt_ids = model_inputs.pop("input_ids").squeeze(0).tolist()
+            agent_data.prompt_ids = tokenize_with_processor(
+                self.processor,
+                raw_prompt=raw_prompt,
+                image_data=agent_data.image_data,
+            )
         else:
             agent_data.prompt_ids = await self.loop.run_in_executor(
                 None,
-                lambda: self.tokenizer.apply_chat_template(
+                lambda: apply_chat_template_with_tokenizer(
+                    self.tokenizer,
                     agent_data.messages,
                     tools=self.tool_schemas,
                     add_generation_prompt=True,
-                    tokenize=True,
-                    **self.apply_chat_template_kwargs,
+                    apply_chat_template_kwargs=self.apply_chat_template_kwargs,
                 ),
             )
         return AgentState.GENERATING
@@ -346,35 +355,36 @@ class ToolAgentLoop(AgentLoopBase):
         if self.processor is not None:
             raw_tool_response = await self.loop.run_in_executor(
                 None,
-                lambda: self.processor.apply_chat_template(
+                lambda: apply_chat_template_with_processor(
+                    self.processor,
                     add_messages,
                     add_generation_prompt=True,
-                    tokenize=False,
-                    **self.apply_chat_template_kwargs,
+                    apply_chat_template_kwargs=self.apply_chat_template_kwargs,
                 ),
             )
             # Use only the new images from this turn for processing tool responses
-            current_images = new_images_this_turn if new_images_this_turn else None  # Using local variable
-            model_inputs = self.processor(text=[raw_tool_response], images=current_images, return_tensors="pt")
-            response_ids = model_inputs.pop("input_ids").squeeze(0).tolist()
+            current_images = new_images_this_turn if new_images_this_turn else None
+            response_ids = tokenize_with_processor(
+                self.processor,
+                raw_prompt=raw_tool_response,
+                image_data=current_images,
+            )
         else:
             if self.tool_parser_name == "gpt-oss":
                 logger.info("manually format tool responses for gpt-oss")
-                # Format tool responses manually
-                tool_response_texts = []
-                for i, tool_msg in enumerate(add_messages):
-                    actual_tool_name = tool_call_names[i]
-                    formatted = format_gpt_oss_tool_response_manually(tool_msg["content"], actual_tool_name)
-                    tool_response_texts.append(formatted)
-
-                tool_response_text = add_generation_prompt_for_gpt_oss("".join(tool_response_texts))
+                tool_response_text = build_gpt_oss_tool_response_text(add_messages, tool_call_names)
                 response_ids = await self.loop.run_in_executor(
                     None, lambda: self.tokenizer.encode(tool_response_text, add_special_tokens=False)
                 )
             else:
                 response_ids = await self.loop.run_in_executor(
                     None,
-                    lambda: self.tokenizer.apply_chat_template(add_messages, add_generation_prompt=True, tokenize=True),
+                    lambda: apply_chat_template_with_tokenizer(
+                        self.tokenizer,
+                        add_messages,
+                        add_generation_prompt=True,
+                        apply_chat_template_kwargs={},
+                    ),
                 )
                 response_ids = response_ids[len(self.system_prompt) :]
         if len(agent_data.response_mask) + len(response_ids) >= self.response_length:
@@ -414,23 +424,27 @@ class ToolAgentLoop(AgentLoopBase):
         if reward is not None:
             agent_data.turn_scores.append(reward)
 
-        # Update prompt with user responses (similar to _handle_processing_tools_state)
+        # Update prompt with user responses
         if self.processor is not None:
             raw_user_response = await self.loop.run_in_executor(
                 None,
-                lambda: self.processor.apply_chat_template(
+                lambda: apply_chat_template_with_processor(
+                    self.processor,
                     add_messages,
                     add_generation_prompt=True,
-                    tokenize=False,
-                    **self.apply_chat_template_kwargs,
+                    apply_chat_template_kwargs=self.apply_chat_template_kwargs,
                 ),
             )
-            model_inputs = self.processor(text=[raw_user_response], images=None, return_tensors="pt")
-            response_ids = model_inputs.pop("input_ids").squeeze(0).tolist()
+            response_ids = tokenize_with_processor(self.processor, raw_prompt=raw_user_response, image_data=None)
         else:
             response_ids = await self.loop.run_in_executor(
                 None,
-                lambda: self.tokenizer.apply_chat_template(add_messages, add_generation_prompt=True, tokenize=True),
+                lambda: apply_chat_template_with_tokenizer(
+                    self.tokenizer,
+                    add_messages,
+                    add_generation_prompt=True,
+                    apply_chat_template_kwargs={},
+                ),
             )
         response_ids = response_ids[len(self.system_prompt) :]
 

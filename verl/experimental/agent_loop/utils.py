@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+from typing import Any
 
 
 def resolve_config_path(config_path: str) -> str:
@@ -95,3 +96,111 @@ def add_generation_prompt_for_gpt_oss(message_content: str) -> str:
         Message content string with generation prompt
     """
     return message_content + "<|start|>assistant"
+
+
+# =============================================================================
+# Tokenization utility functions
+# These functions are extracted from ToolAgentLoop for reusability in external
+# projects like remote rollout servers.
+# =============================================================================
+
+
+def compute_system_prompt(
+    tokenizer,
+    apply_chat_template_kwargs: dict[str, Any],
+) -> list[int]:
+    """Compute system prompt tokens for prefix stripping in incremental tokenization.
+
+    Args:
+        tokenizer: HuggingFace tokenizer instance
+        apply_chat_template_kwargs: Model-specific kwargs for apply_chat_template
+
+    Returns:
+        Token IDs representing the system/template prefix
+    """
+    return tokenizer.apply_chat_template(
+        [{}],
+        add_generation_prompt=False,
+        tokenize=True,
+        **apply_chat_template_kwargs,
+    )
+
+
+def apply_chat_template_with_processor(
+    processor,
+    messages: list[dict[str, Any]],
+    *,
+    tools: list[dict[str, Any]] | None = None,
+    add_generation_prompt: bool = True,
+    apply_chat_template_kwargs: dict[str, Any],
+) -> str:
+    """Apply chat template via processor (tokenize=False).
+
+    NOTE: To preserve ToolAgentLoop's original behavior, callers should decide
+    whether this runs in an executor or on the event loop thread.
+    """
+    if tools is None:
+        return processor.apply_chat_template(
+            messages,
+            add_generation_prompt=add_generation_prompt,
+            tokenize=False,
+            **apply_chat_template_kwargs,
+        )
+    return processor.apply_chat_template(
+        messages,
+        tools=tools,
+        add_generation_prompt=add_generation_prompt,
+        tokenize=False,
+        **apply_chat_template_kwargs,
+    )
+
+
+def apply_chat_template_with_tokenizer(
+    tokenizer,
+    messages: list[dict[str, Any]],
+    *,
+    tools: list[dict[str, Any]] | None = None,
+    add_generation_prompt: bool = True,
+    apply_chat_template_kwargs: dict[str, Any],
+) -> list[int]:
+    """Apply chat template via tokenizer (tokenize=True).
+
+    IMPORTANT: Some call sites intentionally do NOT pass any extra kwargs
+    (e.g. incremental tool/user message tokenization). Callers should pass an
+    empty dict ({}), which is equivalent to not passing kwargs at all.
+    """
+    if tools is None:
+        return tokenizer.apply_chat_template(
+            messages,
+            add_generation_prompt=add_generation_prompt,
+            tokenize=True,
+            **apply_chat_template_kwargs,
+        )
+    return tokenizer.apply_chat_template(
+        messages,
+        tools=tools,
+        add_generation_prompt=add_generation_prompt,
+        tokenize=True,
+        **apply_chat_template_kwargs,
+    )
+
+
+def tokenize_with_processor(
+    processor,
+    *,
+    raw_prompt: str,
+    image_data: Any | None,
+) -> list[int]:
+    """Tokenize a pre-rendered prompt string via processor."""
+    model_inputs = processor(text=[raw_prompt], images=image_data, return_tensors="pt")
+    return model_inputs.pop("input_ids").squeeze(0).tolist()
+
+
+def build_gpt_oss_tool_response_text(messages: list[dict[str, Any]], tool_call_names: list[str]) -> str:
+    """Build gpt-oss tool response text (manual formatting + generation prompt)."""
+    tool_response_texts: list[str] = []
+    for i, tool_msg in enumerate(messages):
+        actual_tool_name = tool_call_names[i]
+        formatted = format_gpt_oss_tool_response_manually(tool_msg["content"], actual_tool_name)
+        tool_response_texts.append(formatted)
+    return add_generation_prompt_for_gpt_oss("".join(tool_response_texts))
