@@ -192,7 +192,7 @@ class TrainingWorker(Worker):
             mini_batch_size_per_gpu = batch_size_per_dp // num_mini_batch
         else:
             assert mini_batch_size % self.engine.get_data_parallel_size() == 0, (
-                f"Got {batch_size_per_dp=} and {num_mini_batch=}"
+                f"Got {mini_batch_size=} and {self.engine.get_data_parallel_size()=}"
             )
             mini_batch_size_per_gpu = mini_batch_size // self.engine.get_data_parallel_size()
 
@@ -207,7 +207,7 @@ class TrainingWorker(Worker):
 
         with (
             self.engine.train_mode(disable_auto_offload=disable_auto_offload),
-            Timer(name="train_batch", logger=None) as timer,
+            Timer(name="train_batch", logger=None),
         ):
             # update
             output_lst = []
@@ -280,10 +280,10 @@ class TrainingWorker(Worker):
                 output["metrics"]["lr"] = lr
             final_output = self._postprocess_output(
                 output, global_token_num=global_token_num, delta_time=delta_time, forward_only=False
-            )
+            ).cpu()
         else:
             final_output = None
-        return final_output.cpu()
+        return final_output
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False)
     def infer_batch(self, data: TensorDict) -> TensorDict:
@@ -317,10 +317,10 @@ class TrainingWorker(Worker):
         if self.engine.is_mp_src_rank_with_outputs():
             final_output = self._postprocess_output(
                 output, global_token_num=global_token_num, delta_time=delta_time, forward_only=True
-            )
+            ).cpu()
         else:
             final_output = None
-        return final_output.cpu()
+        return final_output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
