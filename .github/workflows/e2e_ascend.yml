@@ -97,6 +97,7 @@ jobs:
         run: |
           pip install -r requirements-npu.txt
           pip install -e .
+          pip3 install git+https://github.com/ByteDance-Seed/VeOmni.git@v0.1.4
       - name: Check final pip list
         run: |
           pip list
@@ -145,6 +146,7 @@ jobs:
         run: |
           pip install -r requirements-npu.txt
           pip install -e .
+          pip3 install git+https://github.com/ByteDance-Seed/VeOmni.git@v0.1.4
       - name: Check final pip list
         run: |
           pip list
@@ -211,6 +213,7 @@ jobs:
         run: |
           pip install -r requirements-npu.txt
           pip install -e .
+          pip3 install git+https://github.com/ByteDance-Seed/VeOmni.git@v0.1.4
       - name: Check final pip list
         run: |
           pip list

@@ -56,6 +56,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install --no-deps -e .[test,gpu]
+          pip3 install git+https://github.com/ByteDance-Seed/VeOmni.git@v0.1.4
       - name: Prepare gsm8k dataset
         run: |
           ray stop --force

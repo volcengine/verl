@@ -108,6 +108,7 @@ jobs:
         run: |
           pip3 install hf_transfer
           pip3 install --no-deps -e .[test]
+          pip3 install git+https://github.com/ByteDance-Seed/VeOmni.git@v0.1.4
           pip3 install cupy-cuda12x pytest-asyncio
           pip3 install --ignore-installed blinker
           pip3 install mlflow

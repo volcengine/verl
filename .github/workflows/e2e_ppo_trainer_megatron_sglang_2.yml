@@ -122,6 +122,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install --no-deps -e .[test]
+          pip3 install git+https://github.com/ByteDance-Seed/VeOmni.git@v0.1.4
       - name: Prepare Geo3k dataset
         run: |
           python3 examples/data_preprocess/geo3k.py --local_dataset_path ${HOME}/models/hf_data/hiyouga/geometry3k/
@@ -179,6 +180,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install -e .[test,geo,gpu,sglang] --no-deps
+          pip3 install git+https://github.com/ByteDance-Seed/VeOmni.git@v0.1.4
       # Geo3k
       - name: Prepare GEO3K dataset
         run: |

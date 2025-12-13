@@ -63,7 +63,7 @@ jobs:
     timeout-minutes: 5 # Increase this timeout value as needed
     strategy:
       matrix:
-        python-version: ["3.10"]
+        python-version: ["3.11"]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Set up Python ${{ matrix.python-version }}
@@ -75,6 +75,7 @@ jobs:
           pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip3 install -r requirements.txt
           pip install -e .[test]
+          pip3 install git+https://github.com/ByteDance-Seed/VeOmni.git@v0.1.4
       - name: Run sanity test
         run: |
           pytest -s -x tests/special_sanity
