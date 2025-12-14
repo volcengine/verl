@@ -103,10 +103,9 @@ class ActorConfig(BaseConfig):
         loss_scale_factor (Optional[int]): Scale factor for 'seq-mean-token-sum-norm' loss aggregation mode.
             If None, uses response_length. Set to a constant to ensure consistent normalization.
         exclude_fully_masked_seq (Optional[bool]): Whether to exclude fully masked sequences when computing
-            the denominator for seq-mean loss aggregation modes.
-            If None (default), uses total batch size as denominator.
-            If True, only counts non-fully-masked sequences in denominator.
-            If False, uses total batch size as denominator.
+            the denominator for seq-mean loss aggregation modes (only when global_batch_size not provided).
+            If None or False (default), uses local batch size as denominator.
+            If True, only counts non-fully-masked sequences in local batch as denominator.
         entropy_coeff (float): Entropy coefficient for regularization.
         use_kl_loss (bool): Whether to use KL divergence loss.
         use_torch_compile (bool): Whether to use torch.compile for optimization.
