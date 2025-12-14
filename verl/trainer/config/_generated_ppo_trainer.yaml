@@ -529,7 +529,7 @@ algorithm:
     rollout_rs_threshold_lower: null
     rollout_token_veto_threshold: null
     bypass_mode: false
-    use_policy_gradient: false
+    loss_type: ppo_clip
     rollout_is_batch_normalize: false
   _target_: verl.trainer.config.AlgoConfig
   gamma: 1.0
