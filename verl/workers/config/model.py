@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import os
+
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -31,7 +31,6 @@ __all__ = ["HFModelConfig"]
 class HFModelConfig(BaseConfig):
     # note that we separate model_path, model_config_path and tokenizer_path in case they are different
     _mutable_fields = {
-        "path",
         "hf_config_path",
         "tokenizer_path",
         "hf_config",
@@ -98,17 +97,10 @@ class HFModelConfig(BaseConfig):
     def __post_init__(self):
         import_external_libs(self.external_lib)
 
-        self.path = os.path.expanduser(self.path)
-
         if self.hf_config_path is None:
             self.hf_config_path = self.path
-        else:
-            self.hf_config_path = os.path.expanduser(self.hf_config_path)
-
         if self.tokenizer_path is None:
             self.tokenizer_path = self.path
-        else:
-            self.tokenizer_path = os.path.expanduser(self.tokenizer_path)
 
         self.local_path = copy_to_local(self.path, use_shm=self.use_shm)
 
