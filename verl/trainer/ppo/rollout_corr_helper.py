@@ -913,16 +913,18 @@ def compute_rollout_corr_metrics_from_logprobs(
     return metrics_with_prefix
 
 
-def apply_rollout_correction(
+def apply_bypass_mode(
     batch: DataProto,
     rollout_corr_config: Optional[RolloutCorrectionConfig] = None,
     policy_loss_config: PolicyLossConfig = None,
 ) -> None:
     """
-    BYPASS MODE: Use rollout_log_probs as old_log_probs
-    Skips expensive actor forward pass for old_log_prob computation
+    Setup bypass mode: Use rollout_log_probs as old_log_probs.
 
-    In bypass mode, uses compute_policy_loss_bypass_mode() which supports:
+    Bypass mode skips expensive actor forward pass for old_log_prob computation
+    by setting old_log_probs = rollout_log_probs (2 policies instead of 3).
+
+    Uses compute_policy_loss_bypass_mode() which supports:
     - loss_type="ppo_clip" (default): PPO clipped objective (IS handled by ratio)
     - loss_type="reinforce": REINFORCE with explicit IS weights
 

@@ -531,9 +531,9 @@ class OneStepOffRayTrainer(RayPPOTrainer):
                 rollout_corr_config = self.config.algorithm.get("rollout_correction", None)
                 bypass_recomputing_logprobs = rollout_corr_config and rollout_corr_config.get("bypass_mode", False)
                 if bypass_recomputing_logprobs:  # Use `rollout_log_probs`
-                    from verl.trainer.ppo.rollout_corr_helper import apply_rollout_correction
+                    from verl.trainer.ppo.rollout_corr_helper import apply_bypass_mode
 
-                    apply_rollout_correction(
+                    apply_bypass_mode(
                         batch=batch,
                         rollout_corr_config=rollout_corr_config,
                         policy_loss_config=self.config.actor_rollout_ref.actor.policy_loss,
