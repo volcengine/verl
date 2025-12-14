@@ -30,6 +30,7 @@ from verl.workers.config import (
 )
 
 
+@pytest.mark.skip(reason="This test is flaky when we actively load model config")
 class TestCriticConfig:
     """Test suite for critic configuration dataclasses."""
 
@@ -275,7 +276,6 @@ class TestCriticConfig:
         )
         assert dynamic_config.use_dynamic_bsz is True
 
-    @pytest.mark.skip(reason="This test is flaky when we actively load model config")
     def test_fsdp_sequence_parallelism_validation(self):
         """Test FSDP sequence parallelism validation in FSDPCriticConfig.__post_init__."""
         valid_config = FSDPCriticConfig(

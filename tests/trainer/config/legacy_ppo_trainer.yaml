@@ -636,7 +636,7 @@ critic:
   model:
 
     # Path to pretrained model weights
-    path: ~/models/Qwen/Qwen2.5-0.5B-Instruct
+    path: ~/models/deepseek-llm-7b-chat
 
     # Whether to use shared memory for loading the model
     use_shm: False
