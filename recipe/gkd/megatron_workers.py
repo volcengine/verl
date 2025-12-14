@@ -27,7 +27,6 @@ from megatron.core import parallel_state as mpu
 from megatron.core.distributed import finalize_model_grads
 from megatron.core.optimizer import DistributedOptimizer
 from megatron.core.pipeline_parallel import get_forward_backward_func
-from megatron_kl_loss import vocab_parallel_kl_divergence
 from omegaconf import DictConfig, OmegaConf
 from torch import nn
 
@@ -53,6 +52,8 @@ from verl.utils.profiler.profile import Profiler
 from verl.utils.py_functional import append_to_dict
 from verl.utils.seqlen_balancing import rearrange_micro_batches
 from verl.workers.megatron_workers import ActorRolloutRefWorker
+
+from .megatron_kl_loss import vocab_parallel_kl_divergence
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -214,7 +215,8 @@ class OnPolicyDistillActor:
         #     group=mpu.get_pipeline_model_parallel_group(),
         # )
         # split into micro-batches
-        data.batch["attention_mask"] = data.batch["attention_mask"].to(bool)
+        with data.batch.unlock_():
+            data.batch["attention_mask"] = data.batch["attention_mask"].to(bool)
 
         indices = None
         if use_dynamic_bsz:
@@ -458,9 +460,9 @@ class MegatronOnPolicyDistillActorWorker(ActorRolloutRefWorker):
             generator = self.bridge.export_weights(self.actor.actor_module)
         else:
             # from verl.utils.megatron_utils import per_tensor_generator
-            from megatron_utils import per_tensor_generator
-
             from verl.models.mcore import get_mcore_weight_converter
+
+            from .megatron_utils import per_tensor_generator
 
             layer_name_mapping = {
                 "qkv_layer_name": "self_attention.linear_qkv.",

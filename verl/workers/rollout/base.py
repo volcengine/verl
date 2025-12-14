@@ -79,17 +79,19 @@ class BaseRollout(ABC):
 
 
 _ROLLOUT_REGISTRY = {
+    ("vllm", "sync"): "verl.workers.rollout.vllm_rollout.vLLMRollout",
     ("vllm", "async"): "verl.workers.rollout.vllm_rollout.vLLMAsyncRollout",
+    ("sglang", "sync"): "verl.workers.rollout.sglang_rollout.sglang_rollout.SGLangRollout",
     ("sglang", "async"): "verl.workers.rollout.sglang_rollout.sglang_rollout.ServerAdapter",
 }
 
 
-def get_rollout_class(rollout_name: str, mode: str = "async") -> type[BaseRollout]:
+def get_rollout_class(rollout_name: str, mode: str) -> type[BaseRollout]:
     """Get the rollout class by name.
 
     Args:
         rollout_name: The name of the rollout.
-        mode: The mode of the rollout, async: server mode.
+        mode: The mode of the rollout, sync: spmd mode, async: server mode.
 
     Returns:
         The rollout class.

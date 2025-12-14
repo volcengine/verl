@@ -134,7 +134,7 @@ class LogprobsTensors(NamedTuple):
 
 
 class VLLMEngine:
-    def __init__(self, ckpt_path, n_logprobs=0, tp_size=1):
+    def __init__(self, ckpt_path, n_logprobs=0, tp_size=1, gpu_memory_utilization=0.9, max_num_batched_tokens=2048):
         self.n_logprobs = n_logprobs
         # self.llm = LLM(ckpt_path, tensor_parallel_size=tp_size, trust_remote_code=True,
         #                enable_chunked_prefill=False, distributed_executor_backend="ray",
@@ -143,9 +143,10 @@ class VLLMEngine:
             ckpt_path,
             tensor_parallel_size=tp_size,
             trust_remote_code=True,
-            enable_chunked_prefill=False,
+            enable_chunked_prefill=True,
             max_logprobs=n_logprobs,
-            gpu_memory_utilization=0.7,
+            gpu_memory_utilization=gpu_memory_utilization,
+            max_num_batched_tokens=max_num_batched_tokens,
         )
 
     def get_topk_logprobs(self, prompt_token_ids, temperature=0.8, max_new_tokens=1, only_response=False):
@@ -165,7 +166,8 @@ class VLLMEngine:
         else:
             sampling_params = make_sampling_params()
 
-        outputs = self.llm.generate(prompt_token_ids=prompt_token_ids, sampling_params=sampling_params)
+        prompt_token_ids = [{"prompt_token_ids": prompt_token_ids[i]} for i in range(len(prompt_token_ids))]
+        outputs = self.llm.generate(prompts=prompt_token_ids, sampling_params=sampling_params)
 
         responses, teacher_topk_logprobs, teacher_topk_indices = [], [], []
         for output in outputs:
@@ -215,6 +217,9 @@ if __name__ == "__main__":
     parser.add_argument("--batch-size", "-b", type=int, default=64, help="Test batch size")
     parser.add_argument("--seq-len", "-s", type=int, default=3840, help="Test sequence length")
     parser.add_argument("--token-file", "-t", type=str, help="Input token file")
+    parser.add_argument("--gpu-memory-utilization", type=float, default=0.9, help="GPU memory utilization")
+    parser.add_argument("--temperature", type=float, default=0.7, help="Temperature")
+    parser.add_argument("--n-logprobs", type=int, default=256, help="Number of logprobs")
     args = parser.parse_args()
 
     config = AutoConfig.from_pretrained(args.model_dir)
@@ -232,11 +237,16 @@ if __name__ == "__main__":
         for pl in prompt_lens:
             prompt_token_ids.append([random.randint(1, config.vocab_size - 1000) for j in range(pl)])
 
-    engine = VLLMEngine(ckpt_path=args.model_dir, n_logprobs=256, tp_size=args.tp_size)
+    engine = VLLMEngine(
+        ckpt_path=args.model_dir,
+        n_logprobs=args.n_logprobs,
+        tp_size=args.tp_size,
+        gpu_memory_utilization=args.gpu_memory_utilization,
+    )
 
     with Timer(name="get_topk_logprobs", initial_text=True):
         responses, teacher_topk_logprobs, teacher_topk_indices = engine.get_topk_logprobs(
-            prompt_token_ids, temperature=0.7, max_new_tokens=1, only_response=True
+            prompt_token_ids, temperature=args.temperature, max_new_tokens=1, only_response=True
         )
     # debug
     import ipdb
