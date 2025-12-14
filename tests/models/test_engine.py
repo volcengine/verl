@@ -53,12 +53,19 @@ from verl.workers.utils.losses import ppo_loss, sft_loss, value_loss
 from verl.workers.utils.padding import left_right_2_no_padding, no_padding_2_padding
 
 
-def create_training_config(model_type, strategy, device_count):
+def get_test_language_model(device_count):
     if device_count == 1:
         model = "~/models/HuggingFaceTB/SmolLM2-135M-Instruct"
-        tp = pp = cp = fsdp_size = 1
     else:
         model = "~/models/Qwen/Qwen2.5-0.5B"
+    model = os.path.expanduser(model)
+    return model
+
+
+def create_training_config(model_type, strategy, device_count, model):
+    if device_count == 1:
+        tp = pp = cp = fsdp_size = 1
+    else:
         tp = pp = cp = 2
         fsdp_size = 4
 
@@ -107,7 +114,12 @@ def create_training_config(model_type, strategy, device_count):
 def test_actor_engine(strategy):
     ray.init()
     device_count = torch.cuda.device_count()
-    config = create_training_config(model_type="language_model", strategy=strategy, device_count=device_count)
+    config = create_training_config(
+        model_type="language_model",
+        strategy=strategy,
+        device_count=device_count,
+        model=get_test_language_model(device_count),
+    )
     ray_cls_with_init = RayClassWithInitArgs(cls=ray.remote(TrainingWorker), config=config)
     resource_pool = RayResourcePool(process_on_nodes=[device_count])
     wg = RayWorkerGroup(resource_pool=resource_pool, ray_cls_with_init=ray_cls_with_init)
@@ -219,13 +231,15 @@ def test_actor_engine(strategy):
     ray.shutdown()
 
 
-def create_model(language_model_path):
+def create_value_model(language_model_path, output_path):
     config = AutoConfig.from_pretrained(language_model_path)
     config.num_labels = 1
+    config.classifier_dropout = 0
+    config.tie_word_embeddings = False
     model = AutoModelForTokenClassification.from_config(config)
     tokenizer = AutoTokenizer.from_pretrained(os.path.expanduser(language_model_path))
     assert model.config.num_labels == 1
-    path = os.path.expanduser("~/models/test_model")
+    path = os.path.expanduser(output_path)
     model.save_pretrained(path)
     tokenizer.save_pretrained(path)
     config.save_pretrained(path)
@@ -234,21 +248,20 @@ def create_model(language_model_path):
 
 @pytest.mark.parametrize("strategy", ["fsdp", "fsdp2"])
 def test_critic_engine(strategy):
+    device_count = torch.cuda.device_count()
+    value_model_path = os.path.expanduser("~/models/test_model")
+    language_model_path = get_test_language_model(device_count=device_count)
+    if not os.path.exists(value_model_path):
+        create_value_model(language_model_path, value_model_path)
+
     torch.manual_seed(1)
     np.random.seed(1)
 
     ray.init()
-    device_count = torch.cuda.device_count()
-    config = create_training_config(model_type="value_model", strategy=strategy, device_count=device_count)
-    # create a dummy AutoModelForTokenClassification
-    value_model_path = create_model(config.model_config.path)
-    hf_config = AutoConfig.from_pretrained(value_model_path)
-    config.model_config.hf_config_path = value_model_path
-    config.model_config.tokenizer_path = value_model_path
-    config.model_config.hf_config = hf_config
-    config.model_config.local_path = value_model_path
-    config.model_config.architectures = hf_config.architectures
 
+    config = create_training_config(
+        model_type="value_model", strategy=strategy, device_count=device_count, model=value_model_path
+    )
     ray_cls_with_init = RayClassWithInitArgs(cls=ray.remote(TrainingWorker), config=config)
     resource_pool = RayResourcePool(process_on_nodes=[device_count])
     wg = RayWorkerGroup(resource_pool=resource_pool, ray_cls_with_init=ray_cls_with_init)

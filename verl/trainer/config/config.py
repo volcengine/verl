@@ -71,7 +71,7 @@ class BaseModelConfig(BaseConfig):
         lora (dict[str, Any]): LoRA configuration dictionary.
     """
 
-    path: str = "~/models/deepseek-llm-7b-chat"
+    path: str = "~/models/Qwen/Qwen2.5-0.5B-Instruct"
     tokenizer_path: Optional[str] = None
     override_config: dict[str, Any] = field(default_factory=dict)
     external_lib: Optional[str] = None
