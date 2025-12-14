@@ -225,7 +225,7 @@ def sync_rollout_weights(self):
 ### PPO Correctness
 To ensure the correctness of the PPO algorithm, we use rollout log_probs for PPO importance sampling. 
 For the related algorithm details, please refer to: https://verl.readthedocs.io/en/latest/algo/rollout_corr_math.html
-The default mode is ppo_is_bypass, but other modification strategies can also be explored.
+The default mode is `bypass_ppo_clip`, but other modification strategies can also be explored.
 
 ### AgentLoop
 In the current implementation, we no longer provide SPMD model rollout mode. 
