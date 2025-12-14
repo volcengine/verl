@@ -777,6 +777,7 @@ def agg_loss(
     batch_num_tokens: Optional[int] = None,
     global_batch_size: Optional[int] = None,
     loss_scale_factor: Optional[int] = None,
+    exclude_fully_masked_seq: Optional[bool] = None,
 ):
     """
     Aggregate the loss across global batch to ensure the loss is invariant to fsdp/megatron parallelism.
@@ -794,6 +795,10 @@ def agg_loss(
         global_batch_size: global batch size
         loss_scale_factor: scale factor for "seq-mean-token-sum-norm" mode. If None, uses loss_mask.shape[-1].
             Set this to a constant value to ensure consistent normalization throughout training.
+        exclude_fully_masked_seq: whether to exclude fully masked sequences when computing the denominator
+            for seq-mean modes. If None (default), uses the total batch size as denominator.
+            If True, only counts non-fully-masked sequences in the denominator.
+            If False, uses total batch size as denominator.
 
     Returns:
         loss: `a scalar torch.Tensor`
@@ -805,16 +810,22 @@ def agg_loss(
         loss = verl_F.masked_sum(loss_mat, loss_mask) / batch_num_tokens * dp_size
     elif loss_agg_mode == "seq-mean-token-sum":
         seq_losses = torch.sum(loss_mat * loss_mask, dim=-1)  # token-sum
-        seq_mask = (torch.sum(loss_mask, dim=-1) > 0).float()  # exclude fully masked sequences
+        seq_mask = (torch.sum(loss_mask, dim=-1) > 0).float()  # mask for non-fully-masked sequences
         if global_batch_size is None:
-            global_batch_size = seq_mask.sum()
+            if exclude_fully_masked_seq:
+                global_batch_size = seq_mask.sum() * dp_size
+            else:
+                global_batch_size = loss_mat.shape[0] * dp_size
         loss = verl_F.masked_sum(seq_losses, seq_mask) / global_batch_size * dp_size  # seq-mean
     elif loss_agg_mode == "seq-mean-token-mean":
         seq_mask = torch.sum(loss_mask, dim=-1)  # per-sequence token count
         seq_losses = torch.sum(loss_mat * loss_mask, dim=-1) / (seq_mask + 1e-8)  # token-mean
-        seq_mask = (seq_mask > 0).float()  # exclude fully masked sequences
+        seq_mask = (seq_mask > 0).float()  # mask for non-fully-masked sequences
         if global_batch_size is None:
-            global_batch_size = seq_mask.sum()
+            if exclude_fully_masked_seq:
+                global_batch_size = seq_mask.sum() * dp_size
+            else:
+                global_batch_size = loss_mat.shape[0] * dp_size
         loss = verl_F.masked_sum(seq_losses, seq_mask) / global_batch_size * dp_size  # seq-mean
     elif loss_agg_mode == "seq-mean-token-sum-norm":
         seq_losses = torch.sum(loss_mat * loss_mask, dim=-1)
