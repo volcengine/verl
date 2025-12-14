@@ -922,15 +922,11 @@ def apply_rollout_correction(
     BYPASS MODE: Use rollout_log_probs as old_log_probs
     Skips expensive actor forward pass for old_log_prob computation
 
-    Two sub-modes (controlled by use_policy_gradient):
-    1. Bypass + PPO loss (use_policy_gradient=False, default):
-       - Uses standard PPO loss function with old_log_prob=rollout_log_prob
-       - PPO clips ratio π_θ/π_rollout instead of π_θ/π_old
+    In bypass mode, uses compute_policy_loss_bypass_mode() which supports:
+    - loss_type="ppo_clip" (default): PPO clipped objective (IS handled by ratio)
+    - loss_type="reinforce": REINFORCE with explicit IS weights
 
-    2. Bypass + Policy Gradient loss (use_policy_gradient=True):
-       - Uses compute_policy_loss_with_rollout_correction()
-       - Policy gradient (REINFORCE-style) with IS/RS correction applied
-       - No PPO clipping
+    Both loss types benefit from rejection sampling (RS) which masks out-of-distribution samples.
 
     Note:
         The implementation is copied from szrlee <szrlee@gmail.com>.
@@ -947,13 +943,7 @@ def apply_rollout_correction(
     batch.batch["old_log_probs"] = batch.batch["rollout_log_probs"]
 
     with open_dict(policy_loss_config):
-        # Always pass rollout_correction config to actor for metrics computation
+        # Pass rollout_correction config to actor for loss computation and metrics
         policy_loss_config["rollout_correction"] = rollout_corr_config
-
-    # Check if policy gradient loss mode is enabled
-    use_policy_gradient = rollout_corr_config.get("use_policy_gradient", False)
-
-    if use_policy_gradient:
-        # Policy gradient mode: Configure actor to use rollout_correction loss function
-        # This will use compute_policy_loss_with_rollout_correction (no PPO clipping)
-        policy_loss_config["loss_mode"] = "rollout_correction"
+        # Always use bypass_mode loss function which handles both loss_types
+        policy_loss_config["loss_mode"] = "bypass_mode"
