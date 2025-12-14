@@ -459,7 +459,6 @@ class DataParallelPPOActor(BasePPOActor):
                     # Populate global_batch_info for loss aggregation
                     self.config.global_batch_info["dp_size"] = torch.distributed.get_world_size()
                     self.config.global_batch_info["global_batch_size"] = model_inputs.get("global_batch_size", None)
-                    self.config.global_batch_info["exclude_fully_masked_seq"] = self.config.exclude_fully_masked_seq
 
                     calculate_entropy = self.config.calculate_entropy or (entropy_coeff != 0)
 

@@ -483,7 +483,6 @@ class MegatronPPOActor(BasePPOActor):
                 # Populate global_batch_info for loss aggregation
                 self.config.global_batch_info["dp_size"] = data.get("dp_size", 1)
                 self.config.global_batch_info["global_batch_size"] = data.get("global_batch_size", None)
-                self.config.global_batch_info["exclude_fully_masked_seq"] = self.config.exclude_fully_masked_seq
 
                 loss_mode = self.config.policy_loss.get("loss_mode", "vanilla")
 

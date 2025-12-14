@@ -777,7 +777,6 @@ def agg_loss(
     batch_num_tokens: Optional[int] = None,
     global_batch_size: Optional[int] = None,
     loss_scale_factor: Optional[int] = None,
-    exclude_fully_masked_seq: Optional[bool] = None,
 ):
     """
     Aggregate the loss across global batch to ensure the loss is invariant to fsdp/megatron parallelism.
@@ -795,12 +794,6 @@ def agg_loss(
         global_batch_size: global batch size
         loss_scale_factor: scale factor for "seq-mean-token-sum-norm" mode. If None, uses loss_mask.shape[-1].
             Set this to a constant value to ensure consistent normalization throughout training.
-        exclude_fully_masked_seq: whether to exclude fully masked sequences when computing the denominator
-            for seq-mean modes (only used when global_batch_size is None).
-            If None or False (default), uses the local batch size as denominator.
-            If True, only counts non-fully-masked sequences in the local batch as denominator.
-            Note: When global_batch_size is None, computes local mean without * dp_size.
-            FSDP will average across workers, giving the average of local means.
 
     Returns:
         loss: `a scalar torch.Tensor`
@@ -814,12 +807,8 @@ def agg_loss(
         seq_losses = torch.sum(loss_mat * loss_mask, dim=-1)  # token-sum
         seq_mask = (torch.sum(loss_mask, dim=-1) > 0).float()  # mask for non-fully-masked sequences
         if global_batch_size is None:
-            # Use local batch size to compute local mean. FSDP will average across workers.
-            # This avoids complexity with uneven DP batches and Ulysses SP.
-            if exclude_fully_masked_seq:
-                local_count = seq_mask.sum()  # exclude fully masked sequences
-            else:
-                local_count = loss_mat.shape[0]  # use total local batch size
+            # Use local count to compute local mean. FSDP will average across workers.
+            local_count = seq_mask.sum()  # exclude fully masked sequences
             loss = verl_F.masked_sum(seq_losses, seq_mask) / local_count  # local seq-mean
         else:
             # Global batch size provided - use dp_size to get correct global mean after FSDP averaging
@@ -829,12 +818,8 @@ def agg_loss(
         seq_losses = torch.sum(loss_mat * loss_mask, dim=-1) / (seq_mask + 1e-8)  # token-mean
         seq_mask = (seq_mask > 0).float()  # mask for non-fully-masked sequences
         if global_batch_size is None:
-            # Use local batch size to compute local mean. FSDP will average across workers.
-            # This avoids complexity with uneven DP batches and Ulysses SP.
-            if exclude_fully_masked_seq:
-                local_count = seq_mask.sum()  # exclude fully masked sequences
-            else:
-                local_count = loss_mat.shape[0]  # use total local batch size
+            # Use local count to compute local mean. FSDP will average across workers.
+            local_count = seq_mask.sum()  # exclude fully masked sequences
             loss = verl_F.masked_sum(seq_losses, seq_mask) / local_count  # local seq-mean
         else:
             # Global batch size provided - use dp_size to get correct global mean after FSDP averaging
