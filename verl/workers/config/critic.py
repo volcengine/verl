@@ -95,7 +95,7 @@ class CriticConfig(BaseConfig):
             warnings.warn("using model in Critic Config is deprecated, please use model_config instead", stacklevel=2)
             self.model_config = HFModelConfig(
                 path=self.model.path,
-                tokenizer=self.model.tokenizer_path,
+                tokenizer_path=self.model.tokenizer_path,
                 override_config=self.model.override_config,
                 external_lib=self.model.external_lib,
                 trust_remote_code=self.model.trust_remote_code,
