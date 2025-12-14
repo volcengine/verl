@@ -285,7 +285,7 @@ critic:
     lr_wsd_decay_steps: null
     use_checkpoint_opt_param_scheduler: False # use checkpoint optimizer parameter scheduler
   model:
-    path: ~/models/deepseek-llm-7b-chat
+    path: ~/models/Qwen/Qwen2.5-0.5B-Instruct
     tokenizer_path: ${actor_rollout_ref.model.path}
     override_config:
       model_config: {}
