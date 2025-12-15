@@ -13,19 +13,18 @@ on:
     - cron: "0 16 * * *"
 
 jobs:
-  build-ascend-image:
+  build-ascend-image-a2:
     if: ${{ github.event_name != 'pull_request' && github.repository_owner == 'volcengine' }}
     runs-on: ubuntu-latest
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}-build-ascend-image-a2
       cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
     steps:
-      - name: Free up disk space
+      - name: Remove unnecessary parts in github actions runners to free up disk space
         uses: jlumbroso/free-disk-space@v1.3.1
         with:
           tool-cache: true
-          docker-images: true
-          
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -33,7 +32,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
 
       - name: Get base image name and tag
         id: base_image
@@ -67,6 +65,10 @@ jobs:
           username: ${{ secrets.QUAY_USERNAME }}
           password: ${{ secrets.QUAY_PASSWORD }}
 
+      - name: Clean Docker cache before build
+        run: |
+          docker system prune -a -f --volumes || true
+
       - name: Build and push images Quay
         uses: docker/build-push-action@v6
         with:
@@ -77,4 +79,6 @@ jobs:
           tags: |  
             quay.io/ascend/verl:${{ steps.version.outputs.tag }}
           cache-from: type=gha  
-          cache-to: type=gha,mode=max  
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1

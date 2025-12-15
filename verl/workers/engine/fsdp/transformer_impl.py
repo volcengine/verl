@@ -41,7 +41,6 @@ from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.device import (
     get_device_id,
     get_device_name,
-    get_torch_device,
 )
 from verl.utils.fsdp_utils import (
     CPUOffloadPolicy,
@@ -61,15 +60,15 @@ from verl.utils.fsdp_utils import (
     offload_fsdp_optimizer,
     replace_lora_wrapper,
 )
-from verl.utils.model import convert_weight_keys
+from verl.utils.model import convert_weight_keys, extract_multi_modal_inputs_tensordict
 from verl.utils.py_functional import convert_to_regular_types
 from verl.utils.torch_functional import logprobs_from_logits
 from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad, ulysses_pad_and_slice_inputs
 from verl.workers.config import FSDPEngineConfig, FSDPOptimizerConfig, HFModelConfig
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
-from ..base import BaseEngine, EngineRegistry
-from ..utils import postprocess_batch_func, prepare_micro_batches
+from ..base import BaseEngine, BaseEngineCtx, EngineRegistry
+from ..utils import enable_full_determinism, postprocess_batch_func, prepare_micro_batches
 from .utils import create_device_mesh, get_sharding_strategy
 
 logger = logging.getLogger(__file__)
@@ -116,6 +115,9 @@ class FSDPEngine(BaseEngine):
 
         self._init_device_mesh()
 
+        if self.engine_config.full_determinism:
+            enable_full_determinism(seed=self.engine_config.seed)
+
         # set FSDP offload params
         self._is_offload_param = self.engine_config.param_offload
         self._is_offload_optimizer = self.engine_config.optimizer_offload
@@ -131,6 +133,14 @@ class FSDPEngine(BaseEngine):
             if self.engine_config.use_torch_compile  #  use torch compile by default
             else entropy_from_logits
         )
+
+    @property
+    def is_param_offload_enabled(self) -> bool:
+        return self._is_offload_param
+
+    @property
+    def is_optimizer_offload_enabled(self) -> bool:
+        return self._is_offload_optimizer
 
     def is_mp_src_rank_with_outputs(self):
         if self.ulysses_device_mesh is not None:
@@ -149,20 +159,22 @@ class FSDPEngine(BaseEngine):
         # This is used to import external_lib into the huggingface systems
         self._build_model_optimizer()
 
-        if self._is_offload_param:
-            offload_fsdp_model_to_cpu(self.module)
-            log_gpu_memory_usage("After offload model during init", logger=logger)
-        if self._is_offload_optimizer:
-            offload_fsdp_optimizer(optimizer=self.optimizer)
-            log_gpu_memory_usage("After offload optimizer during init", logger=logger)
-
         self.checkpoint_manager = FSDPCheckpointManager(
             model=self.module,
             optimizer=self.optimizer,
             lr_scheduler=self.lr_scheduler,
             processing_class=self.model_config.get_processor(),
-            checkpoint_contents=self.checkpoint_config,
+            checkpoint_config=self.checkpoint_config,
         )
+
+        self.to(
+            device="cpu",
+            model=self._is_offload_param,
+            optimizer=self._is_offload_optimizer,
+            grad=self._is_offload_param,
+        )
+
+        log_gpu_memory_usage("After offload model/optimizer/grad during init", logger=logger)
 
     def _init_device_mesh(self):
         world_size = torch.distributed.get_world_size()
@@ -441,21 +453,21 @@ class FSDPEngine(BaseEngine):
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
 
-    def train_mode(self):
+    def train_mode(self, **kwargs):
         """
         Return a context manager that switches to training mode with FSDP-specific handling.
 
         Includes parameter and optimizer offload entry/exit.
         """
-        return EngineTrainModeCtx(self)
+        return EngineTrainModeCtx(self, **kwargs)
 
-    def eval_mode(self):
+    def eval_mode(self, **kwargs):
         """
         Return a context manager that switches to evaluation mode with FSDP-specific handling.
 
         Includes activation offload entry/exit.
         """
-        return EngineEvalModeCtx(self)
+        return EngineEvalModeCtx(self, **kwargs)
 
     def get_data_parallel_rank(self):
         if self.ulysses_device_mesh is not None:
@@ -550,10 +562,13 @@ class FSDPEngine(BaseEngine):
         lr = self.lr_scheduler.get_last_lr()[0]  # only return the first group
         return lr
 
-    def to(self, device: str, model: bool = True, optimizer: bool = True):
+    def to(self, device: str, model: bool = True, optimizer: bool = True, grad: bool = True):
         """
         Move FSDP model and/or optimizer to CPU or GPU with offload support.
+        Note that this function executes irrespective of offload config. It serves as manual control
         """
+        super().to(device=device, model=model, optimizer=optimizer, grad=grad)
+
         if self.engine_config.forward_only:
             # force cpu_offload
             return
@@ -562,18 +577,16 @@ class FSDPEngine(BaseEngine):
 
         assert device in (device_name, "cpu")
         if device == device_name:
-            if not self.engine_config.param_offload:
-                if model:
-                    load_fsdp_model_to_gpu(self.module)
-                if optimizer and self.optimizer is not None:
-                    load_fsdp_optimizer(self.optimizer, device)
+            if model:
+                load_fsdp_model_to_gpu(self.module)
+            if optimizer and self.optimizer is not None:
+                load_fsdp_optimizer(self.optimizer, device)
             gc.collect()
         elif device == "cpu":
-            if not self.engine_config.param_offload:
-                if model:
-                    offload_fsdp_model_to_cpu(self.module)
-                if optimizer and self.optimizer is not None:
-                    offload_fsdp_optimizer(self.optimizer)
+            if model:
+                offload_fsdp_model_to_cpu(self.module)
+            if optimizer and self.optimizer is not None:
+                offload_fsdp_optimizer(self.optimizer)
         else:
             raise ValueError(f"Invalid device type: {device}")
 
@@ -658,22 +671,21 @@ class FSDPEngine(BaseEngine):
                 (name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param)
                 for name, param in params.items()
             )
-        return per_tensor_param
+        return per_tensor_param, peft_config
 
 
-class EngineEvalModeCtx:
-    def __init__(self, engine: FSDPEngine):
-        self.engine = engine
+class EngineEvalModeCtx(BaseEngineCtx):
+    def __init__(self, engine: FSDPEngine, **kwargs):
+        super().__init__(engine=engine, mode="eval", **kwargs)
 
     def __enter__(self):
-        self.engine.mode = "eval"
-        if self.engine._is_offload_param:
-            load_fsdp_model_to_gpu(self.engine.module)
-
+        assert isinstance(self.engine, FSDPEngine)
+        super().__enter__()
         self.engine.ulysses_sharding_manager.__enter__()
         self.engine.module.eval()
 
     def __exit__(self, exc_type, exc_value, traceback):
+        assert isinstance(self.engine, FSDPEngine)
         self.engine.ulysses_sharding_manager.__exit__(exc_type, exc_value, traceback)
 
         # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
@@ -684,34 +696,24 @@ class EngineEvalModeCtx:
             elif fsdp_version(self.engine.module) == 2:
                 self.engine.module.reshard()
 
-        if self.engine._is_offload_param:
-            offload_fsdp_model_to_cpu(self.engine.module)
-        self.engine.mode = None
+        super().__exit__(exc_type, exc_value, traceback)
 
 
-class EngineTrainModeCtx:
-    def __init__(self, engine: FSDPEngine):
-        self.engine = engine
+class EngineTrainModeCtx(BaseEngineCtx):
+    def __init__(self, engine: FSDPEngine, **kwargs):
+        super().__init__(engine=engine, mode="train", **kwargs)
 
     def __enter__(self):
-        self.engine.mode = "train"
-        if self.engine._is_offload_param:
-            load_fsdp_model_to_gpu(self.engine.module)
-        if self.engine._is_offload_optimizer:
-            load_fsdp_optimizer(optimizer=self.engine.optimizer, device_id=get_torch_device().current_device())
-
+        assert isinstance(self.engine, FSDPEngine)
+        super().__enter__()
         self.engine.ulysses_sharding_manager.__enter__()
         self.engine.module.train()
 
     def __exit__(self, exc_type, exc_value, traceback):
+        assert isinstance(self.engine, FSDPEngine)
         self.engine.ulysses_sharding_manager.__exit__(exc_type, exc_value, traceback)
         self.engine.optimizer_zero_grad()
-
-        if self.engine._is_offload_param:
-            offload_fsdp_model_to_cpu(self.engine.module)
-        if self.engine._is_offload_optimizer:
-            offload_fsdp_optimizer(optimizer=self.engine.optimizer)
-        self.engine.mode = None
+        super().__exit__(exc_type, exc_value, traceback)
 
 
 @EngineRegistry.register(model_type="language_model", backend=["fsdp", "fsdp2"], device=["cuda", "npu"])
@@ -724,17 +726,9 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
         assert pad_mode == DatasetPadMode.NO_PADDING, f"pad_mode {pad_mode} not supported"
 
-        multi_modal_inputs = {}
-        if "multi_modal_inputs" in micro_batch.keys():
-            from verl.utils.model import extract_multi_modal_inputs
-
-            multi_modal_inputs = extract_multi_modal_inputs(micro_batch["multi_modal_inputs"])
-
+        multi_modal_inputs = extract_multi_modal_inputs_tensordict(micro_batch)
         input_ids = micro_batch["input_ids"]
         position_ids = micro_batch["position_ids"]
-
-        if position_ids.dim() == 3:  # qwen2vl mrope
-            position_ids = position_ids.transpose(0, 1)  # (bsz, 3, seqlen) -> (3, bsz, seqlen)
 
         # args used to get outputs
         output_args = {}
@@ -742,7 +736,10 @@ class FSDPEngineWithLMHead(FSDPEngine):
         if use_remove_padding:
             if pad_mode == DatasetPadMode.NO_PADDING:
                 input_ids_rmpad = input_ids.values().unsqueeze(0)  # (1, total_nnz)
-                position_ids_rmpad = position_ids.values().unsqueeze(0)  # (1, total_nnz)
+                if position_ids.dim() == 3:
+                    position_ids_rmpad = position_ids.values().unsqueeze(1)  # (4, 1, total_nnz)
+                else:
+                    position_ids_rmpad = position_ids.values().unsqueeze(0)  # (1, total_nnz)
             else:
                 raise NotImplementedError(f"pad_mode {pad_mode} not implemented")
 
@@ -802,9 +799,14 @@ class FSDPEngineWithLMHead(FSDPEngine):
                     input_ids, padding=pad_token_id, output_size=(batch_size, max_seq_len)
                 )
 
-                position_ids = torch.nested.to_padded_tensor(
-                    position_ids, padding=0, output_size=(batch_size, max_seq_len)
-                )
+                if position_ids.dim() == 3:
+                    position_ids = torch.nested.to_padded_tensor(
+                        position_ids, padding=0, output_size=(batch_size, 4, max_seq_len)
+                    ).transpose(0, 1)  # (4, batch_size, max_seq_len)
+                else:
+                    position_ids = torch.nested.to_padded_tensor(
+                        position_ids, padding=0, output_size=(batch_size, max_seq_len)
+                    )
 
                 attention_mask_list = [torch.ones_like(t, dtype=torch.int32) for t in loss_mask]
                 attention_mask = torch.nested.as_nested_tensor(attention_mask_list, layout=torch.jagged)
@@ -963,7 +965,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
             output = {
                 "model_output": model_output,
-                "loss": loss,
+                "loss": loss.detach().item(),
                 "metrics": metrics,
             }
 

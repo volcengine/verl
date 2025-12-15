@@ -212,6 +212,15 @@ def sync_rollout_weights(self):
             inference_model.load_weights([(key, tensor)])
 ```
 
+### PPO Correctness
+To ensure the correctness of the PPO algorithm, we use rollout log_probs for PPO importance sampling. 
+For the related algorithm details, please refer to: https://verl.readthedocs.io/en/latest/algo/rollout_corr_math.html
+The default mode is `bypass_ppo_clip`, but other modification strategies can also be explored.
+
+### AgentLoop
+In the current implementation, we no longer provide SPMD model rollout mode. 
+Instead, we have switched to AgentLoop mode, which also supports multi-turn tool calling.
+
 ## Usage
 
 ### FSDP2 Configuration Example
@@ -287,6 +296,7 @@ python3 -m recipe.one_step_off_policy.async_main_ppo \
        > the required node count is `max(trainer.nnodes, rollout.nnodes)`
    > - When `trainer.n_gpus_per_node + rollout.n_gpus_per_node > physical_gpus_per_node`,
        > the required node count is `trainer.nnodes + rollout.nnodes`
+
 
 ## Functional Support
 

@@ -30,6 +30,7 @@ grad_clip: 1.0
 
 # Sequence parallelism size for Ulysses-style model parallelism
 # oc.select: the default val for ref.ulysses_sequence_parallel_size
+# [DEPRECATED] use fsdp_config.ulysses_sequence_parallel_size instead
 ulysses_sequence_parallel_size: 1
 
 # calculate entropy with chunking to reduce memory peak

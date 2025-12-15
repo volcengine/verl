@@ -17,4 +17,5 @@ mathruler
 torchdata
 einops
 qwen_vl_utils
-torchvision==0.20.1
+hf_transfer
+triton-ascend==3.2.0rc4
