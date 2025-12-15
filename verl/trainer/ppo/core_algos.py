@@ -781,6 +781,9 @@ def agg_loss(
     """
     Aggregate the loss across global batch to ensure the loss is invariant to fsdp/megatron parallelism.
 
+    NOTE: ``dp_size``, ``batch_num_tokens``, and ``global_batch_size`` are only compatible with the new model engine
+        for now, while the legacy model engines conduct the aggregation outside ``agg_loss``.
+
     NOTE: The returned loss has different behaviors for different backend:
     - FSDP: the loss is directly used for backward.
     - Megatron: the loss should be scaled by `num_microbatches` and `cp_size` for pp schedule.
