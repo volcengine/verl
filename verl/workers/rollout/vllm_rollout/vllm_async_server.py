@@ -554,11 +554,8 @@ class vLLMHttpServerBase:
 
             # Try to reset prefix cache to ensure clean state
             if reset_prefix_cache:
-                try:
-                    await self.engine.reset_prefix_cache()
-                    logger.info("Prefix cache reset after abort")
-                except Exception as cache_error:
-                    logger.warning(f"Error resetting prefix cache: {cache_error}")
+                await self.clear_kv_cache()
+                logger.info("Prefix cache reset after abort")
 
             logger.info(f"Aborted {len(request_ids)} requests: {request_ids}")
             return {"aborted_count": len(request_ids), "request_ids": request_ids}
@@ -597,11 +594,8 @@ class vLLMHttpServerBase:
 
             # Try to reset prefix cache to ensure clean state
             if reset_prefix_cache:
-                try:
-                    await self.engine.reset_prefix_cache()
-                    logger.info("Prefix cache reset after abort")
-                except Exception as cache_error:
-                    logger.warning(f"Error resetting prefix cache: {cache_error}")
+                await self.clear_kv_cache()
+                logger.info(f"Prefix cache reset after abort request {request_id}")
 
             logger.info(f"Aborted request: {request_id}")
             return {"aborted": True, "request_id": request_id}
