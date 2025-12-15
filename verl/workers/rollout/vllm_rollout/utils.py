@@ -13,16 +13,24 @@
 # limitations under the License.
 
 import gc
+import logging
+import os
 from dataclasses import asdict
-from typing import Callable
+from types import MethodType
+from typing import Callable, TypedDict
 
 import torch
 import zmq
+from vllm.config import VllmConfig
 from vllm.model_executor.model_loader.utils import process_weights_after_loading
 from vllm.lora.request import LoRARequest
 
+from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 from verl.utils.vllm.utils import rebuild_ipc
+from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches, is_fp8_model, load_quanted_weights, quant_weights
 
+logger = logging.getLogger(__file__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 # magic numbers that ensure we are using the same LoRA adapter during the rollout and training process
 VLLM_LORA_INT_ID = 123
@@ -46,6 +54,41 @@ def get_vllm_max_lora_rank(lora_rank: int):
     raise ValueError(f"lora_rank must be less than or equal to {vllm_max_lora_ranks[-1]}, but got {lora_rank}")
 
 
+# https://github.com/vllm-project/vllm/issues/13175
+def _monkey_patch_compute_logits(model, vocab_size: int):
+    original_compute_logits = model.compute_logits
+
+    def compute_logits(
+        self,
+        *args,
+        **kwargs,
+    ) -> torch.Tensor:
+        logits = original_compute_logits(*args, **kwargs)
+        logits[..., vocab_size:] = float("-inf")
+        return logits
+
+    model.compute_logits = MethodType(compute_logits, model)
+
+# copy from https://github.com/vllm-project/vllm/blob/main/examples/offline_inference/rlhf_utils.py
+def rebuild_ipc(
+    handle: tuple[Callable, tuple], device_id: int | None = None
+) -> torch.Tensor:
+    func, args = handle
+    list_args = list(args)
+    if device_id is not None:
+        # the key is to change device id to the current device id
+        # in case two processes have different CUDA_VISIBLE_DEVICES
+        list_args[6] = device_id
+    buffer = func(*list_args)
+    return buffer
+
+class FlattenedTensorMetadata(TypedDict):
+    name: str
+    shape: torch.Size
+    dtype: torch.dtype
+    # specify the start offset of this tensor in shared ipc_buffer tensor
+    offset: int
+
 class vLLMColocateWorkerExtension:
     """
     The class for vLLM's worker to inherit from, in the colocate setting.
@@ -55,19 +98,29 @@ class vLLMColocateWorkerExtension:
     NOTE: we define this class in a separate module, and the main module
     should pass the full qualified name as `worker_extension_cls` argument.
     """
+    def __new__(cls, **kwargs):
+        if os.environ.get("VERL_VLLM_FP8_QUANT_ENABLED", "0") == "1":
+            # Apply vllm fp8 patches
+            # Will remove the patch after vllm support on-the-fly quant for rollout natively.
+            apply_vllm_fp8_patches()
+        return super.__new__(cls, **kwargs)
 
-    def update_weights_per_tensor_from_ipc(self, zmq_handles: dict[str, str]):
-        """Update weights per tensor from IPC handles."""
+    def monkey_patch_compute_logits(self, vocab_size: int):
+        _monkey_patch_compute_logits(self.model_runner.model, vocab_size)
+    
+    def _fetch_weights(self, zmq_handle: str, load: bool = True):
+        from vllm.model_executor.model_loader.utils import process_weights_after_loading
 
         assert self.device is not None
         if not hasattr(self, "_zmq_ctx") or self._zmq_ctx is None:
             self._zmq_ctx = zmq.Context()
         socket = self._zmq_ctx.socket(zmq.REP)
-        socket.connect(zmq_handles[self.report_device_id()])
-
+        socket.connect(zmq_handle)
+        weights_to_load = []
         while True:
-            # Receive either a tensor handle (tuple) or None (end signal)
-            payload: tuple[Callable, tuple] | None = socket.recv_pyobj()
+            payload: tuple[Callable, tuple] | list[FlattenedTensorMetadata] | None = (
+                socket.recv_pyobj()
+            )
             if payload is None:
                 # means the update is done
                 process_weights_after_loading(
@@ -76,8 +129,6 @@ class vLLMColocateWorkerExtension:
                 torch.cuda.synchronize()
                 socket.send(b"")
                 break
-
-            # Rebuild the tensor from IPC handle
             tensor = rebuild_ipc(payload, self.device.index)
             socket.send(b"")
 
@@ -87,55 +138,43 @@ class vLLMColocateWorkerExtension:
                 del tensor
                 continue
 
-            # Load this single tensor
             name = metadata["name"]
             weights = [(name, tensor)]
-            self.model_runner.model.load_weights(weights=weights)
-            del weights
-            torch.cuda.synchronize()
+            if load:
+                self.model_runner.model.load_weights(weights=weights)
+                del weights
+                torch.cuda.synchronize()
+            else:
+                weights_to_load.extend(weights)
             socket.send(b"")
 
         socket.close()
         gc.collect()
         torch.cuda.empty_cache()
+        return weights_to_load
 
-    def update_lora_weights_per_tensor_from_ipc(self, peft_config: dict, zmq_handles: dict[str, str]):
-        """Update LoRA weights per tensor from IPC handles."""
+    def update_weights_from_ipc(self, zmq_handles: dict[str, str]):
+        model_runner = self.model_runner
+        model = model_runner.model
+        patch_vllm_moe_model_weight_loader(model)
 
-        assert self.device is not None
-        if not hasattr(self, "_zmq_ctx") or self._zmq_ctx is None:
-            self._zmq_ctx = zmq.Context()
-        socket = self._zmq_ctx.socket(zmq.REP)
-        socket.connect(zmq_handles[self.report_device_id()])
+        # Add the FP8 related logic here as sharding manager has been deprecated.
+        # Check if FP8 quantization is enabled and apply appropriate weight loading
+        vllm_config = model_runner.vllm_config
+        if is_fp8_model(model_runner.vllm_config):
+            logger.info(f"FP8 model detected (async): {vllm_config.quant_config}")
+            # Convert bf16 weights to fp8 format before loading
+            weights = self._fetch_weights(zmq_handles[self.report_device_id()], load=False)
+            loaded_params = load_quanted_weights(weights, model_runner)
+            logger.info(f"FP8 weights loaded (async), loaded_params: {len(loaded_params)}")
+        else:
+            logger.info("Loading standard weights (non-FP8, async)")
+            weights = self._fetch_weights(zmq_handles[self.report_device_id()], load=True)
 
+    def update_lora_weights_from_ipc(self, peft_config: dict, zmq_handles: dict[str, str]):
         # In async mode, make sure the old lora is removed before adding the new one
         self.remove_lora(VLLM_LORA_INT_ID)
-        lora_weights = []
-        while True:
-            # Receive either a tensor handle (tuple) or None (end signal)
-            payload: tuple[Callable, tuple] | None = socket.recv_pyobj()
-            if payload is None:
-                # means the update is done
-                torch.cuda.synchronize()
-                socket.send(b"")
-                break
-
-            # Rebuild the tensor from IPC handle
-            tensor = rebuild_ipc(payload, self.device.index)
-            socket.send(b"")
-
-            # Get the next metadata containing tensor name
-            metadata: dict | None = socket.recv_pyobj()
-            if metadata is None:
-                # Should not happen in per-tensor mode, but handle gracefully
-                del tensor
-                continue
-
-            name = metadata["name"]
-            lora_weights.append((name, tensor))
-            torch.cuda.synchronize()
-            socket.send(b"")
-
+        lora_weights = self._fetch_weights(zmq_handles[self.report_device_id()], load=False)
         lora_request = LoRARequest(
             lora_name=VLLM_LORA_NAME,
             lora_int_id=VLLM_LORA_INT_ID,
@@ -144,10 +183,10 @@ class vLLMColocateWorkerExtension:
             lora_tensors=dict(lora_weights),
         )
         self.add_lora(lora_request)
-
-        socket.close()
+        del lora_weights
         gc.collect()
         torch.cuda.empty_cache()
+        logger.info(f"vLLM load weights, loaded_params: {len(lora_weights)}")
 
     def report_device_id(self) -> str:
         """Report device ID for ZMQ handle."""
@@ -155,12 +194,3 @@ class vLLMColocateWorkerExtension:
 
         self.device_uuid = current_platform.get_device_uuid(self.device.index)
         return self.device_uuid
-
-    def check_weights_changed(self):
-        """
-        Check if the weights are updated to 0.
-        """
-        weights_updated = True
-        for name, p in self.model_runner.model.named_parameters():
-            weights_updated = weights_updated and torch.allclose(p, torch.zeros_like(p))
-        return weights_updated

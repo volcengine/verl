@@ -362,6 +362,18 @@ class vLLMHttpServerBase:
             executor_class=Executor.get_class(vllm_config),
             log_stats=not engine_args.disable_log_stats,
         )
+    
+    async def collective_rpc(
+        self,
+        method: str,
+        timeout: Optional[float] = None,
+        args: tuple = (),
+        kwargs: Optional[dict] = None
+    ):
+        """Perform a collective RPC call to the inference engine."""
+        return await self.engine.collective_rpc(
+            method=method, timeout=timeout, args=args, kwargs=kwargs
+        )
 
     async def generate(
         self,
@@ -524,7 +536,6 @@ class vLLMReplica(RolloutReplica):
             "WORLD_SIZE": os.environ["WORLD_SIZE"],
             "MASTER_ADDR": os.environ["MASTER_ADDR"],
             "MASTER_PORT": os.environ["MASTER_PORT"],
-            "VERL_VLLM_VOCAB_SIZE": str(len(self.model_config.tokenizer)),
             "VERL_VLLM_MULTIPROC_LOCAL_RANK_OFFSET": str(local_rank_offset),
             "VERL_VLLM_MULTIPROC_GLOBAL_RANK_OFFSET": str(global_rank_offset),
         }
@@ -573,6 +584,10 @@ class vLLMReplica(RolloutReplica):
             f"[{server_address}]:{server_port}"
             if is_valid_ipv6_address(server_address)
             else f"{server_address}:{server_port}"
+        )
+        await self._server_handle.collective_rpc.remote(
+            method="monkey_patch_compute_logits",
+            kwargs={"vocab_size": len(self.model_config.tokenizer)}
         )
 
     async def sleep(self):

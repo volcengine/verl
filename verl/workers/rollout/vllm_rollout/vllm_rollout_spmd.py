@@ -37,7 +37,7 @@ import gc
 import threading
 from contextlib import contextmanager
 from dataclasses import asdict
-from typing import Any, Generator
+from typing import Any, Generator, Optional
 
 import cloudpickle as pickle
 import numpy as np
@@ -75,7 +75,6 @@ from packaging import version as vs
 
 from verl import DataProto
 from verl.third_party.vllm import VLLM_SLEEP_LEVEL, get_version
-from verl.utils.device import is_npu_available
 from verl.utils.distributed import initialize_global_process_group_ray
 from verl.utils.import_utils import deprecated
 from verl.utils.model import get_lora_rank_from_adapter
@@ -521,16 +520,17 @@ class ServerAdapter(BaseRollout):
         device_mesh: DeviceMesh,
     ):
         super().__init__(config, model_config, device_mesh)
-        self.zmq_client_socket = None
-        self.executor_zmq_address = None
-        self.request_timeout = 30.0
+        self.server_handle: ray.actor.ActorHandle = None
 
         rank = int(os.environ["RANK"])
         local_world_size = int(os.environ["RAY_LOCAL_WORLD_SIZE"])
-        rollout_world_size = self.config.tensor_model_parallel_size * self.config.data_parallel_size
-        rollout_rank = rank % rollout_world_size
-        self.local_rank = rollout_rank % local_world_size
-        self._execute_lock = threading.Lock()
+        rollout_world_size = (
+            self.config.tensor_model_parallel_size 
+            * self.config.data_parallel_size
+            * self.config.pipeline_model_parallel_size
+        )
+        self.rollout_rank = rank % rollout_world_size
+        self.local_rank = self.rollout_rank % local_world_size
 
         if config.layered_summon or (config.expert_parallel_size > 1 and not _check_vllm_version_for_sleep_level()):
             logger.warning("Setting the sleep level to 1 may cause a memory overflow.")
@@ -546,70 +546,34 @@ class ServerAdapter(BaseRollout):
         self.zmq_address_counter = 0
         self.zmq_handles: dict[str, str] = None
 
-    def _init_zmq_client(self):
-        """Initialize ZMQ client connection (only for local_rank=0 instance)."""
-        if self.local_rank != 0:
-            return
-
-        if not self.executor_zmq_address:
-            raise ValueError("vLLMMultiprocExecutor ZMQ address not set")
-
-        context = zmq.Context()
-        self.zmq_client_socket = context.socket(zmq.REQ)
-        self.zmq_client_socket.connect(self.executor_zmq_address)
-        self.zmq_client_socket.setsockopt(zmq.RCVTIMEO, int(self.request_timeout * 1000))
-        self.zmq_client_socket.setsockopt(zmq.SNDTIMEO, int(self.request_timeout * 1000))
-
-    def _execute_method(self, method: str, non_block: bool = False, *args, **kwargs) -> Any:
-        """Execute method on vLLMMultiprocExecutor via ZMQ.
+    async def _execute_method(
+        self,
+        method: str,
+        non_block: bool = False,
+        timeout: Optional[float] = None,
+        args: tuple = (),
+        kwargs: Optional[dict] = None
+    ) -> Any:
+        """Execute method on inference engine via ray.
 
         Args:
-            method: The method name to execute on the executor.
-            non_block: If True, execute the method in a new thread and return immediately.
-            *args: Positional arguments for the method.
-            **kwargs: Keyword arguments for the method.
+            method: The method name to execute on the server.
+            non_block: If True, execute the method asynchronously and return immediately.
+            timeout: Timeout for the collective_rpc call.
+            args: Positional arguments for the method.
+            kwargs: Keyword arguments for the method.
 
         Returns:
             The result of the method execution, or None if non_block=True.
         """
-        if self.local_rank != 0:
+        if self.rollout_rank != 0:
             return None
 
-        if not self.zmq_client_socket:
-            raise RuntimeError("ZMQ client not initialized")
+        if not hasattr(self, "server_handle") or self.server_handle is None:
+            raise RuntimeError("vLLMHttpServer handle not set")
 
-        def _do_execute():
-            # Use lock to ensure only one send-recv pair executes at a time.
-            # ZMQ REQ/REP pattern requires strict send-recv-send-recv ordering;
-            # concurrent access would violate this and cause errors.
-            with self._execute_lock:
-                request = {
-                    "method": method,
-                    "args": args,
-                    "kwargs": kwargs,
-                    "request_id": str(uuid.uuid4()),
-                }
-
-                message = pickle.dumps(request)
-                self.zmq_client_socket.send(message)
-
-                try:
-                    response_message = self.zmq_client_socket.recv()
-                    response = pickle.loads(response_message)
-                except zmq.Again:
-                    raise TimeoutError(f"ZMQ request timeout after {self.request_timeout} seconds")
-
-                if response.get("status") == "error":
-                    raise RuntimeError(f"vLLMMultiprocExecutor method failed: {response.get('error')}")
-
-                return response.get("result")
-
-        if non_block:
-            thread = threading.Thread(target=_do_execute, daemon=True)
-            thread.start()
-            return None
-        else:
-            return _do_execute()
+        future = self.server_handle.collective_rpc.remote(method, timeout=timeout, args=args, kwargs=kwargs)
+        return future if non_block else await future
 
     async def resume(self, tags: list[str]):
         """Resume rollout weights or kv cache in GPU memory.
@@ -619,29 +583,33 @@ class ServerAdapter(BaseRollout):
         """
         if self.config.free_cache_engine:
             # Send ZMQ message to Executor
-            self._execute_method("wake_up", tags=tags)
+            self._execute_method("wake_up", kwargs={"tags": tags})
 
     async def release(self):
         """Release weights and kv cache in GPU memory."""
         if self.config.free_cache_engine:
             # Send ZMQ message to Executor
-            self._execute_method("sleep", level=self.sleep_level)
+            self._execute_method("sleep", kwargs={"level": self.sleep_level})
 
     async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None], **kwargs):
         """Update model weights via CUDA IPC to inference workers."""
         peft_config, base_sync_done = kwargs.get("peft_config", None), kwargs.get("base_sync_done", False)
         if peft_config and base_sync_done:
             self._execute_method(
-                "update_lora_weights_per_tensor_from_ipc",
+                "update_lora_weights_from_ipc",
                 non_block=True,
-                peft_config=peft_config,
-                zmq_handles=self.zmq_handles,
+                kwargs={
+                    "peft_config": peft_config,
+                    "zmq_handles": self.zmq_handles,
+                }
             )
         else:
             self._execute_method(
-                "update_weights_per_tensor_from_ipc",
+                "update_weights_from_ipc",
                 non_block=True,
-                zmq_handles=self.zmq_handles,
+                kwargs={
+                    "zmq_handles": self.zmq_handles,
+                }
             )
         await self._update_weights_per_tensor(weights)
 
@@ -669,11 +637,10 @@ class ServerAdapter(BaseRollout):
         raise NotImplementedError
 
     # ==================== server mode public methods ====================
-    def set_executor_zmq_address(self, zmq_address: str):
-        """Set vLLMMultiprocExecutor ZMQ address and initialize client."""
-        self.executor_zmq_address = zmq_address
-        if self.local_rank == 0:
-            self._init_zmq_client()
+    def set_server_handle(self, server_handle: ray.actor.ActorHandle):
+        """Set vLLMHttpServer handle"""
+        if self.rollout_rank == 0:
+            self.server_handle = server_handle
     
     def get_update_weights_zmq_handle(self) -> dict[str, str]:
         """Get ZMQ handle for weight updates."""
