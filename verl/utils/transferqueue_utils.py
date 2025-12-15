@@ -116,6 +116,8 @@ def _batchmeta_to_dataproto(batchmeta: "BatchMeta") -> DataProto:
 
 
 async def _async_update_batchmeta_with_output(output: DataProto, batchmeta: "BatchMeta", func_name=None) -> "BatchMeta":
+    pid = os.getpid()
+
     for k, v in output.meta_info.items():
         batchmeta.set_extra_info(k, v)
 
@@ -126,7 +128,8 @@ async def _async_update_batchmeta_with_output(output: DataProto, batchmeta: "Bat
             tensordict.pop(key)
 
         logger.info(
-            f"Task {func_name} putting output data to TransferQueue with batch_size={tensordict.batch_size},\n"
+            f"Task {func_name} (pid={pid}) putting output data to TransferQueue with "
+            f"batch_size={tensordict.batch_size},\n"
             f"tensordict keys={list(tensordict.keys())}"
         )
 
@@ -163,8 +166,6 @@ def tqbridge(put_data: bool = True):
     """
 
     def decorator(func):
-        import os
-
         pid = os.getpid()
 
         @wraps(func)
