@@ -134,8 +134,8 @@ async def _async_update_batchmeta_with_output(output: DataProto, batchmeta: "Bat
         return updated_batch_meta
 
 
-def _update_batchmeta_with_output(output: DataProto, batchmeta: "BatchMeta") -> None:
-    updated_batch_meta = _run_async_in_temp_loop(_async_update_batchmeta_with_output, output, batchmeta)
+def _update_batchmeta_with_output(output: DataProto, batchmeta: "BatchMeta", func_name=None) -> None:
+    updated_batch_meta = _run_async_in_temp_loop(_async_update_batchmeta_with_output, output, batchmeta, func_name)
     return updated_batch_meta
 
 
