@@ -172,7 +172,7 @@ def tqbridge(put_data: bool = True):
                 return func(*args, **kwargs)
             else:
                 logger.info(
-                    f"Task {func.__name__} (pid={pid}) is getting len_samples={batchmeta.dize}, "
+                    f"Task {func.__name__} (pid={pid}) is getting len_samples={batchmeta.size}, "
                     f"global_idx={batchmeta.global_indexes}"
                 )
                 args = [_batchmeta_to_dataproto(arg) if isinstance(arg, BatchMeta) else arg for arg in args]
@@ -191,7 +191,7 @@ def tqbridge(put_data: bool = True):
                 return await func(*args, **kwargs)
             else:
                 logger.info(
-                    f"Task {func.__name__} (pid={pid}) is getting len_samples={batchmeta.dize}, "
+                    f"Task {func.__name__} (pid={pid}) is getting len_samples={batchmeta.size}, "
                     f"global_idx={batchmeta.global_indexes}"
                 )
                 args = [await _async_batchmeta_to_dataproto(arg) if isinstance(arg, BatchMeta) else arg for arg in args]
