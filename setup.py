@@ -57,7 +57,7 @@ SGLANG_REQUIRES = [
 ]
 TRL_REQUIRES = ["trl<=0.9.6"]
 MCORE_REQUIRES = ["mbridge"]
-TRANSFERQUEUE_REQUIRES = ["TransferQueue==0.1.2.dev0"]
+TRANSFERQUEUE_REQUIRES = ["TransferQueue==0.1.4.dev1"]
 
 extras_require = {
     "test": TEST_REQUIRES,
