@@ -143,11 +143,6 @@ class vLLMHttpServerBase:
         assert self._server_port is not None, "http server is not launched, port is None"
         return self._server_address, self._server_port
 
-    def _generate_executor_zmq_address(self) -> str:
-        pid = os.getpid()
-        address = f"ipc:///tmp/verl_vllm_zmq_{pid}_{getpass.getuser()}.ipc"
-        return address
-
     async def launch_server(self, master_address: str = None, master_port: int = None):
         if self.node_rank != 0:
             assert master_address and master_port, "non-master node should provide master address and port"
