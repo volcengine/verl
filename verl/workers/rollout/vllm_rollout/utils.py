@@ -96,11 +96,13 @@ class vLLMColocateWorkerExtension:
     should pass the full qualified name as `worker_extension_cls` argument.
     """
     def __new__(cls, **kwargs):
+        kwargs["rank"] += int(os.environ.get("VERL_VLLM_MULTIPROC_GLOBAL_RANK_OFFSET", "0"))
+        kwargs["distributed_init_method"] = os.environ.get("DIST_INIT_METHOD", None)
         if os.environ.get("VERL_VLLM_FP8_QUANT_ENABLED", "0") == "1":
             # Apply vllm fp8 patches
             # Will remove the patch after vllm support on-the-fly quant for rollout natively.
             apply_vllm_fp8_patches()
-        return super.__new__(cls, **kwargs)
+        return super().__new__(cls)
 
     def monkey_patch_compute_logits(self, vocab_size: int):
         _monkey_patch_compute_logits(self.model_runner.model, vocab_size)

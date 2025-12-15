@@ -81,6 +81,7 @@ class vLLMHttpServerBase:
         node_rank: int,
         gpus_per_node: int,
         nnodes: int,
+        cuda_visible_devices: str,
     ):
         """
         Args:
@@ -93,6 +94,7 @@ class vLLMHttpServerBase:
             nnodes (int): number of nodes.
         """
         super().__init__()
+        os.environ["CUDA_VISIBLE_DEVICES"] = cuda_visible_devices
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
@@ -459,8 +461,9 @@ class vLLMHttpServer(vLLMHttpServerBase):
         node_rank: int,
         gpus_per_node: int,
         nnodes: int,
+        cuda_visible_devices: str,
     ):
-        super().__init__(config, model_config, rollout_mode, workers, replica_rank, node_rank, gpus_per_node, nnodes)
+        super().__init__(config, model_config, rollout_mode, workers, replica_rank, node_rank, gpus_per_node, nnodes, cuda_visible_devices)
 
 
 _rollout_worker_actor_cls = ray.remote(ServerAdapter)
@@ -494,15 +497,16 @@ class vLLMReplica(RolloutReplica):
             f"worker number {len(self.workers)} not equal to world size {self.world_size}"
         )
 
-        # get (node_id, MASTER_ADDR, MASTER_PORT) of all workers
+        # get (node_id, CUDA_VISIBLE_DEVICES) of all workers
         worker_infos = await asyncio.gather(
             *[
                 worker.__ray_call__.remote(
-                    lambda self: (ray.get_runtime_context().get_node_id(), os.environ["MASTER_ADDR"], os.environ["MASTER_PORT"])
+                    lambda self: (ray.get_runtime_context().get_node_id(), os.environ["CUDA_VISIBLE_DEVICES"])
                 )
                 for worker in self.workers
             ]
         )
+        worker_cuda_visible_devices = [worker_info[1] for worker_info in worker_infos]
         worker_node_ids = [worker_info[0] for worker_info in worker_infos]
 
         # For non-data parallel case, there's only one server whether it's single or multi nodes.
@@ -511,33 +515,35 @@ class vLLMReplica(RolloutReplica):
             nnodes = 1
             gpus_per_node = self.world_size
         
-        if self.n_gpus_per_node > self.world_size:
-            assert self.n_gpus_per_node % self.world_size == 0, (
-                f"n_gpus_per_node {self.n_gpus_per_node} must be divisible by world_size {self.world_size}"
-                f"while n_gpus_per_node > world_size"
-            )
-            local_rank_offset = self.replica_rank * self.world_size % self.n_gpus_per_node
-        else:
-            assert self.world_size % self.n_gpus_per_node == 0, (
-                f"world_size {self.world_size} must be divisible by n_gpus_per_node {self.n_gpus_per_node}"
-                f"while world_size >= n_gpus_per_node"
-            )
-            local_rank_offset = 0
+        # if self.n_gpus_per_node > self.world_size:
+        #     assert self.n_gpus_per_node % self.world_size == 0, (
+        #         f"n_gpus_per_node {self.n_gpus_per_node} must be divisible by world_size {self.world_size}"
+        #         f"while n_gpus_per_node > world_size"
+        #     )
+        #     local_rank_offset = self.replica_rank * self.world_size % self.n_gpus_per_node
+        # else:
+        #     assert self.world_size % self.n_gpus_per_node == 0, (
+        #         f"world_size {self.world_size} must be divisible by n_gpus_per_node {self.n_gpus_per_node}"
+        #         f"while world_size >= n_gpus_per_node"
+        #     )
+        #     local_rank_offset = 0
         global_rank_offset = self.replica_rank * self.world_size
 
         env_vars = {
             "RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "1",
-            "CUDA_VISIBLE_DEVICES": os.environ["CUDA_VISIBLE_DEVICES"],
             "WORLD_SIZE": os.environ["WORLD_SIZE"],
             "MASTER_ADDR": os.environ["MASTER_ADDR"],
             "MASTER_PORT": os.environ["MASTER_PORT"],
-            "VERL_VLLM_MULTIPROC_LOCAL_RANK_OFFSET": str(local_rank_offset),
+            # "VERL_VLLM_MULTIPROC_LOCAL_RANK_OFFSET": str(local_rank_offset),
             "VERL_VLLM_MULTIPROC_GLOBAL_RANK_OFFSET": str(global_rank_offset),
         }
 
         # create server actor in each node with node affinity
         for node_rank in range(nnodes):
             workers = self.workers[node_rank * gpus_per_node : (node_rank + 1) * gpus_per_node]
+            node_cuda_visible_devices = ",".join(
+                worker_cuda_visible_devices[node_rank * self.gpus_per_node : (node_rank + 1) * self.gpus_per_node]
+            )
             node_id = worker_node_ids[node_rank * gpus_per_node]
             name = (
                 f"vllm_server_{self.replica_rank}_{node_rank}"
@@ -560,6 +566,7 @@ class vLLMReplica(RolloutReplica):
                 node_rank=node_rank,
                 gpus_per_node=gpus_per_node,
                 nnodes=nnodes,
+                cuda_visible_devices=node_cuda_visible_devices,
             )
             self.servers.append(server)
 
