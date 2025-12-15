@@ -13,9 +13,9 @@ else
   COMMAND="python ${ENTRYPOINT} trainer.nnodes=${NNODES:-1} trainer.n_gpus_per_node=${NUM_GPUS:-1}"
 fi
 
-
-TRAIN_FILES=~/data/gsm8k_sft/train.parquet
-VAL_FILES=~/data/gsm8k_sft/test.parquet
+DATASET_DIR=${DATASET_DIR:-~/data/gsm8k_sft}
+TRAIN_FILES=${DATASET_DIR}/train.parquet
+VAL_FILES=${DATASET_DIR}/test.parquet
 
 backend=${BACKEND:-fsdp}
 
@@ -71,7 +71,8 @@ MEGATRON_ENGINE_CONFIG="\
     engine.tensor_model_parallel_size=${TP_SIZE} \
     engine.pipeline_model_parallel_size=${PP_SIZE} \
     engine.virtual_pipeline_model_parallel_size=${VPP_SIZE} \
-    engine.context_parallel_size=${CP_SIZE}"
+    engine.context_parallel_size=${CP_SIZE}
+    engine.use_mbridge=True"
 
 if [ "$backend" = "fsdp" ]; then
     ENGINE_CONFIG="$FSDP_ENGINE_CONFIG"
