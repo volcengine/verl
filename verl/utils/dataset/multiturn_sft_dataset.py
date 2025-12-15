@@ -345,13 +345,15 @@ class MultiTurnSFTDataset(Dataset):
                 else:
                     raise ValueError(f"Unknown truncation method {self.truncation}")
 
-            return {
+            res = {
                 "input_ids": input_ids,
                 "attention_mask": attention_mask,
                 "position_ids": position_ids,
                 "loss_mask": loss_mask,
-                **multi_modal_inputs,
             }
+            if len(multi_modal_inputs) > 0:
+                res["multi_modal_inputs"] = multi_modal_inputs
+            return res
         elif self.pad_mode == DatasetPadMode.NO_PADDING:
             # truncate input_ids if it is longer than max_length
             if len(input_ids) > self.max_length:
@@ -360,12 +362,14 @@ class MultiTurnSFTDataset(Dataset):
                 position_ids = position_ids[..., : self.max_length]
 
             # return nested tensor with out padding
-            return {
+            res = {
                 "input_ids": input_ids,
                 "position_ids": position_ids,
                 "loss_mask": loss_mask,
-                **multi_modal_inputs,
             }
+            if len(multi_modal_inputs) > 0:
+                res["multi_modal_inputs"] = multi_modal_inputs
+            return res
         else:
             raise ValueError(f"Unknown pad mode {self.pad_mode}")
 
