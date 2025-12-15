@@ -17,5 +17,5 @@ torchdata
 torchvision
 transformers
 wandb
-sglang[all]==0.5.2
+sglang[all]==0.5.6.post2
 huggingface_hub
