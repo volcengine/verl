@@ -810,8 +810,7 @@ class AgentLoopManager:
             )
         elif placement == "standalone":
             self._run_all([server.init_standalone() for server in self.rollout_replicas])
-        else:
-            raise ValueError(f"Invalid rollout placement: {rollout_config.placement}")
+
         self.server_handles = [server._server_handle for server in self.rollout_replicas]
         self.server_addresses = [server._server_address for server in self.rollout_replicas]
 
