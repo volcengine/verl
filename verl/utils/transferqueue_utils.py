@@ -115,7 +115,7 @@ def _batchmeta_to_dataproto(batchmeta: "BatchMeta") -> DataProto:
     return _run_async_in_temp_loop(_async_batchmeta_to_dataproto, batchmeta)
 
 
-async def _async_update_batchmeta_with_output(output: DataProto, batchmeta: "BatchMeta", func_name=None) -> None:
+async def _async_update_batchmeta_with_output(output: DataProto, batchmeta: "BatchMeta", func_name=None) -> "BatchMeta":
     for k, v in output.meta_info.items():
         batchmeta.set_extra_info(k, v)
 
@@ -132,9 +132,11 @@ async def _async_update_batchmeta_with_output(output: DataProto, batchmeta: "Bat
 
         updated_batch_meta = await _TRANSFER_QUEUE_CLIENT.async_put(data=tensordict, metadata=batchmeta)
         return updated_batch_meta
+    else:
+        return batchmeta
 
 
-def _update_batchmeta_with_output(output: DataProto, batchmeta: "BatchMeta", func_name=None) -> None:
+def _update_batchmeta_with_output(output: DataProto, batchmeta: "BatchMeta", func_name=None) -> "BatchMeta":
     updated_batch_meta = _run_async_in_temp_loop(_async_update_batchmeta_with_output, output, batchmeta, func_name)
     return updated_batch_meta
 
