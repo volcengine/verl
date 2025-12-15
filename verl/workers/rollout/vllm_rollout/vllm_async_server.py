@@ -325,6 +325,10 @@ class vLLMHttpServerBase:
 
         # Don't keep the dummy data in memory
         await engine_client.reset_mm_cache()
+        await engine_client.collective_rpc(
+            method="monkey_patch_compute_logits",
+            kwargs={"vocab_size": len(self.model_config.tokenizer)}
+        )
 
         app = build_app(args)
         await init_app_state(engine_client, vllm_config, app.state, args)
@@ -514,19 +518,7 @@ class vLLMReplica(RolloutReplica):
         if self.config.data_parallel_size == 1:
             nnodes = 1
             gpus_per_node = self.world_size
-        
-        # if self.n_gpus_per_node > self.world_size:
-        #     assert self.n_gpus_per_node % self.world_size == 0, (
-        #         f"n_gpus_per_node {self.n_gpus_per_node} must be divisible by world_size {self.world_size}"
-        #         f"while n_gpus_per_node > world_size"
-        #     )
-        #     local_rank_offset = self.replica_rank * self.world_size % self.n_gpus_per_node
-        # else:
-        #     assert self.world_size % self.n_gpus_per_node == 0, (
-        #         f"world_size {self.world_size} must be divisible by n_gpus_per_node {self.n_gpus_per_node}"
-        #         f"while world_size >= n_gpus_per_node"
-        #     )
-        #     local_rank_offset = 0
+
         global_rank_offset = self.replica_rank * self.world_size
 
         env_vars = {
@@ -534,7 +526,6 @@ class vLLMReplica(RolloutReplica):
             "WORLD_SIZE": os.environ["WORLD_SIZE"],
             "MASTER_ADDR": os.environ["MASTER_ADDR"],
             "MASTER_PORT": os.environ["MASTER_PORT"],
-            # "VERL_VLLM_MULTIPROC_LOCAL_RANK_OFFSET": str(local_rank_offset),
             "VERL_VLLM_MULTIPROC_GLOBAL_RANK_OFFSET": str(global_rank_offset),
         }
 
@@ -588,11 +579,7 @@ class vLLMReplica(RolloutReplica):
             else f"{server_address}:{server_port}"
         )
 
-        # initialize inference engine and set server handle to training worker
-        await self._server_handle.collective_rpc.remote(
-            method="monkey_patch_compute_logits",
-            kwargs={"vocab_size": len(self.model_config.tokenizer)}
-        )
+        # set server handle
         ray.get([worker.set_server_handle.remote(self._server_handle) for worker in self.workers])
 
     async def sleep(self):

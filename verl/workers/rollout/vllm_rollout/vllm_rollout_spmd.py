@@ -581,19 +581,19 @@ class ServerAdapter(BaseRollout):
         """
         if self.config.free_cache_engine:
             # Send ZMQ message to Executor
-            self._execute_method("wake_up", kwargs={"tags": tags})
+            await self._execute_method("wake_up", kwargs={"tags": tags})
 
     async def release(self):
         """Release weights and kv cache in GPU memory."""
         if self.config.free_cache_engine:
             # Send ZMQ message to Executor
-            self._execute_method("sleep", kwargs={"level": self.sleep_level})
+            await self._execute_method("sleep", kwargs={"level": self.sleep_level})
 
     async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None], **kwargs):
         """Update model weights via CUDA IPC to inference workers."""
         peft_config, base_sync_done = kwargs.get("peft_config", None), kwargs.get("base_sync_done", False)
         if peft_config and base_sync_done:
-            self._execute_method(
+            await self._execute_method(
                 "update_lora_weights_from_ipc",
                 non_block=True,
                 kwargs={
@@ -602,7 +602,7 @@ class ServerAdapter(BaseRollout):
                 }
             )
         else:
-            self._execute_method(
+            await self._execute_method(
                 "update_weights_from_ipc",
                 non_block=True,
                 kwargs={

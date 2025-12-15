@@ -23,6 +23,7 @@ import torch
 import zmq
 from vllm.lora.request import LoRARequest
 
+from verl.utils.distributed import initialize_global_process_group_ray
 from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches, is_fp8_model, load_quanted_weights
 
@@ -96,8 +97,16 @@ class vLLMColocateWorkerExtension:
     should pass the full qualified name as `worker_extension_cls` argument.
     """
     def __new__(cls, **kwargs):
-        kwargs["rank"] += int(os.environ.get("VERL_VLLM_MULTIPROC_GLOBAL_RANK_OFFSET", "0"))
+        global_rank = kwargs.get("rank", 0) + int(os.environ.get("VERL_VLLM_MULTIPROC_GLOBAL_RANK_OFFSET", "0"))
+        local_rank = kwargs.get("local_rank", 0)
+        kwargs["rank"] = global_rank
         kwargs["distributed_init_method"] = os.environ.get("DIST_INIT_METHOD", None)
+
+        os.environ["RANK"] = str(global_rank)
+        os.environ["LOCAL_RANK"] = str(local_rank)
+        if not torch.distributed.is_initialized():
+            initialize_global_process_group_ray()
+
         if os.environ.get("VERL_VLLM_FP8_QUANT_ENABLED", "0") == "1":
             # Apply vllm fp8 patches
             # Will remove the patch after vllm support on-the-fly quant for rollout natively.
