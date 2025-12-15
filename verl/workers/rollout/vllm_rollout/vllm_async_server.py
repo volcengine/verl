@@ -448,9 +448,9 @@ class vLLMHttpServerBase:
         sampling_params = SamplingParams(max_tokens=max_tokens, **sampling_params)
         prompt_ids = _qwen2_5_vl_dedup_image_tokens(prompt_ids, self.model_config.processor)
         multi_modal_data = {}
-        if image_data:
+        if image_data is not None:
             multi_modal_data["image"] = image_data
-        if video_data:
+        if video_data is not None:
             multi_modal_data["video"] = video_data
         prompt = TokensPrompt(prompt_token_ids=prompt_ids, multi_modal_data=multi_modal_data or None)
 
