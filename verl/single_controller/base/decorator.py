@@ -217,7 +217,7 @@ def collect_dp_compute_data_proto(worker_group, output):
     return _concat_data_proto_or_future(output)
 
 
-def dispatch_nd_compute(dp_rank_mapping: list[int], dp_size, worker_group, *args, **kwargs):
+def dispatch_nd_compute(dp_rank_mapping: list[int], dp_size, worker_group, collect_mask, *args, **kwargs):
     import os
 
     from verl.single_controller.base.worker_group import WorkerGroup
@@ -248,6 +248,10 @@ def dispatch_nd_compute(dp_rank_mapping: list[int], dp_size, worker_group, *args
             local_dp_rank = dp_rank_mapping[i]
             transformed_v.append(v[local_dp_rank])
         all_kwargs[k] = transformed_v
+
+    # add kwargs determing whether to collect from this rank
+    all_kwargs["collect_from_rank"] = [collect_mask[i] for i in range(worker_group.world_size)]
+
     return all_args, all_kwargs
 
 
@@ -265,9 +269,9 @@ def collect_nd_compute(collect_mask: list[bool], worker_group, output):
     return output_in_dp
 
 
-def dispatch_nd_compute_dataproto(dp_rank_mapping: list[int], dp_size, worker_group, *args, **kwargs):
+def dispatch_nd_compute_dataproto(dp_rank_mapping: list[int], dp_size, worker_group, collect_mask, *args, **kwargs):
     splitted_args, splitted_kwargs = _split_args_kwargs_data_proto(dp_size, *args, **kwargs)
-    return dispatch_nd_compute(dp_rank_mapping, dp_size, worker_group, *splitted_args, **splitted_kwargs)
+    return dispatch_nd_compute(dp_rank_mapping, dp_size, worker_group, collect_mask, *splitted_args, **splitted_kwargs)
 
 
 def collect_nd_compute_dataproto(collect_mask: list[bool], worker_group, output):
@@ -293,10 +297,20 @@ def dispatch_lazy_compute_data_proto(mesh_name, worker_group, *args, **kwargs):
         worker_group._dispatch_info[mesh_name] = worker_group._query_dispatch_info(mesh_name)
         assert len(worker_group._dispatch_info[mesh_name]) == worker_group.world_size
 
+    # the dispatch info is stored in the worker group
+    assert mesh_name in worker_group._dispatch_info
+    if mesh_name not in worker_group._collect_info:
+        worker_group._collect_info[mesh_name] = worker_group._query_collect_info(mesh_name)
+        assert len(worker_group._collect_info[mesh_name]) == worker_group.world_size
+
     dp_rank_mapping = worker_group._dispatch_info[mesh_name]
+
+    # a boolean of whether the dp_rank is used for collect
+    collect_mask = worker_group._collect_info[mesh_name]
+
     # perform dispatch
     dp_size = max(dp_rank_mapping) + 1
-    return dispatch_nd_compute_dataproto(dp_rank_mapping, dp_size, worker_group, *args, **kwargs)
+    return dispatch_nd_compute_dataproto(dp_rank_mapping, dp_size, worker_group, collect_mask, *args, **kwargs)
 
 
 def collect_lazy_compute_data_proto(mesh_name, worker_group, *args, **kwargs):

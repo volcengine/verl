@@ -178,10 +178,18 @@ def tqbridge(put_data: bool = True):
                     f"Task {func.__name__} (pid={pid}) is getting len_samples={batchmeta.size}, "
                     f"global_idx={batchmeta.global_indexes}"
                 )
+
+                if "collect_from_rank" in kwargs:
+                    collect_from_rank = kwargs["collect_from_rank"]
+                    kwargs.pop("collect_from_rank")
+                else:
+                    collect_from_rank = True
+
                 args = [_batchmeta_to_dataproto(arg) if isinstance(arg, BatchMeta) else arg for arg in args]
                 kwargs = {k: _batchmeta_to_dataproto(v) if isinstance(v, BatchMeta) else v for k, v in kwargs.items()}
                 output = func(*args, **kwargs)
-                if put_data:
+
+                if put_data and collect_from_rank:
                     updated_batch_meta = _update_batchmeta_with_output(output, batchmeta, func.__name__)
                     return updated_batch_meta
                 else:
@@ -197,23 +205,36 @@ def tqbridge(put_data: bool = True):
                     f"Task {func.__name__} (pid={pid}) is getting len_samples={batchmeta.size}, "
                     f"global_idx={batchmeta.global_indexes}"
                 )
+
+                if "collect_from_rank" in kwargs:
+                    collect_from_rank = kwargs["collect_from_rank"]
+                    print(f"{func.__name__} with TQ put={kwargs['collect_from_rank']}")
+                    kwargs.pop("collect_from_rank")
+                else:
+                    collect_from_rank = True
+
                 args = [await _async_batchmeta_to_dataproto(arg) if isinstance(arg, BatchMeta) else arg for arg in args]
                 kwargs = {
                     k: await _async_batchmeta_to_dataproto(v) if isinstance(v, BatchMeta) else v
                     for k, v in kwargs.items()
                 }
                 output = await func(*args, **kwargs)
-                if put_data:
+
+                if put_data and collect_from_rank:
                     updated_batchmeta = await _async_update_batchmeta_with_output(output, batchmeta, func.__name__)
                     return updated_batchmeta
                 return output
 
         @wraps(func)
         def dummy_inner(*args, **kwargs):
+            if "collect_from_rank" in kwargs:
+                kwargs.pop("collect_from_rank")
             return func(*args, **kwargs)
 
         @wraps(func)
         async def dummy_async_inner(*args, **kwargs):
+            if "collect_from_rank" in kwargs:
+                kwargs.pop("collect_from_rank")
             return await func(*args, **kwargs)
 
         wrapper_inner = inner if is_transferqueue_enabled else dummy_inner
