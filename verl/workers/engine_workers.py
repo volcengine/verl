@@ -218,8 +218,9 @@ class TrainingWorker(Worker):
                 global_token_num = mini_batch_td["input_ids"].offsets().diff().tolist()  # (total_nnz,)
                 # allgather from dp rank
                 global_token_num_output = [None] * self.engine.get_data_parallel_size()
-                torch.distributed.all_gather_object(global_token_num_output, global_token_num,
-                                                    self.engine.get_data_parallel_group())
+                torch.distributed.all_gather_object(
+                    global_token_num_output, global_token_num, self.engine.get_data_parallel_group()
+                )
                 global_token_num = [x for xs in global_token_num_output for x in xs]
                 tu.assign_non_tensor(
                     mini_batch_td,
