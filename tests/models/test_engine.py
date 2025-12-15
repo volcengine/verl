@@ -251,8 +251,7 @@ def test_critic_engine(strategy):
     device_count = torch.cuda.device_count()
     value_model_path = os.path.expanduser("~/models/test_model")
     language_model_path = get_test_language_model(device_count=device_count)
-    if not os.path.exists(value_model_path):
-        create_value_model(language_model_path, value_model_path)
+    create_value_model(language_model_path, value_model_path)
 
     torch.manual_seed(1)
     np.random.seed(1)
