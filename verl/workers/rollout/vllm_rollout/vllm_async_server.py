@@ -220,6 +220,7 @@ class vLLMHttpServerBase:
         if self.rollout_mode == RolloutMode.STANDALONE:
             enable_sleep_mode = False
             logger.info(f"enable_sleep_mode: {enable_sleep_mode}, set_expandable_segments is True")
+            from vllm.attention.selector import set_expandable_segments
             set_expandable_segments(True)
 
         args = {
