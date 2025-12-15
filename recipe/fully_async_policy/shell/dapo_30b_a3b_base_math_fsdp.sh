@@ -90,12 +90,8 @@ infer_ppo_max_token_len=$((max_prompt_length + max_response_length))
 ref_offload=True
 actor_offload=False
 gen_tp=4
-fsdp_size=32 #$((total_train_gpus)) # 32 64
-if [ $staleness_threshold -le 0 ]; then
-    partial_rollout="False"
-else
-    partial_rollout="True"
-fi
+fsdp_size=-1
+
 
 ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     --working-dir "${WORKING_DIR}" \
