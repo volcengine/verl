@@ -28,7 +28,7 @@ from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
 from verl.trainer.ppo.utils import need_critic, need_reference_policy
 from verl.utils.config import validate_config
-from verl.utils.device import is_cuda_available
+from verl.utils.device import auto_set_ascend_device_name, is_cuda_available
 from verl.utils.import_utils import load_extern_object
 
 
@@ -39,6 +39,9 @@ def main(config):
     Args:
         config_dict: Hydra configuration dictionary containing training parameters.
     """
+    # Automatically set `config.trainer.device = npu` when running on Ascend NPU.
+    auto_set_ascend_device_name(config)
+
     run_ppo(config)
 
 
