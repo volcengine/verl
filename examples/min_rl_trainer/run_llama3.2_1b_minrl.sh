@@ -105,6 +105,11 @@ test_freq=5
 save_freq=100
 total_epochs=5
 
+###############################################################################`
+# Clipping / correction settings
+clip_ratio_high=0.27
+clip_ratio_low=0.20
+
 ###############################################################################
 # Rollout importance sampling & correction (decoupled mode)
 ###############################################################################
@@ -112,14 +117,13 @@ total_epochs=5
 # `algorithm.rollout_correction.*` instead, map them accordingly.
 
 # Enable rollout IS correction (token-level).
-rollout_is=true
 rollout_is_level="token"          # "token" | "sequence"
-rollout_is_mode="clip"            # "clip" | "rs" | "clip+rs" (depending on your version)
 rollout_is_threshold=5.0          # truncate IS weights at this upper bound
-rollout_is_batch_normalize=false   # normalize weights to mean ~ 1.0
 
-# Optional: veto extremely large per-token weights even before clipping.
-rollout_token_veto_threshold=10.0
+# Optional: 
+rollout_token_veto_threshold=null # veto extremely large per-token weights even before clipping.
+rollout_is_batch_normalize=false   # normalize weights to mean ~ 1.0 
+
 
 ###############################################################################
 # Data paths
@@ -136,12 +140,9 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=${adv_estimator} \
     actor_rollout_ref.actor.policy_loss.loss_mode=${loss_mode} \
     \
-    algorithm.rollout_is=${rollout_is} \
-    algorithm.rollout_is_level=${rollout_is_level} \
-    algorithm.rollout_is_mode=${rollout_is_mode} \
+    algorithm.rollout_is=${rollout_is_level} \
     algorithm.rollout_is_threshold=${rollout_is_threshold} \
     algorithm.rollout_is_batch_normalize=${rollout_is_batch_normalize} \
-    algorithm.rollout_token_veto_threshold=${rollout_token_veto_threshold} \
     \
     data.train_files="${train_files}" \
     data.val_files="${test_files}" \
@@ -160,8 +161,9 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.use_kl_loss=${use_kl_loss} \
     actor_rollout_ref.actor.kl_loss_coef=${kl_loss_coef} \
     \
-    actor_rollout_ref.actor.clip_ratio_low=3e-4 \
-    actor_rollout_ref.actor.clip_ratio_high=4e-4 \
+    actor_rollout_ref.actor.clip_ratio_low=${clip_ratio_low} \
+    actor_rollout_ref.actor.clip_ratio_high=${clip_ratio_high} \
+    actor_rollout_ref.actor.rollout_is_threshold=${rollout_is_threshold} \
     \
     actor_rollout_ref.model.use_remove_padding=true \
     actor_rollout_ref.actor.use_dynamic_bsz=${use_dynamic_bsz} \

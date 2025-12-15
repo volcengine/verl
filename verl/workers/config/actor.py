@@ -97,6 +97,7 @@ class ActorConfig(BaseConfig):
         clip_ratio (float): PPO clipping ratio for policy loss.
         clip_ratio_low (float): Lower bound for PPO clipping ratio.
         clip_ratio_high (float): Upper bound for PPO clipping ratio.
+        rollout_is_threshold: (float) : Truncation threshold for total IS weights in MiniRL
         policy_loss (PolicyLossConfig): Configuration for policy loss computation.
         clip_ratio_c (float): Clipping ratio for critic loss.
         loss_agg_mode (str): Loss aggregation mode. Options: 'token-mean', 'sample-mean'.
@@ -136,6 +137,7 @@ class ActorConfig(BaseConfig):
     clip_ratio: float = 0.2
     clip_ratio_low: float = 0.2
     clip_ratio_high: float = 0.2
+    rollout_is_threshold: float = 5.0  # Truncation threshold for total IS weights in MiniRL
     freeze_vision_tower: bool = False
     policy_loss: PolicyLossConfig = field(default_factory=PolicyLossConfig)
     clip_ratio_c: float = 3.0
