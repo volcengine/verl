@@ -186,6 +186,7 @@ def get_tensordict(tensor_dict: dict[str, torch.Tensor | list], non_tensor_dict:
     for key, val in tensor_dict.items():
         if isinstance(val, torch.Tensor) and val.is_nested:
             assert val.is_contiguous(), "Nested tensors must be contiguous. Try setting layout=torch.jagged"
+            assert val.layout == torch.jagged, "Nested tensors must be jagged."
 
         # Skip validation for NonTensorStack as it's already properly formatted
         if isinstance(val, NonTensorStack):
@@ -300,13 +301,17 @@ def make_iterator(tensordict: TensorDict, mini_batch_size, epochs, seed=None, da
         generator = None
 
     assert isinstance(dataloader_kwargs, dict)
+
+    idx_lst = torch.arange(tensordict.shape[0])
+
     train_dataloader = DataLoader(
-        dataset=tensordict, batch_size=mini_batch_size, collate_fn=lambda x: x, generator=generator, **dataloader_kwargs
+        dataset=idx_lst, batch_size=mini_batch_size, collate_fn=lambda x: x, generator=generator, **dataloader_kwargs
     )
 
     def get_data():
         for _ in range(epochs):
-            yield from train_dataloader
+            for idx in train_dataloader:
+                yield index_select_tensor_dict(tensordict, idx)
 
     return iter(get_data())
 

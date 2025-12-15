@@ -247,15 +247,35 @@ def test_tensordict_eq():
 
 def test_tensor_dict_make_iterator():
     obs = torch.tensor([1, 2, 3, 4, 5, 6])
+    input_ids = torch.nested.as_nested_tensor(
+        [
+            torch.tensor([0, 1]),
+            torch.tensor([2]),
+            torch.tensor([3, 4]),
+            torch.tensor([5]),
+            torch.tensor([6, 7, 8]),
+            torch.tensor([9]),
+        ],
+        layout=torch.jagged,
+    )
     data_sources = ["abc", "def", "abc", "def", "pol", "klj"]
     non_tensor_dict = {"train_sample_kwargs": {"top_p": 1.0}, "val_sample_kwargs": {"top_p": 0.7}}
-    dataset = tu.get_tensordict({"obs": obs, "data_sources": data_sources}, non_tensor_dict=non_tensor_dict)
+    dataset = tu.get_tensordict(
+        {"obs": obs, "data_sources": data_sources, "input_ids": input_ids}, non_tensor_dict=non_tensor_dict
+    )
 
     dataloader = tu.make_iterator(
         dataset, mini_batch_size=2, epochs=2, seed=0, dataloader_kwargs={"shuffle": False, "drop_last": False}
     )
 
-    expected_tensor_dict = [dataset[0:2], dataset[2:4], dataset[4:6], dataset[0:2], dataset[2:4], dataset[4:6]]
+    expected_tensor_dict = [
+        tu.index_select_tensor_dict(dataset, indices=list(range(0, 2))),
+        tu.index_select_tensor_dict(dataset, indices=list(range(2, 4))),
+        tu.index_select_tensor_dict(dataset, indices=list(range(4, 6))),
+        tu.index_select_tensor_dict(dataset, indices=list(range(0, 2))),
+        tu.index_select_tensor_dict(dataset, indices=list(range(2, 4))),
+        tu.index_select_tensor_dict(dataset, indices=list(range(4, 6))),
+    ]
 
     i = 0
 

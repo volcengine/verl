@@ -299,7 +299,7 @@ class AgentLoopWorkerBase:
 
         use_reward_loop = True if self.config.reward_model.use_reward_loop else None
         self.use_reward_loop = use_reward_loop
-        if use_reward_loop:
+        if use_reward_loop and not hasattr(self, "reward_manager_worker"):
             self.reward_loop_worker = RewardLoopWorker.options(
                 scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
                     node_id=ray.get_runtime_context().get_node_id(),
