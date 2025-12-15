@@ -55,6 +55,8 @@ from verl.workers.rollout.vllm_rollout.utils import (
     get_vllm_max_lora_rank,
 )
 
+import inspect
+
 if vllm.__version__ > "0.11.0":
     from vllm.utils.argparse_utils import FlexibleArgumentParser
     from vllm.utils.network_utils import get_tcp_uri
@@ -385,11 +387,17 @@ class vLLMHttpServerBase:
         vllm_config = engine_args.create_engine_config(usage_context=usage_context)
         vllm_config.parallel_config.data_parallel_master_port = self._dp_master_port
 
+        fn_args = set(dict(inspect.signature(AsyncLLM.from_vllm_config).parameters).keys())
+        kwargs = {}
+        if 'enable_log_requests' in fn_args:
+            kwargs['enable_log_requests'] = engine_args.enable_log_requests
+        if 'disable_log_stats' in fn_args:
+            kwargs['disable_log_stats'] = engine_args.disable_log_stats
+
         engine_client = AsyncLLM.from_vllm_config(
             vllm_config=vllm_config,
             usage_context=usage_context,
-            enable_log_requests=engine_args.enable_log_requests,
-            disable_log_stats=engine_args.disable_log_stats,
+            **kwargs
         )
 
         # Don't keep the dummy data in memory

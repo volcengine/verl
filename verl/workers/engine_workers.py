@@ -215,7 +215,12 @@ class TrainingWorker(Worker):
 
             for batch_idx, mini_batch_td in enumerate(dataloader):
                 # add global token num
-                global_token_num = mini_batch_td["input_ids"].offsets().diff().tolist()
+                global_token_num = mini_batch_td["input_ids"].offsets().diff().tolist()  # (total_nnz,)
+                # allgather from dp rank
+                global_token_num_output = [None] * self.engine.get_data_parallel_size()
+                torch.distributed.all_gather_object(global_token_num_output, global_token_num,
+                                                    self.engine.get_data_parallel_group())
+                global_token_num = [x for xs in global_token_num_output for x in xs]
                 tu.assign_non_tensor(
                     mini_batch_td,
                     global_token_num=NonTensorData(global_token_num),
@@ -225,17 +230,20 @@ class TrainingWorker(Worker):
                 actor_output = self.train_batch(mini_batch_td)
                 output_lst.append(actor_output)
 
-            actor_output = [tu.get(output, "metrics") for output in output_lst]
-            metrics = {}
-            for output in actor_output:
-                for key, val in output.items():
-                    # flattn dp and micro batch
-                    if isinstance(val, list):
-                        output[key] = list(chain.from_iterable(val))
-                append_to_dict(metrics, output)
+            if self.engine.is_mp_src_rank_with_outputs():
+                actor_output = [tu.get(output, "metrics") for output in output_lst]
+                metrics = {}
+                for output in actor_output:
+                    for key, val in output.items():
+                        # flattn dp and micro batch
+                        if isinstance(val, list):
+                            output[key] = list(chain.from_iterable(val))
+                    append_to_dict(metrics, output)
 
-            output = tu.get_tensordict(tensor_dict={}, non_tensor_dict={"metrics": metrics})
-        return output.cpu()
+                output = tu.get_tensordict(tensor_dict={}, non_tensor_dict={"metrics": metrics}).cpu()
+            else:
+                output = None
+        return output
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False)
     def train_batch(self, data: TensorDict) -> TensorDict:
@@ -474,18 +482,20 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="ref"))
     @DistProfiler.annotate(color="olive", role="ref_compute_log_prob")
     def compute_ref_log_prob(self, data: TensorDict) -> TensorDict:
-        return self.ref.infer_batch(data=data).cpu()
+        output = self.ref.infer_batch(data=data)
+        return output.cpu() if output is not None else None
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @DistProfiler.annotate(color="blue", role="actor_compute_log_prob")
     def compute_log_prob(self, data: TensorDict) -> TensorDict:
-        return self.actor.infer_batch(data).cpu()
+        output = self.actor.infer_batch(data)
+        return output.cpu() if output is not None else None
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @DistProfiler.annotate(color="red", role="actor_update")
     def update_actor(self, data: TensorDict) -> TensorDict:
         output = self.actor.train_mini_batch(data=data)
-        return output
+        return output.cpu() if output is not None else None
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=False):
