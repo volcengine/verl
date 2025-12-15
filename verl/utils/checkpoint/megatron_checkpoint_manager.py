@@ -499,7 +499,9 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 log_with_rank(f"Saving HF model checkpoint to {local_path} with bridge", rank=self.rank, logger=logger)
                 hf_ckpt_path = get_hf_model_checkpoint_path(local_path)
                 if self.vanilla_bridge:
-                    self.bridge.save_weights(self.model, hf_ckpt_path)
+                    self.bridge.save_weights(
+                        self.model, hf_ckpt_path, distributed_filesystem=True, memory_efficient=True
+                    )
                 else:
                     self.bridge.save_hf_weights(self.model, hf_ckpt_path)
 
@@ -569,7 +571,9 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             if self.bridge is not None:
                 hf_model_ckpt_path = get_hf_model_checkpoint_path(local_path)
                 if self.vanilla_bridge:
-                    self.bridge.save_weights(self.model, hf_model_ckpt_path)
+                    self.bridge.save_weights(
+                        self.model, hf_model_ckpt_path, distributed_filesystem=True, memory_efficient=True
+                    )
                 else:
                     self.bridge.save_hf_weights(self.model, hf_model_ckpt_path)
             else:
@@ -630,6 +634,11 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 f"Dist checkpointing save completed for {dist_checkpoint_path}", rank=self.rank, logger=logger
             )
             if self.rank == 0:
+                local_latest_checkpointed_iteration = os.path.join(
+                    os.path.dirname(os.path.dirname(local_path)), "latest_checkpointed_iteration.txt"
+                )
+                with open(local_latest_checkpointed_iteration, "w") as f:
+                    f.write(str(global_step))
                 if hdfs_path is not None:
                     log_with_rank(f"Uploading checkpoint to {hdfs_path}", rank=self.rank, logger=logger)
                     from verl.utils import hdfs_io
@@ -641,6 +650,9 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         if self.checkpoint_config.async_save:
             assert async_save_request is not None, "Async save request should not be None when using async save."
             async_save_request.add_finalize_fn(finalize_save_fn)
+            from megatron.core.dist_checkpointing.strategies.base import async_calls
+
+            async_calls.schedule_async_request(async_save_request)
         else:
             finalize_save_fn()
 

@@ -339,14 +339,14 @@ Using the `async stream pipeline with stale samples` strategy, we achieved about
     * staleness_threshold: 0.5
     * partial_rollout: True
 
-|  training mode   	   | resource allocation 	 | step  	  |  gen  	  | old_log_prob 	 | update_actor 	 | total time<br>100 step 	 | total time<br>200 step 	 | total time<br>300 step 	 | total time<br>400 step 	 |      acc/mean@1          	      |
-|:--------------------:|:---------------------:|:--------:|:--------:|:--------------:|:--------------:|:------------------------:|:------------------------:|:------------------------:|:------------------------:|:-------------------------------:|
-| colocate sync      	 | 32                  	 | 790.10 	 | 357.41 	 | 107.71       	 | 313.81       	 | 13h 44m                	 | 1d 3h 43m              	 | 2d 9h 22m              	 | 3d 17h 5m              	 | max: 0.3313<br>last: 0.2448  	  |
-| fully_async_policy 	 | 16:16               	 |  294.77  |  21.26   | \            	 |     269.80     |    7h 58m<br>(1.72x)     |    16h 21m<br>(1.70x)    |   1d 0h 53m<br>(2.31x)   |   1d 9h 26m<br>(2.66x)   | max: 0.3302<br>last: 0.2333   	 |
-| colocate sync      	 | 64                  	 | 365.28 	 | 150.72 	 | 70.26        	 | 133.41       	 | 10h 22m                	 | 20h 45m                	 | 1d 7h 6m               	 | 1d 17h 32m             	 | max: 0.3365<br>last:  0.2333 	  |
-| fully_async_policy 	 | 32:32               	 | 189.26 	 | 28.46  	 | \            	 | 156.98       	 | 4h 57m<br>(2.09x)      	 | 10h 14m<br>(2.03x)     	 | 16h 58m<br>(1.83x)     	 | 21h 40m<br>(1.92x)     	 | max: 0.3677<br>last: 0.3406  	  |
-| colocate sync      	 | 128                 	 | 356.30 	 | 177.85 	 | 53.92        	 | 113.81       	 | 8h 36m                 	 | 17h 56m                	 | 1d 5h 6m               	 | 1d 16h 48m             	 | max: 0.3573<br>last: 0.2958  	  |
-| fully_async_policy 	 | 64:64               	 | 150.63 	 | 33.14  	 | \            	 | 113.16       	 | 3h 13m<br>(2.67x)      	 | 6h 46m<br>(2.65x)      	 | 10h 53m<br>(2.67x)     	 | 17h 22m<br>(2.35x)     	 | max: 0.3521<br>last: 0.3094  	  |
+|  training mode   	   | resource allocation 	 | step  	  |  gen  	  | old_log_prob 	 | update_actor 	  | total time<br>100 step 	 | total time<br>200 step 	 | total time<br>300 step 	 | total time<br>400 step 	 |      acc/mean@1          	      |
+|:--------------------:|:---------------------:|:--------:|:--------:|:--------------:|:---------------:|:------------------------:|:------------------------:|:------------------------:|:------------------------:|:-------------------------------:|
+| colocate sync      	 | 32                  	 | 790.10 	 | 357.41 	 | 107.71       	 | 269.80        	 | 13h 44m                	 | 1d 3h 43m              	 | 2d 9h 22m              	 | 3d 17h 5m              	 | max: 0.3313<br>last: 0.2448  	  |
+| fully_async_policy 	 | 16:16               	 |  294.77  |  21.26   | \            	 |     313.81      |    7h 58m<br>(1.72x)     |    16h 21m<br>(1.70x)    |   1d 0h 53m<br>(2.31x)   |   1d 9h 26m<br>(2.66x)   | max: 0.3302<br>last: 0.2333   	 |
+| colocate sync      	 | 64                  	 | 365.28 	 | 150.72 	 | 70.26        	 | 133.41       	  | 10h 22m                	 | 20h 45m                	 | 1d 7h 6m               	 | 1d 17h 32m             	 | max: 0.3365<br>last:  0.2333 	  |
+| fully_async_policy 	 | 32:32               	 | 189.26 	 | 28.46  	 | \            	 | 156.98       	  | 4h 57m<br>(2.09x)      	 | 10h 14m<br>(2.03x)     	 | 16h 58m<br>(1.83x)     	 | 21h 40m<br>(1.92x)     	 | max: 0.3677<br>last: 0.3406  	  |
+| colocate sync      	 | 128                 	 | 356.30 	 | 177.85 	 | 53.92        	 | 113.81       	  | 8h 36m                 	 | 17h 56m                	 | 1d 5h 6m               	 | 1d 16h 48m             	 | max: 0.3573<br>last: 0.2958  	  |
+| fully_async_policy 	 | 64:64               	 | 150.63 	 | 33.14  	 | \            	 | 113.16       	  | 3h 13m<br>(2.67x)      	 | 6h 46m<br>(2.65x)      	 | 10h 53m<br>(2.67x)     	 | 17h 22m<br>(2.35x)     	 | max: 0.3521<br>last: 0.3094  	  |
 
 > source data: https://wandb.ai/hou-zg-meituan/fully-async-policy-colocate_async?nw=nwuserhouzg
 
@@ -399,7 +399,16 @@ training, which in turn affects training time. We verified the impact on results
 
 ### 30B Model Mode Experiment
 
-We achieved a 1.7x performance improvement with `async stream pipeline with staleness samples` strategy on the Qwen3-30B-A3B-Base model compared to the colocate setup. It is worth noting that this is far from the upper limit of performance gains achievable through asynchrony. Firstly, the comparative experiments used a maximum response length of only 8k, which is much shorter than the 20k sequence length in previous experiments, resulting in a less pronounced rollout tail effect. Secondly, we adopted a highly skewed resource allocation, with rollout using 96 GPUs and trainer using 32 GPUs, which is not an optimal configuration. During the experiments, we observed that the current verl implementation imposes certain constraints, such as requiring data to be evenly divisible by the number of GPUs, making resource adjustment less flexible. Additionally, as asynchronous training and deployment accelerate, the performance gap is gradually narrowing. Therefore, enabling more flexible resource allocation and dynamic resource adjustment in the future will be our next focus.
+We achieved a 1.7x performance improvement with `async stream pipeline with staleness samples` strategy on the
+Qwen3-30B-A3B-Base model compared to the colocate setup. It is worth noting that this is far from the upper limit of
+performance gains achievable through asynchrony. Firstly, the comparative experiments used a maximum response length of
+only 8k, which is much shorter than the 20k sequence length in previous experiments, resulting in a less pronounced
+rollout tail effect. Secondly, we adopted a highly skewed resource allocation, with rollout using 96 GPUs and trainer
+using 32 GPUs, which is not an optimal configuration. During the experiments, we observed that the current verl
+implementation imposes certain constraints, such as requiring data to be evenly divisible by the number of GPUs, making
+resource adjustment less flexible. Additionally, as asynchronous training and deployment accelerate, the performance gap
+is gradually narrowing. Therefore, enabling more flexible resource allocation and dynamic resource adjustment in the
+future will be our next focus.
 
 * Machine: H20
 * Model: Qwen3-30B-A3B-Base
@@ -421,71 +430,86 @@ We achieved a 1.7x performance improvement with `async stream pipeline with stal
     * staleness_threshold: 0.5
     * partial_rollout: True
 
-| Training Mode        | Resource Allocation | Step    | Gen    | Old Log Prob | Ref    | Update Actor | Total Time 100 Step | Total Time 200 Step | Total Time 300 Step | Total Time 400 Step | Acc/Mean@1                 |
-|----------------------|--------------------|---------|--------|--------------|--------|--------------|---------------------|---------------------|---------------------|---------------------|-----------------------------|
-| Colocate Sync        | 128                | 497.89  | 348.05 | 28.73        | 20.86  | 86.27        | 13h 36m             | 1d 3h 48m           | 1d 19h 4m           | 2d 11h 39m          | max: 0.3500<br>last: 0.3208 |
-| Fully Async Policy   | 96:32              | 282.75  | 22.06  | \            | 50.05  | 206.63       | 6h 45m (2.01x)      | 14h 48m (1.88x)     | 1d 0h 9m (1.78x)    | 1d 10h 41m (1.72x)  | max: 0.3813<br>last: 0.3448 |
+| Training Mode      | Resource Allocation | Step   | Gen    | Old Log Prob | Ref   | Update Actor | Total Time 100 Step | Total Time 200 Step | Total Time 300 Step | Total Time 400 Step | Acc/Mean@1                  |
+|--------------------|---------------------|--------|--------|--------------|-------|--------------|---------------------|---------------------|---------------------|---------------------|-----------------------------|
+| Colocate Sync      | 128                 | 497.89 | 348.05 | 28.73        | 20.86 | 86.27        | 13h 36m             | 1d 3h 48m           | 1d 19h 4m           | 2d 11h 39m          | max: 0.3500<br>last: 0.3208 |
+| Fully Async Policy | 96:32               | 282.75 | 22.06  | \            | 50.05 | 206.63       | 6h 45m (2.01x)      | 14h 48m (1.88x)     | 1d 0h 9m (1.78x)    | 1d 10h 41m (1.72x)  | max: 0.3813<br>last: 0.3448 |
 
-> source data: https://wandb.ai/hou-zg-meituan/fully-async-policy-30B?nw=nwuserhouzg           |            |                  |
+> source data: https://wandb.ai/hou-zg-meituan/fully-async-policy-30B?nw=nwuserhouzg           | | |
 
 ## Multi-Turn Tool Calling
-Referencing **recipe/retool** and **ToolAgentLoop**, we implemented **AsyncPartialToolAgentLoop**, a multi-turn tool-calling loop that supports partial_rollout for **fully_async_policy**.
+
+Referencing **recipe/retool** and **ToolAgentLoop**, we implemented **AsyncPartialToolAgentLoop**, a multi-turn
+tool-calling loop that supports partial_rollout for **fully_async_policy**.
 
 ### Core Design
-`AsyncPartialToolAgentLoop` inherits from `ToolAgentLoop` and is adapted for the asynchronous training mode of `fully_async_policy`. When `partial_rollout=True`, the Rollouter interrupts ongoing generation tasks before synchronizing parameters with the Trainer. `AsyncPartialToolAgentLoop` is capable of:
-1.  **Interrupting Tasks**: Responding to an interrupt signal to save the current state. Currently, interruptions occur during the `GENERATING` process or after other states have completed.
-2.  **Resuming Tasks**: Resuming execution from the saved state after parameter synchronization is complete, rather than starting over.
+
+`AsyncPartialToolAgentLoop` inherits from `ToolAgentLoop` and is adapted for the asynchronous training mode of
+`fully_async_policy`. When `partial_rollout=True`, the Rollouter interrupts ongoing generation tasks before
+synchronizing parameters with the Trainer. `AsyncPartialToolAgentLoop` is capable of:
+
+1. **Interrupting Tasks**: Responding to an interrupt signal to save the current state. Currently, interruptions occur
+   during the `GENERATING` process or after other states have completed.
+2. **Resuming Tasks**: Resuming execution from the saved state after parameter synchronization is complete, rather than
+   starting over.
 
 ### How to Use
-RL training with multi-turn tool calling in `fully_async_policy` is similar to `recipe/retool`. It is enabled by specifying `multi_turn` configurations in the config file.
-1.  **SFT Stage**: First, the model should undergo SFT to learn how to follow tool-calling format instructions.
-2.  **Multi-turn Configuration**: In the `fully_async_policy` training configuration, set the following parameters:
-    ```yaml
-    actor_rollout_ref:
-      rollout:
-        multi_turn:
-          enable: True # AsyncPartialToolAgentLoop will be used by default in fully_async_policy mode
-          # Other multi_turn related configurations
-    ```
-3.  **Async Parameters**: To improve efficiency, enable `partial_rollout` and `staleness_threshold` when using multi-turn tool calling:
-    ```yaml
-    async_training:
-      partial_rollout: True
-      staleness_threshold: 0.5
-      # Other async parameters
-    ```
-4.  **Example**: See `recipe/fully_async_policy/shell/dapo_7b_async_retool.sh`.
+
+RL training with multi-turn tool calling in `fully_async_policy` is similar to `recipe/retool`. It is enabled by
+specifying `multi_turn` configurations in the config file.
+
+1. **SFT Stage**: First, the model should undergo SFT to learn how to follow tool-calling format instructions.
+2. **Multi-turn Configuration**: In the `fully_async_policy` training configuration, set the following parameters:
+   ```yaml
+   actor_rollout_ref:
+     rollout:
+       multi_turn:
+         enable: True # AsyncPartialToolAgentLoop will be used by default in fully_async_policy mode
+         # Other multi_turn related configurations
+   ```
+3. **Async Parameters**: To improve efficiency, enable `partial_rollout` and `staleness_threshold` when using multi-turn
+   tool calling:
+   ```yaml
+   async_training:
+     partial_rollout: True
+     staleness_threshold: 0.5
+     # Other async parameters
+   ```
+4. **Example**: See `recipe/fully_async_policy/shell/dapo_7b_async_retool.sh`.
 
 ### Experimental Results
-To validate the performance of `fully_async_policy` on multi-turn tool-calling tasks, we compared it with the standard `colocate` synchronous mode. Key parameter settings are as follows.
-*   **SFT Model**: Based on `Qwen2.5-7B-Instruct`, trained for 6 epochs on the `ReTool-SFT` dataset
-*   **RL Algorithm**: DAPO
-*   **Dataset**:
-    *   Train: `DAPO-Math-17k`
-    *   Test: `aime_2025`
-*   **Resource and Mode Comparison**:
-    *   `colocate sync`: 32 H20 gpus
-    *   `fully_async_policy`: 16 gpus for Trainer + 16 gpus for Rollouter
-*   **Key Configurations**:
-    1.  **Tool Calling Configuration**:
-        *   `multi_turn.enable: True`
-        *   `multi_turn.max_user_turns: 16`
-        *   `multi_turn.max_assistant_turns: 16`
-        *   `multi_turn.tool_config_path: recipe/retool/sandbox_fusion_tool_config.yaml`
-    2.  **`colocate sync` Configuration**:
-        *   `ppo_mini_batch_size: 16`
-        *   `train_batch_size: 64`
-    3.  **`fully_async_policy` Configuration**:
-        *   `ppo_mini_batch_size: 16`
-        *   `trigger_parameter_sync_step: 4`
-        *   `require_batches: 1`
-        *   `staleness_threshold: 1`
-        *   `partial_rollout: True`
 
-|    training mode   	| Resource allocation 	|   step  	|   gen   	| old_log_prob 	| update_actor 	| total time<br>100 step 	| total time<br>200 step 	|   aime_2025<br>acc/mean@30  	|
-|:------------------:	|:-------------------:	|:-------:	|:-------:	|:------------:	|:------------:	|:----------------------:	|:----------------------:	|:---------------------------:	|
-| colocate           	| 32                  	| 375.47  	|  228.03 	| 35.19        	| 111.84       	| 9h 46m                 	| 22h 28m                	| start:0.1078<br>last:0.2056   	|
-| fully_async_policy 	| 16: 16              	|  221.36 	| 40.59   	| \            	| 179.58       	| 6h 19m<br>(1.55x)      	| 14h 4m<br>(1.60x)      	| start:0.11<br>last:0.2044 	|
+To validate the performance of `fully_async_policy` on multi-turn tool-calling tasks, we compared it with the standard
+`colocate` synchronous mode. Key parameter settings are as follows.
+
+* **SFT Model**: Based on `Qwen2.5-7B-Instruct`, trained for 6 epochs on the `ReTool-SFT` dataset
+* **RL Algorithm**: DAPO
+* **Dataset**:
+    * Train: `DAPO-Math-17k`
+    * Test: `aime_2025`
+* **Resource and Mode Comparison**:
+    * `colocate sync`: 32 H20 gpus
+    * `fully_async_policy`: 16 gpus for Trainer + 16 gpus for Rollouter
+* **Key Configurations**:
+    1. **Tool Calling Configuration**:
+        * `multi_turn.enable: True`
+        * `multi_turn.max_user_turns: 16`
+        * `multi_turn.max_assistant_turns: 16`
+        * `multi_turn.tool_config_path: recipe/retool/sandbox_fusion_tool_config.yaml`
+    2. **`colocate sync` Configuration**:
+        * `ppo_mini_batch_size: 16`
+        * `train_batch_size: 64`
+    3. **`fully_async_policy` Configuration**:
+        * `ppo_mini_batch_size: 16`
+        * `trigger_parameter_sync_step: 4`
+        * `require_batches: 1`
+        * `staleness_threshold: 1`
+        * `partial_rollout: True`
+
+|  training mode   	   | Resource allocation 	 |  step  	  |  gen   	  | old_log_prob 	 | update_actor 	 | total time<br>100 step 	 | total time<br>200 step 	 |   aime_2025<br>acc/mean@30  	   |
+|:--------------------:|:---------------------:|:---------:|:---------:|:--------------:|:--------------:|:------------------------:|:------------------------:|:-------------------------------:|
+| colocate           	 | 32                  	 | 375.47  	 | 228.03 	  | 35.19        	 | 111.84       	 | 9h 46m                 	 | 22h 28m                	 | start:0.1078<br>last:0.2056   	 |
+| fully_async_policy 	 | 16: 16              	 | 221.36 	  | 40.59   	 | \            	 | 179.58       	 | 6h 19m<br>(1.55x)      	 | 14h 4m<br>(1.60x)      	 |   start:0.11<br>last:0.2044 	   |
 
 > source data: https://wandb.ai/hou-zg-meituan/fully-async-policy-multiturn-tool?nw=nwuserhouzg
 
