@@ -21,13 +21,10 @@ from typing import Callable, TypedDict
 
 import torch
 import zmq
-from vllm.config import VllmConfig
-from vllm.model_executor.model_loader.utils import process_weights_after_loading
 from vllm.lora.request import LoRARequest
 
 from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
-from verl.utils.vllm.utils import rebuild_ipc
-from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches, is_fp8_model, load_quanted_weights, quant_weights
+from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches, is_fp8_model, load_quanted_weights
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .utils import TensorLoRARequest, VLLMHijack, is_version_ge, rebuild_ipc
+from .utils import TensorLoRARequest, VLLMHijack, is_version_ge
 
 # The contents of vllm/patch.py should not be imported here, because the contents of
 # patch.py should be imported after the vllm LLM instance is created. Therefore,
@@ -23,5 +23,4 @@ __all__ = [
     "TensorLoRARequest",
     "VLLMHijack",
     "is_version_ge",
-    "rebuild_ipc",
 ]

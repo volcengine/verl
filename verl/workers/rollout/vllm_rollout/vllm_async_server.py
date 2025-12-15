@@ -44,6 +44,7 @@ from vllm.v1.engine.async_llm import AsyncLLM
 from vllm.v1.engine.core import EngineCoreProc
 from vllm.v1.engine.utils import CoreEngineProcManager
 from vllm.v1.executor.abstract import Executor
+from vllm.v1.executor.multiproc_executor import MultiprocExecutor
 
 from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
@@ -58,7 +59,6 @@ from verl.workers.rollout.vllm_rollout.utils import (
     VLLM_LORA_PATH,
     get_vllm_max_lora_rank,
 )
-from verl.workers.rollout.vllm_rollout.vllm_multiproc_executor import vLLMMultiprocExecutor
 
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
@@ -284,15 +284,10 @@ class vLLMHttpServerBase:
             cmds[server_args.subparser].validate(server_args)
 
         # 2. setup distributed executor backend
-        distributed_executor_backend = vLLMMultiprocExecutor if len(self.workers) > 0 else None
+        distributed_executor_backend = MultiprocExecutor if len(self.workers) > 0 else None
         server_args.distributed_executor_backend = distributed_executor_backend
 
-        # 3. generate and set executor zmq address for communicating between training worker and executor
-        executor_zmq_address = self._generate_executor_zmq_address()
-        os.environ["VERL_VLLM_EXECUTOR_ZMQ_ADDRESS"] = executor_zmq_address
-        ray.get([worker.set_executor_zmq_address.remote(executor_zmq_address) for worker in self.workers])
-
-        # 4. get and set zmq handles for cuda-ipc based weights updating
+        # 3. get and set zmq handles for cuda-ipc based weights updating
         zmq_handles = {}
         for worker in self.workers:
             zmq_handles.update(ray.get(worker.get_update_weights_zmq_handle.remote()))
@@ -585,10 +580,13 @@ class vLLMReplica(RolloutReplica):
             if is_valid_ipv6_address(server_address)
             else f"{server_address}:{server_port}"
         )
+
+        # initialize inference engine and set server handle to training worker
         await self._server_handle.collective_rpc.remote(
             method="monkey_patch_compute_logits",
             kwargs={"vocab_size": len(self.model_config.tokenizer)}
         )
+        ray.get([worker.set_server_handle.remote(self._server_handle) for worker in self.workers])
 
     async def sleep(self):
         """Sleep each rollout server."""

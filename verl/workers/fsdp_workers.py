@@ -25,6 +25,7 @@ from typing import Any, Optional
 
 import numpy as np
 import psutil
+import ray
 import torch
 import torch.distributed
 import torch.distributed as dist
@@ -1940,8 +1941,8 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
     # ============================ vLLM related ============================
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    def set_executor_zmq_address(self, zmq_address: str):
-        return self.rollout.set_executor_zmq_address(zmq_address)
+    def set_server_handle(self, server_handle: ray.actor.ActorHandle):
+        return self.rollout.set_server_handle(server_handle)
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     def get_update_weights_zmq_handle(self):

@@ -81,11 +81,9 @@ from verl.utils.model import get_lora_rank_from_adapter
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.ray_utils import ray_noset_visible_devices
 from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
-from verl.utils.vllm import TensorLoRARequest, VLLMHijack, is_version_ge, rebuild_ipc
-from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches, is_fp8_model, load_quanted_weights
+from verl.utils.vllm import TensorLoRARequest, VLLMHijack, is_version_ge
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
-from verl.workers.rollout.utils import get_free_port, is_valid_ipv6_address
 from verl.workers.rollout.vllm_rollout.utils import (
     VLLM_LORA_INT_ID,
     VLLM_LORA_NAME,
