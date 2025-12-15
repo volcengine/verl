@@ -91,5 +91,4 @@ python3 -m recipe.dapo.main_dapo \
     trainer.total_epochs=1 \
     trainer.resume_mode=disable \
     trainer.val_before_train=False \
-    trainer.total_training_steps=1 \
-    trainer.device=npu $@
+    trainer.total_training_steps=1 $@
