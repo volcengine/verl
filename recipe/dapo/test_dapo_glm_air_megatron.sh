@@ -91,7 +91,6 @@ RM_TP=${RM_TP:-$TRAIN_TP}
 RM_EP=${RM_EP:-$COMMON_EP}
 RM_ETP=${RM_ETP:-$COMMON_ETP}
 
-USE_MBRIDGE=True
 USE_DIST_CKPT=False
 
 # Install the latest mbridge
@@ -125,7 +124,6 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     actor_rollout_ref.actor.optim.lr_warmup_steps=10 \
     actor_rollout_ref.actor.optim.lr_decay_style='constant' \
     actor_rollout_ref.actor.optim.weight_decay=0.1 \
-    actor_rollout_ref.actor.megatron.use_mbridge=$USE_MBRIDGE \
     actor_rollout_ref.actor.megatron.use_dist_checkpointing=$USE_DIST_CKPT \
     actor_rollout_ref.actor.megatron.param_offload=${offload} \
     actor_rollout_ref.actor.megatron.grad_offload=${offload} \

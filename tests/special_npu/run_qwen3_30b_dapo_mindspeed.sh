@@ -42,9 +42,6 @@ if [[ "$USE_DIST_CKPT" == "True" ]]; then
         fi
     fi
 
-    torchrun --nproc_per_node 2 --nnodes 1 scripts/converter_hf_to_mcore.py \
-        --hf_model_path "${MODEL_PATH}" \
-        --output_path "${DIST_CKPT_PATH}"
 fi
 
 exp_name='Qwen3-30B-A3B-DAPO-MindSpeed'

@@ -107,7 +107,6 @@ CRITIC_PARAM_OFFLOAD=${CRITIC_PARAM_OFFLOAD:-$COMMON_PARAM_OFFLOAD}
 CRITIC_GRAD_OFFLOAD=${CRITIC_GRAD_OFFLOAD:-$COMMON_GRAD_OFFLOAD}
 CRITIC_OPTIMIZER_OFFLOAD=${CRITIC_OPTIMIZER_OFFLOAD:-$COMMON_OPTIMIZER_OFFLOAD}
 RM_PARAM_OFFLOAD=${RM_PARAM_OFFLOAD:-$COMMON_PARAM_OFFLOAD}
-USE_MBRIDGE=${USE_MBRIDGE:-False}
 VANILLA_MBRIDGE=${VANILLA_MBRIDGE:-True}
 VALUE_VANILLA_MBRIDGE=${VALUE_VANILLA_MBRIDGE:-$VANILLA_MBRIDGE}
 USE_FUSED_KERNELS=${USE_FUSED_KERNELS:-False}
@@ -126,9 +125,6 @@ if [ "$USE_DIST_CKPT" = "True" ]; then
     if [ "$USE_DUMMY_MODEL" = "True" ]; then
         DIST_CKPT_PATH=${HOME}/dist_ckpt_dummy/${MODEL_ID}
     fi
-    python scripts/converter_hf_to_mcore.py \
-        --hf_model_path "${MODEL_PATH}" \
-        --output_path "${DIST_CKPT_PATH}"
 fi
 
 ENGINE=${ENGINE:-"vllm"}
@@ -175,7 +171,6 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
     actor_rollout_ref.actor.use_dynamic_bsz=${USE_DYNAMIC_BSZ} \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=${ppo_max_token_len_per_gpu} \
-    actor_rollout_ref.actor.megatron.use_mbridge=${USE_MBRIDGE} \
     actor_rollout_ref.actor.megatron.vanilla_mbridge=${VANILLA_MBRIDGE} \
     actor_rollout_ref.actor.megatron.pipeline_model_parallel_size=$ACTOR_PP \
     actor_rollout_ref.actor.megatron.virtual_pipeline_model_parallel_size=$ACTOR_VPP \
@@ -204,7 +199,6 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     ++actor_rollout_ref.rollout.quantization=${ROLLOUT_QUANTIZATION} \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
-    actor_rollout_ref.ref.megatron.use_mbridge=${USE_MBRIDGE} \
     actor_rollout_ref.ref.megatron.vanilla_mbridge=${VANILLA_MBRIDGE} \
     actor_rollout_ref.ref.megatron.pipeline_model_parallel_size=$REF_PP \
     actor_rollout_ref.ref.megatron.virtual_pipeline_model_parallel_size=$REF_VPP \
@@ -226,7 +220,6 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     critic.model.lora.target_modules=${LORA_TARGET_MODULES} \
     critic.ppo_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
     critic.ppo_max_token_len_per_gpu=${forward_max_token_len_per_gpu} \
-    critic.megatron.use_mbridge=${USE_MBRIDGE} \
     critic.megatron.vanilla_mbridge=${VALUE_VANILLA_MBRIDGE} \
     critic.megatron.pipeline_model_parallel_size=$CRITIC_PP \
     critic.megatron.virtual_pipeline_model_parallel_size=$CRITIC_VPP \
@@ -247,7 +240,6 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     reward_model.use_reward_loop=False \
     reward_model.model.path="${MODEL_PATH}" \
     reward_model.micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
-    reward_model.megatron.use_mbridge=${USE_MBRIDGE} \
     reward_model.megatron.vanilla_mbridge=${VALUE_VANILLA_MBRIDGE} \
     reward_model.megatron.pipeline_model_parallel_size=$RM_PP \
     reward_model.megatron.virtual_pipeline_model_parallel_size=$RM_VPP \

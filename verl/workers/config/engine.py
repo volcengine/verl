@@ -99,7 +99,6 @@ class McoreEngineConfig(EngineConfig):
         seed (int): Random seed for reproducibility.
         override_ddp_config (dict[str, Any]): Override configuration for DDP.
         override_transformer_config (dict[str, Any]): Override configuration for transformer.
-        use_mbridge (bool): Whether to use MBridge for communication.
         dtype (str): Mixed precision training param dtype, default "bfloat16"
     """
 
@@ -120,7 +119,6 @@ class McoreEngineConfig(EngineConfig):
     override_ddp_config: dict[str, Any] = field(default_factory=dict)
     override_transformer_config: dict[str, Any] = field(default_factory=dict)
     override_mcore_model_config: dict[str, Any] = field(default_factory=dict)
-    use_mbridge: bool = False
     vanilla_mbridge: bool = True
     strategy: str = "megatron"
 

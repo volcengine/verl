@@ -108,8 +108,6 @@ Parameter Reference
 :math:`\theta`
   - ``actor_rollout_ref.model.path``:
     Path to the actor checkpoint in HuggingFace-compatible format.
-  - ``actor_rollout_ref.actor.megatron.use_mbridge``:
-    Enable mbridge format conversion when the model was trained with Megatron. Use the latest mbridge release: https://github.com/ISEEKYAN/mbridge.
 
 :math:`\pi`
   - ``actor_rollout_ref.rollout.name``:

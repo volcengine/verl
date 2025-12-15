@@ -58,10 +58,6 @@ def main():
         from .fsdp_model_merger import FSDPModelMerger
 
         merger = FSDPModelMerger(config)
-    elif config.backend == "megatron":
-        from .megatron_model_merger import MegatronModelMerger
-
-        merger = MegatronModelMerger(config)
     else:
         raise NotImplementedError(f"Unknown backend: {config.backend}")
 
