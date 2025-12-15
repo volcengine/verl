@@ -61,7 +61,7 @@ tracking metrics to diagnose and correct off-policy issues.
 
 
 ## References
-- "When Speed Kills Stability" (LLM training stability analysis): https://yingru.notion.site/When-Speed-Kills-Stability-271211a558b7808d8b12d403fd15edda
+- "When Speed Kills Stability: Demystifying RL Collapse from the Training-Inference Mismatch": https://richardli.xyz/rl-collapse
 - Off-policy RL (theoretical basis for IS): https://fengyao.notion.site/off-policy-rl
 """
 
@@ -405,15 +405,23 @@ def compute_rollout_correction_weights(
     # Apply batch normalization if requested
     if rollout_is_batch_normalize:
         # Compute mean based on aggregation level
+        mask_float = response_mask.to(dtype=rollout_is_weights.dtype)
         if rollout_is == "token":
             # Token-level: normalize over all token weights
-            weights_mean = verl_F.masked_mean(rollout_is_weights, response_mask)
+            if torch.distributed.is_available() and torch.distributed.is_initialized():
+                weights_mean = verl_F.distributed_masked_mean(rollout_is_weights, mask_float)
+            else:
+                weights_mean = verl_F.masked_mean(rollout_is_weights, response_mask)
         elif rollout_is == "sequence":
             # Sequence-level: normalize over sequence weights (one weight per sequence)
             # For each sequence, compute mean over valid tokens (they all have the same weight)
             # then average across sequences
-            seq_weights_mean = verl_F.masked_mean(rollout_is_weights, response_mask, axis=-1)  # (batch_size,)
-            weights_mean = seq_weights_mean.mean()
+            seq_weights = verl_F.masked_mean(rollout_is_weights, response_mask, axis=-1)  # (batch_size,)
+            seq_mask = (response_mask.sum(dim=-1) > 0).to(dtype=rollout_is_weights.dtype)
+            if torch.distributed.is_available() and torch.distributed.is_initialized():
+                weights_mean = verl_F.distributed_masked_mean(seq_weights, seq_mask)
+            else:
+                weights_mean = (seq_weights * seq_mask).sum() / seq_mask.sum().clamp_min(1e-8)
         else:
             raise ValueError(f"Unsupported rollout_is: {rollout_is}")
 
@@ -905,28 +913,28 @@ def compute_rollout_corr_metrics_from_logprobs(
     return metrics_with_prefix
 
 
-def apply_rollout_correction(
+def apply_bypass_mode(
     batch: DataProto,
     rollout_corr_config: Optional[RolloutCorrectionConfig] = None,
     policy_loss_config: PolicyLossConfig = None,
 ) -> None:
     """
-    BYPASS MODE: Use rollout_log_probs as old_log_probs
-    Skips expensive actor forward pass for old_log_prob computation
+    Setup bypass mode: Use rollout_log_probs as old_log_probs.
 
-    Two sub-modes (controlled by use_policy_gradient):
-    1. Bypass + PPO loss (use_policy_gradient=False, default):
-       - Uses standard PPO loss function with old_log_prob=rollout_log_prob
-       - PPO clips ratio π_θ/π_rollout instead of π_θ/π_old
+    Bypass mode skips expensive actor forward pass for old_log_prob computation
+    by setting old_log_probs = rollout_log_probs (2 policies instead of 3).
 
-    2. Bypass + Policy Gradient loss (use_policy_gradient=True):
-       - Uses compute_policy_loss_with_rollout_correction()
-       - Policy gradient (REINFORCE-style) with IS/RS correction applied
-       - No PPO clipping
+    Uses compute_policy_loss_bypass_mode() which supports:
+    - loss_type="ppo_clip" (default): PPO clipped objective (IS handled by ratio)
+    - loss_type="reinforce": REINFORCE with explicit IS weights
+
+    Both loss types benefit from rejection sampling (RS) which masks out-of-distribution samples.
 
     Note:
         The implementation is copied from szrlee <szrlee@gmail.com>.
     """
+    from omegaconf import open_dict
+
     if "rollout_log_probs" not in batch.batch:
         raise ValueError(
             "bypass_mode=True requires rollout_log_probs in batch. "
@@ -936,13 +944,8 @@ def apply_rollout_correction(
     # Use rollout log probs as old log probs (zero-cost substitution)
     batch.batch["old_log_probs"] = batch.batch["rollout_log_probs"]
 
-    # Always pass rollout_correction config to actor for metrics computation
-    policy_loss_config["rollout_correction"] = rollout_corr_config
-
-    # Check if policy gradient loss mode is enabled
-    use_policy_gradient = rollout_corr_config.get("use_policy_gradient", False)
-
-    if use_policy_gradient:
-        # Policy gradient mode: Configure actor to use rollout_correction loss function
-        # This will use compute_policy_loss_with_rollout_correction (no PPO clipping)
-        policy_loss_config["loss_mode"] = "rollout_correction"
+    with open_dict(policy_loss_config):
+        # Pass rollout_correction config to actor for loss computation and metrics
+        policy_loss_config["rollout_correction"] = rollout_corr_config
+        # Always use bypass_mode loss function which handles both loss_types
+        policy_loss_config["loss_mode"] = "bypass_mode"

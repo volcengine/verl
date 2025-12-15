@@ -30,6 +30,7 @@ CUDA_KEYWORD_CHECK_WHITELIST = [
     "recipe/sppo/sppo_ray_trainer.py",  # appear in default device_name
     "recipe/one_step_off_policy/ray_trainer.py",  # appear in default device_name
     "recipe/transfer_queue/ray_trainer.py",  # appear in default device_name
+    "recipe/gkd/ray_trainer.py",  # appear in default device_name
     "verl/utils/profiler/nvtx_profile.py",  # appear in NsightSystemsProfiler
     "verl/utils/kernel/linear_cross_entropy.py",  # appear in nvidia nvtx
     "verl/utils/rendezvous/ray_backend.py",  # appear in cupy importance
@@ -40,6 +41,7 @@ CUDA_KEYWORD_CHECK_WHITELIST = [
     "verl/third_party/torch/distributed/_state_dict_utils.py",  # torch monkey patch fixes
     "verl/third_party/torch/distributed/checkpoint/state_dict.py",  # torch monkey patch fixes
     "verl/workers/engine/base.py",  # appear in default device_name
+    "verl/workers/engine/utils.py",  # appear in enable_full_determinism
     "verl/workers/engine/fsdp/transformer_impl.py",  # appear in default device_name
     "verl/workers/rollout/vllm_rollout/vllm_async_server.py",  # appear in config.cudagraph_capture_sizes
     "verl/workers/rollout/sglang_rollout/async_sglang_server.py",  # manually set CUDA_VISIBLE_DEVICES

@@ -24,11 +24,14 @@ from typing import Optional
 
 import numpy as np
 import torch
+from tensordict import TensorDict
+from tensordict.utils import LinkedList
 from torch import nn
 from transformers import (
     AutoConfig,
     AutoModel,
     AutoModelForCausalLM,
+    AutoModelForImageTextToText,
     AutoModelForSequenceClassification,
     AutoModelForTokenClassification,
     AutoModelForVision2Seq,
@@ -531,7 +534,7 @@ def pad_packed_inputs(unpad_tokens: torch.Tensor, cu_seqlens, max_seqlen_in_batc
     return unpad_tokens, cu_seqlens, max_seqlen_in_batch
 
 
-def load_mcore_dist_weights(parallel_model, dist_weight_path, is_value_model=False):
+def load_mcore_dist_weights(parallel_model, dist_weight_path, is_value_model=False, prefix=""):
     from megatron.core import dist_checkpointing
     from megatron.core.dist_checkpointing.serialization import StrictHandling
 
@@ -540,7 +543,7 @@ def load_mcore_dist_weights(parallel_model, dist_weight_path, is_value_model=Fal
     # strict = StrictHandling.IGNORE_ALL if is_value_model else StrictHandling.ASSUME_OK_UNEXPECTED
     strict = StrictHandling.ASSUME_OK_UNEXPECTED
     for model in parallel_model:
-        ssd = unwrap_model(model).sharded_state_dict()
+        ssd = unwrap_model(model).sharded_state_dict(prefix=prefix)
         if is_value_model:
             for k in list(ssd.keys()):
                 if "output_layer" in k:
@@ -673,14 +676,20 @@ def get_hf_auto_model_class(hf_config):
                 actor_module_class = AutoModelForVision2Seq
             case "AutoModelForCausalLM":
                 actor_module_class = AutoModelForCausalLM
+            case "AutoModelForImageTextToText":
+                actor_module_class = AutoModelForImageTextToText
             case _:
                 actor_module_class = AutoModel
     else:
         actor_module_class = AutoModel
-        for key, cls in _architecture_to_auto_class.items():
-            if key in hf_config.architectures[0]:
-                actor_module_class = cls
-                break
+        # For VLM models, we use type to check instead of architecture
+        if type(hf_config) in AutoModelForImageTextToText._model_mapping.keys():
+            actor_module_class = AutoModelForImageTextToText
+        else:
+            for key, cls in _architecture_to_auto_class.items():
+                if key in hf_config.architectures[0]:
+                    actor_module_class = cls
+                    break
 
     return actor_module_class
 
@@ -723,6 +732,20 @@ def extract_multi_modal_inputs(
         else:
             multi_modal_inputs[key] = torch.cat(values, dim=0)
 
+    return multi_modal_inputs
+
+
+def extract_multi_modal_inputs_tensordict(batch_data: TensorDict):
+    """Extract multi-modal inputs from TensorDict NonTensorStack."""
+    multi_modal_inputs = {}
+    for key in ["pixel_values", "image_grid_thw", "pixel_values_videos", "video_grid_thw"]:
+        if key in batch_data:
+            assert isinstance(batch_data[key], LinkedList), f"{key} must be a LinkedList"
+            tensors = []
+            for tensor in batch_data[key]:
+                if tensor is not None:
+                    tensors.append(tensor)
+            multi_modal_inputs[key] = torch.cat(tensors, dim=0)
     return multi_modal_inputs
 
 
