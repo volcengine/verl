@@ -7,8 +7,10 @@ name: ???
 # sync: LLM, async: AsyncLLM
 mode: async
 
+# resource pool id for rollout
 resource_pool_id: global_pool
 
+# colocate slot for rollout
 colocate_slot: 0
 
 # Sampling temperature for rollout.
