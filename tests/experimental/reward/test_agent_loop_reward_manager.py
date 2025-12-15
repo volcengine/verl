@@ -58,6 +58,10 @@ def test_agent_loop_reward_manager():
     config.trainer.n_gpus_per_node = 4
     config.trainer.nnodes = 1
 
+    config.resource_pool_specs = [
+        {"id": "reward_model_pool", "nnodes": 1, "n_gpus_per_node": 8, "max_colocate_count": 1}
+    ]
+    config.reward_model.resource_pool_id = "reward_model_pool"
     config.reward_model.reward_manager = "dapo"
     config.reward_model.enable = True
     config.reward_model.enable_resource_pool = True
