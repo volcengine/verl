@@ -43,7 +43,7 @@ from .checkpoint_manager import BaseCheckpointManager
 try:
     from megatron.core.transformer.pipeline_parallel_layer_layout import PipelineParallelLayerLayout
     enable_pp_layout = True
-except:
+except ImportError:
     enable_pp_layout = False
 
 # Setup logging
