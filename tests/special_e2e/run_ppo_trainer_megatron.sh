@@ -9,6 +9,7 @@ NUM_GPUS=${NUM_GPUS:-8}
 
 MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B}
 MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
+RM_MODEL_PATH=${RM_MODEL_PATH:-${HOME}/models/Skywork/Skywork-Reward-V2-Llama-3.2-1B}
 #huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
 
 USE_DUMMY_MODEL=${USE_DUMMY_MODEL:-False}
@@ -88,12 +89,6 @@ CRITIC_CP=${CRITIC_CP:-$COMMON_CP}
 CRITIC_TP=${CRITIC_TP:-$TRAIN_TP}
 CRITIC_EP=${CRITIC_EP:-$COMMON_EP}
 CRITIC_ETP=${CRITIC_ETP:-$COMMON_ETP}
-RM_PP=${RM_PP:-$COMMON_PP}
-RM_VPP=${RM_VPP:-$COMMON_VPP}
-RM_CP=${RM_CP:-$COMMON_CP}
-RM_TP=${RM_TP:-$TRAIN_TP}
-RM_EP=${RM_EP:-$COMMON_EP}
-RM_ETP=${RM_ETP:-$COMMON_ETP}
 
 ALL_OFFLOAD=${ALL_OFFLOAD:-False}
 COMMON_PARAM_OFFLOAD=${COMMON_PARAM_OFFLOAD:-$ALL_OFFLOAD}
@@ -245,7 +240,7 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     critic.profiler.ranks=$PROFILE_RANKS \
     critic.profiler.all_ranks=$PROFILE_RANKS_ALL \
     reward_model.enable=True \
-    reward_model.model.path="${MODEL_PATH}" \
+    reward_model.model.path="${RM_MODEL_PATH}" \
     reward_model.use_reward_loop=True \
     reward_model.rollout.name=vllm \
     reward_model.rollout.gpu_memory_utilization=0.8 \
