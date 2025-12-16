@@ -468,6 +468,12 @@ rollout_rs = "geometric"  # Geometric mean rejection sampling
 - Both are length-invariant (normalize by sequence length)
 - **Used for rejection sampling only, not IS weighting**
 
+**Mathematical Connection:** K1 divergence and geometric mean are directly related:
+- $K1 = |\log \rho_{\text{geo}}|$ (K1 is the absolute value of log-geometric-mean)
+- When $\rho_{\text{geo}} = 1.0$ (policies identical): $K1 = 0$
+- K1 threshold 0.001 ≈ geometric threshold 1.001 (since $|\log(1.001)| \approx 0.001$)
+- K1 is preferred for rejection because divergence >= 0 requires only an upper threshold
+
 **The Length Trap Problem:**
 
 Standard IS estimators have a systematic **length bias** that penalizes long sequences. The importance ratio $\rho(y)$ is multiplicative:
