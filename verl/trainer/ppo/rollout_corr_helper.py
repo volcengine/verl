@@ -151,9 +151,9 @@ def compute_rollout_rejection_mask(
     lower_threshold = rollout_rs_threshold_lower if rollout_rs_threshold_lower is not None else 1.0 / upper_threshold
 
     # Compute RS statistic from log ratio (handles different aggregation levels)
-    # Note: rs_statistic is the value used for rejection thresholding, NOT importance weights
-    # - For token/sequence/geometric modes: exp(log_ratio) = IS ratio
-    # - For k3/group_k3 modes: K3 divergence value (>= 0)
+    # Note: rs_statistic is the value used for rejection thresholding
+    # - For ratio modes (token/sequence): IS ratio exp(log_ratio), ideal = 1.0
+    # - For divergence modes (geometric/k3/group_k1/group_k3): divergence value >= 0, ideal = 0.0
     if rollout_rs == "token":
         # Per-token ratio: exp(log(π_train/π_rollout)) with safety clamp
         log_ratio_for_metrics: torch.Tensor = log_ratio

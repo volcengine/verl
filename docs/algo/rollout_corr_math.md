@@ -455,9 +455,9 @@ rollout_rs = "geometric"  # Rejection sampling only
 ```
 
 **Properties:**
-- Geometric mean of per-token ratios
-- More sensitive than arithmetic product (sequence-level)
-- Typical threshold: 1.0001 - 1.001 (tighter than sequence/token level)
+- K1 KL divergence: |E[log(r)]| (absolute mean log-ratio)
+- Length-invariant (normalizes by sequence length)
+- Typical threshold: 0.0001 - 0.001 (divergence >= 0, ideal = 0)
 - **Used for rejection sampling only, not IS weighting**
 
 **The Length Trap Problem:**
@@ -487,11 +487,11 @@ Now both sequences have the same "trust score":
 - **Long (100 tokens):** $(1.1^{100})^{1/100} = 1.1$
 
 **Why tight thresholds?**
-For 100 tokens with $\rho_t = 1.01$ each:
-- Arithmetic product: $\prod_{t=1}^{100} \rho_t = 1.01^{100} \approx 2.7$
-- Geometric mean: $(1.01)^{1} = 1.01$
+For 100 tokens with per-token log-ratio = 0.01 each:
+- Arithmetic product ratio: $e^{100 \times 0.01} \approx 2.7$
+- K1 divergence: $|0.01| = 0.01$
 
-A threshold of 1.001 means rejecting sequences with average per-token deviation > 0.1%.
+A threshold of 0.001 means rejecting sequences with average per-token log-deviation > 0.1%.
 
 **Loss function (REINFORCE + Geometric RS):**
 
@@ -584,7 +584,7 @@ rollout_rs = "group_k3"  # Group-level K3 RS
 **Properties:**
 - Requires `group_indices` tensor of shape (batch_size,) identifying which group each sequence belongs to
 - All sequences in the same group are rejected or accepted together
-- Group K1 uses threshold around 1.0 (e.g., 1.001), Group K3 uses threshold around 0 (e.g., 0.01)
+- Group K1 and Group K3 both use threshold around 0 (e.g., 0.001 for K1, 0.01 for K3)
 - Useful for:
   - Best-of-N sampling (reject all N responses if any is too different)
   - Multi-turn conversations (sequences sharing the same context)
