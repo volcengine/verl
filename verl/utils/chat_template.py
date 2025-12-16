@@ -1,6 +1,7 @@
 # Copyright 2025 Bytedance Ltd. and/or its affiliates
 import logging
 import os
+from typing import Any
 
 from jinja2 import TemplateError
 
@@ -40,3 +41,80 @@ def extract_system_prompt_and_generation(tokenizer):
     generate_prompt = token3[len(token1) :]
 
     return system_prompt, generate_prompt
+
+
+# =============================================================================
+# Tokenization utility functions
+# These functions are extracted from ToolAgentLoop for reusability in external
+# projects like remote rollout servers.
+# =============================================================================
+
+
+def apply_chat_template_with_processor(
+    processor,
+    messages: list[dict[str, Any]],
+    *,
+    tools: list[dict[str, Any]] | None = None,
+    add_generation_prompt: bool = True,
+    apply_chat_template_kwargs: dict[str, Any],
+) -> str:
+    """Apply chat template via processor (tokenize=False).
+
+    NOTE: To preserve ToolAgentLoop's original behavior, callers should decide
+    whether this runs in an executor or on the event loop thread.
+    """
+    if tools is None:
+        return processor.apply_chat_template(
+            messages,
+            add_generation_prompt=add_generation_prompt,
+            tokenize=False,
+            **apply_chat_template_kwargs,
+        )
+    return processor.apply_chat_template(
+        messages,
+        tools=tools,
+        add_generation_prompt=add_generation_prompt,
+        tokenize=False,
+        **apply_chat_template_kwargs,
+    )
+
+
+def apply_chat_template_with_tokenizer(
+    tokenizer,
+    messages: list[dict[str, Any]],
+    *,
+    tools: list[dict[str, Any]] | None = None,
+    add_generation_prompt: bool = True,
+    apply_chat_template_kwargs: dict[str, Any],
+) -> list[int]:
+    """Apply chat template via tokenizer (tokenize=True).
+
+    IMPORTANT: Some call sites intentionally do NOT pass any extra kwargs
+    (e.g. incremental tool/user message tokenization). Callers should pass an
+    empty dict ({}), which is equivalent to not passing kwargs at all.
+    """
+    if tools is None:
+        return tokenizer.apply_chat_template(
+            messages,
+            add_generation_prompt=add_generation_prompt,
+            tokenize=True,
+            **apply_chat_template_kwargs,
+        )
+    return tokenizer.apply_chat_template(
+        messages,
+        tools=tools,
+        add_generation_prompt=add_generation_prompt,
+        tokenize=True,
+        **apply_chat_template_kwargs,
+    )
+
+
+def tokenize_with_processor(
+    processor,
+    *,
+    raw_prompt: str,
+    image_data: Any | None,
+) -> list[int]:
+    """Tokenize a pre-rendered prompt string via processor."""
+    model_inputs = processor(text=[raw_prompt], images=image_data, return_tensors="pt")
+    return model_inputs.pop("input_ids").squeeze(0).tolist()
