@@ -851,9 +851,25 @@ class RayPPOTrainer:
             # Support custom AgentLoopManager via config
             manager_class = self.config.actor_rollout_ref.rollout.get("agent", {}).get("agent_loop_manager_class")
             if manager_class:
-                module_path, class_name = manager_class.rsplit(".", 1)
-                module = importlib.import_module(module_path)
-                AgentLoopManager = getattr(module, class_name)
+                if "." not in manager_class:
+                    raise ValueError(
+                        f"Invalid agent_loop_manager_class '{manager_class}'. "
+                        f"Expected fully qualified class name (e.g., 'mypackage.module.ClassName')."
+                    )
+                try:
+                    module_path, class_name = manager_class.rsplit(".", 1)
+                    module = importlib.import_module(module_path)
+                    AgentLoopManager = getattr(module, class_name)
+                except ImportError as e:
+                    raise ImportError(
+                        f"Failed to import module '{module_path}' for AgentLoopManager. "
+                        f"Please ensure the module is installed and importable. Error: {e}"
+                    ) from e
+                except AttributeError as e:
+                    raise AttributeError(
+                        f"Class '{class_name}' not found in module '{module_path}'. "
+                        f"Please ensure the class name is correct. Error: {e}"
+                    ) from e
             else:
                 from verl.experimental.agent_loop import AgentLoopManager
 

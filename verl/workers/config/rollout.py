@@ -71,6 +71,8 @@ class AgentLoopConfig(BaseConfig):
     default_agent_loop: str = "single_turn_agent"
     agent_loop_config_path: Optional[str] = None
     custom_async_server: CustomAsyncServerConfig = field(default_factory=CustomAsyncServerConfig)
+    # Fully qualified class name for custom AgentLoopManager (e.g., "mypackage.module.MyManager").
+    # Security: This class will be dynamically imported via importlib. Only use trusted class paths.
     agent_loop_manager_class: Optional[str] = None
 
 
