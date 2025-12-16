@@ -24,7 +24,15 @@ from verl.utils.fs import copy_to_local
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import get_generation_config, update_model_config
 
-__all__ = ["HFModelConfig"]
+__all__ = ["HFModelConfig", "MtpConfig"]
+
+
+@dataclass
+class MtpConfig(BaseConfig):
+    """Configuration for mtp model."""
+
+    enable: bool = False
+    mtp_loss_scaling_factor: float = 0.1
 
 
 @dataclass
@@ -93,6 +101,8 @@ class HFModelConfig(BaseConfig):
     fused_kernel_options: dict = field(default_factory=dict)
 
     architectures: Optional[list[str]] = None
+
+    mtp: MtpConfig = field(default_factory=MtpConfig)
 
     def __post_init__(self):
         import_external_libs(self.external_lib)

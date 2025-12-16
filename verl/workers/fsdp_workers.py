@@ -336,6 +336,13 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             "eos_token_id": self.tokenizer.eos_token_id,
             "pad_token_id": self.tokenizer.pad_token_id,
         }
+
+        if self.config.model.mtp.enable:
+            raise NotImplementedError("Right now,  MTP is not supported in FSDP")
+        else:
+            if hasattr(actor_model_config, "num_nextn_predict_layers"):
+                actor_model_config.num_nextn_predict_layers = 0
+
         override_config_kwargs.update(override_model_config)
         update_model_config(actor_model_config, override_config_kwargs=override_config_kwargs)
         if self.rank == 0:
@@ -582,6 +589,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         # 1. parse rollout and huggingface model config
         rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
+        print(f"hzg {self.config.model} {HFModelConfig}")
         model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model, dataclass_type=HFModelConfig)
         self.model_config = model_config
 

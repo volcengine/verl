@@ -149,6 +149,16 @@ class MegatronWorker(Worker):
         }
         override_config_kwargs.update(override_model_config.get("model_config", {}))
         self.share_embeddings_and_output_weights = getattr(hf_config, "tie_word_embeddings", False)
+
+        if self.config.model.mtp.enable:
+            assert hf_config.num_nextn_predict_layers > 0, "MTP requires at least one nextn_predict_layer"
+            assert megatron_config.use_mbridge, "MTP requires use_mbridge to be True"
+            assert megatron_config.vanilla_mbridge, "MTP requires vanilla_mbridge to be True"
+            override_transformer_config["mtp_loss_scaling_factor"] = self.config.model.mtp.mtp_loss_scaling_factor
+        else:
+            if hasattr(hf_config, "num_nextn_predict_layers"):
+                hf_config.num_nextn_predict_layers = 0
+
         update_model_config(hf_config, override_config_kwargs=override_config_kwargs)
         self.architectures = getattr(hf_config, "architectures", None)
         if self.rank == 0:
