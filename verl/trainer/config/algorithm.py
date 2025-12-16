@@ -152,25 +152,36 @@ class RolloutCorrectionConfig(BaseConfig):
         # Decoupled PPO mode presets (3 policies: π_rollout, π_old, π_θ)
         # IS weights correct for gap between π_old and π_rollout
         config = RolloutCorrectionConfig.decoupled_token_is()  # Token-TIS
-        config = RolloutCorrectionConfig.decoupled_seq_is()  # Seq-TIS
-        config = RolloutCorrectionConfig.decoupled_seq_is_rs()  # Seq-MIS
-        config = RolloutCorrectionConfig.decoupled_geo_rs()  # Geo-RS
-        config = RolloutCorrectionConfig.geo_rs_seq_tis()  # Geo-RS-Seq-TIS
-        config = RolloutCorrectionConfig.geo_rs_token_tis()  # Geo-RS-Token-TIS
+        config = RolloutCorrectionConfig.decoupled_seq_is()    # Seq-TIS
+        config = RolloutCorrectionConfig.decoupled_seq_is_rs() # Seq-MIS
+        config = RolloutCorrectionConfig.decoupled_k1_rs()     # K1-RS (divergence mode)
+        config = RolloutCorrectionConfig.decoupled_geo_rs()    # Geo-RS (ratio mode)
 
         # Bypass mode presets (2 policies: π_rollout = π_old, π_θ)
         # loss_type controls the loss function
         # PPO-clip presets (ratio handles IS, so no separate IS weights needed):
         config = RolloutCorrectionConfig.bypass_ppo_clip()              # PPO-clip only
+        config = RolloutCorrectionConfig.bypass_ppo_clip_k1_rs()        # PPO-clip + K1-RS
         config = RolloutCorrectionConfig.bypass_ppo_clip_geo_rs()       # PPO-clip + Geo-RS
         config = RolloutCorrectionConfig.bypass_ppo_clip_k3_rs()        # PPO-clip + K3-RS
         config = RolloutCorrectionConfig.bypass_ppo_clip_group_k1_rs()  # PPO-clip + Group K1 RS
         config = RolloutCorrectionConfig.bypass_ppo_clip_group_k3_rs()  # PPO-clip + Group K3 RS
         # REINFORCE presets (explicit IS weights):
-        config = RolloutCorrectionConfig.bypass_pg_is()             # REINFORCE + Seq-TIS
-        config = RolloutCorrectionConfig.bypass_pg_rs()             # REINFORCE + Geo-RS
-        config = RolloutCorrectionConfig.bypass_pg_geo_rs_seq_tis() # REINFORCE + Geo-RS + Seq-TIS
-        config = RolloutCorrectionConfig.bypass_pg_geo_rs_token_tis() # REINFORCE + Geo-RS + Token-TIS
+        config = RolloutCorrectionConfig.bypass_pg_is()                 # REINFORCE + Seq-TIS
+        config = RolloutCorrectionConfig.bypass_pg_k1_rs()              # REINFORCE + K1-RS
+        config = RolloutCorrectionConfig.bypass_pg_geo_rs()             # REINFORCE + Geo-RS
+        config = RolloutCorrectionConfig.bypass_pg_k1_rs_seq_tis()      # REINFORCE + K1-RS + Seq-TIS
+        config = RolloutCorrectionConfig.bypass_pg_k1_rs_token_tis()    # REINFORCE + K1-RS + Token-TIS
+        config = RolloutCorrectionConfig.bypass_pg_geo_rs_seq_tis()     # REINFORCE + Geo-RS + Seq-TIS
+        config = RolloutCorrectionConfig.bypass_pg_geo_rs_token_tis()   # REINFORCE + Geo-RS + Token-TIS
+
+        # K1 KL divergence presets (length-invariant, solves Length Trap)
+        config = RolloutCorrectionConfig.k1_rs_seq_tis()            # K1-RS + Seq-TIS
+        config = RolloutCorrectionConfig.k1_rs_token_tis()          # K1-RS + Token-TIS
+
+        # Geometric ratio presets (length-normalized IS ratio)
+        config = RolloutCorrectionConfig.geo_rs_seq_tis()           # Geo-RS + Seq-TIS
+        config = RolloutCorrectionConfig.geo_rs_token_tis()         # Geo-RS + Token-TIS
 
         # K3 KL Estimator presets (more stable for small KL values)
         config = RolloutCorrectionConfig.k3_rs()                    # K3-RS
@@ -259,12 +270,12 @@ class RolloutCorrectionConfig(BaseConfig):
         )
 
     @classmethod
-    def decoupled_geo_rs(
+    def decoupled_k1_rs(
         cls,
         rs_threshold: float = 0.001,
         veto_threshold: float = 1e-4,
     ) -> "RolloutCorrectionConfig":
-        """Decoupled Mode with K1 (Geometric) Rejection Sampling.
+        """Decoupled Mode with K1 Rejection Sampling.
 
         Uses K1 divergence |E[log(r)]| for rejection sampling at sequence level in decoupled mode,
         with additional veto mechanism. K1 divergence is sensitive to policy changes.
@@ -275,7 +286,7 @@ class RolloutCorrectionConfig(BaseConfig):
             veto_threshold (float): Per-token veto threshold. Default: 1e-4
 
         Returns:
-            RolloutCorrectionConfig configured for decoupled mode with K1 RS + veto
+            RolloutCorrectionConfig configured for decoupled mode with K1-RS + veto
         """
         return cls(
             rollout_is=None,
@@ -285,7 +296,7 @@ class RolloutCorrectionConfig(BaseConfig):
         )
 
     @classmethod
-    def decoupled_geometric_rs(
+    def decoupled_geo_rs(
         cls,
         rs_threshold: float = 1.001,
         rs_threshold_lower: Optional[float] = None,
@@ -304,7 +315,7 @@ class RolloutCorrectionConfig(BaseConfig):
             veto_threshold (float): Per-token veto threshold. Default: 1e-4
 
         Returns:
-            RolloutCorrectionConfig configured for decoupled mode with geometric RS + veto
+            RolloutCorrectionConfig configured for decoupled mode with Geo-RS + veto
         """
         return cls(
             rollout_is=None,
@@ -334,12 +345,12 @@ class RolloutCorrectionConfig(BaseConfig):
         )
 
     @classmethod
-    def bypass_ppo_clip_geo_rs(
+    def bypass_ppo_clip_k1_rs(
         cls,
         rs_threshold: float = 0.001,
         veto_threshold: float = 1e-4,
     ) -> "RolloutCorrectionConfig":
-        """Bypass mode with PPO-clip loss and K1 (Geometric) Rejection Sampling.
+        """Bypass mode with PPO-clip loss and K1 Rejection Sampling.
 
         PPO clipped objective in bypass mode with K1 divergence RS to mask outliers.
         The PPO ratio = π_θ/π_rollout already handles IS correction.
@@ -365,7 +376,7 @@ class RolloutCorrectionConfig(BaseConfig):
         )
 
     @classmethod
-    def bypass_ppo_clip_geometric_rs(
+    def bypass_ppo_clip_geo_rs(
         cls,
         rs_threshold: float = 1.001,
         rs_threshold_lower: Optional[float] = None,
@@ -383,7 +394,7 @@ class RolloutCorrectionConfig(BaseConfig):
             veto_threshold (float): Per-token veto threshold. Default: 1e-4
 
         Returns:
-            RolloutCorrectionConfig configured for bypass mode with PPO-clip + Geometric-RS
+            RolloutCorrectionConfig configured for bypass mode with PPO-clip + Geo-RS
         """
         return cls(
             rollout_is=None,
@@ -502,12 +513,12 @@ class RolloutCorrectionConfig(BaseConfig):
         )
 
     @classmethod
-    def bypass_pg_rs(
+    def bypass_pg_k1_rs(
         cls,
         rs_threshold: float = 0.001,
         veto_threshold: float = 1e-4,
     ) -> "RolloutCorrectionConfig":
-        """Bypass mode with REINFORCE loss and K1 (Geometric) Rejection Sampling.
+        """Bypass mode with REINFORCE loss and K1 Rejection Sampling.
 
         REINFORCE with K1 divergence rejection sampling (no IS weights) in bypass mode.
         Skips old_log_prob computation for faster execution.
@@ -533,13 +544,44 @@ class RolloutCorrectionConfig(BaseConfig):
         )
 
     @classmethod
-    def geo_rs_seq_tis(
+    def bypass_pg_geo_rs(
+        cls,
+        rs_threshold: float = 1.001,
+        rs_threshold_lower: Optional[float] = None,
+        veto_threshold: float = 1e-4,
+    ) -> "RolloutCorrectionConfig":
+        """Bypass mode with REINFORCE loss and Geometric Mean RS (ratio-based).
+
+        REINFORCE with geometric mean IS ratio rejection sampling in bypass mode.
+        Uses exp(E[log(r)]) (ideal = 1.0) with [lower, upper] threshold bounds.
+
+        Args:
+            rs_threshold (float): Geometric RS threshold (upper). Default: 1.001 (±0.1%)
+            rs_threshold_lower (Optional[float]): Geometric RS threshold (lower).
+                If None, auto-computed as reciprocal. Default: None
+            veto_threshold (float): Per-token veto threshold. Default: 1e-4
+
+        Returns:
+            RolloutCorrectionConfig configured for bypass mode with REINFORCE + Geo-RS
+        """
+        return cls(
+            rollout_is=None,
+            rollout_rs="geometric",
+            rollout_rs_threshold=rs_threshold,
+            rollout_rs_threshold_lower=rs_threshold_lower,
+            rollout_token_veto_threshold=veto_threshold,
+            bypass_mode=True,
+            loss_type="reinforce",
+        )
+
+    @classmethod
+    def k1_rs_seq_tis(
         cls,
         is_threshold: float = 2.0,
         rs_threshold: float = 0.001,
         veto_threshold: Optional[float] = 1e-4,
     ) -> "RolloutCorrectionConfig":
-        """K1 (Geometric) RS with Sequence-level Truncated IS (K1-RS-Seq-TIS).
+        """K1 RS with Sequence-level Truncated IS (K1-RS-Seq-TIS).
 
         Combines the K1 divergence filter (length-invariant validity check) with
         Clipped Sequence Weight (debiasing).
@@ -564,13 +606,13 @@ class RolloutCorrectionConfig(BaseConfig):
         )
 
     @classmethod
-    def geo_rs_token_tis(
+    def k1_rs_token_tis(
         cls,
         is_threshold: float = 2.0,
         rs_threshold: float = 0.001,
         veto_threshold: Optional[float] = 1e-4,
     ) -> "RolloutCorrectionConfig":
-        """K1 (Geometric) RS with Token-level Truncated IS (K1-RS-Token-TIS).
+        """K1 RS with Token-level Truncated IS (K1-RS-Token-TIS).
 
         Combines the K1 divergence filter (length-invariant validity check) with
         Token-level IS weights (lower variance, biased).
@@ -592,7 +634,7 @@ class RolloutCorrectionConfig(BaseConfig):
         )
 
     @classmethod
-    def geometric_rs_seq_tis(
+    def geo_rs_seq_tis(
         cls,
         is_threshold: float = 2.0,
         rs_threshold: float = 1.001,
@@ -611,7 +653,7 @@ class RolloutCorrectionConfig(BaseConfig):
             veto_threshold (Optional[float]): Per-token veto threshold. Default: 1e-4
 
         Returns:
-            RolloutCorrectionConfig configured for Geometric-RS-Seq-TIS
+            RolloutCorrectionConfig configured for Geo-RS-Seq-TIS
         """
         return cls(
             rollout_is="sequence",
@@ -623,7 +665,7 @@ class RolloutCorrectionConfig(BaseConfig):
         )
 
     @classmethod
-    def geometric_rs_token_tis(
+    def geo_rs_token_tis(
         cls,
         is_threshold: float = 2.0,
         rs_threshold: float = 1.001,
@@ -642,7 +684,7 @@ class RolloutCorrectionConfig(BaseConfig):
             veto_threshold (Optional[float]): Per-token veto threshold. Default: 1e-4
 
         Returns:
-            RolloutCorrectionConfig configured for Geometric-RS-Token-TIS
+            RolloutCorrectionConfig configured for Geo-RS-Token-TIS
         """
         return cls(
             rollout_is="token",
@@ -654,7 +696,7 @@ class RolloutCorrectionConfig(BaseConfig):
         )
 
     @classmethod
-    def bypass_pg_geo_rs_seq_tis(
+    def bypass_pg_k1_rs_seq_tis(
         cls,
         is_threshold: float = 2.0,
         rs_threshold: float = 0.001,
@@ -687,7 +729,7 @@ class RolloutCorrectionConfig(BaseConfig):
         )
 
     @classmethod
-    def bypass_pg_geo_rs_token_tis(
+    def bypass_pg_k1_rs_token_tis(
         cls,
         is_threshold: float = 2.0,
         rs_threshold: float = 0.001,
@@ -713,6 +755,76 @@ class RolloutCorrectionConfig(BaseConfig):
             rollout_is_threshold=is_threshold,
             rollout_rs="k1",
             rollout_rs_threshold=rs_threshold,
+            rollout_token_veto_threshold=veto_threshold,
+            bypass_mode=True,
+            loss_type="reinforce",
+        )
+
+    @classmethod
+    def bypass_pg_geo_rs_seq_tis(
+        cls,
+        is_threshold: float = 2.0,
+        rs_threshold: float = 1.001,
+        rs_threshold_lower: Optional[float] = None,
+        veto_threshold: Optional[float] = 1e-4,
+    ) -> "RolloutCorrectionConfig":
+        """Bypass mode with REINFORCE loss, Geo-RS, and Sequence-level IS.
+
+        Combines geometric mean IS ratio rejection with sequence-level IS
+        in bypass mode with REINFORCE loss (no PPO clipping).
+        Uses exp(E[log(r)]) (ideal = 1.0) with [lower, upper] threshold bounds.
+
+        Args:
+            is_threshold (float): Upper threshold for sequence IS weights. Default: 2.0
+            rs_threshold (float): Geometric RS threshold (upper). Default: 1.001 (±0.1%)
+            rs_threshold_lower (Optional[float]): Geometric RS threshold (lower). Default: None
+            veto_threshold (Optional[float]): Per-token veto threshold. Default: 1e-4
+
+        Returns:
+            RolloutCorrectionConfig configured for bypass mode with REINFORCE + Geo-RS + Seq-TIS
+        """
+        return cls(
+            rollout_is="sequence",
+            rollout_is_threshold=is_threshold,
+            rollout_rs="geometric",
+            rollout_rs_threshold=rs_threshold,
+            rollout_rs_threshold_lower=rs_threshold_lower,
+            rollout_token_veto_threshold=veto_threshold,
+            bypass_mode=True,
+            loss_type="reinforce",
+        )
+
+    @classmethod
+    def bypass_pg_geo_rs_token_tis(
+        cls,
+        is_threshold: float = 2.0,
+        rs_threshold: float = 1.001,
+        rs_threshold_lower: Optional[float] = None,
+        veto_threshold: Optional[float] = 1e-4,
+    ) -> "RolloutCorrectionConfig":
+        """Bypass mode with REINFORCE loss, Geo-RS, and Token-level IS.
+
+        Combines geometric mean IS ratio rejection with token-level IS weights
+        in bypass mode with REINFORCE loss (no PPO clipping).
+        Uses exp(E[log(r)]) (ideal = 1.0) with [lower, upper] threshold bounds.
+
+        Token-level IS has lower variance but introduces bias.
+
+        Args:
+            is_threshold (float): Upper threshold for token IS weights. Default: 2.0
+            rs_threshold (float): Geometric RS threshold (upper). Default: 1.001 (±0.1%)
+            rs_threshold_lower (Optional[float]): Geometric RS threshold (lower). Default: None
+            veto_threshold (Optional[float]): Per-token veto threshold. Default: 1e-4
+
+        Returns:
+            RolloutCorrectionConfig configured for bypass mode with REINFORCE + Geo-RS + Token-TIS
+        """
+        return cls(
+            rollout_is="token",
+            rollout_is_threshold=is_threshold,
+            rollout_rs="geometric",
+            rollout_rs_threshold=rs_threshold,
+            rollout_rs_threshold_lower=rs_threshold_lower,
             rollout_token_veto_threshold=veto_threshold,
             bypass_mode=True,
             loss_type="reinforce",
@@ -1009,10 +1121,12 @@ class AlgoConfig(BaseConfig):
             - RolloutCorrectionConfig.decoupled_token_is() - Decoupled mode with token-level IS
             - RolloutCorrectionConfig.decoupled_seq_is() - Decoupled mode with sequence-level IS
             - RolloutCorrectionConfig.decoupled_seq_is_rs() - Decoupled mode with sequence IS + RS
-            - RolloutCorrectionConfig.decoupled_geo_rs() - Decoupled mode with geometric RS + veto
+            - RolloutCorrectionConfig.decoupled_k1_rs() - Decoupled mode with K1-RS (divergence)
+            - RolloutCorrectionConfig.decoupled_geo_rs() - Decoupled mode with Geo-RS (ratio)
             - RolloutCorrectionConfig.bypass_ppo_clip() - Bypass mode with PPO-clip
+            - RolloutCorrectionConfig.bypass_ppo_clip_k1_rs() - Bypass mode with PPO-clip + K1-RS
             - RolloutCorrectionConfig.bypass_pg_is() - Bypass mode with REINFORCE + IS
-            - RolloutCorrectionConfig.bypass_pg_rs() - Bypass mode with REINFORCE + RS
+            - RolloutCorrectionConfig.bypass_pg_k1_rs() - Bypass mode with REINFORCE + K1-RS
 
             For backward compatibility, you can still pass a dict, which will be converted to
             RolloutCorrectionConfig automatically.

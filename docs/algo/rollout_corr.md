@@ -126,24 +126,31 @@ from verl.trainer.config.algorithm import RolloutCorrectionConfig
 config = RolloutCorrectionConfig.decoupled_token_is()   # Token-TIS
 config = RolloutCorrectionConfig.decoupled_seq_is()     # Seq-TIS
 config = RolloutCorrectionConfig.decoupled_seq_is_rs()  # Seq-MIS
-config = RolloutCorrectionConfig.decoupled_geo_rs()     # Geo-RS
+config = RolloutCorrectionConfig.decoupled_k1_rs()      # K1-RS (divergence mode)
+config = RolloutCorrectionConfig.decoupled_geo_rs()     # Geo-RS (ratio mode)
+config = RolloutCorrectionConfig.k1_rs_seq_tis()        # K1-RS-Seq-TIS
+config = RolloutCorrectionConfig.k1_rs_token_tis()      # K1-RS-Token-TIS
 config = RolloutCorrectionConfig.geo_rs_seq_tis()       # Geo-RS-Seq-TIS
 config = RolloutCorrectionConfig.geo_rs_token_tis()     # Geo-RS-Token-TIS
 
 # === Bypass PPO mode (2 policies: π_rollout = π_old, π_θ) - fast ===
 # PPO ratio handles IS, so no explicit IS weights needed
 config = RolloutCorrectionConfig.bypass_ppo_clip()              # PPO-clip only
-config = RolloutCorrectionConfig.bypass_ppo_clip_geo_rs()       # PPO-clip + Geo-RS
+config = RolloutCorrectionConfig.bypass_ppo_clip_k1_rs()        # PPO-clip + K1-RS (divergence)
+config = RolloutCorrectionConfig.bypass_ppo_clip_geo_rs()       # PPO-clip + Geo-RS (ratio)
 config = RolloutCorrectionConfig.bypass_ppo_clip_k3_rs()        # PPO-clip + K3-RS
 config = RolloutCorrectionConfig.bypass_ppo_clip_group_k1_rs()  # PPO-clip + Group K1 RS
 config = RolloutCorrectionConfig.bypass_ppo_clip_group_k3_rs()  # PPO-clip + Group K3 RS
 
 # === Bypass PG mode (2 policies, no PPO clipping) - fast ===
 # IS weights computed on-the-fly as π_θ / π_rollout
-config = RolloutCorrectionConfig.bypass_pg_is()                # Seq-TIS + PG
-config = RolloutCorrectionConfig.bypass_pg_rs()                # Geo-RS + PG
-config = RolloutCorrectionConfig.bypass_pg_geo_rs_seq_tis()    # Geo-RS-Seq-TIS + PG
-config = RolloutCorrectionConfig.bypass_pg_geo_rs_token_tis()  # Geo-RS-Token-TIS + PG
+config = RolloutCorrectionConfig.bypass_pg_is()                   # Seq-TIS + PG
+config = RolloutCorrectionConfig.bypass_pg_k1_rs()                # K1-RS + PG (divergence)
+config = RolloutCorrectionConfig.bypass_pg_geo_rs()               # Geo-RS + PG (ratio)
+config = RolloutCorrectionConfig.bypass_pg_k1_rs_seq_tis()        # K1-RS-Seq-TIS + PG
+config = RolloutCorrectionConfig.bypass_pg_k1_rs_token_tis()      # K1-RS-Token-TIS + PG
+config = RolloutCorrectionConfig.bypass_pg_geo_rs_seq_tis()       # Geo-RS-Seq-TIS + PG
+config = RolloutCorrectionConfig.bypass_pg_geo_rs_token_tis()     # Geo-RS-Token-TIS + PG
 
 # === K3 KL Estimator presets (more stable for small KL) ===
 config = RolloutCorrectionConfig.k3_rs()                # K3-RS only
@@ -337,18 +344,25 @@ This section provides detailed guidance on choosing and using the verified prese
 | `decoupled_token_is()` | Token-TIS | Decoupled | token | - | Per-token IS weights |
 | `decoupled_seq_is()` | Seq-TIS | Decoupled | sequence | - | Sequence-level IS weights |
 | `decoupled_seq_is_rs()` | Seq-MIS | Decoupled | sequence | sequence | Sequence IS + sequence RS |
-| `decoupled_geo_rs()` | Geo-RS | Decoupled | - | geometric + veto | Geometric RS + veto, no IS weights |
+| `decoupled_k1_rs()` | K1-RS | Decoupled | - | k1 + veto | K1 RS + veto (divergence mode) |
+| `decoupled_geo_rs()` | Geo-RS | Decoupled | - | geometric + veto | Geometric RS + veto (ratio mode) |
+| `k1_rs_seq_tis()` | K1-RS-Seq-TIS | Decoupled | sequence | k1 + veto | K1 filter + seq clipped weight |
+| `k1_rs_token_tis()` | K1-RS-Token-TIS | Decoupled | token | k1 + veto | K1 filter + token clipped weight |
 | `geo_rs_seq_tis()` | Geo-RS-Seq-TIS | Decoupled | sequence | geometric + veto | Geometric filter + seq clipped weight |
 | `geo_rs_token_tis()` | Geo-RS-Token-TIS | Decoupled | token | geometric + veto | Geometric filter + token clipped weight |
 | **Bypass Mode (PPO-clip)** (2 policies; ratio handles IS, RS masks outliers) |
 | `bypass_ppo_clip()` | - | Bypass (PPO-clip) | - | - | PPO-clip only |
-| `bypass_ppo_clip_geo_rs()` | Geo-RS | Bypass (PPO-clip) | - | geometric + veto | PPO-clip + Geo-RS |
+| `bypass_ppo_clip_k1_rs()` | K1-RS | Bypass (PPO-clip) | - | k1 + veto | PPO-clip + K1-RS (divergence) |
+| `bypass_ppo_clip_geo_rs()` | Geo-RS | Bypass (PPO-clip) | - | geometric + veto | PPO-clip + Geo-RS (ratio) |
 | `bypass_ppo_clip_k3_rs()` | K3-RS | Bypass (PPO-clip) | - | k3 + veto | PPO-clip + K3-RS |
 | `bypass_ppo_clip_group_k1_rs()` | Group-K1-RS | Bypass (PPO-clip) | - | group_k1 + veto | PPO-clip + Group K1 RS |
 | `bypass_ppo_clip_group_k3_rs()` | Group-K3-RS | Bypass (PPO-clip) | - | group_k3 + veto | PPO-clip + Group K3 RS |
 | **Bypass Mode (REINFORCE)** (2 policies; explicit IS weights, no PPO clipping) |
 | `bypass_pg_is()` | Seq-TIS | Bypass (REINFORCE) | sequence | - | REINFORCE with explicit IS |
-| `bypass_pg_rs()` | Geo-RS | Bypass (REINFORCE) | - | geometric + veto | REINFORCE with Geo-RS |
+| `bypass_pg_k1_rs()` | K1-RS | Bypass (REINFORCE) | - | k1 + veto | REINFORCE with K1-RS (divergence) |
+| `bypass_pg_geo_rs()` | Geo-RS | Bypass (REINFORCE) | - | geometric + veto | REINFORCE with Geo-RS (ratio) |
+| `bypass_pg_k1_rs_seq_tis()` | K1-RS-Seq-TIS | Bypass (REINFORCE) | sequence | k1 + veto | REINFORCE + K1 filter + seq IS |
+| `bypass_pg_k1_rs_token_tis()` | K1-RS-Token-TIS | Bypass (REINFORCE) | token | k1 + veto | REINFORCE + K1 filter + token IS |
 | `bypass_pg_geo_rs_seq_tis()` | Geo-RS-Seq-TIS | Bypass (REINFORCE) | sequence | geometric + veto | REINFORCE + Geo filter + seq IS |
 | `bypass_pg_geo_rs_token_tis()` | Geo-RS-Token-TIS | Bypass (REINFORCE) | token | geometric + veto | REINFORCE + Geo filter + token IS |
 | **K3 KL Estimator** (more stable for small KL values) |
@@ -495,11 +509,11 @@ algorithm:
 
 ---
 
-### 4. Decoupled Mode with K1 Rejection Sampling (`decoupled_geo_rs`)
+### 4. Decoupled Mode with K1 Rejection Sampling (`decoupled_k1_rs`)
 
 **Configuration:**
 ```python
-config = RolloutCorrectionConfig.decoupled_geo_rs(rs_threshold=0.001, veto_threshold=1e-4)
+config = RolloutCorrectionConfig.decoupled_k1_rs(rs_threshold=0.001, veto_threshold=1e-4)
 ```
 
 **Components:**
@@ -538,13 +552,13 @@ A threshold of 0.001 rejects sequences with average per-token log-deviation > 0.
 
 ---
 
-### 5. K1-RS with Sequence IS (`geo_rs_seq_tis`)
+### 5. K1-RS with Sequence IS (`k1_rs_seq_tis`)
 
 **Also known as: K1-RS-Seq-TIS**
 
 **Configuration:**
 ```python
-config = RolloutCorrectionConfig.geo_rs_seq_tis(
+config = RolloutCorrectionConfig.k1_rs_seq_tis(
     is_threshold=2.0,
     rs_threshold=0.001,
     veto_threshold=1e-4
@@ -616,11 +630,11 @@ algorithm:
 
 ---
 
-### 6b. Bypass Mode with PPO-clip + K1-RS (`bypass_ppo_clip_geo_rs`)
+### 6b. Bypass Mode with PPO-clip + K1-RS (`bypass_ppo_clip_k1_rs`)
 
 **Configuration:**
 ```python
-config = RolloutCorrectionConfig.bypass_ppo_clip_geo_rs(
+config = RolloutCorrectionConfig.bypass_ppo_clip_k1_rs(
     rs_threshold=0.001,
     veto_threshold=1e-4
 )
@@ -693,11 +707,11 @@ algorithm:
 
 ---
 
-### 8. REINFORCE with Rejection Sampling (`bypass_pg_rs`)
+### 8. REINFORCE with K1 Rejection Sampling (`bypass_pg_k1_rs`)
 
 **Configuration:**
 ```python
-config = RolloutCorrectionConfig.bypass_pg_rs(
+config = RolloutCorrectionConfig.bypass_pg_k1_rs(
     rs_threshold=0.001,
     veto_threshold=1e-4
 )
@@ -732,13 +746,13 @@ algorithm:
 
 ---
 
-### 9. REINFORCE with K1-RS-Seq-TIS (`bypass_pg_geo_rs_seq_tis`)
+### 9. REINFORCE with K1-RS-Seq-TIS (`bypass_pg_k1_rs_seq_tis`)
 
 **Also known as: K1-RS-Seq-TIS in bypass mode**
 
 **Configuration:**
 ```python
-config = RolloutCorrectionConfig.bypass_pg_geo_rs_seq_tis(
+config = RolloutCorrectionConfig.bypass_pg_k1_rs_seq_tis(
     is_threshold=2.0,
     rs_threshold=0.001,
     veto_threshold=1e-4
