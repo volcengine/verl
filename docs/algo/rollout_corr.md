@@ -259,11 +259,14 @@ Rejection sampling aggregation level:
   - Typical threshold: 1.0002 - 1.001
 
 **KL Divergence Modes (ideal = 0.0, uses only upper threshold):**
-- `"k1"`: K1 KL divergence at sequence level: |E[log(r)]|
+
+Both K1 and K3 estimate KL(π_rollout || π_train) — the **reverse KL** measured under the rollout distribution.
+
+- `"k1"`: K1 divergence at sequence level: |E[log(r)]|
   - K1 >= 0 always, so only upper threshold applies
   - Typical threshold: 0.0001 - 0.001
-- `"k3"`: K3 KL estimator at sequence level: E[r - log(r) - 1]
-  - More stable than K1 for small KL values
+- `"k3"`: K3 divergence at sequence level: E[r - log(r) - 1]
+  - More stable than K1 (each token term is non-negative)
   - K3 >= 0 always, so only upper threshold applies
   - Typical threshold: 0.001 - 0.01
 - `"group_k1"`: Group-level masking with K1 divergence
@@ -271,7 +274,7 @@ Rejection sampling aggregation level:
   - Requires `group_indices` tensor in the batch
   - K1 >= 0 always, so only upper threshold applies
   - Typical threshold: 0.0001 - 0.001
-- `"group_k3"`: Group-level masking with K3 KL estimator
+- `"group_k3"`: Group-level masking with K3 divergence
   - Rejects entire groups of sequences together using K3 divergence
   - Requires `group_indices` tensor in the batch
   - Typical threshold: 0.001 - 0.01
@@ -1137,10 +1140,10 @@ In bypass/pure IS mode, metrics measure the drift between π_θ and π_rollout d
   - **Formula**: `mean(log_prob_rollout - log_prob_training)`
   - **Note**: Can be negative (rollout is less confident)
 
-- **`k3_kl`**: K3 KL estimator
+- **`k3_kl`**: K3 divergence (equals KL(π_rollout || π_training) in expectation)
   - **Formula**: `mean(exp(log_ratio) - log_ratio - 1)`
-  - More stable for small KL values
-  - Always non-negative
+  - More stable than direct KL (non-negative per token)
+  - Always >= 0
 
 - **`chi2_token`**: Chi-squared divergence at token level
   - **Formula**: `mean(ratio²) - 1` where ratio = π_training/π_rollout

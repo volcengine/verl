@@ -189,9 +189,9 @@ def compute_rollout_rejection_mask(
         rs_statistic = torch.exp(log_ratio_mean_safe).expand_as(log_ratio)  # Geometric mean ratio
 
     elif rollout_rs == "k1":
-        # K1 KL estimator at sequence level: |E[log(r)]|
+        # K1 divergence at sequence level: |E[log(r)]|
         # Use absolute value for symmetric divergence (always >= 0, ideal = 0)
-        # This is equivalent to |KL(π_train || π_rollout)| estimated under rollout distribution
+        # This equals KL(π_rollout || π_train) in expectation (the reverse KL)
         log_ratio_mean: torch.Tensor = verl_F.masked_mean(log_ratio, response_mask, axis=-1).unsqueeze(
             -1
         )  # Shape: (batch_size, 1)
@@ -203,9 +203,10 @@ def compute_rollout_rejection_mask(
         rs_statistic = k1_div.expand_as(log_ratio)
 
     elif rollout_rs == "k3":
-        # K3 KL estimator at sequence level: E[r - log(r) - 1]
+        # K3 divergence at sequence level: E[r - log(r) - 1]
         # where r = π_train/π_rollout = exp(log_ratio)
-        # K3 is always >= 0 (equals 0 when r=1), more stable than geometric for small KL
+        # K3 >= 0 per token (equals 0 when r=1), equals KL(π_rollout || π_train) in expectation
+        # More stable than K1 because each token contribution is non-negative
         log_ratio_safe: torch.Tensor = torch.clamp(log_ratio, min=-SAFETY_BOUND, max=SAFETY_BOUND)
         r = torch.exp(log_ratio_safe)  # Token-level ratio
         k3_token = r - log_ratio - 1  # K3 divergence per token
@@ -219,7 +220,7 @@ def compute_rollout_rejection_mask(
         rs_statistic = k3_seq.expand_as(log_ratio)
 
     elif rollout_rs == "group_k1":
-        # Group-level K1 KL estimator: |group_mean(E[log(r)])|
+        # Group-level K1 divergence: |group_mean(E[log(r)])|
         # Reject entire groups of sequences together based on K1 divergence
         if group_indices is None:
             raise ValueError("group_indices must be provided when rollout_rs='group_k1'.")

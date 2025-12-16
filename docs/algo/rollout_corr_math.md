@@ -525,15 +525,20 @@ $$
 
 This is implemented by combining `rollout_rs="geometric"` with `rollout_is="sequence"`.
 
-#### 3.3.4 K3 KL Estimator Aggregation
+#### 3.3.4 K3 Divergence Aggregation
 
-**IS weights (for rejection only):** K3 divergence at sequence level:
+**K3 divergence at sequence level:**
 
 $$
 K3_{\text{seq}} = \frac{1}{|T|} \sum_{t \in T} \left( \rho_t - \log \rho_t - 1 \right)
 $$
 
 where $\rho_t = \frac{\pi_{\text{old}}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}$ is the per-token ratio.
+
+**K3 equals the reverse KL:** In expectation, $K3 = \text{KL}(\pi_{\text{rollout}} \| \pi_{\text{old}})$. This follows from:
+- $\mathbb{E}_{\pi_\text{rollout}}[\rho] = 1$
+- $\mathbb{E}_{\pi_\text{rollout}}[\log \rho] = -\text{KL}(\pi_{\text{rollout}} \| \pi_{\text{old}})$
+- Therefore: $K3 = 1 - (-\text{KL}) - 1 = \text{KL}(\pi_{\text{rollout}} \| \pi_{\text{old}})$
 
 **Configuration:**
 ```python
@@ -542,16 +547,16 @@ rollout_rs = "k3"  # K3 rejection sampling
 ```
 
 **Properties:**
-- K3 divergence is always >= 0 (equals 0 when policies match exactly)
-- More stable than geometric mean for small KL values
+- K3 divergence is always >= 0 per token (equals 0 when ρ = 1)
+- More stable than K1 because each token term is non-negative
 - Only upper threshold applies (no lower threshold since K3 >= 0)
 - Typical threshold: 0.001 - 0.01
 
-**Why K3 over Geometric?**
-- K3 = E[r - log(r) - 1] where r = exp(log_ratio)
-- For small divergences, K3 ≈ 0.5 * Var(log_ratio), providing more stable behavior
-- Less sensitive to individual outlier tokens than geometric mean
-- Natural interpretation: K3 measures "surprise" in KL divergence units
+**Why K3 over K1?**
+- K1 = |E[log ρ]| takes absolute value after averaging, can be unstable near 0
+- K3 = E[ρ - log ρ - 1] is non-negative per token, always stable
+- Both estimate the same quantity: KL(π_rollout || π_old)
+- For small divergences, K3 ≈ 0.5 × Var(log_ratio)
 
 **Combined Estimator (K3-RS-Seq-TIS):**
 
