@@ -128,17 +128,36 @@ config = RolloutCorrectionConfig.decoupled_seq_is()     # Seq-TIS
 config = RolloutCorrectionConfig.decoupled_seq_is_rs()  # Seq-MIS
 config = RolloutCorrectionConfig.decoupled_geo_rs()     # Geo-RS
 config = RolloutCorrectionConfig.geo_rs_seq_tis()       # Geo-RS-Seq-TIS
+config = RolloutCorrectionConfig.geo_rs_token_tis()     # Geo-RS-Token-TIS
 
 # === Bypass PPO mode (2 policies: π_rollout = π_old, π_θ) - fast ===
 # PPO ratio handles IS, so no explicit IS weights needed
-config = RolloutCorrectionConfig.bypass_ppo_clip()          # PPO-clip only
-config = RolloutCorrectionConfig.bypass_ppo_clip_geo_rs()   # PPO-clip + Geo-RS
+config = RolloutCorrectionConfig.bypass_ppo_clip()              # PPO-clip only
+config = RolloutCorrectionConfig.bypass_ppo_clip_geo_rs()       # PPO-clip + Geo-RS
+config = RolloutCorrectionConfig.bypass_ppo_clip_k3_rs()        # PPO-clip + K3-RS
+config = RolloutCorrectionConfig.bypass_ppo_clip_group_k1_rs()  # PPO-clip + Group K1 RS
+config = RolloutCorrectionConfig.bypass_ppo_clip_group_k3_rs()  # PPO-clip + Group K3 RS
 
 # === Bypass PG mode (2 policies, no PPO clipping) - fast ===
 # IS weights computed on-the-fly as π_θ / π_rollout
 config = RolloutCorrectionConfig.bypass_pg_is()                # Seq-TIS + PG
 config = RolloutCorrectionConfig.bypass_pg_rs()                # Geo-RS + PG
 config = RolloutCorrectionConfig.bypass_pg_geo_rs_seq_tis()    # Geo-RS-Seq-TIS + PG
+config = RolloutCorrectionConfig.bypass_pg_geo_rs_token_tis()  # Geo-RS-Token-TIS + PG
+
+# === K3 KL Estimator presets (more stable for small KL) ===
+config = RolloutCorrectionConfig.k3_rs()                # K3-RS only
+config = RolloutCorrectionConfig.k3_rs_seq_tis()        # K3-RS + Seq-TIS
+config = RolloutCorrectionConfig.k3_rs_token_tis()      # K3-RS + Token-TIS
+
+# === Group-level presets (reject entire groups together) ===
+# Useful when multiple sequences share the same prompt/context
+config = RolloutCorrectionConfig.group_k1_rs()          # Group K1 (geometric) RS
+config = RolloutCorrectionConfig.group_k1_rs_seq_tis()  # Group K1 RS + Seq-TIS
+config = RolloutCorrectionConfig.group_k1_rs_token_tis()  # Group K1 RS + Token-TIS
+config = RolloutCorrectionConfig.group_k3_rs()          # Group K3 RS
+config = RolloutCorrectionConfig.group_k3_rs_seq_tis()  # Group K3 RS + Seq-TIS
+config = RolloutCorrectionConfig.group_k3_rs_token_tis()  # Group K3 RS + Token-TIS
 
 # === Other ===
 config = RolloutCorrectionConfig.disabled()             # Metrics only (no correction)
@@ -154,9 +173,9 @@ algorithm:
     rollout_is: token                      # IS weights: "token", "sequence", or null
     rollout_is_threshold: 2.0              # Upper threshold for IS weights
     rollout_is_batch_normalize: false      # Batch normalize IS weights to mean=1.0
-    rollout_rs: null                       # Rejection sampling: "token", "sequence", "geometric", or null
+    rollout_rs: null                       # Rejection sampling: "token", "sequence", "geometric", "k3", "group_k1", "group_k3", or null
     rollout_rs_threshold: null             # RS upper threshold (required if rollout_rs is enabled)
-    rollout_rs_threshold_lower: null       # RS lower threshold (auto-reciprocal if null)
+    rollout_rs_threshold_lower: null       # RS lower threshold (auto-reciprocal if null, ignored for k3 modes)
     rollout_token_veto_threshold: null     # Per-token veto threshold (null = disabled)
     bypass_mode: false  # Skip old_log_prob computation (sets π_old = π_rollout)
     loss_type: ppo_clip            # Loss type in bypass mode: "ppo_clip" (default) or "reinforce"
@@ -226,8 +245,21 @@ Rejection sampling aggregation level:
 - `null` = No rejection sampling
 - `"token"`: Reject individual tokens with outlier ratios
 - `"sequence"`: Reject entire sequences with outlier ratios
-- `"geometric"`: Geometric mean aggregation for rejection
+- `"geometric"`: Geometric mean aggregation for rejection (k1 KL estimator)
   - Typical threshold: 1.0002 - 1.001
+- `"k3"`: K3 KL estimator at sequence level: E[r - log(r) - 1]
+  - More stable than geometric for small KL values
+  - K3 >= 0 always, so only upper threshold applies
+  - Typical threshold: 0.001 - 0.01
+- `"group_k1"`: Group-level masking with k1 (geometric mean)
+  - Rejects entire groups of sequences together
+  - Requires `group_indices` tensor in the batch
+  - Useful when multiple sequences share the same prompt/context
+  - Typical threshold: 1.0002 - 1.001
+- `"group_k3"`: Group-level masking with K3 KL estimator
+  - Rejects entire groups of sequences together using K3 divergence
+  - Requires `group_indices` tensor in the batch
+  - Typical threshold: 0.001 - 0.01
 
 ### `rollout_rs_threshold` (float or null)
 Upper threshold for rejection sampling. Default: `null`
@@ -298,14 +330,30 @@ This section provides detailed guidance on choosing and using the verified prese
 | `decoupled_seq_is()` | Seq-TIS | Decoupled | sequence | - | Sequence-level IS weights |
 | `decoupled_seq_is_rs()` | Seq-MIS | Decoupled | sequence | sequence | Sequence IS + sequence RS |
 | `decoupled_geo_rs()` | Geo-RS | Decoupled | - | geometric + veto | Geometric RS + veto, no IS weights |
-| `geo_rs_seq_tis()` | Geo-RS-Seq-TIS | Decoupled | sequence | geometric + veto | Geometric filter + clipped weight |
+| `geo_rs_seq_tis()` | Geo-RS-Seq-TIS | Decoupled | sequence | geometric + veto | Geometric filter + seq clipped weight |
+| `geo_rs_token_tis()` | Geo-RS-Token-TIS | Decoupled | token | geometric + veto | Geometric filter + token clipped weight |
 | **Bypass Mode (PPO-clip)** (2 policies; ratio handles IS, RS masks outliers) |
 | `bypass_ppo_clip()` | - | Bypass (PPO-clip) | - | - | PPO-clip only |
 | `bypass_ppo_clip_geo_rs()` | Geo-RS | Bypass (PPO-clip) | - | geometric + veto | PPO-clip + Geo-RS |
+| `bypass_ppo_clip_k3_rs()` | K3-RS | Bypass (PPO-clip) | - | k3 + veto | PPO-clip + K3-RS |
+| `bypass_ppo_clip_group_k1_rs()` | Group-K1-RS | Bypass (PPO-clip) | - | group_k1 + veto | PPO-clip + Group K1 RS |
+| `bypass_ppo_clip_group_k3_rs()` | Group-K3-RS | Bypass (PPO-clip) | - | group_k3 + veto | PPO-clip + Group K3 RS |
 | **Bypass Mode (REINFORCE)** (2 policies; explicit IS weights, no PPO clipping) |
 | `bypass_pg_is()` | Seq-TIS | Bypass (REINFORCE) | sequence | - | REINFORCE with explicit IS |
 | `bypass_pg_rs()` | Geo-RS | Bypass (REINFORCE) | - | geometric + veto | REINFORCE with Geo-RS |
 | `bypass_pg_geo_rs_seq_tis()` | Geo-RS-Seq-TIS | Bypass (REINFORCE) | sequence | geometric + veto | REINFORCE + Geo filter + seq IS |
+| `bypass_pg_geo_rs_token_tis()` | Geo-RS-Token-TIS | Bypass (REINFORCE) | token | geometric + veto | REINFORCE + Geo filter + token IS |
+| **K3 KL Estimator** (more stable for small KL values) |
+| `k3_rs()` | K3-RS | Decoupled | - | k3 + veto | K3 rejection, no IS weights |
+| `k3_rs_seq_tis()` | K3-RS-Seq-TIS | Decoupled | sequence | k3 + veto | K3 filter + seq clipped weight |
+| `k3_rs_token_tis()` | K3-RS-Token-TIS | Decoupled | token | k3 + veto | K3 filter + token clipped weight |
+| **Group-level** (reject entire groups together; requires group_indices) |
+| `group_k1_rs()` | Group-K1-RS | Decoupled | - | group_k1 + veto | Group geometric RS |
+| `group_k1_rs_seq_tis()` | Group-K1-RS-Seq-TIS | Decoupled | sequence | group_k1 + veto | Group K1 filter + seq clipped weight |
+| `group_k1_rs_token_tis()` | Group-K1-RS-Token-TIS | Decoupled | token | group_k1 + veto | Group K1 filter + token clipped weight |
+| `group_k3_rs()` | Group-K3-RS | Decoupled | - | group_k3 + veto | Group K3 RS |
+| `group_k3_rs_seq_tis()` | Group-K3-RS-Seq-TIS | Decoupled | sequence | group_k3 + veto | Group K3 filter + seq clipped weight |
+| `group_k3_rs_token_tis()` | Group-K3-RS-Token-TIS | Decoupled | token | group_k3 + veto | Group K3 filter + token clipped weight |
 | **Other** |
 | `disabled()` | - | - | - | - | Metrics only, no correction |
 
@@ -860,9 +908,9 @@ The aggregation level can be chosen **independently** of the operating mode. Any
 | `rollout_is` | `rollout_rs` | Behavior |
 |--------------|--------------|----------|
 | `null` | `null` | **Disabled**: No computation, no metrics, no rejection |
-| `null` | `"token"`, `"sequence"`, or `"geometric"` | **Rejection only**: Compute metrics, NO weight correction, YES rejection sampling |
+| `null` | `"token"`, `"sequence"`, `"geometric"`, `"k3"`, `"group_k1"`, or `"group_k3"` | **Rejection only**: Compute metrics, NO weight correction, YES rejection sampling |
 | `"token"` or `"sequence"` | `null` | **IS weights only**: Weight correction enabled, NO rejection sampling |
-| `"token"` or `"sequence"` | `"token"`, `"sequence"`, or `"geometric"` | **Full correction**: Both weight correction and rejection sampling enabled |
+| `"token"` or `"sequence"` | `"token"`, `"sequence"`, `"geometric"`, `"k3"`, `"group_k1"`, or `"group_k3"` | **Full correction**: Both weight correction and rejection sampling enabled |
 
 ### Key Insights
 
