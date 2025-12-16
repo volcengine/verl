@@ -738,14 +738,12 @@ class AgentLoopManager:
         )
         num_replicas = world_size // rollout_world_size
 
-        # set global env vars
+        # set global env vars for vllm rollout
         master_addr, master_port = ray.get(
             self.worker_group.workers[0].__ray_call__.remote(
                 lambda self: (os.environ["MASTER_ADDR_FOR_ROLLOUT"], os.environ["MASTER_PORT_FOR_ROLLOUT"])
             )
         )
-        cuda_visible_devices = ",".join(str(i) for i in range(0, self.config.trainer.n_gpus_per_node))
-        os.environ["CUDA_VISIBLE_DEVICES"] = cuda_visible_devices
         os.environ["WORLD_SIZE"] = str(world_size)
         os.environ["MASTER_ADDR"] = master_addr
         os.environ["MASTER_PORT"] = master_port

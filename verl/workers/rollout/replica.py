@@ -86,7 +86,6 @@ class RolloutReplica(ABC):
     ) -> None:
         self.replica_rank = replica_rank
         self.config = omega_conf_to_dataclass(config)
-        self.n_gpus_per_node = gpus_per_node
         # TODO: make lora config irrelevant to the model engine choice
         # Convert megatron lora config to HFModelConfig
         # If model_config is not an OmegaConf object, convert it first
@@ -105,7 +104,7 @@ class RolloutReplica(ABC):
             * self.config.data_parallel_size
             * self.config.pipeline_model_parallel_size
         )
-        self.gpus_per_node = min(self.n_gpus_per_node, self.world_size)
+        self.gpus_per_node = min(gpus_per_node, self.world_size)
         assert self.world_size % self.gpus_per_node == 0, (
             f"world_size {self.world_size} must be divisible by gpus_per_node {self.gpus_per_node}"
         )
