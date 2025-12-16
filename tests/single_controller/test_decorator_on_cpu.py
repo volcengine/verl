@@ -66,6 +66,9 @@ class DecoratorTestWorker(Worker):
     def dp_compute_td(self, data: TensorDict) -> TensorDict:
         rank_value = torch.tensor(self.rank, device=data["input"].device, dtype=data["input"].dtype)
         data["output"] = data["input"] + self.value + rank_value
+        position_ids = data.pop("position_ids")
+        for i, position_id in enumerate(position_ids.unbind(dim=0)):
+            assert (position_id == torch.arange(4 + rank_value * 2 + i).expand(position_id.shape)).all()
         return data
 
 
@@ -159,7 +162,16 @@ def test_decorator_dp_compute_td(ray_init_shutdown):
 
     # Prepare input data (size 4, for 2 workers)
     input_tensor = torch.arange(4, dtype=torch.float32)
-    data = TensorDict({"input": input_tensor}, batch_size=[4])
+    position_ids = torch.nested.as_nested_tensor(
+        [
+            torch.arange(4).expand(4, 4),
+            torch.arange(5).expand(4, 5),
+            torch.arange(6).expand(4, 6),
+            torch.arange(7).expand(4, 7),
+        ],
+        layout=torch.jagged,
+    )
+    data = TensorDict({"input": input_tensor, "position_ids": position_ids}, batch_size=[4])
 
     # Call the decorated method
     output = worker_group.dp_compute_td(data)

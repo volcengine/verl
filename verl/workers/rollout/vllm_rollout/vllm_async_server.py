@@ -13,9 +13,11 @@
 # limitations under the License.
 import argparse
 import asyncio
+import inspect
 import json
 import logging
 import os
+from concurrent.futures import Future
 from pprint import pprint
 from typing import Any, Callable, Optional
 
@@ -35,7 +37,6 @@ from vllm.inputs import TokensPrompt
 from vllm.lora.request import LoRARequest
 from vllm.outputs import RequestOutput
 from vllm.usage.usage_lib import UsageContext
-from vllm.utils import FlexibleArgumentParser, get_tcp_uri
 from vllm.v1.engine.async_llm import AsyncLLM
 from vllm.v1.engine.core import EngineCoreProc
 from vllm.v1.engine.utils import CoreEngineProcManager
@@ -54,6 +55,20 @@ from verl.workers.rollout.vllm_rollout.utils import (
     VLLM_LORA_PATH,
     get_vllm_max_lora_rank,
 )
+
+if vllm.__version__ > "0.11.0":
+    from vllm.utils.argparse_utils import FlexibleArgumentParser
+    from vllm.utils.network_utils import get_tcp_uri
+
+    if vllm.__version__ == "0.12.0":
+        from vllm.entrypoints.harmony_utils import get_encoding
+
+        get_encoding()
+else:
+    from vllm.utils import FlexibleArgumentParser, get_tcp_uri
+if vllm.__version__ >= "0.12.0":
+    from vllm.v1.core.sched.output import GrammarOutput, SchedulerOutput
+    from vllm.v1.outputs import ModelRunnerOutput
 
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
@@ -89,6 +104,30 @@ class ExternalZeroMQDistributedExecutor(Executor):
         self.collective_rpc("init_worker", args=([kwargs],))
         self.collective_rpc("init_device")
         self.collective_rpc("load_model")
+
+    if vllm.__version__ >= "0.12.0":
+
+        def execute_model(
+            self, scheduler_output: "SchedulerOutput", non_block: bool = False
+        ) -> "ModelRunnerOutput | None | Future[ModelRunnerOutput | None]":
+            output = self.collective_rpc("execute_model", args=(scheduler_output,))
+            result = output[0]
+            if non_block:
+                f = Future()
+                f.set_result(result)
+                return f
+            return result
+
+        def sample_tokens(
+            self, grammar_output: "GrammarOutput | None", non_block: bool = False
+        ) -> "ModelRunnerOutput | None | Future[ModelRunnerOutput | None]":
+            output = self.collective_rpc("sample_tokens", args=(grammar_output,))
+            result = output[0]
+            if non_block:
+                f = Future()
+                f.set_result(result)
+                return f
+            return result
 
     def collective_rpc(
         self,
@@ -347,18 +386,23 @@ class vLLMHttpServerBase:
         vllm_config = engine_args.create_engine_config(usage_context=usage_context)
         vllm_config.parallel_config.data_parallel_master_port = self._dp_master_port
 
-        engine_client = AsyncLLM.from_vllm_config(
-            vllm_config=vllm_config,
-            usage_context=usage_context,
-            disable_log_requests=engine_args.disable_log_requests,
-            disable_log_stats=engine_args.disable_log_stats,
-        )
+        fn_args = set(dict(inspect.signature(AsyncLLM.from_vllm_config).parameters).keys())
+        kwargs = {}
+        if "enable_log_requests" in fn_args:
+            kwargs["enable_log_requests"] = engine_args.enable_log_requests
+        if "disable_log_stats" in fn_args:
+            kwargs["disable_log_stats"] = engine_args.disable_log_stats
+
+        engine_client = AsyncLLM.from_vllm_config(vllm_config=vllm_config, usage_context=usage_context, **kwargs)
 
         # Don't keep the dummy data in memory
         await engine_client.reset_mm_cache()
 
         app = build_app(args)
-        await init_app_state(engine_client, vllm_config, app.state, args)
+        if vllm.__version__ > "0.11.0":
+            await init_app_state(engine_client, app.state, args)
+        else:
+            await init_app_state(engine_client, vllm_config, app.state, args)
         if self.replica_rank == 0 and self.node_rank == 0:
             logger.info(f"Initializing a V1 LLM engine with config: {vllm_config}")
 
@@ -481,7 +525,7 @@ class vLLMHttpServerBase:
     async def wait_for_requests_to_drain(self):
         await self.engine.wait_for_requests_to_drain()
 
-    async def abort_all_requests(self) -> dict[str, Any]:
+    async def abort_all_requests(self, reset_prefix_cache: bool = True) -> dict[str, Any]:
         """Abort all ongoing generation requests.
 
         Returns:
@@ -511,6 +555,11 @@ class vLLMHttpServerBase:
             self.engine.output_processor.abort_requests(request_ids)
             await self.engine.engine_core.abort_requests_async(request_ids)
 
+            # Try to reset prefix cache to ensure clean state
+            if reset_prefix_cache:
+                await self.clear_kv_cache()
+                logger.info("Prefix cache reset after abort")
+
             logger.info(f"Aborted {len(request_ids)} requests: {request_ids}")
             return {"aborted_count": len(request_ids), "request_ids": request_ids}
 
@@ -518,7 +567,7 @@ class vLLMHttpServerBase:
             logger.error(f"Error aborting requests: {e}")
             return {"aborted_count": 0, "request_ids": [], "error": str(e)}
 
-    async def abort_request(self, request_id: str) -> dict[str, Any]:
+    async def abort_request(self, request_id: str, reset_prefix_cache: bool = True) -> dict[str, Any]:
         """Abort a specific generation request.
 
         Args:
@@ -545,6 +594,11 @@ class vLLMHttpServerBase:
             # Abort in output processor and engine core
             self.engine.output_processor.abort_requests([request_id])
             await self.engine.engine_core.abort_requests_async([request_id])
+
+            # Try to reset prefix cache to ensure clean state
+            if reset_prefix_cache:
+                await self.clear_kv_cache()
+                logger.info(f"Prefix cache reset after abort request {request_id}")
 
             logger.info(f"Aborted request: {request_id}")
             return {"aborted": True, "request_id": request_id}

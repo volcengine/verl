@@ -65,5 +65,4 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     trainer.test_freq=-1 \
     trainer.total_epochs=1 \
     trainer.total_training_steps=1 \
-    trainer.device=npu \
     +actor_rollout_ref.actor.megatron.override_transformer_config.use_flash_attn=True $@

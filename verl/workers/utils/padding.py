@@ -16,15 +16,7 @@ import torch
 from tensordict import TensorDict
 
 from verl.utils import tensordict_utils as tu
-from verl.utils.device import (
-    is_cuda_available,
-    is_npu_available,
-)
-
-if is_cuda_available:
-    from flash_attn.bert_padding import pad_input, unpad_input
-elif is_npu_available:
-    from transformers.integrations.npu_flash_attention import pad_input, unpad_input
+from verl.utils.attention_utils import pad_input, unpad_input
 
 
 def left_right_2_no_padding(data: TensorDict) -> TensorDict:

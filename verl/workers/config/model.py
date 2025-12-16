@@ -104,7 +104,7 @@ class HFModelConfig(BaseConfig):
 
         self.local_path = copy_to_local(self.path, use_shm=self.use_shm)
 
-        # constuct tokenizer
+        # construct tokenizer
         if self.load_tokenizer:
             self.local_tokenizer_path = copy_to_local(self.tokenizer_path, use_shm=self.use_shm)
             self.tokenizer = hf_tokenizer(self.local_tokenizer_path, trust_remote_code=self.trust_remote_code)

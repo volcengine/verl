@@ -244,6 +244,7 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     critic.profiler.ranks=$PROFILE_RANKS \
     critic.profiler.all_ranks=$PROFILE_RANKS_ALL \
     reward_model.enable=True \
+    reward_model.use_reward_loop=False \
     reward_model.model.path="${MODEL_PATH}" \
     reward_model.micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
     reward_model.megatron.use_mbridge=${USE_MBRIDGE} \

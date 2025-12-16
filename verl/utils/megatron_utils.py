@@ -1220,3 +1220,11 @@ def register_megatron_training_hooks(model: list[torch.nn.Module], optimizer):
             config.param_sync_func = [model_chunk.start_param_sync for model_chunk in model]
             if len(model) == 1:
                 config.param_sync_func = config.param_sync_func[0]
+
+
+def mapping_string_to_attn_backend(args: dict) -> dict:
+    if "attention_backend" in args and isinstance(args["attention_backend"], str):
+        from megatron.core.transformer.enums import AttnBackend
+
+        args["attention_backend"] = AttnBackend[args["attention_backend"]]
+    return args
