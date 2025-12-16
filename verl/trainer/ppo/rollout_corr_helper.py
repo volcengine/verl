@@ -93,11 +93,15 @@ def compute_rollout_rejection_mask(
     where the estimated KL divergence (between training and rollout policies) exceeds
     a threshold. Unlike PPO's soft clipping, this provides a hard boundary.
 
-    KL Estimators:
-    - K1 (geometric): exp(E[log(r)]) where r = π_train/π_rollout
-      Ideal = 1.0, threshold is max allowed ratio (e.g., 2.0)
-    - K3: E[r - log(r) - 1], always >= 0
-      Ideal = 0.0, threshold is max allowed divergence (e.g., 0.01)
+    KL Divergence Estimators (ideal = 0.0, threshold is max allowed divergence):
+    - K1 (geometric/group_k1): |E[log(r)]| where r = π_train/π_rollout
+      Absolute mean log ratio, always >= 0
+    - K3 (k3/group_k3): E[r - log(r) - 1], always >= 0
+      More stable than K1 for small KL values
+
+    IS Ratio Modes (ideal = 1.0, threshold is [lower, upper] ratio bounds):
+    - token: Per-token IS ratio
+    - sequence: Product of token ratios
 
     Memory-efficient design:
     - Log-space calculations to avoid overflow
@@ -110,18 +114,18 @@ def compute_rollout_rejection_mask(
         response_mask: Binary mask for valid tokens (1=valid, 0=padding),
             shape (batch_size, seq_length).
         rollout_rs: Trust region estimation level, must be one of:
-            - "token": Per-token IS ratio
-            - "sequence": Sequence-level IS ratio (product of token ratios)
-            - "geometric": Sequence-level K1 estimator (geometric mean of ratios)
-            - "k3": Sequence-level K3 KL estimator: E[r - log(r) - 1]
-            - "group_k1": Group-level K1 estimator (mean of sequence K1 values)
-            - "group_k3": Group-level K3 estimator (mean of sequence K3 values)
+            - "token": Per-token IS ratio (ideal = 1.0)
+            - "sequence": Sequence-level IS ratio (ideal = 1.0)
+            - "geometric": Sequence-level K1 divergence |E[log(r)]| (ideal = 0.0)
+            - "k3": Sequence-level K3 divergence E[r - log(r) - 1] (ideal = 0.0)
+            - "group_k1": Group-level K1 divergence (ideal = 0.0)
+            - "group_k3": Group-level K3 divergence (ideal = 0.0)
         rollout_rs_threshold: Trust region upper threshold (required).
-            For ratio modes (token/sequence/geometric/group_k1): max allowed ratio (e.g., 2.0)
-            For K3 modes (k3/group_k3): max allowed K3 divergence (e.g., 0.01)
+            For ratio modes (token/sequence): max allowed ratio (e.g., 2.0)
+            For divergence modes (geometric/k3/group_k1/group_k3): max allowed divergence (e.g., 0.1)
         rollout_rs_threshold_lower: Trust region lower threshold.
             For ratio modes: min allowed ratio. Defaults to 1/upper_threshold.
-            For K3 modes: ignored (K3 >= 0 always).
+            For divergence modes: ignored (divergence >= 0 always).
         group_indices: Optional tensor of group indices, shape (batch_size,).
             Required for "group_k1" or "group_k3" modes.
 
@@ -130,7 +134,7 @@ def compute_rollout_rejection_mask(
             modified_response_mask: Response mask with trust region violations masked (0=rejected),
                 shape (batch_size, seq_length).
             metrics: Dictionary of trust region metrics (all scalars), including:
-                - rollout_rs_mean/max/min: KL estimate statistics
+                - rollout_rs_k1/k3_mean/max/min: KL divergence statistics (for divergence modes)
                 - rollout_rs_fraction_high/low: Fraction exceeding thresholds
                 - rollout_rs_masked_fraction: Fraction of tokens masked
                 - rollout_rs_seq_masked_fraction: Fraction of sequences masked
@@ -167,14 +171,18 @@ def compute_rollout_rejection_mask(
         rs_statistic = torch.exp(log_ratio_sum_safe).expand_as(log_ratio)  # Broadcast to (batch_size, seq_length)
 
     elif rollout_rs == "geometric":
-        # Sequence-level geometric mean: exp(mean(log ratios)) - equivalent to k1 KL estimator
+        # K1 KL estimator at sequence level: |E[log(r)]|
+        # Use absolute value for symmetric divergence (always >= 0, ideal = 0)
+        # This is equivalent to |KL(π_train || π_rollout)| estimated under rollout distribution
         log_ratio_mean: torch.Tensor = verl_F.masked_mean(log_ratio, response_mask, axis=-1).unsqueeze(
             -1
         )  # Shape: (batch_size, 1)
-        log_ratio_for_metrics = log_ratio_mean
+        k1_div: torch.Tensor = log_ratio_mean.abs()  # |E[log(r)]|
+        log_ratio_for_metrics = k1_div  # Store K1 divergence for metrics
 
-        log_ratio_mean_safe: torch.Tensor = torch.clamp(log_ratio_mean, min=-SAFETY_BOUND, max=SAFETY_BOUND)
-        rs_statistic = torch.exp(log_ratio_mean_safe).expand_as(log_ratio)
+        # For K1 divergence, use |mean log ratio| for thresholding
+        # K1 >= 0 (due to abs), threshold is max allowed K1 divergence
+        rs_statistic = k1_div.expand_as(log_ratio)
 
     elif rollout_rs == "k3":
         # K3 KL estimator at sequence level: E[r - log(r) - 1]
@@ -193,11 +201,12 @@ def compute_rollout_rejection_mask(
         rs_statistic = k3_seq.expand_as(log_ratio)
 
     elif rollout_rs == "group_k1":
-        # Group-level masking with k1 (geometric mean): reject entire groups of sequences together
+        # Group-level K1 KL estimator: |group_mean(E[log(r)])|
+        # Reject entire groups of sequences together based on K1 divergence
         if group_indices is None:
             raise ValueError("group_indices must be provided when rollout_rs='group_k1'.")
 
-        # First compute sequence-level geometric mean (same as "geometric" mode)
+        # First compute sequence-level mean log ratio
         log_ratio_mean: torch.Tensor = verl_F.masked_mean(log_ratio, response_mask, axis=-1)  # (batch_size,)
 
         # Get unique groups and aggregate within each group
@@ -207,14 +216,16 @@ def compute_rollout_rejection_mask(
         for g in unique_groups:
             group_mask = group_indices == g
             if group_mask.any():
-                # Compute group-level mean of sequence geometric means (k1 at group level)
+                # Compute group-level mean of sequence mean log ratios
                 group_mean = log_ratio_mean[group_mask].mean()
                 group_log_ratio_mean[group_mask] = group_mean
 
-        log_ratio_for_metrics = group_log_ratio_mean.unsqueeze(-1)
+        # K1 divergence: |group_mean(E[log(r)])|
+        k1_div: torch.Tensor = group_log_ratio_mean.abs()
+        log_ratio_for_metrics = k1_div.unsqueeze(-1)  # Store K1 divergence for metrics
 
-        log_ratio_safe: torch.Tensor = torch.clamp(group_log_ratio_mean, min=-SAFETY_BOUND, max=SAFETY_BOUND)
-        rs_statistic = torch.exp(log_ratio_safe).unsqueeze(-1).expand_as(log_ratio)
+        # For K1 divergence, threshold is max allowed divergence
+        rs_statistic = k1_div.unsqueeze(-1).expand_as(log_ratio)
 
     elif rollout_rs == "group_k3":
         # Group-level masking with K3 KL estimator: reject entire groups of sequences together
@@ -247,13 +258,15 @@ def compute_rollout_rejection_mask(
         raise ValueError(f"Unsupported rollout_rs: {rollout_rs}")
 
     # Generate outlier mask based on mode
-    if rollout_rs in ["k3", "group_k3"]:
-        # For K3 modes: K3 >= 0, reject if K3 > upper_threshold
-        # lower_threshold is ignored (K3 can't be negative)
+    # Divergence modes (K1, K3): divergence >= 0, reject if divergence > upper_threshold
+    # Ratio modes (token, sequence): reject if outside [lower_threshold, upper_threshold]
+    if rollout_rs in ["geometric", "k3", "group_k1", "group_k3"]:
+        # For divergence modes: divergence >= 0, reject if > upper_threshold
+        # lower_threshold is ignored (divergence can't be negative)
         mask: torch.Tensor = rs_statistic <= upper_threshold
         mask = mask.float()
     else:
-        # For other modes: reject if outside [lower_threshold, upper_threshold]
+        # For ratio modes (token, sequence): reject if outside [lower_threshold, upper_threshold]
         mask = (rs_statistic >= lower_threshold) & (rs_statistic <= upper_threshold)
         mask = mask.float()
 
@@ -309,22 +322,21 @@ def compute_rs_metrics(
 ) -> dict[str, float]:
     """Compute metrics for hard trust region enforcement.
 
-    This function calculates statistics for the KL divergence estimate used in
-    trust region enforcement, balancing numerical stability (using clamped values)
-    and accuracy (using log-space for threshold checks).
+    This function calculates statistics for the trust region estimate used in
+    masking, balancing numerical stability (using clamped values) and accuracy.
 
     Args:
-        rs_statistic: KL divergence estimate used for trust region thresholding.
-            - For ratio modes (token/sequence/geometric/group_k1): IS ratio, ideal = 1.0
-            - For K3 modes (k3/group_k3): K3 divergence, ideal = 0.0
+        rs_statistic: Trust region statistic used for thresholding.
+            - For ratio modes (token/sequence): IS ratio, ideal = 1.0
+            - For divergence modes (geometric/k3/group_k1/group_k3): divergence, ideal = 0.0
             Shape: (batch_size, seq_length).
-        log_ratio_for_metrics: Log ratio or K3 values for accurate metrics,
+        log_ratio_for_metrics: Log ratio or divergence values for accurate metrics,
             shape varies by aggregation level.
         response_mask: Binary mask for valid tokens (1=valid, 0=padding),
             shape (batch_size, seq_length).
         rollout_rs: Trust region estimation level (matches compute_rollout_rejection_mask).
         rollout_rs_threshold: Trust region upper threshold.
-        rollout_rs_threshold_lower: Trust region lower threshold (ignored for K3 modes).
+        rollout_rs_threshold_lower: Trust region lower threshold (ignored for divergence modes).
 
     Returns:
         Dictionary of trust region metrics (all scalars).
@@ -340,8 +352,24 @@ def compute_rs_metrics(
     log_threshold_lower: torch.Tensor = torch.log(torch.tensor(rollout_rs_threshold_lower, device=device))
 
     # Compute metrics based on aggregation level
-    if rollout_rs in ["k3", "group_k3"]:
-        # K3 modes: log_ratio_for_metrics contains K3 values (>= 0)
+    # Divergence modes: K1 (geometric/group_k1) and K3 (k3/group_k3) output divergence >= 0
+    # Ratio modes: token and sequence output IS ratios
+    if rollout_rs in ["geometric", "group_k1"]:
+        # K1 divergence modes: log_ratio_for_metrics contains |E[log(r)]| (>= 0)
+        # K1 = |E[log(r)]|, threshold is max allowed K1 divergence
+        k1_values = log_ratio_for_metrics  # Shape: (batch_size, 1)
+        metrics["rollout_rs_k1_mean"] = k1_values.mean().item()
+        metrics["rollout_rs_k1_max"] = k1_values.max().item()
+        metrics["rollout_rs_k1_min"] = k1_values.min().item()
+        metrics["rollout_rs_mean"] = k1_values.mean().item()  # For compatibility
+
+        # Fraction exceeding threshold (K1 >= 0, so only upper threshold matters)
+        exceeds_upper: torch.Tensor = k1_values > rollout_rs_threshold
+        metrics["rollout_rs_fraction_high"] = exceeds_upper.float().mean().item()
+        metrics["rollout_rs_fraction_low"] = 0.0  # K1 divergence can't be negative
+
+    elif rollout_rs in ["k3", "group_k3"]:
+        # K3 divergence modes: log_ratio_for_metrics contains E[r - log(r) - 1] (>= 0)
         # K3 = E[r - log(r) - 1], threshold is max allowed K3 divergence
         k3_values = log_ratio_for_metrics  # Shape: (batch_size, 1)
         metrics["rollout_rs_k3_mean"] = k3_values.mean().item()
@@ -352,10 +380,10 @@ def compute_rs_metrics(
         # Fraction exceeding threshold (K3 >= 0, so only upper threshold matters)
         exceeds_upper: torch.Tensor = k3_values > rollout_rs_threshold
         metrics["rollout_rs_fraction_high"] = exceeds_upper.float().mean().item()
-        metrics["rollout_rs_fraction_low"] = 0.0  # K3 can't be negative
+        metrics["rollout_rs_fraction_low"] = 0.0  # K3 divergence can't be negative
 
-    elif rollout_rs in ["sequence", "geometric", "group_k1"]:
-        # Sequence-level aggregation: use log-space for accurate max/min/threshold checks
+    elif rollout_rs == "sequence":
+        # Sequence-level IS ratio: use log-space for accurate max/min/threshold checks
         # True max/min (unclamped) converted with safety bounds
         log_max: torch.Tensor = log_ratio_for_metrics.max()
         log_min: torch.Tensor = log_ratio_for_metrics.min()
@@ -365,16 +393,7 @@ def compute_rs_metrics(
         # Mean uses clamped RS statistic to avoid overflow
         metrics["rollout_rs_mean"] = verl_F.masked_mean(rs_statistic, response_mask).item()
 
-        # Add K1-specific metrics for geometric/group_k1 modes (parallel to K3 metrics)
-        # K1 = exp(E[log(r)]) = geometric mean of IS ratios, ideal = 1.0
-        if rollout_rs in ["geometric", "group_k1"]:
-            k1_values = torch.exp(torch.clamp(log_ratio_for_metrics, min=-SAFETY_BOUND, max=SAFETY_BOUND))
-            metrics["rollout_rs_k1_mean"] = k1_values.mean().item()
-            metrics["rollout_rs_k1_max"] = k1_values.max().item()
-            metrics["rollout_rs_k1_min"] = k1_values.min().item()
-
         # Fraction exceeding thresholds (log-space for accuracy)
-        # sequence, geometric, and group modes operate at sequence level (batch_size, 1)
         exceeds_upper: torch.Tensor = log_ratio_for_metrics > log_threshold_upper
         below_lower: torch.Tensor = log_ratio_for_metrics < log_threshold_lower
         metrics["rollout_rs_fraction_high"] = exceeds_upper.float().mean().item()
@@ -408,8 +427,8 @@ def compute_rs_metrics(
         metrics["rollout_rs_std"] = 0.0
 
     # Compute Effective Sample Size (ESS) for RS statistic
-    # ESS = 1 / E[(w_i / E[w_i])²] - only meaningful for ratio-based modes (not K3)
-    if rollout_rs not in ["k3", "group_k3"]:
+    # ESS = 1 / E[(w_i / E[w_i])²] - only meaningful for ratio-based modes (not divergence modes)
+    if rollout_rs in ["token", "sequence"]:
         stat_for_ess: torch.Tensor = rs_statistic.clamp(min=rollout_rs_threshold_lower, max=rollout_rs_threshold)
         mean_for_ess: torch.Tensor = verl_F.masked_mean(stat_for_ess, response_mask)
         stat_normalized: torch.Tensor = stat_for_ess / (mean_for_ess + 1e-8)  # Avoid division by zero
@@ -425,8 +444,8 @@ def compute_rs_metrics(
         metrics["rollout_rs_seq_max"] = seq_mean_stat.max().item()
         metrics["rollout_rs_seq_min"] = seq_mean_stat.min().item()
 
-        # Sequence deviation from ideal value: 0.0 for K3 modes (divergence), 1.0 for ratio modes
-        ideal_value = 0.0 if rollout_rs in ["k3", "group_k3"] else 1.0
+        # Sequence deviation from ideal value: 0.0 for divergence modes (K1, K3), 1.0 for ratio modes
+        ideal_value = 0.0 if rollout_rs in ["geometric", "k3", "group_k1", "group_k3"] else 1.0
         seq_deviation: torch.Tensor = (seq_mean_stat - ideal_value).abs()
         metrics["rollout_rs_seq_max_deviation"] = seq_deviation.max().item()
 
