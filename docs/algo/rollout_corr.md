@@ -261,7 +261,7 @@ Rejection sampling aggregation level:
 **KL Divergence Modes (ideal = 0.0, uses only upper threshold):**
 - `"k1"`: K1 KL divergence at sequence level: |E[log(r)]|
   - K1 >= 0 always, so only upper threshold applies
-  - Typical threshold: 0.0002 - 0.001
+  - Typical threshold: 0.0001 - 0.001
 - `"k3"`: K3 KL estimator at sequence level: E[r - log(r) - 1]
   - More stable than K1 for small KL values
   - K3 >= 0 always, so only upper threshold applies
@@ -270,7 +270,7 @@ Rejection sampling aggregation level:
   - Rejects entire groups of sequences together
   - Requires `group_indices` tensor in the batch
   - K1 >= 0 always, so only upper threshold applies
-  - Typical threshold: 0.0002 - 0.001
+  - Typical threshold: 0.0001 - 0.001
 - `"group_k3"`: Group-level masking with K3 KL estimator
   - Rejects entire groups of sequences together using K3 divergence
   - Requires `group_indices` tensor in the batch
