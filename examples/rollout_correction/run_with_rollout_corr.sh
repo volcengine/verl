@@ -25,9 +25,9 @@ rollout_rs_threshold_lower="null"         # RS lower threshold
 # Veto mechanism (optional, independent of IS/RS)
 rollout_token_veto_threshold="null"       # Per-token veto threshold (null to disable)
 
-# Policy Gradient loss mode (bypass mode with policy gradient loss, no PPO clipping)
-bypass_mode="true"     # Required for policy gradient mode
-use_policy_gradient="true"        # Use policy gradient loss (works with IS/RS/both)
+# Bypass mode with REINFORCE loss (no PPO clipping)
+bypass_mode="true"     # Skip old_log_prob computation
+loss_type="reinforce"  # REINFORCE with explicit IS weights (alternative: "ppo_clip")
 
 # ==============================================================================
 # Model and Data Configuration
@@ -76,7 +76,7 @@ python3 -m verl.trainer.main_ppo \
     algorithm.rollout_correction.rollout_rs_threshold_lower=${rollout_rs_threshold_lower} \
     algorithm.rollout_correction.rollout_token_veto_threshold=${rollout_token_veto_threshold} \
     algorithm.rollout_correction.bypass_mode=${bypass_mode} \
-    algorithm.rollout_correction.use_policy_gradient=${use_policy_gradient} \
+    algorithm.rollout_correction.loss_type=${loss_type} \
     actor_rollout_ref.model.path="${MODEL_PATH}" \
     actor_rollout_ref.actor.optim.lr=${learning_rate} \
     actor_rollout_ref.actor.ppo_mini_batch_size=${ppo_mini_batch_size} \
@@ -95,7 +95,7 @@ echo "  - Algorithm: RLOO (REINFORCE Leave-One-Out)"
 echo "  - Advantage estimator: ${adv_estimator}"
 echo "  - IS mode: ${rollout_is} (self-normalized: ${rollout_is_batch_normalize})"
 echo "  - IS threshold: ${rollout_is_threshold}"
-echo "  - Policy gradient mode: ${use_policy_gradient} (bypass: ${bypass_mode})"
+echo "  - Bypass mode: ${bypass_mode}, loss_type: ${loss_type}"
 echo ""
 echo "Monitor these key metrics in wandb:"
 echo "  - rollout_corr/rollout_is_mean (should be ~1.0 before batch norm)"

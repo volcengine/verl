@@ -310,7 +310,8 @@ def rearrange_micro_batches(
 
     assert num_micro_batches <= len(seq_len_effective)
 
-    workloads = calculate_workload(seq_len_effective)
+    # note that seq_len_effective is a GPU tensor. We need to make it a list to avoid D2H!
+    workloads = calculate_workload(seq_len_effective).cpu().tolist()
     micro_bsz_idx = get_seqlen_balanced_partitions(workloads, num_micro_batches, equal_size=False)
 
     if use_dynamic_bsz_balance:
@@ -408,7 +409,8 @@ def restore_dynamic_batch(data: torch.Tensor, batch_idx_list: list[list[int]]) -
     revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
 
     if data.is_nested:
-        tensors = [data[i] for i in revert_indices]
+        data_lst = data.unbind()
+        tensors = [data_lst[i] for i in revert_indices]
         reverted_data = torch.nested.as_nested_tensor(tensors, layout=torch.jagged)
     else:
         reverted_data = data[revert_indices]

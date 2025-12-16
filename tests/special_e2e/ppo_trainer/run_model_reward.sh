@@ -79,6 +79,7 @@ python3 -m verl.trainer.main_ppo \
     critic.model.fsdp_config.param_offload=False \
     critic.model.fsdp_config.optimizer_offload=False \
     reward_model.enable=True \
+    reward_model.use_reward_loop=False \
     reward_model.ulysses_sequence_parallel_size="${SP_SIZE}" \
     reward_model.model.path="${MODEL_PATH}" \
     reward_model.model.use_remove_padding="${RM_PAD}" \

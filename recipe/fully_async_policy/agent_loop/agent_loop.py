@@ -323,5 +323,5 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
     async def sleep(self):
         await asyncio.gather(*[replica.sleep() for replica in self.rollout_replicas])
 
-    async def reset_prefix_cache(self):
-        await asyncio.gather(*[replica.reset_prefix_cache() for replica in self.rollout_replicas])
+    async def clear_kv_cache(self):
+        await asyncio.gather(*[replica.clear_kv_cache() for replica in self.rollout_replicas])

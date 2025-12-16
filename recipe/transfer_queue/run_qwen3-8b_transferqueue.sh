@@ -9,6 +9,9 @@ mkdir -p ${log_dir}
 timestamp=$(date +"%Y%m%d%H%M%S")
 log_file="${log_dir}/qwen3-8b_tq_${timestamp}.log"
 
+# You may try to enable zero-copy serialization for TransferQueue when using SimpleStorageUnit backend.
+export TQ_ZERO_COPY_SERIALIZATION=False
+
 rollout_mode="async"
 rollout_name="vllm" # sglang or vllm
 if [ "$rollout_mode" = "async" ]; then

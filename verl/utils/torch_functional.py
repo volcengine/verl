@@ -297,6 +297,32 @@ def allgather_dict_tensors(tensors: dict[str, torch.Tensor] | TensorDict, size, 
     return output
 
 
+def allgather_dict_into_dict(data: dict, group=None) -> dict:
+    """allgather a dict into a dict of list
+
+    Args:
+        data: a dict
+        group: the process group to allgather
+
+    Returns: dict containing a list of the results from allgather
+
+    """
+    assert isinstance(data, dict), f"Expect data to be a dictionary, Got {type(data)}"
+
+    group_size = torch.distributed.get_world_size(group=group)
+
+    final_metrics = {}
+    all_metrics_lst = [None for _ in range(group_size)]
+    torch.distributed.all_gather_object(all_metrics_lst, data, group=group)
+
+    for all_metrics in all_metrics_lst:
+        for key, val in all_metrics.items():
+            if key not in final_metrics:
+                final_metrics[key] = []
+            final_metrics[key].append(val)
+    return final_metrics
+
+
 def split_dict_tensor_into_batches(tensors: TensorDict, batch_size) -> list[TensorDict]:
     assert tensors.batch_size[0] % batch_size == 0, (
         f"input data batch size: {tensors.batch_size[0]}, split batch size: {batch_size}"
@@ -775,3 +801,27 @@ def distributed_masked_mean(local_tensor, local_mask):
 
     global_mean = local_sum / local_num
     return global_mean
+
+
+@contextmanager
+def use_original_torch_compile():
+    """torch.compile might be replaced by mindspeed on NPU, this contextmanager
+    can revert torch.compile temporarily.
+    """
+    try:
+        from mindspeed.patch_utils import MindSpeedPatchesManager
+
+        compile_patch = None
+        for patch in MindSpeedPatchesManager.patches_info.values():
+            if patch.orig_module_name == "torch" and patch.orig_func_name == "compile":
+                if patch.is_applied():
+                    compile_patch = patch
+                break
+        if compile_patch is not None:
+            compile_patch.remove_patch()
+            yield
+            compile_patch.apply_patch()
+        else:
+            yield
+    except Exception:
+        yield
