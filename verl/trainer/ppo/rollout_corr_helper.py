@@ -208,8 +208,8 @@ def compute_rollout_rejection_mask(
         # K3 >= 0 per token (equals 0 when r=1), equals KL(π_rollout || π_train) in expectation
         # More stable than K1 because each token contribution is non-negative
         log_ratio_safe: torch.Tensor = torch.clamp(log_ratio, min=-SAFETY_BOUND, max=SAFETY_BOUND)
-        r = torch.exp(log_ratio_safe)  # Token-level ratio
-        k3_token = r - log_ratio - 1  # K3 divergence per token
+        r = torch.exp(log_ratio_safe)  # Token-level ratio: r = exp(log_ratio_safe)
+        k3_token = r - log_ratio_safe - 1  # K3 = r - log(r) - 1, using log(r) = log_ratio_safe
 
         # Sequence-level K3: mean of token K3 values
         k3_seq: torch.Tensor = verl_F.masked_mean(k3_token, response_mask, axis=-1).unsqueeze(-1)
@@ -263,8 +263,8 @@ def compute_rollout_rejection_mask(
 
         # First compute sequence-level K3 (same as "k3" mode)
         log_ratio_safe: torch.Tensor = torch.clamp(log_ratio, min=-SAFETY_BOUND, max=SAFETY_BOUND)
-        r = torch.exp(log_ratio_safe)  # Token-level ratio
-        k3_token = r - log_ratio - 1  # K3 divergence per token
+        r = torch.exp(log_ratio_safe)  # Token-level ratio: r = exp(log_ratio_safe)
+        k3_token = r - log_ratio_safe - 1  # K3 = r - log(r) - 1, using log(r) = log_ratio_safe
         k3_seq: torch.Tensor = verl_F.masked_mean(k3_token, response_mask, axis=-1)  # (batch_size,)
 
         # Vectorized group aggregation using scatter operations
