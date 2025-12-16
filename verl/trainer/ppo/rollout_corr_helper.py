@@ -223,6 +223,8 @@ def compute_rollout_rejection_mask(
         # Reject entire groups of sequences together based on K1 divergence
         if group_indices is None:
             raise ValueError("group_indices must be provided when rollout_rs='group_k1'.")
+        if torch.any(group_indices < 0):
+            raise ValueError("`group_indices` must contain non-negative values.")
 
         # First compute sequence-level mean log ratio
         log_ratio_mean: torch.Tensor = verl_F.masked_mean(log_ratio, response_mask, axis=-1)  # (batch_size,)
@@ -255,6 +257,8 @@ def compute_rollout_rejection_mask(
         # Group-level masking with K3 KL estimator: reject entire groups of sequences together
         if group_indices is None:
             raise ValueError("group_indices must be provided when rollout_rs='group_k3'.")
+        if torch.any(group_indices < 0):
+            raise ValueError("`group_indices` must contain non-negative values.")
 
         # First compute sequence-level K3 (same as "k3" mode)
         log_ratio_safe: torch.Tensor = torch.clamp(log_ratio, min=-SAFETY_BOUND, max=SAFETY_BOUND)
