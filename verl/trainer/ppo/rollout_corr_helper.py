@@ -329,15 +329,18 @@ def compute_rollout_rejection_mask(
         if group_indices is not None:
             # Vectorized: use scatter to check if any sequence in each group is rejected
             seq_rejected = 1 - mask[:, 0]  # 1 if rejected, 0 if kept
-            num_groups = group_indices.max().item() + 1
+            num_groups_total = group_indices.max().item() + 1
 
             # Sum rejections per group (if any > 0, group has rejection)
-            group_has_rejection = torch.zeros(num_groups, device=seq_rejected.device, dtype=seq_rejected.dtype)
+            group_has_rejection = torch.zeros(num_groups_total, device=seq_rejected.device, dtype=seq_rejected.dtype)
             group_has_rejection.scatter_add_(0, group_indices, seq_rejected)
 
             # Count groups with at least one rejection
             groups_rejected = (group_has_rejection > 0).sum().item()
-            metrics["rollout_rs_group_masked_fraction"] = groups_rejected / num_groups
+            num_groups_present = len(torch.unique(group_indices))
+            metrics["rollout_rs_group_masked_fraction"] = (
+                groups_rejected / num_groups_present if num_groups_present > 0 else 0.0
+            )
     else:
         # Sequence-level aggregation: check first token's mask (all tokens in sequence have same mask)
         metrics["rollout_rs_seq_masked_fraction"] = (1 - mask[:, 0]).mean().item()
