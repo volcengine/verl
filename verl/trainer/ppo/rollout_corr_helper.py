@@ -230,22 +230,23 @@ def compute_rollout_rejection_mask(
         # First compute sequence-level mean log ratio
         log_ratio_mean: torch.Tensor = verl_F.masked_mean(log_ratio, response_mask, axis=-1)  # (batch_size,)
 
-        # Vectorized group aggregation using scatter operations
-        # Get the number of groups (max index + 1)
-        num_groups = group_indices.max().item() + 1
+        # Vectorized group aggregation using unique groups to avoid large tensor allocation
+        # This handles sparse group indices (e.g., [0, 100000]) without OOM
+        unique_groups, group_map = torch.unique(group_indices, return_inverse=True)
+        num_groups = len(unique_groups)
         device = log_ratio_mean.device
 
         # Compute group sums and counts using scatter_add
         group_sums = torch.zeros(num_groups, device=device, dtype=log_ratio_mean.dtype)
         group_counts = torch.zeros(num_groups, device=device, dtype=log_ratio_mean.dtype)
-        group_sums.scatter_add_(0, group_indices, log_ratio_mean)
-        group_counts.scatter_add_(0, group_indices, torch.ones_like(log_ratio_mean))
+        group_sums.scatter_add_(0, group_map, log_ratio_mean)
+        group_counts.scatter_add_(0, group_map, torch.ones_like(log_ratio_mean))
 
         # Compute group means (avoid division by zero)
         group_means = group_sums / group_counts.clamp_min(1)
 
         # Map group means back to each sequence
-        group_log_ratio_mean = group_means[group_indices]
+        group_log_ratio_mean = group_means[group_map]
 
         # K1 divergence: |group_mean(E[log(r)])|
         k1_div: torch.Tensor = group_log_ratio_mean.abs()
@@ -267,21 +268,23 @@ def compute_rollout_rejection_mask(
         k3_token = r - log_ratio_safe - 1  # K3 = r - log(r) - 1, using log(r) = log_ratio_safe
         k3_seq: torch.Tensor = verl_F.masked_mean(k3_token, response_mask, axis=-1)  # (batch_size,)
 
-        # Vectorized group aggregation using scatter operations
-        num_groups = group_indices.max().item() + 1
+        # Vectorized group aggregation using unique groups to avoid large tensor allocation
+        # This handles sparse group indices (e.g., [0, 100000]) without OOM
+        unique_groups, group_map = torch.unique(group_indices, return_inverse=True)
+        num_groups = len(unique_groups)
         device = k3_seq.device
 
         # Compute group sums and counts using scatter_add
         group_sums = torch.zeros(num_groups, device=device, dtype=k3_seq.dtype)
         group_counts = torch.zeros(num_groups, device=device, dtype=k3_seq.dtype)
-        group_sums.scatter_add_(0, group_indices, k3_seq)
-        group_counts.scatter_add_(0, group_indices, torch.ones_like(k3_seq))
+        group_sums.scatter_add_(0, group_map, k3_seq)
+        group_counts.scatter_add_(0, group_map, torch.ones_like(k3_seq))
 
         # Compute group means (avoid division by zero)
         group_means = group_sums / group_counts.clamp_min(1)
 
         # Map group means back to each sequence
-        group_k3 = group_means[group_indices]
+        group_k3 = group_means[group_map]
 
         log_ratio_for_metrics = group_k3.unsqueeze(-1)  # Store K3 values for metrics
 
@@ -328,19 +331,23 @@ def compute_rollout_rejection_mask(
         metrics["rollout_rs_seq_masked_fraction"] = (1 - mask[:, 0]).mean().item()
         if group_indices is not None:
             # Vectorized: use scatter to check if any sequence in each group is rejected
+            # Use unique groups to handle sparse indices and avoid OOM
             seq_rejected = 1 - mask[:, 0]  # 1 if rejected, 0 if kept
-            num_groups_total = group_indices.max().item() + 1
+            unique_groups, group_map = torch.unique(group_indices, return_inverse=True)
+            num_groups_present = len(unique_groups)
 
-            # Sum rejections per group (if any > 0, group has rejection)
-            group_has_rejection = torch.zeros(num_groups_total, device=seq_rejected.device, dtype=seq_rejected.dtype)
-            group_has_rejection.scatter_add_(0, group_indices, seq_rejected)
+            if num_groups_present > 0:
+                # Sum rejections per group (if any > 0, group has rejection)
+                group_has_rejection = torch.zeros(
+                    num_groups_present, device=seq_rejected.device, dtype=seq_rejected.dtype
+                )
+                group_has_rejection.scatter_add_(0, group_map, seq_rejected)
 
-            # Count groups with at least one rejection
-            groups_rejected = (group_has_rejection > 0).sum().item()
-            num_groups_present = len(torch.unique(group_indices))
-            metrics["rollout_rs_group_masked_fraction"] = (
-                groups_rejected / num_groups_present if num_groups_present > 0 else 0.0
-            )
+                # Count groups with at least one rejection
+                groups_rejected = (group_has_rejection > 0).sum().item()
+                metrics["rollout_rs_group_masked_fraction"] = groups_rejected / num_groups_present
+            else:
+                metrics["rollout_rs_group_masked_fraction"] = 0.0
     else:
         # Sequence-level aggregation: check first token's mask (all tokens in sequence have same mask)
         metrics["rollout_rs_seq_masked_fraction"] = (1 - mask[:, 0]).mean().item()
