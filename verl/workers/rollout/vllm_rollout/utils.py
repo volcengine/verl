@@ -67,10 +67,9 @@ def _monkey_patch_compute_logits(model, vocab_size: int):
 
     model.compute_logits = MethodType(compute_logits, model)
 
+
 # copy from https://github.com/vllm-project/vllm/blob/main/examples/offline_inference/rlhf_utils.py
-def rebuild_ipc(
-    handle: tuple[Callable, tuple], device_id: int | None = None
-) -> torch.Tensor:
+def rebuild_ipc(handle: tuple[Callable, tuple], device_id: int | None = None) -> torch.Tensor:
     func, args = handle
     list_args = list(args)
     if device_id is not None:
@@ -80,12 +79,14 @@ def rebuild_ipc(
     buffer = func(*list_args)
     return buffer
 
+
 class FlattenedTensorMetadata(TypedDict):
     name: str
     shape: torch.Size
     dtype: torch.dtype
     # specify the start offset of this tensor in shared ipc_buffer tensor
     offset: int
+
 
 class vLLMColocateWorkerExtension:
     """
@@ -96,6 +97,7 @@ class vLLMColocateWorkerExtension:
     NOTE: we define this class in a separate module, and the main module
     should pass the full qualified name as `worker_extension_cls` argument.
     """
+
     def __new__(cls, **kwargs):
         global_rank = kwargs.get("rank", 0) + int(os.environ.get("VERL_VLLM_MULTIPROC_GLOBAL_RANK_OFFSET", "0"))
         local_rank = kwargs.get("local_rank", 0)
@@ -115,7 +117,7 @@ class vLLMColocateWorkerExtension:
 
     def monkey_patch_compute_logits(self, vocab_size: int):
         _monkey_patch_compute_logits(self.model_runner.model, vocab_size)
-    
+
     def _fetch_weights(self, zmq_handle: str, load: bool = True):
         from vllm.model_executor.model_loader.utils import process_weights_after_loading
 
@@ -126,14 +128,10 @@ class vLLMColocateWorkerExtension:
         socket.connect(zmq_handle)
         weights_to_load = []
         while True:
-            payload: tuple[Callable, tuple] | list[FlattenedTensorMetadata] | None = (
-                socket.recv_pyobj()
-            )
+            payload: tuple[Callable, tuple] | list[FlattenedTensorMetadata] | None = socket.recv_pyobj()
             if payload is None:
                 # means the update is done
-                process_weights_after_loading(
-                    self.model_runner.model, self.model_config, self.device
-                )
+                process_weights_after_loading(self.model_runner.model, self.model_config, self.device)
                 torch.cuda.synchronize()
                 socket.send(b"")
                 break
@@ -191,10 +189,10 @@ class vLLMColocateWorkerExtension:
             lora_tensors=dict(lora_weights),
         )
         self.add_lora(lora_request)
+        logger.info(f"vLLM load weights, loaded_params: {len(lora_weights)}")
         del lora_weights
         gc.collect()
         torch.cuda.empty_cache()
-        logger.info(f"vLLM load weights, loaded_params: {len(lora_weights)}")
 
     def report_device_id(self) -> str:
         """Report device ID for ZMQ handle."""

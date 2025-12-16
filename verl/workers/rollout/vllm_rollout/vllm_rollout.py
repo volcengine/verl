@@ -26,49 +26,22 @@ When working with Megatron:
 - After inference, all the parameters that doesn't belong to this pp rank is freed.
 """
 
-import asyncio
-import getpass
 import logging
 import os
-from dataclasses import asdict
-from types import MethodType
 from typing import Any, Generator, Optional
 
-import cloudpickle as pickle
 import ray
 import torch
-import torch.distributed
 import zmq
-import zmq.asyncio
-from filelock import FileLock
+from packaging import version as vs
 from torch.distributed.device_mesh import DeviceMesh
 from torch.multiprocessing.reductions import reduce_tensor
-from vllm.config import LoRAConfig
-
-try:
-    from vllm.worker.worker_base import WorkerWrapperBase
-except ModuleNotFoundError:
-    # https://github.com/vllm-project/vllm/commit/6a113d9aed8221a9c234535958e70e34ab6cac5b
-    from vllm.v1.worker.worker_base import WorkerWrapperBase
-
-from packaging import version as vs
 
 from verl import DataProto
 from verl.third_party.vllm import VLLM_SLEEP_LEVEL, get_version
-from verl.utils.device import is_npu_available
-from verl.utils.distributed import initialize_global_process_group_ray
-from verl.utils.ray_utils import ray_noset_visible_devices
-from verl.utils.vllm import TensorLoRARequest, VLLMHijack, is_version_ge
-from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches, is_fp8_model, load_quanted_weights
+from verl.utils.vllm import VLLMHijack, is_version_ge
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
-from verl.workers.rollout.utils import get_free_port, is_valid_ipv6_address
-from verl.workers.rollout.vllm_rollout.utils import (
-    VLLM_LORA_INT_ID,
-    VLLM_LORA_NAME,
-    VLLM_LORA_PATH,
-    get_vllm_max_lora_rank,
-)
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -98,6 +71,7 @@ class ServerAdapter(BaseRollout):
     vLLM server adapter used in native async mode, serve as a client to request vLLM server
     to resume/release/update weights and kv_cache.
     """
+
     def __init__(
         self,
         config: RolloutConfig,
@@ -110,7 +84,7 @@ class ServerAdapter(BaseRollout):
         rank = int(os.environ["RANK"])
         local_world_size = int(os.environ["RAY_LOCAL_WORLD_SIZE"])
         rollout_world_size = (
-            self.config.tensor_model_parallel_size 
+            self.config.tensor_model_parallel_size
             * self.config.data_parallel_size
             * self.config.pipeline_model_parallel_size
         )
@@ -122,7 +96,7 @@ class ServerAdapter(BaseRollout):
             self.sleep_level = 1
         else:
             self.sleep_level = VLLM_SLEEP_LEVEL
-        
+
         # Attributes related to weight updates
         from vllm.platforms import current_platform
 
@@ -137,7 +111,7 @@ class ServerAdapter(BaseRollout):
         non_block: bool = False,
         timeout: Optional[float] = None,
         args: tuple = (),
-        kwargs: Optional[dict] = None
+        kwargs: Optional[dict] = None,
     ) -> Any:
         """Execute method on inference engine via ray.
 
@@ -184,7 +158,7 @@ class ServerAdapter(BaseRollout):
                 kwargs={
                     "peft_config": peft_config,
                     "zmq_handles": self.zmq_handles,
-                }
+                },
             )
         else:
             await self._execute_method(
@@ -192,7 +166,7 @@ class ServerAdapter(BaseRollout):
                 non_block=True,
                 kwargs={
                     "zmq_handles": self.zmq_handles,
-                }
+                },
             )
         await self._update_weights_per_tensor(weights)
 
@@ -225,7 +199,7 @@ class ServerAdapter(BaseRollout):
         """Set vLLMHttpServer handle"""
         if self.rollout_rank == 0:
             self.server_handle = server_handle
-    
+
     def get_update_weights_zmq_handle(self) -> dict[str, str]:
         """Get ZMQ handle for weight updates."""
         suffix = f"{self.device_uuid}-{self.zmq_address_counter}"

@@ -433,6 +433,7 @@ class RayWorkerGroup(WorkerGroup):
 
     def _get_master_addr_port(self, pg):
         """Get master addr and port for this worker group"""
+
         def _do_get_master_addr_port(pg):
             master_addr, master_port = ray.get(
                 get_master_addr_port.options(
@@ -442,6 +443,7 @@ class RayWorkerGroup(WorkerGroup):
                 ).remote()
             )
             return master_addr, master_port
+
         if self._master_addr is None and self._master_port is None:
             self._master_addr, self._master_port = _do_get_master_addr_port(pg)
         elif self._master_addr is not None and self._master_port is not None:

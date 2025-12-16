@@ -13,20 +13,17 @@
 # limitations under the License.
 import argparse
 import asyncio
+import inspect
 import json
 import logging
 import os
-from concurrent.futures import Future
 from pprint import pprint
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
-import cloudpickle as pickle
 import numpy as np
 import ray
 import torch
 import vllm.entrypoints.cli.serve
-import zmq
-from filelock import FileLock
 from ray.actor import ActorHandle
 from vllm import SamplingParams
 from vllm.config import LoRAConfig
@@ -271,10 +268,9 @@ class vLLMHttpServerBase:
                 server_args.append(json.dumps(v) if isinstance(v, dict) else str(v))
 
         # pass worker_extension_cls parameter for cuda-ipc based weights updating
-        server_args.extend([
-            "--worker_extension_cls",
-            "verl.workers.rollout.vllm_rollout.utils.vLLMColocateWorkerExtension"
-        ])
+        server_args.extend(
+            ["--worker_extension_cls", "verl.workers.rollout.vllm_rollout.utils.vLLMColocateWorkerExtension"]
+        )
 
         if self.replica_rank == 0:
             pprint(server_args)
@@ -336,8 +332,7 @@ class vLLMHttpServerBase:
         # Don't keep the dummy data in memory
         await engine_client.reset_mm_cache()
         await engine_client.collective_rpc(
-            method="monkey_patch_compute_logits",
-            kwargs={"vocab_size": len(self.model_config.tokenizer)}
+            method="monkey_patch_compute_logits", kwargs={"vocab_size": len(self.model_config.tokenizer)}
         )
 
         app = build_app(args)
@@ -376,18 +371,12 @@ class vLLMHttpServerBase:
             executor_class=Executor.get_class(vllm_config),
             log_stats=not engine_args.disable_log_stats,
         )
-    
+
     async def collective_rpc(
-        self,
-        method: str,
-        timeout: Optional[float] = None,
-        args: tuple = (),
-        kwargs: Optional[dict] = None
+        self, method: str, timeout: Optional[float] = None, args: tuple = (), kwargs: Optional[dict] = None
     ):
         """Perform a collective RPC call to the inference engine."""
-        return await self.engine.collective_rpc(
-            method=method, timeout=timeout, args=args, kwargs=kwargs
-        )
+        return await self.engine.collective_rpc(method=method, timeout=timeout, args=args, kwargs=kwargs)
 
     async def generate(
         self,
@@ -582,7 +571,17 @@ class vLLMHttpServer(vLLMHttpServerBase):
         nnodes: int,
         cuda_visible_devices: str,
     ):
-        super().__init__(config, model_config, rollout_mode, workers, replica_rank, node_rank, gpus_per_node, nnodes, cuda_visible_devices)
+        super().__init__(
+            config,
+            model_config,
+            rollout_mode,
+            workers,
+            replica_rank,
+            node_rank,
+            gpus_per_node,
+            nnodes,
+            cuda_visible_devices,
+        )
 
 
 _rollout_worker_actor_cls = ray.remote(ServerAdapter)

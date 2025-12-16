@@ -12,9 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
 
-from typing import Callable
 from msgspec import field
 from packaging import version as vs
 from vllm.lora.models import LoRAModel
