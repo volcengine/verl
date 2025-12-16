@@ -561,17 +561,17 @@ This is implemented by combining `rollout_rs="k3"` with `rollout_is="sequence"`.
 
 Group-level aggregation rejects entire **groups** of sequences together, useful when multiple sequences share the same prompt or context (e.g., multiple responses to the same question).
 
-**Group K1 (Geometric Mean):**
+**Group K1 Divergence:**
 
 $$
-\rho_{\text{group-k1}} = \exp\left( \frac{1}{|G|} \sum_{i \in G} \frac{1}{|T_i|} \sum_{t \in T_i} \log \rho_{i,t} \right)
+K1_{\text{group}} = \left| \frac{1}{|G|} \sum_{i \in G} \left( \frac{1}{|T_i|} \sum_{t \in T_i} \log \rho_{i,t} \right) \right|
 $$
 
-where $G$ is a group of sequences sharing the same index.
+where $G$ is a group of sequences sharing the same index, and the absolute value ensures $K1_{\text{group}} \geq 0$.
 
 **Configuration:**
 ```python
-rollout_rs = "group_k1"  # Group-level geometric RS
+rollout_rs = "group_k1"  # Group-level K1 divergence RS
 # Requires group_indices tensor in batch
 ```
 

@@ -388,7 +388,7 @@ def compute_rs_metrics(
         metrics["rollout_rs_k1_mean"] = k1_values.mean().item()
         metrics["rollout_rs_k1_max"] = k1_values.max().item()
         metrics["rollout_rs_k1_min"] = k1_values.min().item()
-        metrics["rollout_rs_mean"] = k1_values.mean().item()  # For compatibility
+        # Note: rollout_rs_mean omitted for divergence modes to avoid confusion with IS ratio mean
 
         # Fraction exceeding threshold (K1 >= 0, so only upper threshold matters)
         exceeds_upper: torch.Tensor = k1_values > rollout_rs_threshold
@@ -402,7 +402,7 @@ def compute_rs_metrics(
         metrics["rollout_rs_k3_mean"] = k3_values.mean().item()
         metrics["rollout_rs_k3_max"] = k3_values.max().item()
         metrics["rollout_rs_k3_min"] = k3_values.min().item()
-        metrics["rollout_rs_mean"] = k3_values.mean().item()  # For compatibility
+        # Note: rollout_rs_mean omitted for divergence modes to avoid confusion with IS ratio mean
 
         # Fraction exceeding threshold (K3 >= 0, so only upper threshold matters)
         exceeds_upper: torch.Tensor = k3_values > rollout_rs_threshold
