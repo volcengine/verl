@@ -548,7 +548,7 @@ algorithm:
 
 A threshold of 0.001 rejects sequences with average per-token log-deviation > 0.1%.
 
-**Theory:** See [rollout_corr_math.md §3.3.3](rollout_corr_math.md#333-geometric-aggregation-geo-rs)
+**Theory:** See [rollout_corr_math.md §3.3.3](rollout_corr_math.md#333-geometric--k1-divergence-aggregation-geo-rs--k1-rs)
 
 ---
 
@@ -589,7 +589,7 @@ algorithm:
 - Suitable for reasoning models (CoT, o1-style) and agents with long action sequences
 - Solves the Length Trap while maintaining IS correction for bias reduction
 
-**Theory:** See [rollout_corr_math.md §3.3.3](rollout_corr_math.md#333-geometric-aggregation-geo-rs)
+**Theory:** See [rollout_corr_math.md §3.3.3](rollout_corr_math.md#333-geometric--k1-divergence-aggregation-geo-rs--k1-rs)
 
 ---
 
@@ -670,7 +670,7 @@ algorithm:
 **Configuration requirement:**
 - Set `actor_rollout_ref.rollout.calculate_log_probs: true`
 
-**Theory:** [§3.1.2 (Bypass)](rollout_corr_math.md#312-bypass-mode-two-policies) + [§3.3.3 (Geometric)](rollout_corr_math.md#333-geometric-aggregation-geo-rs)
+**Theory:** [§3.1.2 (Bypass)](rollout_corr_math.md#312-bypass-mode-two-policies) + [§3.3.3 (Geo/K1)](rollout_corr_math.md#333-geometric--k1-divergence-aggregation-geo-rs--k1-rs)
 
 ---
 
@@ -742,7 +742,7 @@ algorithm:
 - Veto mechanism enabled
 - Typical threshold: 0.0001 - 0.001 (divergence >= 0, ideal = 0)
 
-**Theory:** [§3.1.2 (Bypass)](rollout_corr_math.md#312-bypass-mode-two-policies) + [§3.3.3 (Geometric)](rollout_corr_math.md#333-geometric-aggregation-geo-rs)
+**Theory:** [§3.1.2 (Bypass)](rollout_corr_math.md#312-bypass-mode-two-policies) + [§3.3.3 (Geo/K1)](rollout_corr_math.md#333-geometric--k1-divergence-aggregation-geo-rs--k1-rs)
 
 ---
 
@@ -785,7 +785,7 @@ algorithm:
 - Suitable for reasoning models (CoT, o1-style) when you want bypass mode efficiency
 - No PPO clipping - relies on IS/RS for stability
 
-**Theory:** See [rollout_corr_math.md §3.3.3](rollout_corr_math.md#333-geometric-aggregation-geo-rs)
+**Theory:** See [rollout_corr_math.md §3.3.3](rollout_corr_math.md#333-geometric--k1-divergence-aggregation-geo-rs--k1-rs)
 
 ---
 

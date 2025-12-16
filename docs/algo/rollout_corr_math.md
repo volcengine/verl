@@ -444,23 +444,29 @@ $$
 
 where $w_{\text{seq}}$ is broadcast to all tokens in the sequence. The stopgrad operator ensures correct IS gradient computation (see §3.2.2). This formulation can also be combined with PPO clipping.
 
-#### 3.3.3 Geometric Aggregation (Geo-RS)
+#### 3.3.3 Geometric & K1 Divergence Aggregation (Geo-RS / K1-RS)
 
-**IS weights (for rejection only):** $\rho_{\text{geo}} = \exp\left( \frac{1}{|T|} \sum_{t \in T} \log \rho_t \right) = \left(\prod_{t \in T} \rho_t\right)^{1/|T|}$ (broadcast to all tokens)
+**Geometric mean ratio:** $\rho_{\text{geo}} = \exp\left( \frac{1}{|T|} \sum_{t \in T} \log \rho_t \right) = \left(\prod_{t \in T} \rho_t\right)^{1/|T|}$ (broadcast to all tokens)
 
-**Configuration:**
+**K1 divergence:** $K1 = |E[\log \rho]| = \left| \frac{1}{|T|} \sum_{t \in T} \log \rho_t \right|$
+
+**Configuration (K1-RS):**
 ```python
 rollout_is = null  # No IS weights, pure rejection
 rollout_rs = "k1"  # K1 divergence rejection sampling
 ```
 
-**Properties:**
-- K1 KL divergence: |E[log(r)]| (absolute mean log-ratio)
-- Length-invariant (normalizes by sequence length)
-- Typical threshold: 0.0001 - 0.001 (divergence >= 0, ideal = 0)
-- **Used for rejection sampling only, not IS weighting**
+**Configuration (Geo-RS):**
+```python
+rollout_is = null  # No IS weights, pure rejection
+rollout_rs = "geometric"  # Geometric mean rejection sampling
+```
 
-**Note:** The `"geometric"` mode uses the geometric mean ratio exp(E[log(r)]) with ideal=1.0 and threshold ~1.001, while `"k1"` uses the K1 divergence |E[log(r)]| with ideal=0.0 and threshold ~0.001.
+**Properties:**
+- **K1 mode** (`rollout_rs="k1"`): Uses K1 divergence |E[log(r)]|, ideal=0.0, threshold ~0.001
+- **Geometric mode** (`rollout_rs="geometric"`): Uses geometric mean exp(E[log(r)]), ideal=1.0, threshold ~1.001
+- Both are length-invariant (normalize by sequence length)
+- **Used for rejection sampling only, not IS weighting**
 
 **The Length Trap Problem:**
 
@@ -511,7 +517,7 @@ $$
 \hat{g}_{\text{geo-rs-seq-tis}}(y) = \underbrace{\mathbb{I}\left( C_{\text{low}} \le \rho(y)^{1/T} \le C_{\text{high}} \right)}_{\text{Geometric Filter}} \cdot \min(\rho(y), C) \cdot f(y)
 $$
 
-This is implemented by combining `rollout_rs="k1"` with `rollout_is="sequence"`.
+This is implemented by combining `rollout_rs="geometric"` with `rollout_is="sequence"`.
 
 #### 3.3.4 K3 KL Estimator Aggregation
 
