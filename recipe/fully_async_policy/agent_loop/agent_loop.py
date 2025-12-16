@@ -27,8 +27,8 @@ from verl.experimental.agent_loop.agent_loop import (
     AgentLoopOutput,
     AgentLoopWorkerBase,
     AsyncLLMServerManager,
+    DictConfigWrap,
     _agent_loop_registry,
-    _DummyConfig,
     get_trajectory_info,
 )
 from verl.experimental.agent_loop.prometheus_utils import update_prometheus_config
@@ -182,7 +182,7 @@ class FullyAsyncAgentLoopWorker(AgentLoopWorkerBase):
                 agent_loop_config = _agent_loop_registry[agent_name]
                 agent_loop = hydra.utils.instantiate(
                     config=agent_loop_config,
-                    trainer_config=_DummyConfig(config=self.config),
+                    trainer_config=DictConfigWrap(config=self.config),
                     server_manager=self.server_manager,
                     tokenizer=self.tokenizer,
                     processor=self.processor,
