@@ -87,11 +87,17 @@ def compute_rollout_rejection_mask(
     rollout_rs_threshold_lower: Optional[float] = None,
     group_indices: Optional[torch.Tensor] = None,
 ) -> tuple[torch.Tensor, dict[str, float]]:
-    """Compute rejection mask for outlier handling in off-policy RL training.
+    """Compute hard trust region mask using KL divergence estimators.
 
-    This function identifies and masks outlier tokens/sequences using precomputed log ratios
-    (log(π_train / π_rollout)). It supports multiple aggregation levels and uses log-space
-    computations for numerical stability.
+    This function enforces a hard trust region constraint by masking tokens/sequences
+    where the estimated KL divergence (between training and rollout policies) exceeds
+    a threshold. Unlike PPO's soft clipping, this provides a hard boundary.
+
+    KL Estimators:
+    - K1 (geometric): exp(E[log(r)]) where r = π_train/π_rollout
+      Ideal = 1.0, threshold is max allowed ratio (e.g., 2.0)
+    - K3: E[r - log(r) - 1], always >= 0
+      Ideal = 0.0, threshold is max allowed divergence (e.g., 0.01)
 
     Memory-efficient design:
     - Log-space calculations to avoid overflow
@@ -103,33 +109,31 @@ def compute_rollout_rejection_mask(
             shape (batch_size, seq_length).
         response_mask: Binary mask for valid tokens (1=valid, 0=padding),
             shape (batch_size, seq_length).
-        rollout_rs: Rejection sampling aggregation level, must be one of:
-            - "token": Per-token outlier detection
-            - "sequence": Aggregate across entire sequence (product of token ratios)
-            - "geometric": Geometric mean across entire sequence (k1 KL estimator)
-            - "k3": K3 KL estimator at sequence level: E[r - log(r) - 1]
-              More stable than geometric for small KL values.
-            - "group_k1": Group-level masking with k1 (geometric mean) - reject entire groups
-              of sequences together. Requires group_indices parameter.
-            - "group_k3": Group-level masking with K3 KL estimator - reject entire groups
-              of sequences together using K3 divergence. Requires group_indices parameter.
-        rollout_rs_threshold: Upper threshold for valid IS weights (required for outlier detection).
-            For "k3" mode, this is the max allowed K3 divergence (typical: 0.001-0.01).
-        rollout_rs_threshold_lower: Lower threshold for valid IS weights. If None, defaults to 1/upper threshold.
-            For "k3" mode, this is ignored (K3 is always >= 0).
+        rollout_rs: Trust region estimation level, must be one of:
+            - "token": Per-token IS ratio
+            - "sequence": Sequence-level IS ratio (product of token ratios)
+            - "geometric": Sequence-level K1 estimator (geometric mean of ratios)
+            - "k3": Sequence-level K3 KL estimator: E[r - log(r) - 1]
+            - "group_k1": Group-level K1 estimator (mean of sequence K1 values)
+            - "group_k3": Group-level K3 estimator (mean of sequence K3 values)
+        rollout_rs_threshold: Trust region upper threshold (required).
+            For ratio modes (token/sequence/geometric/group_k1): max allowed ratio (e.g., 2.0)
+            For K3 modes (k3/group_k3): max allowed K3 divergence (e.g., 0.01)
+        rollout_rs_threshold_lower: Trust region lower threshold.
+            For ratio modes: min allowed ratio. Defaults to 1/upper_threshold.
+            For K3 modes: ignored (K3 >= 0 always).
         group_indices: Optional tensor of group indices, shape (batch_size,).
-            Required when rollout_rs is "group_k1" or "group_k3". Sequences with the same
-            index belong to the same group.
+            Required for "group_k1" or "group_k3" modes.
 
     Returns:
         Tuple containing:
-            modified_response_mask: Response mask with outliers masked (0=rejected),
+            modified_response_mask: Response mask with trust region violations masked (0=rejected),
                 shape (batch_size, seq_length).
-            metrics: Dictionary of rejection sampling metrics (all scalars), including:
-                - rollout_rs_mean/max/min: Statistic of IS weights
-                - rollout_rs_ratio_fraction_high/low: Fraction of weights exceeding thresholds
-                - rollout_rs_masked_fraction: Fraction of tokens rejected (unified for all modes)
-                - rollout_rs_seq_masked_fraction: Fraction of sequences rejected (mode-dependent)
+            metrics: Dictionary of trust region metrics (all scalars), including:
+                - rollout_rs_mean/max/min: KL estimate statistics
+                - rollout_rs_fraction_high/low: Fraction exceeding thresholds
+                - rollout_rs_masked_fraction: Fraction of tokens masked
+                - rollout_rs_seq_masked_fraction: Fraction of sequences masked
     """
     # Validate input parameters
     valid_rs_levels = {"token", "sequence", "geometric", "k3", "group_k1", "group_k3"}
@@ -303,27 +307,27 @@ def compute_rs_metrics(
     rollout_rs_threshold: float,
     rollout_rs_threshold_lower: float,
 ) -> dict[str, float]:
-    """Compute comprehensive metrics for rejection sampling.
+    """Compute metrics for hard trust region enforcement.
 
-    This function calculates statistics for the RS statistic used in rejection sampling,
-    balancing numerical stability (using clamped values) and accuracy (using log-space
-    for threshold checks).
+    This function calculates statistics for the KL divergence estimate used in
+    trust region enforcement, balancing numerical stability (using clamped values)
+    and accuracy (using log-space for threshold checks).
 
     Args:
-        rs_statistic: Rejection sampling statistic used for thresholding.
-            - For token/sequence/geometric modes: exp(log_ratio) = IS ratio
-            - For k3/group_k3 modes: K3 divergence value (>= 0)
+        rs_statistic: KL divergence estimate used for trust region thresholding.
+            - For ratio modes (token/sequence/geometric/group_k1): IS ratio, ideal = 1.0
+            - For K3 modes (k3/group_k3): K3 divergence, ideal = 0.0
             Shape: (batch_size, seq_length).
         log_ratio_for_metrics: Log ratio or K3 values for accurate metrics,
             shape varies by aggregation level.
         response_mask: Binary mask for valid tokens (1=valid, 0=padding),
             shape (batch_size, seq_length).
-        rollout_rs: Rejection sampling aggregation level (matches compute_rollout_rejection_mask).
-        rollout_rs_threshold: Upper threshold for RS statistic.
-        rollout_rs_threshold_lower: Lower threshold for RS statistic (ignored for K3 modes).
+        rollout_rs: Trust region estimation level (matches compute_rollout_rejection_mask).
+        rollout_rs_threshold: Trust region upper threshold.
+        rollout_rs_threshold_lower: Trust region lower threshold (ignored for K3 modes).
 
     Returns:
-        Dictionary of rejection sampling metrics (all scalars).
+        Dictionary of trust region metrics (all scalars).
     """
     if not response_mask.any():
         raise ValueError("response_mask must contain at least one valid token (1).")
@@ -347,8 +351,8 @@ def compute_rs_metrics(
 
         # Fraction exceeding threshold (K3 >= 0, so only upper threshold matters)
         exceeds_upper: torch.Tensor = k3_values > rollout_rs_threshold
-        metrics["rollout_rs_ratio_fraction_high"] = exceeds_upper.float().mean().item()
-        metrics["rollout_rs_ratio_fraction_low"] = 0.0  # K3 can't be negative
+        metrics["rollout_rs_fraction_high"] = exceeds_upper.float().mean().item()
+        metrics["rollout_rs_fraction_low"] = 0.0  # K3 can't be negative
 
     elif rollout_rs in ["sequence", "geometric", "group_k1"]:
         # Sequence-level aggregation: use log-space for accurate max/min/threshold checks
@@ -361,12 +365,20 @@ def compute_rs_metrics(
         # Mean uses clamped RS statistic to avoid overflow
         metrics["rollout_rs_mean"] = verl_F.masked_mean(rs_statistic, response_mask).item()
 
+        # Add K1-specific metrics for geometric/group_k1 modes (parallel to K3 metrics)
+        # K1 = exp(E[log(r)]) = geometric mean of IS ratios, ideal = 1.0
+        if rollout_rs in ["geometric", "group_k1"]:
+            k1_values = torch.exp(torch.clamp(log_ratio_for_metrics, min=-SAFETY_BOUND, max=SAFETY_BOUND))
+            metrics["rollout_rs_k1_mean"] = k1_values.mean().item()
+            metrics["rollout_rs_k1_max"] = k1_values.max().item()
+            metrics["rollout_rs_k1_min"] = k1_values.min().item()
+
         # Fraction exceeding thresholds (log-space for accuracy)
         # sequence, geometric, and group modes operate at sequence level (batch_size, 1)
         exceeds_upper: torch.Tensor = log_ratio_for_metrics > log_threshold_upper
         below_lower: torch.Tensor = log_ratio_for_metrics < log_threshold_lower
-        metrics["rollout_rs_ratio_fraction_high"] = exceeds_upper.float().mean().item()
-        metrics["rollout_rs_ratio_fraction_low"] = below_lower.float().mean().item()
+        metrics["rollout_rs_fraction_high"] = exceeds_upper.float().mean().item()
+        metrics["rollout_rs_fraction_low"] = below_lower.float().mean().item()
 
     else:  # token-level
         # Token-level aggregation: compute directly from clamped RS statistic
@@ -375,8 +387,8 @@ def compute_rs_metrics(
         # Fraction of tokens exceeding thresholds
         rs_above_threshold: torch.Tensor = rs_statistic > rollout_rs_threshold
         rs_below_threshold: torch.Tensor = rs_statistic < rollout_rs_threshold_lower
-        metrics["rollout_rs_ratio_fraction_high"] = verl_F.masked_mean(rs_above_threshold.float(), response_mask).item()
-        metrics["rollout_rs_ratio_fraction_low"] = verl_F.masked_mean(rs_below_threshold.float(), response_mask).item()
+        metrics["rollout_rs_fraction_high"] = verl_F.masked_mean(rs_above_threshold.float(), response_mask).item()
+        metrics["rollout_rs_fraction_low"] = verl_F.masked_mean(rs_below_threshold.float(), response_mask).item()
 
         # Max/min (mask out padding tokens first)
         mask_bool: torch.Tensor = response_mask.bool()
