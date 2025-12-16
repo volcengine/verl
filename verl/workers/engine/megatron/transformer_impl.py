@@ -44,7 +44,7 @@ from verl.utils.megatron_utils import (
     register_megatron_training_hooks,
 )
 from verl.utils.model import (
-    extract_multi_modal_inputs_tensordict,
+    extract_multi_modal_inputs,
     load_mcore_dist_weights,
 )
 from verl.workers.config import HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
@@ -586,7 +586,7 @@ class MegatronEngineWithLMHead(MegatronEngine):
     def prepare_model_inputs(self, batch: TensorDict):
         input_ids = batch["input_ids"]
         loss_mask = batch["loss_mask"].to(bool)
-        multi_modal_inputs = extract_multi_modal_inputs_tensordict(batch)
+        multi_modal_inputs = extract_multi_modal_inputs(batch.get("multi_modal_inputs", []))
 
         return {
             "input_ids": input_ids,

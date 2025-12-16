@@ -193,7 +193,6 @@ class TaskRunner:
 
         elif config.critic.strategy == "megatron":
             # TODO: switch this to TrainingWorker as well
-            assert use_legacy_worker_impl != "disable", "Megatron critic only supports legacy worker implementation"
             from verl.workers.megatron_workers import CriticWorker
 
         else:
