@@ -52,7 +52,7 @@ actor_rollout_ref:
         recompute_num_layers: null
         attention_backend: flash
       override_mcore_model_config: {}
-      use_mbridge: false
+      use_mbridge: true
       vanilla_mbridge: true
       use_remove_padding: true
       forward_only: false
@@ -433,7 +433,7 @@ critic:
       recompute_num_layers: null
       attention_backend: flash
     override_mcore_model_config: {}
-    use_mbridge: false
+    use_mbridge: true
     vanilla_mbridge: true
     use_remove_padding: true
     forward_only: false
