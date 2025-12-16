@@ -25,7 +25,14 @@ from .engine import FSDPEngineConfig, McoreEngineConfig
 from .model import HFModelConfig
 from .optimizer import OptimizerConfig
 
-__all__ = ["PolicyLossConfig", "RouterReplayConfig", "ActorConfig", "FSDPActorConfig", "McoreActorConfig"]
+__all__ = [
+    "PolicyLossConfig",
+    "RouterReplayConfig",
+    "ActorConfig",
+    "FSDPActorConfig",
+    "McoreActorConfig",
+    "DeepSpeedActorConfig",
+]
 
 
 @dataclass
@@ -299,3 +306,32 @@ class FSDPActorConfig(ActorConfig):
                 raise ValueError(
                     "When using sequence parallelism for actor/ref policy, you must enable `use_remove_padding`."
                 )
+
+
+def _default_deepspeed_engine_config():
+    from verl.workers.config.engine import DeepSpeedEngineConfig
+
+    return DeepSpeedEngineConfig()
+
+
+@dataclass
+class DeepSpeedActorConfig(ActorConfig):
+    """Configuration for DeepSpeed actor models."""
+
+    strategy: str = "deepspeed"
+    zero_stage: int = 2
+    gradient_accumulation_steps: int = 1
+    train_batch_size: Optional[int] = None
+    train_micro_batch_size_per_gpu: Optional[int] = None
+    grad_clip: float = 1.0
+    ulysses_sequence_parallel_size: int = 1
+    entropy_from_logits_with_chunking: bool = False
+    entropy_checkpointing: bool = False
+    deepspeed_config: BaseConfig = field(default_factory=_default_deepspeed_engine_config)
+    use_remove_padding: bool = False
+
+    def __post_init__(self):
+        """Validate DeepSpeed actor configuration parameters."""
+        super().__post_init__()
+        if self.zero_stage not in [0, 1, 2, 3]:
+            raise ValueError(f"zero_stage must be 0, 1, 2, or 3, got {self.zero_stage}")

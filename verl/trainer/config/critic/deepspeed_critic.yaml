@@ -1,0 +1,58 @@
+# Format checks enforced on CI:
+# 1. Comments must appear above each field.
+# 2. There must be a blank line between each field.
+# 3. Inline comments (after a field on the same line) are not allowed.
+# 4. Indentation level is respected for nested fields.
+
+# defaults specify the default config from each component
+defaults:
+
+  # deepspeed optimizer config
+  - ../optim@optim: deepspeed
+
+  # deepspeed engine config
+  - ../engine@deepspeed_config: deepspeed
+
+  # critic model config
+  - ../model@model: hf_model
+
+  # critic config, inheriting from trainer/config/critic/critic.yaml
+  - critic
+
+  # load the reference default config, then apply the fields in the current yaml
+  - _self_
+
+# Target class for this configuration
+_target_: verl.workers.config.DeepSpeedCriticConfig
+
+# Strategy identifier
+strategy: deepspeed
+
+# DeepSpeed-specific configurations
+
+# ZeRO optimization stage (0, 1, 2, or 3)
+zero_stage: 2
+
+# Gradient accumulation steps
+gradient_accumulation_steps: 1
+
+# Training batch size (global)
+train_batch_size: null
+
+# Micro batch size per GPU
+train_micro_batch_size_per_gpu: null
+
+# Gradient clipping for critic updates
+grad_clip: 1.0
+
+# Sequence parallelism size
+ulysses_sequence_parallel_size: 1
+
+# Optimizer configuration tailored for DeepSpeed
+optim:
+  _target_: verl.workers.config.DeepSpeedOptimizerConfig
+  optimizer: AdamW
+  lr: 1e-5
+  betas: [0.9, 0.999]
+  weight_decay: 0.01
+  eps: 1e-8

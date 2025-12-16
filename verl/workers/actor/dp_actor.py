@@ -83,7 +83,22 @@ class DataParallelPPOActor(BasePPOActor):
             else entropy_from_logits
         )
         self.device_name = get_device_name()
-        self.param_dtype = PrecisionType.to_dtype(self.config.fsdp_config.get("dtype", "bfloat16"))
+
+        # Pick dtype from whichever engine config is available (FSDP or DeepSpeed)
+        dtype = "bfloat16"
+        if hasattr(self.config, "fsdp_config"):
+            dtype = self.config.fsdp_config.get("dtype", dtype)
+        elif hasattr(self.config, "deepspeed_config"):
+            ds_cfg = self.config.deepspeed_config
+            mixed_precision = getattr(ds_cfg, "mixed_precision", None)
+            if isinstance(mixed_precision, dict):
+                dtype = mixed_precision.get("param_dtype") or mixed_precision.get("dtype", dtype)
+            elif mixed_precision is not None:
+                dtype = mixed_precision
+            else:
+                dtype = getattr(ds_cfg, "model_dtype", dtype)
+
+        self.param_dtype = PrecisionType.to_dtype(dtype)
         if self.param_dtype == torch.float16:
             from torch.distributed.fsdp.sharded_grad_scaler import ShardedGradScaler
 
