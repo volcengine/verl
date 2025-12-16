@@ -69,74 +69,9 @@ if vllm.__version__ > "0.11.0":
         get_encoding()
 else:
     from vllm.utils import FlexibleArgumentParser, get_tcp_uri
-if vllm.__version__ >= "0.12.0":
-    from vllm.v1.core.sched.output import GrammarOutput, SchedulerOutput
-    from vllm.v1.outputs import ModelRunnerOutput
 
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
-
-
-class ExternalZeroMQDistributedExecutor(Executor):
-    """An executor that engines are launched by external ray actors."""
-
-    uses_ray: bool = False
-
-    def _init_executor(self) -> None:
-        dp_rank_local = self.vllm_config.parallel_config.data_parallel_rank_local
-        tp_size = self.vllm_config.parallel_config.tensor_parallel_size
-
-        addresses = os.environ["VERL_VLLM_ZMQ_ADDRESSES"].split(",")
-        addresses = addresses[dp_rank_local * tp_size : (dp_rank_local + 1) * tp_size]
-        self.context = zmq.Context()
-        self.sockets = []
-        for address in addresses:
-            socket = self.context.socket(zmq.REQ)
-            if address.startswith("tcp://["):
-                socket.setsockopt(zmq.IPV6, 1)
-            socket.connect(address)
-            self.sockets.append(socket)
-
-        kwargs = dict(
-            vllm_config=self.vllm_config,
-            local_rank=None,
-            rank=None,
-            distributed_init_method="env://",
-            is_driver_worker=True,
-        )
-        self.collective_rpc("init_worker", args=([kwargs],))
-        self.collective_rpc("init_device")
-        self.collective_rpc("load_model")
-
-    def collective_rpc(
-        self,
-        method: str | Callable,
-        timeout: Optional[float] = None,
-        args: tuple = (),
-        kwargs: Optional[dict[str, Any]] = None,
-        **kwargs_extra: Any,
-    ) -> list[Any]:
-        if isinstance(method, str):
-            sent_method = method
-        else:
-            sent_method = pickle.dumps(method)
-        del method
-
-        message = pickle.dumps((sent_method, args, kwargs or {}))
-        for socket in self.sockets:
-            socket.send(message, zmq.DONTWAIT)
-
-        outputs = []
-        for socket in self.sockets:
-            outputs.append(pickle.loads(socket.recv()))
-
-        for output in outputs:
-            if isinstance(output, Exception):
-                raise output
-        return outputs
-
-    def check_health(self):
-        return
 
 
 class vLLMHttpServerBase:
