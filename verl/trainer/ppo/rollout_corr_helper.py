@@ -1040,6 +1040,9 @@ def compute_rollout_correction_and_add_to_batch(
     rollout_token_veto_threshold = rollout_corr_config.get("rollout_token_veto_threshold", None)
     rollout_is_batch_normalize = rollout_corr_config.get("rollout_is_batch_normalize", False)
 
+    # Get group_indices from batch if available (required for group_k1/group_k3 modes)
+    group_indices = batch.batch.get("group_indices", None)
+
     # Compute IS weights and get modified response_mask
     rollout_is_weights, modified_response_mask, rollout_corr_metrics = compute_rollout_correction_and_rejection_mask(
         old_log_prob=batch.batch["old_log_probs"],
@@ -1052,6 +1055,7 @@ def compute_rollout_correction_and_add_to_batch(
         rollout_rs_threshold_lower=rollout_rs_threshold_lower,
         rollout_token_veto_threshold=rollout_token_veto_threshold,
         rollout_is_batch_normalize=rollout_is_batch_normalize,
+        group_indices=group_indices,
     )
 
     # ALWAYS update response_mask with rejection applied
