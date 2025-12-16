@@ -71,6 +71,8 @@ class SupportedModel(Enum):
     QWEN3_VL = "Qwen3VLForConditionalGeneration"
     GPT_OSS = "GptOssForCausalLM"
 
+    MiMO = "MiMoForCausalLM"
+
 
 # Registry for model configuration converters
 MODEL_CONFIG_CONVERTER_REGISTRY: dict[SupportedModel, Callable[[PretrainedConfig, torch.dtype], TransformerConfig]] = {
@@ -117,6 +119,7 @@ MODEL_FORWARD_REGISTRY: dict[SupportedModel, Callable] = {
     SupportedModel.GLM4_MOE: model_forward_gen(),
     SupportedModel.QWEN3_TOKEN_CLASSIFICATION: model_forward_gen(),
     SupportedModel.GPT_OSS: model_forward_gen(),
+    SupportedModel.MiMO: model_forward_gen(),
 }
 
 # Registry for model forward functions
@@ -136,6 +139,7 @@ MODEL_FORWARD_NOPAD_REGISTRY: dict[SupportedModel, Callable] = {
     SupportedModel.GLM4_MOE: gptmodel_forward_no_padding,
     SupportedModel.QWEN3_TOKEN_CLASSIFICATION: gptmodel_forward_no_padding,
     SupportedModel.GPT_OSS: gptmodel_forward_no_padding,
+    SupportedModel.MiMO: gptmodel_forward_no_padding,
 }
 
 # Registry for model forward functions
@@ -154,6 +158,7 @@ MODEL_FORWARD_FUSED_REGISTRY: dict[SupportedModel, Callable] = {
     SupportedModel.DEEPSEEK_V3: fused_forward_model_gen(),
     SupportedModel.GLM4_MOE: fused_forward_model_gen(),
     SupportedModel.GPT_OSS: fused_forward_model_gen(),
+    SupportedModel.MiMO: fused_forward_model_gen(),
 }
 
 # Registry for model weight converters
