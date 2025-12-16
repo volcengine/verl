@@ -18,6 +18,7 @@ PPO Trainer with Ray-based single controller.
 This trainer supports model-agonistic model initialization with huggingface
 """
 
+import importlib
 import json
 import os
 import uuid
@@ -850,8 +851,6 @@ class RayPPOTrainer:
             # Support custom AgentLoopManager via config
             manager_class = self.config.actor_rollout_ref.rollout.get("agent", {}).get("agent_loop_manager_class")
             if manager_class:
-                import importlib
-
                 module_path, class_name = manager_class.rsplit(".", 1)
                 module = importlib.import_module(module_path)
                 AgentLoopManager = getattr(module, class_name)
