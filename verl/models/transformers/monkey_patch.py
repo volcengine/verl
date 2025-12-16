@@ -106,15 +106,14 @@ def _ulysses_flash_attention_forward(
 
         # ============ Slice per-head parameters, for example attention sink used in gpt-oss ============
         sp_rank = get_ulysses_sequence_parallel_rank()
-        print(f"debug monkey_patch.py: sp_rank: {sp_rank}")
         num_heads_per_gpu = query_states.size(2)  # num_heads // sp_size
         head_start = sp_rank * num_heads_per_gpu
         head_end = (sp_rank + 1) * num_heads_per_gpu
         
         # Slice s_aux (attention sink per-head parameter)
         if 's_aux' in kwargs and kwargs['s_aux'] is not None:
-            s_aux = kwargs['s_aux']  # Shape: [num_heads]
-            kwargs['s_aux'] = s_aux[head_start:head_end]  # Shape: [num_heads_per_gpu]
+            s_aux = kwargs['s_aux']  # Shape: [n_head]
+            kwargs['s_aux'] = s_aux[head_start:head_end]  # Shape: [n_head/n]
 
     # (bsz, seq_len, n_head/n, head_dim)
     query_length = query_states.size(1)
