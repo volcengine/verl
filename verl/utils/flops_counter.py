@@ -35,6 +35,7 @@ VALID_CONFIG_TYPE = {
     "seed_oss",
     "apertus",
     "glm4v",
+    "mimo"
 }
 
 
@@ -140,6 +141,7 @@ class FlopsCounter:
             "seed_oss": self._estimate_qwen2_flops,
             "apertus": self._estimate_apertus_flops,
             "glm4v": self._estimate_qwen2_flops,
+            "mimo": self._estimate_qwen2_flops,
         }
         self.config = getattr(config, "text_config", config)
 

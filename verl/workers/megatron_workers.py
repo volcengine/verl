@@ -112,6 +112,7 @@ class MegatronWorker(Worker):
         override_transformer_config,
         trust_remote_code=False,
         megatron_config=None,
+        enable_mtp=False,
     ):
         from transformers import AutoConfig
 
@@ -139,6 +140,7 @@ class MegatronWorker(Worker):
                 self.tokenizer.chat_template = self.config.model.custom_chat_template
 
         # Step 2: get the hf
+        print(f"hzg trust_remote_code: {trust_remote_code}")
         hf_config = AutoConfig.from_pretrained(self.local_path, trust_remote_code=trust_remote_code)
 
         # Step 3: override the hf config
@@ -150,7 +152,8 @@ class MegatronWorker(Worker):
         override_config_kwargs.update(override_model_config.get("model_config", {}))
         self.share_embeddings_and_output_weights = getattr(hf_config, "tie_word_embeddings", False)
 
-        if self.config.model.mtp.enable:
+        # only actor need enable mtp
+        if enable_mtp and self.config.model.mtp.enable:
             assert hf_config.num_nextn_predict_layers > 0, "MTP requires at least one nextn_predict_layer"
             assert megatron_config.use_mbridge, "MTP requires use_mbridge to be True"
             assert megatron_config.vanilla_mbridge, "MTP requires vanilla_mbridge to be True"
@@ -382,6 +385,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             override_transformer_config,
             self.config.model.get("trust_remote_code", False),
             self.config.actor.megatron if not self._is_ref else self.config.ref.megatron,
+            self.config.model.mtp.enable,
         )
         self.generation_config = get_generation_config(
             self.local_path,
