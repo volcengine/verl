@@ -451,7 +451,7 @@ where $w_{\text{seq}}$ is broadcast to all tokens in the sequence. The stopgrad 
 **Configuration:**
 ```python
 rollout_is = null  # No IS weights, pure rejection
-rollout_rs = "geometric"  # Rejection sampling only
+rollout_rs = "k1"  # K1 divergence rejection sampling
 ```
 
 **Properties:**
@@ -459,6 +459,8 @@ rollout_rs = "geometric"  # Rejection sampling only
 - Length-invariant (normalizes by sequence length)
 - Typical threshold: 0.0001 - 0.001 (divergence >= 0, ideal = 0)
 - **Used for rejection sampling only, not IS weighting**
+
+**Note:** The `"geometric"` mode uses the geometric mean ratio exp(E[log(r)]) with ideal=1.0 and threshold ~1.001, while `"k1"` uses the K1 divergence |E[log(r)]| with ideal=0.0 and threshold ~0.001.
 
 **The Length Trap Problem:**
 
@@ -509,7 +511,7 @@ $$
 \hat{g}_{\text{geo-rs-seq-tis}}(y) = \underbrace{\mathbb{I}\left( C_{\text{low}} \le \rho(y)^{1/T} \le C_{\text{high}} \right)}_{\text{Geometric Filter}} \cdot \min(\rho(y), C) \cdot f(y)
 $$
 
-This is implemented by combining `rollout_rs="geometric"` with `rollout_is="sequence"`.
+This is implemented by combining `rollout_rs="k1"` with `rollout_is="sequence"`.
 
 #### 3.3.4 K3 KL Estimator Aggregation
 
@@ -698,9 +700,9 @@ where $\bar{w}_j = \frac{1}{T_j}\sum_{t=1}^{T_j} w_{j,t} \cdot m_{j,t}$ is the p
 | **Token-TIS** | `rollout_is="token"` | Decoupled PPO, Bypass PG |
 | **Seq-TIS** | `rollout_is="sequence"` | Decoupled PPO, Bypass PG |
 | **Seq-MIS** | `rollout_is="sequence"` + `rollout_rs="sequence"` | Decoupled PPO, Bypass PG |
-| **Geo-RS** | `rollout_rs="geometric"` | Decoupled PPO, Bypass PG |
-| **Geo-RS-Seq-TIS** | `rollout_is="sequence"` + `rollout_rs="geometric"` | Decoupled PPO, Bypass PG |
-| **Geo-RS-Token-TIS** | `rollout_is="token"` + `rollout_rs="geometric"` | Decoupled PPO, Bypass PG |
+| **K1-RS (Geo-RS)** | `rollout_rs="k1"` | Decoupled PPO, Bypass PG |
+| **K1-RS-Seq-TIS (Geo-RS-Seq-TIS)** | `rollout_is="sequence"` + `rollout_rs="k1"` | Decoupled PPO, Bypass PG |
+| **K1-RS-Token-TIS (Geo-RS-Token-TIS)** | `rollout_is="token"` + `rollout_rs="k1"` | Decoupled PPO, Bypass PG |
 | **K3-RS** | `rollout_rs="k3"` | Decoupled PPO, Bypass PG |
 | **K3-RS-Seq-TIS** | `rollout_is="sequence"` + `rollout_rs="k3"` | Decoupled PPO, Bypass PG |
 | **K3-RS-Token-TIS** | `rollout_is="token"` + `rollout_rs="k3"` | Decoupled PPO, Bypass PG |
@@ -934,11 +936,11 @@ These estimators define **how IS weights and rejection masks are computed**. The
 | **Token-TIS** | `rollout_is="token"` | Clips per-token ratios | Legacy; stable but biased ($O(T^2\Delta_{\max})$) |
 | **Seq-TIS** | `rollout_is="sequence"` | Clips sequence ratio $\rho(\tau) \to \min(\rho(\tau), C)$ | Clean data with moderate mismatch; optimal bias/variance |
 | **Seq-MIS** | `rollout_is="sequence"` + `rollout_rs="sequence"` | Rejects sequences with $\rho(\tau) > C$ | Severe mismatch; filters "toxic tail" (garbage data) |
-| **Geo-RS** | `rollout_rs="geometric"` | Rejects on per-token geometric mean drift | Long sequences (CoT, agents); solves Length Trap |
-| **Geo-RS-Seq-TIS** | `rollout_is="sequence"` + `rollout_rs="geometric"` | Geometric filter + clipped weight | Length-invariant safety + correct debiasing |
-| **K3-RS** | `rollout_rs="k3"` | Rejects on K3 KL divergence | Small KL values; more stable than geometric |
+| **K1-RS (Geo-RS)** | `rollout_rs="k1"` | Rejects on K1 divergence \|E[log(r)]\| | Long sequences (CoT, agents); solves Length Trap |
+| **K1-RS-Seq-TIS (Geo-RS-Seq-TIS)** | `rollout_is="sequence"` + `rollout_rs="k1"` | K1 filter + clipped weight | Length-invariant safety + correct debiasing |
+| **K3-RS** | `rollout_rs="k3"` | Rejects on K3 KL divergence | Small KL values; more stable than K1 |
 | **K3-RS-Seq-TIS** | `rollout_is="sequence"` + `rollout_rs="k3"` | K3 filter + clipped weight | Small KL + correct debiasing |
-| **Group-K1-RS** | `rollout_rs="group_k1"` | Rejects entire groups on geometric mean | Best-of-N sampling; multi-response scenarios |
+| **Group-K1-RS** | `rollout_rs="group_k1"` | Rejects entire groups on K1 divergence | Best-of-N sampling; multi-response scenarios |
 | **Group-K3-RS** | `rollout_rs="group_k3"` | Rejects entire groups on K3 divergence | Best-of-N with small KL; multi-response scenarios |
 
 **Note:** Each estimator can be used with either:
