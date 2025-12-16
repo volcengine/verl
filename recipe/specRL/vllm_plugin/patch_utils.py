@@ -16,11 +16,10 @@
 
 import logging
 from types import MethodType, ModuleType
-from typing import Type, Union
 
 logger = logging.getLogger(__name__)
 
-Patchable = Union[Type, ModuleType]
+Patchable = type | ModuleType
 
 
 class specRLPatch:
@@ -79,18 +78,18 @@ class specRLPatch:
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         # Ensure that subclasses are created using the subscript syntax.
-        if not hasattr(cls, '_specRL_patch_target'):
+        if not hasattr(cls, "_specRL_patch_target"):
             raise TypeError(
-                "Subclasses of specRLPatch must be defined as " "specRLPatch[Target] to specify a patch target"
+                "Subclasses of specRLPatch must be defined as specRLPatch[Target] to specify a patch target"
             )
 
     @classmethod
-    def __class_getitem__(cls, target: Patchable) -> Type:
+    def __class_getitem__(cls, target: Patchable) -> type:
         # The dynamic type created here will carry the target class as
         # _specRL_patch_target.
         if not isinstance(target, Patchable):
-            raise TypeError(f"specRLPatch can only target a class or module, " f"not {type(target)}")
-        return type(f"{cls.__name__}[{target.__name__}]", (cls,), {'_specRL_patch_target': target})
+            raise TypeError(f"specRLPatch can only target a class or module, not {type(target)}")
+        return type(f"{cls.__name__}[{target.__name__}]", (cls,), {"_specRL_patch_target": target})
 
     @classmethod
     def apply_patch(cls):
@@ -106,7 +105,7 @@ class specRLPatch:
             ValueError: If an attribute is already patched on the target.
         """
         if cls is specRLPatch or not issubclass(cls, specRLPatch):
-            raise TypeError("apply_patch() must be called on a subclass of " "specRLPatch")
+            raise TypeError("apply_patch() must be called on a subclass of specRLPatch")
 
         target = cls._specRL_patch_target
 
@@ -114,7 +113,6 @@ class specRLPatch:
             target._specRL_patches = {}
 
         for name, attr in cls.__dict__.items():
-
             # Skip special names and the '_specRL_patch_target' itself
             if name in (
                 "_specRL_patch_target",
@@ -129,7 +127,7 @@ class specRLPatch:
             # Check if the attribute has already been patched
             if name in target._specRL_patches:
                 patch = target._specRL_patches[name]
-                raise ValueError(f"{target.__name__}.{name} is already " f"patched by {patch.__name__}")
+                raise ValueError(f"{target.__name__}.{name} is already patched by {patch.__name__}")
             target._specRL_patches[name] = cls
 
             # If classmethod, re-bind it to the target
