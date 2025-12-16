@@ -39,8 +39,6 @@ class TokenOutput(BaseModel):
     """routed experts of response token ids"""
     stop_reason: Optional[str] = None
     """stop reason: 'completed', 'aborted', or None for unknown"""
-    tool_calls: Optional[list[dict]] = None
-    """optional OpenAI-style tool calls extracted from generation"""
 
 
 class RolloutMode(Enum):
