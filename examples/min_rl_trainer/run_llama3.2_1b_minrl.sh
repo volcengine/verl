@@ -140,9 +140,8 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=${adv_estimator} \
     actor_rollout_ref.actor.policy_loss.loss_mode=${loss_mode} \
     \
-    algorithm.rollout_is=${rollout_is_level} \
-    algorithm.rollout_is_threshold=${rollout_is_threshold} \
-    algorithm.rollout_is_batch_normalize=${rollout_is_batch_normalize} \
+    algorithm.rollout_correction.rollout_is=${rollout_is_level} \
+    algorithm.rollout_correction.rollout_is_threshold=${rollout_is_threshold} \
     \
     data.train_files="${train_files}" \
     data.val_files="${test_files}" \
