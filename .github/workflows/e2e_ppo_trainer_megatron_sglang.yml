@@ -174,7 +174,6 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install --no-deps -e .[test]
-          pip3 install sglang-router==0.2.2
       - name: Prepare GSM8K dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
