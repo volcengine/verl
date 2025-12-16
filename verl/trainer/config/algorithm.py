@@ -90,9 +90,12 @@ class RolloutCorrectionConfig(BaseConfig):
 
         rollout_rs (Optional[str]): Rejection sampling aggregation level.
             - None: No rejection sampling
-            - "token": Reject individual tokens with outlier ratios
-            - "sequence": Reject entire sequences with outlier ratios
-            - "geometric": K1 KL divergence at sequence level: |E[log(r)]|
+            - "token": Reject individual tokens with outlier ratios (ideal=1.0)
+            - "sequence": Reject entire sequences with outlier ratios (ideal=1.0)
+            - "geometric": Geometric mean IS ratio exp(E[log(r)]) (ideal=1.0)
+              Length-normalized ratio, uses [lower, upper] threshold bounds.
+              (typical: 1.0002-1.001)
+            - "k1": K1 KL divergence at sequence level: |E[log(r)]|
               K1 >= 0, so only upper threshold applies (typical: 0.0002-0.001).
             - "k3": K3 KL estimator at sequence level: E[r - log(r) - 1]
               More stable than K1 for small KL values. K3 >= 0, so only
@@ -276,8 +279,38 @@ class RolloutCorrectionConfig(BaseConfig):
         """
         return cls(
             rollout_is=None,
+            rollout_rs="k1",
+            rollout_rs_threshold=rs_threshold,
+            rollout_token_veto_threshold=veto_threshold,
+        )
+
+    @classmethod
+    def decoupled_geometric_rs(
+        cls,
+        rs_threshold: float = 1.001,
+        rs_threshold_lower: Optional[float] = None,
+        veto_threshold: float = 1e-4,
+    ) -> "RolloutCorrectionConfig":
+        """Decoupled Mode with Geometric Mean Rejection Sampling (ratio-based).
+
+        Uses geometric mean IS ratio exp(E[log(r)]) for rejection sampling at sequence level.
+        This is a ratio-based mode (ideal = 1.0) with [lower, upper] threshold bounds.
+        Length-normalized but still uses IS ratio semantics.
+
+        Args:
+            rs_threshold (float): Geometric RS threshold (upper). Default: 1.001 (±0.1%)
+            rs_threshold_lower (Optional[float]): Geometric RS threshold (lower).
+                If None, auto-computed as reciprocal of rs_threshold. Default: None
+            veto_threshold (float): Per-token veto threshold. Default: 1e-4
+
+        Returns:
+            RolloutCorrectionConfig configured for decoupled mode with geometric RS + veto
+        """
+        return cls(
+            rollout_is=None,
             rollout_rs="geometric",
             rollout_rs_threshold=rs_threshold,
+            rollout_rs_threshold_lower=rs_threshold_lower,
             rollout_token_veto_threshold=veto_threshold,
         )
 
@@ -324,8 +357,39 @@ class RolloutCorrectionConfig(BaseConfig):
         """
         return cls(
             rollout_is=None,
+            rollout_rs="k1",
+            rollout_rs_threshold=rs_threshold,
+            rollout_token_veto_threshold=veto_threshold,
+            bypass_mode=True,
+            loss_type="ppo_clip",
+        )
+
+    @classmethod
+    def bypass_ppo_clip_geometric_rs(
+        cls,
+        rs_threshold: float = 1.001,
+        rs_threshold_lower: Optional[float] = None,
+        veto_threshold: float = 1e-4,
+    ) -> "RolloutCorrectionConfig":
+        """Bypass mode with PPO-clip loss and Geometric Mean RS (ratio-based).
+
+        PPO clipped objective in bypass mode with geometric mean IS ratio RS.
+        Uses exp(E[log(r)]) (ideal = 1.0) with [lower, upper] threshold bounds.
+
+        Args:
+            rs_threshold (float): Geometric RS threshold (upper). Default: 1.001 (±0.1%)
+            rs_threshold_lower (Optional[float]): Geometric RS threshold (lower).
+                If None, auto-computed as reciprocal. Default: None
+            veto_threshold (float): Per-token veto threshold. Default: 1e-4
+
+        Returns:
+            RolloutCorrectionConfig configured for bypass mode with PPO-clip + Geometric-RS
+        """
+        return cls(
+            rollout_is=None,
             rollout_rs="geometric",
             rollout_rs_threshold=rs_threshold,
+            rollout_rs_threshold_lower=rs_threshold_lower,
             rollout_token_veto_threshold=veto_threshold,
             bypass_mode=True,
             loss_type="ppo_clip",
@@ -340,7 +404,7 @@ class RolloutCorrectionConfig(BaseConfig):
         """Bypass mode with PPO-clip loss and K3 Rejection Sampling.
 
         PPO clipped objective in bypass mode with K3 KL estimator RS to mask outliers.
-        K3 is more stable than geometric for small KL values.
+        K3 is more stable than K1 for small KL values.
         The PPO ratio = π_θ/π_rollout already handles IS correction.
 
         Args:
@@ -461,7 +525,7 @@ class RolloutCorrectionConfig(BaseConfig):
         """
         return cls(
             rollout_is=None,
-            rollout_rs="geometric",
+            rollout_rs="k1",
             rollout_rs_threshold=rs_threshold,
             rollout_token_veto_threshold=veto_threshold,
             bypass_mode=True,
@@ -494,7 +558,7 @@ class RolloutCorrectionConfig(BaseConfig):
         return cls(
             rollout_is="sequence",
             rollout_is_threshold=is_threshold,
-            rollout_rs="geometric",
+            rollout_rs="k1",
             rollout_rs_threshold=rs_threshold,
             rollout_token_veto_threshold=veto_threshold,
         )
@@ -522,8 +586,70 @@ class RolloutCorrectionConfig(BaseConfig):
         return cls(
             rollout_is="token",
             rollout_is_threshold=is_threshold,
+            rollout_rs="k1",
+            rollout_rs_threshold=rs_threshold,
+            rollout_token_veto_threshold=veto_threshold,
+        )
+
+    @classmethod
+    def geometric_rs_seq_tis(
+        cls,
+        is_threshold: float = 2.0,
+        rs_threshold: float = 1.001,
+        rs_threshold_lower: Optional[float] = None,
+        veto_threshold: Optional[float] = 1e-4,
+    ) -> "RolloutCorrectionConfig":
+        """Geometric Mean RS with Sequence-level Truncated IS (ratio-based).
+
+        Combines the Geometric Mean Filter (ratio-based validity check) with
+        Clipped Sequence Weight (debiasing). Uses exp(E[log(r)]) (ideal = 1.0).
+
+        Args:
+            is_threshold (float): Upper threshold for sequence IS weights. Default: 2.0
+            rs_threshold (float): Geometric RS threshold (upper). Default: 1.001 (±0.1%)
+            rs_threshold_lower (Optional[float]): Geometric RS threshold (lower). Default: None
+            veto_threshold (Optional[float]): Per-token veto threshold. Default: 1e-4
+
+        Returns:
+            RolloutCorrectionConfig configured for Geometric-RS-Seq-TIS
+        """
+        return cls(
+            rollout_is="sequence",
+            rollout_is_threshold=is_threshold,
             rollout_rs="geometric",
             rollout_rs_threshold=rs_threshold,
+            rollout_rs_threshold_lower=rs_threshold_lower,
+            rollout_token_veto_threshold=veto_threshold,
+        )
+
+    @classmethod
+    def geometric_rs_token_tis(
+        cls,
+        is_threshold: float = 2.0,
+        rs_threshold: float = 1.001,
+        rs_threshold_lower: Optional[float] = None,
+        veto_threshold: Optional[float] = 1e-4,
+    ) -> "RolloutCorrectionConfig":
+        """Geometric Mean RS with Token-level Truncated IS (ratio-based).
+
+        Combines the Geometric Mean Filter (ratio-based validity check) with
+        Token-level IS weights. Uses exp(E[log(r)]) (ideal = 1.0).
+
+        Args:
+            is_threshold (float): Upper threshold for token IS weights. Default: 2.0
+            rs_threshold (float): Geometric RS threshold (upper). Default: 1.001 (±0.1%)
+            rs_threshold_lower (Optional[float]): Geometric RS threshold (lower). Default: None
+            veto_threshold (Optional[float]): Per-token veto threshold. Default: 1e-4
+
+        Returns:
+            RolloutCorrectionConfig configured for Geometric-RS-Token-TIS
+        """
+        return cls(
+            rollout_is="token",
+            rollout_is_threshold=is_threshold,
+            rollout_rs="geometric",
+            rollout_rs_threshold=rs_threshold,
+            rollout_rs_threshold_lower=rs_threshold_lower,
             rollout_token_veto_threshold=veto_threshold,
         )
 
@@ -553,7 +679,7 @@ class RolloutCorrectionConfig(BaseConfig):
         return cls(
             rollout_is="sequence",
             rollout_is_threshold=is_threshold,
-            rollout_rs="geometric",
+            rollout_rs="k1",
             rollout_rs_threshold=rs_threshold,
             rollout_token_veto_threshold=veto_threshold,
             bypass_mode=True,
@@ -585,7 +711,7 @@ class RolloutCorrectionConfig(BaseConfig):
         return cls(
             rollout_is="token",
             rollout_is_threshold=is_threshold,
-            rollout_rs="geometric",
+            rollout_rs="k1",
             rollout_rs_threshold=rs_threshold,
             rollout_token_veto_threshold=veto_threshold,
             bypass_mode=True,
