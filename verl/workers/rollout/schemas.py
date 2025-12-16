@@ -270,7 +270,11 @@ class AsyncRolloutRequest(BaseModel):
             and "Qwen2VLImageProcessor" in processing_class.image_processor.__class__.__name__
         )
         if is_qwen2vl:
-            from verl.models.transformers.qwen2_vl import get_rope_index
+            # qwen-vl mrope
+            if "Qwen3VLProcessor" in processing_class.__class__.__name__:
+                from verl.models.transformers.qwen3_vl import get_rope_index
+            else:
+                from verl.models.transformers.qwen2_vl import get_rope_index
 
             image_grid_thw = video_grid_thw = second_per_grid_ts = None
             if multi_modal_inputs:

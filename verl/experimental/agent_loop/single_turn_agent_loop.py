@@ -17,6 +17,9 @@ import os
 from typing import Any
 from uuid import uuid4
 
+import numpy as np
+import torch
+
 from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput, register
 from verl.utils.profiler import simple_timer
 
@@ -39,6 +42,22 @@ class SingleTurnAgentLoop(AgentLoopBase):
         image_data = copy.deepcopy((kwargs.get("multi_modal_data") or {}).get("image", None))
         video_data = copy.deepcopy((kwargs.get("multi_modal_data") or {}).get("video", None))
 
+        videos = None
+        videos_kwargs = {}
+        if video_data is not None:
+            videos = []
+            video_metadata = []
+            for item in video_data:
+                if isinstance(item, tuple) and len(item) == 2:
+                    v, meta = item
+                else:
+                    v, meta = item, {}
+                if isinstance(v, np.ndarray):
+                    v = torch.from_numpy(v)
+                videos.append(v)
+                video_metadata.append(meta)
+            videos_kwargs = {"video_metadata": video_metadata, "do_sample_frames": False}
+
         metrics = {}
         request_id = uuid4().hex
 
@@ -53,21 +72,37 @@ class SingleTurnAgentLoop(AgentLoopBase):
                     **self.apply_chat_template_kwargs,
                 ),
             )
-            # We only need prompt token ids here; multi-modal payload will be sent directly to the server.
-            model_inputs = self.processor(text=[raw_prompt], images=image_data, return_tensors="pt")
-            prompt_ids = model_inputs.pop("input_ids").squeeze(0).tolist()
+            # vLLM's multimodal preprocessor expects *unexpanded* placeholders in the prompt
+            # (e.g. "<|vision_start|><|video_pad|><|vision_end|>"), and will expand them based on mm inputs.
+            # So we:
+            # 1) send unexpanded prompt ids to vLLM for generation
+            # 2) keep expanded prompt ids in the rollout output for training-side forward passes
+            server_prompt_ids = (
+                self.tokenizer(raw_prompt, add_special_tokens=False, return_tensors="pt")["input_ids"]
+                .squeeze(0)
+                .tolist()
+            )
+            expanded_inputs = self.processor(
+                text=[raw_prompt],
+                images=image_data,
+                videos=videos,
+                videos_kwargs=videos_kwargs,
+                return_tensors="pt",
+            )
+            prompt_ids = expanded_inputs.pop("input_ids").squeeze(0).tolist()
         else:
             prompt_ids = await self.loop.run_in_executor(
                 None,
                 lambda: self.tokenizer.apply_chat_template(
                     messages, add_generation_prompt=True, tokenize=True, **self.apply_chat_template_kwargs
                 ),
-        )
+            )
+            server_prompt_ids = prompt_ids
 
         with simple_timer("generate_sequences", metrics):
             output = await self.server_manager.generate(
                 request_id=request_id,
-                prompt_ids=prompt_ids,
+                prompt_ids=server_prompt_ids,
                 sampling_params=sampling_params,
                 image_data=image_data,
                 video_data=video_data,
