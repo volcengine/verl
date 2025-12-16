@@ -57,18 +57,19 @@ class CacheWorker:
 
         # Set CPU affinity to cores 0-20 to keep cache server on separate CPU cores
         process = psutil.Process(self.cache_server_process.pid)
-        process.cpu_affinity(list(range(21)))  # Cores 0-20 inclusive
-        print(
-            f"Rollout cache server started on port {port} with CPU affinity 0-20 (PID: {self.cache_server_process.pid})"
-        )
+        affinity_cores = min(psutil.cpu_count() // 2, 21)
+        process.cpu_affinity(list(range(affinity_cores)))
+        print(f"Rollout cache server started on port {port} (PID: {self.cache_server_process.pid})")
+        print(f"CPU affinity set up to core {affinity_cores - 1}")
 
     def _run_cache_server(self):
         """Run the cache server in a separate process"""
         try:
             # Set CPU affinity for this process (additional safety measure)
             current_process = psutil.Process()
-            current_process.cpu_affinity(list(range(21)))  # 0-20 inclusive
-            print("Cache server process CPU affinity set to 0-20")
+            affinity_cores = min(psutil.cpu_count() // 2, 21)
+            current_process.cpu_affinity(list(range(affinity_cores)))
+            print(f"Cache server process CPU affinity set up to core {affinity_cores - 1}")
 
             self.server.start()
             self.server.wait()
@@ -130,6 +131,7 @@ class CacheManager:
         config,
         role_worker_mapping: dict,
         resource_pool_manager,
+        port: int = 6378,
     ):
         """Initialize cache manager if speculative decoding is enabled.
 
@@ -148,6 +150,7 @@ class CacheManager:
         self._cache_update_futures = []
         self._max_futures = 5
         self._executor = None
+        self.port = port
 
         # Check if cache is enabled
         self._enabled = self._should_enable_cache()
@@ -180,8 +183,7 @@ class CacheManager:
         resource_pool = self.resource_pool_manager.get_resource_pool(actor_role)
 
         # Create cache servers (one per GPU node)
-        port = 6378
-        self._cache_servers = self._create_cache_servers(resource_pool, port)
+        self._cache_servers = self._create_cache_servers(resource_pool, self.port)
 
         # Collect server addresses for distributed updates
         server_addresses = self._get_server_addresses()
@@ -194,7 +196,7 @@ class CacheManager:
         # Thread pool executor for async cache updates from trainer
         self._executor = ThreadPoolExecutor(max_workers=self._max_futures)
 
-        print(f"Cache manager initialized with {len(self._cache_servers)} servers on ports {port}")
+        print(f"Cache manager initialized with {len(self._cache_servers)} servers on ports {self.port}")
         print(f"Server addresses: {server_addresses}")
 
     def _create_cache_servers(self, resource_pool, port: int) -> list[dict]:

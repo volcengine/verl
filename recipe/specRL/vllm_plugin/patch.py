@@ -12,11 +12,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# 
+#
 
 import logging
 import os
-from distutils.version import LooseVersion
 
 import vllm
 
@@ -52,11 +51,8 @@ def specRL_plugin():
     # elif vllm.__version__.startswith("0.8.3"):
     #     from .v0_8_3 import patch
     else:
-        logger.warning(
-            f"specRL requires vllm==0.10.0 but found vllm=={vllm.__version__}. " "Ignoring plugin!"
-        )
+        logger.warning(f"specRL requires vllm==0.10.0 but found vllm=={vllm.__version__}. Ignoring plugin!")
         return
 
     # Patches that make later patches work properly.
     patch.WorkerBasePatch.apply_patch()
-
