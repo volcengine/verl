@@ -56,13 +56,15 @@ def apply_chat_template_with_processor(
     *,
     tools: list[dict[str, Any]] | None = None,
     add_generation_prompt: bool = True,
-    apply_chat_template_kwargs: dict[str, Any],
+    apply_chat_template_kwargs: dict[str, Any] | None = None,
 ) -> str:
     """Apply chat template via processor (tokenize=False).
 
     NOTE: To preserve ToolAgentLoop's original behavior, callers should decide
     whether this runs in an executor or on the event loop thread.
     """
+    if apply_chat_template_kwargs is None:
+        apply_chat_template_kwargs = {}
     if tools is None:
         return processor.apply_chat_template(
             messages,
@@ -85,14 +87,16 @@ def apply_chat_template_with_tokenizer(
     *,
     tools: list[dict[str, Any]] | None = None,
     add_generation_prompt: bool = True,
-    apply_chat_template_kwargs: dict[str, Any],
+    apply_chat_template_kwargs: dict[str, Any] | None = None,
 ) -> list[int]:
     """Apply chat template via tokenizer (tokenize=True).
 
     IMPORTANT: Some call sites intentionally do NOT pass any extra kwargs
-    (e.g. incremental tool/user message tokenization). Callers should pass an
-    empty dict ({}), which is equivalent to not passing kwargs at all.
+    (e.g. incremental tool/user message tokenization). When no kwargs are needed,
+    simply omit the apply_chat_template_kwargs parameter.
     """
+    if apply_chat_template_kwargs is None:
+        apply_chat_template_kwargs = {}
     if tools is None:
         return tokenizer.apply_chat_template(
             messages,

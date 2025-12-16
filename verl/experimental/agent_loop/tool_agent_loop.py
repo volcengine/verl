@@ -382,7 +382,6 @@ class ToolAgentLoop(AgentLoopBase):
                         self.tokenizer,
                         add_messages,
                         add_generation_prompt=True,
-                        apply_chat_template_kwargs={},
                     ),
                 )
                 response_ids = response_ids[len(self.system_prompt) :]
@@ -442,7 +441,6 @@ class ToolAgentLoop(AgentLoopBase):
                     self.tokenizer,
                     add_messages,
                     add_generation_prompt=True,
-                    apply_chat_template_kwargs={},
                 ),
             )
         response_ids = response_ids[len(self.system_prompt) :]
