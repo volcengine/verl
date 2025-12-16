@@ -92,12 +92,12 @@ class RolloutCorrectionConfig(BaseConfig):
             - None: No rejection sampling
             - "token": Reject individual tokens with outlier ratios
             - "sequence": Reject entire sequences with outlier ratios
-            - "geometric": Geometric mean aggregation, equivalent to k1 KL estimator
-              (threshold: 1.0002-1.001)
+            - "geometric": K1 KL divergence at sequence level: |E[log(r)]|
+              K1 >= 0, so only upper threshold applies (typical: 0.0002-0.001).
             - "k3": K3 KL estimator at sequence level: E[r - log(r) - 1]
-              More stable than geometric for small KL values. K3 >= 0, so only
+              More stable than K1 for small KL values. K3 >= 0, so only
               upper threshold applies (typical: 0.001-0.01).
-            - "group_k1": Group-level masking with k1 (geometric mean) - reject entire groups
+            - "group_k1": Group-level masking with K1 divergence - reject entire groups
               of sequences together. Requires group_indices in batch. Useful when multiple
               sequences share the same prompt or context.
             - "group_k3": Group-level masking with K3 KL estimator - reject entire groups
