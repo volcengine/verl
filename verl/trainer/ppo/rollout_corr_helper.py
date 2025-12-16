@@ -85,6 +85,7 @@ def compute_rollout_rejection_mask(
     rollout_rs: str = "token",
     rollout_rs_threshold: Optional[float] = None,
     rollout_rs_threshold_lower: Optional[float] = None,
+    group_indices: Optional[torch.Tensor] = None,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """Compute rejection mask for outlier handling in off-policy RL training.
 
@@ -105,9 +106,20 @@ def compute_rollout_rejection_mask(
         rollout_rs: Rejection sampling aggregation level, must be one of:
             - "token": Per-token outlier detection
             - "sequence": Aggregate across entire sequence (product of token ratios)
-            - "geometric": Geometric mean across entire sequence
+            - "geometric": Geometric mean across entire sequence (k1 KL estimator)
+            - "k3": K3 KL estimator at sequence level: E[r - log(r) - 1]
+              More stable than geometric for small KL values.
+            - "group_k1": Group-level masking with k1 (geometric mean) - reject entire groups
+              of sequences together. Requires group_indices parameter.
+            - "group_k3": Group-level masking with K3 KL estimator - reject entire groups
+              of sequences together using K3 divergence. Requires group_indices parameter.
         rollout_rs_threshold: Upper threshold for valid IS weights (required for outlier detection).
+            For "k3" mode, this is the max allowed K3 divergence (typical: 0.001-0.01).
         rollout_rs_threshold_lower: Lower threshold for valid IS weights. If None, defaults to 1/upper threshold.
+            For "k3" mode, this is ignored (K3 is always >= 0).
+        group_indices: Optional tensor of group indices, shape (batch_size,).
+            Required when rollout_rs is "group_k1" or "group_k3". Sequences with the same
+            index belong to the same group.
 
     Returns:
         Tuple containing:
@@ -120,7 +132,7 @@ def compute_rollout_rejection_mask(
                 - rollout_rs_seq_masked_fraction: Fraction of sequences rejected (mode-dependent)
     """
     # Validate input parameters
-    valid_rs_levels = {"token", "sequence", "geometric"}
+    valid_rs_levels = {"token", "sequence", "geometric", "k3", "group_k1", "group_k3"}
     if rollout_rs not in valid_rs_levels:
         raise ValueError(f"Invalid rollout_rs: {rollout_rs}. Must be one of {valid_rs_levels}.")
     if rollout_rs_threshold is None:
@@ -148,7 +160,7 @@ def compute_rollout_rejection_mask(
         rollout_is_weights = torch.exp(log_ratio_sum_safe).expand_as(log_ratio)  # Broadcast to (batch_size, seq_length)
 
     elif rollout_rs == "geometric":
-        # Sequence-level geometric mean: exp(mean(log ratios))
+        # Sequence-level geometric mean: exp(mean(log ratios)) - equivalent to k1 KL estimator
         log_ratio_mean: torch.Tensor = verl_F.masked_mean(log_ratio, response_mask, axis=-1).unsqueeze(
             -1
         )  # Shape: (batch_size, 1)
@@ -157,12 +169,86 @@ def compute_rollout_rejection_mask(
         log_ratio_mean_safe: torch.Tensor = torch.clamp(log_ratio_mean, min=-SAFETY_BOUND, max=SAFETY_BOUND)
         rollout_is_weights = torch.exp(log_ratio_mean_safe).expand_as(log_ratio)
 
+    elif rollout_rs == "k3":
+        # K3 KL estimator at sequence level: E[r - log(r) - 1]
+        # where r = π_train/π_rollout = exp(log_ratio)
+        # K3 is always >= 0 (equals 0 when r=1), more stable than geometric for small KL
+        log_ratio_safe: torch.Tensor = torch.clamp(log_ratio, min=-SAFETY_BOUND, max=SAFETY_BOUND)
+        r = torch.exp(log_ratio_safe)  # Token-level ratio
+        k3_token = r - log_ratio - 1  # K3 divergence per token
+
+        # Sequence-level K3: mean of token K3 values
+        k3_seq: torch.Tensor = verl_F.masked_mean(k3_token, response_mask, axis=-1).unsqueeze(-1)
+        log_ratio_for_metrics = k3_seq  # Store K3 values for metrics
+
+        # For K3, we use the K3 value directly as "weight" for thresholding
+        # K3 >= 0, threshold is max allowed K3 divergence
+        rollout_is_weights = k3_seq.expand_as(log_ratio)
+
+    elif rollout_rs == "group_k1":
+        # Group-level masking with k1 (geometric mean): reject entire groups of sequences together
+        if group_indices is None:
+            raise ValueError("group_indices must be provided when rollout_rs='group_k1'.")
+
+        # First compute sequence-level geometric mean (same as "geometric" mode)
+        log_ratio_mean: torch.Tensor = verl_F.masked_mean(log_ratio, response_mask, axis=-1)  # (batch_size,)
+
+        # Get unique groups and aggregate within each group
+        unique_groups = torch.unique(group_indices)
+        group_log_ratio_mean = torch.zeros_like(log_ratio_mean)
+
+        for g in unique_groups:
+            group_mask = group_indices == g
+            if group_mask.any():
+                # Compute group-level mean of sequence geometric means (k1 at group level)
+                group_mean = log_ratio_mean[group_mask].mean()
+                group_log_ratio_mean[group_mask] = group_mean
+
+        log_ratio_for_metrics = group_log_ratio_mean.unsqueeze(-1)
+
+        log_ratio_safe: torch.Tensor = torch.clamp(group_log_ratio_mean, min=-SAFETY_BOUND, max=SAFETY_BOUND)
+        rollout_is_weights = torch.exp(log_ratio_safe).unsqueeze(-1).expand_as(log_ratio)
+
+    elif rollout_rs == "group_k3":
+        # Group-level masking with K3 KL estimator: reject entire groups of sequences together
+        if group_indices is None:
+            raise ValueError("group_indices must be provided when rollout_rs='group_k3'.")
+
+        # First compute sequence-level K3 (same as "k3" mode)
+        log_ratio_safe: torch.Tensor = torch.clamp(log_ratio, min=-SAFETY_BOUND, max=SAFETY_BOUND)
+        r = torch.exp(log_ratio_safe)  # Token-level ratio
+        k3_token = r - log_ratio - 1  # K3 divergence per token
+        k3_seq: torch.Tensor = verl_F.masked_mean(k3_token, response_mask, axis=-1)  # (batch_size,)
+
+        # Get unique groups and aggregate K3 within each group
+        unique_groups = torch.unique(group_indices)
+        group_k3 = torch.zeros_like(k3_seq)
+
+        for g in unique_groups:
+            group_mask = group_indices == g
+            if group_mask.any():
+                # Compute group-level mean of sequence K3 values
+                group_mean = k3_seq[group_mask].mean()
+                group_k3[group_mask] = group_mean
+
+        log_ratio_for_metrics = group_k3.unsqueeze(-1)  # Store K3 values for metrics
+
+        # For K3, we use the K3 value directly as "weight" for thresholding
+        rollout_is_weights = group_k3.unsqueeze(-1).expand_as(log_ratio)
+
     else:
         raise ValueError(f"Unsupported rollout_rs: {rollout_rs}")
 
-    # Generate outlier mask: 1=valid (within [lower, upper] threshold), 0=outlier
-    mask: torch.Tensor = (rollout_is_weights >= lower_threshold) & (rollout_is_weights <= upper_threshold)
-    mask = mask.float()
+    # Generate outlier mask based on mode
+    if rollout_rs in ["k3", "group_k3"]:
+        # For K3 modes: K3 >= 0, reject if K3 > upper_threshold
+        # lower_threshold is ignored (K3 can't be negative)
+        mask: torch.Tensor = rollout_is_weights <= upper_threshold
+        mask = mask.float()
+    else:
+        # For other modes: reject if outside [lower_threshold, upper_threshold]
+        mask = (rollout_is_weights >= lower_threshold) & (rollout_is_weights <= upper_threshold)
+        mask = mask.float()
 
     # Compute rejection sampling metrics
     metrics: dict[str, float] = compute_rs_metrics(
@@ -183,6 +269,19 @@ def compute_rollout_rejection_mask(
         # Token-level aggregation: sequence is rejected if any token is rejected
         seq_has_masked: torch.Tensor = verl_F.masked_sum(1 - mask, response_mask, axis=-1) > 0
         metrics["rollout_rs_seq_masked_fraction"] = seq_has_masked.float().mean().item()
+    elif rollout_rs in ["group_k1", "group_k3"]:
+        # Group-level: check fraction of groups rejected (and sequences)
+        metrics["rollout_rs_seq_masked_fraction"] = (1 - mask[:, 0]).mean().item()
+        if group_indices is not None:
+            unique_groups = torch.unique(group_indices)
+            groups_rejected = 0
+            for g in unique_groups:
+                group_mask_check = group_indices == g
+                if group_mask_check.any():
+                    # Group is rejected if any sequence in it is rejected
+                    if (1 - mask[group_mask_check, 0]).any():
+                        groups_rejected += 1
+            metrics["rollout_rs_group_masked_fraction"] = groups_rejected / len(unique_groups)
     else:
         # Sequence-level aggregation: check first token's mask (all tokens in sequence have same mask)
         metrics["rollout_rs_seq_masked_fraction"] = (1 - mask[:, 0]).mean().item()
@@ -232,7 +331,21 @@ def compute_rs_metrics(
     log_threshold_lower: torch.Tensor = torch.log(torch.tensor(rollout_rs_threshold_lower, device=device))
 
     # Compute metrics based on aggregation level
-    if rollout_rs in ["sequence", "geometric"]:
+    if rollout_rs in ["k3", "group_k3"]:
+        # K3 modes: log_ratio_for_metrics contains K3 values (>= 0)
+        # K3 = E[r - log(r) - 1], threshold is max allowed K3 divergence
+        k3_values = log_ratio_for_metrics  # Shape: (batch_size, 1)
+        metrics["rollout_rs_k3_mean"] = k3_values.mean().item()
+        metrics["rollout_rs_k3_max"] = k3_values.max().item()
+        metrics["rollout_rs_k3_min"] = k3_values.min().item()
+        metrics["rollout_rs_mean"] = k3_values.mean().item()  # For compatibility
+
+        # Fraction exceeding threshold (K3 >= 0, so only upper threshold matters)
+        exceeds_upper: torch.Tensor = k3_values > rollout_rs_threshold
+        metrics["rollout_rs_ratio_fraction_high"] = exceeds_upper.float().mean().item()
+        metrics["rollout_rs_ratio_fraction_low"] = 0.0  # K3 can't be negative
+
+    elif rollout_rs in ["sequence", "geometric", "group_k1"]:
         # Sequence-level aggregation: use log-space for accurate max/min/threshold checks
         # True max/min (unclamped) converted with safety bounds
         log_max: torch.Tensor = log_ratio_for_metrics.max()
@@ -244,7 +357,7 @@ def compute_rs_metrics(
         metrics["rollout_rs_mean"] = verl_F.masked_mean(rollout_is_weights, response_mask).item()
 
         # Fraction of weights exceeding thresholds (log-space for accuracy)
-        # Both sequence and geometric modes operate at sequence level (batch_size, 1)
+        # sequence, geometric, and group modes operate at sequence level (batch_size, 1)
         exceeds_upper: torch.Tensor = log_ratio_for_metrics > log_threshold_upper
         below_lower: torch.Tensor = log_ratio_for_metrics < log_threshold_lower
         metrics["rollout_rs_ratio_fraction_high"] = exceeds_upper.float().mean().item()
@@ -561,6 +674,7 @@ def compute_rollout_correction_and_rejection_mask(
     rollout_rs_threshold_lower: Optional[float] = None,
     rollout_token_veto_threshold: Optional[float] = None,
     rollout_is_batch_normalize: bool = False,
+    group_indices: Optional[torch.Tensor] = None,
 ) -> tuple[Optional[DataProto], torch.Tensor, dict[str, float]]:
     """Unified interface for computing IS weights and rejection masks.
 
@@ -585,15 +699,20 @@ def compute_rollout_correction_and_rejection_mask(
         rollout_is_threshold: Upper threshold for truncated IS weights (used if rollout_is is set),
             default 2.0.
         rollout_rs: Rejection sampling aggregation level (see compute_rollout_rejection_mask for options).
+            Options: None, "token", "sequence", "geometric", "k3", "group_k1", "group_k3".
             Set to None to disable rejection sampling.
         rollout_rs_threshold: Upper threshold for rejection sampling. Required if rollout_rs is enabled.
+            For "k3" and "group_k3" modes, this is the max allowed K3 divergence (typical: 0.001-0.01).
             Default 2.0.
         rollout_rs_threshold_lower: Lower threshold for rejection sampling (used if rollout_rs is set).
-            Defaults to 1/rollout_rs_threshold if None.
+            Defaults to 1/rollout_rs_threshold if None. Ignored for "k3" and "group_k3" modes.
         rollout_token_veto_threshold: Minimum allowed token-level IS weight. Sequences containing
             any token below this threshold are fully rejected. Set to None to disable veto.
         rollout_is_batch_normalize: Whether to normalize IS weights to have mean=1.0 per batch.
             Default: False.
+        group_indices: Optional tensor of group indices, shape (batch_size,).
+            Required when rollout_rs is "group_k1" or "group_k3". Sequences with the same
+            index belong to the same group.
 
     Returns:
         Tuple containing:
@@ -650,6 +769,7 @@ def compute_rollout_correction_and_rejection_mask(
             rollout_rs=rollout_rs,
             rollout_rs_threshold=rollout_rs_threshold,
             rollout_rs_threshold_lower=rollout_rs_threshold_lower,
+            group_indices=group_indices,
         )
         metrics.update(rs_metrics)
 
