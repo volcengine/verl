@@ -49,25 +49,25 @@ class SequenceParallelConfig:
 
 def test_configs():
     configs = [
-        # SequenceParallelConfig(
-        #     LlamaConfig(num_hidden_layers=2, num_attention_heads=32, num_key_value_heads=32), sp_size=8, is_valid=True
-        # ),
-        # SequenceParallelConfig(
-        #     Qwen2Config(num_hidden_layers=2, num_attention_heads=28, num_key_value_heads=4, hidden_size=3584),
-        #     sp_size=4,
-        #     is_valid=True,
-        # ),
-        # SequenceParallelConfig(
-        #     Qwen2Config(num_hidden_layers=2, num_attention_heads=28, num_key_value_heads=4, hidden_size=3584),
-        #     sp_size=8,
-        #     is_valid=False,
-        # ),
-        # SequenceParallelConfig(
-        #     Qwen2Config(num_hidden_layers=2, num_attention_heads=32, num_key_value_heads=4), sp_size=4, is_valid=True
-        # ),
-        # SequenceParallelConfig(
-        #     Qwen2Config(num_hidden_layers=2, num_attention_heads=32, num_key_value_heads=4), sp_size=8, is_valid=True
-        # ),
+        SequenceParallelConfig(
+            LlamaConfig(num_hidden_layers=2, num_attention_heads=32, num_key_value_heads=32), sp_size=8, is_valid=True
+        ),
+        SequenceParallelConfig(
+            Qwen2Config(num_hidden_layers=2, num_attention_heads=28, num_key_value_heads=4, hidden_size=3584),
+            sp_size=4,
+            is_valid=True,
+        ),
+        SequenceParallelConfig(
+            Qwen2Config(num_hidden_layers=2, num_attention_heads=28, num_key_value_heads=4, hidden_size=3584),
+            sp_size=8,
+            is_valid=False,
+        ),
+        SequenceParallelConfig(
+            Qwen2Config(num_hidden_layers=2, num_attention_heads=32, num_key_value_heads=4), sp_size=4, is_valid=True
+        ),
+        SequenceParallelConfig(
+            Qwen2Config(num_hidden_layers=2, num_attention_heads=32, num_key_value_heads=4), sp_size=8, is_valid=True
+        ),
     ]
 
     if version.parse(transformers.__version__) >= version.parse("4.56.0"):
@@ -75,11 +75,17 @@ def test_configs():
 
         configs.extend([
             SequenceParallelConfig(
-                GptOssConfig(num_hidden_layers=2, num_attention_heads=32, num_key_value_heads=4, hidden_size=3584), sp_size=4, is_valid=True
+                ApertusConfig(num_hidden_layers=2, num_attention_heads=32, num_key_value_heads=32, hidden_size=4096),
+                sp_size=8,
+                is_valid=True,
             ),
-            SequenceParallelConfig(
-                GptOssConfig(num_hidden_layers=2, num_attention_heads=32, num_key_value_heads=8, hidden_size=3584), sp_size=2, is_valid=True
-            ),
+            # TODO(JasonZhu1313): uncomment when flash_attention_3 with attention sink is merged, https://github.com/volcengine/verl/issues/3794
+            # SequenceParallelConfig(
+            #     GptOssConfig(num_hidden_layers=2, num_attention_heads=32, num_key_value_heads=4, hidden_size=3584), sp_size=4, is_valid=True
+            # ),
+            # SequenceParallelConfig(
+            #     GptOssConfig(num_hidden_layers=2, num_attention_heads=32, num_key_value_heads=8, hidden_size=3584), sp_size=2, is_valid=True
+            # ),
         ])
 
     return configs
