@@ -15,12 +15,11 @@ import inspect
 from functools import partial, wraps
 from types import FunctionType
 
-import torch
 from tensordict import TensorDict
 
 from verl.protocol import DataProtoFuture, _padding_size_key
 from verl.utils.py_functional import DynamicEnum
-from verl.utils.tensordict_utils import concat_tensordict
+from verl.utils.tensordict_utils import chunk_tensordict, concat_tensordict
 from verl.utils.transferqueue_utils import BatchMeta
 
 # here we add a magic number of avoid user-defined function already have this attribute
@@ -72,28 +71,6 @@ init_predefined_dispatch_mode()
 init_predefined_execute_mode()
 
 
-def _chunk_tensordict(td: TensorDict, chunks: int) -> list[TensorDict]:
-    """Splits a tensordict into the specified number of chunks with special handling of 3d nested tensors.
-
-    This is a workaround for torch.chunk() not support 3d jagged tensor, e.g. MRoPE position_id.
-    https://github.com/pytorch/pytorch/issues/153238
-    """
-    assert isinstance(td, TensorDict) and len(td) % chunks == 0, (
-        f"expecting td with length divisible by chunks, but got {len(td)} and {chunks}"
-    )
-    chunk_size = len(td) // chunks
-    keys = [key for key, val in td.items() if isinstance(val, torch.Tensor) and val.is_nested and val.dim() >= 3]
-    nested_tensors = {key: td.pop(key) for key in keys}
-
-    tds = td.chunk(chunks=chunks)
-    for key, val in nested_tensors.items():
-        tensors = val.unbind(dim=0)
-        for i, td in enumerate(tds):
-            td[key] = torch.nested.as_nested_tensor(tensors[i * chunk_size : (i + 1) * chunk_size], layout=torch.jagged)
-
-    return tds
-
-
 def _split_args_kwargs_data_proto(chunks, *args, **kwargs):
     from verl.protocol import DataProto, DataProtoFuture
 
@@ -101,7 +78,7 @@ def _split_args_kwargs_data_proto(chunks, *args, **kwargs):
     for arg in args:
         assert isinstance(arg, DataProto | DataProtoFuture | BatchMeta | TensorDict)
         if isinstance(arg, TensorDict):
-            chunked_arg = _chunk_tensordict(arg, chunks)
+            chunked_arg = chunk_tensordict(arg, chunks)
         else:
             chunked_arg = arg.chunk(chunks=chunks)
         assert len(chunked_arg) == chunks
@@ -111,7 +88,7 @@ def _split_args_kwargs_data_proto(chunks, *args, **kwargs):
     for key, val in kwargs.items():
         assert isinstance(val, DataProto | DataProtoFuture | BatchMeta | TensorDict)
         if isinstance(val, TensorDict):
-            chunked_kwarg = _chunk_tensordict(val, chunks)
+            chunked_kwarg = chunk_tensordict(val, chunks)
         else:
             chunked_kwarg = val.chunk(chunks=chunks)
         assert len(chunked_kwarg) == chunks
