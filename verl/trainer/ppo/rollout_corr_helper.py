@@ -396,11 +396,12 @@ def compute_rs_metrics(
         metrics["rollout_rs_std"] = 0.0
 
     # Compute Effective Sample Size (ESS) for RS statistic
-    # ESS = 1 / E[(w_i / E[w_i])²] (using clamped values for stability)
-    stat_for_ess: torch.Tensor = rs_statistic.clamp(min=rollout_rs_threshold_lower, max=rollout_rs_threshold)
-    mean_for_ess: torch.Tensor = verl_F.masked_mean(stat_for_ess, response_mask)
-    stat_normalized: torch.Tensor = stat_for_ess / (mean_for_ess + 1e-8)  # Avoid division by zero
-    metrics["rollout_rs_eff_sample_size"] = 1.0 / verl_F.masked_mean(stat_normalized.square(), response_mask).item()
+    # ESS = 1 / E[(w_i / E[w_i])²] - only meaningful for ratio-based modes (not K3)
+    if rollout_rs not in ["k3", "group_k3"]:
+        stat_for_ess: torch.Tensor = rs_statistic.clamp(min=rollout_rs_threshold_lower, max=rollout_rs_threshold)
+        mean_for_ess: torch.Tensor = verl_F.masked_mean(stat_for_ess, response_mask)
+        stat_normalized: torch.Tensor = stat_for_ess / (mean_for_ess + 1e-8)  # Avoid division by zero
+        metrics["rollout_rs_eff_sample_size"] = 1.0 / verl_F.masked_mean(stat_normalized.square(), response_mask).item()
 
     # Add sequence-level metrics if RS statistic has batch dimension
     if rs_statistic.dim() > 1:
@@ -412,8 +413,9 @@ def compute_rs_metrics(
         metrics["rollout_rs_seq_max"] = seq_mean_stat.max().item()
         metrics["rollout_rs_seq_min"] = seq_mean_stat.min().item()
 
-        # Sequence deviation from ideal value (1.0 for ratio modes, 0.0 for K3 modes)
-        seq_deviation: torch.Tensor = (seq_mean_stat - 1.0).abs()
+        # Sequence deviation from ideal value: 0.0 for K3 modes (divergence), 1.0 for ratio modes
+        ideal_value = 0.0 if rollout_rs in ["k3", "group_k3"] else 1.0
+        seq_deviation: torch.Tensor = (seq_mean_stat - ideal_value).abs()
         metrics["rollout_rs_seq_max_deviation"] = seq_deviation.max().item()
 
         # Fraction of sequences exceeding thresholds
