@@ -258,6 +258,7 @@ class vLLMHttpServerBase:
         logger.info(f"enable_sleep_mode: {self.config.enable_sleep_mode}")
         if not self.config.enable_sleep_mode:
             from verl.utils.device import set_expandable_segments
+
             set_expandable_segments(True)
 
         quantization = self.config.quantization
