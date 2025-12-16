@@ -511,19 +511,17 @@ class RayPPOTrainer:
             dataset=self.train_dataset,
             batch_sampler=train_sampler,
             num_workers=num_workers,
-            collate_fn=partial(collate_fn, config=self.config, is_train=True),
+            collate_fn=partial(collate_fn, cls=self, config=self.config, is_train=True),
         )
-
         val_batch_size = self.config.data.val_batch_size  # Prefer config value if set
         if val_batch_size is None:
             val_batch_size = len(self.val_dataset)
 
-        # TODO(baymax): val_dataloader need shuffle?
         self.val_dataloader = StatefulDataLoader(
             dataset=self.val_dataset,
             batch_sampler=val_sampler,
             num_workers=num_workers,
-            collate_fn=partial(collate_fn, config=self.config, is_train=False),
+            collate_fn=partial(collate_fn, cls=self, config=self.config, is_train=False),
         )
 
         assert len(self.train_dataloader) >= 1, "Train dataloader is empty!"
@@ -1151,6 +1149,45 @@ class RayPPOTrainer:
         return global_idx
 
     @classmethod
+    def repeat_dict(
+        cls, batch_dict: dict[str, torch.Tensor | np.ndarray], repeat_times=2, interleave=True
+    ) -> dict[str, torch.Tensor | np.ndarray]:
+        """
+        Repeat the batch dict a specified number of times.
+        Args:
+            repeat_times (int): Number of times to repeat the data.
+            interleave (bool): Whether to interleave the repeated data.
+        Returns:
+            dict: A new dict with repeated data.
+        """
+        if repeat_times == 1:
+            return batch_dict
+
+        repeated_batch_dict = {}
+        if batch_dict:
+            if interleave:
+                # Interleave the data
+                for key, val in batch_dict.items():
+                    if isinstance(val, torch.Tensor):
+                        repeated_batch_dict[key] = val.repeat_interleave(repeat_times, dim=0)
+                    elif isinstance(val, np.ndarray):
+                        repeated_batch_dict[key] = np.repeat(val, repeat_times, axis=0)
+                    else:
+                        raise ValueError(f"Unsupported type in data {type(val)}")
+            else:
+                # Stack the data
+                for key, val in batch_dict.items():
+                    if isinstance(val, torch.Tensor):
+                        repeated_batch_dict[key] = (
+                            val.unsqueeze(0).expand(repeat_times, *val.shape).reshape(-1, *val.shape[1:])
+                        )
+                    elif isinstance(val, np.ndarray):
+                        repeated_batch_dict[key] = np.tile(val, (repeat_times,) + (1,) * (val.ndim - 1))
+                    else:
+                        raise ValueError(f"Unsupported type in data {type(val)}")
+        return repeated_batch_dict
+
+    @classmethod
     def dict_to_tensordict(cls, data: dict[str, torch.Tensor | np.ndarray]) -> TensorDict:
         """
         Create a TensorDict from a dict of tensors and non_tensors.
@@ -1234,6 +1271,8 @@ class RayPPOTrainer:
         next_step_profile = False
 
         for epoch in range(self.config.trainer.total_epochs):
+            from time import time
+            start_time = time()
             # TODO(baymax): fix:dataloader returen step, but not keys
             for local_step, batch_keys in self.train_dataloader:
                 metrics = {}
@@ -1557,37 +1596,30 @@ class RayPPOTrainer:
                                 self.config.actor_rollout_ref.rollout.multi_turn.enable
                             )
 
-                            update_actor_meta = asyncio.run(
-                                self.tq_client.async_get_meta(
-                                    data_fields=[
-                                        "input_ids",
-                                        "attention_mask",
-                                        "position_ids",
-                                        "prompts",
-                                        "responses",
-                                        "response_mask",
-                                        "old_log_probs",
-                                        "ref_log_prob",
-                                        "advantages",
-                                        "returns",
-                                        "token_level_rewards",
-                                        "token_level_scores",
-                                        "data_source",
-                                        "reward_model",
-                                        "extra_info",
-                                        "uid",
-                                        "index",
-                                        "tools_kwargs",
-                                        "interaction_kwargs",
-                                        "ability",
-                                    ],
-                                    batch_size=self.config.data.train_batch_size
-                                    * self.config.actor_rollout_ref.rollout.n,
-                                    partition_id=f"train_{local_step}",
-                                    task_name="update_actor",
-                                )
-                            )
-                            update_actor_meta.reorder(balanced_idx)
+                            update_actor_fields = [
+                                "input_ids",
+                                "attention_mask",
+                                "position_ids",
+                                "prompts",
+                                "responses",
+                                "response_mask",
+                                "old_log_probs",
+                                "ref_log_prob",
+                                "advantages",
+                                "returns",
+                                "token_level_rewards",
+                                "token_level_scores",
+                                "data_source",
+                                "reward_model",
+                                "extra_info",
+                                "uid",
+                                "index",
+                                "tools_kwargs",
+                                "interaction_kwargs",
+                                "ability",
+                            ]
+                            update_actor_meta = batch_meta.select_fields(update_actor_fields)
+
                             update_actor_meta.set_extra_info(
                                 "global_token_num", batch_meta.get_extra_info("global_token_num")
                             )
@@ -1601,18 +1633,8 @@ class RayPPOTrainer:
                     # Log rollout generations if enabled
                     rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)
                     if rollout_data_dir:
-                        log_rollout_fields = ["prompts", "responses", "token_level_scores", "reward_model"]
-                        if "request_id" in batch_meta.field_names:
-                            data_fields.append("request_id")
-                        log_rollout_meta = asyncio.run(
-                            self.tq_client.async_get_meta(
-                                data_fields=data_fields,
-                                batch_size=self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n,
-                                partition_id=f"train_{local_step}",
-                                task_name="log_rollout",
-                            )
-                        )
-                        log_rollout_meta.reorder(balanced_idx)
+                        log_rollout_fields.append("request_id")
+                        log_rollout_meta = batch_meta.select_fields(log_rollout_fields)
                         self._log_rollout_data(log_rollout_meta, reward_extra_infos_dict, timing_raw, rollout_data_dir)
 
                 # TODO: validate
@@ -1753,3 +1775,4 @@ class RayPPOTrainer:
                     # The dataset may be changed after each training batch
                     # TODO (TQ): support transfer queue
                     self.train_dataset.on_batch_end(batch=batch)
+                start_time = time()

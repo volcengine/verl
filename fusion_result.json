@@ -1,0 +1,22 @@
+{
+    "session_and_graph_id_0_0": {
+        "graph_fusion": {
+            "RefreshInt64ToInt32FusionPass": {
+                "effect_times": "0",
+                "match_times": "1"
+            },
+            "TransdataCastFusionPass": {
+                "effect_times": "0",
+                "match_times": "1"
+            },
+            "TransdataFz2FzgFusionPass": {
+                "effect_times": "0",
+                "match_times": "1"
+            },
+            "TransdataFzg2FzFusionPass": {
+                "effect_times": "0",
+                "match_times": "1"
+            }
+        }
+    }
+}
