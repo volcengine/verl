@@ -22,8 +22,7 @@ from omegaconf import DictConfig, OmegaConf
 from pydantic import BaseModel
 from ray.actor import ActorHandle
 
-from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
-from verl.trainer.ppo.ray_trainer import RayResourcePool, ResourcePoolManager
+from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup, SubRayResourcePool
 from verl.utils.config import omega_conf_to_dataclass
 from verl.workers.config import HFModelConfig, RolloutConfig
 
@@ -174,35 +173,27 @@ class RolloutReplica(ABC):
         self.workers = worker_group.workers
         await self.launch_servers()
 
-    async def init_standalone(self):
-        """Init standalone rollout server, create new resource pool for this rollout."""
+    async def init_standalone(self, worker_group: RayWorkerGroup, resource_pool: SubRayResourcePool):
+        """Init standalone rollout server, rollout engine are in separate resource pool."""
         # create resource pool for this rollout
         self.rollout_mode = RolloutMode.STANDALONE
-        resource_pool_name = (
-            f"rollout_pool_{self.replica_rank}"
-            if not self.is_reward_model
-            else f"rollout_pool_reward_{self.replica_rank}"
-        )
-        max_colocate_count = 2 if self.config.name == "trtllm" else 1
-        resource_pool_spec = {
-            resource_pool_name: (max_colocate_count, [self.gpus_per_node] * self.nnodes),
-        }
-        resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=None)
-        resource_pool_manager.create_resource_pool()
-        self.resource_pool = resource_pool_manager.resource_pool_dict[resource_pool_name]
-        self.bundle_indices = [idx for idx in range(self.world_size)]
+        if worker_group is None:
+            self.resource_pool = resource_pool
 
-        # create worker group for this rollout
-
-        worker_group = RayWorkerGroup(
-            resource_pool=self.resource_pool,
-            ray_cls_with_init=self.get_ray_class_with_init_args(),
-            bin_pack=False,
-            name_prefix=f"rollout_standalone_{self.replica_rank}"
-            if not self.is_reward_model
-            else f"rollout_reward_standalone_{self.replica_rank}",
-        )
-        self.workers = worker_group.workers
+            # create worker group for this rollout
+            worker_group = RayWorkerGroup(
+                resource_pool=self.resource_pool,
+                ray_cls_with_init=self.get_ray_class_with_init_args(),
+                bin_pack=False,
+                name_prefix=f"rollout_standalone_{self.replica_rank}"
+                if not self.is_reward_model
+                else f"rollout_reward_standalone_{self.replica_rank}",
+            )
+            self.workers = worker_group.workers
+        else:
+            self.workers = worker_group.workers[
+                self.world_size * self.replica_rank : self.world_size * (self.replica_rank + 1)
+            ]
         await self.launch_servers()
 
     @abstractmethod

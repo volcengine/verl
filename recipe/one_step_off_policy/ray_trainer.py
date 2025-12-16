@@ -282,8 +282,12 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         else:
             rm_resource_pool = None
 
+        rollout_resource_pool = self.resource_pool_manager.get_resource_pool(Role.Rollout)
         self.async_rollout_manager = OneStepOffAgentLoopManager(
-            config=self.config, worker_group=self.rollout_wg, rm_resource_pool=rm_resource_pool
+            config=self.config,
+            worker_group=self.rollout_wg,
+            rollout_resource_pool=rollout_resource_pool,
+            rm_resource_pool=rm_resource_pool,
         )
 
     def sync_rollout_weights(self):

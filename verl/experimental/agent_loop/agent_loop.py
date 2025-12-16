@@ -34,7 +34,7 @@ from verl.experimental.agent_loop.prometheus_utils import update_prometheus_conf
 from verl.experimental.agent_loop.utils import resolve_config_path
 from verl.experimental.reward import RewardLoopWorker
 from verl.protocol import DataProto
-from verl.single_controller.ray.base import RayResourcePool, RayWorkerGroup
+from verl.single_controller.ray.base import RayResourcePool, RayWorkerGroup, split_resource_pool
 from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.fs import copy_to_local
 from verl.utils.model import compute_position_id_with_mask
@@ -763,30 +763,6 @@ class AgentLoopManager:
             self.sleep()
 
     def _initialize_llm_servers(self, rollout_resource_pool: RayResourcePool):
-        rollout_world_size = (
-            self.config.actor_rollout_ref.rollout.tensor_model_parallel_size
-            * self.config.actor_rollout_ref.rollout.data_parallel_size
-            * self.config.actor_rollout_ref.rollout.pipeline_model_parallel_size
-        )
-        world_size = (
-            self.worker_group.world_size
-            if self.worker_group
-            else self.config.trainer.n_gpus_per_node * self.config.trainer.nnodes
-        )
-        num_replicas = world_size // rollout_world_size
-
-        rollout_config = self.config.actor_rollout_ref.rollout
-        model_config = self.config.actor_rollout_ref.model
-        self.rollout_replicas = [
-            self.rollout_replica_class(
-                replica_rank=replica_rank,
-                config=rollout_config,
-                model_config=model_config,
-                gpus_per_node=self.config.trainer.n_gpus_per_node,
-            )
-            for replica_rank in range(num_replicas)
-        ]
-
         placement = "hybrid"
         if (
             self.config.actor_rollout_ref.actor.resource_pool_id
@@ -799,6 +775,33 @@ class AgentLoopManager:
         else:
             placement = "standalone"
 
+        rollout_world_size = (
+            self.config.actor_rollout_ref.rollout.tensor_model_parallel_size
+            * self.config.actor_rollout_ref.rollout.data_parallel_size
+            * self.config.actor_rollout_ref.rollout.pipeline_model_parallel_size
+        )
+        if placement == "standalone":
+            world_size = rollout_resource_pool.world_size
+        else:
+            world_size = (
+                self.worker_group.world_size
+                if self.worker_group
+                else self.config.trainer.n_gpus_per_node * self.config.trainer.nnodes
+            )
+
+        num_replicas = world_size // rollout_world_size
+        rollout_config = self.config.actor_rollout_ref.rollout
+        model_config = self.config.actor_rollout_ref.model
+        self.rollout_replicas = [
+            self.rollout_replica_class(
+                replica_rank=replica_rank,
+                config=rollout_config,
+                model_config=model_config,
+                gpus_per_node=self.config.trainer.n_gpus_per_node,
+            )
+            for replica_rank in range(num_replicas)
+        ]
+
         if placement == "hybrid":
             self._run_all([server.init_hybrid(self.worker_group) for server in self.rollout_replicas])
         elif placement == "colocate" and rollout_config.name == "trtllm":
@@ -809,7 +812,13 @@ class AgentLoopManager:
                 ]
             )
         elif placement == "standalone":
-            self._run_all([server.init_standalone() for server in self.rollout_replicas])
+            resource_pool_replicas = split_resource_pool(rollout_resource_pool, split_size=rollout_world_size)
+            self._run_all(
+                [
+                    server.init_standalone(self.worker_group, resource_pool_replicas[idx])
+                    for idx, server in enumerate(self.rollout_replicas)
+                ]
+            )
 
         self.server_handles = [server._server_handle for server in self.rollout_replicas]
         self.server_addresses = [server._server_address for server in self.rollout_replicas]
