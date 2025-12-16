@@ -89,11 +89,11 @@ mkdir -p "${ckpts_home}"
 $COMMAND \
     data.train_files="${TRAIN_FILES}" \
     data.val_files="${VAL_FILES}" \
-    data.train_batch_size=256 \
+    data.train_batch_size=128 \
     data.pad_mode=${PAD_MODE} \
     data.truncation=error \
     data.use_dynamic_bsz=True \
-    data.max_token_len_per_gpu=8192 \
+    data.max_token_len_per_gpu=2048 \
     data.messages_key=messages \
     model.path=$MODEL_PATH \
     model.use_remove_padding=${USE_REMOVE_PADDING} \
