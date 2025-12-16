@@ -77,12 +77,9 @@ def test_configs():
             SequenceParallelConfig(
                 GptOssConfig(num_hidden_layers=2, num_attention_heads=32, num_key_value_heads=4, hidden_size=3584), sp_size=4, is_valid=True
             ),
-            # SequenceParallelConfig(
-            #     GptOssConfig(num_hidden_layers=2, num_attention_heads=32, num_key_value_heads=8, hidden_size=3584), sp_size=2, is_valid=True
-            # ),
-            # SequenceParallelConfig(
-            #     GptOssConfig(num_hidden_layers=2, num_attention_heads=32, num_key_value_heads=8, hidden_size=3584), sp_size=8, is_valid=True
-            # )
+            SequenceParallelConfig(
+                GptOssConfig(num_hidden_layers=2, num_attention_heads=32, num_key_value_heads=8, hidden_size=3584), sp_size=2, is_valid=True
+            ),
         ])
 
     return configs
