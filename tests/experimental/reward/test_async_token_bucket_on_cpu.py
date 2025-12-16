@@ -17,7 +17,7 @@ import time
 
 import pytest
 
-from verl.experimental.reward.reward_loop.limited import AsyncTokenBucket
+from verl.experimental.reward.reward_manager.limited import AsyncTokenBucket
 
 
 class TestAsyncTokenBucket:

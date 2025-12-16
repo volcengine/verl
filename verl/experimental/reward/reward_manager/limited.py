@@ -20,8 +20,8 @@ from omegaconf import DictConfig
 from transformers import AutoTokenizer
 
 from verl import DataProto
-from verl.experimental.reward.reward_loop import register as register_loop
-from verl.experimental.reward.reward_loop.base import RewardLoopManagerBase
+from verl.experimental.reward.reward_manager import register as register_loop
+from verl.experimental.reward.reward_manager.base import RewardLoopManagerBase
 from verl.utils.reward_score import default_compute_score
 from verl.workers.reward_manager import register as register_manager
 
