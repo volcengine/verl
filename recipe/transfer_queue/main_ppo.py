@@ -19,11 +19,9 @@ import asyncio
 import os
 import socket
 
-
-import numpy as np
 import hydra
+import numpy as np
 import ray
-import torch
 from omegaconf import OmegaConf
 from tensordict import TensorDict
 from torchdata.stateful_dataloader.sampler import BatchSampler
@@ -217,8 +215,6 @@ class BatchSamplerWithId(BatchSampler):
 
 
 def create_rl_batch_sampler(data_config, dataset, is_train=True):
-    from verl.trainer.main_ppo import create_rl_sampler
-
     if is_train:
         batch_size = data_config.get("gen_batch_size", data_config.train_batch_size)
         drop_last = True
@@ -263,9 +259,9 @@ def tq_collact_fn(batch, cls, config, is_train=True):
 
     batch_dict = cls.repeat_dict(batch_dict, repeat_times=repeat_times, interleave=True)
     batch_dict: TensorDict = cls.dict_to_tensordict(batch_dict)
-    asyncio.run(tq_client.async_put(data=batch_dict, partition_id=f"{prefix}{partition_id}"))
+    batchmeta = asyncio.run(tq_client.async_put(data=batch_dict, partition_id=f"{prefix}{partition_id}"))
 
-    return partition_id, list(batch_dict.keys())
+    return partition_id, batchmeta
 
 
 if __name__ == "__main__":

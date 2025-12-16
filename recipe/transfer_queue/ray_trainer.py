@@ -23,7 +23,6 @@ import json
 import logging
 import math
 import os
-import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
 from functools import partial
@@ -493,7 +492,7 @@ class RayPPOTrainer:
         Creates the train and validation dataloaders.
         """
         # TODO: we have to make sure the batch size is divisible by the dp size
-        from verl.trainer.main_ppo import create_rl_dataset, create_rl_sampler
+        from verl.trainer.main_ppo import create_rl_dataset
 
         if train_dataset is None:
             train_dataset = create_rl_dataset(
@@ -668,16 +667,7 @@ class RayPPOTrainer:
         sample_uids = []
         val_data_size = self.val_dataset_size * self.config.actor_rollout_ref.rollout.val_kwargs.n
 
-        for local_step, test_data_keys in self.val_dataloader:
-            # Store original inputs
-            batch_meta = asyncio.run(
-                self.tq_client.async_get_meta(
-                    data_fields=["input_ids", "uid", "reward_model"],
-                    batch_size=val_data_size,
-                    partition_id=f"val_{local_step}",
-                    task_name="get_data",
-                )
-            )
+        for local_step, batch_meta in self.val_dataloader:
             data = asyncio.run(self.tq_client.async_get_data(batch_meta))
 
             # we only do validation on rule-based rm
@@ -696,7 +686,7 @@ class RayPPOTrainer:
 
             test_gen_meta = asyncio.run(
                 self.tq_client.async_get_meta(
-                    data_fields=test_data_keys,  # TODO: (TQ) Get metadata by specified fields
+                    data_fields=list(data.keys()),  # TODO: (TQ) Get metadata by specified fields
                     batch_size=val_data_size,
                     partition_id=f"val_{local_step}",  # self.global_steps start from 1
                     task_name="generate_sequences",
@@ -1154,9 +1144,11 @@ class RayPPOTrainer:
     ) -> dict[str, torch.Tensor | np.ndarray]:
         """
         Repeat the batch dict a specified number of times.
+
         Args:
             repeat_times (int): Number of times to repeat the data.
             interleave (bool): Whether to interleave the repeated data.
+
         Returns:
             dict: A new dict with repeated data.
         """
@@ -1271,10 +1263,7 @@ class RayPPOTrainer:
         next_step_profile = False
 
         for epoch in range(self.config.trainer.total_epochs):
-            from time import time
-            start_time = time()
-            # TODO(baymax): fix:dataloader returen step, but not keys
-            for local_step, batch_keys in self.train_dataloader:
+            for local_step, gen_meta in self.train_dataloader:
                 metrics = {}
                 timing_raw = {}
                 base_get_meta_kwargs = dict(
@@ -1288,19 +1277,6 @@ class RayPPOTrainer:
                         if self.config.global_profiler.profile_continuous_steps
                         else curr_step_profile
                     )
-
-                # add uid to batch
-                batch_dict["uid"] = np.array(
-                    [str(uuid.uuid4()) for _ in range(len(batch_dict["input_ids"]))], dtype=object
-                )
-                # When n > 1, repeat input data before putting to data system, simulating DataProto repeat.
-                repeated_batch_dict = self.repeat_dict(
-                    batch_dict, repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True
-                )
-                batch: TensorDict = self.dict_to_tensordict(repeated_batch_dict)
-                gen_meta = asyncio.run(
-                    self.tq_client.async_put(data=batch, partition_id=f"train_{self.global_steps - 1}")
-                )
 
                 # pass global_steps to trace
                 gen_meta.set_extra_info("global_steps", self.global_steps)
@@ -1633,7 +1609,9 @@ class RayPPOTrainer:
                     # Log rollout generations if enabled
                     rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)
                     if rollout_data_dir:
-                        log_rollout_fields.append("request_id")
+                        log_rollout_fields = ["prompts", "responses", "token_level_scores", "reward_model"]
+                        if "request_id" in batch_meta.field_names:
+                            log_rollout_fields.append("request_id")
                         log_rollout_meta = batch_meta.select_fields(log_rollout_fields)
                         self._log_rollout_data(log_rollout_meta, reward_extra_infos_dict, timing_raw, rollout_data_dir)
 
@@ -1747,6 +1725,7 @@ class RayPPOTrainer:
                 # this is experimental and may be changed/removed in the future in favor of a general-purpose one
                 if isinstance(self.train_dataloader.sampler, AbstractCurriculumSampler):
                     # TODO (TQ) :support transfer queue
+                    batch = asyncio.run(self.tq_client.async_get_data(gen_meta))
                     self.train_dataloader.sampler.update(batch=batch)
 
                 asyncio.run(self.tq_client.async_clear(partition_id=f"train_{local_step}"))
@@ -1774,5 +1753,5 @@ class RayPPOTrainer:
                 if hasattr(self.train_dataset, "on_batch_end"):
                     # The dataset may be changed after each training batch
                     # TODO (TQ): support transfer queue
+                    batch = asyncio.run(self.tq_client.async_get_data(gen_meta))
                     self.train_dataset.on_batch_end(batch=batch)
-                start_time = time()
