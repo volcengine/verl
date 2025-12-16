@@ -728,10 +728,10 @@ where $\bar{w}_j = \frac{1}{T_j}\sum_{t=1}^{T_j} w_{j,t} \cdot m_{j,t}$ is the p
 | `decoupled_seq_is_rs()` | Seq-MIS | Decoupled PPO | Sequence IS + sequence RS |
 | `decoupled_k1_rs()` | K1-RS | Decoupled PPO | K1 RS + veto (divergence mode) |
 | `decoupled_geo_rs()` | Geo-RS | Decoupled PPO | Geometric RS + veto (ratio mode) |
-| `k1_rs_seq_tis()` | K1-RS-Seq-TIS | Decoupled PPO | K1 filter + seq IS |
-| `k1_rs_token_tis()` | K1-RS-Token-TIS | Decoupled PPO | K1 filter + token IS |
-| `geo_rs_seq_tis()` | Geo-RS-Seq-TIS | Decoupled PPO | Geometric filter + seq IS |
-| `geo_rs_token_tis()` | Geo-RS-Token-TIS | Decoupled PPO | Geometric filter + token IS |
+| `decoupled_k1_rs_seq_tis()` | K1-RS-Seq-TIS | Decoupled PPO | K1 filter + seq IS |
+| `decoupled_k1_rs_token_tis()` | K1-RS-Token-TIS | Decoupled PPO | K1 filter + token IS |
+| `decoupled_geo_rs_seq_tis()` | Geo-RS-Seq-TIS | Decoupled PPO | Geometric filter + seq IS |
+| `decoupled_geo_rs_token_tis()` | Geo-RS-Token-TIS | Decoupled PPO | Geometric filter + token IS |
 | **Bypass Mode (PPO-clip)** (ratio handles IS, RS masks outliers) |
 | `bypass_ppo_clip()` | - | Bypass (PPO-clip) | PPO-clip only |
 | `bypass_ppo_clip_k1_rs()` | K1-RS | Bypass (PPO-clip) | PPO-clip + K1-RS (divergence) |
@@ -748,16 +748,16 @@ where $\bar{w}_j = \frac{1}{T_j}\sum_{t=1}^{T_j} w_{j,t} \cdot m_{j,t}$ is the p
 | `bypass_pg_geo_rs_seq_tis()` | Geo-RS-Seq-TIS | Bypass (REINFORCE) | REINFORCE + Geo filter + seq IS |
 | `bypass_pg_geo_rs_token_tis()` | Geo-RS-Token-TIS | Bypass (REINFORCE) | REINFORCE + Geo filter + token IS |
 | **K3 KL Estimator** (more stable for small KL values) |
-| `k3_rs()` | K3-RS | Decoupled PPO | K3 rejection, no IS weights |
-| `k3_rs_seq_tis()` | K3-RS-Seq-TIS | Decoupled PPO | K3 filter + seq clipped weight |
-| `k3_rs_token_tis()` | K3-RS-Token-TIS | Decoupled PPO | K3 filter + token clipped weight |
+| `decoupled_k3_rs()` | K3-RS | Decoupled PPO | K3 rejection, no IS weights |
+| `decoupled_k3_rs_seq_tis()` | K3-RS-Seq-TIS | Decoupled PPO | K3 filter + seq clipped weight |
+| `decoupled_k3_rs_token_tis()` | K3-RS-Token-TIS | Decoupled PPO | K3 filter + token clipped weight |
 | **Group-level** (reject entire groups together; requires group_indices) |
-| `group_k1_rs()` | Group-K1-RS | Decoupled PPO | Group geometric RS |
-| `group_k1_rs_seq_tis()` | Group-K1-RS-Seq-TIS | Decoupled PPO | Group K1 filter + seq clipped weight |
-| `group_k1_rs_token_tis()` | Group-K1-RS-Token-TIS | Decoupled PPO | Group K1 filter + token clipped weight |
-| `group_k3_rs()` | Group-K3-RS | Decoupled PPO | Group K3 RS |
-| `group_k3_rs_seq_tis()` | Group-K3-RS-Seq-TIS | Decoupled PPO | Group K3 filter + seq clipped weight |
-| `group_k3_rs_token_tis()` | Group-K3-RS-Token-TIS | Decoupled PPO | Group K3 filter + token clipped weight |
+| `decoupled_group_k1_rs()` | Group-K1-RS | Decoupled PPO | Group K1 RS |
+| `decoupled_group_k1_rs_seq_tis()` | Group-K1-RS-Seq-TIS | Decoupled PPO | Group K1 filter + seq clipped weight |
+| `decoupled_group_k1_rs_token_tis()` | Group-K1-RS-Token-TIS | Decoupled PPO | Group K1 filter + token clipped weight |
+| `decoupled_group_k3_rs()` | Group-K3-RS | Decoupled PPO | Group K3 RS |
+| `decoupled_group_k3_rs_seq_tis()` | Group-K3-RS-Seq-TIS | Decoupled PPO | Group K3 filter + seq clipped weight |
+| `decoupled_group_k3_rs_token_tis()` | Group-K3-RS-Token-TIS | Decoupled PPO | Group K3 filter + token clipped weight |
 | **Other** |
 | `disabled()` | - | - | Metrics only |
 
@@ -931,8 +931,8 @@ $$
 | `decoupled_seq_is_rs` | Decoupled PPO + RS | 3 (rollout, old, θ) | ✅ | ✅ Seq-MIS | ✅ Correct | Standard |
 | `decoupled_k1_rs` | Decoupled PPO + K1-RS | 3 (rollout, old, θ) | ✅ | K1-RS only (divergence) | ✅ Correct | Standard |
 | `decoupled_geo_rs` | Decoupled PPO + Geo-RS | 3 (rollout, old, θ) | ✅ | Geo-RS only (ratio) | ✅ Correct | Standard |
-| `k1_rs_seq_tis` | Decoupled PPO + K1-RS + Seq IS | 3 (rollout, old, θ) | ✅ | ✅ K1-RS-Seq-TIS | ✅ Correct | Standard |
-| `geo_rs_seq_tis` | Decoupled PPO + Geo RS + Seq IS | 3 (rollout, old, θ) | ✅ | ✅ Geo-RS-Seq-TIS | ✅ Correct | Standard |
+| `decoupled_k1_rs_seq_tis` | Decoupled PPO + K1-RS + Seq IS | 3 (rollout, old, θ) | ✅ | ✅ K1-RS-Seq-TIS | ✅ Correct | Standard |
+| `decoupled_geo_rs_seq_tis` | Decoupled PPO + Geo RS + Seq IS | 3 (rollout, old, θ) | ✅ | ✅ Geo-RS-Seq-TIS | ✅ Correct | Standard |
 | **Incorrect (for reference)** |
 | Naive LLM-RL | Incorrect PPO usage | 2 (old, θ) | ✅ | ❌ | ⚠️ Incorrect | Standard |
 

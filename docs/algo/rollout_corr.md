@@ -126,12 +126,12 @@ from verl.trainer.config.algorithm import RolloutCorrectionConfig
 config = RolloutCorrectionConfig.decoupled_token_is()   # Token-TIS
 config = RolloutCorrectionConfig.decoupled_seq_is()     # Seq-TIS
 config = RolloutCorrectionConfig.decoupled_seq_is_rs()  # Seq-MIS
-config = RolloutCorrectionConfig.decoupled_k1_rs()      # K1-RS (divergence mode)
-config = RolloutCorrectionConfig.decoupled_geo_rs()     # Geo-RS (ratio mode)
-config = RolloutCorrectionConfig.k1_rs_seq_tis()        # K1-RS-Seq-TIS
-config = RolloutCorrectionConfig.k1_rs_token_tis()      # K1-RS-Token-TIS
-config = RolloutCorrectionConfig.geo_rs_seq_tis()       # Geo-RS-Seq-TIS
-config = RolloutCorrectionConfig.geo_rs_token_tis()     # Geo-RS-Token-TIS
+config = RolloutCorrectionConfig.decoupled_k1_rs()              # K1-RS (divergence mode)
+config = RolloutCorrectionConfig.decoupled_geo_rs()             # Geo-RS (ratio mode)
+config = RolloutCorrectionConfig.decoupled_k1_rs_seq_tis()      # K1-RS-Seq-TIS
+config = RolloutCorrectionConfig.decoupled_k1_rs_token_tis()    # K1-RS-Token-TIS
+config = RolloutCorrectionConfig.decoupled_geo_rs_seq_tis()     # Geo-RS-Seq-TIS
+config = RolloutCorrectionConfig.decoupled_geo_rs_token_tis()   # Geo-RS-Token-TIS
 
 # === Bypass PPO mode (2 policies: π_rollout = π_old, π_θ) - fast ===
 # PPO ratio handles IS, so no explicit IS weights needed
@@ -153,18 +153,18 @@ config = RolloutCorrectionConfig.bypass_pg_geo_rs_seq_tis()       # Geo-RS-Seq-T
 config = RolloutCorrectionConfig.bypass_pg_geo_rs_token_tis()     # Geo-RS-Token-TIS + PG
 
 # === K3 KL Estimator presets (more stable for small KL) ===
-config = RolloutCorrectionConfig.k3_rs()                # K3-RS only
-config = RolloutCorrectionConfig.k3_rs_seq_tis()        # K3-RS + Seq-TIS
-config = RolloutCorrectionConfig.k3_rs_token_tis()      # K3-RS + Token-TIS
+config = RolloutCorrectionConfig.decoupled_k3_rs()                # K3-RS only
+config = RolloutCorrectionConfig.decoupled_k3_rs_seq_tis()        # K3-RS + Seq-TIS
+config = RolloutCorrectionConfig.decoupled_k3_rs_token_tis()      # K3-RS + Token-TIS
 
 # === Group-level presets (reject entire groups together) ===
 # Useful when multiple sequences share the same prompt/context
-config = RolloutCorrectionConfig.group_k1_rs()          # Group K1 (geometric) RS
-config = RolloutCorrectionConfig.group_k1_rs_seq_tis()  # Group K1 RS + Seq-TIS
-config = RolloutCorrectionConfig.group_k1_rs_token_tis()  # Group K1 RS + Token-TIS
-config = RolloutCorrectionConfig.group_k3_rs()          # Group K3 RS
-config = RolloutCorrectionConfig.group_k3_rs_seq_tis()  # Group K3 RS + Seq-TIS
-config = RolloutCorrectionConfig.group_k3_rs_token_tis()  # Group K3 RS + Token-TIS
+config = RolloutCorrectionConfig.decoupled_group_k1_rs()              # Group K1 RS
+config = RolloutCorrectionConfig.decoupled_group_k1_rs_seq_tis()      # Group K1 RS + Seq-TIS
+config = RolloutCorrectionConfig.decoupled_group_k1_rs_token_tis()    # Group K1 RS + Token-TIS
+config = RolloutCorrectionConfig.decoupled_group_k3_rs()              # Group K3 RS
+config = RolloutCorrectionConfig.decoupled_group_k3_rs_seq_tis()      # Group K3 RS + Seq-TIS
+config = RolloutCorrectionConfig.decoupled_group_k3_rs_token_tis()    # Group K3 RS + Token-TIS
 
 # === Other ===
 config = RolloutCorrectionConfig.disabled()             # Metrics only (no correction)
@@ -346,10 +346,10 @@ This section provides detailed guidance on choosing and using the verified prese
 | `decoupled_seq_is_rs()` | Seq-MIS | Decoupled | sequence | sequence | Sequence IS + sequence RS |
 | `decoupled_k1_rs()` | K1-RS | Decoupled | - | k1 + veto | K1 RS + veto (divergence mode) |
 | `decoupled_geo_rs()` | Geo-RS | Decoupled | - | geometric + veto | Geometric RS + veto (ratio mode) |
-| `k1_rs_seq_tis()` | K1-RS-Seq-TIS | Decoupled | sequence | k1 + veto | K1 filter + seq clipped weight |
-| `k1_rs_token_tis()` | K1-RS-Token-TIS | Decoupled | token | k1 + veto | K1 filter + token clipped weight |
-| `geo_rs_seq_tis()` | Geo-RS-Seq-TIS | Decoupled | sequence | geometric + veto | Geometric filter + seq clipped weight |
-| `geo_rs_token_tis()` | Geo-RS-Token-TIS | Decoupled | token | geometric + veto | Geometric filter + token clipped weight |
+| `decoupled_k1_rs_seq_tis()` | K1-RS-Seq-TIS | Decoupled | sequence | k1 + veto | K1 filter + seq clipped weight |
+| `decoupled_k1_rs_token_tis()` | K1-RS-Token-TIS | Decoupled | token | k1 + veto | K1 filter + token clipped weight |
+| `decoupled_geo_rs_seq_tis()` | Geo-RS-Seq-TIS | Decoupled | sequence | geometric + veto | Geometric filter + seq clipped weight |
+| `decoupled_geo_rs_token_tis()` | Geo-RS-Token-TIS | Decoupled | token | geometric + veto | Geometric filter + token clipped weight |
 | **Bypass Mode (PPO-clip)** (2 policies; ratio handles IS, RS masks outliers) |
 | `bypass_ppo_clip()` | - | Bypass (PPO-clip) | - | - | PPO-clip only |
 | `bypass_ppo_clip_k1_rs()` | K1-RS | Bypass (PPO-clip) | - | k1 + veto | PPO-clip + K1-RS (divergence) |
@@ -366,16 +366,16 @@ This section provides detailed guidance on choosing and using the verified prese
 | `bypass_pg_geo_rs_seq_tis()` | Geo-RS-Seq-TIS | Bypass (REINFORCE) | sequence | geometric + veto | REINFORCE + Geo filter + seq IS |
 | `bypass_pg_geo_rs_token_tis()` | Geo-RS-Token-TIS | Bypass (REINFORCE) | token | geometric + veto | REINFORCE + Geo filter + token IS |
 | **K3 KL Estimator** (more stable for small KL values) |
-| `k3_rs()` | K3-RS | Decoupled | - | k3 + veto | K3 rejection, no IS weights |
-| `k3_rs_seq_tis()` | K3-RS-Seq-TIS | Decoupled | sequence | k3 + veto | K3 filter + seq clipped weight |
-| `k3_rs_token_tis()` | K3-RS-Token-TIS | Decoupled | token | k3 + veto | K3 filter + token clipped weight |
+| `decoupled_k3_rs()` | K3-RS | Decoupled | - | k3 + veto | K3 rejection, no IS weights |
+| `decoupled_k3_rs_seq_tis()` | K3-RS-Seq-TIS | Decoupled | sequence | k3 + veto | K3 filter + seq clipped weight |
+| `decoupled_k3_rs_token_tis()` | K3-RS-Token-TIS | Decoupled | token | k3 + veto | K3 filter + token clipped weight |
 | **Group-level** (reject entire groups together; requires group_indices) |
-| `group_k1_rs()` | Group-K1-RS | Decoupled | - | group_k1 + veto | Group geometric RS |
-| `group_k1_rs_seq_tis()` | Group-K1-RS-Seq-TIS | Decoupled | sequence | group_k1 + veto | Group K1 filter + seq clipped weight |
-| `group_k1_rs_token_tis()` | Group-K1-RS-Token-TIS | Decoupled | token | group_k1 + veto | Group K1 filter + token clipped weight |
-| `group_k3_rs()` | Group-K3-RS | Decoupled | - | group_k3 + veto | Group K3 RS |
-| `group_k3_rs_seq_tis()` | Group-K3-RS-Seq-TIS | Decoupled | sequence | group_k3 + veto | Group K3 filter + seq clipped weight |
-| `group_k3_rs_token_tis()` | Group-K3-RS-Token-TIS | Decoupled | token | group_k3 + veto | Group K3 filter + token clipped weight |
+| `decoupled_group_k1_rs()` | Group-K1-RS | Decoupled | - | group_k1 + veto | Group K1 RS |
+| `decoupled_group_k1_rs_seq_tis()` | Group-K1-RS-Seq-TIS | Decoupled | sequence | group_k1 + veto | Group K1 filter + seq clipped weight |
+| `decoupled_group_k1_rs_token_tis()` | Group-K1-RS-Token-TIS | Decoupled | token | group_k1 + veto | Group K1 filter + token clipped weight |
+| `decoupled_group_k3_rs()` | Group-K3-RS | Decoupled | - | group_k3 + veto | Group K3 RS |
+| `decoupled_group_k3_rs_seq_tis()` | Group-K3-RS-Seq-TIS | Decoupled | sequence | group_k3 + veto | Group K3 filter + seq clipped weight |
+| `decoupled_group_k3_rs_token_tis()` | Group-K3-RS-Token-TIS | Decoupled | token | group_k3 + veto | Group K3 filter + token clipped weight |
 | **Other** |
 | `disabled()` | - | - | - | - | Metrics only, no correction |
 
@@ -552,13 +552,13 @@ A threshold of 0.001 rejects sequences with average per-token log-deviation > 0.
 
 ---
 
-### 5. K1-RS with Sequence IS (`k1_rs_seq_tis`)
+### 5. K1-RS with Sequence IS (`decoupled_k1_rs_seq_tis`)
 
 **Also known as: K1-RS-Seq-TIS**
 
 **Configuration:**
 ```python
-config = RolloutCorrectionConfig.k1_rs_seq_tis(
+config = RolloutCorrectionConfig.decoupled_k1_rs_seq_tis(
     is_threshold=2.0,
     rs_threshold=0.001,
     veto_threshold=1e-4

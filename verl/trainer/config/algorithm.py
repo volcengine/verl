@@ -175,26 +175,26 @@ class RolloutCorrectionConfig(BaseConfig):
         config = RolloutCorrectionConfig.bypass_pg_geo_rs_seq_tis()     # REINFORCE + Geo-RS + Seq-TIS
         config = RolloutCorrectionConfig.bypass_pg_geo_rs_token_tis()   # REINFORCE + Geo-RS + Token-TIS
 
-        # K1 KL divergence presets (length-invariant, solves Length Trap)
-        config = RolloutCorrectionConfig.k1_rs_seq_tis()            # K1-RS + Seq-TIS
-        config = RolloutCorrectionConfig.k1_rs_token_tis()          # K1-RS + Token-TIS
+        # Decoupled K1 divergence presets (length-invariant, solves Length Trap)
+        config = RolloutCorrectionConfig.decoupled_k1_rs_seq_tis()            # Decoupled K1-RS + Seq-TIS
+        config = RolloutCorrectionConfig.decoupled_k1_rs_token_tis()          # Decoupled K1-RS + Token-TIS
 
-        # Geometric ratio presets (length-normalized IS ratio)
-        config = RolloutCorrectionConfig.geo_rs_seq_tis()           # Geo-RS + Seq-TIS
-        config = RolloutCorrectionConfig.geo_rs_token_tis()         # Geo-RS + Token-TIS
+        # Decoupled Geometric ratio presets (length-normalized IS ratio)
+        config = RolloutCorrectionConfig.decoupled_geo_rs_seq_tis()           # Decoupled Geo-RS + Seq-TIS
+        config = RolloutCorrectionConfig.decoupled_geo_rs_token_tis()         # Decoupled Geo-RS + Token-TIS
 
-        # K3 KL Estimator presets (more stable for small KL values)
-        config = RolloutCorrectionConfig.k3_rs()                    # K3-RS
-        config = RolloutCorrectionConfig.k3_rs_seq_tis()            # K3-RS + Seq-TIS
-        config = RolloutCorrectionConfig.k3_rs_token_tis()          # K3-RS + Token-TIS
+        # Decoupled K3 KL Estimator presets (more stable for small KL values)
+        config = RolloutCorrectionConfig.decoupled_k3_rs()                    # Decoupled K3-RS
+        config = RolloutCorrectionConfig.decoupled_k3_rs_seq_tis()            # Decoupled K3-RS + Seq-TIS
+        config = RolloutCorrectionConfig.decoupled_k3_rs_token_tis()          # Decoupled K3-RS + Token-TIS
 
-        # Group-level presets (reject entire groups together)
-        config = RolloutCorrectionConfig.group_k1_rs()              # Group K1 RS
-        config = RolloutCorrectionConfig.group_k1_rs_seq_tis()      # Group K1 RS + Seq-TIS
-        config = RolloutCorrectionConfig.group_k1_rs_token_tis()    # Group K1 RS + Token-TIS
-        config = RolloutCorrectionConfig.group_k3_rs()              # Group K3 RS
-        config = RolloutCorrectionConfig.group_k3_rs_seq_tis()      # Group K3 RS + Seq-TIS
-        config = RolloutCorrectionConfig.group_k3_rs_token_tis()    # Group K3 RS + Token-TIS
+        # Decoupled Group-level presets (reject entire groups together)
+        config = RolloutCorrectionConfig.decoupled_group_k1_rs()              # Decoupled Group K1 RS
+        config = RolloutCorrectionConfig.decoupled_group_k1_rs_seq_tis()      # Decoupled Group K1 RS + Seq-TIS
+        config = RolloutCorrectionConfig.decoupled_group_k1_rs_token_tis()    # Decoupled Group K1 RS + Token-TIS
+        config = RolloutCorrectionConfig.decoupled_group_k3_rs()              # Decoupled Group K3 RS
+        config = RolloutCorrectionConfig.decoupled_group_k3_rs_seq_tis()      # Decoupled Group K3 RS + Seq-TIS
+        config = RolloutCorrectionConfig.decoupled_group_k3_rs_token_tis()    # Decoupled Group K3 RS + Token-TIS
 
     Reference:
         Liu, Li, Fu, Wang, Liu, Shen (2025)
@@ -575,13 +575,13 @@ class RolloutCorrectionConfig(BaseConfig):
         )
 
     @classmethod
-    def k1_rs_seq_tis(
+    def decoupled_k1_rs_seq_tis(
         cls,
         is_threshold: float = 2.0,
         rs_threshold: float = 0.001,
         veto_threshold: Optional[float] = 1e-4,
     ) -> "RolloutCorrectionConfig":
-        """K1 RS with Sequence-level Truncated IS (K1-RS-Seq-TIS).
+        """Decoupled mode with K1 RS and Sequence-level Truncated IS (K1-RS-Seq-TIS).
 
         Combines the K1 divergence filter (length-invariant validity check) with
         Clipped Sequence Weight (debiasing).
@@ -606,13 +606,13 @@ class RolloutCorrectionConfig(BaseConfig):
         )
 
     @classmethod
-    def k1_rs_token_tis(
+    def decoupled_k1_rs_token_tis(
         cls,
         is_threshold: float = 2.0,
         rs_threshold: float = 0.001,
         veto_threshold: Optional[float] = 1e-4,
     ) -> "RolloutCorrectionConfig":
-        """K1 RS with Token-level Truncated IS (K1-RS-Token-TIS).
+        """Decoupled mode with K1 RS and Token-level Truncated IS (K1-RS-Token-TIS).
 
         Combines the K1 divergence filter (length-invariant validity check) with
         Token-level IS weights (lower variance, biased).
@@ -634,14 +634,14 @@ class RolloutCorrectionConfig(BaseConfig):
         )
 
     @classmethod
-    def geo_rs_seq_tis(
+    def decoupled_geo_rs_seq_tis(
         cls,
         is_threshold: float = 2.0,
         rs_threshold: float = 1.001,
         rs_threshold_lower: Optional[float] = None,
         veto_threshold: Optional[float] = 1e-4,
     ) -> "RolloutCorrectionConfig":
-        """Geometric Mean RS with Sequence-level Truncated IS (ratio-based).
+        """Decoupled mode with Geometric Mean RS and Sequence-level Truncated IS (ratio-based).
 
         Combines the Geometric Mean Filter (ratio-based validity check) with
         Clipped Sequence Weight (debiasing). Uses exp(E[log(r)]) (ideal = 1.0).
@@ -665,14 +665,14 @@ class RolloutCorrectionConfig(BaseConfig):
         )
 
     @classmethod
-    def geo_rs_token_tis(
+    def decoupled_geo_rs_token_tis(
         cls,
         is_threshold: float = 2.0,
         rs_threshold: float = 1.001,
         rs_threshold_lower: Optional[float] = None,
         veto_threshold: Optional[float] = 1e-4,
     ) -> "RolloutCorrectionConfig":
-        """Geometric Mean RS with Token-level Truncated IS (ratio-based).
+        """Decoupled mode with Geometric Mean RS and Token-level Truncated IS (ratio-based).
 
         Combines the Geometric Mean Filter (ratio-based validity check) with
         Token-level IS weights. Uses exp(E[log(r)]) (ideal = 1.0).
@@ -831,12 +831,12 @@ class RolloutCorrectionConfig(BaseConfig):
         )
 
     @classmethod
-    def k3_rs(
+    def decoupled_k3_rs(
         cls,
         rs_threshold: float = 0.01,
         veto_threshold: Optional[float] = 1e-4,
     ) -> "RolloutCorrectionConfig":
-        """K3 KL Estimator Rejection Sampling.
+        """Decoupled mode with K3 KL Estimator Rejection Sampling.
 
         Uses K3 KL estimator at sequence level for rejection sampling.
         K3 = E[r - log(r) - 1] where r = π_train/π_rollout.
@@ -860,13 +860,13 @@ class RolloutCorrectionConfig(BaseConfig):
         )
 
     @classmethod
-    def k3_rs_seq_tis(
+    def decoupled_k3_rs_seq_tis(
         cls,
         is_threshold: float = 2.0,
         rs_threshold: float = 0.01,
         veto_threshold: Optional[float] = 1e-4,
     ) -> "RolloutCorrectionConfig":
-        """K3 RS with Sequence-level Truncated IS.
+        """Decoupled mode with K3 RS and Sequence-level Truncated IS.
 
         Combines K3 KL estimator rejection with sequence-level IS weights.
         K3 provides more stable outlier detection than geometric mean.
@@ -888,13 +888,13 @@ class RolloutCorrectionConfig(BaseConfig):
         )
 
     @classmethod
-    def k3_rs_token_tis(
+    def decoupled_k3_rs_token_tis(
         cls,
         is_threshold: float = 2.0,
         rs_threshold: float = 0.01,
         veto_threshold: Optional[float] = 1e-4,
     ) -> "RolloutCorrectionConfig":
-        """K3 RS with Token-level Truncated IS.
+        """Decoupled mode with K3 RS and Token-level Truncated IS.
 
         Combines K3 KL estimator rejection with token-level IS weights.
         K3 provides more stable outlier detection than geometric mean.
@@ -917,12 +917,12 @@ class RolloutCorrectionConfig(BaseConfig):
         )
 
     @classmethod
-    def group_k1_rs(
+    def decoupled_group_k1_rs(
         cls,
         rs_threshold: float = 0.001,
         veto_threshold: Optional[float] = 1e-4,
     ) -> "RolloutCorrectionConfig":
-        """Group-level K1 Divergence Rejection Sampling.
+        """Decoupled mode with Group-level K1 Divergence Rejection Sampling.
 
         Rejects entire groups of sequences together using K1 divergence.
         K1 = |group_mean(E[log(r)])|, ideal = 0.0.
@@ -945,13 +945,13 @@ class RolloutCorrectionConfig(BaseConfig):
         )
 
     @classmethod
-    def group_k1_rs_seq_tis(
+    def decoupled_group_k1_rs_seq_tis(
         cls,
         is_threshold: float = 2.0,
         rs_threshold: float = 0.001,
         veto_threshold: Optional[float] = 1e-4,
     ) -> "RolloutCorrectionConfig":
-        """Group K1 RS with Sequence-level Truncated IS.
+        """Decoupled mode with Group K1 RS and Sequence-level Truncated IS.
 
         Combines group-level K1 divergence rejection with sequence-level IS weights.
         Groups are defined by group_indices tensor in the batch.
@@ -973,13 +973,13 @@ class RolloutCorrectionConfig(BaseConfig):
         )
 
     @classmethod
-    def group_k1_rs_token_tis(
+    def decoupled_group_k1_rs_token_tis(
         cls,
         is_threshold: float = 2.0,
         rs_threshold: float = 0.001,
         veto_threshold: Optional[float] = 1e-4,
     ) -> "RolloutCorrectionConfig":
-        """Group K1 RS with Token-level Truncated IS.
+        """Decoupled mode with Group K1 RS and Token-level Truncated IS.
 
         Combines group-level K1 divergence rejection with token-level IS weights.
         Groups are defined by group_indices tensor in the batch.
@@ -1002,12 +1002,12 @@ class RolloutCorrectionConfig(BaseConfig):
         )
 
     @classmethod
-    def group_k3_rs(
+    def decoupled_group_k3_rs(
         cls,
         rs_threshold: float = 0.01,
         veto_threshold: Optional[float] = 1e-4,
     ) -> "RolloutCorrectionConfig":
-        """Group-level K3 KL Estimator Rejection Sampling.
+        """Decoupled mode with Group-level K3 KL Estimator Rejection Sampling.
 
         Rejects entire groups of sequences together using K3 KL estimator.
         More stable than k1/geometric for small KL values.
@@ -1029,13 +1029,13 @@ class RolloutCorrectionConfig(BaseConfig):
         )
 
     @classmethod
-    def group_k3_rs_seq_tis(
+    def decoupled_group_k3_rs_seq_tis(
         cls,
         is_threshold: float = 2.0,
         rs_threshold: float = 0.01,
         veto_threshold: Optional[float] = 1e-4,
     ) -> "RolloutCorrectionConfig":
-        """Group K3 RS with Sequence-level Truncated IS.
+        """Decoupled mode with Group K3 RS and Sequence-level Truncated IS.
 
         Combines group-level K3 KL rejection with sequence-level IS weights.
         Groups are defined by group_indices tensor in the batch.
@@ -1057,13 +1057,13 @@ class RolloutCorrectionConfig(BaseConfig):
         )
 
     @classmethod
-    def group_k3_rs_token_tis(
+    def decoupled_group_k3_rs_token_tis(
         cls,
         is_threshold: float = 2.0,
         rs_threshold: float = 0.01,
         veto_threshold: Optional[float] = 1e-4,
     ) -> "RolloutCorrectionConfig":
-        """Group K3 RS with Token-level Truncated IS.
+        """Decoupled mode with Group K3 RS and Token-level Truncated IS.
 
         Combines group-level K3 KL rejection with token-level IS weights.
         Groups are defined by group_indices tensor in the batch.
