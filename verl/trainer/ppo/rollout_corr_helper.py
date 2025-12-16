@@ -148,6 +148,10 @@ def compute_rollout_rejection_mask(
     if rollout_rs_threshold is None:
         raise ValueError("rollout_rs_threshold must be provided for rejection sampling.")
 
+    # Handle empty batch gracefully (avoid errors from group_indices.max() etc.)
+    if log_ratio.shape[0] == 0:
+        return response_mask, {}
+
     # Set default lower threshold if not specified (reciprocal of upper threshold)
     upper_threshold = rollout_rs_threshold
     lower_threshold = rollout_rs_threshold_lower if rollout_rs_threshold_lower is not None else 1.0 / upper_threshold
@@ -445,7 +449,10 @@ def compute_rs_metrics(
     mask_count: torch.Tensor = response_mask.sum()
     if mask_count > 1:
         # Clamp to threshold range to avoid squaring extreme values
-        stat_for_std: torch.Tensor = rs_statistic.clamp(min=rollout_rs_threshold_lower, max=rollout_rs_threshold)
+        # For divergence modes (k1, k3, group_k1, group_k3), lower bound is 0.0 (divergence >= 0)
+        # For ratio modes, lower bound is rollout_rs_threshold_lower (reciprocal of upper)
+        std_lower_bound = 0.0 if rollout_rs in ["k1", "k3", "group_k1", "group_k3"] else rollout_rs_threshold_lower
+        stat_for_std: torch.Tensor = rs_statistic.clamp(min=std_lower_bound, max=rollout_rs_threshold)
         mean_clamped: torch.Tensor = verl_F.masked_mean(stat_for_std, response_mask)
         # Variance = E[X²] - (E[X])² (masked to valid tokens)
         rs_var: torch.Tensor = verl_F.masked_mean(stat_for_std.square(), response_mask) - mean_clamped.square()
