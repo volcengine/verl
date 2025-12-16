@@ -92,7 +92,16 @@ class RolloutCorrectionConfig(BaseConfig):
             - None: No rejection sampling
             - "token": Reject individual tokens with outlier ratios
             - "sequence": Reject entire sequences with outlier ratios
-            - "geometric": Geometric mean aggregation (threshold: 1.0002-1.001)
+            - "geometric": Geometric mean aggregation, equivalent to k1 KL estimator
+              (threshold: 1.0002-1.001)
+            - "k3": K3 KL estimator at sequence level: E[r - log(r) - 1]
+              More stable than geometric for small KL values. K3 >= 0, so only
+              upper threshold applies (typical: 0.001-0.01).
+            - "group_k1": Group-level masking with k1 (geometric mean) - reject entire groups
+              of sequences together. Requires group_indices in batch. Useful when multiple
+              sequences share the same prompt or context.
+            - "group_k3": Group-level masking with K3 KL estimator - reject entire groups
+              of sequences together using K3 divergence. Requires group_indices in batch.
             Default: None (use IS weights without rejection)
 
         rollout_rs_threshold (Optional[float]): Upper threshold for rejection sampling.
@@ -144,16 +153,34 @@ class RolloutCorrectionConfig(BaseConfig):
         config = RolloutCorrectionConfig.decoupled_seq_is_rs()  # Seq-MIS
         config = RolloutCorrectionConfig.decoupled_geo_rs()  # Geo-RS
         config = RolloutCorrectionConfig.geo_rs_seq_tis()  # Geo-RS-Seq-TIS
+        config = RolloutCorrectionConfig.geo_rs_token_tis()  # Geo-RS-Token-TIS
 
         # Bypass mode presets (2 policies: π_rollout = π_old, π_θ)
         # loss_type controls the loss function
         # PPO-clip presets (ratio handles IS, so no separate IS weights needed):
-        config = RolloutCorrectionConfig.bypass_ppo_clip()          # PPO-clip only
-        config = RolloutCorrectionConfig.bypass_ppo_clip_geo_rs()   # PPO-clip + Geo-RS
+        config = RolloutCorrectionConfig.bypass_ppo_clip()              # PPO-clip only
+        config = RolloutCorrectionConfig.bypass_ppo_clip_geo_rs()       # PPO-clip + Geo-RS
+        config = RolloutCorrectionConfig.bypass_ppo_clip_k3_rs()        # PPO-clip + K3-RS
+        config = RolloutCorrectionConfig.bypass_ppo_clip_group_k1_rs()  # PPO-clip + Group K1 RS
+        config = RolloutCorrectionConfig.bypass_ppo_clip_group_k3_rs()  # PPO-clip + Group K3 RS
         # REINFORCE presets (explicit IS weights):
         config = RolloutCorrectionConfig.bypass_pg_is()             # REINFORCE + Seq-TIS
         config = RolloutCorrectionConfig.bypass_pg_rs()             # REINFORCE + Geo-RS
         config = RolloutCorrectionConfig.bypass_pg_geo_rs_seq_tis() # REINFORCE + Geo-RS + Seq-TIS
+        config = RolloutCorrectionConfig.bypass_pg_geo_rs_token_tis() # REINFORCE + Geo-RS + Token-TIS
+
+        # K3 KL Estimator presets (more stable for small KL values)
+        config = RolloutCorrectionConfig.k3_rs()                    # K3-RS
+        config = RolloutCorrectionConfig.k3_rs_seq_tis()            # K3-RS + Seq-TIS
+        config = RolloutCorrectionConfig.k3_rs_token_tis()          # K3-RS + Token-TIS
+
+        # Group-level presets (reject entire groups together)
+        config = RolloutCorrectionConfig.group_k1_rs()              # Group K1 RS
+        config = RolloutCorrectionConfig.group_k1_rs_seq_tis()      # Group K1 RS + Seq-TIS
+        config = RolloutCorrectionConfig.group_k1_rs_token_tis()    # Group K1 RS + Token-TIS
+        config = RolloutCorrectionConfig.group_k3_rs()              # Group K3 RS
+        config = RolloutCorrectionConfig.group_k3_rs_seq_tis()      # Group K3 RS + Seq-TIS
+        config = RolloutCorrectionConfig.group_k3_rs_token_tis()    # Group K3 RS + Token-TIS
 
     Reference:
         Liu, Li, Fu, Wang, Liu, Shen (2025)
@@ -312,6 +339,94 @@ class RolloutCorrectionConfig(BaseConfig):
         )
 
     @classmethod
+    def bypass_ppo_clip_k3_rs(
+        cls,
+        rs_threshold: float = 0.01,
+        veto_threshold: float = 1e-4,
+    ) -> "RolloutCorrectionConfig":
+        """Bypass mode with PPO-clip loss and K3 Rejection Sampling.
+
+        PPO clipped objective in bypass mode with K3 KL estimator RS to mask outliers.
+        K3 is more stable than geometric for small KL values.
+        The PPO ratio = π_θ/π_rollout already handles IS correction.
+
+        Args:
+            rs_threshold (float): Max allowed K3 divergence. Default: 0.01
+            veto_threshold (float): Per-token veto threshold. Default: 1e-4
+
+        Returns:
+            RolloutCorrectionConfig configured for bypass mode with PPO-clip + K3-RS
+        """
+        return cls(
+            rollout_is=None,
+            rollout_rs="k3",
+            rollout_rs_threshold=rs_threshold,
+            rollout_token_veto_threshold=veto_threshold,
+            bypass_mode=True,
+            loss_type="ppo_clip",
+        )
+
+    @classmethod
+    def bypass_ppo_clip_group_k1_rs(
+        cls,
+        rs_threshold: float = 1.001,
+        rs_threshold_lower: Optional[float] = None,
+        veto_threshold: float = 1e-4,
+    ) -> "RolloutCorrectionConfig":
+        """Bypass mode with PPO-clip loss and Group K1 Rejection Sampling.
+
+        PPO clipped objective in bypass mode with group-level geometric RS.
+        Rejects entire groups of sequences together.
+        Requires group_indices tensor in the batch.
+
+        Args:
+            rs_threshold (float): Group geometric RS threshold (upper). Default: 1.001
+            rs_threshold_lower (Optional[float]): Group geometric RS threshold (lower).
+                If None, auto-computed as reciprocal. Default: None
+            veto_threshold (float): Per-token veto threshold. Default: 1e-4
+
+        Returns:
+            RolloutCorrectionConfig configured for bypass mode with PPO-clip + Group-K1-RS
+        """
+        return cls(
+            rollout_is=None,
+            rollout_rs="group_k1",
+            rollout_rs_threshold=rs_threshold,
+            rollout_rs_threshold_lower=rs_threshold_lower,
+            rollout_token_veto_threshold=veto_threshold,
+            bypass_mode=True,
+            loss_type="ppo_clip",
+        )
+
+    @classmethod
+    def bypass_ppo_clip_group_k3_rs(
+        cls,
+        rs_threshold: float = 0.01,
+        veto_threshold: float = 1e-4,
+    ) -> "RolloutCorrectionConfig":
+        """Bypass mode with PPO-clip loss and Group K3 Rejection Sampling.
+
+        PPO clipped objective in bypass mode with group-level K3 KL estimator RS.
+        Rejects entire groups of sequences together using K3 divergence.
+        Requires group_indices tensor in the batch.
+
+        Args:
+            rs_threshold (float): Max allowed group K3 divergence. Default: 0.01
+            veto_threshold (float): Per-token veto threshold. Default: 1e-4
+
+        Returns:
+            RolloutCorrectionConfig configured for bypass mode with PPO-clip + Group-K3-RS
+        """
+        return cls(
+            rollout_is=None,
+            rollout_rs="group_k3",
+            rollout_rs_threshold=rs_threshold,
+            rollout_token_veto_threshold=veto_threshold,
+            bypass_mode=True,
+            loss_type="ppo_clip",
+        )
+
+    @classmethod
     def bypass_pg_is(cls, threshold: float = 2.0) -> "RolloutCorrectionConfig":
         """Bypass mode with REINFORCE loss and IS Correction.
 
@@ -402,6 +517,38 @@ class RolloutCorrectionConfig(BaseConfig):
         )
 
     @classmethod
+    def geo_rs_token_tis(
+        cls,
+        is_threshold: float = 2.0,
+        rs_threshold: float = 1.001,
+        rs_threshold_lower: Optional[float] = None,
+        veto_threshold: Optional[float] = 1e-4,
+    ) -> "RolloutCorrectionConfig":
+        """Geometric RS with Token-level Truncated IS (Geo-RS-Token-TIS).
+
+        Combines the Geometric Filter (length-invariant validity check) with
+        Token-level IS weights (lower variance, biased).
+
+        Args:
+            is_threshold (float): Upper threshold for token IS weights. Default: 2.0
+            rs_threshold (float): Geometric RS threshold (upper). Default: 1.001 (±0.1%)
+            rs_threshold_lower (Optional[float]): Geometric RS threshold (lower).
+                If None, auto-computed as reciprocal of rs_threshold. Default: None
+            veto_threshold (Optional[float]): Per-token veto threshold. Default: 1e-4
+
+        Returns:
+            RolloutCorrectionConfig configured for Geo-RS-Token-TIS
+        """
+        return cls(
+            rollout_is="token",
+            rollout_is_threshold=is_threshold,
+            rollout_rs="geometric",
+            rollout_rs_threshold=rs_threshold,
+            rollout_rs_threshold_lower=rs_threshold_lower,
+            rollout_token_veto_threshold=veto_threshold,
+        )
+
+    @classmethod
     def bypass_pg_geo_rs_seq_tis(
         cls,
         is_threshold: float = 2.0,
@@ -436,6 +583,308 @@ class RolloutCorrectionConfig(BaseConfig):
             rollout_token_veto_threshold=veto_threshold,
             bypass_mode=True,
             loss_type="reinforce",
+        )
+
+    @classmethod
+    def bypass_pg_geo_rs_token_tis(
+        cls,
+        is_threshold: float = 2.0,
+        rs_threshold: float = 1.001,
+        rs_threshold_lower: Optional[float] = None,
+        veto_threshold: Optional[float] = 1e-4,
+    ) -> "RolloutCorrectionConfig":
+        """Bypass mode with REINFORCE loss, Geo-RS, and Token-level IS.
+
+        Combines geometric rejection with token-level IS weights
+        in bypass mode with REINFORCE loss (no PPO clipping).
+
+        Token-level IS has lower variance but introduces bias.
+
+        Args:
+            is_threshold (float): Upper threshold for token IS weights. Default: 2.0
+            rs_threshold (float): Geometric RS threshold (upper). Default: 1.001 (±0.1%)
+            rs_threshold_lower (Optional[float]): Geometric RS threshold (lower).
+                If None, auto-computed as reciprocal of rs_threshold. Default: None
+            veto_threshold (Optional[float]): Per-token veto threshold. Default: 1e-4
+
+        Returns:
+            RolloutCorrectionConfig configured for bypass mode with REINFORCE + Geo-RS + Token-TIS
+        """
+        return cls(
+            rollout_is="token",
+            rollout_is_threshold=is_threshold,
+            rollout_rs="geometric",
+            rollout_rs_threshold=rs_threshold,
+            rollout_rs_threshold_lower=rs_threshold_lower,
+            rollout_token_veto_threshold=veto_threshold,
+            bypass_mode=True,
+            loss_type="reinforce",
+        )
+
+    @classmethod
+    def k3_rs(
+        cls,
+        rs_threshold: float = 0.01,
+        veto_threshold: Optional[float] = 1e-4,
+    ) -> "RolloutCorrectionConfig":
+        """K3 KL Estimator Rejection Sampling.
+
+        Uses K3 KL estimator at sequence level for rejection sampling.
+        K3 = E[r - log(r) - 1] where r = π_train/π_rollout.
+        More stable than geometric mean for small KL values.
+
+        K3 >= 0 always (equals 0 when policies match exactly).
+
+        Args:
+            rs_threshold (float): Max allowed K3 divergence. Default: 0.01
+                Typical range: 0.001-0.1
+            veto_threshold (Optional[float]): Per-token veto threshold. Default: 1e-4
+
+        Returns:
+            RolloutCorrectionConfig configured for K3 RS
+        """
+        return cls(
+            rollout_is=None,
+            rollout_rs="k3",
+            rollout_rs_threshold=rs_threshold,
+            rollout_token_veto_threshold=veto_threshold,
+        )
+
+    @classmethod
+    def k3_rs_seq_tis(
+        cls,
+        is_threshold: float = 2.0,
+        rs_threshold: float = 0.01,
+        veto_threshold: Optional[float] = 1e-4,
+    ) -> "RolloutCorrectionConfig":
+        """K3 RS with Sequence-level Truncated IS.
+
+        Combines K3 KL estimator rejection with sequence-level IS weights.
+        K3 provides more stable outlier detection than geometric mean.
+
+        Args:
+            is_threshold (float): Upper threshold for sequence IS weights. Default: 2.0
+            rs_threshold (float): Max allowed K3 divergence. Default: 0.01
+            veto_threshold (Optional[float]): Per-token veto threshold. Default: 1e-4
+
+        Returns:
+            RolloutCorrectionConfig configured for K3-RS-Seq-TIS
+        """
+        return cls(
+            rollout_is="sequence",
+            rollout_is_threshold=is_threshold,
+            rollout_rs="k3",
+            rollout_rs_threshold=rs_threshold,
+            rollout_token_veto_threshold=veto_threshold,
+        )
+
+    @classmethod
+    def k3_rs_token_tis(
+        cls,
+        is_threshold: float = 2.0,
+        rs_threshold: float = 0.01,
+        veto_threshold: Optional[float] = 1e-4,
+    ) -> "RolloutCorrectionConfig":
+        """K3 RS with Token-level Truncated IS.
+
+        Combines K3 KL estimator rejection with token-level IS weights.
+        K3 provides more stable outlier detection than geometric mean.
+        Token-level IS has lower variance but introduces bias.
+
+        Args:
+            is_threshold (float): Upper threshold for token IS weights. Default: 2.0
+            rs_threshold (float): Max allowed K3 divergence. Default: 0.01
+            veto_threshold (Optional[float]): Per-token veto threshold. Default: 1e-4
+
+        Returns:
+            RolloutCorrectionConfig configured for K3-RS-Token-TIS
+        """
+        return cls(
+            rollout_is="token",
+            rollout_is_threshold=is_threshold,
+            rollout_rs="k3",
+            rollout_rs_threshold=rs_threshold,
+            rollout_token_veto_threshold=veto_threshold,
+        )
+
+    @classmethod
+    def group_k1_rs(
+        cls,
+        rs_threshold: float = 1.001,
+        rs_threshold_lower: Optional[float] = None,
+        veto_threshold: Optional[float] = 1e-4,
+    ) -> "RolloutCorrectionConfig":
+        """Group-level K1 (Geometric Mean) Rejection Sampling.
+
+        Rejects entire groups of sequences together using k1 (geometric mean).
+        Useful when multiple sequences share the same prompt/context.
+
+        Requires group_indices tensor in the batch to identify groups.
+
+        Args:
+            rs_threshold (float): Group geometric RS threshold (upper). Default: 1.001
+            rs_threshold_lower (Optional[float]): Group geometric RS threshold (lower).
+                If None, auto-computed as reciprocal. Default: None
+            veto_threshold (Optional[float]): Per-token veto threshold. Default: 1e-4
+
+        Returns:
+            RolloutCorrectionConfig configured for group-level K1 RS
+        """
+        return cls(
+            rollout_is=None,
+            rollout_rs="group_k1",
+            rollout_rs_threshold=rs_threshold,
+            rollout_rs_threshold_lower=rs_threshold_lower,
+            rollout_token_veto_threshold=veto_threshold,
+        )
+
+    @classmethod
+    def group_k1_rs_seq_tis(
+        cls,
+        is_threshold: float = 2.0,
+        rs_threshold: float = 1.001,
+        rs_threshold_lower: Optional[float] = None,
+        veto_threshold: Optional[float] = 1e-4,
+    ) -> "RolloutCorrectionConfig":
+        """Group K1 RS with Sequence-level Truncated IS.
+
+        Combines group-level k1 (geometric mean) rejection with sequence-level IS weights.
+        Groups are defined by group_indices tensor in the batch.
+
+        Args:
+            is_threshold (float): Upper threshold for sequence IS weights. Default: 2.0
+            rs_threshold (float): Group geometric RS threshold (upper). Default: 1.001
+            rs_threshold_lower (Optional[float]): Group geometric RS threshold (lower).
+                If None, auto-computed as reciprocal. Default: None
+            veto_threshold (Optional[float]): Per-token veto threshold. Default: 1e-4
+
+        Returns:
+            RolloutCorrectionConfig configured for Group-K1-RS-Seq-TIS
+        """
+        return cls(
+            rollout_is="sequence",
+            rollout_is_threshold=is_threshold,
+            rollout_rs="group_k1",
+            rollout_rs_threshold=rs_threshold,
+            rollout_rs_threshold_lower=rs_threshold_lower,
+            rollout_token_veto_threshold=veto_threshold,
+        )
+
+    @classmethod
+    def group_k1_rs_token_tis(
+        cls,
+        is_threshold: float = 2.0,
+        rs_threshold: float = 1.001,
+        rs_threshold_lower: Optional[float] = None,
+        veto_threshold: Optional[float] = 1e-4,
+    ) -> "RolloutCorrectionConfig":
+        """Group K1 RS with Token-level Truncated IS.
+
+        Combines group-level k1 (geometric mean) rejection with token-level IS weights.
+        Groups are defined by group_indices tensor in the batch.
+        Token-level IS has lower variance but introduces bias.
+
+        Args:
+            is_threshold (float): Upper threshold for token IS weights. Default: 2.0
+            rs_threshold (float): Group geometric RS threshold (upper). Default: 1.001
+            rs_threshold_lower (Optional[float]): Group geometric RS threshold (lower).
+                If None, auto-computed as reciprocal. Default: None
+            veto_threshold (Optional[float]): Per-token veto threshold. Default: 1e-4
+
+        Returns:
+            RolloutCorrectionConfig configured for Group-K1-RS-Token-TIS
+        """
+        return cls(
+            rollout_is="token",
+            rollout_is_threshold=is_threshold,
+            rollout_rs="group_k1",
+            rollout_rs_threshold=rs_threshold,
+            rollout_rs_threshold_lower=rs_threshold_lower,
+            rollout_token_veto_threshold=veto_threshold,
+        )
+
+    @classmethod
+    def group_k3_rs(
+        cls,
+        rs_threshold: float = 0.01,
+        veto_threshold: Optional[float] = 1e-4,
+    ) -> "RolloutCorrectionConfig":
+        """Group-level K3 KL Estimator Rejection Sampling.
+
+        Rejects entire groups of sequences together using K3 KL estimator.
+        More stable than k1/geometric for small KL values.
+
+        Requires group_indices tensor in the batch to identify groups.
+
+        Args:
+            rs_threshold (float): Max allowed group K3 divergence. Default: 0.01
+            veto_threshold (Optional[float]): Per-token veto threshold. Default: 1e-4
+
+        Returns:
+            RolloutCorrectionConfig configured for group-level K3 RS
+        """
+        return cls(
+            rollout_is=None,
+            rollout_rs="group_k3",
+            rollout_rs_threshold=rs_threshold,
+            rollout_token_veto_threshold=veto_threshold,
+        )
+
+    @classmethod
+    def group_k3_rs_seq_tis(
+        cls,
+        is_threshold: float = 2.0,
+        rs_threshold: float = 0.01,
+        veto_threshold: Optional[float] = 1e-4,
+    ) -> "RolloutCorrectionConfig":
+        """Group K3 RS with Sequence-level Truncated IS.
+
+        Combines group-level K3 KL rejection with sequence-level IS weights.
+        Groups are defined by group_indices tensor in the batch.
+
+        Args:
+            is_threshold (float): Upper threshold for sequence IS weights. Default: 2.0
+            rs_threshold (float): Max allowed group K3 divergence. Default: 0.01
+            veto_threshold (Optional[float]): Per-token veto threshold. Default: 1e-4
+
+        Returns:
+            RolloutCorrectionConfig configured for Group-K3-RS-Seq-TIS
+        """
+        return cls(
+            rollout_is="sequence",
+            rollout_is_threshold=is_threshold,
+            rollout_rs="group_k3",
+            rollout_rs_threshold=rs_threshold,
+            rollout_token_veto_threshold=veto_threshold,
+        )
+
+    @classmethod
+    def group_k3_rs_token_tis(
+        cls,
+        is_threshold: float = 2.0,
+        rs_threshold: float = 0.01,
+        veto_threshold: Optional[float] = 1e-4,
+    ) -> "RolloutCorrectionConfig":
+        """Group K3 RS with Token-level Truncated IS.
+
+        Combines group-level K3 KL rejection with token-level IS weights.
+        Groups are defined by group_indices tensor in the batch.
+        Token-level IS has lower variance but introduces bias.
+
+        Args:
+            is_threshold (float): Upper threshold for token IS weights. Default: 2.0
+            rs_threshold (float): Max allowed group K3 divergence. Default: 0.01
+            veto_threshold (Optional[float]): Per-token veto threshold. Default: 1e-4
+
+        Returns:
+            RolloutCorrectionConfig configured for Group-K3-RS-Token-TIS
+        """
+        return cls(
+            rollout_is="token",
+            rollout_is_threshold=is_threshold,
+            rollout_rs="group_k3",
+            rollout_rs_threshold=rs_threshold,
+            rollout_token_veto_threshold=veto_threshold,
         )
 
     @classmethod
