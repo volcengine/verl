@@ -35,7 +35,7 @@ VALID_CONFIG_TYPE = {
     "seed_oss",
     "apertus",
     "glm4v",
-    "mimo"
+    "mimo",
 }
 
 
