@@ -30,7 +30,9 @@ from sglang.srt.utils import (
     set_prometheus_multiproc_dir,
     set_ulimit,
 )
-from sglang.srt.weight_sync.utils import update_weights as sgl_update_weights
+from sglang.srt.checkpoint_engine.update import req_inference
+from checkpoint_engine.ps import ParameterServer
+import torch.distributed as dist
 from torch.distributed.device_mesh import DeviceMesh
 
 from verl.workers.config import HFModelConfig, RolloutConfig
@@ -165,10 +167,13 @@ class ServerAdapter(BaseRollout):
             - Main logic: https://github.com/THUDM/slime/blob/fb7605cc5fb09af0f9369d37f7192f12bddee577/slime/ray/ppo_actor.py#L452
             - runtime envs: https://github.com/THUDM/slime/blob/fb7605cc5fb09af0f9369d37f7192f12bddee577/slime/ray/ppo_actor.py#L39
         """
-        if self.device_mesh["infer_tp"].get_local_rank() == 0:
+        import torch.distributed as dist
+
+        tp_rank = self.device_mesh["infer_tp"].get_local_rank()
+        inference_parallel_size = self.config.tensor_model_parallel_size * self.config.data_parallel_size * self.config.pipeline_model_parallel_size
+        if tp_rank == 0:
             await self._init_server_adapter()
 
-        update_weights_bucket_bytes = int(self.config.update_weights_bucket_megabytes) << 20
         if self.config.get("quantization", None) == "fp8":
             from verl.utils.sglang.sglang_fp8_utils import quant_weights_by_name
 
@@ -181,13 +186,23 @@ class ServerAdapter(BaseRollout):
         else:
             weights = weights
 
-        for params_batch in get_named_tensor_buckets(weights, update_weights_bucket_bytes):
-            await sgl_update_weights(
-                engine=self._engine,
-                params_batch=params_batch,
-                device_mesh_key="infer_tp",
-                device_mesh=self.device_mesh,
-            )
+        named_tensors = []
+        for idx, weight in enumerate(weights):
+            if idx % inference_parallel_size == tp_rank:
+                named_tensors.append((weight[0], weight[1].cpu()))
 
-        if self.device_mesh["infer_tp"].get_local_rank() == 0:
+        if tp_rank == 0:
+            endpoint = f"http://{self._engine.server_args.host}:{self._engine.server_args.port}"
+        else:
+            endpoint = ""
+        req_func = req_inference(endpoint, inference_parallel_size)
+
+        checkpoint_name = "checkpoint_engine"
+        ps = ParameterServer()
+        ps.register_checkpoint(checkpoint_name,  named_tensors=named_tensors)
+        dist.barrier()
+        ps.gather_metas(checkpoint_name)
+        ps.update(checkpoint_name, req_func)
+
+        if tp_rank == 0:
             await self._engine.flush_cache()
