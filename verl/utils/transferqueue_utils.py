@@ -183,7 +183,7 @@ def tqbridge(put_data: bool = True):
                     collect_from_rank = kwargs["collect_from_rank"]
                     kwargs.pop("collect_from_rank")
                 else:
-                    collect_from_rank = True
+                    collect_from_rank = None
 
                 args = [_batchmeta_to_dataproto(arg) if isinstance(arg, BatchMeta) else arg for arg in args]
                 kwargs = {k: _batchmeta_to_dataproto(v) if isinstance(v, BatchMeta) else v for k, v in kwargs.items()}
@@ -192,6 +192,8 @@ def tqbridge(put_data: bool = True):
                 if put_data and collect_from_rank:
                     updated_batch_meta = _update_batchmeta_with_output(output, batchmeta, func.__name__)
                     return updated_batch_meta
+                elif collect_from_rank == False:
+                    return BatchMeta()
                 else:
                     return output
 
@@ -211,7 +213,7 @@ def tqbridge(put_data: bool = True):
                     print(f"{func.__name__} with TQ put={kwargs['collect_from_rank']}")
                     kwargs.pop("collect_from_rank")
                 else:
-                    collect_from_rank = True
+                    collect_from_rank = None
 
                 args = [await _async_batchmeta_to_dataproto(arg) if isinstance(arg, BatchMeta) else arg for arg in args]
                 kwargs = {
@@ -223,6 +225,8 @@ def tqbridge(put_data: bool = True):
                 if put_data and collect_from_rank:
                     updated_batchmeta = await _async_update_batchmeta_with_output(output, batchmeta, func.__name__)
                     return updated_batchmeta
+                elif collect_from_rank == False:
+                    return BatchMeta()
                 return output
 
         @wraps(func)
