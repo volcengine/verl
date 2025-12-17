@@ -44,6 +44,8 @@ RUN ARCH=$(uname -m) && \
     echo "export PYTHONPATH=\$PYTHONPATH:/Megatron-LM" >> ~/.bashrc && \
     # Remove existing triton or triton-ascend installed by some third-party packages
     pip uninstall -y triton triton-ascend && \
+    # Install mbridge
+    pip install mbridge && \
     # Clear extra files
     rm -rf /tmp/* /var/tmp/* && \
     pip cache purge
