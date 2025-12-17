@@ -15,14 +15,14 @@
 import inspect
 
 from verl import DataProto
-from verl.experimental.reward.reward_manager import register
-from verl.experimental.reward.reward_manager.base import RewardLoopManagerBase
+from verl.experimental.reward_loop.reward_manager import register
+from verl.experimental.reward_loop.reward_manager.base import RewardManagerBase
 from verl.utils.reward_score import default_compute_score
 
 
 @register("dapo")
-class DAPORewardLoopManager(RewardLoopManagerBase):
-    """Reward loop for DAPO."""
+class DAPORewardManager(RewardManagerBase):
+    """DAPO Reward Manager."""
 
     def __init__(self, config, tokenizer, compute_score=None, reward_router_address=None, reward_model_tokenizer=None):
         super().__init__(config, tokenizer)

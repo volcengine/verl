@@ -122,7 +122,7 @@ def test_reward_model_manager():
     reward_model_name = os.path.expanduser("~/models/Qwen/Qwen2.5-1.5B-Instruct")
 
     config.actor_rollout_ref.model.path = rollout_model_name
-    config.custom_reward_function.path = "tests/experimental/reward/reward_fn.py"
+    config.custom_reward_function.path = "tests/experimental/reward_loop/reward_fn.py"
     config.custom_reward_function.name = "compute_score_gsm8k"
     config.reward_model.reward_manager = "dapo"
     config.reward_model.enable = True

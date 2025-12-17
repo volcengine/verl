@@ -26,11 +26,11 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-class RewardLoopManagerBase(ABC):
+class RewardManagerBase(ABC):
     _class_initialized = False
 
     def __init__(self, config: DictConfig, tokenizer: AutoTokenizer):
-        """Initialize agent loop.
+        """Initialize reward manager.
 
         Args:
             config (DictConfig): YAML config.
