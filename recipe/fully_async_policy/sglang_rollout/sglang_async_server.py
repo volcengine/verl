@@ -13,19 +13,19 @@
 # limitations under the License.
 import asyncio
 import logging
-from typing import Any, Optional, Sequence
+from typing import Any, Optional
 
 import ray
 import torch
 from ray.actor import ActorHandle
 from sglang.srt.managers.io_struct import GenerateReqInput
-from sglang.srt.sampling.sampling_params import SamplingParams
+
+from verl.workers.config import HFModelConfig, RewardModelConfig, RolloutConfig
+from verl.workers.rollout.replica import RolloutMode
 from verl.workers.rollout.sglang_rollout.async_sglang_server import (
     SGLangHttpServerBase,
     SGLangReplica,
 )
-from verl.workers.config import HFModelConfig, RewardModelConfig, RolloutConfig
-from verl.workers.rollout.replica import RolloutMode
 
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
@@ -98,7 +98,6 @@ class SGLangHttpServerForPartialBase(SGLangHttpServerBase):
 
         assert self.req_output[request_id] is not None
 
-
     async def generate_for_partial(
         self,
         prompt_ids: torch.Tensor,
@@ -156,7 +155,6 @@ class SGLangHttpServerForPartialBase(SGLangHttpServerBase):
             self.req_output.pop(request_id, None)
 
         return token_ids, log_probs, is_cancel
-
 
     async def cancel(self):
         async with self.lock:

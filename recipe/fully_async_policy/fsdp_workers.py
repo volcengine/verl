@@ -17,11 +17,9 @@ import asyncio
 import logging
 import os
 import threading
-import time
 
 import torch
 import torch.distributed
-from torch.distributed.device_mesh import init_device_mesh
 from omegaconf import DictConfig
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
@@ -36,8 +34,7 @@ from verl.utils.fsdp_utils import (
     load_fsdp_model_to_gpu,
     offload_fsdp_model_to_cpu,
 )
-from verl.utils.ray_utils import get_event_loop
-from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
+from verl.workers.fsdp_workers import AsyncActorRolloutRefWorker, CriticWorker
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -71,13 +68,10 @@ def get_inference_model(rollout):
 class DetachNcclSync(AsyncActorRolloutRefWorker):
     def __init__(self, config: DictConfig, role: str):
         super().__init__(config, role)
-        
+
         self._bg_loop = asyncio.new_event_loop()
         self._bg_thread = threading.Thread(
-            target=self._start_background_loop,
-            args=(self._bg_loop,),
-            name="rollout_actor_async_worker",
-            daemon=True
+            target=self._start_background_loop, args=(self._bg_loop,), name="rollout_actor_async_worker", daemon=True
         )
         self._bg_thread.start()
         logger.info(f"[DetachNcclSync] Background thread for SGLang sync started. PID: {os.getpid()}")
@@ -94,14 +88,14 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
             raise RuntimeError("Background thread for SGLang sync is not running!")
 
         future = asyncio.run_coroutine_threadsafe(coro, self._bg_loop)
-        
-        return future.result()    
-    
+
+        return future.result()
+
     def __del__(self):
-        if hasattr(self, '_bg_loop') and self._bg_loop.is_running():
+        if hasattr(self, "_bg_loop") and self._bg_loop.is_running():
             self._bg_loop.call_soon_threadsafe(self._bg_loop.stop)
-        if hasattr(self, '_bg_thread') and self._bg_thread.is_alive():
-            self._bg_thread.join(timeout=1.0)    
+        if hasattr(self, "_bg_thread") and self._bg_thread.is_alive():
+            self._bg_thread.join(timeout=1.0)
 
     def _get_actor_params(self):
         pass
@@ -115,7 +109,7 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
         params = self._get_actor_params() if self._is_actor else None
         rollout_name = self.config.rollout.name
-        
+
         inference_model = None
         if self._is_rollout:
             if rollout_name == "vllm":
@@ -129,14 +123,15 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
                 # For ServerAdapter, _engine might be None and needs async initialization
                 if inference_model is None:
                     # Initialize the server adapter engine
-                    print(f"[sync_rollout_weights] Initialize server adapter engine")
+                    print("[sync_rollout_weights] Initialize server adapter engine")
+
                     async def init_engine():
                         if hasattr(self.rollout, "_init_server_adapter"):
                             await self.rollout._init_server_adapter()
                         else:
-                            print(f"[sync_rollout_weights] No _init_server_adapter method found")
+                            print("[sync_rollout_weights] No _init_server_adapter method found")
                         return self.rollout._engine
-                    
+
                     inference_model = self._run_async_safely(init_engine())
                     if inference_model is None:
                         raise RuntimeError(
@@ -146,8 +141,9 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
                         )
             else:
                 raise NotImplementedError(f"Unknown rollout name: {rollout_name}")
-        
+
         from ray.util.collective import collective
+
         for key, shape, dtype in self._weights_info:
             tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
             if self._is_actor:
@@ -170,7 +166,6 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)
         get_torch_device().empty_cache()
 
-
     async def update_weights(self, inference_engine, params):
         from sglang.srt.weight_sync.utils import update_weights as sgl_update_weights
 
@@ -184,11 +179,12 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
         if self.rollout_device_mesh["infer_tp"].get_local_rank() == 0:
             await inference_engine.flush_cache()
 
+
 class DetachActorWorker(DetachNcclSync):
     def __init__(self, config: DictConfig, role: str):
-        print(f"[DetachAsyncRolloutWorker] Initializing via DetachNcclSync...")
+        print("[DetachAsyncRolloutWorker] Initializing via DetachNcclSync...")
         DetachNcclSync.__init__(self, config, role)
-    
+
     def _get_actor_params(self):
         assert self._is_actor
         params = self.actor_module_fsdp.state_dict()

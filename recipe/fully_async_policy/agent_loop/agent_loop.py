@@ -21,8 +21,8 @@ import numpy as np
 import ray
 from omegaconf import DictConfig
 
-from recipe.fully_async_policy.vllm_rollout.vllm_async_server import FullyAsyncvLLMReplica
 from recipe.fully_async_policy.sglang_rollout.sglang_async_server import FullyAsyncSGLangReplica
+from recipe.fully_async_policy.vllm_rollout.vllm_async_server import FullyAsyncvLLMReplica
 from verl.experimental.agent_loop.agent_loop import (
     AgentLoopManager,
     AgentLoopOutput,
@@ -216,7 +216,7 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
         self.reward_model_manager = None
         self.reward_router_address = None
         self.agent_loop_workers_class = FullyAsyncAgentLoopWorker
-        
+
         # Select rollout replica class based on rollout name
         rollout_name = config.actor_rollout_ref.rollout.name
         if rollout_name == "sglang":
@@ -226,10 +226,7 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
             self.rollout_replica_class = FullyAsyncvLLMReplica
             print("[FullyAsyncAgentLoopManager] vLLM replica class selected")
         else:
-            raise ValueError(
-                f"Unsupported rollout name: {rollout_name}. "
-                f"Supported values are 'sglang' and 'vllm'."
-            )
+            raise ValueError(f"Unsupported rollout name: {rollout_name}. Supported values are 'sglang' and 'vllm'.")
 
         self.rm_wg = rm_wg
         self.rollout_replicas = None
@@ -342,6 +339,7 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
         # await asyncio.gather(*[replica.reset_prefix_cache() for replica in self.rollout_replicas])
         # Note: debug
         timeout = 5.0
+
         async def reset_one(idx, replica):
             print(f"[reset_prefix_cache] start replica={idx}")
             try:
@@ -354,12 +352,9 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
                 return
             print(f"[reset_prefix_cache] done  replica={idx}")
 
-        tasks = [
-            reset_one(i, replica)
-            for i, replica in enumerate(self.rollout_replicas)
-        ]
+        tasks = [reset_one(i, replica) for i, replica in enumerate(self.rollout_replicas)]
         await asyncio.gather(*tasks, return_exceptions=True)
         print("[FullyAsyncAgentLoopManager] Reset prefix cache finished")
-    
+
     async def clear_kv_cache(self):
         await asyncio.gather(*[replica.clear_kv_cache() for replica in self.rollout_replicas])

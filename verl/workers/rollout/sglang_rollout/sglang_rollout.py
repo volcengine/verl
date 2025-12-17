@@ -52,7 +52,7 @@ def _set_envs_and_config(server_args: ServerArgs):
     os.environ["TORCH_NCCL_AVOID_RECORD_STREAMS"] = "1"
     os.environ["CUDA_DEVICE_MAX_CONNECTIONS"] = "4"
     os.environ["CUDA_MODULE_LOADING"] = "AUTO"
-    # Enable faulthandler in subprocesses 
+    # Enable faulthandler in subprocesses
     os.environ["PYTHONFAULTHANDLER"] = "1"
 
     # Set prometheus env vars
