@@ -33,6 +33,7 @@ from verl import DataProto
 from verl.trainer.ppo import core_algos
 from verl.utils.device import get_device_id, get_torch_device
 from verl.utils.megatron.pipeline_parallel import make_batch_generator
+from verl.utils.megatron_peft_utils import maybe_enable_recompute_inputs_grad
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.py_functional import append_to_dict
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
@@ -77,6 +78,9 @@ class MegatronPPOCritic(BasePPOCritic):
                 "reduce_grads_use_alltoall": False,
             }
         )
+
+        # Track models patched for PEFT + recompute compatibility
+        self._peft_recompute_patched = set()
 
     def _validate_config(self, config) -> None:
         """Validate config options not implemented for Megatron backend"""
@@ -295,6 +299,12 @@ class MegatronPPOCritic(BasePPOCritic):
     @GPUMemoryLogger("megatron critic", logger=logger)
     def update_critic(self, dataloader: Iterable[DataProto]):
         metrics = {}
+
+        # Apply PEFT + recompute compatibility patch once before training starts
+        for critic_model in self.critic_module:
+            self._peft_recompute_patched = maybe_enable_recompute_inputs_grad(
+                critic_model, self._peft_recompute_patched
+            )
 
         for data in dataloader:
             self.critic_optimizer.zero_grad()

@@ -49,6 +49,7 @@ from verl.utils.megatron.router_replay_utils import (
     set_router_replay_data,
 )
 from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy, vocab_parallel_log_probs_from_logits
+from verl.utils.megatron_peft_utils import maybe_enable_recompute_inputs_grad
 from verl.utils.megatron_utils import get_model_config, unwrap_model
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.profiler.profile import Profiler
@@ -166,6 +167,9 @@ class MegatronPPOActor(BasePPOActor):
         config = get_model_config(self.actor_module[0])
         print(config)
         config.finalize_model_grads_func = finalize_model_grads
+
+        # Track models patched for PEFT + recompute compatibility
+        self._peft_recompute_patched = set()
 
     def _validate_config(self, config) -> None:
         """Validate config options not implemented for Megatron backend"""
@@ -738,6 +742,11 @@ class MegatronPPOActor(BasePPOActor):
 
         """
         metrics = {}
+
+        # Apply PEFT + recompute compatibility patch once before training starts
+        for actor_model in self.actor_module:
+            self._peft_recompute_patched = maybe_enable_recompute_inputs_grad(actor_model, self._peft_recompute_patched)
+
         if self.use_torch_profiler and self.prof and self.prof.enable:
             self.prof.start()
         for data in dataloader:
