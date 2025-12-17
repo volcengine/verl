@@ -18,7 +18,6 @@ PPO Trainer with Ray-based single controller.
 This trainer supports model-agonistic model initialization with huggingface
 """
 
-import importlib
 import json
 import os
 import uuid
@@ -56,6 +55,7 @@ from verl.utils import tensordict_utils as tu
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.debug import marked_timer
+from verl.utils.import_utils import load_class_from_fqn
 from verl.utils.metric import reduce_metrics
 from verl.utils.py_functional import rename_dict
 from verl.utils.rollout_skip import RolloutSkip
@@ -849,27 +849,9 @@ class RayPPOTrainer:
         self.async_rollout_mode = False
         if self.config.actor_rollout_ref.rollout.mode == "async":
             # Support custom AgentLoopManager via config
-            manager_class = self.config.actor_rollout_ref.rollout.get("agent", {}).get("agent_loop_manager_class")
-            if manager_class:
-                if "." not in manager_class:
-                    raise ValueError(
-                        f"Invalid agent_loop_manager_class '{manager_class}'. "
-                        f"Expected fully qualified class name (e.g., 'mypackage.module.ClassName')."
-                    )
-                try:
-                    module_path, class_name = manager_class.rsplit(".", 1)
-                    module = importlib.import_module(module_path)
-                    AgentLoopManager = getattr(module, class_name)
-                except ImportError as e:
-                    raise ImportError(
-                        f"Failed to import module '{module_path}' for AgentLoopManager. "
-                        f"Please ensure the module is installed and importable. Error: {e}"
-                    ) from e
-                except AttributeError as e:
-                    raise AttributeError(
-                        f"Class '{class_name}' not found in module '{module_path}'. "
-                        f"Please ensure the class name is correct. Error: {e}"
-                    ) from e
+            manager_class_fqn = self.config.actor_rollout_ref.rollout.get("agent", {}).get("agent_loop_manager_class")
+            if manager_class_fqn:
+                AgentLoopManager = load_class_from_fqn(manager_class_fqn, "AgentLoopManager")
             else:
                 from verl.experimental.agent_loop import AgentLoopManager
 
