@@ -35,12 +35,7 @@ from verl.interactions.base import BaseInteraction
 from verl.interactions.utils.interaction_registry import initialize_interactions_from_config
 from verl.tools.schemas import ToolResponse
 from verl.tools.utils.tool_registry import initialize_tools_from_config
-from verl.utils.chat_template import (
-    apply_chat_template_with_processor,
-    apply_chat_template_with_tokenizer,
-    initialize_system_prompt,
-    tokenize_with_processor,
-)
+from verl.utils.chat_template import initialize_system_prompt
 from verl.utils.profiler import simple_timer
 from verl.utils.rollout_trace import rollout_trace_op
 
@@ -208,28 +203,25 @@ class ToolAgentLoop(AgentLoopBase):
         if self.processor is not None:
             raw_prompt = await self.loop.run_in_executor(
                 None,
-                lambda: apply_chat_template_with_processor(
-                    self.processor,
+                lambda: self.processor.apply_chat_template(
                     agent_data.messages,
                     tools=self.tool_schemas,
                     add_generation_prompt=True,
-                    apply_chat_template_kwargs=self.apply_chat_template_kwargs,
+                    tokenize=False,
+                    **self.apply_chat_template_kwargs,
                 ),
             )
-            agent_data.prompt_ids = tokenize_with_processor(
-                self.processor,
-                raw_prompt=raw_prompt,
-                image_data=agent_data.image_data,
-            )
+            model_inputs = self.processor(text=[raw_prompt], images=agent_data.image_data, return_tensors="pt")
+            agent_data.prompt_ids = model_inputs.pop("input_ids").squeeze(0).tolist()
         else:
             agent_data.prompt_ids = await self.loop.run_in_executor(
                 None,
-                lambda: apply_chat_template_with_tokenizer(
-                    self.tokenizer,
+                lambda: self.tokenizer.apply_chat_template(
                     agent_data.messages,
                     tools=self.tool_schemas,
                     add_generation_prompt=True,
-                    apply_chat_template_kwargs=self.apply_chat_template_kwargs,
+                    tokenize=True,
+                    **self.apply_chat_template_kwargs,
                 ),
             )
         return AgentState.GENERATING
@@ -354,20 +346,17 @@ class ToolAgentLoop(AgentLoopBase):
         if self.processor is not None:
             raw_tool_response = await self.loop.run_in_executor(
                 None,
-                lambda: apply_chat_template_with_processor(
-                    self.processor,
+                lambda: self.processor.apply_chat_template(
                     add_messages,
                     add_generation_prompt=True,
-                    apply_chat_template_kwargs=self.apply_chat_template_kwargs,
+                    tokenize=False,
+                    **self.apply_chat_template_kwargs,
                 ),
             )
             # Use only the new images from this turn for processing tool responses
-            current_images = new_images_this_turn if new_images_this_turn else None
-            response_ids = tokenize_with_processor(
-                self.processor,
-                raw_prompt=raw_tool_response,
-                image_data=current_images,
-            )
+            current_images = new_images_this_turn if new_images_this_turn else None  # Using local variable
+            model_inputs = self.processor(text=[raw_tool_response], images=current_images, return_tensors="pt")
+            response_ids = model_inputs.pop("input_ids").squeeze(0).tolist()
         else:
             if self.tool_parser_name == "gpt-oss":
                 logger.info("manually format tool responses for gpt-oss")
@@ -378,11 +367,7 @@ class ToolAgentLoop(AgentLoopBase):
             else:
                 response_ids = await self.loop.run_in_executor(
                     None,
-                    lambda: apply_chat_template_with_tokenizer(
-                        self.tokenizer,
-                        add_messages,
-                        add_generation_prompt=True,
-                    ),
+                    lambda: self.tokenizer.apply_chat_template(add_messages, add_generation_prompt=True, tokenize=True),
                 )
                 response_ids = response_ids[len(self.system_prompt) :]
         if len(agent_data.response_mask) + len(response_ids) >= self.response_length:
@@ -422,26 +407,23 @@ class ToolAgentLoop(AgentLoopBase):
         if reward is not None:
             agent_data.turn_scores.append(reward)
 
-        # Update prompt with user responses
+        # Update prompt with user responses (similar to _handle_processing_tools_state)
         if self.processor is not None:
             raw_user_response = await self.loop.run_in_executor(
                 None,
-                lambda: apply_chat_template_with_processor(
-                    self.processor,
+                lambda: self.processor.apply_chat_template(
                     add_messages,
                     add_generation_prompt=True,
-                    apply_chat_template_kwargs=self.apply_chat_template_kwargs,
+                    tokenize=False,
+                    **self.apply_chat_template_kwargs,
                 ),
             )
-            response_ids = tokenize_with_processor(self.processor, raw_prompt=raw_user_response, image_data=None)
+            model_inputs = self.processor(text=[raw_user_response], images=None, return_tensors="pt")
+            response_ids = model_inputs.pop("input_ids").squeeze(0).tolist()
         else:
             response_ids = await self.loop.run_in_executor(
                 None,
-                lambda: apply_chat_template_with_tokenizer(
-                    self.tokenizer,
-                    add_messages,
-                    add_generation_prompt=True,
-                ),
+                lambda: self.tokenizer.apply_chat_template(add_messages, add_generation_prompt=True, tokenize=True),
             )
         response_ids = response_ids[len(self.system_prompt) :]
 
