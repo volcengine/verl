@@ -18,7 +18,7 @@ import json
 import math
 import os
 from abc import ABC
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 from contextlib import contextmanager, nullcontext
 
 import torch
@@ -566,7 +566,34 @@ def fsdp2_clip_grad_norm_(parameters, max_norm, norm_type=2.0, error_if_nonfinit
     return total_norm
 
 
-def layered_summon_lora_params(fsdp_module) -> OrderedDict:
+def to_tensor(param, move_to_cpu: bool):
+    tensor = param.full_tensor() if hasattr(param, "full_tensor") else param
+    tensor = tensor.detach()
+    return tensor.cpu() if move_to_cpu else tensor
+
+
+def gather_standard_params(state_dict, prefix: str) -> OrderedDict:
+    collected = OrderedDict()
+    for name, param in state_dict.items():
+        collected[f"{prefix}.{name}"] = to_tensor(param, move_to_cpu=True)
+    return collected
+
+
+def gather_svd_params(state_dict, prefix: str) -> OrderedDict:
+    grouped = defaultdict(dict)
+    for name, param in state_dict.items():
+        layer_prefix, layer_suffix = name.rsplit(".", 1)
+        grouped[layer_prefix][layer_suffix] = to_tensor(param, move_to_cpu=False)
+    collected = OrderedDict()
+    for layer_name, parts in grouped.items():
+        U = parts.get("U")
+        sigma = parts.get("sigma")
+        V = parts.get("V")
+        collected[f"{prefix}.{layer_name}.weight"] = ((U * sigma) @ V.T).cpu()
+    return collected
+
+
+def layered_summon_lora_params(fsdp_module, use_svd_lora) -> OrderedDict:
     from peft.utils.save_and_load import get_peft_model_state_dict
 
     def __prefix_submodules(module, prefix):
@@ -596,19 +623,16 @@ def layered_summon_lora_params(fsdp_module) -> OrderedDict:
             if fsdp_version(submodule) > 0:
                 with FSDP.summon_full_params(submodule, writeback=False):
                     sub_lora_params = get_peft_model_state_dict(peft_model, state_dict=submodule.state_dict())
-                    sub_lora_params = {
-                        f"{prefix}.{name}": param.full_tensor().detach().cpu()
-                        if hasattr(param, "full_tensor")
-                        else param.detach().cpu()
-                        for name, param in sub_lora_params.items()
-                    }
-                    lora_params.update(sub_lora_params)
+                    if use_svd_lora:
+                        lora_params.update(gather_svd_params(sub_lora_params, prefix))
+                    else:
+                        lora_params.update(gather_standard_params(sub_lora_params, prefix))
                     submodule._is_root = False
                 get_torch_device().empty_cache()
     return lora_params
 
 
-def collect_lora_params(module: FSDP, layered_summon: bool, base_sync_done: bool) -> OrderedDict:
+def collect_lora_params(module: FSDP, layered_summon: bool, base_sync_done: bool, use_svd_lora: bool) -> OrderedDict:
     """
     collect lora params or full params if base model is not ready in vllm
     work with if isinstance(self.module._fsdp_wrapped_module, PeftModel)
@@ -624,7 +648,7 @@ def collect_lora_params(module: FSDP, layered_summon: bool, base_sync_done: bool
                     "To use layered_summon, you must make sure base-model is preloaded in vllm, e.g. let "
                     "rollout.load_format=safetensors"
                 )
-            lora_params = layered_summon_lora_params(module)
+            lora_params = layered_summon_lora_params(module, use_svd_lora)
         else:
             with FSDP.summon_full_params(module, writeback=False):
                 if base_sync_done:
