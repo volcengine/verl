@@ -30,7 +30,7 @@ from verl.trainer.ppo.reward import get_custom_reward_fn
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_to_local
 
-from .reward_loop import get_reward_loop_manager_cls
+from .reward_manager import get_reward_loop_manager_cls
 from .reward_model import RewardModelManager
 
 logger = logging.getLogger(__file__)
