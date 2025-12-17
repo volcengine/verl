@@ -13,6 +13,7 @@
 # limitations under the License.
 import inspect
 import logging
+import os
 import socket
 from copy import deepcopy
 from typing import Any, Optional
@@ -29,6 +30,9 @@ from verl.single_controller.base.decorator import MAGIC_ATTR, Dispatch
 from verl.utils.py_functional import temp_env_var
 
 __all__ = ["Worker"]
+
+logger = logging.getLogger(__file__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 def get_random_string(length: int) -> str:
@@ -216,13 +220,15 @@ def split_resource_pool(
     else:
         start_bundle_idx_list = np.cumsum([0] + split_size_list[:-1])
 
+    # ensure resource_pool.pgs has been initialized
+    placement_groups = resource_pool.get_placement_groups()
     split_resource_pools = [
         SubRayResourcePool(
             process_on_nodes=resource_pool.store,
             use_gpu=resource_pool.use_gpu,
             name_prefix=f"{resource_pool.name_prefix}_split_{split_idx}",
             max_colocate_count=resource_pool.max_colocate_count,
-            placement_groups=resource_pool.pgs,
+            placement_groups=placement_groups,
             start_bundle_index=start_bundle_idx_list[split_idx],
             subgroup_world_size=split_size_list[split_idx],
         )
@@ -357,6 +363,8 @@ class RayWorkerGroup(WorkerGroup):
             ray_wait_register_center_timeout: Timeout for waiting on register center
             **kwargs: Additional keyword arguments
         """
+        self._master_addr = kwargs.pop("master_addr", None)
+        self._master_port = kwargs.pop("master_port", None)
         super().__init__(resource_pool=resource_pool, **kwargs)
         self.ray_cls_with_init = ray_cls_with_init
         self.name_prefix = get_random_string(length=6) if name_prefix is None else name_prefix
@@ -425,13 +433,21 @@ class RayWorkerGroup(WorkerGroup):
 
     def _get_master_addr_port(self, pg):
         """Get master addr and port for this worker group"""
-        self._master_addr, self._master_port = ray.get(
-            get_master_addr_port.options(
-                scheduling_strategy=PlacementGroupSchedulingStrategy(
-                    placement_group=pg, placement_group_bundle_index=0
-                ),
-            ).remote()
-        )
+        if self._master_addr is None and self._master_port is None:
+            self._master_addr, self._master_port = ray.get(
+                get_master_addr_port.options(
+                    scheduling_strategy=PlacementGroupSchedulingStrategy(
+                        placement_group=pg, placement_group_bundle_index=0
+                    ),
+                ).remote()
+            )
+        elif self._master_addr is not None and self._master_port is not None:
+            logger.debug(f"{self._master_addr=} {self._master_port=}")
+        else:
+            raise ValueError(
+                "Both 'master_addr' and 'master_port' must be provided if you intend to manually specify them, "
+                "or neither should be provided to use Ray's default assignment."
+            )
 
     def _init_with_resource_pool(self, resource_pool, ray_cls_with_init, bin_pack, detached, worker_env=None):
         """Initialize the worker group by creating new workers from a resource pool.

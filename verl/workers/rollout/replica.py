@@ -16,9 +16,9 @@ import logging
 import os
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 from pydantic import BaseModel
 from ray.actor import ActorHandle
 
@@ -35,6 +35,10 @@ class TokenOutput(BaseModel):
     """response token ids"""
     log_probs: Optional[list[float]] = None
     """logprobs of response token ids"""
+    routed_experts: Optional[Any] = None
+    """routed experts of response token ids"""
+    stop_reason: Optional[str] = None
+    """stop reason: 'completed', 'aborted', or None for unknown"""
 
 
 class RolloutMode(Enum):
@@ -86,18 +90,7 @@ class RolloutReplica(ABC):
     ) -> None:
         self.replica_rank = replica_rank
         self.config = omega_conf_to_dataclass(config)
-        # TODO: make lora config irrelevant to the model engine choice
-        # Convert megatron lora config to HFModelConfig
-        # If model_config is not an OmegaConf object, convert it first
-        if OmegaConf.is_config(model_config):
-            model_config_dict = OmegaConf.to_container(model_config)
-            model_config_dict.pop("lora", None)
-
-            self.model_config: HFModelConfig = omega_conf_to_dataclass(
-                OmegaConf.create(model_config_dict), dataclass_type=HFModelConfig
-            )
-        else:
-            self.model_config: HFModelConfig = model_config
+        self.model_config: HFModelConfig = model_config
 
         self.world_size = (
             self.config.tensor_model_parallel_size
@@ -209,6 +202,10 @@ class RolloutReplica(ABC):
     async def sleep(self):
         """Sleep each rollout server."""
         await asyncio.gather(*[server.sleep.remote() for server in self.servers])
+
+    async def clear_kv_cache(self):
+        """reset kv cache in each rollout server."""
+        await asyncio.gather(*[server.clear_kv_cache.remote() for server in self.servers])
 
 
 class RolloutReplicaRegistry:

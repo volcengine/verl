@@ -15,6 +15,7 @@
 The abstract base class defining the interface for model training engines.
 """
 
+from abc import abstractmethod
 from typing import Any, Callable, Generator, Optional
 
 import torch
@@ -39,7 +40,19 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def train_mode(self):
+    @property
+    @abstractmethod
+    def is_param_offload_enabled(self) -> bool:
+        """Whether parameter offloading is enabled."""
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def is_optimizer_offload_enabled(self) -> bool:
+        """Whether optimizer offloading is enabled."""
+        raise NotImplementedError
+
+    def train_mode(self, **kwargs):
         """
         Context manager entry for switching the engine and model into training mode.
 
@@ -49,7 +62,7 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def eval_mode(self):
+    def eval_mode(self, **kwargs):
         """
         Context manager entry for switching the engine and model into evaluation mode.
 
@@ -109,6 +122,7 @@ class BaseEngine:
         outputs = self.forward_backward_batch(data, loss_function, forward_only=False)
         grad_norm = self.optimizer_step()
         if self.is_mp_src_rank_with_outputs():
+            assert "grad_norm" not in outputs["metrics"]
             outputs["metrics"]["grad_norm"] = grad_norm
         return outputs
 
@@ -155,7 +169,8 @@ class BaseEngine:
             optimizer: If True, move the optimizer states.
             grad: If True, move the gradient buffer.
         """
-        raise NotImplementedError
+        if not model:
+            assert not optimizer and not grad, "Model must be moved to device along with optimizer and grad"
 
     def save_checkpoint(
         self,
@@ -196,6 +211,41 @@ class BaseEngine:
         Whether the current rank is the first rank in model parallel group that contains model outputs
         """
         raise NotImplementedError
+
+
+class BaseEngineCtx:
+    def __init__(self, engine: BaseEngine, mode, **kwargs):
+        """Base Engine context that handles load and offload
+
+        Args:
+            engine:
+            **kwargs:
+        """
+        self.engine = engine
+        self.mode = mode
+        assert self.mode in ("train", "eval")
+        self.disable_auto_offload = kwargs.pop("disable_auto_offload", False)
+
+    def _context_switch(self, device):
+        if self.disable_auto_offload:
+            return
+        if self.mode == "eval":
+            self.engine.to(device=device, model=self.engine.is_param_offload_enabled, optimizer=False, grad=False)
+        elif self.mode == "train":
+            self.engine.to(
+                device=device,
+                model=self.engine.is_param_offload_enabled,
+                optimizer=self.engine.is_optimizer_offload_enabled,
+                grad=self.engine.is_param_offload_enabled,
+            )
+
+    def __enter__(self):
+        self._context_switch(get_device_name())
+        self.engine.mode = self.mode
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._context_switch("cpu")
+        self.engine.mode = None
 
 
 class EngineRegistry:

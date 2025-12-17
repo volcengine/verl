@@ -5,7 +5,7 @@ set -xeuo pipefail
 # References:
 #   - Rollout Correction Docs: https://github.com/volcengine/verl/blob/main/docs/algo/rollout_corr.md
 #   - Rollout Correction Math: https://github.com/volcengine/verl/blob/main/docs/algo/rollout_corr_math.md
-#   - When Speed Kills Stability: https://yingru.notion.site/When-Speed-Kills-Stability-271211a558b7808d8b12d403fd15edda
+#   - When Speed Kills Stability: Demystifying RL Collapse from the Training-Inference Mismatch: https://richardli.xyz/rl-collapse
 #   - Off-policy RL: https://fengyao.notion.site/off-policy-rl
 
 project_name='DAPO'
