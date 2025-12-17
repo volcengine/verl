@@ -419,7 +419,7 @@ class RayPPOTrainer:
     def _initialize_transferqueue(self):
         # 1. initialize TransferQueueStorage
         if self.config.transfer_queue.storage_backend == "AsyncSimpleStorageManager":
-            # TODO(baymax): supprot prefetch_factor
+            # TODO(baymax): support prefetch_factor
             # set num_global_batch = num_workers * prefetch_factor * 2 + 1
             num_workers = self.config.data["dataloader_num_workers"]
             num_global_batch = num_workers * 2 + 1
@@ -512,9 +512,6 @@ class RayPPOTrainer:
             num_workers=num_workers,
             collate_fn=partial(collate_fn, cls=self, config=self.config, is_train=True),
         )
-        val_batch_size = self.config.data.val_batch_size  # Prefer config value if set
-        if val_batch_size is None:
-            val_batch_size = len(self.val_dataset)
 
         self.val_dataloader = StatefulDataLoader(
             dataset=self.val_dataset,

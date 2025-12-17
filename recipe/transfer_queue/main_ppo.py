@@ -198,7 +198,7 @@ class TaskRunner(MainTaskRunner):
             val_reward_fn=val_reward_fn,
             train_dataset=train_dataset,
             val_dataset=val_dataset,
-            collate_fn=tq_collact_fn,
+            collate_fn=tq_collate_fn,
             train_sampler=train_sampler,
             val_sampler=val_sampler,
         )
@@ -219,8 +219,11 @@ def create_rl_batch_sampler(data_config, dataset, is_train=True):
         batch_size = data_config.get("gen_batch_size", data_config.train_batch_size)
         drop_last = True
     else:
+        import copy
+
+        data_config = copy.deepcopy(data_config)
+        data_config.shuffle = data_config.get("validation_shuffle", True)
         batch_size = len(dataset)
-        data_config.shuffle = False
         drop_last = False
 
     base_sampler = create_rl_sampler(data_config, dataset)
@@ -233,7 +236,7 @@ def create_rl_batch_sampler(data_config, dataset, is_train=True):
     return batch_sampler
 
 
-def tq_collact_fn(batch, cls, config, is_train=True):
+def tq_collate_fn(batch, cls, config, is_train=True):
     import uuid
 
     from verl.utils.dataset.rl_dataset import collate_fn
