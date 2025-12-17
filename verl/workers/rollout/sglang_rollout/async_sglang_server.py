@@ -135,7 +135,7 @@ class SGLangHttpServerBase:
             "dtype": self.config.dtype,
             "mem_fraction_static": self.config.gpu_memory_utilization,
             "disable_cuda_graph": self.config.enforce_eager,
-            "enable_memory_saver": True,
+            "enable_memory_saver": False,
             "base_gpu_id": 0,
             "gpu_id_step": 1,
             "tp_size": self.config.tensor_model_parallel_size,

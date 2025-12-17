@@ -101,6 +101,8 @@ def _set_envs_and_config(server_args: ServerArgs):
     os.environ["TORCH_NCCL_AVOID_RECORD_STREAMS"] = "1"
     os.environ["CUDA_DEVICE_MAX_CONNECTIONS"] = "4"
     os.environ["CUDA_MODULE_LOADING"] = "AUTO"
+    # Enable faulthandler in subprocesses 
+    os.environ["PYTHONFAULTHANDLER"] = "1"
 
     # Set prometheus env vars
     if server_args.enable_metrics:
@@ -446,7 +448,7 @@ class SGLangRollout(BaseRollout):
                 "model_path": actor_module,
                 "dtype": self.config.dtype,
                 "mem_fraction_static": self.config.gpu_memory_utilization,
-                "enable_memory_saver": True,
+                "enable_memory_saver": False,  # Disable to avoid tensor device placement issues
                 "base_gpu_id": 0,
                 "gpu_id_step": 1,
                 "tp_size": self._tp_size,
