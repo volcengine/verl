@@ -62,6 +62,7 @@ def init_config() -> DictConfig:
     config.actor_rollout_ref.rollout.agent.num_workers = 2
     config.actor_rollout_ref.rollout.skip_tokenizer_init = True
     config.actor_rollout_ref.rollout.resource_pool_id = "rollout_pool"
+    config.actor_rollout_ref.actor.resource_pool_id = "rollout_pool"
 
     return config
 
