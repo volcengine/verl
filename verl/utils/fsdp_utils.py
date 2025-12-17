@@ -15,6 +15,7 @@
 import functools
 import itertools
 import json
+import logging
 import math
 import os
 from abc import ABC
@@ -46,6 +47,9 @@ elif version.parse(torch.__version__) >= version.parse("2.4"):
     fully_shard_module = torch.distributed._composable.fsdp.fully_shard
 else:
     fully_shard, MixedPrecisionPolicy, FSDPModule, CPUOffloadPolicy, fully_shard_module = None, None, None, None, None
+
+logger = logging.getLogger(__name__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL"), logging.WARNING)
 
 
 def init_fn(x: torch.nn.Module):
@@ -437,6 +441,8 @@ def get_fsdp_state_dict(
     Raises:
         ValueError: If the FSDP version is unknown (other than 1/2).
     """
+    if (not full_state_dict) and rank0_only:
+        logger.warning("It is weird to only get sharded state dict on rank 0.")
     model_fsdp_version = fsdp_version(model)
     if model_fsdp_version == 1:
         from torch.distributed.fsdp import FullStateDictConfig, StateDictType
