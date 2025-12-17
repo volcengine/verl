@@ -1034,9 +1034,11 @@ class RayPPOTrainer:
 
             if num_groups % world_size != 0:
                 raise ValueError(
-                    f"PrefixGrouper with balance_batch requires num_uid_groups ({num_groups}) % world_size ({world_size}) == 0. "
+                    f"PrefixGrouper with balance_batch requires num_uid_groups ({num_groups}) "
+                    f"% world_size ({world_size}) == 0. "
                     f"This ensures each rank gets equal number of groups. "
-                    f"Current batch_size={batch_size}, adjust batch_size to be a multiple of world_size * rollout.n."
+                    f"Current batch_size={batch_size}, adjust batch_size to be a multiple of "
+                    f"world_size * rollout.n."
                 )
 
             global_partition_lst = get_group_balanced_partitions(

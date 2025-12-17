@@ -33,7 +33,6 @@ from verl.utils.ulysses import (
     slice_input_tensor,
 )
 
-
 _PREFIX_GROUPER_PATCHED = False
 _PREFIX_GROUPER_SUPPORTED_ATTENTIONS = {"flash_attention_2", "flash_attention_3", "sdpa", "flex_attention", "eager"}
 
