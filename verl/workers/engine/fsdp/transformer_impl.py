@@ -235,12 +235,14 @@ class FSDPEngine(BaseEngine):
             )
 
             use_fused_kernels = self.model_config.use_fused_kernels
+            tiled_mlp_num_tiles = getattr(self.model_config, "tiled_mlp_num_tiles", 0)
             apply_monkey_patch(
                 model=module,
                 use_remove_padding=self.use_remove_padding,
                 ulysses_sp_size=self.ulysses_sequence_parallel_size,
                 use_fused_kernels=use_fused_kernels,
                 fused_kernels_backend=fused_kernels_backend,
+                tiled_mlp_num_tiles=tiled_mlp_num_tiles,
             )
 
             # some parameters may not in torch_dtype
