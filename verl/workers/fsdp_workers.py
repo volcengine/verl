@@ -365,8 +365,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                     case _:
                         actor_module_class = AutoModel
             else:
-                if type(actor_model_config) in AutoModelForVision2Seq._model_mapping.keys():
-                    actor_module_class = AutoModelForVision2Seq
+                if type(actor_model_config) in AutoModelForImageTextToText._model_mapping.keys():
+                    actor_module_class = AutoModelForImageTextToText
                 elif type(actor_model_config) in AutoModelForCausalLM._model_mapping.keys():
                     actor_module_class = AutoModelForCausalLM
                 elif type(actor_model_config) in AutoModelForImageTextToText._model_mapping.keys():
