@@ -526,18 +526,60 @@ class AgentLoopWorkerBase:
             videos = None
             videos_kwargs: dict[str, Any] = {}
             if videos_raw is not None:
-                videos = []
-                video_metadata = []
-                for item in videos_raw:
-                    if isinstance(item, tuple) and len(item) == 2:
-                        v, meta = item
-                    else:
-                        v, meta = item, {}
-                    if isinstance(v, np.ndarray):
-                        v = torch.from_numpy(v)
-                    videos.append(v)
-                    video_metadata.append(meta)
-                videos_kwargs = {"video_metadata": video_metadata, "do_sample_frames": False}
+                if not isinstance(videos_raw, list):
+                    raise ValueError(f"Expected multi_modal_data['video'] to be a list, got {type(videos_raw)}")
+
+                has_dict = any(isinstance(item, dict) for item in videos_raw)
+                has_non_dict = any(not isinstance(item, dict) for item in videos_raw)
+                if has_dict and has_non_dict:
+                    raise ValueError(
+                        "Mixed multi_modal_data['video'] formats are not supported: got both dict-based video specs "
+                        "(e.g. {'video': 'file:///...','fps': 2}) and pre-decoded frame tensors/arrays "
+                        "(optionally with (frames, metadata) tuples). Please provide a homogeneous list."
+                    )
+
+                if has_dict:
+                    from verl.utils.dataset.vision_utils import process_video
+
+                    videos = []
+                    video_metadata = []
+                    for item in videos_raw:
+                        if "video" not in item:
+                            raise ValueError(
+                                f"Each video dict in multi_modal_data['video'] must contain a 'video' key, got keys: "
+                                f"{list(item.keys())}"
+                            )
+                        v, meta = process_video(item, return_video_metadata=True)
+                        videos.append(v)
+                        video_metadata.append(meta)
+                    videos_kwargs = {"video_metadata": video_metadata, "do_sample_frames": False}
+                else:
+                    has_metadata = any(isinstance(item, tuple) for item in videos_raw)
+                    videos = []
+                    video_metadata = [] if has_metadata else None
+                    for item in videos_raw:
+                        if isinstance(item, tuple):
+                            if len(item) != 2:
+                                raise ValueError(
+                                    "Expected a (frames, metadata) tuple for video items in multi_modal_data['video'], "
+                                    f"but got tuple of length {len(item)}"
+                                )
+                            v, meta = item
+                            if meta is not None and not isinstance(meta, dict):
+                                raise ValueError(f"Expected video metadata to be a dict, got {type(meta)}")
+                            meta = meta or {}
+                        else:
+                            v, meta = item, {}
+
+                        if isinstance(v, np.ndarray):
+                            v = torch.from_numpy(v)
+                        videos.append(v)
+                        if has_metadata:
+                            video_metadata.append(meta)
+
+                    videos_kwargs = {"do_sample_frames": False}
+                    if has_metadata:
+                        videos_kwargs["video_metadata"] = video_metadata
 
             current_text = self.tokenizer.decode(input_ids.squeeze(0), skip_special_tokens=True)
             multi_modal_inputs = self.processor(
