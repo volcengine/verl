@@ -255,6 +255,13 @@ class vLLMHttpServerBase:
             max_new_tokens=self.config.response_length,
         )
         logger.info(f"override_generation_config: {override_generation_config}")
+
+        logger.info(f"enable_sleep_mode: {self.config.enable_sleep_mode}")
+        if not self.config.enable_sleep_mode:
+            from verl.utils.device import set_expandable_segments
+
+            set_expandable_segments(True)
+
         quantization = self.config.quantization
         if quantization is not None:
             if quantization == "fp8":
@@ -280,7 +287,7 @@ class vLLMHttpServerBase:
             "enable_chunked_prefill": self.config.enable_chunked_prefill,
             "max_num_batched_tokens": self.config.max_num_batched_tokens,
             "enable_prefix_caching": self.config.enable_prefix_caching,
-            "enable_sleep_mode": True,
+            "enable_sleep_mode": self.config.enable_sleep_mode,
             "disable_custom_all_reduce": True,
             "enforce_eager": self.config.enforce_eager,
             "gpu_memory_utilization": self.config.gpu_memory_utilization,

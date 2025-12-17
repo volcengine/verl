@@ -207,6 +207,8 @@ class RolloutConfig(BaseConfig):
 
     enable_rollout_routing_replay: bool = False
 
+    enable_sleep_mode: bool = True
+
     def __post_init__(self):
         """Validate the rollout config"""
         if self.expert_parallel_size > 1:
