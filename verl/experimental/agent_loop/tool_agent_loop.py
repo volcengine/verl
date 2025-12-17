@@ -30,7 +30,7 @@ from verl.experimental.agent_loop.agent_loop import (
     register,
 )
 from verl.experimental.agent_loop.tool_parser import FunctionCall, ToolParser
-from verl.experimental.agent_loop.utils import add_generation_prompt_for_gpt_oss, format_gpt_oss_tool_response_manually
+from verl.experimental.agent_loop.utils import build_gpt_oss_tool_response_text
 from verl.interactions.base import BaseInteraction
 from verl.interactions.utils.interaction_registry import initialize_interactions_from_config
 from verl.tools.schemas import ToolResponse
@@ -360,14 +360,7 @@ class ToolAgentLoop(AgentLoopBase):
         else:
             if self.tool_parser_name == "gpt-oss":
                 logger.info("manually format tool responses for gpt-oss")
-                # Format tool responses manually
-                tool_response_texts = []
-                for i, tool_msg in enumerate(add_messages):
-                    actual_tool_name = tool_call_names[i]
-                    formatted = format_gpt_oss_tool_response_manually(tool_msg["content"], actual_tool_name)
-                    tool_response_texts.append(formatted)
-
-                tool_response_text = add_generation_prompt_for_gpt_oss("".join(tool_response_texts))
+                tool_response_text = build_gpt_oss_tool_response_text(add_messages, tool_call_names)
                 response_ids = await self.loop.run_in_executor(
                     None, lambda: self.tokenizer.encode(tool_response_text, add_special_tokens=False)
                 )

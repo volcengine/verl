@@ -152,6 +152,28 @@ def concat_tensordict(data: list[TensorDict]) -> TensorDict:
     return output
 
 
+def chunk_tensordict(td: TensorDict, chunks: int) -> list[TensorDict]:
+    """Splits a tensordict into the specified number of chunks with special handling of 3d nested tensors.
+
+    This is a workaround for torch.chunk() not support 3d jagged tensor, e.g. MRoPE position_id.
+    https://github.com/pytorch/pytorch/issues/153238
+    """
+    assert isinstance(td, TensorDict) and len(td) % chunks == 0, (
+        f"expecting td with length divisible by chunks, but got {len(td)} and {chunks}"
+    )
+    chunk_size = len(td) // chunks
+    keys = {key for key, val in td.items() if isinstance(val, torch.Tensor) and val.is_nested and val.dim() >= 3}
+    new_td = TensorDict({k: v for k, v in td.items() if k not in keys}, batch_size=td.batch_size, device=td.device)
+
+    tds = new_td.chunk(chunks=chunks)
+    for key in keys:
+        tensors = td[key].unbind(dim=0)
+        for i, td in enumerate(tds):
+            td[key] = torch.nested.as_nested_tensor(tensors[i * chunk_size : (i + 1) * chunk_size], layout=torch.jagged)
+
+    return tds
+
+
 def get_tensordict(tensor_dict: dict[str, torch.Tensor | list], non_tensor_dict: dict = None) -> TensorDict:
     """Create a TensorDict from tensors and non-tensor data.
 

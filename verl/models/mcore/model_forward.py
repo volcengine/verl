@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import torch
 
 from verl.utils.megatron_utils import unwrap_model
 
@@ -181,7 +182,10 @@ def gptmodel_forward_no_padding(
         attention_mask = None
         if vision_model:
             input_ids_rmpad = input_ids.to_padded_tensor(pad_token_id)
-            attention_mask = (input_ids_rmpad != pad_token_id).bool()
+            seqlens_in_batch = input_ids.offsets().diff()
+            attention_mask = torch.zeros_like(input_ids_rmpad, dtype=torch.bool)
+            for i, seqlen in enumerate(seqlens_in_batch):
+                attention_mask[i, :seqlen] = True
 
         output_orig = model(
             input_ids=input_ids_rmpad,
