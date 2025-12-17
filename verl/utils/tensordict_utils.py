@@ -152,6 +152,28 @@ def concat_tensordict(data: list[TensorDict]) -> TensorDict:
     return output
 
 
+def chunk_tensordict(td: TensorDict, chunks: int) -> list[TensorDict]:
+    """Splits a tensordict into the specified number of chunks with special handling of 3d nested tensors.
+
+    This is a workaround for torch.chunk() not support 3d jagged tensor, e.g. MRoPE position_id.
+    https://github.com/pytorch/pytorch/issues/153238
+    """
+    assert isinstance(td, TensorDict) and len(td) % chunks == 0, (
+        f"expecting td with length divisible by chunks, but got {len(td)} and {chunks}"
+    )
+    chunk_size = len(td) // chunks
+    keys = {key for key, val in td.items() if isinstance(val, torch.Tensor) and val.is_nested and val.dim() >= 3}
+    new_td = TensorDict({k: v for k, v in td.items() if k not in keys}, batch_size=td.batch_size, device=td.device)
+
+    tds = new_td.chunk(chunks=chunks)
+    for key in keys:
+        tensors = td[key].unbind(dim=0)
+        for i, td in enumerate(tds):
+            td[key] = torch.nested.as_nested_tensor(tensors[i * chunk_size : (i + 1) * chunk_size], layout=torch.jagged)
+
+    return tds
+
+
 def get_tensordict(tensor_dict: dict[str, torch.Tensor | list], non_tensor_dict: dict = None) -> TensorDict:
     """Create a TensorDict from tensors and non-tensor data.
 
@@ -186,6 +208,7 @@ def get_tensordict(tensor_dict: dict[str, torch.Tensor | list], non_tensor_dict:
     for key, val in tensor_dict.items():
         if isinstance(val, torch.Tensor) and val.is_nested:
             assert val.is_contiguous(), "Nested tensors must be contiguous. Try setting layout=torch.jagged"
+            assert val.layout == torch.jagged, "Nested tensors must be jagged."
 
         # Skip validation for NonTensorStack as it's already properly formatted
         if isinstance(val, NonTensorStack):
@@ -245,7 +268,10 @@ def index_select_tensor_dict(batch: TensorDict, indices: torch.Tensor | list[int
             if isinstance(tensor, torch.Tensor) and not tensor.is_nested:
                 data_dict[key] = tensor[indices]
             elif isinstance(tensor, torch.Tensor) and tensor.is_nested:
-                data_dict[key] = torch.nested.as_nested_tensor([tensor[idx] for idx in indices], layout=torch.jagged)
+                tensor_lst = tensor.unbind()  # for performance
+                data_dict[key] = torch.nested.as_nested_tensor(
+                    [tensor_lst[idx] for idx in indices], layout=torch.jagged
+                )
             else:
                 # This handles NonTensorStack (indexable by batch dim) and NonTensorData (scalar metadata).
                 if tensor.shape:
@@ -297,13 +323,17 @@ def make_iterator(tensordict: TensorDict, mini_batch_size, epochs, seed=None, da
         generator = None
 
     assert isinstance(dataloader_kwargs, dict)
+
+    idx_lst = torch.arange(tensordict.shape[0])
+
     train_dataloader = DataLoader(
-        dataset=tensordict, batch_size=mini_batch_size, collate_fn=lambda x: x, generator=generator, **dataloader_kwargs
+        dataset=idx_lst, batch_size=mini_batch_size, collate_fn=lambda x: x, generator=generator, **dataloader_kwargs
     )
 
     def get_data():
         for _ in range(epochs):
-            yield from train_dataloader
+            for idx in train_dataloader:
+                yield index_select_tensor_dict(tensordict, idx)
 
     return iter(get_data())
 

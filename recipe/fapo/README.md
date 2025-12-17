@@ -78,3 +78,12 @@ bash recipe/fapo/run_fapo_32b.sh  # 32b fapo model
 We implement RewardLoop to enable efficient and flexible reward computation.
 The core implementation can be found in `verl/experimental/reward/`.
 Refer to [this official document](https://verl.readthedocs.io/en/latest/advance/reward_loop.html) for more implementation details.
+
+```bibtex
+@article{ding2025fapo,
+  title={FAPO: Flawed-Aware Policy Optimization for Efficient and Reliable Reasoning},
+  author={Ding, Yuyang and Zhang, Chi and Li, Juntao and Lin, Haibin and Liu, Xin and Zhang, Min},
+  journal={arXiv preprint arXiv:2510.22543},
+  year={2025}
+}
+```

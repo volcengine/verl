@@ -70,7 +70,7 @@ class AsyncLLMServerManager:
         random.shuffle(self.server_handles)
 
         # Least requests load balancing
-        self.weighted_serveres = [[0, (hash(server), server)] for server in server_handles]
+        self.weighted_serveres = [[0, idx, server] for idx, server in enumerate(self.server_handles)]
         heapq.heapify(self.weighted_serveres)
 
         # LRU cache to map request_id to server
@@ -81,7 +81,7 @@ class AsyncLLMServerManager:
         if request_id in self.request_id_to_server:
             return self.request_id_to_server[request_id]
 
-        server = self.weighted_serveres[0][1][1]
+        _, _, server = self.weighted_serveres[0]
         self.weighted_serveres[0][0] += 1
         heapq.heapreplace(self.weighted_serveres, self.weighted_serveres[0])
         self.request_id_to_server[request_id] = server
@@ -175,9 +175,10 @@ class _InternalAgentLoopOutput(AgentLoopOutput):
     """Extra fields for dynamic addition."""
 
 
-# make hydra.utils.instantiate happy
-class _DummyConfig:
-    def __init__(self, config: DictConfig) -> None:
+class DictConfigWrap:
+    """Wrapper for DictConfig to avoid hydra.utils.instantiate recursive resolve."""
+
+    def __init__(self, config: DictConfig):
         self.config = config
 
 
@@ -185,11 +186,9 @@ class AgentLoopBase(ABC):
     """An agent loop takes an input message, chat with OpenAI compatible LLM server and interact with various
     environments."""
 
-    _class_initialized = False
-
     def __init__(
         self,
-        trainer_config: _DummyConfig,
+        trainer_config: DictConfigWrap,
         server_manager: AsyncLLMServerManager,
         tokenizer: AutoTokenizer,
         processor: AutoProcessor,
@@ -198,31 +197,16 @@ class AgentLoopBase(ABC):
         """Initialize agent loop, each sample will have its own loop instance.
 
         Args:
-            trainer_config (_DummyConfig): trainer config.
+            trainer_config (DictConfigWrap): trainer config.
             server_manager (AsyncLLMServerManager): OpenAI compatible LLM server manager.
             tokenizer (AutoTokenizer): Tokenizer for tokenize messages.
             processor (AutoProcessor): Processor for process messages.
         """
-        self.init_class(config=trainer_config.config, tokenizer=tokenizer, processor=processor, **kwargs)
         self.config = trainer_config.config
         self.server_manager = server_manager
         self.tokenizer = tokenizer
         self.processor = processor
         self.loop = asyncio.get_running_loop()
-
-    @classmethod
-    def init_class(cls, config: DictConfig, tokenizer: AutoTokenizer, processor: AutoProcessor, **kwargs):
-        """This is used to do heavy initialization work that should shared across all instances. It's only called once.
-
-        Args:
-            config (DictConfig): trainer config.
-            tokenizer (AutoTokenizer): Tokenizer for tokenize messages.
-            processor (AutoProcessor): Processor for process multi_modal data.
-            **kwargs: extra kwargs from config file passed in by `hydra.utils.instantiate`.
-        """
-        if cls._class_initialized:
-            return
-        cls._class_initialized = True
 
     @abstractmethod
     async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
@@ -297,12 +281,15 @@ class AgentLoopWorkerBase:
                 self.processor.chat_template = self.config.actor_rollout_ref.model.custom_chat_template
             self.tokenizer.chat_template = self.config.actor_rollout_ref.model.custom_chat_template
 
-        self.reward_manager_worker = RewardLoopWorker.options(
-            scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
-                node_id=ray.get_runtime_context().get_node_id(),
-                soft=False,
-            ),
-        ).remote(self.config, self.reward_router_address)
+        use_reward_loop = True if self.config.reward_model.use_reward_loop else None
+        self.use_reward_loop = use_reward_loop
+        if use_reward_loop and not hasattr(self, "reward_manager_worker"):
+            self.reward_loop_worker = RewardLoopWorker.options(
+                scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
+                    node_id=ray.get_runtime_context().get_node_id(),
+                    soft=False,
+                ),
+            ).remote(self.config, self.reward_router_address)
 
         trace_config = self.config.actor_rollout_ref.rollout.get("trace", {})
         RolloutTraceConfig.init(
@@ -417,7 +404,7 @@ class AgentLoopWorkerBase:
             agent_loop_config = _agent_loop_registry[agent_name]
             agent_loop = hydra.utils.instantiate(
                 config=agent_loop_config,
-                trainer_config=_DummyConfig(config=self.config),
+                trainer_config=DictConfigWrap(config=self.config),
                 server_manager=self.server_manager,
                 tokenizer=self.tokenizer,
                 processor=self.processor,
@@ -551,7 +538,7 @@ class AgentLoopWorkerBase:
         enable_async_reward = (
             self.reward_router_address is not None and self.config.reward_model.enable_resource_pool
         ) or not self.config.reward_model.enable
-        if output.reward_score is None and enable_async_reward:
+        if output.reward_score is None and enable_async_reward and self.use_reward_loop:
             batch = TensorDict(
                 {
                     "prompts": prompt_output["input_ids"],  # [1, prompt_length]
@@ -572,7 +559,7 @@ class AgentLoopWorkerBase:
                 batch=batch,
                 non_tensor_batch=non_tensor_batch,
             )
-            result = await self.reward_manager_worker.compute_score.remote(data)
+            result = await self.reward_loop_worker.compute_score.remote(data)
             output.reward_score = result["reward_score"]
             output.extra_fields["reward_extra_info"] = result["reward_extra_info"]
 

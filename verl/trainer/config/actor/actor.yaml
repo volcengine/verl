@@ -103,6 +103,9 @@ ppo_epochs: 1
 # Shuffle training data across PPO epochs
 shuffle: false
 
+# The seed used to construct mini-batch
+data_loader_seed: 42
+
 # checkpoint configs
 checkpoint:
 
