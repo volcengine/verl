@@ -441,16 +441,21 @@ def get_fsdp_state_dict(
     Raises:
         ValueError: If the FSDP version is unknown (other than 1/2).
     """
-    if (not full_state_dict) and rank0_only:
-        logger.warning("It is weird to only get sharded state dict on rank 0.")
     model_fsdp_version = fsdp_version(model)
     if model_fsdp_version == 1:
-        from torch.distributed.fsdp import FullStateDictConfig, StateDictType
+        from torch.distributed.fsdp import FullStateDictConfig, ShardedStateDictConfig, StateDictType
 
-        state_dict_config = FullStateDictConfig(offload_to_cpu=offload_to_cpu, rank0_only=rank0_only)
-        state_type = StateDictType.FULL_STATE_DICT if full_state_dict else StateDictType.SHARDED_STATE_DICT
-        with get_fsdp_state_ctx(model, state_type=state_type, state_cfg=state_dict_config, optim_cfg=None):
+        if full_state_dict:
+            state_dict_type = StateDictType.FULL_STATE_DICT
+            state_dict_config = FullStateDictConfig(offload_to_cpu=offload_to_cpu, rank0_only=rank0_only)
+        else:
+            state_dict_type = StateDictType.SHARDED_STATE_DICT
+            assert not rank0_only, "Sharded state dict should not be rank0_only."
+            state_dict_config = ShardedStateDictConfig(offload_to_cpu=offload_to_cpu)
+
+        with get_fsdp_state_ctx(model, state_type=state_dict_type, state_cfg=state_dict_config, optim_cfg=None):
             state_dict = model.state_dict()
+
         return state_dict
     elif model_fsdp_version == 2:
         from torch.distributed.checkpoint.state_dict import StateDictOptions, get_model_state_dict
