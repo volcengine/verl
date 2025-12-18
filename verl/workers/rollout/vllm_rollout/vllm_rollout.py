@@ -26,7 +26,6 @@ When working with Megatron:
 - After inference, all the parameters that doesn't belong to this pp rank is freed.
 """
 
-import asyncio
 import getpass
 import logging
 import os
@@ -43,6 +42,8 @@ import zmq.asyncio
 from filelock import FileLock
 from torch.distributed.device_mesh import DeviceMesh
 from vllm.config import LoRAConfig
+
+from verl.utils.ray_utils import get_event_loop
 
 try:
     from vllm.worker.worker_base import WorkerWrapperBase
@@ -157,7 +158,7 @@ class vLLMAsyncRollout(BaseRollout):
                     address = f"tcp://{ip}:{port}"
             self.socket.bind(address)
 
-        loop = asyncio.get_running_loop()
+        loop = get_event_loop()
         self.zmq_loop_task = loop.create_task(self._loop_forever())
 
         return address
