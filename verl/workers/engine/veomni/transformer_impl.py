@@ -42,6 +42,7 @@ from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManage
 from ..base import BaseEngineCtx, EngineRegistry
 from ..fsdp.transformer_impl import FSDPEngine, FSDPEngineWithLMHead
 from ..utils import enable_full_determinism, postprocess_batch_func, prepare_micro_batches
+from .utils import VL_TYPE2INDEX
 
 logger = logging.getLogger(__file__)
 
@@ -334,4 +335,13 @@ class EngineTrainModeCtx(BaseEngineCtx):
 
 @EngineRegistry.register(model_type="language_model", backend=["veomni"], device=["cuda", "npu"])
 class VeOmniEngineWithLMHead(VeOmniEngine, FSDPEngineWithLMHead):
-    pass
+    def prepare_model_inputs(self, micro_batch: TensorDict):
+        # TODO: Cannot work properly for qwen_vl ulysses
+        model_inputs, output_args = super().prepare_model_inputs(micro_batch)
+        input_ids_rmpad = model_inputs["input_ids"]
+        if self.module.config.model_type in VL_TYPE2INDEX.keys():
+            image_mask = input_ids_rmpad == VL_TYPE2INDEX[self.module.config.model_type]["IMAGE_INPUT_INDEX"]
+            video_mask = input_ids_rmpad == VL_TYPE2INDEX[self.module.config.model_type]["VIDEO_INPUT_INDEX"]
+            model_inputs.update({"image_mask": image_mask, "video_mask": video_mask})
+
+        return model_inputs, output_args
