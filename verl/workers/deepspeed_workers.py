@@ -496,7 +496,7 @@ class ActorRolloutRefWorker(Worker):
                 torch.distributed.get_world_size() if torch.distributed.is_initialized() else 1
             )
             sp_size = layout.sp_size if layout is not None else 1
-            # per-rank mini batch 按 dp*sp 归一，避免重复按 sp 缩小
+            # Per-rank mini batch is scaled by dp*sp once to keep GAS consistent with micro batches.
             per_rank_mini = max(1, self.config.actor.ppo_mini_batch_size // max(1, dp_size * sp_size))
             micro_bsz = self.config.actor.get("ppo_micro_batch_size_per_gpu", 1) or 1
             # GAS 与 micro_batches 对齐；DS 校验使用 world_size=dp*sp
@@ -523,13 +523,11 @@ class ActorRolloutRefWorker(Worker):
             # Initialize DeepSpeed engine
             tempWorldSize = ds_config.get("world_size", 1)
             ds_config["world_size"] = ds_config.get("dp_size", 1)
-            _debug_print(f"{role}::_build_model_optimizer: initialize_deepspeed_engine start zero_stage={zero_stage}")
             ds_engine, optimizer, _, lr_scheduler = initialize_deepspeed_engine(
                 model=actor_module,
                 config=ds_config,
                 model_parameters=actor_module.parameters(),
             )
-            _debug_print(f"{role}::_build_model_optimizer: initialize_deepspeed_engine done")
             ds_config["world_size"] = tempWorldSize
 
 
@@ -1867,6 +1865,7 @@ class CriticWorker(Worker):
             torch.distributed.get_world_size() if torch.distributed.is_initialized() else 1
         )
         sp_size = self.layout.sp_size if self.layout is not None else 1
+        # Per-rank mini batch uses dp*sp scaling to align GAS with micro batches.
         per_rank_mini = max(1, self.config.ppo_mini_batch_size // max(1, dp_size * sp_size))
         micro_bsz = self.config.get("ppo_micro_batch_size_per_gpu", 1) or 1
         ds_grad_accum = max(1, per_rank_mini // micro_bsz)
