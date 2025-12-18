@@ -619,18 +619,18 @@ class RayPPOTrainer:
             # When use_reward_loop=True, rewards are already computed during generate_sequences
             # and stored in rm_scores. We can directly extract them instead of calling val_reward_fn
             # which would just do format conversion.
-            if self.use_reward_loop and "rm_scores" in test_batch.batch.keys():
+            if "rm_scores" in test_batch.batch.keys():
                 # Extract reward from already-computed rm_scores (format conversion only)
                 reward_tensor = test_batch.batch["rm_scores"]
                 scores = reward_tensor.sum(-1).cpu().tolist()
                 sample_scores.extend(scores)
-                
+
                 # Extract reward_extra_info if available
                 reward_extra_keys = test_batch.meta_info.get("reward_extra_keys", [])
-                reward_extra_info = {
-                    key: test_batch.non_tensor_batch[key] for key in reward_extra_keys
-                } if reward_extra_keys else {}
-                
+                reward_extra_info = (
+                    {key: test_batch.non_tensor_batch[key] for key in reward_extra_keys} if reward_extra_keys else {}
+                )
+
                 reward_extra_infos_dict["reward"].extend(scores)
                 for key, values in reward_extra_info.items():
                     if key not in reward_extra_infos_dict:
@@ -1322,11 +1322,11 @@ class RayPPOTrainer:
                                     assert self.reward_loop_manager is not None, "RewardLoopManager is None"
                                     rm_scores = self.reward_loop_manager.compute_rm_score(batch)
                                 batch = batch.union(rm_scores)
-                            
+
                             # When use_reward_loop=True, rewards are already computed during generate_sequences
                             # and stored in rm_scores. We can directly extract them instead of calling compute_reward
                             # which would just do format conversion.
-                            if self.use_reward_loop and "rm_scores" in batch.batch.keys():
+                            if "rm_scores" in batch.batch.keys():
                                 # Extract reward from already-computed rm_scores (format conversion only)
                                 reward_baseline_tensor = batch.batch["rm_scores"].sum(dim=-1)
                             else:
@@ -1370,14 +1370,16 @@ class RayPPOTrainer:
                         # When use_reward_loop=True, rewards are already computed during generate_sequences
                         # and stored in rm_scores. We can directly extract them instead of calling compute_reward
                         # which would just do format conversion.
-                        if self.use_reward_loop and "rm_scores" in batch.batch.keys():
+                        if "rm_scores" in batch.batch.keys():
                             # Extract reward from already-computed rm_scores (format conversion only)
                             reward_tensor = batch.batch["rm_scores"]
                             # Extract reward_extra_info if available
                             reward_extra_keys = batch.meta_info.get("reward_extra_keys", [])
-                            reward_extra_infos_dict = {
-                                key: batch.non_tensor_batch[key] for key in reward_extra_keys
-                            } if reward_extra_keys else {}
+                            reward_extra_infos_dict = (
+                                {key: batch.non_tensor_batch[key] for key in reward_extra_keys}
+                                if reward_extra_keys
+                                else {}
+                            )
                         elif self.config.reward_model.launch_reward_fn_async:
                             future_reward = compute_reward_async.remote(
                                 data=batch, config=self.config, tokenizer=self.tokenizer
