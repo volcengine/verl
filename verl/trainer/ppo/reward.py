@@ -153,7 +153,7 @@ def load_reward_manager(
         )
         reward_manager_cls_name = reward_manager_cfg.name
         reward_manager_cls = cast(
-            type[AbstractRewardManager],
+            "type[AbstractRewardManager]",
             load_extern_object(module_path=module_cfg.path, object_name=reward_manager_cls_name),
         )
 
