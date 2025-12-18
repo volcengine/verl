@@ -23,6 +23,7 @@ from typing import Generator
 import ray
 import sglang.srt.entrypoints.engine
 import torch
+from collections.abc import Callable
 from sglang.srt.server_args import ServerArgs
 from sglang.srt.utils import (
     assert_pkg_version,
@@ -30,9 +31,8 @@ from sglang.srt.utils import (
     set_prometheus_multiproc_dir,
     set_ulimit,
 )
+from sglang.srt.weight_sync.utils import update_weights as sgl_update_weights
 from sglang.srt.checkpoint_engine.update import req_inference
-from checkpoint_engine.ps import ParameterServer
-import torch.distributed as dist
 from torch.distributed.device_mesh import DeviceMesh
 
 from verl.workers.config import HFModelConfig, RolloutConfig
@@ -167,13 +167,10 @@ class ServerAdapter(BaseRollout):
             - Main logic: https://github.com/THUDM/slime/blob/fb7605cc5fb09af0f9369d37f7192f12bddee577/slime/ray/ppo_actor.py#L452
             - runtime envs: https://github.com/THUDM/slime/blob/fb7605cc5fb09af0f9369d37f7192f12bddee577/slime/ray/ppo_actor.py#L39
         """
-        import torch.distributed as dist
-
-        tp_rank = self.device_mesh["infer_tp"].get_local_rank()
-        inference_parallel_size = self.config.tensor_model_parallel_size * self.config.data_parallel_size * self.config.pipeline_model_parallel_size
-        if tp_rank == 0:
+        if self.device_mesh["infer_tp"].get_local_rank() == 0:
             await self._init_server_adapter()
 
+        update_weights_bucket_bytes = int(self.config.update_weights_bucket_megabytes) << 20
         if self.config.get("quantization", None) == "fp8":
             from verl.utils.sglang.sglang_fp8_utils import quant_weights_by_name
 
@@ -186,23 +183,24 @@ class ServerAdapter(BaseRollout):
         else:
             weights = weights
 
-        named_tensors = []
-        for idx, weight in enumerate(weights):
-            if idx % inference_parallel_size == tp_rank:
-                named_tensors.append((weight[0], weight[1].cpu()))
+        for params_batch in get_named_tensor_buckets(weights, update_weights_bucket_bytes):
+            await sgl_update_weights(
+                engine=self._engine,
+                params_batch=params_batch,
+                device_mesh_key="infer_tp",
+                device_mesh=self.device_mesh,
+            )
 
-        if tp_rank == 0:
+        if self.device_mesh["infer_tp"].get_local_rank() == 0:
+            await self._engine.flush_cache()
+
+    async def checkpoint_engine_req_func(self, inference_parallel_size: int) -> Callable[[list[tuple[str, str]]], None]:
+        if self.device_mesh["infer_tp"].get_local_rank() == 0:
+            await self._init_server_adapter()
             endpoint = f"http://{self._engine.server_args.host}:{self._engine.server_args.port}"
         else:
             endpoint = ""
-        req_func = req_inference(endpoint, inference_parallel_size)
 
-        checkpoint_name = "checkpoint_engine"
-        ps = ParameterServer()
-        ps.register_checkpoint(checkpoint_name,  named_tensors=named_tensors)
-        dist.barrier()
-        ps.gather_metas(checkpoint_name)
-        ps.update(checkpoint_name, req_func)
+        req_func = req_inference(endpoint=endpoint, inference_parallel_size=inference_parallel_size)
 
-        if tp_rank == 0:
-            await self._engine.flush_cache()
+        return req_func

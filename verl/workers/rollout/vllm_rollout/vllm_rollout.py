@@ -31,6 +31,7 @@ import getpass
 import logging
 import os
 from dataclasses import asdict
+from collections.abc import Callable
 from types import MethodType
 from typing import Any, Generator
 
@@ -132,6 +133,13 @@ class vLLMAsyncRollout(BaseRollout):
             self.sleep_level = 1
         else:
             self.sleep_level = VLLM_SLEEP_LEVEL
+
+        rank = int(os.environ["RANK"])
+        local_world_size = int(os.environ["RAY_LOCAL_WORLD_SIZE"])
+        rollout_world_size = self.config.tensor_model_parallel_size * self.config.data_parallel_size
+        self.replica_rank = rank // rollout_world_size
+        self.rollout_rank = rank % rollout_world_size
+        self.node_rank = self.rollout_rank // local_world_size
 
     def _init_zeromq(self) -> str:
         tensor_parallel_size = self.config.tensor_model_parallel_size
@@ -261,6 +269,21 @@ class vLLMAsyncRollout(BaseRollout):
             else:
                 logger.info("Loading standard weights (non-FP8, async)")
                 model.load_weights(weights)
+
+    async def checkpoint_engine_req_func(self, inference_parallel_size: int) -> Callable[[list[tuple[str, str]]], None]:
+        from checkpoint_engine.ps import request_inference_to_update
+        rank = int(os.getenv("RANK", None))
+        src = rank // inference_parallel_size * inference_parallel_size
+
+        server_actor = ray.get_actor(f"vllm_server_{self.replica_rank}_{self.node_rank}")
+        server_address, server_port = await server_actor.get_server_address.remote()
+        def req_func(socket_paths: list[tuple[str, str]]):
+            if rank == src:
+                request_inference_to_update(
+                    f"http://{server_address}:{server_port}/collective_rpc",
+                    dict(socket_paths[src : src + inference_parallel_size]),
+                )
+        return req_func
 
     def generate_sequences(self, prompts: DataProto) -> DataProto:
         """Batch generate sequences in sync mode."""

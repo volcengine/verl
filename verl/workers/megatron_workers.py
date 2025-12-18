@@ -19,11 +19,12 @@ import datetime
 import logging
 import os
 import time
-from typing import Any, Optional
+from typing import Any, Generator, Optional
 
 import psutil
 import torch
 import torch.distributed
+from collections.abc import Callable
 from codetiming import Timer
 from omegaconf import DictConfig, OmegaConf
 
@@ -483,6 +484,24 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         return actor_module, actor_optimizer, actor_optimizer_scheduler, self.hf_config, optim_config
 
+    def update_weighs_by_checkpoint_engine(
+        self,
+        weights: Generator[tuple[str, torch.Tensor], None, None],
+        req_func: Callable[[list[tuple[str, str]]], None]
+    ):
+        named_tensors = {}
+        for tensor_idx, (name, tensor) in enumerate(weights):
+            if tensor_idx % self.world_size == self.rank:
+                named_tensors[name] = tensor.to("cpu", non_blocking=True)
+
+        checkpoint_name = f"checkpoint_engine"
+        self.parameter_server.register_checkpoint(checkpoint_name, named_tensors=named_tensors)
+        named_tensors = {}
+        torch.distributed.barrier()
+        self.parameter_server.gather_metas(checkpoint_name)
+        self.parameter_server.update(checkpoint_name, req_func)
+        self.parameter_server.unregister_checkpoint(checkpoint_name)
+
     def _build_rollout(self, trust_remote_code=False):
         from torch.distributed.device_mesh import init_device_mesh
 
@@ -500,10 +519,10 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         # 2. build rollout device mesh
         infer_tp = self.config.rollout.tensor_model_parallel_size * self.config.rollout.data_parallel_size
         infer_pp = self.config.rollout.pipeline_model_parallel_size
-        infer_world_size = infer_tp * infer_pp
-        dp = self.world_size // infer_world_size
-        assert self.world_size % infer_world_size == 0, (
-            f"rollout world_size: {self.world_size} is not divisible by infer_world_size: {infer_world_size}"
+        self.infer_world_size = infer_tp * infer_pp
+        dp = self.world_size // self.infer_world_size
+        assert self.world_size % self.infer_world_size == 0, (
+            f"rollout world_size: {self.world_size} is not divisible by infer_world_size: {self.infer_world_size}"
         )
         rollout_device_mesh = init_device_mesh(
             get_device_name(), mesh_shape=(dp, infer_tp, infer_pp), mesh_dim_names=["dp", "infer_tp", "infer_pp"]
@@ -661,6 +680,11 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             if not self.config.actor.megatron.use_mbridge:
                 self.weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
 
+        if self.config.rollout.enable_checkpoint_engine:
+            from checkpoint_engine.ps import ParameterServer
+
+            self.parameter_server = ParameterServer(auto_pg=False)
+
         get_torch_device().empty_cache()
         log_gpu_memory_usage("After init_model finish", logger=logger)
 
@@ -689,7 +713,12 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         if self.config.rollout.free_cache_engine:
             await self.rollout.resume(tags=["weights"])
-        await self.rollout.update_weights(per_tensor_param)
+
+        if self.config.rollout.enable_checkpoint_engine:
+            req_func = await self.rollout.checkpoint_engine_req_func(self.infer_world_size)
+            self.update_weighs_by_checkpoint_engine(per_tensor_param, req_func)
+        else:
+            await self.rollout.update_weights(per_tensor_param)
         if self._is_offload_param:
             offload_megatron_model_to_cpu(self.actor.actor_module)
         aggressive_empty_cache(force_sync=True)

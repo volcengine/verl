@@ -281,6 +281,9 @@ skip_tokenizer_init: True
 # When enabled (True), the rollout will record the routing decisions.
 enable_rollout_routing_replay: False
 
+# Whether to checkpoint_engine for update weights
+# When enabled (True), parameters sync between trainer and rollout through checkpoint_engine.
+enable_checkpoint_engine: False
 
 # profile the rollout model in `generate_sequence` 
 profiler:

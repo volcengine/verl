@@ -20,8 +20,9 @@ import json
 import logging
 import os
 import warnings
+from collections.abc import Callable
 from dataclasses import asdict
-from typing import Any, Optional
+from typing import Any, Generator, Optional
 
 import numpy as np
 import psutil
@@ -577,6 +578,25 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         return actor_module_fsdp, actor_optimizer, actor_lr_scheduler, actor_model_config
 
+    def update_weighs_by_checkpoint_engine(
+        self,
+        weights: Generator[tuple[str, torch.Tensor], None, None],
+        req_func: Callable[[list[tuple[str, str]]], None]
+    ):
+        named_tensors = {}
+        for tensor_idx, (name, tensor) in enumerate(weights):
+            if tensor_idx % self.world_size == self.rank:
+                named_tensors[name] = tensor
+
+        checkpoint_name = f"checkpoint_engine"
+        self.parameter_server.register_checkpoint(checkpoint_name, named_tensors=named_tensors)
+        named_tensors = {}
+        dist.barrier()
+        self.parameter_server.gather_metas(checkpoint_name)
+        self.parameter_server.update(checkpoint_name, req_func)
+        self.parameter_server.unregister_checkpoint(checkpoint_name)
+
+
     def _build_rollout(self, trust_remote_code=False):
         from torch.distributed.device_mesh import init_device_mesh
 
@@ -588,10 +608,10 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         # 2. build rollout device mesh
         infer_tp = self.config.rollout.tensor_model_parallel_size * self.config.rollout.data_parallel_size
         infer_pp = self.config.rollout.pipeline_model_parallel_size
-        infer_world_size = infer_tp * infer_pp
-        dp = self.world_size // infer_world_size
-        assert self.world_size % infer_world_size == 0, (
-            f"rollout world_size: {self.world_size} is not divisible by infer_world_size: {infer_world_size}"
+        self.infer_world_size = infer_tp * infer_pp
+        dp = self.world_size // self.infer_world_size
+        assert self.world_size % self.infer_world_size == 0, (
+            f"rollout world_size: {self.world_size} is not divisible by infer_world_size: {self.infer_world_size}"
         )
         rollout_device_mesh = init_device_mesh(
             device_name, mesh_shape=(dp, infer_tp, infer_pp), mesh_dim_names=["dp", "infer_tp", "infer_pp"]
@@ -700,10 +720,14 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         set_expandable_segments(False)
 
+        if self.config.rollout.enable_checkpoint_engine:
+            device = "cpu"
+        else:
+            device = get_device_id()  # used when fsdp2 set cpu_offload_policy
+
         if peft_config is not None and self.base_sync_done:
             per_tensor_param = params.items() if isinstance(params, dict) else params  # Fixed: handle dict case
         else:
-            device = get_device_id()  # used when fsdp2 set cpu_offload_policy
             per_tensor_param = (
                 (name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param)
                 for name, param in params.items()
@@ -718,10 +742,18 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 (name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param)
                 for name, param in base_model_params.items()
             )
-            await self.rollout.update_weights(per_tensor_base_params, base_sync_done=False)
+            if self.config.rollout.enable_checkpoint_engine:
+                req_func = await self.rollout.checkpoint_engine_req_func(self.infer_world_size)
+                self.update_weighs_by_checkpoint_engine(per_tensor_param, req_func)
+            else:
+                await self.rollout.update_weights(per_tensor_base_params, base_sync_done=False)
             del base_model_params, per_tensor_base_params
-
-        await self.rollout.update_weights(per_tensor_param, peft_config=peft_config, base_sync_done=self.base_sync_done)
+        
+        if self.config.rollout.enable_checkpoint_engine:
+            req_func = await self.rollout.checkpoint_engine_req_func(self.infer_world_size)
+            self.update_weighs_by_checkpoint_engine(per_tensor_param, req_func)
+        else:
+            await self.rollout.update_weights(per_tensor_param, peft_config=peft_config, base_sync_done=self.base_sync_done)
         log_gpu_memory_usage("After update_weights", logger=logger)
         del params, per_tensor_param
         aggressive_empty_cache(force_sync=True)
@@ -862,6 +894,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 processing_class=self.processor if self.processor is not None else self.tokenizer,
                 checkpoint_config=checkpoint_contents,
             )
+
+        if self.config.rollout.enable_checkpoint_engine:
+            from checkpoint_engine.ps import ParameterServer
+
+            self.parameter_server = ParameterServer(auto_pg=False)
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @DistProfiler.annotate(color="red", role="actor_update")
