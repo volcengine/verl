@@ -15,21 +15,34 @@
 import inspect
 
 from verl import DataProto
-from verl.experimental.reward.reward_loop import register
-from verl.experimental.reward.reward_loop.base import RewardLoopManagerBase
+from verl.experimental.reward.reward_manager import register
+from verl.experimental.reward.reward_manager.base import RewardLoopManagerBase
 from verl.utils.reward_score import default_compute_score
 
 
-@register("naive")
-class NaiveRewardLoopManager(RewardLoopManagerBase):
-    """The reward manager."""
+@register("dapo")
+class DAPORewardLoopManager(RewardLoopManagerBase):
+    """Reward loop for DAPO."""
 
     def __init__(self, config, tokenizer, compute_score=None, reward_router_address=None, reward_model_tokenizer=None):
         super().__init__(config, tokenizer)
         self.compute_score = compute_score or default_compute_score
         self.is_async_reward_score = inspect.iscoroutinefunction(self.compute_score)
+
+        # DAPO Reward Config
+        overlong_buffer_cfg = config.reward_model.get("reward_kwargs", {}).get("overlong_buffer_cfg", None)
+        self.overlong_buffer_cfg = overlong_buffer_cfg
+        self.max_resp_len = config.reward_model.get("reward_kwargs", {}).get("max_resp_len", None)
         self.reward_router_address = reward_router_address
         self.reward_model_tokenizer = reward_model_tokenizer
+
+        if self.overlong_buffer_cfg is not None:
+            assert self.max_resp_len is not None, (
+                f"max_resp_len must be provided if {overlong_buffer_cfg=}, but got None"
+            )
+            assert self.max_resp_len >= self.overlong_buffer_cfg.len, (
+                "max_resp_len must be larger than overlong_buffer.len"
+            )
 
     async def run_single(self, data: DataProto) -> dict:
         assert len(data) == 1, "Only support single data item"
@@ -42,19 +55,10 @@ class NaiveRewardLoopManager(RewardLoopManagerBase):
         data_source = data_item.non_tensor_batch["data_source"]
         ground_truth = data_item.non_tensor_batch["reward_model"]["ground_truth"]
         extra_info = data_item.non_tensor_batch.get("extra_info", {})
-        tool_extra_fields = data_item.non_tensor_batch.get("tool_extra_fields", None)
-        if tool_extra_fields is not None:
-            extra_info.update(tool_extra_fields.items())
-
-        num_turns = data_item.non_tensor_batch.get("__num_turns__", None)
-        rollout_reward_scores = data_item.non_tensor_batch.get("reward_scores", {})
-        extra_info["num_turns"] = num_turns
-        extra_info["rollout_reward_scores"] = rollout_reward_scores
 
         response_str = await self.loop.run_in_executor(
             None, lambda: self.tokenizer.decode(valid_response_ids, skip_special_tokens=True)
         )
-
         extra_reward_kwargs = (
             {
                 "reward_router_address": self.reward_router_address,
@@ -95,5 +99,16 @@ class NaiveRewardLoopManager(RewardLoopManagerBase):
             reward_extra_info["acc"] = score
 
         reward = score
+
+        if self.overlong_buffer_cfg is not None and self.overlong_buffer_cfg.enable:
+            overlong_buffer_len = self.overlong_buffer_cfg.len
+            expected_len = self.max_resp_len - overlong_buffer_len
+            exceed_len = valid_response_length - expected_len
+            overlong_penalty_factor = self.overlong_buffer_cfg.penalty_factor
+            overlong_reward = min(-exceed_len / overlong_buffer_len * overlong_penalty_factor, 0)
+            reward += overlong_reward
+            if self.overlong_buffer_cfg.log:
+                reward_extra_info["overlong_reward"] = overlong_reward
+                reward_extra_info["overlong"] = overlong_reward < 0
 
         return {"reward_score": reward, "reward_extra_info": reward_extra_info}

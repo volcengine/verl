@@ -21,7 +21,7 @@ from omegaconf import DictConfig
 from transformers import AutoTokenizer
 
 from verl import DataProto
-from verl.experimental.reward.reward_loop.limited import RateLimitedRewardLoopManager
+from verl.experimental.reward.reward_manager.limited import RateLimitedRewardLoopManager
 
 
 # Mock API reward functions for testing
